@@ -40,10 +40,27 @@ class ProductAttributeOptionController extends Controller
      * An attribute option inside the caller's own store, or null.
      *
      * Raw predicate rather than findOrFail() + comparison so that "belongs to another tenant" and
-     * "does not exist" are the same answer and the id space cannot be enumerated. Fails closed
-     * when the caller has no store context: getCurrentStore() returns null for a merchant with no
-     * current_store and no owned Store, and `where('store_id', null)` would match nothing, so the
-     * empty check is explicit rather than relying on that.
+     * "does not exist" are the same answer and the id space cannot be enumerated.
+     *
+     * THE `empty($store)` CHECK IS LOAD-BEARING, NOT BELT-AND-BRACES, and this docblock used to
+     * say the opposite. It claimed `where('store_id', null)` "would match nothing", so the
+     * explicit check was merely tidier. That is false in both halves, and an independent review
+     * caught it:
+     *
+     *   - `Builder::where()` converts a null value to `whereNull()`. MEASURED:
+     *     `ProductAttributeOption::where('store_id', null)->toSql()` compiles to
+     *     `select * from "product_attribute_options" where "store_id" is null`.
+     *   - and the column is `nullable()`
+     *     (database/migrations/..._create_product_attribute_options_table.php:19).
+     *
+     * So without this check a caller with no store context would not get an empty result — they
+     * would get every ORPHAN row on the platform, across tenants. getCurrentStore() returns null
+     * for an authenticated user with no current_store, who is not 'super admin', and who owns no
+     * Store: a staff member created without current_store, which is constructible.
+     *
+     * Worth stating plainly because the false version of this sentence is what makes `index()`
+     * below look safe. It is NOT guarded, and it is only harmless because no route reaches it —
+     * see the note on that method.
      */
     private function ownedOption($id): ?ProductAttributeOption
     {
@@ -76,6 +93,23 @@ class ProductAttributeOptionController extends Controller
 
     /**
      * Display a listing of the resource.
+     */
+    /**
+     * UNROUTED, AND IT WOULD LEAK ACROSS TENANTS IF IT WERE ROUTED. Recorded rather than fixed,
+     * because fixing a method nothing can reach inside a change about two other methods is noise.
+     *
+     * The query below calls `getCurrentStore()` with NO `empty($store)` guard, unlike every other
+     * row-touching path in this controller, which goes through `ownedOption()` / `ownedAttribute()`.
+     * A null store makes `where('store_id', null)` compile to `store_id IS NULL` (measured), and
+     * the column is nullable — so a principal with no store context would be served every ORPHAN
+     * option on the platform rather than an empty list.
+     *
+     * IT IS UNREACHABLE TODAY. `routes/web.php` declares seven routes for this controller —
+     * :984, :986, :988, :990, :992, :995, :997 — and none of them points here. The method also
+     * returns `view('attribute.index')` with the options in `$ProductAttributes`, which is the
+     * ATTRIBUTE list's variable, so this is vestigial vendored code rather than a screen.
+     *
+     * WHOEVER ROUTES THIS MUST ADD THE GUARD FIRST. Route it as-is and the leak becomes live.
      */
     public function index()
     {

@@ -259,6 +259,75 @@ class AttributeOptionAndCustomerBoundaryTest extends SecurityTestCase
             ->assertSessionHas('error');
     }
 
+    /**
+     * P2.5-PKG-B. THE TWO MODAL ROUTES REFUSE A MISSING ID INSTEAD OF ANSWERING 500.
+     *
+     * `routes/web.php:984` and `:992` declare `add-attribute-option/{id?}` and
+     * `edit-attribute-option/{id?}` — OPTIONAL — while `create($id)` and `edit($id)` required the
+     * argument. MEASURED live, signed in as a merchant: both answered HTTP 500 with
+     * `ArgumentCountError ... 0 passed`, thrown in the ROUTER, before the permission check and
+     * before the tenant check had run.
+     *
+     * THE PERMISSIONS ARE GRANTED ON PURPOSE. If the caller lacked `Create Attributes Option`,
+     * the refusal would come from the permission gate and this test would pass without ever
+     * exercising the id guard it exists to pin — the "passes for the wrong reason" shape this
+     * project keeps finding. Granting them puts the id guard on the only remaining path.
+     *
+     * AND THE SESSION KEY, NOT ONLY THE STATUS, for the reason the sibling test above records:
+     * a bare 302 is also what a middleware redirect produces, so asserting the status alone would
+     * keep passing if the request stopped reaching the handler. `denied()` is the only thing on
+     * this path that flashes `error`.
+     *
+     * Added at the request of the tenant-authz review, which observed that the fix was asserted
+     * about SOURCE TEXT (tests/Unit/Ui/AttributeOptionOptionalIdTest.php) while its sibling was
+     * asserted about BEHAVIOUR. Both are now behavioural.
+     */
+    public function test_the_bare_add_attribute_option_url_refuses_instead_of_throwing(): void
+    {
+        [$owner] = $this->tenantWithAttribute('bare-add');
+        $this->grantAttributePermissions($owner);
+
+        $this->actingAs($owner)
+            ->get('/add-attribute-option')
+            ->assertStatus(302)
+            ->assertSessionHas('error');
+    }
+
+    public function test_the_bare_edit_attribute_option_url_refuses_instead_of_throwing(): void
+    {
+        [$owner] = $this->tenantWithAttribute('bare-edit');
+        $this->grantAttributePermissions($owner);
+
+        $this->actingAs($owner)
+            ->get('/edit-attribute-option')
+            ->assertStatus(302)
+            ->assertSessionHas('error');
+    }
+
+    /**
+     * THE POSITIVE CONTROL, and it is the half that matters most.
+     *
+     * A refusal test alone is satisfied by a controller that refuses EVERYTHING, so the signature
+     * default could have been "fixed" by breaking the feature and both refusal tests above would
+     * still be green. This asserts the working journey still works: a real, owned attribute id
+     * renders the composer.
+     */
+    public function test_a_real_attribute_id_still_renders_the_option_composer(): void
+    {
+        [$owner, , $attribute, $option] = $this->tenantWithAttribute('positive');
+        $this->grantAttributePermissions($owner);
+
+        $this->actingAs($owner)
+            ->get('/add-attribute-option/' . $attribute->id)
+            ->assertStatus(200)
+            ->assertSessionMissing('error');
+
+        $this->actingAs($owner)
+            ->get('/edit-attribute-option/' . $option->id)
+            ->assertStatus(200)
+            ->assertSessionMissing('error');
+    }
+
     public function test_a_merchant_can_still_read_and_reorder_their_own_attribute_options(): void
     {
         [$owner, $store, $attribute, $option] = $this->tenantWithAttribute('own');

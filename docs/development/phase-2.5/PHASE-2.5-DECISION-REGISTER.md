@@ -1128,3 +1128,92 @@ dashboard pass.
 **They stay PENDING, and the route is written down** rather than the rows being claimed on a
 component that was never drawn, or quietly dropped. A Blade-render test would prove the component's
 markup but would not be a capture in four combinations, which is what the matrix asks of a row.
+
+---
+
+### R-PKG-B-01 — the authorization review of the attribute-option fix, and the defect it found in my own test
+
+The `tenant-authz-reviewer` cleared the change — *"Both defaults are safe… I could not construct any
+request that reaches further after the change than before it"* — and then found five things worth
+recording. Two of them were mine, and one of those was the kind this project cares about most.
+
+**It answered the question I put to it, and the answer changes nothing but is worth having in
+writing.** I asked whether the absent operator-first limb was a defect I was leaving in place.
+It is not, and adding one would itself be a defect: `create()` and `edit()` render the composers for
+`store()` and `update()`, which are **writes**, and owner decision F206 — recorded verbatim at
+`app/Services/OperatorCatalogueWrite.php:8-15` — says the platform operator *"can read merchant
+catalogues and diagnose their problems, but cannot edit merchants' products, their prices, their
+stock or their variants"*. Gating these on `Create` / `Edit Attributes Option`, which `isAbleTo()`
+denies a roleless operator, produces exactly what F206 already enforces explicitly in six other
+places. CLAUDE.md's operator-first rule is about checks that *should* admit the operator; this is
+not one.
+
+#### My test could not fail for the thing it claimed — MEASURED, not argued
+
+`test_the_permission_check_still_runs_first` ran ONE `/s` regex over the whole comment-stripped
+file, so `.*?` crossed method boundaries. With `create()` reordered to check ownership *before* the
+permission — the exact mutant the assertion exists to catch — the pattern still matched, by
+borrowing `store()`'s `isAbleTo('Create Attributes Option')` and its `ownedAttribute($id)` further
+down the file.
+
+I applied that mutant rather than taking the claim on trust. **The test printed a tick.**
+
+It now extracts ONE METHOD BODY and compares positions within it, with anti-vacuity assertions that
+the body is neither empty nor the whole file. Re-measured against the same mutant: it fails, with
+the reason. 21 assertions became 34.
+
+**The general rule, because this will recur:** asserting an ORDER over a whole file asserts nothing
+— every needle is somewhere later in some other method. An ordering assertion must be scoped to the
+unit whose order it describes.
+
+#### A docblock of mine stated a false reason for the guard the whole fix rests on
+
+`ownedOption()`'s comment justified its `empty($store)` check by saying `where('store_id', null)`
+*"would match nothing"*. Both halves are false, and I verified them rather than accepting the
+report:
+
+```
+ProductAttributeOption::where('store_id', null)->toSql()
+  -> select * from "product_attribute_options" where "store_id" is null
+```
+
+`Builder::where()` converts a null value to `whereNull()`, and the column is `nullable()`
+(migration :19). So the guard is **required**, not belt-and-braces: without it a caller with no
+store context gets every ORPHAN row on the platform, not an empty list. Corrected in place —
+and it matters because that false sentence is what makes the next finding look harmless.
+
+#### F1 — `index()` would leak across tenants, and is unreachable
+
+`ProductAttributeOptionController::index()` queries `where('store_id', getCurrentStore())` with **no**
+`empty($store)` guard, unlike every other row-touching path in the file. With a null store that is
+`store_id IS NULL` against a nullable column.
+
+**It has no route.** `routes/web.php` declares seven routes for this controller (:984, :986, :988,
+:990, :992, :995, :997) and none points at `index()`; it also returns `view('attribute.index')` with
+the options in `$ProductAttributes`, the *attribute* list's variable — vestigial vendored code, not a
+screen. Not fixed here, because fixing an unreachable method inside a change about two others is
+noise. A docblock on the method now says so, and says the guard must be added **before** anyone
+routes it.
+
+#### F3 — three more route-optional / signature-required mismatches, deferred
+
+Same shape, all POST/DELETE: `store-attribute-option/{id?}` vs `store(Request, $id)`,
+`delete-attribute-option/{id?}` vs `destroy(ProductAttributeOption, $id)`, and
+`update-attribute-option/{id?}` vs `update(Request, ProductAttributeOption, $id)`. Each throws
+`ArgumentCountError` → 500 when the id is omitted.
+
+**Not holes** — the crash precedes every check, so nothing is served. Lower priority than
+create/edit for two measured reasons: no `route()` call anywhere generates the bare form, and
+reaching them needs an authenticated session *plus* a valid CSRF token. They have no
+layout-render blast radius, which is the thing that forced create/edit to be fixed in the
+controller. Next small slice; the id is positional-last in all three, so a default cannot shift a
+route-model binding.
+
+#### F5 — the fix was asserted about text while its sibling was asserted about behaviour
+
+Closed. Three tests added to `AttributeOptionAndCustomerBoundaryTest` in that file's own idiom: both
+bare URLs refuse with 302 **and** `assertSessionHas('error')` — the session key because a bare 302
+is also what a middleware redirect produces — plus a **positive control** asserting a real owned id
+still renders the composer, because a refusal test alone is satisfied by a controller that refuses
+everything. Reverting the defaults fails exactly the two refusal tests and leaves the other twenty
+green.

@@ -121,23 +121,72 @@ class AttributeOptionOptionalIdTest extends TestCase
         );
     }
 
+    /**
+     * ORDER MATTERS: permission, THEN ownership. Reversing them lets a caller WITHOUT the
+     * permission learn whether an id exists in this store, from which refusal they get.
+     *
+     * THE FIRST VERSION OF THIS TEST COULD NOT FAIL FOR THE THING IT CLAIMED, and an independent
+     * review caught it. It ran one `/s` regex over the WHOLE comment-stripped file, so `.*?`
+     * crossed method boundaries: with `create()` reordered to check ownership first, the pattern
+     * still matched by borrowing `store()`'s `isAbleTo('Create Attributes Option')` at :136 and
+     * its `ownedAttribute($id)` at :153. MEASURED: the exact mutant this assertion exists to catch
+     * was applied and the test printed a tick.
+     *
+     * It now reads ONE METHOD BODY at a time, so there is nothing to borrow. Re-measured against
+     * the same mutant: it fails.
+     */
     public function test_the_permission_check_still_runs_first(): void
     {
-        $code = $this->codeWithoutComments(self::CONTROLLER);
-
-        // Order matters: permission, THEN ownership. Reversing them would let a caller without the
-        // permission learn whether an id exists in this store, from the shape of the refusal.
         foreach ([
             ['create', 'Create Attributes Option', 'ownedAttribute'],
             ['edit', 'Edit Attributes Option', 'ownedOption'],
         ] as [$method, $permission, $helper]) {
-            $this->assertMatchesRegularExpression(
-                '/public function ' . $method . '\(\$id = null\).*?isAbleTo\(\'' . preg_quote($permission, '/')
-                . '\'\).*?' . $helper . '\(\$id\)/s',
-                $code,
-                "In {$method}(), the permission check must come before the ownership lookup."
+            $body = $this->methodBody($method);
+
+            $permissionAt = strpos($body, "isAbleTo('" . $permission . "')");
+            $ownershipAt = strpos($body, $helper . '($id)');
+
+            $this->assertNotFalse($permissionAt, "{$method}() must check isAbleTo('{$permission}').");
+            $this->assertNotFalse($ownershipAt, "{$method}() must resolve ownership via {$helper}().");
+
+            $this->assertLessThan(
+                $ownershipAt,
+                $permissionAt,
+                "In {$method}() the permission check must come BEFORE the ownership lookup, or a "
+                . 'caller without the permission learns whether an id exists in this store from '
+                . 'the shape of the refusal.'
             );
         }
+    }
+
+    /**
+     * One method's body, from its signature to the next method declaration.
+     *
+     * This exists because asserting ORDER over a whole file asserts nothing: every needle is
+     * somewhere later in some other method.
+     */
+    private function methodBody(string $method): string
+    {
+        $code = $this->codeWithoutComments(self::CONTROLLER);
+
+        $start = preg_match('/\n    public function ' . $method . '\s*\(/', $code, $m, PREG_OFFSET_CAPTURE)
+            ? $m[0][1]
+            : false;
+        $this->assertNotFalse($start, "No method {$method}() in the controller.");
+
+        $rest = substr($code, $start + 1);
+        $end = preg_match('/\n    (?:public|private|protected) function /', $rest, $m2, PREG_OFFSET_CAPTURE)
+            ? $m2[0][1]
+            : strlen($rest);
+
+        $body = substr($rest, 0, $end);
+
+        // Anti-vacuity: a body that captured nothing, or captured the whole file, proves nothing.
+        $this->assertGreaterThan(80, strlen($body), "The {$method}() body looks empty.");
+        $this->assertLessThan(strlen($code) - 200, strlen($body), "The {$method}() body swallowed the file.");
+        $this->assertSame(1, preg_match_all('/public function ' . $method . '\s*\(/', $body));
+
+        return $body;
     }
 
     public function test_this_test_is_not_vacuous(): void
