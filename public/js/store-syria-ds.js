@@ -1775,8 +1775,18 @@
                 }
 
                 /* An empty heading -- the select-all column -- gets an empty label rather than
-                   none, so the stylesheet can tell "no heading" from "not processed yet". */
-                cell.setAttribute('data-ss-label', headings[i] === undefined ? '' : headings[i]);
+                   none, so the stylesheet can tell "no heading" from "not processed yet".
+
+                   AND A COLSPAN CELL IS NOT A COLUMN. The heading list is indexed by child
+                   position, which assumes one cell per column; an `@empty` row is a single
+                   `td colspan="10"` sitting at index 0, so it was taking the FIRST column's
+                   heading. Measured consequence on `/finance` with no rows: the empty-state
+                   sentence rendered as a card whose label column read "ID" and whose message was
+                   broken character-by-character into the remaining 55%. It gets the empty label
+                   instead, which the stylesheet already renders full width with no label at all. */
+                var spans = parseInt(cell.getAttribute('colspan') || '1', 10) > 1;
+
+                cell.setAttribute('data-ss-label', spans || headings[i] === undefined ? '' : headings[i]);
             });
         });
     }

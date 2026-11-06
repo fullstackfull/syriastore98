@@ -3600,6 +3600,35 @@ a.ss-setup__item:focus-visible {
     color: var(--ss-fg);
 }
 
+/* AND THE CHEVRON WITH IT. `.form-select`'s down-arrow is not an element and not a border: it is
+   a `background-image` data URI whose stroke is hard-coded `%23343a40`, and all four host sheets
+   -- light, dark, LTR and RTL -- carry the identical declaration. P2.5-WAVE-31 moved the FILL to
+   #262b33 and left that arrow where it was, so the only thing telling a merchant the control
+   opens a list measured 1.22:1 against its own field, down from about 11.6:1 on the white one.
+   The host also sets `-webkit-appearance: none`, so there is no native arrow underneath.
+
+   A BACKGROUND CENSUS CANNOT SEE THIS, which is why it survived the wave that introduced it: the
+   census reports elements painting an opaque background above 0.72 luminance, and a dark glyph
+   inside a background SHORTHAND is a sub-layer, not an element. The same shape as P2.5-DESIGN-H.
+
+   The SVG is the host's own, byte for byte, with the stroke swapped for the foreground token's
+   value. It cannot be `var(--ss-fg)`: a data URI is an opaque string to the cascade and custom
+   properties do not interpolate inside one. */
+[data-ss-theme="dark"] .dash-content .form-select {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23e8eaed' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2 5l6 6 6-6'/%3e%3c/svg%3e");
+}
+
+/* The disabled state, restored. The rule above is (0,3,0) and the host's
+   `.form-select:disabled { color: #6c757d; background-color: #e9ecef }` is (0,2,0), so without
+   this a disabled select renders with exactly the enabled fill and ink and stops looking
+   disabled at all. Same cause as the `.btn-light` defect above: a resting-state override written
+   above the state rules it has to leave alone. */
+[data-ss-theme="dark"] .dash-content .form-select:disabled,
+[data-ss-theme="dark"] .dash-content .list-group-item.disabled {
+    background-color: var(--ss-surface-sunken);
+    color: var(--ss-fg-subtle);
+}
+
 /* AND THE HEADING ON THAT CARD, which the background census could not see. Removing the
    `bg-white` utility from `/finance` took away a 1145x55 white block and left its heading dark on
    a dark card -- a regression the measurement caught at 1.10:1. Measuring the family then showed
@@ -3619,10 +3648,33 @@ a.ss-setup__item:focus-visible {
 }
 
 /* A "light" button is a NAME, not an instruction to be white: it means the quiet one in the set.
-   On a dark page the quiet one is the subtle surface, not a 0.98-luminance block. */
+   On a dark page the quiet one is the subtle surface, not a 0.98-luminance block.
+
+   IT SETS THE VARIABLES, NOT THE RESOLVED PROPERTIES, and that is the whole of the fix. P2.5-WAVE-31
+   wrote `background-color` and `color` directly at (0,3,0) in the last-loaded sheet, which beat the
+   host's own (0,2,0) state rules and therefore CANCELLED them:
+
+       .btn:hover         { background-color: var(--second-color); color: var(--bs-white) }
+       .btn:focus-visible { background-color: var(--theme-color);  outline: 0; box-shadow: none }
+       .btn:disabled      { background-color: var(--bs-btn-disabled-bg) }
+
+   MEASURED in a real browser with a 900ms settle, before and after that wave: focusing one of
+   these links used to turn it rgb(51,93,168) with white ink -- a whole-button inversion, and the
+   ONLY focus indicator it has, because that same `.btn:focus-visible` sets `outline: 0` and the
+   universal restoration in store-syria-a11y.css is (0,1,0) and already loses to it. After the
+   wave, fill and ink did not move at all; the only change left was a 1px border at 2.0:1 against
+   the button's own fill. A contrast fix that removes a focus indicator is not a fix.
+
+   `.btn` composes itself from `--bs-btn-bg` and `--bs-btn-border-color` at (0,1,0), so redefining
+   those on `.btn-light` changes the RESTING button and leaves every state rule above it intact.
+   It also fixes the second half of the same defect: the old rule moved the fill and not
+   `--bs-btn-border-color: #f8f9fa`, so the 0.98-luminance block it removed came back as a
+   0.98-luminance 1px ring around a dark fill. Found by adversarial review, confirmed by
+   measurement. Ratchet: DarkPageSurfaceTest. */
 [data-ss-theme="dark"] .dash-content .btn-light {
-    background-color: var(--ss-surface-hover);
-    color: var(--ss-fg);
+    --bs-btn-color: var(--ss-fg);
+    --bs-btn-bg: var(--ss-surface-hover);
+    --bs-btn-border-color: var(--ss-border);
 }
 
 /* The image placeholder box. `#f3f3f3` is hard-coded in the host's own
@@ -3681,6 +3733,17 @@ a.ss-setup__item:focus-visible {
     box-shadow: 0 0 0 1px var(--ss-border), 0 2px 12px rgb(0 0 0 / 0.18);
 }
 
+/* IN LIGHT MODE THIS RULE IS WHAT COLOURS THE TITLE. In DARK mode it is INERT, and the recorded
+   14.23:1 is not its doing: the title is an `<h2 class="notifier-title">` and the host's dark
+   sheets carry `h1,h2,h3,h4,h5,h6 { color: var(--bs-white) !important }`, which beats a normal
+   declaration whatever its specificity or order. The measurement stands -- white on #262b33 is
+   14.23:1 -- but it describes the HOST's white, not this token, and P2.5-WAVE-30 implied
+   otherwise. Corrected by P2.5-WAVE-32 after adversarial review.
+
+   The rule stays, and without `!important`: it is correct and load-bearing in light mode, and
+   adding a fourth shout to win a contest whose current outcome is already conformant would buy
+   nothing a merchant can see. What it does mean is that a later slice re-solving `--ss-fg` for
+   dark will not move this title -- so if that ever matters, this is the comment that says why. */
 [data-ss-admin] .notifier-title {
     color: var(--ss-fg);
 }
@@ -3733,10 +3796,18 @@ a.ss-setup__item:focus-visible {
 }
 
 /* ---- P2.5-WAVE-29: `.ss-table--stack`, converged onto the Wave 28 mechanism ------------------
-   THIS BLOCK EXISTED AND NOTHING USED IT. Measured before this wave: zero views, zero scripts and
-   zero tests referenced `.ss-table--stack` anywhere in the repository. It was also broken in three
-   ways that Wave 28 learned about by measurement, and would have shipped the moment anyone opted
-   a table in:
+   THIS BLOCK EXISTED AND ONE PAGE USED IT -- and P2.5-WAVE-29 said "nothing used it", which was
+   WRONG and is corrected here by P2.5-WAVE-32. `git grep ss-table--stack` at the wave's own base
+   commit returns `docs/design-system/gallery.html:175`, the design-system gallery that
+   `docs/design-system/README.md` tells developers to open and that the Phase 02 master prompt
+   lists as a required read. It carried nine `data-label` cells, and this rewrite -- which reads
+   `data-ss-label` -- blanked every one of them, so the gallery's stacked-table example rendered
+   its rows with no labels at all. The gallery is updated to the attribute the mechanism actually
+   reads; the claim is corrected rather than quietly dropped, because "zero users" is what made
+   replacing the block look free.
+
+   WHAT WAS GENUINELY TRUE is that it was broken in three ways that Wave 28 had already learned by
+   measurement, and the gallery was rendering those three defects rather than being spared them:
 
      `thead { display: none }`     takes the column names out of the ACCESSIBILITY tree at the same
                                    moment the visible table stops conveying them. Clipped instead.
@@ -3768,16 +3839,16 @@ a.ss-setup__item:focus-visible {
    ledger's own design, not a layout one. */
 @media (max-width: 767.98px) {
     /* generated from P2.5-WAVE-28 by sync-stack-block.py -- do not edit by hand */
-    .ss-table--stack,
-    .ss-table--stack > tbody,
-    .ss-table--stack > tbody > tr,
-    .ss-table--stack > tbody > tr > td {
+    .ss-table.ss-table--stack,
+    .ss-table.ss-table--stack > tbody,
+    .ss-table.ss-table--stack > tbody > tr,
+    .ss-table.ss-table--stack > tbody > tr > td {
         display: block;
         inline-size: auto;
         max-inline-size: 100%;
     }
 
-    .ss-table--stack > thead {
+    .ss-table.ss-table--stack > thead {
         position: absolute;
         inline-size: 1px;
         block-size: 1px;
@@ -3787,7 +3858,7 @@ a.ss-setup__item:focus-visible {
         white-space: nowrap;
     }
 
-    .ss-table--stack > tbody > tr {
+    .ss-table.ss-table--stack > tbody > tr {
         border: 1px solid var(--ss-border, #D5DBE3);
         border-radius: var(--ss-radius-md, 8px);
         margin-block-end: var(--ss-space-2, 8px);
@@ -3795,7 +3866,7 @@ a.ss-setup__item:focus-visible {
         background: var(--ss-surface, #FFF);
     }
 
-    .ss-table--stack > tbody > tr > td {
+    .ss-table.ss-table--stack > tbody > tr > td {
         display: table;
         table-layout: fixed;
         inline-size: 100%;
@@ -3806,11 +3877,11 @@ a.ss-setup__item:focus-visible {
         overflow-wrap: anywhere;
     }
 
-    .ss-table--stack > tbody > tr > td {
+    .ss-table.ss-table--stack > tbody > tr > td:not([data-ss-label=""]) {
         text-align: start !important;
     }
 
-    .ss-table--stack > tbody > tr > td::before {
+    .ss-table.ss-table--stack > tbody > tr > td::before {
         content: attr(data-ss-label);
         display: table-cell;
         inline-size: 45%;
@@ -3820,15 +3891,15 @@ a.ss-setup__item:focus-visible {
         font-size: var(--ss-text-sm, 0.875rem);
     }
 
-    .ss-table--stack > tbody > tr > td[data-ss-label=""]::before {
+    .ss-table.ss-table--stack > tbody > tr > td[data-ss-label=""]::before {
         content: none;
     }
 
-    .ss-table--stack > tbody > tr > td > .form-check {
+    .ss-table.ss-table--stack > tbody > tr > td > .form-check {
         margin-inline-start: 0 !important;
     }
 
-    .ss-table--stack > tbody > tr > td > * {
+    .ss-table.ss-table--stack > tbody > tr > td > * {
         max-inline-size: 100%;
     }
     /* end generated */

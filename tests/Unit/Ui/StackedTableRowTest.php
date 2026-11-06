@@ -89,9 +89,25 @@ class StackedTableRowTest extends TestCase
     {
         $css = $this->declarations($this->block(self::SHEETS[0]));
 
-        foreach (['table.dataTable', 'tbody', 'tr', 'td'] as $part) {
-            $this->assertStringContainsString($part, $css, 'The blockifying selector lost ' . $part . '.');
-        }
+        /* THE ONE DECLARATION THE WHOLE WAVE RESTS ON, pinned to its own rule. This used to be four
+           bare substring searches for 'table.dataTable', 'tbody', 'tr' and 'td' over the whole
+           block -- and every one of those strings occurs many times in the block's OTHER rules
+           ('tr' even occurs inside `attr(data-ss-label)`), so the method asserted nothing about
+           the blockifying rule at all. PROVED by adversarial review: the entire four-selector
+           `display: block` rule was deleted from both mirrored sheets and the generated region,
+           and `php artisan test tests/Unit/Ui` returned 801 passed, 7140 assertions, nothing red
+           -- including the test whose name says the row blockifies. A merchant would have been
+           back to one visible column on /order with CI fully green. */
+        $this->assertMatchesRegularExpression(
+            '/\.ss-dt-card-body table\.dataTable,\s*'
+            . '\.ss-dt-card-body table\.dataTable > tbody,\s*'
+            . '\.ss-dt-card-body table\.dataTable > tbody > tr,\s*'
+            . '\.ss-dt-card-body table\.dataTable > tbody > tr > td\s*\{[^}]*display:\s*block/s',
+            $css,
+            'The four-selector `display: block` rule is gone. Without it the table never '
+            . 'blockifies, `display: table` on the cell is just a table cell inside a still-'
+            . 'tabular row, and at 320px the merchant is back to one visible column.'
+        );
 
         $this->assertMatchesRegularExpression(
             '/>\s*td\s*\{[^}]*display:\s*table\s*;/s',
@@ -198,10 +214,18 @@ class StackedTableRowTest extends TestCase
     {
         $ds = $this->declarations($this->read(self::DS_SHEET));
 
-        $this->assertStringContainsString(
-            '.card:not(.table-card) .ss-dt-card-body table.dataTable > tbody > tr > td',
+        /* ANCHORED, because the two needles are nested. The shorter selector is a proper
+           substring of the longer one, so asserting both with `assertStringContainsString` meant
+           the first assertion was satisfied by the SECOND rule alone. PROVED by adversarial
+           review: the two non-`.dash-content` selectors were deleted and this test passed with
+           three assertions, as did all 801 tests in tests/Unit/Ui -- leaving the theme's 25px
+           first-child indent with no counterpart for any table card outside `.dash-content`. */
+        $this->assertMatchesRegularExpression(
+            '/(?<!\.dash-content )\.card:not\(\.table-card\) \.ss-dt-card-body table\.dataTable/',
             $ds,
-            'The 25px first-child gutter has no counterpart.'
+            'The 25px first-child gutter has no counterpart that is NOT scoped to .dash-content. '
+            . 'A table card rendered outside .dash-content matches only the shorter selector, so '
+            . 'deleting it returns the 25px indent on the select-all cell.'
         );
         $this->assertStringContainsString(
             '.dash-content .card:not(.table-card) .ss-dt-card-body table.dataTable > tbody > tr > td',
@@ -285,7 +309,7 @@ class StackedTableRowTest extends TestCase
     {
         $root = dirname(__DIR__, 3);
         $wave28 = $this->ruleSet($this->declarations($this->block(self::SHEETS[0])), '.ss-dt-card-body table.dataTable');
-        $modifier = $this->ruleSet($this->generatedRegion(), '.ss-table--stack');
+        $modifier = $this->ruleSet($this->generatedRegion(), '.ss-table.ss-table--stack');
 
         $this->assertNotEmpty($wave28, 'The Wave 28 block yielded no rules.');
         $this->assertSame(
@@ -318,7 +342,7 @@ class StackedTableRowTest extends TestCase
      * Declarations keyed by selector, with the family prefix stripped so the two sets are
      * comparable. Order within a rule is preserved: a different order is a different cascade.
      *
-     * @return array<string, list<string>>
+     * @return list<array{0: string, 1: list<string>}>
      */
     private function ruleSet(string $css, string $prefix): array
     {
@@ -347,10 +371,18 @@ class StackedTableRowTest extends TestCase
 
             $key = str_replace($prefix, '@', $selector);
             $decls = array_values(array_filter(array_map('trim', explode(';', $one[2]))));
-            $rules[$key] = $decls;
-        }
 
-        ksort($rules);
+            /* DOCUMENT ORDER, NOT A MAP, and the difference is not cosmetic. Keyed by selector,
+               the WAVE-28 block's DELIBERATE second `> tbody > tr > td` rule -- the one carrying
+               only `text-align: start !important`, split out so its `!important` is visible --
+               overwrote the first, so the eight declarations that make the cell a CSS table were
+               silently excluded from the identity check on BOTH sides. PROVED by adversarial
+               review: the generated region's cell rule was rewritten to `display: grid` with a
+               two-column template and this test still passed, as did all 801 tests in
+               tests/Unit/Ui. The docblock already said it wanted order -- 'a different order is a
+               different cascade' -- and now the structure says it too. */
+            $rules[] = [$key, $decls];
+        }
 
         return $rules;
     }

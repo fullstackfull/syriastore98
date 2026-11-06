@@ -6019,7 +6019,15 @@ html[data-ss-theme="dark"] body p:not(.text-muted):not([class^="ss-"]):not([clas
        utility's premise -- that there is a column to align within -- is false for exactly this
        width, the override is withdrawn with the media query, and the alternative was wrapping
        every cell's contents in a span from JavaScript on every DataTables redraw. */
-    .ss-dt-card-body table.dataTable > tbody > tr > td {
+    /* `:not([data-ss-label=""])` EXEMPTS THE UNLABELLED CELL, and the exemption is written into
+       this rule rather than layered over it. A cell with no label is not a column either, and the
+       one shape that reaches here is the `@empty` row -- `<td colspan="10" class="text-center">No
+       financial transactions found.</td>` -- which this would otherwise drag to the inline start,
+       turning a centred empty state into a ragged one. Writing the exemption as a second
+       `!important` on top would have been a THIRD in this block, and the ceiling assertion in
+       StackedTableRowTest exists to make that a decision rather than a reflex. It is not needed:
+       the rule can simply stop matching the cell it should never have matched. */
+    .ss-dt-card-body table.dataTable > tbody > tr > td:not([data-ss-label=""]) {
         text-align: start !important;
     }
 
@@ -6034,11 +6042,20 @@ html[data-ss-theme="dark"] body p:not(.text-muted):not([class^="ss-"]):not([clas
            Arabic wrapped on NONE of them; its longest is 79px. So this is an English-only defect
            and one percentage fixes both scripts.
 
-           AFTER: nine of the ten label/screen pairs measured now fit on one line. `/order`'s
+           AFTER: nine of the ten label/screen pairs measured fit on one line. `/order`'s
            "Shipping Method" still wraps -- 98px against 94px -- and it is LEFT wrapping on
            purpose. The percentage that clears it by four pixels is a percentage fitted to one
            English string, and the next font, locale or heading would move it again. Nothing is
-           hidden either way. */
+           hidden either way.
+
+           AND 94px AT 45% IS NOT AN ARITHMETIC SLIP, which is worth writing down because an
+           adversarial review read it as one: it computed 94 x 45/40 = 105.75 and concluded the
+           wrap was already gone. The percentage does not resolve against the cell's full width.
+           `border-spacing: var(--ss-space-2) 0` on the same rule takes 8px between the two cells
+           and 8px at each outer edge, so on `/order` the 234px cell offers 210px of column space
+           and 45% of that is 94.5px -- which is what the browser reports. Re-measured after that
+           review with the computed `inline-size` of the `::before` itself: /finance 91px,
+           /finance/withdrawals 104px, /order 94px. The original sentence was right. */
         inline-size: 45%;
         /* The label is a LABEL, whatever the column it came from was. MEASURED on `/order`: every
            `::before` inherited `white-space: nowrap` from the table, so "Shipping Method" -- 108px
@@ -6057,6 +6074,7 @@ html[data-ss-theme="dark"] body p:not(.text-muted):not([class^="ss-"]):not([clas
        empty string is written deliberately by the script so this can tell "no heading" apart from
        "not processed yet". */
     .ss-dt-card-body table.dataTable > tbody > tr > td[data-ss-label=""]::before { content: none; }
+
 
     /* The pinned Action column is unpinned for this width in `store-syria-ds.css`, beside the
        rules that pin it -- NOT here. Those rules are global and that file loads AFTER this one,

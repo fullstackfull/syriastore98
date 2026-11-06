@@ -21,7 +21,14 @@ TARGET = 'public/css/store-syria-ds.css'
 OPEN_MARK = '    /* generated from P2.5-WAVE-28 by sync-stack-block.py -- do not edit by hand */\n'
 END_MARK = '    /* end generated */'
 FROM_SELECTOR = '.ss-dt-card-body table.dataTable'
-TO_SELECTOR = '.ss-table--stack'
+# `.ss-table.ss-table--stack`, not `.ss-table--stack`, and the extra class is load-bearing.
+# `.ss-table--stack > tbody > tr` is (0,1,2) and this same stylesheet carries
+# `.ss-table tbody tr:last-child { border-block-end: 0 }` at (0,2,2) two thousand lines earlier,
+# which wins on specificity whatever the source order -- so the LAST card in every stacked table
+# rendered with three borders and no bottom edge. The Wave 28 block never fought this contest
+# because its rows are `table.dataTable > tbody > tr`, which that rule cannot match; the converged
+# modifier inherited it. Every call site already writes both classes together.
+TO_SELECTOR = '.ss-table.ss-table--stack'
 
 
 def wave28_rules(css):

@@ -173,7 +173,12 @@ class ToastContrastTest extends TestCase
         );
 
         $this->assertDoesNotMatchRegularExpression(
-            '/\bborder(-(left|right|top|bottom|inline|block))?\s*:/',
+            /* `border-inline-end:` ESCAPED the old pattern, which is the exact mutation the
+               docblock above exists to prevent: the optional group matched `-inline` and then
+               `:` was compared against `-end:`. So did `border-color:`, `border-width:`,
+               `border-style:` and every `-start`/`-end` form. Any `border`-family property now
+               matches, which is what the assertion's name claims. */
+            '/\bborder(-[a-z-]+)?\s*:/',
             $block,
             'The toast block sets a border property. Either form is wrong here: a physical one '
             . 'paints the wrong side in Arabic, and a logical one lands on the plugin\'s own 4px '

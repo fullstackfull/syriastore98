@@ -1440,8 +1440,12 @@ reverted to confirm it reddens. Full reports: `PHASE-2.5-WAVE-{28,29,30,31}-REPO
 - **The design-system asset cache key is derived from the file's bytes.** It was a hand-typed
   `?v=p02-N` in **four** places, and the sign-in page was still on `p02-7` while the merchant
   shell had reached `p02-10` — a merchant signing in was served a stylesheet seven waves old.
-- **`.ss-table--stack` was dead and broken.** Zero users, and three defects Wave 28 had learned by
-  measurement (`thead` removed rather than clipped, an attribute nothing writes, no ARIA roles).
+- **`.ss-table--stack` was broken, and "zero users" was WRONG — corrected by Wave 32.**
+  `docs/design-system/gallery.html:175` used it with nine `data-label` cells, and the rewrite
+  blanked every one. That page is the design system's own gallery, which its README tells
+  developers to open and the Phase 02 master prompt lists as a required read. The three defects
+  were real (`thead` removed rather than clipped, an attribute nothing writes, no ARIA roles) and
+  the gallery was rendering them; "zero users" is what made replacing the block look free.
   It is now GENERATED from the Wave 28 block by `sync-stack-block.py`, with a test asserting the
   two declaration sets stay identical.
 - **`data-ss-admin`** marks the merchant shell, so the design system can reach a host element
@@ -1453,7 +1457,7 @@ reverted to confirm it reddens. Full reports: `PHASE-2.5-WAVE-{28,29,30,31}-REPO
 | | measurement | why |
 |---|---|---|
 | `/finance` ledger at 768–1024px | still overflows by 433px down to 177px | a column-count question for the ledger's design, not a layout one |
-| `/order` "Shipping Method" label | wraps — 98px in a 94px column | the percentage that clears it by 4px is fitted to one English string |
+| `/order` "Shipping Method" label | wraps — 98px in a 94px column, RE-MEASURED after an adversarial review argued it was already fixed | the percentage that clears it by 4px is fitted to one English string. The review computed 94 × 45/40 = 105.75 and concluded the wrap was gone; that ignores `border-spacing: 8px 0` on the same rule, so 45% resolves against 210px of column space, not 234px, and the browser reports 94.5px. I corrected the comment on that argument BEFORE measuring, then had to reinstate it — the exact failure the review exists to prevent, committed by me against the review |
 | toast placement in Arabic | `left=1040` in a 1440 viewport, top-right in both directions | already on record; `right:4px` lives in the SHA-pinned plugin |
 | toast dismiss control | 16×16, under SC 2.5.8's 24×24 | the spacing exception needs an analysis not yet done |
 | `GET /currency-rates` | 500, `View [currency_rates.index] not found` | the twin of a finding whose recorded decision is that removal is an owner scope call |
@@ -1466,3 +1470,34 @@ counterfactual showed 111px either way, so it was deleted; a probe multiplying b
 0.4 from before the change it was measuring; "14 of 14 white fields on `/coupon/create`", which
 was a bare AJAX fragment no merchant ever sees; and three of five merchant 500s that are SQLite
 standing in for MySQL and work in production.
+
+
+---
+
+## 4.13 Wave 32 — what an adversarial review found in waves 28-31 [2026-11-06]
+
+Four green CI runs are not evidence that four waves are correct. The whole day's diff was handed
+to six independent lenses reading the repository rather than the commit messages, and every
+finding was then handed to a skeptic whose job was to refute it. **21 reported, 8 refuted,
+13 survived.** Full account: `PHASE-2.5-WAVE-32-REPORT-AR.md`.
+
+| | what it was | what it is |
+|---|---|---|
+| `.btn-light` dark arm | wrote `background-color`/`color` at (0,3,0), **cancelling** `.btn:hover`, `.btn:focus-visible` and `.btn:disabled` at (0,2,0). The focus indicator these links have IS the whole-button inversion, because that same rule sets `outline: 0`. Measured in a browser: focus moved nothing but a 1px border at 2.0:1 | sets `--bs-btn-bg` / `--bs-btn-border-color` instead, so every state rule above it survives. Focus is `rgb(51,93,168)` with white ink again, and the near-white ring the old rule left behind is gone |
+| `.form-select` chevron | the arrow is a `background-image` data URI with a hard-coded `%23343a40` stroke. The fill moved to `#262b33`; the arrow did not. **1.22:1**, and `-webkit-appearance: none` means there is nothing underneath | a dark-theme chevron at **11.81:1**, plus the `:disabled` state the (0,3,0) rule had cancelled |
+| last stacked card | `.ss-table tbody tr:last-child { border-block-end: 0 }` at (0,2,2) outranks the stack block at (0,1,2) — a contest Wave 28 never fought and the converged modifier inherited | the modifier carries `.ss-table` too; first and last cards both measured `1px solid` |
+| empty-state rows | a `colspan` cell sits at index 0 and took the first column's heading, so a merchant with no transactions saw a card labelled "ID" with the message broken character-by-character | no label, and it keeps the centring its view chose — the exemption written INTO the alignment rule so the `!important` count stays at two |
+
+**Four assertions did not bite, and three were proved so by deletion with the suite still green:**
+the four-selector `display: block` rule could be deleted from all three sheets and 801 tests still
+passed; `ruleSet()` keyed by selector, so the deliberately duplicated `td` rule swallowed eight
+declarations on both sides of the identity check; the two gutter needles are nested substrings, so
+the shorter could be deleted undetected; and the toast's no-border regex could not match
+`border-inline-end:`, the exact form its own docblock warns about. All four fixed, all four
+mutations re-run and now red.
+
+**And one finding the review got wrong, which I accepted before measuring.** It argued the `/order`
+label column is ~105px at 45% (94 × 45/40) so the recorded wrap no longer exists. I corrected the
+comment on that arithmetic, then measured: 94px, still wrapping. `border-spacing: 8px 0` on the
+same rule means 45% resolves against 210px of column space, not 234px. The comment is reinstated
+with that reason written into it. The lesson is mine, not the review's.
