@@ -39,6 +39,40 @@
  */
 
 require __DIR__ . '/../../../../vendor/autoload.php';
+
+/**
+ * P2.5-SAFETY-W. FAIL CLOSED BEFORE THE APPLICATION BOOTS, so nothing can resolve a connection to
+ * the wrong database first. This tool WRITES; run against the real database it would alter live
+ * records and print success.
+ *
+ * The header above used to carry only a warning that the right environment must be passed. The
+ * owner's directive is explicit that a written warning is not a control, so this is the control.
+ * `Tests\Support\DevFixtureDatabaseGuard` checks EVERY environment source rather than the first
+ * one present -- the gap that emptied this very fixture once, because an `export` survives in
+ * `$_SERVER` alone and Laravel's Dotenv reads `$_SERVER` first.
+ *
+ * `Tests\` is mapped by composer's AUTOLOAD-DEV, so on a production install the class is simply
+ * absent and this tool cannot start. That is the strongest form of the guard, and the explicit
+ * check below turns it from a fatal error into a stated refusal.
+ */
+if (! class_exists(\Tests\Support\DevFixtureDatabaseGuard::class)) {
+    fwrite(STDERR, "REFUSING TO RUN: Tests\\Support\\DevFixtureDatabaseGuard is not autoloadable, "
+        . "which means this is a --no-dev install. Development fixture tools do not run here.\n");
+    exit(1);
+}
+
+try {
+    \Tests\Support\DevFixtureDatabaseGuard::assertCurrentEnvironmentIsADevFixture();
+} catch (\RuntimeException $e) {
+    // CAUGHT so the refusal reads as a refusal. An uncaught throw exits 255 with a stack trace,
+    // which a caller reasonably reads as "this tool is broken" rather than "this tool declined",
+    // and a tool that looks broken gets re-run with different arguments until it works -- which is
+    // the behaviour the guard exists to stop. tests/bootstrap.php catches its own guard for the
+    // same reason.
+    fwrite(STDERR, "\n" . $e->getMessage() . "\n\n");
+    exit(1);
+}
+
 $app = require_once __DIR__ . '/../../../../bootstrap/app.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 

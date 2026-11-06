@@ -43,6 +43,40 @@
  */
 
 require __DIR__ . '/../../../../vendor/autoload.php';
+
+/**
+ * P2.5-SAFETY-W. FAIL CLOSED BEFORE THE APPLICATION BOOTS, so nothing can resolve a connection to
+ * the wrong database first. This tool WRITES; run against the real database it would alter live
+ * records and print success.
+ *
+ * The header above used to carry only a warning that the right environment must be passed. The
+ * owner's directive is explicit that a written warning is not a control, so this is the control.
+ * `Tests\Support\DevFixtureDatabaseGuard` checks EVERY environment source rather than the first
+ * one present -- the gap that emptied this very fixture once, because an `export` survives in
+ * `$_SERVER` alone and Laravel's Dotenv reads `$_SERVER` first.
+ *
+ * `Tests\` is mapped by composer's AUTOLOAD-DEV, so on a production install the class is simply
+ * absent and this tool cannot start. That is the strongest form of the guard, and the explicit
+ * check below turns it from a fatal error into a stated refusal.
+ */
+if (! class_exists(\Tests\Support\DevFixtureDatabaseGuard::class)) {
+    fwrite(STDERR, "REFUSING TO RUN: Tests\\Support\\DevFixtureDatabaseGuard is not autoloadable, "
+        . "which means this is a --no-dev install. Development fixture tools do not run here.\n");
+    exit(1);
+}
+
+try {
+    \Tests\Support\DevFixtureDatabaseGuard::assertCurrentEnvironmentIsADevFixture();
+} catch (\RuntimeException $e) {
+    // CAUGHT so the refusal reads as a refusal. An uncaught throw exits 255 with a stack trace,
+    // which a caller reasonably reads as "this tool is broken" rather than "this tool declined",
+    // and a tool that looks broken gets re-run with different arguments until it works -- which is
+    // the behaviour the guard exists to stop. tests/bootstrap.php catches its own guard for the
+    // same reason.
+    fwrite(STDERR, "\n" . $e->getMessage() . "\n\n");
+    exit(1);
+}
+
 $app = require_once __DIR__ . '/../../../../bootstrap/app.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 
@@ -58,8 +92,32 @@ use App\Models\Faq;
 use App\Models\FlashSale;
 use App\Models\ProductQuestion;
 use App\Models\Testimonial;
+use App\Models\Cart;
+use App\Models\Customer;
+use App\Models\Product;
+use App\Models\Wishlist;
 
 $remove = in_array('--remove', $argv, true);
+
+// P2.5-PKG-C TAGS.
+//
+// `carts.cookie_session_id` is a real varchar column that nothing filters on for an admin screen,
+// so it carries the tag directly.
+//
+// `wishlists` HAS NO TEXT COLUMN AT ALL -- id, customer_id, product_id, variant_id, status,
+// store_id, timestamps. Three candidates were considered and two rejected by reading the code:
+//   variant_id -- REJECTED. `VariantRemovalPolicy` really does query it
+//                 (`whereIn('variant_id', $ids)` at :305 and :678), so a sentinel there would
+//                 enter a policy decision about deleting product variants.
+//   product_id -- REJECTED. Carries a FOREIGN KEY to products(id); a sentinel does not insert.
+//   status     -- CHOSEN. Measured: no `where('status', ...)` exists against Wishlist anywhere in
+//                 app/ (controller, DataTable, views, Api\ApiController, Utility, Product,
+//                 VariantRemovalPolicy all read customer_id/product_id/variant_id only), and the
+//                 admin list renders four columns -- customer, email, product, action -- so the
+//                 value is invisible in the UI. It is a dead column, which is what makes it safe
+//                 to use and is why that is written down here rather than left to be rediscovered.
+$PROBE_TAG_C = 'P25PROBE';
+$PROBE_WISH_STATUS = 9;
 
 $store = Store::withoutGlobalScopes()->first();
 $merchant = User::where('email', 'merchant@example.test')->first();
@@ -124,6 +182,19 @@ if ($remove) {
         foreach ($rows as $row) { $row->delete(); }
         $cat[$label] = $rows->count();
     }
+
+    // P2.5-PKG-C carts and wishlists. `withoutGlobalScopes()` matters for BOTH: Cart is one of the
+    // eleven models in `config/tenancy.php`'s `scoped_models` and Customer is another, so a plain
+    // query here answers against whichever tenant this CLI process happens to resolve -- which for
+    // a bare script is none, and `null_tenant => 'open'` then adds no predicate at all. Removal
+    // must not depend on that, so the predicate is explicit.
+    $probeCarts = Cart::withoutGlobalScopes()->where('cookie_session_id', $PROBE_TAG_C)->get();
+    foreach ($probeCarts as $row) { $row->delete(); }
+
+    $probeWishes = Wishlist::withoutGlobalScopes()->where('status', $PROBE_WISH_STATUS)->get();
+    foreach ($probeWishes as $row) { $row->delete(); }
+
+    printf("removed %d cart row(s), %d wishlist row(s)\n", $probeCarts->count(), $probeWishes->count());
 
     printf("removed %d withdrawal(s), %d order(s), %d wallet transaction(s), %d financial row(s)\n",
         $w->count(), $o->count(), $t->count(), $f);
@@ -421,3 +492,125 @@ printf("          %d question(s) UNANSWERED (so the Reply control renders), %d c
     $unanswered, $liveCoupon);
 printf("          FAQ description decodes to %d repeater item(s) (so the @foreach branch renders, "
     . "not the empty @else)\n", is_array($faqItems) ? count($faqItems) : 0);
+
+
+// =================================================================================================
+// P2.5-PKG-C — THE ABANDONED-CART AND ABANDONED-WISHLIST FAMILIES HAD NOTHING TO RENDER AT ALL.
+//
+// MEASURED before this block existed: `carts` = 0 rows and `wishlists` = 0 rows in the dev
+// fixture. Six of Package C's surfaces read from those two tables -- the two list screens, their
+// two `product` cells, and their two products modals -- so every one of them rendered an empty
+// DataTable. An empty table is not the surface: it has no row, no `product` cell, no count badge,
+// no row actions and nothing to open a modal from, so a harness that drove them would have
+// measured the empty state four times and reported the family verified.
+//
+// WHAT THE SHAPE HAS TO BE, read off the real query paths rather than guessed:
+//
+//   AbandonCartDataTable / WishlistDataTable both `groupBy('customer_id')`, so the list shows ONE
+//   ROW PER CUSTOMER however many items that customer has. Three customers therefore give three
+//   rows, which is what exercises ordering, striping and the phone-width card layout.
+//
+//   `wishlist/product.blade.php` renders a COUNT BADGE from
+//   `Wishlist::where('customer_id', ...)->where('store_id', ...)->count()`. If every customer had
+//   the same number of items the badge would render one value and prove nothing, so the three
+//   customers get 1, 3 and 5 items. The cart rows vary the same way.
+//
+//   `CartController::abandon_carts_show($cartId)` and `WishlistController::show()` both pivot from
+//   the row to the CUSTOMER and list that customer's items, so the multi-item customers are what
+//   make the two modals render a list rather than a single line.
+//
+// FAIL CLOSED ON A FIXTURE THAT IS NOT EMPTY. If either table already holds rows this probe did
+// not write, it stops rather than adding to them: `--remove` identifies probe rows by tag, so
+// mixing probe and non-probe rows would leave removal unable to tell them apart, and the next
+// person's screenshots would silently inherit whatever was left behind.
+// =================================================================================================
+
+$pkgCStoreId = $store->id;
+
+// Customer is in `scoped_models`, so withoutGlobalScopes() -- a bare CLI process resolves no
+// tenant and `null_tenant => 'open'` would add no predicate, which is a different answer from
+// "this store's customers" and only accidentally the same one.
+$pkgCCustomers = Customer::withoutGlobalScopes()
+    ->where('store_id', $pkgCStoreId)->orderBy('id')->take(3)->get();
+
+$pkgCProducts = Product::withoutGlobalScopes()
+    ->where('store_id', $pkgCStoreId)->orderBy('id')->take(5)->get();
+
+if ($pkgCCustomers->count() < 3 || $pkgCProducts->count() < 5) {
+    printf("          SKIPPED carts/wishlists: need 3 customers and 5 products in store %d, have %d and %d\n",
+        $pkgCStoreId, $pkgCCustomers->count(), $pkgCProducts->count());
+} else {
+    // ITEM COUNTS DELIBERATELY DIFFERENT, so the count badge renders three distinct values and a
+    // harness cannot pass by reading one.
+    $pkgCPlan = [0 => 1, 1 => 3, 2 => 5];
+
+    $foreignCarts = Cart::withoutGlobalScopes()
+        ->where('cookie_session_id', '!=', $PROBE_TAG_C)->orWhereNull('cookie_session_id')->count();
+    $foreignWishes = Wishlist::withoutGlobalScopes()
+        ->where('status', '!=', $PROBE_WISH_STATUS)->count();
+
+    if ($foreignCarts > 0 || $foreignWishes > 0) {
+        printf("          SKIPPED carts/wishlists: %d cart and %d wishlist row(s) this probe did not write.\n",
+            $foreignCarts, $foreignWishes);
+        printf("          Refusing to mix: --remove identifies probe rows by tag and could not tell them apart.\n");
+    } else {
+        foreach ($pkgCCustomers as $i => $customer) {
+            $wanted = $pkgCPlan[$i];
+
+            for ($n = 0; $n < $wanted; $n++) {
+                $product = $pkgCProducts[$n];
+
+                if (! Cart::withoutGlobalScopes()->where('cookie_session_id', $PROBE_TAG_C)
+                        ->where('customer_id', $customer->id)->where('product_id', $product->id)->exists()) {
+                    Cart::forceCreate([
+                        'customer_id' => $customer->id,
+                        'product_id' => $product->id,
+                        'variant_id' => 0,
+                        'qty' => $n + 1,
+                        // `carts.price` is an INTEGER column in this schema, so a decimal price
+                        // would be truncated by sqlite's affinity and the modal would show a
+                        // figure the product does not have. Rounded here deliberately, and noted
+                        // because a money figure that does not match its product reads as the
+                        // display defect this phase has already fixed once.
+                        'price' => (int) round((float) $product->price),
+                        'store_id' => $pkgCStoreId,
+                        'cookie_session_id' => $PROBE_TAG_C,
+                    ]);
+                }
+
+                if (! Wishlist::withoutGlobalScopes()->where('status', $PROBE_WISH_STATUS)
+                        ->where('customer_id', $customer->id)->where('product_id', $product->id)->exists()) {
+                    Wishlist::forceCreate([
+                        'customer_id' => $customer->id,
+                        'product_id' => $product->id,
+                        'variant_id' => 0,
+                        'status' => $PROBE_WISH_STATUS,
+                        'store_id' => $pkgCStoreId,
+                    ]);
+                }
+            }
+        }
+
+        // PROVE THE SHAPE, not merely that rows exist. The three distinct per-customer counts are
+        // the whole point of the fixture; asserting only a total would pass for 9 items on one
+        // customer, which renders ONE list row and no badge variation.
+        $cartCounts = [];
+        $wishCounts = [];
+        foreach ($pkgCCustomers as $customer) {
+            $cartCounts[] = Cart::withoutGlobalScopes()->where('cookie_session_id', $PROBE_TAG_C)
+                ->where('customer_id', $customer->id)->count();
+            $wishCounts[] = Wishlist::withoutGlobalScopes()->where('status', $PROBE_WISH_STATUS)
+                ->where('customer_id', $customer->id)->count();
+        }
+
+        printf("          %d cart row(s) over %d customer(s), per-customer %s\n",
+            array_sum($cartCounts), count($cartCounts), json_encode($cartCounts));
+        printf("          %d wishlist row(s) over %d customer(s), per-customer %s\n",
+            array_sum($wishCounts), count($wishCounts), json_encode($wishCounts));
+
+        if (count(array_unique($cartCounts)) < 3 || count(array_unique($wishCounts)) < 3) {
+            fwrite(STDERR, "          WARNING: the per-customer counts are not three distinct values, so the\n"
+                . "          count badge renders fewer than three and cannot be verified properly.\n");
+        }
+    }
+}
