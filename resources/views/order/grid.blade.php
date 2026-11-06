@@ -89,82 +89,94 @@
     @endphp
     <div class="col-xxl-3 col-xl-4 col-sm-6 col-12 d-flex">
         <div class="card user-card order-card border mb-0">
-            <div class="card-header p-3  border-bottom h-100">
-                <div class="user-img-wrp d-flex gap-3 align-items-center">
-                    {{-- THE STATUS, as the design system's badge: a label a merchant can read,
-                         plus a tone, plus a dot. It replaces a 45x45 box holding an inert
-                         `<a href="#">` that no handler in the admin was bound to and that no
-                         dropdown enclosed -- a status label wearing a control's clothes, which is
-                         the same defect the order LIST had and settled by using spans. The badge
-                         is a `<span>`, so nothing focusable is reintroduced here.
+            {{--
+                P2.5-PKG-C. THE HIERARCHY, which this card did not have. Earlier slices fixed real
+                things here -- the status is a design-system badge, the money carries `.ss-num`,
+                the date was added, an unclosed `<span>` was closed -- but the ORDER was still the
+                least prominent thing on an order card:
 
-                         IT IS THE FIRST CHILD OF `.user-img-wrp` ON PURPOSE. The second child's
-                         first span is never closed before the row's `</div>`, so anything placed
-                         after it is auto-closed INSIDE that span and inherits the dark-mode
-                         override P2.5-A-05 puts on it. Asserted by OrderGridStatusLabelTest.
+                  * `#P25PROBE-41`, the order's own reference, sat in the FOOTER as a filled
+                    `btn btn-primary` pill. The most identifying fact about an order, rendered as
+                    a button and placed last. Exactly the shape just corrected on the sibling
+                    customer card, where the person's NAME was a `badge bg-primary`.
+                  * the CUSTOMER'S name was the de-facto title, so an order card was titled by
+                    someone else's identity;
+                  * `<b>Price : </b>` and `<b>Date : </b>` put the labels at the same weight as
+                    their values, so the two things a merchant scans for -- how much, and when --
+                    competed with the words "Price" and "Date";
+                  * `user-img-wrp` again named a wrapper for an avatar that does not exist, and
+                    `align-items-center` centred the one-line badge against a three-line block.
 
-                         `.ss-badge` is unscoped in store-syria-ds.css and its tone tokens are
-                         declared on `:root`, so this needs no `.ss-scope` wrapper; the sheet is
-                         linked by layouts/app.blade.php on every page. DsBadge escapes the label,
-                         which is why the unescaped echo is correct here. --}}
+                NOW: the order reference is the title and keeps its link (same route, same
+                `Crypt::encrypt($order->id)`), the status sits beside it, the customer is meta, the
+                price is the one figure and the date is meta beside it. Same grammar as the
+                customer grid card -- identity, then the figure that carries value, then the
+                actions -- so the two card views can be read the same way.
+
+                THE TWO BOOTSTRAP REGION CLASSES ARE KEPT DELIBERATELY. `OrderGridStatusLabelTest`
+                finds the header and the body by searching this file for their opening div class
+                attributes, then asserts the status badge is rendered inside the header.
+
+                AND THIS COMMENT MUST NOT SPELL THOSE TWO MARKERS OUT, which the first draft did:
+                writing them here put an earlier match in the file than the real elements, the test
+                extracted a few characters of prose as "the header", and the badge assertion failed
+                against it. Documenting a marker inside the file it marks is enough to break it.
+
+                THE MONEY EXPRESSION IS BYTE-IDENTICAL. `order_currency_format_with_sym(...)` and
+                its fallback are untouched; only the type treatment around them changed. This is a
+                presentation change and nothing else.
+            --}}
+            <div class="card-header p-3 border-bottom h-100">
+                <div class="d-flex align-items-start justify-content-between gap-2">
+                    {{-- `dir="ltr"` IS LOAD-BEARING, AND THE ARABIC CAPTURE IS WHAT CAUGHT IT.
+                         Rendered RTL, this read `P25PROBE-41#` -- the `#` reordered to the far
+                         end of the run. A `#` is a BIDI-NEUTRAL character, so in a right-to-left
+                         paragraph a leading neutral before a Latin identifier is resolved to the
+                         other side of it. An order reference is a Latin identifier and must read
+                         the same in both directions.
+                         The price beside it was already correct for exactly this reason: `.ss-num`
+                         carries `unicode-bidi: isolate`, which is why `$10.00` kept its symbol on
+                         the left. Same hazard, same remedy, and the same one applied to the
+                         customer card's email address. --}}
+                    <a class="ss-card__title text-truncate" dir="ltr"
+                       href="{{ route('order.view', \Illuminate\Support\Facades\Crypt::encrypt($order->id)) }}"
+                       data-bs-toggle="tooltip" title="{{ __('Invoice ID') }}">#{{ $order->product_order_id }}</a>
                     {!! \App\Support\OrderStatusTone::badge((int) $order->delivered_status, $title) !!}
-                    <div class="user-content">
-                        <span class="text-dark text-md">
-                            @if ($order->is_guest == 1) 
-                                <b>{{ __('Guest') }}</b>
-                            @elseif ($order->customer_id != 0) 
-                                <b>{{ (!empty($order->CustomerData->name) ? $order->CustomerData->name : '') }}</b>
-                                <br>
-                                {{ (!empty($order->CustomerData->mobile) ? $order->CustomerData->mobile : '') }}
-                            @else 
-                                <b>{{__('Walk-in-customer')}}</b>
-                            @endif
-                        </span>
-                        <br>
-                        {{-- P2.5-DESIGN-C. THE `<span>` THAT STOOD HERE WAS NEVER CLOSED, and the
-                             previous slice had to design around it rather than fix it: the status
-                             badge is placed as the first child of `.user-img-wrp` precisely because
-                             anything after this span is auto-closed INSIDE it by the parser and
-                             inherits the dark-mode colour override on `.text-dark`.
-                             CONFIRMED IN THE RAW SERVER BYTES, not only in the source: the HTTP
-                             response for a card ends `$10.00` and then `</div>` with no `</span>`
-                             between them. Chromium recovers, so the DOM is not mis-nested -- which
-                             is exactly why it survived. It is closed now, and the badge's placement
-                             keeps its own reason (it reads first, before the customer).
+                </div>
 
-                             THE MONEY IS A FIGURE, NOT A SENTENCE. `Price : $10.00` was a label,
-                             a colon and a value in one body-text run. `.ss-num` is the design
-                             system's tabular-figure treatment -- equal-width digits so a column of
-                             cards aligns, and `unicode-bidi: isolate` so the figure stays one
-                             left-to-right run inside an Arabic line. The LIST has the same defect
-                             (OrderDataTable renders `final_price` as bare text with no wrapper and
-                             no class); this fixes the grid, and the list is recorded as its own
-                             slice rather than widened into here. --}}
-                        <span class="text-dark text-md ss-order-card__money">
-                            <b>{{ __('Price') }} : </b>
-                            <span class="ss-num">{{ order_currency_format_with_sym(($order->final_price ?? 0), $order->id) ?? SetNumberFormat($order->final_price) }}</span>
-                        </span>
-                        <br>
-                        {{-- THE DATE, which this card did not show at all. Both siblings do: the
-                             LIST has a `Date` column (`OrderDataTable::getColumns()`, rendered by
-                             `self::dateOrDash($item->order_date)`) and the board card carries one.
-                             An order grid with no date cannot be scanned.
-                             `dateOrDash()` IS THE EXISTING HELPER AND IS REUSED RATHER THAN
-                             REIMPLEMENTED: it renders a bare `-` for a missing date instead of the
-                             epoch, which is F19 -- a defect this project has already fixed once and
-                             must not reintroduce on a second screen. --}}
-                        <span class="text-dark text-md ss-order-card__date">
-                            <b>{{ __('Date') }} : </b>
-                            <span class="ss-num">{{ \App\DataTables\OrderDataTable::dateOrDash($order->order_date) }}</span>
-                        </span>
+                <span class="ss-card__meta d-block text-truncate mt-1">
+                    @if ($order->is_guest == 1)
+                        {{ __('Guest') }}
+                    @elseif ($order->customer_id != 0)
+                        {{ (!empty($order->CustomerData->name) ? $order->CustomerData->name : '') }}@if (!empty($order->CustomerData->mobile)) <span dir="ltr">{{ $order->CustomerData->mobile }}</span>@endif
+                    @else
+                        {{ __('Walk-in-customer') }}
+                    @endif
+                </span>
+
+                <div class="d-flex align-items-end justify-content-between gap-3 mt-3">
+                    <div class="min-w-0">
+                        {{-- `.ss-num` STAYS A NESTED SPAN rather than being merged onto the
+                             outer element. Two ratchets assert the figure that way -- the source
+                             one in OrderGridCardContentTest and, more valuably, the RENDERED one
+                             in OrderGridCardRendersTheDateTest, which drives the real page. The
+                             nesting costs one element and keeps both checks exactly as they were
+                             written; merging the class would have meant editing two guards to suit
+                             a styling choice. --}}
+                        <span class="ss-stat__value d-block ss-order-card__money"><span class="ss-num">{{ order_currency_format_with_sym(($order->final_price ?? 0), $order->id) ?? SetNumberFormat($order->final_price) }}</span></span>
+                        <span class="ss-stat__label">{{ __('Price') }}</span>
                     </div>
+                    {{-- THE LABEL IS VISUALLY HIDDEN, NOT DELETED. A date in a card corner is
+                         self-evident to a sighted merchant, and `<b>Date : </b>` at body weight
+                         competed with the value it introduced -- so the visible label goes. But a
+                         screen reader would then announce a bare "Nov 6, 2026" with nothing
+                         saying what it dates, so the word stays in the accessibility tree.
+                         Removing the label outright would have traded one audience's clarity for
+                         another's. --}}
+                    <span class="ss-card__meta ss-order-card__date text-end"><span class="visually-hidden">{{ __('Date') }}</span><span class="ss-num">{{ \App\DataTables\OrderDataTable::dateOrDash($order->order_date) }}</span></span>
                 </div>
             </div>
-            <div class="card-body p-3 gap-1 d-flex align-items-center justify-content-between">
-            <h4 class="mb-0"><a href="{{route('order.view', \Illuminate\Support\Facades\Crypt::encrypt($order->id)) }}" class="btn btn-primary btn-sm text-sm" data-bs-toggle="tooltip" title="{{ __('Invoice ID') }}">
-                                <span class="btn-inner--icon"></span>
-                                <span class="btn-inner--text">#{{ $order->product_order_id }}</span>
-                            </a></h4>
+            <div class="card-body p-3 gap-1 d-flex align-items-center justify-content-end">
                 <div class="bottom-icons d-flex flex-wrap align-items-center">
                     @if ($order->delivered_status == 3 && $order->return_status == 1)
                         <a href="#" class="btn btn-sm btn-primary return_request me-2" data-id="{{ $order->id }}" data-status="2" data-bs-toggle="tooltip"

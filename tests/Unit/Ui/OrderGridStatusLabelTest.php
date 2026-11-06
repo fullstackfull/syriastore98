@@ -178,30 +178,44 @@ class OrderGridStatusLabelTest extends TestCase
     }
 
     /**
-     * Line 87 of the view opens `<span class="text-dark text-md">` and never closes it before the
-     * enclosing `</div>`, so anything placed after it lands INSIDE an auto-closed `.text-dark`
-     * span -- where P2.5-A-05's `html[data-ss-theme="dark"] body .text-dark { color: ... }`
-     * would repaint it. The badge must be a SIBLING of those spans, before `.user-content`.
+     * THE HAZARD IS GONE AT ITS ROOT, SO THIS ASSERTS THE STRONGER PROPERTY. P2.5-PKG-C.
+     *
+     * WHAT THIS TEST USED TO SAY. The view opened `<span class="text-dark text-md">` and never
+     * closed it before the enclosing `</div>`, so anything placed after it landed INSIDE an
+     * auto-closed `.text-dark` span -- where P2.5-A-05's
+     * `html[data-ss-theme="dark"] body .text-dark { color: ... }` would repaint it. The badge had
+     * to be ORDERED before those spans to escape, and this test pinned that ordering.
+     *
+     * Ordering was always the weaker guarantee: it protected the badge and nothing else, and it
+     * held only while somebody remembered why the order mattered.
+     *
+     * THE CARD NO LONGER CONTAINS `.text-dark` AT ALL. The redesign replaced those spans with the
+     * design system's own `.ss-card__meta`, `.ss-stat__value` and `.ss-stat__label`, so there is
+     * no dark-mode override for the badge -- or anything else in this header -- to inherit,
+     * whatever order it is written in. `.text-dark` is raw Bootstrap and appears nowhere in
+     * `store-syria-ds.css`; a class literally meaning "dark text" on a surface that has a dark
+     * theme is the defect, not its position.
+     *
+     * So the assertion is now the absence, which subsumes the ordering it replaces.
      */
-    public function test_the_badge_is_not_inside_the_unclosed_text_dark_span(): void
+    public function test_the_card_header_carries_no_text_dark_for_the_badge_to_inherit(): void
     {
         $header = $this->header();
 
-        $badge = strpos($header, 'OrderStatusTone::badge');
-        $content = strpos($header, 'user-content');
-        $firstTextDark = strpos($header, 'text-dark');
+        $this->assertNotFalse(
+            strpos($header, 'OrderStatusTone::badge'),
+            'premise: the status badge is still rendered in the header'
+        );
 
-        $this->assertNotFalse($badge);
-        $this->assertNotFalse($content);
-        $this->assertNotFalse($firstTextDark);
-
-        $this->assertLessThan($content, $badge,
-            'the badge is rendered after `.user-content`, not as the first child of '
-            . '`.user-img-wrp`');
-        $this->assertLessThan($firstTextDark, $badge,
-            'the badge is rendered after a `.text-dark` span opens. That span is never closed '
-            . 'before the row\'s `</div>`, so the badge would inherit the dark-mode `.text-dark` '
-            . 'override and a light-mode-only check would not notice.');
+        $this->assertStringNotContainsString(
+            'text-dark',
+            $header,
+            'A `.text-dark` span is back in the order card header. P2.5-A-05 repaints that class '
+            . 'in dark mode, and the span this view used to open was never closed before the '
+            . "enclosing </div>, so everything after it inherited the override. The redesign "
+            . 'removed the class rather than ordering the badge around it; use the design '
+            . "system's `.ss-card__meta` / `.ss-stat__label` instead."
+        );
     }
 
     // =============================================================================================

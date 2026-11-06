@@ -48,16 +48,25 @@ class OrderGridCardContentTest extends TestCase
     }
 
     /**
-     * The region between `.user-content` opening and its `</div>`, which is where all three of the
-     * card's text spans live. Sliced the same way the sibling ratchets slice this file, so a
-     * restructure fails here with a premise error rather than measuring the wrong text.
+     * The card's text region: everything from the header's opening div to the body's.
+     *
+     * REPOINTED BY P2.5-PKG-C, and this helper's own docblock predicted the moment. It used to
+     * slice from `.user-content`, and said it was written that way "so a restructure fails here
+     * with a premise error rather than measuring the wrong text". That is precisely what happened:
+     * the redesign removed `.user-content` -- a wrapper named for an avatar the card does not have
+     * -- and all three tests stopped with a clear premise failure instead of quietly asserting
+     * against an empty string. The guard worked; only its landmark moved.
+     *
+     * The three properties below are unchanged and still true: every span closes, the price is a
+     * tabular figure, and the date comes from the shared helper. They are now measured over the
+     * header, which is where the card's text lives after the restructure.
      */
     private function userContent(): string
     {
         $grid = $this->grid();
 
-        $start = strpos($grid, '<div class="user-content">');
-        $this->assertNotFalse($start, 'premise: the card still has a .user-content block');
+        $start = strpos($grid, '<div class="card-header');
+        $this->assertNotFalse($start, 'premise: the card still has a header');
 
         $end = strpos($grid, '<div class="card-body', $start);
         $this->assertNotFalse($end, 'premise: the card body still follows it');
