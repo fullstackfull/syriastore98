@@ -165,7 +165,29 @@ class ProductAttributeOptionController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request ,$id)
+    /**
+     * P2.5-PKG-B. THE SAME ROUTE-OPTIONAL / SIGNATURE-REQUIRED MISMATCH AS create()/edit(), on the
+     * three write routes. `routes/web.php:988`, `:995` and `:997` all declare `{id?}` while
+     * `store()`, `destroy()` and `update()` required the argument, so omitting it threw
+     * `ArgumentCountError` in the router -- HTTP 500 before any check ran.
+     *
+     * THESE WERE NEVER HOLES, and that is why they were fixed after create()/edit() rather than
+     * with them: the crash PRECEDES every check, so nothing was ever served. They are also harder
+     * to reach -- no `route()` call anywhere generates the bare form (the create, edit and index
+     * blades all pass an id), and POST/DELETE need a valid CSRF token, so there is none of the
+     * layout-render blast radius that forced create()'s fix into the controller.
+     *
+     * THE DEFAULT IS SAFE BECAUSE EACH REFUSES BEFORE IT WRITES, which was checked rather than
+     * assumed: `store()` calls `ownedAttribute($id)` before assigning `attribute_id` and saving;
+     * `update()` and `destroy()` OVERWRITE their route-model-bound parameter with
+     * `ownedOption($id)` and refuse on null before `save()` / `delete()`. A null id therefore
+     * reaches a refusal, never a write. (That overwrite is deliberate and worth noticing: route
+     * model binding is NOT tenant-scoped, so the bound instance is decorative and the scoped
+     * helper is the real resolution.)
+     *
+     * `$id` is positional-LAST in all three, so a default cannot shift a route-model binding.
+     */
+    public function store(Request $request, $id = null)
     {
         if (auth()->user() && auth()->user()->isAbleTo('Create Attributes Option')) {
 
@@ -275,7 +297,7 @@ class ProductAttributeOptionController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, ProductAttributeOption $productAttributeoption,$id)
+    public function update(Request $request, ProductAttributeOption $productAttributeoption, $id = null)
     {
         if (auth()->user() && auth()->user()->isAbleTo('Edit Attributes Option')) {
 
@@ -308,7 +330,7 @@ class ProductAttributeOptionController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(ProductAttributeOption $productAttributeOption ,$id)
+    public function destroy(ProductAttributeOption $productAttributeOption, $id = null)
     {
         if (auth()->user() && auth()->user()->isAbleTo('Delete Attributes Option')) {
 

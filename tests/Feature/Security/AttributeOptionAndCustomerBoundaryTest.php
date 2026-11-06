@@ -345,6 +345,49 @@ class AttributeOptionAndCustomerBoundaryTest extends SecurityTestCase
             'The ordinary reorder flow no longer works for the owner.');
     }
 
+    /**
+     * P2.5-PKG-B. THE THREE WRITE ROUTES REFUSE A MISSING ID INSTEAD OF ANSWERING 500.
+     *
+     * `routes/web.php:988`, `:995`, `:997` declare `{id?}` while `store()`, `destroy()` and
+     * `update()` required the argument -- the same mismatch already fixed on `create()`/`edit()`.
+     * Omitting the id threw `ArgumentCountError` in the ROUTER: HTTP 500 before any check ran.
+     *
+     * NOT HOLES, WHICH IS WHY THEY CAME SECOND. The crash preceded every check, so nothing was
+     * ever served. The default is safe because each refuses before it writes -- `store()` resolves
+     * `ownedAttribute($id)` before assigning and saving; `update()` and `destroy()` OVERWRITE
+     * their route-model-bound parameter with `ownedOption($id)` and refuse on null before
+     * `save()` / `delete()`.
+     *
+     * The permissions are granted so the refusal comes from the ID guard rather than the
+     * permission gate, and the write is asserted ABSENT afterwards -- a refusal that still
+     * performed the write would satisfy a status assertion alone.
+     */
+    public function test_the_bare_write_routes_refuse_a_missing_id(): void
+    {
+        [$owner, , $attribute, $option] = $this->tenantWithAttribute('bare-writes');
+        $this->grantAttributePermissions($owner);
+
+        $optionsBefore = ProductAttributeOption::query()->count();
+        $termsBefore = $option->fresh()->terms;
+
+        $this->actingAs($owner)->post('/store-attribute-option', ['terms' => 'should-not-exist'])
+            ->assertStatus(302)->assertSessionHas('error');
+
+        $this->actingAs($owner)->post('/update-attribute-option', ['terms' => 'should-not-apply'])
+            ->assertStatus(302)->assertSessionHas('error');
+
+        $this->actingAs($owner)->delete('/delete-attribute-option')
+            ->assertStatus(302)->assertSessionHas('error');
+
+        // NOTHING WAS WRITTEN. The status alone would be satisfied by a handler that refused
+        // after acting; these assert the refusal happened BEFORE the write.
+        $this->assertSame($optionsBefore, ProductAttributeOption::query()->count(),
+            'A write route with no id created or destroyed a row.');
+        $this->assertSame($termsBefore, $option->fresh()->terms,
+            'A write route with no id modified an existing row.');
+        $this->assertDatabaseMissing('product_attribute_options', ['terms' => 'should-not-exist']);
+    }
+
     public function test_a_merchant_can_still_update_their_own_attribute_option(): void
     {
         [$owner, $store, $attribute, $option] = $this->tenantWithAttribute('own');
