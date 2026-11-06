@@ -3570,6 +3570,69 @@ a.ss-setup__item:focus-visible {
     .ss-command { inset-block-start: var(--ss-space-4); }
 }
 
+/* ---- P2.5-WAVE-31: the light surfaces that survive dark mode --------------------------------
+   FOUND BY CENSUS, not by reading: census-light-surfaces-in-dark.cjs drives 31 merchant routes
+   with the admin in DARK mode and reports every element painting an OPAQUE background above 0.72
+   luminance over an area large enough to read as a SURFACE rather than a chip or an avatar. A
+   class-name grep cannot answer this -- `bg-white` appears 40 times in resources/views and most
+   are Tailwind components that never load -- and a light surface can equally arrive from a theme
+   rule with no telling class at all, which is how three of these four were found.
+
+       /finance              select.form-select          249x41   lum 1.00
+       /finance/withdrawals  a.btn.btn-sm.btn-light      137x31   lum 0.98
+       dashboard + 3 more    div.cat-img                  75x60   lum 0.95
+       /profile              a.list-group-item           268x54   lum 1.00
+
+   (The fifth, `/finance`'s `.card-header.bg-white` at 1145x55, is fixed in the MARKUP instead:
+   the utility is simply wrong there and `.card-header`'s own `--bs-card-cap-bg` already follows
+   the theme. An override would have kept a wrong declaration alive under a correct one.)
+
+   `.dash-content` IS THE CONFINEMENT, AND IT IS LOAD-BEARING. All four were MEASURED inside it
+   and none inside a `.modal`. That matters because `.modal-content` is deliberately WHITE in dark
+   mode -- the host keeps it so, P2.5-A-01 accepted that and fixed the INK on it instead, and
+   check-dark-form-surfaces-live.cjs re-verifies 20 checks across both directions. A dark arm
+   written as `[data-ss-theme="dark"] .form-select` would have reached into those modals and
+   undone that verified work; this cannot, because modals are appended to <body> outside
+   `.dash-content`. */
+[data-ss-theme="dark"] .dash-content .form-select,
+[data-ss-theme="dark"] .dash-content .list-group-item {
+    background-color: var(--ss-surface);
+    color: var(--ss-fg);
+}
+
+/* AND THE HEADING ON THAT CARD, which the background census could not see. Removing the
+   `bg-white` utility from `/finance` took away a 1145x55 white block and left its heading dark on
+   a dark card -- a regression the measurement caught at 1.10:1. Measuring the family then showed
+   the regression was the SMALL half of the finding: `.card-header` text was ALREADY 1.10:1 on
+   `/finance/withdrawals`, `/stock-reports`, `/profile`, `/blog` and `/pages`.
+
+       .card-header text contrast, dark page, composited:  9 of 10 below AA, eight of them
+       pre-existing. /dashboard is the one that passes, at 11.83:1.
+
+   THE CAUSE IS HALF A THEME. `.card-header` takes its background from `--bs-card-cap-bg`, which
+   the host's dark stylesheet leaves transparent so the card shows through -- correct -- and its
+   text from `--bs-card-cap-color`, which it does NOT redefine, so the colour stays the dark ink
+   chosen for a white cap. A heading nobody can read is not a lesser defect than a white block;
+   it is just one a background census cannot find, which is why this rule exists beside one. */
+[data-ss-theme="dark"] .dash-content .card-header {
+    color: var(--ss-fg);
+}
+
+/* A "light" button is a NAME, not an instruction to be white: it means the quiet one in the set.
+   On a dark page the quiet one is the subtle surface, not a 0.98-luminance block. */
+[data-ss-theme="dark"] .dash-content .btn-light {
+    background-color: var(--ss-surface-hover);
+    color: var(--ss-fg);
+}
+
+/* The image placeholder box. `#f3f3f3` is hard-coded in the host's own
+   `.dash-order-status .dash-category-tab-content .cat-img` with no dark counterpart, so a product
+   with no image left a pale square on the dark dashboard. Sunken rather than surface: it is a
+   hole waiting for an image, not a card. */
+[data-ss-theme="dark"] .dash-content .cat-img {
+    background-color: var(--ss-surface-sunken);
+}
+
 /* ---- P2.5-WAVE-30: the toast a merchant cannot read ------------------------------------------
    THE FEEDBACK SURFACE OF THE WHOLE ADMIN, measured with full alpha compositing on `/pages` in
    both themes. Every figure below is the composited ratio against the panel the text actually

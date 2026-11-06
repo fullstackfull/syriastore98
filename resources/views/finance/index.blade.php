@@ -180,7 +180,11 @@
 
 {{-- نظام Tabs المحسن --}}
 <div class="card">
-    <div class="card-header bg-white border-bottom-0 pt-3 pb-0">
+    {{-- `bg-white` REMOVED (P2.5-WAVE-31). Bootstrap's utility is `!important` and has no dark
+                             arm, so this header rendered 1145x55 of PURE WHITE on the dark page -- measured
+                             lum 1.00. `.card-header`'s own `var(--bs-card-cap-bg)` already follows the theme,
+                             which is why removing the utility is the fix and an override would not be. --}}
+                        <div class="card-header border-bottom-0 pt-3 pb-0">
         <ul class="nav nav-pills finance-tabs justify-content-center gap-2" id="financeTabs" role="tablist">
             <li class="nav-item" role="presentation">
                 <button class="nav-link active" 
