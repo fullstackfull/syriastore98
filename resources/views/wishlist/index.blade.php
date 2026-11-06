@@ -1,13 +1,13 @@
 @extends('layouts.app')
 
-@section('page-title', __('Wishlist'))
+@section('page-title', __('Abandoned wishlists'))
 
 @section('action-button')
 
 @endsection
 
 @section('breadcrumb')
-    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Wishlist') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Abandoned wishlists') }}</li>
 @endsection
 
 @section('content')

@@ -1,10 +1,10 @@
 
 @extends('layouts.app')
 @section('page-title')
-{{ __('Abandon Cart')}}
+{{ __('Abandoned carts') }}
 @endsection
 @section('breadcrumb')
-    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Abandon Cart') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Abandoned carts') }}</li>
 @endsection
 
 @section('content')
