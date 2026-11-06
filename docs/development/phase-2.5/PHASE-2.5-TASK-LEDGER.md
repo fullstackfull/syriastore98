@@ -1400,9 +1400,15 @@ at all.
 and -G repaired contrast *visible on* them, which are cross-cutting stylesheet fixes that happen
 to land there. Neither screen's own layout, hierarchy or typography has had a design pass.
 
-**Recorded and not fixed:** `/finance` renders `.card-header.bg-white` inside a dark card — a
-light surface appearing in dark mode, hard-coded in the markup. P2.5-DESIGN-G stops making it
-worse and does not repair it.
+**~~Recorded and not fixed~~ — CLOSED by P2.5-WAVE-31 [2026-11-06].** `/finance` rendered
+`.card-header.bg-white` inside a dark card — 1145×55 of pure white, measured at luminance 1.00.
+The utility is removed from the markup rather than overridden, because `.card-header` already
+follows `--bs-card-cap-bg`. **And removing it exposed the larger half:** the white block was
+hiding dark ink, and `.card-header` TEXT measured 1.10:1 on nine of ten headers across the dark
+admin — eight of those failures pre-existing, on `/finance/withdrawals`, `/stock-reports`,
+`/profile`, `/blog` and `/pages`. The host redefines `--bs-card-cap-bg` for dark mode and not
+`--bs-card-cap-color`. After: 10 of 10 at 11.83:1 dark, 12.93:1 light. A heading nobody can read
+is not a lesser defect than a white block; it is one a background census cannot find.
 
 Partially covered: **orders** (the grid card's correctness half only; the board's overflow) and
 **dashboard** (the stat grid only — the sidebar's five group labels, four of which head a single
@@ -1410,3 +1416,53 @@ item, are untouched, and so is the order-status chip row).
 
 **No work package in this section was visually verified on a device**, only in headless Chromium at
 1440×900 on one machine. No Arabic native-reader review has taken place.
+
+
+---
+
+## 4.12 Waves 28–31 — the phone card, its reach, and dark mode on the page [2026-11-06]
+
+Four waves, each measured before and after, each with a ratchet whose every assertion was
+reverted to confirm it reddens. Full reports: `PHASE-2.5-WAVE-{28,29,30,31}-REPORT-AR.md`.
+
+| wave | the defect, measured | after |
+|---|---|---|
+| **28** | At 320px a merchant saw an order id and nothing else: 4–12 columns per table, 2–4 inside a 250px scrollport, one of them the empty select-all and one the pinned Action column | Every row is a card carrying **all** its cells, labelled with their own column headings. 12/12 on `/product`, 10/10 on `/order` and `/customer`, 8/8 on `/category`, 5/5 on `/stock-reports`. Desktop unchanged, measured at 1440px |
+| **29** | The card layout reaches only `.ss-dt-card-body table.dataTable`. A census of 73 routes found **10 tables neither stacked nor fitting** — `/finance` showed **2 of 10 columns** | 0. `/finance` 10/10, `/finance/withdrawals` 8/8, the dashboard summary cards fit at 320px |
+| **30** | The toast: title **1.00:1 white-on-white** in dark mode, body 2.85:1 and close 2.32:1 in **both** themes | 16.88/14.23 title, 6.42/6.17 body and close. All AA |
+| **31** | 31 routes in dark mode: **5 light surfaces** on the dark page, and then **9 of 10 card headings at 1.10:1** | 0 light surfaces; 10 of 10 headings at 11.83:1 |
+
+### What these waves also changed about how the work is checked
+
+- **`census-phone-tables.cjs`** and **`census-light-surfaces-in-dark.cjs`** are committed. Both
+  answer a RENDERED question that the matching source census cannot: which tables the merchant
+  actually meets stacked, and which surfaces the browser actually paints light.
+- **The design-system asset cache key is derived from the file's bytes.** It was a hand-typed
+  `?v=p02-N` in **four** places, and the sign-in page was still on `p02-7` while the merchant
+  shell had reached `p02-10` — a merchant signing in was served a stylesheet seven waves old.
+- **`.ss-table--stack` was dead and broken.** Zero users, and three defects Wave 28 had learned by
+  measurement (`thead` removed rather than clipped, an attribute nothing writes, no ARIA roles).
+  It is now GENERATED from the Wave 28 block by `sync-stack-block.py`, with a test asserting the
+  two declaration sets stay identical.
+- **`data-ss-admin`** marks the merchant shell, so the design system can reach a host element
+  appended to `<body>` outside every `.ss-` container without widening the scope test's
+  allowlist, and without the repair reaching checkout or the public website.
+
+### Measured, recorded, and deliberately NOT fixed
+
+| | measurement | why |
+|---|---|---|
+| `/finance` ledger at 768–1024px | still overflows by 433px down to 177px | a column-count question for the ledger's design, not a layout one |
+| `/order` "Shipping Method" label | wraps — 98px in a 94px column | the percentage that clears it by 4px is fitted to one English string |
+| toast placement in Arabic | `left=1040` in a 1440 viewport, top-right in both directions | already on record; `right:4px` lives in the SHA-pinned plugin |
+| toast dismiss control | 16×16, under SC 2.5.8's 24×24 | the spacing exception needs an analysis not yet done |
+| `GET /currency-rates` | 500, `View [currency_rates.index] not found` | the twin of a finding whose recorded decision is that removal is an owner scope call |
+
+### And five hypotheses of mine that measurement refuted
+
+Recorded because each one would otherwise have shipped as a "fix" or a false finding: a status
+chip read as clipped and measured 8–9px INSIDE its cell (twice); a chip-wrap rule whose
+counterfactual showed 111px either way, so it was deleted; a probe multiplying by a hard-coded
+0.4 from before the change it was measuring; "14 of 14 white fields on `/coupon/create`", which
+was a bare AJAX fragment no merchant ever sees; and three of five merchant 500s that are SQLite
+standing in for MySQL and work in production.
