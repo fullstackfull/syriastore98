@@ -741,3 +741,36 @@ any geometry, must not move the container, and must not reach the phone arm — 
 seen to redden.
 
 
+### F-DESIGN-14 — a demo footer naming a stranger, with four dead links, renders on five LandingPage screens
+
+Found while measuring the merchant footer for P2.5-PKG-A-08. **Recorded, not repaired, because the
+only surfaces it reaches belong to Phase 03.**
+
+`resources/views/partision/footer.blade.php` is first-party and reads, verbatim:
+
+```
+© 2021, made with by Joseph for a better web.
+Joseph William | About Us | Blog | Library        (four links, every href="javascript:")
+```
+
+A person's name who is not connected to this product, a copyright year five years stale, four
+controls that go nowhere, and not one string translated.
+
+**WHO SEES IT, measured rather than assumed.** My first reading was that it is dead: no view under
+`resources/views/` extends `layouts.main`, which is the only thing that includes it. That reading
+was wrong, and it was wrong because the search did not cover `packages/`. **Five vendored
+LandingPage views do extend it** — `change_blocks`, `qr_code`, `pwa`, `custom` and `seo` — so the
+footer renders on all five.
+
+**Why it is not repaired here.** Those five are storefront and marketing screens: Phase 03 by the
+approved plan, and Phase 02 "keeps its original Merchant Experience scope… Phase 2.5, 03 and 06 are
+separate and must not be started during it". The partial itself is first-party, so repairing it
+needs no vendored edit and is cheap — but it would be Phase 03 work done during Package A.
+
+**What a repair looks like when that phase opens:** the admin's own live footer,
+`partision/footerlink.blade.php`, already renders the year and the store's `footer_text` setting
+with `config('app.name')` behind it. Pointing `layouts/main` at that same partial would delete the
+demo text, the stranger's name and the four dead links in one line, and would give those screens
+the merchant footer's translation and contrast for free.
+
+

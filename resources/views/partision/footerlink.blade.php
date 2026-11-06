@@ -13,7 +13,23 @@
                 @endif
 
                 {{ date('Y') }}
-                {{ isset($setting['footer_text']) ? $setting['footer_text'] : config('app.name', 'E-CommerceGo') }}  </span>
+                {{-- THE LAST FALLBACK NAMED THE VENDOR'S PRODUCT, and changing it is HYGIENE
+                     RATHER THAN A REPAIR -- measured, not assumed. `config('app.name', X)`
+                     applies X only when the KEY IS ABSENT, and `config/app.php` always defines
+                     it, so the old 'E-CommerceGo' could never reach a merchant's screen:
+                     setting `app.name` to null and reading it back returns null, not the
+                     default. It is changed because a vendor's product name sitting in this
+                     repository's branding path is wrong even when unreachable, and D-40 settled
+                     that there is one brand.
+
+                     THE ACTUAL REPAIR IS IN `.env.example`, which shipped `APP_NAME=Laravel` and
+                     is what a fresh install copies -- so every new deployment rendered the
+                     FRAMEWORK's name in its merchant footer. Measured: with APP_NAME="Store
+                     Syria" the same expression yields "Store Syria". `.env.testing` already
+                     carried the right value, which is how the discrepancy showed.
+
+                     The store's own `footer_text` setting still wins over all of it. --}}
+                {{ isset($setting['footer_text']) ? $setting['footer_text'] : config('app.name', 'Store Syria') }}  </span>
          </div>
      </div>
  </footer>
