@@ -266,21 +266,34 @@ VERIFIED = {
     #     breadcrumb component supplies that item for all 107 merchant screens.
     #
     # WHAT IS DELIBERATELY NOT CLAIMED, and why:
-    #   'Footer + script bundle'  it WAS cropped in all four combinations and its contrast
-    #       measured clean (6.14 light / 6.72 dark, on the span that owns the text). But the
-    #       captures read "Laravel 2026": this container's `.env` predates P2.5-PKG-A-08, which
-    #       fixed `.env.example`, so the evidence does not show what a correct install renders.
-    #       Claiming the row on a capture of the wrong string would be the overclaim this matrix
-    #       exists to prevent.
-    #   'Merchant admin layout (the shell itself)'  still covers the header, the footer bundle,
-    #       the palette and the page-header mechanism together; three of those are now verified
-    #       and the footer is not, so the row is not yet whole.
     #   'Design-system opt-in partial'  only its skip link was exercised. One control is not the
     #       partial.
+    #
+    # TWO ROWS THAT WERE WITHHELD MID-SLICE AND THEN EARNED, each because the reason for
+    # withholding them was removed rather than argued away:
+    #
+    #   'Footer + script bundle'  the first captures read "Laravel 2026" -- this container's
+    #       `.env` carried APP_NAME=Laravel while `.env.example`, which a fresh install copies,
+    #       carries "Store Syria" since P2.5-PKG-A-08. The evidence was of an environment, not of
+    #       the product. The container's gitignored `.env` was aligned with the shipped example
+    #       and the four captures re-taken; they now read "2026 Store Syria" at 6.14 light /
+    #       6.72 dark. AND THE ROW NAMES A BUNDLE, which a crop cannot answer: the drive also
+    #       records script errors, script/stylesheet failures and any 404 outside a NAMED list of
+    #       three already-recorded findings, with a floor on real responses so that "nothing
+    #       failed" cannot be true of a drive that fetched nothing. 35 scripts, 0 errors.
+    #
+    #   'Merchant admin layout (the shell itself)'  the row covers the sidebar, header, page
+    #       header, breadcrumb, footer and bundle TOGETHER. Each is now separately verified
+    #       (A-02, A-06, A-07, A-09), but a union of component crops is an argument, not a
+    #       picture of the thing the row names -- so the shell is captured whole, in all four
+    #       combinations, with every premise asserted on the same drive.
+    # ----------------------------------------------------------------------------------------
     # ----------------------------------------------------------------------------------------
     'Workspace chip (store switcher, sidebar)': ('PREMIUM VERIFIED', 'pkg-a-09', 'chip__', 'P2.5-PKG-A-09'),
     'Breadcrumb component': ('REDESIGNED AND VERIFIED', 'pkg-a-09', 'breadcrumb__', 'P2.5-PKG-A-09'),
     'Page-header component': ('PREMIUM VERIFIED', 'pkg-a-09', 'pageheader__', 'P2.5-PKG-A-09'),
+    'Footer + script bundle': ('PREMIUM VERIFIED', 'pkg-a-09', 'footer__', 'P2.5-PKG-A-09'),
+    'Merchant admin layout (the shell itself)': ('REDESIGNED AND VERIFIED', 'pkg-a-09', 'layout__', 'P2.5-PKG-A-09'),
 }
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.

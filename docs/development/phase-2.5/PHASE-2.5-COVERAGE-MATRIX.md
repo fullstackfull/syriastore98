@@ -9,11 +9,11 @@ hand-maintained matrix is precisely how that happens.
 
 | state | count | of 295 |
 |---|---:|---:|
-| PREMIUM VERIFIED | 17 | 5.8% |
-| REDESIGNED AND VERIFIED | 23 | 7.8% |
+| PREMIUM VERIFIED | 18 | 6.1% |
+| REDESIGNED AND VERIFIED | 24 | 8.1% |
 | BLOCKED | 9 | 3.1% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 245 | 83.1% |
+| PENDING | 243 | 82.4% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -39,7 +39,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | Customers and customer management | 20 | 0 | 3 | 0 | 0 | 17 |
 | ORDERS | 17 | 0 | 3 | 3 | 0 | 11 |
 | PRODUCTS | 16 | 1 | 2 | 1 | 0 | 12 |
-| Merchant admin NAVIGATION SHELL | 13 | 3 | 6 | 0 | 0 | 4 |
+| Merchant admin NAVIGATION SHELL | 13 | 4 | 7 | 0 | 0 | 2 |
 | Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 3 | 0 | 0 | 10 |
 | Merchant dashboard and KPI presentation | 9 | 0 | 2 | 0 | 1 | 6 |
 
@@ -357,7 +357,7 @@ actually been done to it since. They are different questions and the matrix keep
 
 | surface | route / kind | audit | state | evidence or reason |
 |---|---|---|---|---|
-| Merchant admin layout (the shell itself) | ``partial/component — the layout for the 85 merchant views that` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Merchant admin layout (the shell itself) | ``partial/component — the layout for the 85 merchant views that` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-PKG-A-09; four captures under evidence/pkg-a-09/ |
 | Sidebar (navigation rail) | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-PKG-A-02; four captures under evidence/package-a/ |
 | Sidebar nav tree (items + submenus) | ``partial/component (recursive @include of itself)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-A-02; four captures under evidence/package-a/ |
 | Sidebar navigation zones (group headings) | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-PKG-A-02; four captures under evidence/package-a/ |
@@ -368,7 +368,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Page-header component | ``partial/component`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-A-09; four captures under evidence/pkg-a-09/ |
 | Notifications (the bell's destination) | ``GET /merchant-notifications`` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Settings popup (vendored, inert) | ``partial/component — included by layouts/app.blade.php:573 on ` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Footer + script bundle | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Footer + script bundle | ``partial/component`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-A-09; four captures under evidence/pkg-a-09/ |
 | Design-system opt-in partial | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 
 ### Stock/inventory reporting + finance/wallet/payout screens

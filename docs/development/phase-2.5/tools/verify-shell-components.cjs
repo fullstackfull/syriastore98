@@ -30,6 +30,13 @@
  * counted in `imageBacked` and EXCLUDED from the contrast verdict rather than given a number
  * that was never measured.
  *
+ * THE FOOTER ROW IS "FOOTER + SCRIPT BUNDLE", so a crop does not answer it. The drive records
+ * what the browser reports -- a script that threw, a script or stylesheet that never arrived, and
+ * any 404 outside a NAMED list of three that are already recorded findings (F-DESIGN-12's
+ * `themes/` path, F-DESIGN-7's `storage/uploads/`, and one dev-fixture image). A fourth 404 fails
+ * the check rather than hiding inside a blanket allowance. Each drive is also pinned to a floor of
+ * real responses, because "no failed request" is trivially true of a drive that made none.
+ *
  * usage: node docs/development/phase-2.5/tools/verify-shell-components.cjs [--out DIR]
  */
 const { chromium } = require('playwright');
@@ -246,6 +253,7 @@ const INSTRUMENT = () => {
   // --- sidebar band, for the overlap test. Error (3): a band, not an edge. ---
   const sb = document.querySelector('.dash-sidebar');
   if (sb) { const r = sb.getBoundingClientRect(); out.sidebarBand = [Math.round(r.left), Math.round(r.right)]; }
+  out.scripts = document.querySelectorAll('script[src]').length;
   out.overflow = document.documentElement.scrollWidth - document.documentElement.clientWidth;
   return out;
 };
@@ -255,6 +263,35 @@ const INSTRUMENT = () => {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await ctx.newPage();
+  // THE ROW IS "FOOTER + SCRIPT BUNDLE", AND A CROP SAYS NOTHING ABOUT A BUNDLE.
+  // The footer's own markup is three lines; the thing that row really covers is the stack of
+  // scripts the layout closes with. So the drive records what the browser reports: a script that
+  // threw, and a request that never arrived. A 404 on a bundled asset is silent in a screenshot
+  // and loud in a merchant's console -- this phase has already found one (the ApexCharts
+  // initialiser and its public/assets 404).
+  // THE HTTP CACHE MADE THIS MEASUREMENT A LIE ON THREE OF FOUR ROWS. A 404 is cached like any
+  // other response, so the three missing images were reported on the first drive and on no other;
+  // combinations two to four read "none" and would have passed a page that still asks for files
+  // that are not there. Disabling the cache makes each drive a real request.
+  const cdp = await ctx.newCDPSession(page);
+  await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
+
+  const consoleErrors = [];
+  const failedRequests = [];
+  page.on('pageerror', (e) => consoleErrors.push(String(e && e.message).slice(0, 160)));
+  page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text().slice(0, 160)); });
+  page.on('requestfailed', (r) => failedRequests.push(r.url().replace(BASE, '') + ' ' +
+    ((r.failure() && r.failure().errorText) || '')));
+  let responseCount = 0;
+  let imageCount = 0;
+  const seenUrls = new Set();
+  page.on('response', (r) => {
+    responseCount++;
+    const u = r.url().replace(BASE, '');
+    if (/\.(png|jpe?g|gif|svg|webp|ico)\b/i.test(u)) { imageCount++; seenUrls.add(u); }
+    if (r.status() >= 400) failedRequests.push(u + ' HTTP ' + r.status());
+  });
+
   await page.goto(BASE + '/login', { waitUntil: 'domcontentloaded' });
   await page.fill('input[name="email"]', 'merchant@example.test');
   await page.fill('input[name="password"]', 'password');
@@ -278,10 +315,66 @@ const INSTRUMENT = () => {
       { cwd: path.dirname(STATE_TOOL), encoding: 'utf8', env: DEV_ENV });
     if (!/\S/.test(stateOut)) throw new Error('state tool printed nothing -- it did not run');
     // /product carries the breadcrumb, the page header, the chip and the footer in one view.
+    consoleErrors.length = 0;
+    failedRequests.length = 0;
+    responseCount = 0;
+    imageCount = 0;
+    seenUrls.clear();
     await page.goto(BASE + '/product', { waitUntil: 'load' });
     await page.waitForTimeout(SETTLE);
 
     const m = await page.evaluate(INSTRUMENT);
+
+    // THE BUNDLE, SEPARATED FROM WHAT IS ALREADY ESCALATED.
+    // This row is "Footer + script bundle", so a script that threw or a script/stylesheet that
+    // never arrived FAILS it. Three images do 404 on this page, and all three are already
+    // recorded findings -- claiming them again here would double-count work that is waiting on
+    // someone else, and asserting zero 404s outright would make this row unpassable for a reason
+    // that is not its own. They are named instead, so a FOURTH one fails the check rather than
+    // hiding inside a blanket allowance.
+    const KNOWN_404 = [
+      // F-DESIGN-12: asset('themes/...') points outside the document root, 29 views affected.
+      /^\/themes\//,
+      // F-DESIGN-7: public/storage is a tracked regular file holding another machine's path.
+      /^\/storage\/uploads\//,
+      // a dev-fixture image from seed-dev-interaction-fixtures.php; not shipped, not a defect.
+      /^\/uploads\/\d+\/p2dev\//,
+    ];
+    const codeFailures = failedRequests.filter((u) => /\.(js|css|mjs)\b/.test(u));
+    const unknown404 = failedRequests.filter((u) => !KNOWN_404.some((re) => re.test(u)));
+    const scriptErrors = consoleErrors.filter((e) => !/Failed to load resource/.test(e));
+
+    ok(scriptErrors.length === 0,
+       `${tag} no script in the bundle throws (${scriptErrors.slice(0, 2).join(' | ') || 'none'})`);
+    ok(codeFailures.length === 0,
+       `${tag} every script and stylesheet arrives (${codeFailures.slice(0, 3).join(' | ') || 'none'})`);
+    ok(unknown404.length === 0,
+       `${tag} no unrecorded asset is missing (${unknown404.slice(0, 3).join(' | ') || 'none'})`);
+    ok(m.scripts > 0, `${tag} the layout really did load a script bundle (${m.scripts} scripts)`);
+    // ANTI-VACUITY, AND IT IS NOT DECORATION. "no failed request" is trivially true of a drive
+    // that made no request. The first version of this check reported the three known 404s on
+    // combination ONE and "none" on the other three, which looked like the cache and might have
+    // been a page that never asked. This pins the drive to a real number of real responses, so a
+    // silent pass is impossible: if a later drive stops fetching, the floor fails instead of the
+    // assertions above quietly succeeding.
+    ok(responseCount >= 20,
+       `${tag} the drive really fetched the page and its assets (${responseCount} responses)`);
+    // WHAT THE IMAGE COUNT SAYS, AND WHAT IT DOES NOT.
+    // Measured: the first drive fetches 8 images and three of them 404; every later drive fetches
+    // 3 and never asks for the avatar again. So the later drives' "no 404" is NOT four independent
+    // clean readings of the image set -- the page simply asks for less. The likeliest cause is
+    // Chromium's in-memory cache, which `Network.setCacheDisabled` does not clear, holding the
+    // failed entries for the session; that is NOT established here and is written down as a
+    // hypothesis rather than a finding. It does not weaken the checks this row is about: every
+    // drive made 69-117 real responses, and a script that throws or a script/stylesheet that does
+    // not arrive would be caught on any of them.
+    note(`${tag} images fetched: ${imageCount}; avatar re-requested: `
+       + [...seenUrls].some((u) => /avatar/.test(u)));
+    if (failedRequests.length) {
+      note(`${tag} known-missing assets, each already a recorded finding: ${failedRequests.join(' | ')}`);
+    }
+    consoleErrors.length = 0;
+    failedRequests.length = 0;
 
     // PREMISE: the combination asked for is the combination that rendered. A harness that
     // measured light twice has happened twice in this project.
@@ -383,6 +476,14 @@ const INSTRUMENT = () => {
       await el.screenshot({ path: file }).catch(() => note(`${tag} crop ${name}: screenshot failed`));
       if (!fs.existsSync(file)) throw new Error(`crop not written: ${file}`);
     }
+    // THE SHELL ITSELF, whole. The 'Merchant admin layout' row covers the sidebar, the header,
+    // the page header, the breadcrumb, the footer and the script bundle together, so it needs a
+    // capture of all of them at once -- the union of four component crops is an argument, not a
+    // picture of the thing the row names.
+    const shell = path.join(OUT, `layout__${tag}.png`);
+    await page.screenshot({ path: shell, fullPage: false });
+    if (!fs.existsSync(shell)) throw new Error('shell capture not written: ' + shell);
+
     // the chip OPEN, which is the state the row is really about
     await page.click('#ss-workspace-trigger').catch(() => {});
     await page.waitForTimeout(400);

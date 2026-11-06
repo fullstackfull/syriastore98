@@ -904,3 +904,52 @@ wrapping, Home/End, and `Escape` restoring focus to the trigger. The same run's 
 panel was misaligned with the chip was also false — measured, the two boxes are identical
 (25/229/204 in LTR, 1210/1415/205 in RTL). Both were eye-and-selector errors, and both were caught
 by measuring the thing itself rather than acting on the first reading.
+
+---
+
+### M-PKG-A-09b — the footer evidence needed the dev container's `.env` corrected, and that is not in the repository
+
+Recorded so the capture can be reproduced, and so nobody reads it as a change that shipped.
+
+P2.5-PKG-A-08 fixed `APP_NAME` in **`.env.example`**, which is the file a fresh install copies — it
+shipped `Laravel`, so every new deployment put the framework's name in its merchant footer. That fix
+is committed and tested.
+
+This container's own **`.env`** still carried `APP_NAME=Laravel`, because it predates that commit and
+`.env` is gitignored. So the first four footer captures read **"Laravel 2026"** — evidence about a
+stale environment, not about the product. The row was withheld for exactly that reason before being
+earned.
+
+The container's `.env` was then aligned with the shipped example and the captures re-taken; they read
+**"2026 Store Syria"** at 6.14:1 light and 6.72:1 dark. **To reproduce:** set `APP_NAME="Store Syria"`
+in `.env` (matching `.env.example`) before running `verify-shell-components.cjs`. Config is not cached
+in this container, so no `config:clear` is needed; if it ever is, that step comes first.
+
+**Nothing about this changes the product.** `.env` is not in the repository and never will be. The
+committed state was already correct; the dev environment was not.
+
+---
+
+### M-PKG-A-09c — "no failed request" was trivially true, and a 404 does not recur
+
+Two instrument corrections from the same drive, both of which would otherwise have produced a clean
+report about nothing.
+
+**The row names a bundle, so a crop cannot answer it.** "Footer + script bundle" was being argued
+from a picture of six words. The drive now records what the browser reports: a script that threw, a
+script or stylesheet that never arrived, and any 404 outside a **named** list of three — F-DESIGN-12's
+`themes/` path, F-DESIGN-7's `storage/uploads/`, and one dev-fixture image. A *fourth* 404 fails the
+check instead of disappearing into a blanket allowance. Result: 35 scripts, 0 errors, 0 code failures,
+in all four combinations.
+
+**And "nothing failed" is trivially true of a drive that fetched nothing.** The first version of this
+check reported the three known 404s on combination one and `none` on the other three, which looked
+like caching and might equally have been a page that stopped asking. Measuring instead of guessing:
+the first drive fetches **8** images and three of them 404; every later drive fetches **3** and never
+re-requests the avatar. So the later drives are *not* three independent clean readings of the image
+set. The likeliest cause is Chromium's in-memory cache, which `Network.setCacheDisabled` does not
+clear — written down as a **hypothesis, not a finding**, because it was not established.
+
+It does not weaken what the row is about: every drive made 69–117 real responses, and each is now
+pinned to a floor, so a drive that stops fetching fails the floor rather than passing the assertions
+above in silence.
