@@ -57,8 +57,17 @@ const SURFACES = [
   ['Attribute list', '/product-attributes'],
   ['Attribute create (modal)', '/product-attributes/create'],
   ['Attribute edit (modal)', '/product-attributes/{attribute}/edit'],
-  ['Attribute options (DS pilot)', '/attribute-option'],
-  ['Attribute option create (modal)', '/add-attribute-option'],
+  // BOTH OF THESE CARRIED THE WRONG URL AND READ AS "REFUSED" FOR IT.
+  // routes/web.php:984 and :986 are `add-attribute-option/{id?}` and `attribute-option/{id?}`,
+  // and the id is an ATTRIBUTE id (the method signature's bound ProductAttributeOption is
+  // misleading -- the controller says so itself). Requested WITHOUT an id, `show()` calls
+  // `ownedAttribute(null)`, which fails closed and returns `denied()` -- correct behaviour, and
+  // not a permission refusal. So the probe reported two surfaces as permission-gated when the
+  // permissions were held and active; it was asking for a URL that is not a surface. MEASURED
+  // after the fix: /attribute-option/1 renders "Attribute-Option" and /add-attribute-option/1
+  // returns the modal fragment.
+  ['Attribute options (DS pilot)', '/attribute-option/{attribute}'],
+  ['Attribute option create (modal)', '/add-attribute-option/{attribute}'],
   ['Tag list', '/tag'],
   ['Tag create (modal)', '/tag/create'],
   ['Tag edit (modal)', '/tag/{tag}/edit'],

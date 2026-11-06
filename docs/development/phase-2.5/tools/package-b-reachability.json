@@ -5,6 +5,11 @@
     "attribute": 1,
     "tag": 1,
     "label": 1,
+    "coupon": 3,
+    "flash": 3,
+    "question": 3,
+    "testimonial": 3,
+    "faq": 3,
     "product": 1
   },
   "rows": [
@@ -100,33 +105,33 @@
     },
     {
       "surface": "Attribute options (DS pilot)",
-      "route": "/attribute-option",
+      "route": "/attribute-option/1",
       "status": 200,
-      "landed": "/dashboard",
-      "shape": "REFUSED (back to dashboard)",
-      "title": "Store Syria - Dashboard",
-      "h1": "Dashboard",
-      "bodyKids": 55
+      "landed": "/attribute-option/1",
+      "shape": "PAGE",
+      "title": "Store Syria - Attribute-Option",
+      "h1": "Attribute-Option",
+      "bodyKids": 51
     },
     {
       "surface": "Attribute option create (modal)",
-      "route": "/add-attribute-option",
-      "status": 500,
-      "landed": "/add-attribute-option",
-      "shape": "HTTP 500",
-      "title": "Store Syria",
+      "route": "/add-attribute-option/1",
+      "status": 200,
+      "landed": "/add-attribute-option/1",
+      "shape": "FRAGMENT",
+      "title": "",
       "h1": null,
-      "bodyKids": 3
+      "bodyKids": 1
     },
     {
       "surface": "Tag list",
       "route": "/tag",
       "status": 200,
-      "landed": "/dashboard",
-      "shape": "REFUSED (back to dashboard)",
-      "title": "Store Syria - Dashboard",
-      "h1": "Dashboard",
-      "bodyKids": 55
+      "landed": "/tag",
+      "shape": "PAGE",
+      "title": "Store Syria - Tag",
+      "h1": "Tag",
+      "bodyKids": 58
     },
     {
       "surface": "Tag create (modal)",
@@ -192,83 +197,91 @@
       "surface": "Coupon create (modal)",
       "route": "/coupon/create",
       "status": 200,
-      "landed": "/dashboard",
-      "shape": "REFUSED (back to dashboard)",
-      "title": "Store Syria - Dashboard",
-      "h1": "Dashboard",
-      "bodyKids": 55
+      "landed": "/coupon/create",
+      "shape": "FRAGMENT",
+      "title": "",
+      "h1": null,
+      "bodyKids": 2
     },
     {
       "surface": "Coupon detail",
-      "route": "/coupon/{coupon}",
-      "status": null,
-      "landed": null,
-      "shape": "NO FIXTURE",
-      "note": "no row for: coupon"
+      "route": "/coupon/3",
+      "status": 200,
+      "landed": "/coupon/3",
+      "shape": "PAGE",
+      "title": "Store Syria - Coupon Detail",
+      "h1": "Coupon Detail",
+      "bodyKids": 59
     },
     {
       "surface": "Coupon edit (modal)",
-      "route": "/coupon/{coupon}/edit",
-      "status": null,
-      "landed": null,
-      "shape": "NO FIXTURE",
-      "note": "no row for: coupon"
+      "route": "/coupon/3/edit",
+      "status": 200,
+      "landed": "/coupon/3/edit",
+      "shape": "FRAGMENT",
+      "title": "",
+      "h1": null,
+      "bodyKids": 3
     },
     {
       "surface": "Flash sale list",
       "route": "/flash-sale",
       "status": 200,
-      "landed": "/dashboard",
-      "shape": "REFUSED (back to dashboard)",
-      "title": "Store Syria - Dashboard",
-      "h1": "Dashboard",
-      "bodyKids": 57
+      "landed": "/flash-sale",
+      "shape": "PAGE",
+      "title": "Store Syria - Flash Sale",
+      "h1": "Flash Sale",
+      "bodyKids": 59
     },
     {
       "surface": "Flash sale create (modal)",
       "route": "/flash-sale/create",
       "status": 200,
-      "landed": "/dashboard",
-      "shape": "REFUSED (back to dashboard)",
-      "title": "Store Syria - Dashboard",
-      "h1": "Dashboard",
-      "bodyKids": 55
+      "landed": "/flash-sale/create",
+      "shape": "FRAGMENT",
+      "title": "",
+      "h1": null,
+      "bodyKids": 7
     },
     {
       "surface": "Flash sale edit (modal)",
-      "route": "/flash-sale/{flash}/edit",
-      "status": null,
-      "landed": null,
-      "shape": "NO FIXTURE",
-      "note": "no row for: flash"
+      "route": "/flash-sale/3/edit",
+      "status": 200,
+      "landed": "/flash-sale/3/edit",
+      "shape": "FRAGMENT",
+      "title": "",
+      "h1": null,
+      "bodyKids": 7
     },
     {
       "surface": "Product question list",
       "route": "/product-question",
       "status": 200,
-      "landed": "/dashboard",
-      "shape": "REFUSED (back to dashboard)",
-      "title": "Store Syria - Dashboard",
-      "h1": "Dashboard",
-      "bodyKids": 55
+      "landed": "/product-question",
+      "shape": "PAGE",
+      "title": "Store Syria - Product Question",
+      "h1": "Product Question",
+      "bodyKids": 58
     },
     {
       "surface": "Product question reply (modal)",
-      "route": "/product-question/{question}/edit",
-      "status": null,
-      "landed": null,
-      "shape": "NO FIXTURE",
-      "note": "no row for: question"
+      "route": "/product-question/3/edit",
+      "status": 200,
+      "landed": "/product-question/3/edit",
+      "shape": "FRAGMENT",
+      "title": "",
+      "h1": null,
+      "bodyKids": 1
     },
     {
       "surface": "Testimonial list",
       "route": "/testimonial",
       "status": 200,
-      "landed": "/dashboard",
-      "shape": "REFUSED (back to dashboard)",
-      "title": "Store Syria - Dashboard",
-      "h1": "Dashboard",
-      "bodyKids": 55
+      "landed": "/testimonial",
+      "shape": "PAGE",
+      "title": "Store Syria - Testimonial",
+      "h1": "Testimonial",
+      "bodyKids": 59
     },
     {
       "surface": "Testimonial create (modal)",
@@ -282,21 +295,23 @@
     },
     {
       "surface": "Testimonial edit (modal)",
-      "route": "/testimonial/{testimonial}/edit",
-      "status": null,
-      "landed": null,
-      "shape": "NO FIXTURE",
-      "note": "no row for: testimonial"
+      "route": "/testimonial/3/edit",
+      "status": 200,
+      "landed": "/testimonial/3/edit",
+      "shape": "FRAGMENT",
+      "title": "",
+      "h1": null,
+      "bodyKids": 1
     },
     {
       "surface": "FAQ list",
       "route": "/faqs",
       "status": 200,
-      "landed": "/dashboard",
-      "shape": "REFUSED (back to dashboard)",
-      "title": "Store Syria - Dashboard",
-      "h1": "Dashboard",
-      "bodyKids": 55
+      "landed": "/faqs",
+      "shape": "PAGE",
+      "title": "Store Syria - FAQs",
+      "h1": "FAQs",
+      "bodyKids": 58
     },
     {
       "surface": "FAQ create (modal)",
@@ -310,11 +325,13 @@
     },
     {
       "surface": "FAQ edit (modal, repeater)",
-      "route": "/faqs/{faq}/edit",
-      "status": null,
-      "landed": null,
-      "shape": "NO FIXTURE",
-      "note": "no row for: faq"
+      "route": "/faqs/3/edit",
+      "status": 200,
+      "landed": "/faqs/3/edit",
+      "shape": "FRAGMENT",
+      "title": "",
+      "h1": null,
+      "bodyKids": 4
     },
     {
       "surface": "Product list",

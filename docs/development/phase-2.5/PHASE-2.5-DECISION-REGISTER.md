@@ -1754,3 +1754,97 @@ after), which establishes two things for free: the harness is deterministic acro
 changed between `d6d25a1b` and `014da134` — the `.ss-text-danger` markup sweep and the four ds.css
 regions included — altered those two modals in any of the four combinations. Only the 8 new
 brand/label captures are new content.
+
+---
+
+### M-PKG-B-03 — all 37 Package B surfaces are now reachable; two of the three blockers were mine
+
+**Status:** CLOSED. The reachability probe went from **PAGE=9 FRAGMENT=13 REFUSED=9 NO-FIXTURE=6**
+to **PAGE=16 FRAGMENT=21, nothing refused, nothing unfixtured, no 500s.**
+
+Fifteen Package B surfaces had never been rendered in any locale or theme. None of the three causes
+was a product defect, and two of them were errors in my own instruments.
+
+#### 1. Nine "REFUSED" — seven were a real fixture gap, two were a wrong URL
+
+Seven needed permissions the dev merchant did not hold (`Manage Attributes Option`,
+`Create Attributes Option`, `Manage Tag`, `Create Coupon`, `Manage/Create Flash Sale`,
+`Manage Product Question`, `Manage Testimonial`, `Manage Faqs`, then `Edit Coupon`,
+`Edit Flash Sale`, `Edit Faqs`). Granted with `grant-dev-screen-permissions.php`. Correct
+behaviour throughout — and `brand-create` / `label-create` were refused by `@permission(...)` in
+the index views, which is correct *Laratrust*: `@permission` works here, `@can` never does.
+
+**The two attribute-option rows were my probe's fault.** It requested `/attribute-option` and
+`/add-attribute-option` with no id. Those routes are `{id?}`, the id is an **attribute** id, and
+`show()` calls `ownedAttribute(null)` which fails closed and returns `denied()` — correct
+behaviour, and *not* a permission refusal. The permissions were held and active the whole time.
+Measured after correcting the URL: `/attribute-option/1` renders, `/add-attribute-option/1` returns
+the fragment.
+
+#### 2. Six "NO FIXTURE" — `coupons`, `flash_sales`, `product_questions`, `testimonials` and `faqs` all held zero rows
+
+An edit modal with no row to edit cannot be driven at all. `seed-dev-interaction-fixtures.php` was
+extended with one tagged row per table, following the discipline that file already sets: idempotent
+(verified — a second run changes nothing), and `--remove` deletes exactly those rows and nothing
+else (verified — the five tables go to 0 while `products` 32, `categories` 4 and `customers` 3 are
+untouched). Each row is shaped for the surface rather than merely present: the product question is
+left **unanswered**, because an answered one renders no Reply control, and the coupon expiry is in
+the **future**, because an expired coupon renders a different state.
+
+#### 3. One HTTP 500 — and it was my fixture, not the product
+
+`/faqs/{id}/edit` answered **HTTP 500** at `faq/edit.blade.php:12`,
+`foreach() argument must be of type array|object, null given`. It read as a textbook defect: the
+view guards with `@if(!empty($faq->description))`, which tests for EMPTY and not for VALID JSON, so
+`json_decode()` returned null and `foreach(null)` threw.
+
+**The app cannot reach that state.** Driven, in this order:
+
+- `FaqController::store()` writes only `topic` and `store_id` — it never touches `description` — so
+  every FAQ created through the UI has `description` NULL. Driven: NULL renders **HTTP 200** via the
+  `@else` branch.
+- `FaqController::update()` writes `$request->kt_docs_repeater_basic`, and `repeater.js` rewrites
+  the field names on init to `kt_docs_repeater_basic[0][question]` / `[0][answer]` — read off the
+  opened modal, not assumed. Driven end to end through the modal: the stored value is
+  `[{"question":"…","answer":"…"}]`, valid JSON, and `edit()` then renders it at **HTTP 200**.
+
+So the only way prose gets into that column is by hand, which is what my first fixture did. The
+fixture now writes the shape `update()` writes, with **two** items, so the `@foreach` branch — the
+actual repeater, and the reason the surface is called "FAQ edit (modal, repeater)" — is exercised
+instead of the empty `@else` fallback. The seed tool now **exits non-zero** if that column does not
+decode to an array, so the same mistake cannot be made silently again.
+
+#### The pattern across all three
+
+Of the fifteen blocked surfaces, **thirteen were fixture or probe state and two were my own
+instruments reporting their own errors as product defects.** This is the third time in Package B:
+the modal harness asserted a markup shape another slice had measured away (M-PKG-B-02), and the
+census read an ownership assignment as an ownership check (F-SEC-02). The useful discipline is the
+one `grant-dev-screen-permissions.php` already documents — a screen the fixture cannot open answers
+with a *redirect to the dashboard*, which a harness records as HTTP 200 with the wrong title and a
+screenshot of the dashboard, and that is the single most dangerous reading this project can take,
+because it looks like evidence.
+
+#### A scratch probe nearly shipped, and the ratchet for it was DELIBERATELY NOT built
+
+`git add -A` swept `tests/Feature/Merchant/ZzScratchStockSortProbeTest.php` into the M-PKG-B-03
+commit. It was a diagnostic left from earlier in the session: four methods named `probe`,
+`controls`, `search debug` and `header affordance`, writing measurements to STDERR, and its only
+assertion was **`$this->assertTrue(true)`** — an assertion that cannot fail, which is the exact
+anti-pattern this project's TDD rule exists for. Removed from the (unpushed) commit and deleted.
+
+It passed, so the known-outcome gate would not have caught it, and
+`NoTrackedTestArtefactsTest` covers generated uploads and fixtures rather than scratch tests — so
+**nothing in CI would have stopped it.** Its measurement was real but not a finding: the product
+DataTable's columns are all `orderable=true` and `"ordering":false` is absent, i.e. the table sorts
+as intended.
+
+A ratchet against "a test method whose only assertion is `assertTrue(true)`" was considered and
+**rejected on measurement**. Five tracked files contain that call; four of them
+(`PlanActivationReplayGuardTest`, `StoredFilePathSafetyTest`, `NullTenantGuardCanaryTest`,
+`LynomiaAuditPreservationTest`) use it incidentally alongside between two and nine other assertion
+types, so a blanket ban would redden four passing tests and force unrelated edits. The only
+assertion-free file is `tests/Unit/ExampleTest.php` — **Laravel's shipped scaffolding**. So the
+ratchet would need an exemption for framework scaffolding in order to guard against one file that
+is already gone, and an exemption list on a hygiene check is the kind that rots into noise.
+Recorded rather than silently skipped.
