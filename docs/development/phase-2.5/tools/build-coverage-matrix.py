@@ -106,19 +106,54 @@ VERIFIED = {
     'Users / staff list (card grid)': ('REDESIGNED AND VERIFIED', 'wave-33', '_users__', 'P2.5-WAVE-33'),
 
     'Category list':                ('PREMIUM VERIFIED', 'wave-33', '_category__', 'P2.5-WAVE-33'),
-    'Delivery boys':                ('PREMIUM VERIFIED', 'wave-33', '_deliveryboy__', 'P2.5-WAVE-33'),
-    'FAQ list':                     ('PREMIUM VERIFIED', 'wave-33', '_faqs__', 'P2.5-WAVE-33'),
-    'Flash sale list':              ('PREMIUM VERIFIED', 'wave-33', '_flash_sale__', 'P2.5-WAVE-33'),
+    # 'Delivery boys' WAS HERE AND ITS EVIDENCE WAS FALSE. Removed 2026-11-06, so the surface
+    # falls back to PENDING, which is the truth: it has never been rendered.
+    # All four wave-33 captures (_deliveryboy__*) are screenshots of the DASHBOARD carrying a
+    # "Permission denied." toast -- the dev fixture could not open the screen, the refusal is a
+    # redirect(), and the harness recorded the landing page. Confirmed by eye on
+    # _deliveryboy__ar_rtl_light.png (Arabic dashboard, "تم رفض الإذن") and measured at 97.8-100%
+    # agreement with the dashboard by detect-refusal-toast-captures.py.
+    # DO NOT RE-ADD without captures that the detector passes.
+    # Repointed 2026-11-06: the wave-33 captures for this surface were the dashboard (see the
+    # 'Delivery boys' note above). These are real, taken after the dev fixture was granted
+    # `Manage Faqs` and a FAQ row was seeded.
+    'FAQ list':                     ('PREMIUM VERIFIED', 'pkg-b-pages', 'faqs__', 'P2.5-PKG-B'),
+    # Repointed 2026-11-06 for the same reason as 'FAQ list'. Real captures, taken after
+    # `Manage Flash Sale` was granted and a flash-sale row seeded.
+    'Flash sale list':              ('PREMIUM VERIFIED', 'pkg-b-pages', 'flash-sale__', 'P2.5-PKG-B'),
     "Notifications (the bell's destination)": ('PREMIUM VERIFIED', 'wave-33', '_merchant_notifications__', 'P2.5-WAVE-33'),
     'Attributes list':              ('PREMIUM VERIFIED', 'wave-33', '_product_attributes__', 'P2.5-WAVE-33'),
     'Brand list':                   ('PREMIUM VERIFIED', 'wave-33', '_product_brand__', 'P2.5-WAVE-33'),
     'Product label list':           ('PREMIUM VERIFIED', 'wave-33', '_product_label__', 'P2.5-WAVE-33'),
     'Product list (grid view)':     ('PREMIUM VERIFIED', 'wave-33', '_product_list__', 'P2.5-WAVE-33'),
-    'Product question list':        ('PREMIUM VERIFIED', 'wave-33', '_product_question__', 'P2.5-WAVE-33'),
+    # Repointed 2026-11-06: the wave-33 captures for this surface photograph a
+    # PERMISSION REFUSAL, not the screen (1.13-1.80% toast-red, confirmed by eye).
+    'Product question list':('PREMIUM VERIFIED', 'pkg-b-pages', 'product-question__', 'P2.5-PKG-B'),
     'Own profile (WorkDo)':         ('PREMIUM VERIFIED', 'wave-33', '_profile__', 'P2.5-WAVE-33'),
     'Roles list':                   ('PREMIUM VERIFIED', 'wave-33', '_roles__', 'P2.5-WAVE-33'),
-    'Tag list':                     ('PREMIUM VERIFIED', 'wave-33', '_tag__', 'P2.5-WAVE-33'),
-    'Testimonial list':             ('PREMIUM VERIFIED', 'wave-33', '_testimonial__', 'P2.5-WAVE-33'),
+    # Repointed 2026-11-06: the wave-33 captures for this surface photograph a
+    # PERMISSION REFUSAL, not the screen (1.13-1.80% toast-red, confirmed by eye).
+    'Tag list':('PREMIUM VERIFIED', 'pkg-b-pages', 'tag__', 'P2.5-PKG-B'),
+
+    # ---- P2.5-PKG-B: surfaces unblocked and driven 2026-11-06 -------------------------------
+    # Each was unreachable until the fixture gaps closed: five needed a `Manage *` permission,
+    # coupon-detail needed a coupon row to exist, and attribute-option needed the probe to stop
+    # asking for a URL with no id. 448 checks / 0 failed across all four combinations.
+    'Coupon detail':                ('PREMIUM VERIFIED', 'pkg-b-pages', 'coupon-detail__',
+                                     'P2.5-PKG-B', '/coupon/{coupon}'),
+    'Attribute options (DS pilot screen)': ('PREMIUM VERIFIED', 'pkg-b-pages', 'attribute-option__',
+                                     'P2.5-PKG-B'),
+    'Category create (modal)':      ('PREMIUM VERIFIED', 'pkg-b-modals', 'category-create__',
+                                     'P2.5-PKG-B'),
+    'Brand create (modal)':         ('PREMIUM VERIFIED', 'pkg-b-modals', 'brand-create__',
+                                     'P2.5-PKG-B'),
+    # NOT added, deliberately: 'Attribute create / edit (modals)' and
+    # 'Product label create / edit (modals)'. Those rows cover BOTH the create and the edit modal
+    # and only the create half was captured, so claiming them would overclaim the row.
+    # --------------------------------------------------------------------------------------------
+    # Repointed 2026-11-06: the wave-33 captures for this surface photograph a
+    # PERMISSION REFUSAL, not the screen (1.13-1.80% toast-red, confirmed by eye).
+    'Testimonial list':('PREMIUM VERIFIED', 'pkg-b-pages', 'testimonial__', 'P2.5-PKG-B'),
     'Users / staff list (table view)': ('PREMIUM VERIFIED', 'wave-33', '_user_list__', 'P2.5-WAVE-33'),
 
     # ----------------------------------------------------------------------------------------

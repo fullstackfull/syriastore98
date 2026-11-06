@@ -324,6 +324,26 @@ jobs:
         # not something to slip into a security sprint. It stays a documented manual run.
         run: python3 docs/design-system/tools/check-contrast.py public/css/store-syria-ds.css
 
+      - name: Evidence captures must not claim two surfaces with one picture
+        # P2.5-PKG-B. SIX surfaces were marked PREMIUM VERIFIED in the coverage matrix on captures
+        # that photograph a PERMISSION REFUSAL rather than the screen: FAQ list, Flash sale list,
+        # Delivery boys, Tag list, Testimonial list and Product question list. The dev fixture held
+        # no `Manage *` permission for any of them, a Laratrust refusal is `redirect()->back()`,
+        # and the sweep followed the redirect and photographed wherever it landed -- the dashboard,
+        # Stock Reports and the Product grid among the destinations.
+        #
+        # build-coverage-matrix.py checks that the four capture FILES EXIST. It cannot see what is
+        # inside them, so a refusal satisfies it perfectly. This is the half of that gap which
+        # costs nothing to close: pure Python 3, no pip install, no browser, no image library --
+        # it only hashes files. Within one wave's directory, two DIFFERENT surfaces that are
+        # pixel-identical mean the harness photographed one thing and filed it under two names.
+        #
+        # The thorough check, detect-refusal-toast-captures.py, finds a LONE impostor by looking
+        # for the refusal toast itself, but it needs Pillow. Adding an image library to every run
+        # is a dependency decision for the owner, exactly as the browser half of the design-system
+        # checks is, so it stays a documented manual run.
+        run: python3 docs/development/phase-2.5/tools/check-distinct-surface-captures.py
+
       - name: Cross-repo API contract - the shipped Flutter app must not be broken
         # The Flutter admin app pins its endpoint paths as constants compiled into a
         # binary already on merchants' phones. A server-side route rename silently

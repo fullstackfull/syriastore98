@@ -1900,3 +1900,92 @@ cited as current.
 
 All 64 come from **one run** of the tool that produced the numbers, so the pictures and the figures
 cannot disagree — the discipline WAVE-20 set.
+
+---
+
+### F-EVIDENCE-01 — SIX surfaces were marked PREMIUM VERIFIED on pictures of a permission refusal
+
+**Status:** CORRECTED, with two gates added so it cannot recur silently. **This is the most
+serious finding of Package B**, because it is not a defect in the product — it is a defect in the
+*evidence*, and the directive's §6 turns on evidence being true: *"Do not mark a screen premium
+simply because it renders successfully"*, *"Do not fabricate, duplicate or overclaim evidence."*
+
+#### What was wrong
+
+Six surfaces in `wave-33` carried four captures each that photograph a **permission refusal**
+rather than the screen claimed:
+
+| surface | what the capture actually shows |
+|---|---|
+| FAQ list | the **Dashboard** + "Permission denied." |
+| Flash sale list | the **Dashboard** + "Permission denied." |
+| Delivery boys | the **Dashboard** + "تم رفض الإذن" (AR) |
+| Tag list | **Stock Reports** + "Permission denied." |
+| Testimonial list | **Stock Reports** (byte-identical to Tag's) |
+| Product question list | the **Product grid** + "Permission denied." |
+
+All six were **PREMIUM VERIFIED** in the coverage matrix. The cause is the trap
+`grant-dev-screen-permissions.php` already documents: the dev fixture held no `Manage *`
+permission, a Laratrust refusal is `redirect()->back()`, and the sweep followed the redirect and
+photographed the landing page — *"the single most dangerous reading this project can take, because
+it looks like evidence."* `build-coverage-matrix.py` checks the capture **files exist**; it cannot
+see inside them, so a refusal satisfied it perfectly.
+
+Three more surfaces had the same false captures but were **not claimed** in the matrix
+(`_shipping__`, `_pos__`, `_shopify_product__`), so they were dead files rather than false claims.
+All 36 false captures are deleted: a file named `_faqs__en_ltr_light.png` that shows the dashboard
+is not evidence, it is the hazard.
+
+#### The correction
+
+Five of the six now point at **real** captures taken in this package after the permissions were
+granted and the fixture rows seeded (`evidence/pkg-b-pages/after/`). **`Delivery boys` has no real
+capture and is therefore back to PENDING** — which is the truth: it has never been rendered. The
+matrix reads 295 surfaces, PENDING 237, PREMIUM VERIFIED 24, REDESIGNED AND VERIFIED 24.
+
+#### Two gates, and the three wrong tools it took to get there
+
+Recorded because the dead ends are the useful part:
+
+1. **Whole-frame comparison against the dashboard: no separation at all.** Legitimate captures
+   scored 89.8–90.0% and the impostors 90.0–91.5%, because every merchant screen shares the
+   sidebar, header and background with the dashboard. At a 0.90 threshold it **accused about
+   thirty good captures**.
+2. **Content-region comparison against the dashboard: worked, but only for three of the six.**
+   `Tag list` and `Testimonial list` had landed on Stock Reports and `Product question list` on
+   the Product grid, because `back()` returns to whatever the sweep visited previously. A
+   destination-based detector cannot see those, and it did not.
+3. **Greyscale over the toast region: no separation either** — 93.6% for a legitimate footer
+   capture, because that region is mostly page background.
+
+What works is the **refusal toast's saturated red**, which is the one thing all six share whatever
+the destination. Calibrated by eye on both sides: confirmed refusals run **1.13–1.80%** toast-red
+in the top-right corner; the closest legitimate capture is `_coupon-empty__ar_rtl_light.png` at
+**0.47%**, whose red is the bulk-delete trash button in the Arabic empty state. The threshold sits
+in that gap.
+
+| tool | finds | dependency | wired |
+|---|---|---|---|
+| `check-distinct-surface-captures.py` | two surfaces filed with one picture, **within one wave** | none — hashes files | **CI, every push** |
+| `detect-refusal-toast-captures.py` | a **lone** impostor, by the toast itself | Pillow | manual |
+
+The second is not in CI because adding an image library to every run is a dependency decision for
+the owner — the same reason the design system's browser half stays manual.
+
+The first needed one narrowing, and it is structural rather than an exemption: the comparison is
+made **within one wave's directory**. Across waves two names legitimately describe one rendering —
+wave-16b captured `_customer_timeline_1__` as a surface and wave-16c captured `timeline-pills__` as
+the component verified on that same page, identical files and both correct. Every true positive was
+intra-wave.
+
+Both gates were **premise-tested**: restoring the `_tag__`/`_testimonial__` pair from git history
+makes the first report a collision and the second flag both files, and removing it returns both to
+clean.
+
+#### What a clean result does not mean
+
+Neither gate proves a capture shows the *right* screen. A redirect that produced no toast, a
+capture of the right screen in the wrong state, and a lone impostor in a wave where nothing else
+collides all still pass the CI half. **Every remaining wave-33 claim should be re-verified against
+a correctly-permissioned fixture before Phase 2.5 is presented for acceptance** — this finding says
+the sweep that produced them could not tell a refusal from a screen, not that the rest are wrong.

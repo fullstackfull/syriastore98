@@ -9,11 +9,11 @@ hand-maintained matrix is precisely how that happens.
 
 | state | count | of 295 |
 |---|---:|---:|
-| PREMIUM VERIFIED | 21 | 7.1% |
+| PREMIUM VERIFIED | 24 | 8.1% |
 | REDESIGNED AND VERIFIED | 24 | 8.1% |
 | BLOCKED | 9 | 3.1% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 240 | 81.4% |
+| PENDING | 237 | 80.3% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -31,8 +31,8 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
 | Flutter merchant admin app | 51 | 0 | 0 | 0 | 0 | 51 |
-| CATALOGUE taxonomy | 38 | 9 | 1 | 0 | 0 | 28 |
-| Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 4 | 3 | 1 | 0 | 30 |
+| CATALOGUE taxonomy | 38 | 13 | 1 | 0 | 0 | 24 |
+| Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 3 | 1 | 0 | 31 |
 | Phase 2.5 Wave A | 30 | 0 | 0 | 0 | 0 | 30 |
 | Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 0 | 1 | 0 | 25 |
 | Flutter merchant/employee admin app | 24 | 0 | 0 | 3 | 0 | 21 |
@@ -109,40 +109,40 @@ actually been done to it since. They are different questions and the matrix keep
 | surface | route / kind | audit | state | evidence or reason |
 |---|---|---|---|---|
 | Category list | ``GET /category`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
-| Category create (modal) | ``GET /category/create`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Category create (modal) | ``GET /category/create`` | premium-already | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-modals/ |
 | Category edit (modal) | ``GET /category/{category}/edit`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Category row actions | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Brand list | ``GET /product-brand`` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
-| Brand create (modal) | ``GET /product-brand/create`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Brand create (modal) | ``GET /product-brand/create`` | deficient | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-modals/ |
 | Brand edit (modal) | ``GET /product-brand/{productBrand}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Brand row actions | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Attributes list | ``GET /product-attributes`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Attribute create / edit (modals) | ``GET /product-attributes/create, GET /product-attributes/{id}/` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Attribute row actions | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Attribute options (DS pilot screen) | ``GET /attribute-option/{id?}`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Attribute options (DS pilot screen) | ``GET /attribute-option/{id?}`` | premium-already | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
 | Attribute option create / edit (modals) | ``GET /add-attribute-option/{id?}, GET /edit-attribute-option/{` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Tag list | ``GET /tag`` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
+| Tag list | ``GET /tag`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
 | Tag create / edit (modals) | ``GET /tag/create, GET /tag/{tag}/edit`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Tag row actions | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Product label list | ``GET /product-label`` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Product label create / edit (modals) | ``GET /product-label/create, GET /product-label/{id}/edit`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Product label row actions | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Coupon list | ``GET /coupon`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-2; four captures under evidence/wave-2/ |
-| Coupon detail | ``GET /coupon/{coupon}`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Coupon detail | ``GET /coupon/{coupon}`` | deficient | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
 | Coupon create (modal) | ``GET /coupon/create`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Coupon edit (modal) | ``GET /coupon/{coupon}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Coupon row actions | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Flash sale list | ``GET /flash-sale`` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
+| Flash sale list | ``GET /flash-sale`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
 | Flash sale status cell | ``partial/component`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Flash sale create (modal) | ``GET /flash-sale/create`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Flash sale edit (modal) | ``GET /flash-sale/{id}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Product question list | ``GET /product-question`` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
+| Product question list | ``GET /product-question`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
 | Product question reply (modal) | ``GET /product-question/{id}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Product question row actions | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Testimonial list | ``GET /testimonial`` | deficient | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
+| Testimonial list | ``GET /testimonial`` | deficient | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
 | Testimonial create / edit (modals) | ``GET /testimonial/create, GET /testimonial/{Testimonial}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Testimonial row actions | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| FAQ list | ``GET /faqs`` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
+| FAQ list | ``GET /faqs`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
 | FAQ create (modal) | ``GET /faqs/create`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | FAQ edit (modal, repeater) | ``GET /faqs/{faq}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | FAQ row actions | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
@@ -178,7 +178,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Shipping classes / zones / methods | ``GET /shipping, /shipping-zone, /shipping-method (+ free-shipp` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Taxes and tax methods | ``GET /taxes, /taxes/{id}, /taxes-method/create/{tax_option_id}` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Webhooks (create/edit modals) | ``GET /webhook/create, /webhook/{id}/edit -> POST\` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Delivery boys | ``GET /deliveryboy, /deliveryboy-list, /deliveryboy/reset-passw` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
+| Delivery boys | ``GET /deliveryboy, /deliveryboy-list, /deliveryboy/reset-passw` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Shopify import screens (product, category, sub_category, coupon, customer) | ``GET /shopify_product, /shopify_category, /shopify_sub_categor` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | WooCommerce import screens (product, category, coupon, customer) | ``GET /woocom_product, /woocom_category, /woocom_coupon, /wooco` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Pixel create/update (modals) | ``GET /pixel-setting/create, /pixel-setting/{id}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
