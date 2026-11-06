@@ -661,3 +661,53 @@ container runs, and how CI would run it — those URLs 404. The dashboard's them
 broken image in that state, which is how this was found.
 
 
+### F-DESIGN-13 — the merchant header scrolls away on every width EXCEPT the phone, and the obvious fix hides a control
+
+Found while measuring the header for P2.5-PKG-A-05. **Recorded with an attempted fix and its
+measured failure, because the failure is the useful part.**
+
+**THE DEFECT, measured on /dashboard by scrolling 1200px and reading the header's box:**
+
+| viewport | `position` | header after scrolling | page height |
+|---|---|---|---|
+| 1440px | `absolute` | y = **−1192 — gone** | 2738px |
+| 1200px | `absolute` | gone | 4171px |
+| 1024px | `absolute` | gone | 4112px |
+| 768px | `absolute` | gone | 4600px |
+| 390px | **`sticky`** | **y = 0 — still there** | 5814px |
+
+Seven to eight controls leave with it: notifications, the store switcher, Quick Add, the language
+switcher, the profile menu, the storefront link and the POS button. On pages two to five screens
+tall a merchant must scroll back to the top to reach any of them. **The phone is the one width
+where it stays**, which is the evidence that this was never a decision — screen space is scarcest
+there and the header is pinned; it is the wide screens with room to spare that lose it.
+
+**THE OBVIOUS FIX WAS TRIED AND MEASURED, AND IT HIDES A CONTROL.** Setting
+`position: sticky` works for the scrolling, and a second rule is needed for the 70px that only
+existed to clear an out-of-flow header (`.dash-container { position: relative; top: 70px }` —
+with the header back in the flow that becomes dead space: measured, the gap under the header grew
+from 20px to 90px). Both were applied and both behaved. Then the A/B on the real page:
+
+```
+BEFORE (absolute)   header x=255 w=1185   all 7 controls visible
+AFTER  (sticky)     header x=0   w=1440   "Hi, Amina Haddad!" at [20-222], BEHIND the sidebar
+                                           whose right edge is 255
+```
+
+`.dash-header` carries `left: 255px; width: 1440px`, written for the absolute case where `left`
+POSITIONS the box. Under `sticky`, `left` is only an offset constraint, so the box starts at its
+static position — x=0 — and keeps its declared width. The header is a SIBLING of `.dash-container`,
+not a child, so it does not inherit the container's `margin-left: 255px` either.
+
+**What a correct fix has to handle, none of which this slice could verify in the time it had:**
+the sidebar's width is not a constant (it collapses, and it becomes an off-canvas drawer below
+1025px), and in Arabic the sidebar is on the right, so a hard-coded inline-start offset is wrong in
+one direction or the other. The honest options are to move the header inside the container that
+already carries the offset, which is a markup change to the shell every admin page renders, or to
+drive the header's inline-start from the same variable the sidebar's width comes from.
+
+**The change was REVERTED and the tree left clean** — verified: `position` back to `absolute`,
+page height back to 2738px, `git status` empty. A half-fix that hides the profile menu is worse
+than the defect it repairs.
+
+
