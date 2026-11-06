@@ -155,7 +155,19 @@ const MEASURE = () => {
     ariaLabelledby: modal.getAttribute('aria-labelledby'),
     ariaLabel: modal.getAttribute('aria-label'),
     role: modal.getAttribute('role'),
-    // the recorded defect: .modal-footer nested inside a .row misaligns its divider
+    // RECORDED, NOT ASSERTED. `.modal-footer` nested in a `.row` is still the markup in 81
+    // views, and that is DELIBERATE: P2.5-WAVE-20 measured the real defect (the divider ran 12px
+    // wider than the field above it, because Bootstrap gives `.row > *` the 12px gutter while the
+    // footer keeps its own 16px, and `border-top` is drawn on the padding box) and corrected the
+    // BOX in custom.css / rtl-custom.css rather than restructuring 81 templates. Alignment is
+    // owned by `tests/Unit/Ui/ModalFooterDividerAlignmentTest` and measured by
+    // `measure-modal-footer-alignment.cjs`.
+    //
+    // An earlier revision of this harness ASSERTED !footerInRow and reported both opened modals as
+    // defective in all four combinations. That was a false positive: it tested a markup shape
+    // whose visual consequence another slice had already measured and removed. Reported here for
+    // context only -- duplicating an authoritative measurement with a weaker proxy is how a
+    // harness ends up contradicting a correct fix.
     footerInRow: !!dlg.querySelector('.row .modal-footer'),
     hasFooter: !!dlg.querySelector('.modal-footer'),
     worst, hidden, imaged, measured,
@@ -214,9 +226,21 @@ const MEASURE = () => {
       // calling it a modal is the shape of false evidence this project keeps finding.
       if (!m.open) { note(`${tag} ${name}: PREMISE FAILED -- no .modal.show, not measured`); continue; }
       ok(m.fields > 0, `${tag} ${name} modal really opened with fields (${m.fields}) "${m.title}"`);
-      ok(m.measured > 3, `${tag} ${name} measured ${m.measured} text nodes inside the dialog`);
-      ok(!m.footerInRow,
-         `${tag} ${name} .modal-footer is not nested in a .row (divider would misalign)`);
+      // A PREMISE CHECK ON THE INSTRUMENT, not a defect test -- and the threshold is now justified
+      // rather than picked. `measured` counts text nodes that survived the contrast filter, which
+      // is NOT the number of form fields: a field whose label is `Form::label('')` contributes no
+      // text node at all, and P2.5-WAVE-26 found 127 of those. So a low count means "this harness
+      // measured little here", which invalidates the contrast verdict below it, and says nothing
+      // about whether a field is missing. An earlier note of mine read a count of 3 as "only 3
+      // text nodes for 4 fields"; that conflated the two and was wrong.
+      //
+      // Floor of 2: every modal in this family renders at least a title and one button label, so
+      // fewer than 2 means the dialog did not really open and the run should not be trusted.
+      ok(m.measured >= 2,
+         `${tag} ${name} PREMISE: measured ${m.measured} text nodes, so the contrast verdict `
+         + 'below is meaningful (a low count invalidates it; it is not a missing-field signal)');
+      note(`${tag} ${name} .modal-footer nested in .row: ${m.footerInRow} `
+         + '(expected true -- alignment is owned by ModalFooterDividerAlignmentTest, see above)');
       ok(!!(m.ariaLabelledby || m.ariaLabel),
          `${tag} ${name} dialog has an accessible name (labelledby=${m.ariaLabelledby} label=${m.ariaLabel})`);
       if (m.worst) {

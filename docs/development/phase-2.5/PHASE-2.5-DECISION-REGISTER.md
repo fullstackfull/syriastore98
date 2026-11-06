@@ -1681,3 +1681,76 @@ name. The table beneath it was never the leak — `TaxMethodDataTable::query()` 
 `SettingsAndContentCrossTenantTest` 17 passed (12 failed on revert); `BrandCrossTenantReadWriteTest`
 9 passed; `ContentAndIntegrationRefusalNamesEveryFieldTest` 24 passed; Unit 1414 passed; Contract 27
 passed; `tests/Feature/Security` + `tests/Feature/Tenancy` **5326 passed, 1 declared skip**.
+
+---
+
+### M-PKG-B-02 — the two Package B modal "findings" were both instrument errors
+
+**Status:** CLOSED by measurement. Neither was a defect. Recorded because both were written down as
+findings and would otherwise have been "fixed".
+
+#### 1. `.modal-footer` nested inside a `.row` — a shape with no consequence
+
+`verify-package-b-modals.cjs` asserted `!dlg.querySelector('.row .modal-footer')` and reported
+**both** opened modals as defective in **all four** combinations. The markup really is nested, in
+**81 views**. But that is deliberate: **P2.5-WAVE-20** (`3a1f98f7`) measured the actual defect — the
+divider ran 12px wider than the field above it, because Bootstrap gives every `.row > *` the 12px
+gutter while `.modal-footer` keeps its own 16px, and `border-top` is drawn on the padding box — and
+corrected **the box** in `custom.css` / `rtl-custom.css` rather than restructuring 81 templates.
+
+So my harness tested a markup proxy for a property another slice already owned and had measured
+away. `tests/Unit/Ui/ModalFooterDividerAlignmentTest` **5 passed** on the current tree. The
+assertion is replaced by a `note()` that records the nesting and names the owning test.
+
+**The lesson, which is the reason this entry exists:** duplicating an authoritative measurement
+with a weaker proxy is how a harness ends up contradicting a correct fix. The census in F-SEC-02 hit
+the same class of error from the other direction.
+
+#### 2. "`attribute-create` measured only 3 text nodes for 4 fields" — a conflation in my own note
+
+`measured` counts text nodes that survived the **contrast filter**. It is not a field count. The
+same harness reports, on the same run, `attribute-create modal really opened with fields (4)` — the
+four fields are there. A field whose label is `Form::label('')` contributes no text node at all, and
+**P2.5-WAVE-26 found 127 of those**, so a low count is normal and says nothing about missing
+fields.
+
+The check is now a stated **premise check on the instrument** with a justified floor of 2 (every
+modal in this family renders at least a title and one button label, so fewer than 2 means the dialog
+did not really open and the contrast verdict above it is worthless).
+
+#### What the corrected harness actually measures
+
+**64 checks, 0 failed. 16 captures, 4 modals × 4 combinations**, under
+`evidence/pkg-b-modals/after/`.
+
+| modal | fields | worst text contrast (worst of 4 combinations) |
+|---|---|---|
+| category-create | 11 | 6.42:1 |
+| attribute-create | 4 | 6.54:1 |
+| brand-create | 9 | 12.93:1 |
+| label-create | 6 | 12.93:1 |
+
+All four carry an accessible name (`aria-labelledby=modelCommanModelLabel`).
+
+#### The remaining note is a fixture gap, not a defect
+
+`brand-create` and `label-create` showed "no VISIBLE trigger" until the dev merchant was granted
+`Create Product Brand` / `Create Product Label` — both index views wrap the trigger in
+`@permission(...)`, which is correct behaviour and correct Laratrust (`@permission` works here;
+`@can` does not). Granted with `grant-dev-screen-permissions.php`, both modals then opened and
+passed. `coupon-create` still has no visible trigger and that is also correct: `/coupon/create` is
+permission-refused for this fixture.
+
+**This is the trap `grant-dev-screen-permissions.php` exists for:** a screen the fixture role cannot
+open answers with a *redirect to the dashboard*, so a harness records HTTP 200 with the wrong title
+and a screenshot of the dashboard. Four Package B surfaces were "no visible trigger" for exactly
+this reason and none of them was a defect.
+
+#### An unplanned reproducibility check, worth keeping
+
+The category and attribute captures were already committed in `d6d25a1b`. Re-running the harness
+regenerated them **byte-identically** (sha256 `3410d4e4195b8920…` and `aa5d55f8414e8432…` before and
+after), which establishes two things for free: the harness is deterministic across runs, and nothing
+changed between `d6d25a1b` and `014da134` — the `.ss-text-danger` markup sweep and the four ds.css
+regions included — altered those two modals in any of the four combinations. Only the 8 new
+brand/label captures are new content.
