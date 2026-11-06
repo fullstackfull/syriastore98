@@ -223,6 +223,41 @@ It is *pinned* instead: `test_the_index_route_is_still_the_known_broken_one` ass
 `view()->exists('otp.integration')` is **false**, and its failure message tells whoever fixes it to
 come and delete the test and this section. A known-broken route that nothing checks is folklore.
 
+### 4.2a Its twin, found two days later: `GET /currency-rates`
+
+Added 2026-11-06. **Not part of the OTP census** — found by P2.5-WAVE-29's phone-table census,
+which drove 73 merchant routes signed in as a merchant and recorded each status. Five answered
+500; three were SQLite standing in for MySQL (`regexp`, `MONTH`, `SUBSTRING_INDEX` — environment,
+not defects, and they work in production). Two were the same shape as §4.2, and only one of the
+two was on record.
+
+```
+view()->exists('currency_rates.index')   =>  FALSE
+GET /currency-rates  (signed-in merchant) =>  500  "View [currency_rates.index] not found"
+```
+
+`CurrencyRateController::index()` (`app/Http/Controllers/CurrencyRateController.php:17`) returns
+`view('currency_rates.index', compact('currencies'))`, and no such view exists. The route is
+registered and `auth`-protected (`routes/web.php:198-201`).
+
+**Nothing links to it.** The live UI is the Settings screen's currency tab,
+`resources/views/setting/currency_setting.blade.php`, whose form posts to
+`route('currency-rates.update', $currency->id)` at `:232` — the POST twin of the same controller,
+which works and is permission-gated (`StoreSettingsAccess::permits`). So the exposure is a deep
+link or a bookmark, not a screen a merchant navigates to. That is a smaller claim than "a merchant
+screen is broken", and it is the accurate one.
+
+**Not fixed here, for the reason §4.2 was not.** Both honest repairs — point `index()` at the
+Settings tab, or drop the route and the method — change what a registered route does, and the
+recorded decision on the twin is that removing a method is a scope decision for the owner.
+Re-deciding that because a second instance turned up would be the quiet scope widening the
+decision exists to prevent.
+
+Pinned by `tests/Feature/Security/KnownUnrenderableRoutesTest`, which asserts
+`view()->exists('currency_rates.index')` is **false** *and* that the route still exists and still
+carries `auth` — so it cannot pass by pinning nothing. Whoever fixes it is told by the failure
+message to delete the test and this section.
+
 ### 4.3 What the census found gated, and what it proves
 
 | writer | state |
