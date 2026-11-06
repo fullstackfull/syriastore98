@@ -6,8 +6,8 @@
     "customer": 1,
     "cartCustomer": 3,
     "wishlist": 10,
-    "orderEnc": "eyJpdiI6IlFrRi90ZGhaSTgrenVzRDNSY0J4K2c9PSIsInZhbHVlIjoiTDQydnVhMW9xU2pRNTBQc014RHNwdz09IiwibWFjIjoiNDJlMjdiMzVjZTk4YTA0YWRhNmZiODdkMTAyYzRkYzI0ZWEwZWExNTliNDkyOGZiYzlmZGY0ZGY4NDVmZDNjMSIsInRhZyI6IiJ9",
-    "refundEnc": "eyJpdiI6Ii9SWHBWc091Y2JQaktpK3RRNkhGSmc9PSIsInZhbHVlIjoiaWtwd2J1M01WRTBVRms5d1JwVGkvUT09IiwibWFjIjoiNGY0ZWMxODA5ZjZkNGY3NTMzNGIyOWFlOTgyNTU5YzY4NTBkOTYwMDIyNTY0ZTIwZDEzZDljZjZjOGFjNWQxYSIsInRhZyI6IiJ9"
+    "orderEnc": "eyJpdiI6Ii8vaTVsSEF4eHRxY2xSNUc1OEFGUkE9PSIsInZhbHVlIjoiVzhJeDhudnRJYyt0bWtHK2NzeXdyZz09IiwibWFjIjoiNjU5ZmQxMjZiZmEwNGQyNWFhYmIyOTBmMjAxYzE2YjUyMjQ4ZjdjMmMwNjFlMmU5YThkNDYxZDVhZWFjZmIzZCIsInRhZyI6IiJ9",
+    "refundEnc": "eyJpdiI6IndSVlhZTStzSHFUK2FyNmJFckhaSGc9PSIsInZhbHVlIjoiSnpDejJMWlhibERhNXFSTWR4L29KUT09IiwibWFjIjoiNWRiM2EwNTRlNzUzNDcwZDU0M2RhNjkzNDQzZDFkMWRjOTQ2OTMxZDUzOTRmOGI1NWEwYWIyY2RkOGE0YTlkNSIsInRhZyI6IiJ9"
   },
   "rows": [
     {
@@ -45,9 +45,9 @@
     },
     {
       "surface": "Order detail (CONTROL, verified)",
-      "route": "/order-view/eyJpdiI6IlFrRi90ZGhaSTgrenVzRDNSY0J4K2c9PSIsInZhbHVlIjoiTDQydnVhMW9xU2pRNTBQc014RHNwdz09IiwibWFjIjoiNDJlMjdiMzVjZTk4YTA0YWRhNmZiODdkMTAyYzRkYzI0ZWEwZWExNTliNDkyOGZiYzlmZGY0ZGY4NDVmZDNjMSIsInRhZyI6IiJ9",
+      "route": "/order-view/eyJpdiI6Ii8vaTVsSEF4eHRxY2xSNUc1OEFGUkE9PSIsInZhbHVlIjoiVzhJeDhudnRJYyt0bWtHK2NzeXdyZz09IiwibWFjIjoiNjU5ZmQxMjZiZmEwNGQyNWFhYmIyOTBmMjAxYzE2YjUyMjQ4ZjdjMmMwNjFlMmU5YThkNDYxZDVhZWFjZmIzZCIsInRhZyI6IiJ9",
       "status": 200,
-      "landed": "/order-view/eyJpdiI6IlFrRi90ZGhaSTgrenVzRDNSY0J4K2c9PSIsInZhbHVlIjoiTDQydnVhMW9xU2pRNTBQc014RHNwdz09IiwibWFjIjoiNDJlMjdiMzVjZTk4YTA0YWRhNmZiODdkMTAyYzRkYzI0ZWEwZWExNTliNDkyOGZiYzlmZGY0ZGY4NDVmZDNjMSIsInRhZyI6IiJ9",
+      "landed": "/order-view/eyJpdiI6Ii8vaTVsSEF4eHRxY2xSNUc1OEFGUkE9PSIsInZhbHVlIjoiVzhJeDhudnRJYyt0bWtHK2NzeXdyZz09IiwibWFjIjoiNjU5ZmQxMjZiZmEwNGQyNWFhYmIyOTBmMjAxYzE2YjUyMjQ4ZjdjMmMwNjFlMmU5YThkNDYxZDVhZWFjZmIzZCIsInRhZyI6IiJ9",
       "shape": "PAGE",
       "title": "Store Syria - Order Detail",
       "bodyKids": 51,
@@ -67,9 +67,9 @@
     },
     {
       "surface": "Order AJAX modal (eye/Show)",
-      "route": "/orders/order_view/eyJpdiI6IlFrRi90ZGhaSTgrenVzRDNSY0J4K2c9PSIsInZhbHVlIjoiTDQydnVhMW9xU2pRNTBQc014RHNwdz09IiwibWFjIjoiNDJlMjdiMzVjZTk4YTA0YWRhNmZiODdkMTAyYzRkYzI0ZWEwZWExNTliNDkyOGZiYzlmZGY0ZGY4NDVmZDNjMSIsInRhZyI6IiJ9",
+      "route": "/orders/order_view/eyJpdiI6Ii8vaTVsSEF4eHRxY2xSNUc1OEFGUkE9PSIsInZhbHVlIjoiVzhJeDhudnRJYyt0bWtHK2NzeXdyZz09IiwibWFjIjoiNjU5ZmQxMjZiZmEwNGQyNWFhYmIyOTBmMjAxYzE2YjUyMjQ4ZjdjMmMwNjFlMmU5YThkNDYxZDVhZWFjZmIzZCIsInRhZyI6IiJ9",
       "status": 200,
-      "landed": "/orders/order_view/eyJpdiI6IlFrRi90ZGhaSTgrenVzRDNSY0J4K2c9PSIsInZhbHVlIjoiTDQydnVhMW9xU2pRNTBQc014RHNwdz09IiwibWFjIjoiNDJlMjdiMzVjZTk4YTA0YWRhNmZiODdkMTAyYzRkYzI0ZWEwZWExNTliNDkyOGZiYzlmZGY0ZGY4NDVmZDNjMSIsInRhZyI6IiJ9",
+      "landed": "/orders/order_view/eyJpdiI6Ii8vaTVsSEF4eHRxY2xSNUc1OEFGUkE9PSIsInZhbHVlIjoiVzhJeDhudnRJYyt0bWtHK2NzeXdyZz09IiwibWFjIjoiNjU5ZmQxMjZiZmEwNGQyNWFhYmIyOTBmMjAxYzE2YjUyMjQ4ZjdjMmMwNjFlMmU5YThkNDYxZDVhZWFjZmIzZCIsInRhZyI6IiJ9",
       "shape": "FRAGMENT",
       "title": "",
       "bodyKids": 1,
@@ -78,14 +78,14 @@
     },
     {
       "surface": "Order show (resource)",
-      "route": "/order/1",
-      "status": 403,
-      "landed": "/order/1",
-      "shape": "HTTP 403",
-      "title": "Forbidden",
+      "route": "/order/eyJpdiI6Ii8vaTVsSEF4eHRxY2xSNUc1OEFGUkE9PSIsInZhbHVlIjoiVzhJeDhudnRJYyt0bWtHK2NzeXdyZz09IiwibWFjIjoiNjU5ZmQxMjZiZmEwNGQyNWFhYmIyOTBmMjAxYzE2YjUyMjQ4ZjdjMmMwNjFlMmU5YThkNDYxZDVhZWFjZmIzZCIsInRhZyI6IiJ9",
+      "status": 200,
+      "landed": "/order/eyJpdiI6Ii8vaTVsSEF4eHRxY2xSNUc1OEFGUkE9PSIsInZhbHVlIjoiVzhJeDhudnRJYyt0bWtHK2NzeXdyZz09IiwibWFjIjoiNjU5ZmQxMjZiZmEwNGQyNWFhYmIyOTBmMjAxYzE2YjUyMjQ4ZjdjMmMwNjFlMmU5YThkNDYxZDVhZWFjZmIzZCIsInRhZyI6IiJ9",
+      "shape": "FRAGMENT",
+      "title": "",
       "bodyKids": 1,
-      "tableRows": 0,
-      "chars": 13
+      "tableRows": 2,
+      "chars": 448
     },
     {
       "surface": "Create order",
@@ -111,9 +111,9 @@
     },
     {
       "surface": "Refund detail (CONTROL, verified)",
-      "route": "/refund-request/eyJpdiI6Ii9SWHBWc091Y2JQaktpK3RRNkhGSmc9PSIsInZhbHVlIjoiaWtwd2J1M01WRTBVRms5d1JwVGkvUT09IiwibWFjIjoiNGY0ZWMxODA5ZjZkNGY3NTMzNGIyOWFlOTgyNTU5YzY4NTBkOTYwMDIyNTY0ZTIwZDEzZDljZjZjOGFjNWQxYSIsInRhZyI6IiJ9",
+      "route": "/refund-request/eyJpdiI6IndSVlhZTStzSHFUK2FyNmJFckhaSGc9PSIsInZhbHVlIjoiSnpDejJMWlhibERhNXFSTWR4L29KUT09IiwibWFjIjoiNWRiM2EwNTRlNzUzNDcwZDU0M2RhNjkzNDQzZDFkMWRjOTQ2OTMxZDUzOTRmOGI1NWEwYWIyY2RkOGE0YTlkNSIsInRhZyI6IiJ9",
       "status": 200,
-      "landed": "/refund-request/eyJpdiI6Ii9SWHBWc091Y2JQaktpK3RRNkhGSmc9PSIsInZhbHVlIjoiaWtwd2J1M01WRTBVRms5d1JwVGkvUT09IiwibWFjIjoiNGY0ZWMxODA5ZjZkNGY3NTMzNGIyOWFlOTgyNTU5YzY4NTBkOTYwMDIyNTY0ZTIwZDEzZDljZjZjOGFjNWQxYSIsInRhZyI6IiJ9",
+      "landed": "/refund-request/eyJpdiI6IndSVlhZTStzSHFUK2FyNmJFckhaSGc9PSIsInZhbHVlIjoiSnpDejJMWlhibERhNXFSTWR4L29KUT09IiwibWFjIjoiNWRiM2EwNTRlNzUzNDcwZDU0M2RhNjkzNDQzZDFkMWRjOTQ2OTMxZDUzOTRmOGI1NWEwYWIyY2RkOGE0YTlkNSIsInRhZyI6IiJ9",
       "shape": "PAGE",
       "title": "Store Syria - Order Refund Request",
       "bodyKids": 50,
@@ -122,20 +122,20 @@
     },
     {
       "surface": "Printable receipt",
-      "route": "/order-receipt/eyJpdiI6IlFrRi90ZGhaSTgrenVzRDNSY0J4K2c9PSIsInZhbHVlIjoiTDQydnVhMW9xU2pRNTBQc014RHNwdz09IiwibWFjIjoiNDJlMjdiMzVjZTk4YTA0YWRhNmZiODdkMTAyYzRkYzI0ZWEwZWExNTliNDkyOGZiYzlmZGY0ZGY4NDVmZDNjMSIsInRhZyI6IiJ9",
+      "route": "/order-receipt/eyJpdiI6Ii8vaTVsSEF4eHRxY2xSNUc1OEFGUkE9PSIsInZhbHVlIjoiVzhJeDhudnRJYyt0bWtHK2NzeXdyZz09IiwibWFjIjoiNjU5ZmQxMjZiZmEwNGQyNWFhYmIyOTBmMjAxYzE2YjUyMjQ4ZjdjMmMwNjFlMmU5YThkNDYxZDVhZWFjZmIzZCIsInRhZyI6IiJ9",
       "status": 200,
       "landed": "/dashboard",
       "shape": "PAGE (prints, then returns)",
       "title": "Store Syria - Dashboard",
-      "bodyKids": 56,
+      "bodyKids": 32,
       "tableRows": 19,
-      "chars": 2469
+      "chars": 2730
     },
     {
       "surface": "Printable shipping label",
-      "route": "/shippinglabel/pdf/eyJpdiI6IlFrRi90ZGhaSTgrenVzRDNSY0J4K2c9PSIsInZhbHVlIjoiTDQydnVhMW9xU2pRNTBQc014RHNwdz09IiwibWFjIjoiNDJlMjdiMzVjZTk4YTA0YWRhNmZiODdkMTAyYzRkYzI0ZWEwZWExNTliNDkyOGZiYzlmZGY0ZGY4NDVmZDNjMSIsInRhZyI6IiJ9",
+      "route": "/shippinglabel/pdf/eyJpdiI6Ii8vaTVsSEF4eHRxY2xSNUc1OEFGUkE9PSIsInZhbHVlIjoiVzhJeDhudnRJYyt0bWtHK2NzeXdyZz09IiwibWFjIjoiNjU5ZmQxMjZiZmEwNGQyNWFhYmIyOTBmMjAxYzE2YjUyMjQ4ZjdjMmMwNjFlMmU5YThkNDYxZDVhZWFjZmIzZCIsInRhZyI6IiJ9",
       "status": 200,
-      "landed": "/shippinglabel/pdf/eyJpdiI6IlFrRi90ZGhaSTgrenVzRDNSY0J4K2c9PSIsInZhbHVlIjoiTDQydnVhMW9xU2pRNTBQc014RHNwdz09IiwibWFjIjoiNDJlMjdiMzVjZTk4YTA0YWRhNmZiODdkMTAyYzRkYzI0ZWEwZWExNTliNDkyOGZiYzlmZGY0ZGY4NDVmZDNjMSIsInRhZyI6IiJ9",
+      "landed": "/shippinglabel/pdf/eyJpdiI6Ii8vaTVsSEF4eHRxY2xSNUc1OEFGUkE9PSIsInZhbHVlIjoiVzhJeDhudnRJYyt0bWtHK2NzeXdyZz09IiwibWFjIjoiNjU5ZmQxMjZiZmEwNGQyNWFhYmIyOTBmMjAxYzE2YjUyMjQ4ZjdjMmMwNjFlMmU5YThkNDYxZDVhZWFjZmIzZCIsInRhZyI6IiJ9",
       "shape": "FRAGMENT",
       "title": "",
       "bodyKids": 4,

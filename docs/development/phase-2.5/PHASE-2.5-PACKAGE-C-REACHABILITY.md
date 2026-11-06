@@ -39,14 +39,21 @@ and wishlist rows. Both are dev-fixture changes, tagged and reversible.
 | shape | count | meaning |
 |---|---:|---|
 | PAGE | 14 | renders with the admin shell |
-| FRAGMENT | 9 | bare markup a list screen injects — **not a page**, and driving one as a page measures an unstyled orphan and invents contrast defects |
-| HTTP 404 | 1 | correct — the handler-less customer edit route, after F-C-04 |
-| PAGE (prints, then returns) | 1 | correct — the receipt, after F-C-01 was withdrawn |
-| HTTP 403 | 1 | **the one open finding**, F-C-02 |
+| FRAGMENT | 10 | bare markup a list screen injects — **not a page**, and driving one as a page measures an unstyled orphan and invents contrast defects |
+| PAGE (prints, then returns) | 1 | the receipt: a printable document that prints itself and navigates back |
+| HTTP 404 | 1 | correct — the handler-less customer edit route, after F-C-04 withdrew it |
 
-After the repairs the run holds **no HTTP 500 at all**. Before them: four.
+**After the repairs the run holds no HTTP 500, no HTTP 403 and no refusal at all.** Before them:
+four 500s, one 403 and eight refusals.
 
----
+**All six controls render as PAGE**, which is what makes the rest of the table worth reading.
+
+**The surface list took SIX id corrections to converge**, each of which first looked like a defect:
+the dev role's missing permissions, the two empty tables, the seeder-probe order with
+`product_json = []`, the five routes that need an encrypted token, the print-and-return receipt,
+and finally `order/{order}` needing an encrypted token too once F-C-02 removed its binding. None
+of them was a product fault. A census is only as good as the questions it asks, and the controls
+are the only reason the wrong questions were caught rather than published.
 
 ## 3. The findings, and what happened to each
 
@@ -57,7 +64,7 @@ the row is the point: it was wrong for the same reason as the four corrections a
 | id | surface | state |
 |---|---|---|
 | F-C-01 | `GET /order-receipt/{enc}` | **WITHDRAWN — not a defect** |
-| F-C-02 | `GET /order/{order}` → 403 | **OPEN** — needs a reviewed change to a security middleware |
+| F-C-02 | `GET /order/{order}` → 403 | **FIXED** — in the controller, not the guard |
 | F-C-03 | `GET /customer-filter-data` → 500 | **FIXED** |
 | F-C-04 | `GET /customer/{customer}/edit` → 500 | **FIXED** |
 | F-C-05 | four dead `catch (DecryptException)` blocks | **FIXED** |
@@ -81,23 +88,105 @@ One sub-lesson recorded: while chasing this I searched the response HTML for the
 as a **JavaScript template string** in a ternary, on a page that rendered perfectly. A text needle
 is not a branch detector.
 
-### F-C-02 — OPEN. `GET /order/{order}` answers 403 because the guard is handed a model
+### F-C-02 — FIXED, by deleting an unused parameter rather than widening a guard
 
-`order/{order}` is a target of `OrderDocumentAccessGuard` with `'param' => 'order'`. The route is
-**route-model-bound** (`OrderController::show(Order $order, $id)`), and the guard is appended to the
-`web` group, so it runs *after* `SubstituteBindings`. `$route->parameter('order')` therefore returns
-an **`Order` instance**, and `resolveOrderId()` opens with `if (! is_string($raw)) return null;`
-(`OrderDocumentAccessGuard.php:401-407`) — so it resolves nothing and the guard `abort(403)`s for
-every caller, the legitimate owner included.
+`order/{order}` is one of `OrderDocumentAccessGuard`'s ~20 targets, with `'param' => 'order'`. The
+guard is appended to the `web` group, so it runs **after** `SubstituteBindings`. The handler was
+declared `show(Order $order, $id)`, and that parameter's NAME matched the route segment — so
+binding replaced the segment value with an `Order` **instance**, `resolveOrderId()` hit
+`if (! is_string($raw)) return null;` (`OrderDocumentAccessGuard.php:405`), and the guard
+`abort(403)`d for **every caller, the legitimate owner included**.
 
-**The direction is fail-closed**, so there is no exposure: the surface is simply dead. The fix is
-to let `resolveOrderId()` read a bound model's key, after which the row goes through the same
-`authorises()` test as every other target. That is a change to a **security middleware** and will
-be made as its own reviewed slice with its own tests, not folded in here.
+**Broken in two directions, which is how it hid.** A plain id (`/order/1`) binds, so the guard gets
+a model and answers 403. An encrypted token — the format every sibling order surface uses — finds
+no row with that primary key, so binding answers **404 before the guard runs**. There was no input
+that worked, and the UI links neither spelling. My browser probe saw the 403 and my first test saw
+the 404; the two readings only made sense together.
 
-Also noted on the same method: `show(Order $order, $id)` takes two parameters while both its
-routes supply one segment. The second route works only because `{id}` fills `$id` and `Order` is
-resolved from the container.
+**The fix is in the controller.** The obvious alternative is to teach `resolveOrderId()` to read a
+bound model's key — and I deliberately did not, because that loosens an input check in a **security
+middleware** to accommodate one caller. The bound parameter turned out to be dead weight: `show()`
+overwrites `$order` on its very next statement (`$order = Order::order_detail($id);`) and never
+reads the bound instance. Deleting an unused parameter is the smaller change and leaves the guard
+strict. Laravel fills an untyped parameter from the route's segments positionally, so `{order}` and
+`{id}` both arrive as `$id` and the two routes that reach this method now behave identically.
+
+**A ratchet instead of a looser guard.** `order/{order}` was the only model-bound GET target of the
+twenty, and a bound target 403s *silently* — fail-closed but invisible, which is exactly how this
+survived. `OrderDocumentGuardBoundParameterTest` now fails CI if another appears.
+
+**That ratchet's first run was over-broad, and the correction is worth recording.** It reported
+`DELETE order/{order}` → `OrderController::destroy(Order $order)` as an offender. That binding is
+correct and deliberate — `destroy()` genuinely uses the model — and the guard is **inert** on it:
+`handle()` returns `$next($request)` for any route whose methods do not include GET. Narrowed to
+mirror the guard's own condition. Had I trusted the test over the guard, I would have removed a
+binding that is doing its job.
+
+**Evidence** — 4 passed. The cross-tenant case is the load-bearing one: a merchant asking for
+**another tenant's** order on this same route still gets 403, so the fix did not quietly open the
+route. Reverting the signature reddens three of the four; the sibling-route control correctly stays
+green either way, because `orders/order_view/{id}` worked before and after.
+
+One more self-inflicted stumble on the way: the ratchet's failure *message* interpolated `$raw`
+inside a double-quoted string, and PHPUnit builds that message eagerly — so the test threw
+`Undefined variable $raw` whether or not the assertion held. A test can fail for reasons that have
+nothing to do with what it asserts.
+
+#### What the review added to F-C-02
+
+**No new authorization hole** — it walked the path that now runs and confirmed a merchant of store
+A still cannot read store B's order (`:449` permission, `:459` `getCurrentStore($user->id)` passed
+explicitly rather than taken from the mutable default guard, `:468` strict `(int)` compare), that
+anonymous is refused twice, and that a `customers`-guard-only principal cannot reach the handler
+at all on this URI.
+
+**It also found that test 2 discriminates on two axes, not one:** reverting the signature makes it
+404 (binding throws), and deleting the `TARGETS` entry makes it 200. Both redden it.
+
+**And it corrected a premise of mine.** I asked whether `order.order_show` was being rendered for
+the first time through this URI. It was not: `show()` is also the handler for
+`orders/order_view/{id}`, which the UI's eye button links
+(`order/action.blade.php:78`, `order/grid.blade.php:182`). The view has been exercised in
+production all along, so this change adds a second URI onto an existing path rather than a new
+rendering path — which removes most of the risk I was asking about.
+
+Three items recorded rather than fixed, all pre-existing:
+
+- **`order_show.blade.php:99`** does `Shipping::find($orders->delivery_id)` with no store
+  predicate, and `Shipping` is absent from `scoped_models`. Bounded: the guard has already
+  authorised the row and only `$shipping->name` is rendered, which belongs to the order's own
+  store. Live on the sibling URI long before this change.
+- **The cost of a `TARGETS` mistake is now higher.** While the route 403'd for everybody, an error
+  in the guard's URI table was free; it is not any more, because `show()` checks nothing itself.
+  Already ratcheted twice — the reviewer verified both would fire — so the control exists and only
+  the stakes changed. Written into the method's docblock.
+- **The raw-integer form `/order/5` is now live**, since `resolveOrderId()` accepts a raw positive
+  integer by design. Not a leak: foreign and nonexistent are both a bare 403.
+
+**A pre-existing security test was passing for the wrong reason, and this change exposed it.**
+`OrderDocumentAccessTest::test_a_merchant_cannot_read_another_tenants_order_through_the_resource_show_uri`
+asserted two forms on this very route: a raw id → 403, and an encrypted id → 404. Its docblock
+explained the raw form as *"binds successfully and reaches the handler, so the raw form is the path
+that was actually reachable — and it is the one the guard has to refuse."*
+
+That was half right. A raw id did bind — and the guard then received an **`Order` instance**, so it
+denied on a **parse failure** (`! is_string($raw)`), not on the ownership comparison. The 403 was
+real but it was not the control the test believed it was measuring: **the owner's own order
+answered 403 too**, and nothing in that test could tell the two apart. The same blind spot the
+census had, inside a test written to prevent it.
+
+With the bound parameter gone, both forms reach the guard as strings and both are refused by the
+ownership comparison at `OrderDocumentAccessGuard:468`. The encrypted form moved 404 → 403 —
+**still a refusal, by a better mechanism** — which is exactly what that assertion's own comment
+said it existed to surface: *"a future reordering of the stack shows up here rather than silently
+changing which component is doing the work."* It surfaced it.
+
+I updated the assertion and wrote the reason into it, rather than loosening it. Reverting my
+signature change reddens that test too, so the new assertion is tied to the fix.
+
+One correction to how I should cite the evidence: **test 3 is a regression guard, not mutation
+coverage.** `orders/order_view/{id}` worked before and after, so it stays green under every
+mutation and proves only that the sibling route was not broken.
 
 ### F-C-03 — FIXED. `customer-filter-data` threw on a missing filter key
 

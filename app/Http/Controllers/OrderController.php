@@ -679,7 +679,53 @@ public function store(Request $request)
         ];
     }
 
-    public function show(Order $order, $id)
+    /**
+     * P2.5-PKG-C (F-C-02). THE BOUND `Order $order` PARAMETER IS GONE, and it was never used.
+     *
+     * It was declared `show(Order $order, $id)`. `$order` is overwritten by the very next
+     * statement below (`$order = Order::order_detail($id);`) and the bound instance is never read
+     * -- so its only effect was on ROUTING, and that effect broke the method's own route.
+     *
+     * TWO MEASURED FAILURES, both from that one parameter:
+     *   GET /order/1            -> binding resolves order 1, so `OrderDocumentAccessGuard`
+     *                              (appended to `web`, therefore running AFTER
+     *                              SubstituteBindings) receives an Order INSTANCE.
+     *                              `resolveOrderId()` requires a string at :405, returns null, and
+     *                              the guard abort(403)s -- for EVERY caller, the owner included.
+     *   GET /order/<encrypted>  -> binding finds no order with that primary key, so the request
+     *                              answers 404 before the guard is reached.
+     * The UI links neither spelling, so there was no input that worked; the surface was dead in
+     * both directions. Fail-closed throughout, so never an exposure.
+     *
+     * WHY NOT WIDEN THE GUARD, which is the obvious alternative. Teaching `resolveOrderId()` to
+     * read a bound model's key would loosen an input check in a security middleware to
+     * accommodate one caller. Dropping an unused parameter is the smaller change and leaves the
+     * guard strict. `order/{order}` is also the ONLY model-bound target of the twenty, and
+     * `OrderDocumentGuardBoundParameterTest` now fails CI if a future one appears -- because a
+     * bound target 403s silently, and fail-closed-but-invisible is how this survived.
+     *
+     * Laravel fills an untyped parameter from the route's segments positionally, so `{order}` and
+     * `{id}` both arrive as `$id` and the two routes that reach this method behave identically.
+     *
+     * TWO CONSEQUENCES THE TENANT-AUTHZ REVIEW ASKED BE WRITTEN DOWN:
+     *
+     *   THE RAW-INTEGER FORM IS NOW LIVE on `/order/{x}`. `OrderDocumentAccessGuard::resolveOrderId()`
+     *   accepts a raw positive integer by design, so `/order/5` resolves where it used to answer
+     *   403. That is not a leak -- a foreign order and one that exists nowhere both answer a bare
+     *   403, so the only distinguishable case is the caller's own order, which their order list
+     *   already shows them -- but it is an input form worth naming.
+     *
+     *   THE COST OF A `TARGETS` MISTAKE IS NOW HIGHER. While this route 403'd for everybody, an
+     *   error in the guard's URI table was free. It is not any more: this method checks NOTHING
+     *   itself -- no permission, no store -- so if `TARGETS['order/{order}']` were ever dropped, or
+     *   the resource parameter renamed, or `GET order/{order}` re-declared, the surface would
+     *   become an authenticated-but-unscoped cross-tenant order read. That is already ratcheted
+     *   twice, verified: `OrderDocumentRouteResolutionTest` derives this uri from the
+     *   `Route::resource` declaration and asserts it is in TARGETS or exempt, and
+     *   `test_no_alias_route_reaches_a_guarded_action_without_the_guard` asks the resolved route
+     *   table the same question. The controls exist; the stakes changed, and that is the note.
+     */
+    public function show($id)
     {
         // P2.5-PKG-C (F-C-05). NO try AT ALL before this, so a `Crypt::decrypt()` failure left the
         // method as an uncaught `DecryptException` and the user got a 500 stack page. Its three

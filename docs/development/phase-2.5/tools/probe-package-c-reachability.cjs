@@ -63,7 +63,11 @@ const SURFACES = [
   ['Order detail (CONTROL, verified)', '/order-view/{orderEnc}'],
   ['Order quick preview (panel)', '/order-preview/{order}'],
   ['Order AJAX modal (eye/Show)', '/orders/order_view/{orderEnc}'],
-  ['Order show (resource)', '/order/{order}'],
+  // ENCRYPTED, like every other order surface. This route answered 403 until F-C-02 removed the
+  // unused bound `Order $order` parameter; with the binding gone it decrypts its segment exactly
+  // as its sibling `orders/order_view/{id}` does, so a plain integer now takes the
+  // DecryptException path and redirects. Sixth id correction in this census.
+  ['Order show (resource)', '/order/{orderEnc}'],
   ['Create order', '/order/create'],
   ['Refund request list', '/refund-request'],
   ['Refund detail (CONTROL, verified)', '/refund-request/{refundEnc}'],
