@@ -774,3 +774,133 @@ demo text, the stranger's name and the four dead links in one line, and would gi
 the merchant footer's translation and contrast for free.
 
 
+
+---
+
+### F-DESIGN-15 — the Arabic sidebar's disclosure arrow points the wrong way in BOTH states, and it always has
+
+**Status:** FIXED in P2.5-PKG-A-09. Ratcheted by `tests/Unit/Ui/SidebarDirectionAndSubItemMarkerTest.php`
+and by `verify-shell-components.cjs` (152 checks, 0 failed, four combinations).
+
+**Measured** on `/product`, by cropping one collapsed and one expanded row in each direction at 3x
+and reading the computed transform — not by reading the stylesheets:
+
+| state | EN / ltr | AR / rtl |
+|---|---|---|
+| collapsed | `>` right, at the right edge | `>` right, at the **left** edge — pointing back into its own label |
+| expanded | `⌄` down | `⌃` **up** |
+| transform | `none` / `rotate(90deg)` | `none` / `rotate(-90deg)` |
+
+**One root cause: a half-applied mirror.** The glyph is `ti-chevron-right`, and a font glyph never
+mirrors itself. The vendor mirrors the *rotation* instead — `style.css:16541` `rotate(90deg)` becomes
+`style-rtl.css:16498` `rotate(-90deg)` — which is only correct if the glyph had already been flipped.
+It had not. So an Arabic merchant saw a collapsed section pointing backwards, and an open section
+wearing the glyph that everywhere else means "collapse".
+
+**It is not a regression from P2.5-PKG-A-02**, which swapped this icon from feather to Tabler. That
+was checked before attributing it: `style-rtl.css:16409` gives the old `<svg>` a width and a height
+and nothing else, so no mirror ever existed for the swap to break.
+
+**The rule, stated once:** collapsed follows the reading direction; expanded points down in both.
+Only the RTL arm is restated, so the English rendering is untouched *by construction* — and the
+mutation run proves it rather than asserting it: removing the fix produced 10 failures, every one of
+them `ar_*`, none `en_*`.
+
+---
+
+### F-DESIGN-16 — the sub-item marker is a frozen loading spinner, and dark mode flattens even its accent
+
+**Status:** FIXED in P2.5-PKG-A-09. Same test and harness as F-DESIGN-15.
+
+**What renders.** Every child item in the sidebar carries an 8×8 mark built like this:
+
+```css
+/* public/css/custom.css:4030 — and rtl-custom.css:4042, mirrored */
+border: 2px solid #ced4dc;
+border-right-color: var(--theme-color);
+border-radius: 50%;
+transform: rotate(45deg);
+```
+
+That is the CSS loading-spinner construction, standing still: a grey ring with one quadrant in the
+accent colour. The host theme's own copy of the rule (`style.css:16555`) is **commented out**, so the
+vendor had already withdrawn it; the live one is this project's override.
+
+**And it renders differently in the two themes, which is how it was found.**
+`style-dark.css:29471` sets `border-color: #808191 !important` — a shorthand, so it overrides all
+four sides including the accented one. Light shows a grey ring with a brand quarter; dark shows a
+uniform grey ring. Two different marks for one meaning, neither deliberate.
+
+**The part that actually costs the merchant something.** P2.5-PKG-A-02 gave the active child a 3px
+brand bar and brand-coloured text. The ring took no part in that — in dark mode the **active**
+child's mark was the same flat grey as its four inactive siblings. The loudest decoration on the row
+carried no information, next to two signals that carried all of it.
+
+**The replacement** is a marker that means something: a quiet dot in `--ss-fg-subtle` for a child
+item, a larger dot in `--ss-brand` for the child you are on. One shape, one meaning, two states, and
+it now agrees with the bar and the text instead of competing with them. Size *and* colour differ, so
+the state does not rest on colour alone (WCAG SC 1.4.1).
+
+**Two implementation notes that are not incidental.** `border-width: 0` rather than a colour
+override, because the dark sheet's `!important` cannot be outranked on colour without another
+`!important` — at zero width the colour is simply irrelevant. And `transform: scale()` rather than a
+new width, because the mark is positioned with a physical offset that is mirrored per direction;
+resizing it would move it off its own centre and need that offset restated, which is precisely how
+the mobile-drawer defect of P2.5-PKG-A-02 happened. The rule already carries a transform transition,
+so the active dot grows into place.
+
+**The dot names `--ss-brand`, not a hue.** That token resolves to cyan in dark mode, which is open
+owner decision #35. Naming the token means this marker follows whatever the owner decides instead of
+becoming a second place that has to be found and changed.
+
+---
+
+### F-DESIGN-17 — the Arabic breadcrumb root says "house", on all 107 merchant screens
+
+**Status:** FIXED in P2.5-PKG-A-09.
+
+`resources/lang/ar.json` carried `"Home": "البيت"`. البيت is a dwelling — a house, or a line of
+verse. It is not the navigational root, which is الرئيسية. The breadcrumb component supplies the
+Home item for every merchant screen (`layouts/app.blade.php:660` — "the ONE breadcrumb, for all 107
+merchant screens… Home lives in the component so it cannot drift"), so a single wrong word reached
+all of them, and it reached them in the one place a merchant looks to find out where they are.
+
+**The repository already knew the right register**, which is what makes this a slip rather than a
+judgement call: the same file carries `"Home Page": "الصفحة الرئيسية"`. This is the Wave-19 pattern
+again — a literal dictionary equivalent where the interface needs the conventional term.
+
+The key is used in five first-party places and three vendored ones, all of them navigation links to
+a site or dashboard root, so correcting the value is right everywhere it lands and needed no
+vendored edit. Nothing in `tests/`, `.github/` or the phase-2.5 docs pinned the old string.
+
+---
+
+### M-PKG-A-09 — a measurement note, not a product defect: the harness measured one page four times
+
+Recorded because this phase keeps relearning it and the cost is always the same shape.
+
+`verify-shell-components.cjs`, on its first run, called `set-admin-preview-state.php` with **named
+flags** (`--lang en --theme light`). That tool takes its arguments **positionally**
+(`<storeId> <light|dark> <ltr|rtl> <lang> <email>`), so it received `--lang` as the store id and
+wrote nonsense — and `stdio: 'pipe'` swallowed the complaint. All four combinations then measured the
+**same ar/dark page**, and twenty contrast checks reported "ok" against combinations that never
+rendered.
+
+**Only the premise checks caught it.** `dir is ltr (got rtl)` and `theme attribute matches (dark)`
+are the two assertions that have no product value and exist solely to ask whether the harness got
+the state it requested. They are why the readings above can be trusted.
+
+The tool's own docblock already records eight earlier false "dark" runs of exactly this shape. The
+harness now passes the dev database, cache and session variables to that one child process itself
+rather than trusting how it was launched — **scoped to the child**, because `serve-dev.sh` records,
+with dates, that exporting them and running the suite in the same shell destroyed the fixture twice.
+
+**A second one in the same slice, with the opposite outcome.** A probe reported the workspace chip
+had `NO TRIGGER` — no button, no `role="button"`. It did `chip.querySelector('button')` where `chip`
+was `.ss-workspace`, and `.ss-workspace` **is** the button, so the probe searched inside the element
+it was looking for. The chip is in fact a correct listbox: `aria-haspopup`, `aria-expanded`,
+`aria-controls`, a 205×65 target, `Enter` moving focus to the *currently selected* option, arrows
+wrapping, Home/End, and `Escape` restoring focus to the trigger. The same run's claim that the open
+panel was misaligned with the chip was also false — measured, the two boxes are identical
+(25/229/204 in LTR, 1210/1415/205 in RTL). Both were eye-and-selector errors, and both were caught
+by measuring the thing itself rather than acting on the first reading.

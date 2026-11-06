@@ -229,10 +229,58 @@ VERIFIED = {
     # loads them. The component serves partials and the layout serves pages: they coexist by
     # design, not by accident.
     #
-    # The row stays PENDING because it has not been driven in four combinations and measured --
+    # The row stayed PENDING because it had not been driven in four combinations and measured --
     # not because a defect is owed. The spacing difference the probe did find (24px under the
     # header at 1440, 8px at 390) is the phone-density work WAVE-22 and WAVE-24 did on purpose.
+    #
+    # P2.5-PKG-A-09 MET THAT STATED CONDITION and the row moves below.
     # ----------------------------------------------------------------------------------------
+
+    # ----------------------------------------------------------------------------------------
+    # P2.5-PKG-A-09. The shell's remaining components, driven AS COMPONENTS.
+    #
+    # These rows had been kept PENDING on a principle worth restating: each of them is inside
+    # page captures already, and "unchanged and in frame" is not the same fact as verified. So
+    # `verify-shell-components.cjs` targets each one, crops it on its own in all four
+    # combinations, and measures it -- 152 checks, 0 failed, every premise asserted.
+    #
+    # THE HARNESS'S FIRST RUN WAS WRONG AND ITS OWN PREMISE CHECKS CAUGHT IT. It called
+    # `set-admin-preview-state.php` with named flags; that tool takes its arguments
+    # POSITIONALLY, so it wrote nonsense, and `stdio: 'pipe'` swallowed the complaint. All four
+    # combinations then measured the SAME ar/dark page, and twenty contrast checks "passed"
+    # against a combination that never rendered. The tool's own docblock records eight earlier
+    # false "dark" runs of exactly this shape. The harness now passes the dev DB/cache/session
+    # variables to that one child process itself rather than trusting how it was launched --
+    # scoped to the child, because `serve-dev.sh` records with dates that EXPORTING them and
+    # running the suite in the same shell destroyed this fixture twice.
+    #
+    # WHAT WAS FOUND AND FIXED, all of it in the navigation and all of it Arabic-side:
+    #   - the disclosure arrow pointed the wrong way in RTL in BOTH states: collapsed pointed
+    #     back INTO its label, and an expanded menu showed the glyph that elsewhere means
+    #     "collapse". A half-applied mirror -- the vendor mirrors the rotation, but a font glyph
+    #     never mirrors itself, and neither did the feather svg before it.
+    #   - the sub-item marker was a frozen CSS loading spinner, and the dark sheet's
+    #     `border-color: ... !important` flattened even its accent, so the ACTIVE child's mark
+    #     was identical to its four siblings.
+    #   - the Arabic breadcrumb root read `البيت` -- a dwelling, not the navigational root. The
+    #     breadcrumb component supplies that item for all 107 merchant screens.
+    #
+    # WHAT IS DELIBERATELY NOT CLAIMED, and why:
+    #   'Footer + script bundle'  it WAS cropped in all four combinations and its contrast
+    #       measured clean (6.14 light / 6.72 dark, on the span that owns the text). But the
+    #       captures read "Laravel 2026": this container's `.env` predates P2.5-PKG-A-08, which
+    #       fixed `.env.example`, so the evidence does not show what a correct install renders.
+    #       Claiming the row on a capture of the wrong string would be the overclaim this matrix
+    #       exists to prevent.
+    #   'Merchant admin layout (the shell itself)'  still covers the header, the footer bundle,
+    #       the palette and the page-header mechanism together; three of those are now verified
+    #       and the footer is not, so the row is not yet whole.
+    #   'Design-system opt-in partial'  only its skip link was exercised. One control is not the
+    #       partial.
+    # ----------------------------------------------------------------------------------------
+    'Workspace chip (store switcher, sidebar)': ('PREMIUM VERIFIED', 'pkg-a-09', 'chip__', 'P2.5-PKG-A-09'),
+    'Breadcrumb component': ('REDESIGNED AND VERIFIED', 'pkg-a-09', 'breadcrumb__', 'P2.5-PKG-A-09'),
+    'Page-header component': ('PREMIUM VERIFIED', 'pkg-a-09', 'pageheader__', 'P2.5-PKG-A-09'),
 }
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.

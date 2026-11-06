@@ -6334,3 +6334,112 @@ html:not([data-ss-theme="dark"]) [data-ss-admin] .dash-sidebar .dash-item:not(.a
     }
 }
 /* end P2.5-PKG-A-06 */
+
+/* ============================================================================
+   P2.5-PKG-A-09 — THE NAV DISCLOSURE ARROW POINTS THE WRONG WAY IN ARABIC.
+
+   MEASURED on /product, by cropping one collapsed and one expanded row in each
+   direction and reading the computed transform:
+
+                  EN / ltr                    AR / rtl
+     collapsed    `>`  right, at the right    `>`  right, at the LEFT
+     expanded     `v`  down                   `^`  UP
+     transform    none / rotate(90deg)        none / rotate(-90deg)
+
+   ONE ROOT CAUSE, A HALF-APPLIED MIRROR. The glyph is `ti-chevron-right`, which
+   points right and does not mirror itself; a font glyph never does, and neither
+   did the feather `<svg>` before it -- `style-rtl.css:16409` gives that svg only
+   a width and a height, so nothing has ever flipped it. The vendor's RTL sheet
+   mirrors the ROTATION instead (`style.css:16541` rotate(90deg) becomes
+   `style-rtl.css:16498` rotate(-90deg)), which is only correct if the base glyph
+   was already flipped. It was not. So:
+
+     collapsed  no rule at all, so the arrow points right in BOTH directions --
+                in Arabic that is backwards, pointing INTO the label it sits
+                beside rather than onward.
+     expanded   rotate(-90deg) takes a right-pointing glyph to UP, not down, so
+                an open menu in Arabic shows the glyph that elsewhere means
+                "collapse".
+
+   THE RULE, STATED ONCE: collapsed points along the reading direction, expanded
+   points DOWN in both. Only the RTL arm needs restating, so the LTR rendering is
+   untouched by construction -- it was already right, and a change there would
+   need re-measuring on every merchant screen.
+
+   ROTATION, NOT A SECOND GLYPH. `rotate(180deg)` of chevron-right is
+   chevron-left, so the markup keeps ONE icon and the collapsed-to-expanded
+   change stays a 90-degree turn in both directions, which is what the host's
+   transition animates. Swapping the glyph per direction would need a Blade
+   branch and would animate as a jump.
+
+   SPECIFICITY. The expanded arm must outrank `.dash-sidebar
+   .dash-hasmenu.dash-trigger>.dash-link>.dash-arrow` (0,5,0). Adding the two
+   attribute selectors makes it (0,7,0), so it wins regardless of sheet order --
+   and ds.css loads after the theme sheets anyway. The collapsed arm answers no
+   host rule at all; it measured `none`. ======================================= */
+[dir="rtl"] [data-ss-admin] .dash-sidebar .dash-hasmenu > .dash-link > .dash-arrow {
+    transform: rotate(180deg);
+}
+
+[dir="rtl"] [data-ss-admin] .dash-sidebar .dash-hasmenu.dash-trigger > .dash-link > .dash-arrow {
+    transform: rotate(90deg);
+}
+/* end P2.5-PKG-A-09 */
+
+/* ============================================================================
+   P2.5-PKG-A-09b — THE SUB-ITEM MARKER IS A FROZEN LOADING SPINNER.
+
+   MEASURED by cropping the open submenu at 3x: every child item carries an 8x8
+   mark that reads as a stuck spinner -- a grey ring with one quadrant in the
+   brand colour. It is not a stylistic choice; it is literally the CSS spinner
+   construction, standing still:
+
+     custom.css:4030      border: 2px solid #ced4dc;
+                          border-right-color: var(--theme-color);
+                          border-radius: 50%;  transform: rotate(45deg);
+     rtl-custom.css:4042  the same, mirrored to border-left-color / -45deg.
+
+   The host theme's own copy of this rule (style.css:16555) is COMMENTED OUT, so
+   the vendor had already withdrawn it; the live one is the project's override.
+
+   AND IT RENDERS DIFFERENTLY IN THE TWO THEMES, which is how it was found.
+   `style-dark.css:29471` sets `border-color: #808191 !important` -- a shorthand,
+   so it overrides ALL FOUR sides including the accented one. Light shows a
+   three-quarter grey ring with a brand quarter; dark shows a uniform grey ring.
+   Two different marks for one meaning, neither of them deliberate.
+
+   IT ALSO CONTRADICTED THE ACTIVE STATE. P2.5-PKG-A-02 gave the active child a
+   3px brand bar on its inline-start edge and brand-coloured text. The ring took
+   no part in that -- in dark mode the ACTIVE child's mark was the same flat grey
+   as its four inactive siblings, so the loudest decoration on the row was the
+   one carrying no information.
+
+   THE REPLACEMENT IS A MARKER THAT MEANS SOMETHING: a quiet dot for a child
+   item, the brand dot for the child you are on. One shape, one meaning, two
+   states -- and it now agrees with the bar and the text colour instead of
+   competing with them.
+
+   SCALE, NOT A NEW SIZE. The element is positioned with `top: 7px; left: 10px`
+   (mirrored to `right` in RTL), so changing width/height would move the dot off
+   its own centre and need a physical offset restated per direction -- which this
+   sheet forbids and which is how the drawer defect of P2.5-PKG-A-02 happened.
+   `transform: scale()` shrinks it about its centre, needs no offset, works in
+   both directions unchanged, and the rule already carries
+   `transition: 0.35s cubic-bezier(0.54, 1.6, 0.5, 1)` on transform, so the
+   active dot grows into place instead of snapping.
+
+   BORDER-WIDTH, NOT BORDER-COLOR. The dark sheet's `!important` cannot be
+   outranked on `border-color` without another `!important`. It does not have to
+   be: with `border-width: 0` nothing paints whatever the colour says, and the
+   dot is drawn with `background`, which carries no `!important` anywhere. ===== */
+[data-ss-admin] .dash-sidebar .dash-submenu .dash-item::before {
+    border-width: 0;
+    background: var(--ss-fg-subtle);
+    transform: scale(0.62);
+}
+
+[data-ss-admin] .dash-sidebar .dash-submenu > li.dash-item.active::before {
+    background: var(--ss-brand);
+    transform: scale(0.78);
+}
+/* end P2.5-PKG-A-09b */

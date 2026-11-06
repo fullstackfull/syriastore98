@@ -9,11 +9,11 @@ hand-maintained matrix is precisely how that happens.
 
 | state | count | of 295 |
 |---|---:|---:|
-| PREMIUM VERIFIED | 15 | 5.1% |
-| REDESIGNED AND VERIFIED | 22 | 7.5% |
+| PREMIUM VERIFIED | 17 | 5.8% |
+| REDESIGNED AND VERIFIED | 23 | 7.8% |
 | BLOCKED | 9 | 3.1% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 248 | 84.1% |
+| PENDING | 245 | 83.1% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -39,7 +39,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | Customers and customer management | 20 | 0 | 3 | 0 | 0 | 17 |
 | ORDERS | 17 | 0 | 3 | 3 | 0 | 11 |
 | PRODUCTS | 16 | 1 | 2 | 1 | 0 | 12 |
-| Merchant admin NAVIGATION SHELL | 13 | 1 | 5 | 0 | 0 | 7 |
+| Merchant admin NAVIGATION SHELL | 13 | 3 | 6 | 0 | 0 | 4 |
 | Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 3 | 0 | 0 | 10 |
 | Merchant dashboard and KPI presentation | 9 | 0 | 2 | 0 | 1 | 6 |
 
@@ -361,11 +361,11 @@ actually been done to it since. They are different questions and the matrix keep
 | Sidebar (navigation rail) | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-PKG-A-02; four captures under evidence/package-a/ |
 | Sidebar nav tree (items + submenus) | ``partial/component (recursive @include of itself)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-A-02; four captures under evidence/package-a/ |
 | Sidebar navigation zones (group headings) | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-PKG-A-02; four captures under evidence/package-a/ |
-| Workspace chip (store switcher, sidebar) | ``partial/component; switching posts to POST /change-store/{id}` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Workspace chip (store switcher, sidebar) | ``partial/component; switching posts to POST /change-store/{id}` | premium-already | **PREMIUM VERIFIED** | P2.5-PKG-A-09; four captures under evidence/pkg-a-09/ |
 | Header / topbar | ``partial/component`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-A-06; four captures under evidence/package-a/ |
 | Command palette (global search) | ``partial/component; data from GET /merchant-search and POST /m` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-PKG-A-07; four captures under evidence/package-a/ |
-| Breadcrumb component | ``partial/component (rendered by the layout on every screen exc` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Page-header component | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Breadcrumb component | ``partial/component (rendered by the layout on every screen exc` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-PKG-A-09; four captures under evidence/pkg-a-09/ |
+| Page-header component | ``partial/component`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-A-09; four captures under evidence/pkg-a-09/ |
 | Notifications (the bell's destination) | ``GET /merchant-notifications`` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Settings popup (vendored, inert) | ``partial/component — included by layouts/app.blade.php:573 on ` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Footer + script bundle | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
