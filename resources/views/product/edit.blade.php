@@ -817,7 +817,21 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
       button instead of the old one.
   --}}
   <x-ss.actionbar :label="__('Save or discard your changes')">
-    <a href="#" class="btn btn-primary ss-btn"
+    {{-- P2.5-WAVE-33. This was `class="btn btn-primary ss-btn"` -- Bootstrap's variant beside the
+         design system's BASE, with no `ss-btn--primary`. `.ss-btn` is an explicit reset that
+         declares `background: transparent`, and store-syria-ds.css loads LAST of the five admin
+         sheets, so it wiped `.btn-primary`'s fill while `.btn-primary`'s white `color` survived.
+         The action bar is `--ss-surface`: #ffffff light, #262b33 dark. MEASURED at 1440x1000:
+
+             light   "Save"  #ffffff on #ffffff  = 1.00:1   <- the SAVE action, invisible
+             dark    "Save"  #ffffff on #262b33  = 14.23:1
+
+         Legible in one theme and absent in the other is why this survived a stylesheet read.
+         `.btn btn-primary` are dropped rather than kept: `.ss-btn`'s own comment says it must not
+         inherit Bootstrap's button metrics, the JS hook here is the attribute
+         `[data-ss-click-proxy]` and not `.btn`, and the other ~236 `.ss-btn` renderings in the
+         tree carry no `.btn`. --}}
+    <a href="#" class="ss-btn ss-btn--primary"
        data-ss-click-proxy="#submit-all"
        data-title="{{ __('Update Product') }}">
       <i class="ti ti-device-floppy" aria-hidden="true"></i>

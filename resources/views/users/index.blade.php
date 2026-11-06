@@ -152,7 +152,11 @@ $logo = asset(Storage::url('uploads/profile/'));
                                     <a href="{{ route('users.enable.login', \Crypt::encrypt($user->id)) }}"
                                         class="dropdown-item">
                                         <i class="ti ti-road-sign" aria-hidden="true"></i>
-                                        <span class="text-danger"> {{ __('Login Disable') }}</span>
+                                        {{-- P2.5-WAVE-33. WAS `class="text-danger"`, which renders plain `red` -- 4.00:1 in light and
+                                             3.36:1 on the dark dropdown, below AA in BOTH themes, on the word that says this
+                                             account cannot sign in. The host utility cannot be overridden (see the
+                                             .ss-text-danger note in store-syria-ds.css); the class comes off the markup. --}}
+                                        <span class="ss-text-danger"> {{ __('Login Disable') }}</span>
                                     </a>
                                     @elseif ($user->is_enable_login == 0 && $user->password == null)
                                     <a href="{{ route('users.enable.login', \Crypt::encrypt($user->id)) }}"

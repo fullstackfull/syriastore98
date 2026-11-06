@@ -2640,6 +2640,26 @@
    3.71:1 in dark mode where `.h6 .text-sm` leaves it. It is a VALUE, not a heading, so it takes
    the DS foreground and the DS weight rather than a heading utility. */
 .ss-text-strong { color: var(--ss-fg); font-weight: var(--ss-weight-medium); }
+/* P2.5-WAVE-33. A STATUS WORD that says something is wrong -- "Login Disable" under a staff
+   member's name on /users. It wore Bootstrap's `.text-danger`, and the block below (P2.5-MONEY)
+   records why that cannot be repaired from here: `style.css:9410` declares it `!important`,
+   `custom.css:195` and `rtl-custom.css:195` declare `.text-danger { color: red !important }`, and
+   the layout loads custom.css AFTER #main-style-link -- two author !important declarations of
+   equal specificity, later wins, so plain `red` renders. Out-importanting the host would repaint
+   `.text-danger` in all 70 vendored WorkDo modules and fail DesignSystemStylesheetScopeTest's
+   confinement property. So the markup changes, exactly as FinanceMoneyFigureContrastTest and
+   FinanceStatusBadgeContrastTest concluded for the figures and the pills.
+
+   MEASURED on the surfaces it is really drawn on:
+
+                     before (`red`)                    after (`--ss-danger-fg`)
+       light         #ff0000 on #ffffff   4.00:1  FAIL  #8c1d17 on #ffffff   9.12:1  AAA
+       dark card     #ff0000 on #292a33   3.42:1  FAIL  #f3a9a4 on #292a33   7.48:1  AAA
+       dark dropdown #ff0000 on #262f3f   3.36:1  FAIL  #f3a9a4 on #262f3f   7.06:1  AAA
+
+   DO NOT PUT THIS ON A HEADING -- `style-dark.css:29442` sets `h1..h6 { color: var(--bs-white)
+   !important }`, which beats any class rule. Wrap the word in a <span> inside the heading. */
+.ss-text-danger { color: var(--ss-danger-fg); }
 
 /* P2.5-MONEY. A SIGNED MONEY FIGURE IN A LEDGER.
    ------------------------------------------------------------------------------------------------
@@ -5506,6 +5526,33 @@ a.ss-setup__item:focus-visible {
 
 .dataTables_processing {
     color: var(--ss-fg);
+}
+
+/* ---- P2.5-WAVE-33: a bare <small> keeps the LIGHT theme's body colour in dark mode ----
+
+   Same colour pair as WAVE-8 above, on a different element. The vendored theme's
+   `--bs-body-color: #293240` is byte-identical in all four host sheets, so a `<small>` with no
+   colour of its own inherits it in BOTH themes while the surface under it follows the theme.
+   MEASURED on /users at 1440x1000, on the staff card `#292a33`:
+
+       light   #293240 on #ffffff   12.93:1   fine
+       dark    #293240 on #292a33    1.10:1   <- every staff member's email address, invisible
+
+   After: `#a7abb2 on #292a33 = 6.18:1`, and `6.18 -> 5.84:1` on the dropdown surface `#262f3f`.
+   Light mode is deliberately NOT touched: 12.93:1 is already correct there.
+
+   THE SPECIFICITY IS DELIBERATELY THE LOWEST POSSIBLE -- `:where()` contributes nothing, so this
+   selector weighs exactly (0,0,1), the same as a bare `small`. That is the whole semantics being
+   asked for: "a <small> that has no colour of its own takes the muted foreground". Any class that
+   DOES state a colour -- `.text-muted`, `.text-white`, the host's !important utilities, or
+   `custom.css:4727`'s `html[data-ss-theme="dark"] body .modal-content small` for the modal, which
+   is white in dark mode by the A-01 decision -- outranks it and keeps its own value. Written with
+   ordinary descendant specificity this rule would have fought those instead.
+
+   A direct declaration beats an inherited one whatever the weights, which is why (0,0,1) is still
+   enough to replace the inherited #293240. */
+:where([data-ss-theme="dark"]) :where(.dash-content) small {
+    color: var(--ss-fg-muted);
 }
 
 /* ---- P2.5-WAVE-22: the filter bar collapses on a phone, and the receipt does not -----------
