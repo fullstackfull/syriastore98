@@ -26,7 +26,14 @@
 #                  dev setting.
 #
 # DO NOT `export` THESE AND THEN RUN THE TEST SUITE IN THE SAME SHELL.
-# IT DESTROYS THIS FIXTURE. Not "may" -- it did, on 2026-11-05 at 10:42.
+# IT DESTROYS THIS FIXTURE. Not "may" -- it did, on 2026-11-05 at 10:42, and again on 2026-11-06.
+#
+# THIS IS NO LONGER ONLY A WARNING. P2.5-SAFETY made the guard see it: tests/bootstrap.php now
+# asserts EVERY source ($_ENV, $_SERVER, getenv()) instead of the first one that exists, so the
+# suite aborts BEFORE ANY TEST LOADS and the fixture survives. Proved on a throwaway copy: the
+# same command that emptied this file now prints "ABORTING TEST RUN BEFORE ANY TEST LOADED ...
+# $_SERVER carries DB_DATABASE=..." and leaves users=5 products=32 orders=62 untouched.
+# The warning stays because the guard is a floor, not a licence to export.
 #
 # phpunit.xml pins the suite to sqlite `:memory:` with CACHE_STORE=array. A real environment
 # variable WINS over phpunit.xml, so an exported DB_DATABASE points the WHOLE SUITE at this file.
