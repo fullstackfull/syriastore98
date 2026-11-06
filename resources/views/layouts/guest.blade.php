@@ -242,7 +242,7 @@
          LAST, AFTER custom.css, and the position is measured rather than tidy: `custom.css:629`
          carries `.brand_icon { width: 100% !important }`, and linking the design system before it
          left the lockup in a 61x20 box. --}}
-    <link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}?v=p02-7">
+    <link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}?v={{ \App\Support\DesignSystemAssets::version('css/store-syria-ds.css') }}">
 
     <style>
         :root {

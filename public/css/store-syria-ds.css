@@ -3570,32 +3570,132 @@ a.ss-setup__item:focus-visible {
     .ss-command { inset-block-start: var(--ss-space-4); }
 }
 
-/* A table that cannot fit becomes a stacked list rather than a horizontal
-   scroll trap. Each cell carries its header in a data attribute. */
+/* ---- P2.5-WAVE-29: and the summary tables that only need to FIT -----------------------------
+   NOT EVERY OVERFLOWING TABLE WANTS STACKING, and measuring said which. The dashboard's own
+   summary cards -- "recent orders" and "top products", rendered on four routes through a shared
+   partial -- overflow their 246px card by 43px and 16px at 320px, AND NOWHERE ELSE: at 390px and
+   above they fit with room to spare.
+
+       viewport   320    390    576    768   1024
+       recent     289    304    328    328    328     port 246 / 316 / 494 / 686 / 942
+       top        262    316    309    309    309
+
+   The cause is not a `min-width` and not `table-layout` -- both were measured and are `0px` and
+   `auto`. It is three unbreakable tokens (`#P25PROBE-55`, `Pending`, `$10.00`) plus 72px of cell
+   padding inside 246px. So the fix is to let the long one break and to take back some padding,
+   NOT to stack: a three-column glance card becomes fifteen lines stacked, and a dashboard whose
+   job is the glance is the one place that trade is wrong. Above 320px nothing here changes,
+   because nothing here overflows. */
+@media (max-width: 389.98px) {
+    .ss-card__body .ss-table th,
+    .ss-card__body .ss-table td {
+        padding-inline: var(--ss-space-2);
+        overflow-wrap: anywhere;
+    }
+}
+
+/* ---- P2.5-WAVE-29: `.ss-table--stack`, converged onto the Wave 28 mechanism ------------------
+   THIS BLOCK EXISTED AND NOTHING USED IT. Measured before this wave: zero views, zero scripts and
+   zero tests referenced `.ss-table--stack` anywhere in the repository. It was also broken in three
+   ways that Wave 28 learned about by measurement, and would have shipped the moment anyone opted
+   a table in:
+
+     `thead { display: none }`     takes the column names out of the ACCESSIBILITY tree at the same
+                                   moment the visible table stops conveying them. Clipped instead.
+     `content: attr(data-label)`   a different attribute from the one anything writes, and NOTHING
+                                   wrote `data-label`, so every label would have rendered EMPTY.
+     no ARIA roles                 `display: block` destroys a table's implicit semantics. The roles
+                                   are now stated by `labelTableCells`, which also writes the label.
+
+   It also set the labels in `text-transform: uppercase` with a `[dir="rtl"]` rule turning it back
+   off -- a carve-out that already says the treatment did not travel.
+
+   THE DECLARATIONS BELOW ARE THE WAVE 28 BLOCK'S, VERBATIM, with one selector substituted. They
+   were generated from it rather than retyped, and StackedTableRowTest asserts the two declaration
+   sets stay identical, so the pair cannot drift the way `custom.css` and `rtl-custom.css` once did.
+
+   THE BREAKPOINT IS DELIBERATELY WIDER THAN WAVE 28'S 575.98px, and this is the one difference.
+   MEASURED on `/finance`, whose ledger is 10 columns:
+
+       viewport   320    390    576    640    768    820   1024
+       table     1013   1013   1061   1061   1061   1061   1061
+       port       220    290    476    540    628    680    884
+       visible    2/10   3/10   4/10   5/10   6/10   6/10   8/10
+
+   A DataTable below 576px has its own column-visibility control and a pinned action column; this
+   ledger has neither, and at 576px a merchant still sees four of ten columns with Credit, Debit
+   and Balance among the six that are gone. 767.98px is where six of ten become legible enough to
+   scroll through. BETWEEN 768px AND 1024px IT STILL OVERFLOWS, by 433px down to 177px: that is a
+   real residual, recorded rather than rounded away, and it is a column-count question for the
+   ledger's own design, not a layout one. */
 @media (max-width: 767.98px) {
-    .ss-table--stack thead { display: none; }
-    .ss-table--stack tbody tr {
+    /* generated from P2.5-WAVE-28 by sync-stack-block.py -- do not edit by hand */
+    .ss-table--stack,
+    .ss-table--stack > tbody,
+    .ss-table--stack > tbody > tr,
+    .ss-table--stack > tbody > tr > td {
         display: block;
-        padding: var(--ss-space-3) var(--ss-space-4);
-        border-block-end: 1px solid var(--ss-border);
+        inline-size: auto;
+        max-inline-size: 100%;
     }
-    .ss-table--stack tbody td {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: var(--ss-space-4);
-        padding: var(--ss-space-1) 0;
+
+    .ss-table--stack > thead {
+        position: absolute;
+        inline-size: 1px;
+        block-size: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
     }
-    .ss-table--stack tbody td::before {
-        content: attr(data-label);
-        flex: none;
-        font-size: var(--ss-text-xs);
-        font-weight: var(--ss-weight-semibold);
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        color: var(--ss-fg-muted);
+
+    .ss-table--stack > tbody > tr {
+        border: 1px solid var(--ss-border, #D5DBE3);
+        border-radius: var(--ss-radius-md, 8px);
+        margin-block-end: var(--ss-space-2, 8px);
+        padding: var(--ss-space-2, 8px);
+        background: var(--ss-surface, #FFF);
     }
-    [dir="rtl"] .ss-table--stack tbody td::before { text-transform: none; letter-spacing: 0; }
+
+    .ss-table--stack > tbody > tr > td {
+        display: table;
+        table-layout: fixed;
+        inline-size: 100%;
+        border-spacing: var(--ss-space-2, 8px) 0;
+        padding-block: var(--ss-space-1, 4px);
+        padding-inline: 0;
+        border: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .ss-table--stack > tbody > tr > td {
+        text-align: start !important;
+    }
+
+    .ss-table--stack > tbody > tr > td::before {
+        content: attr(data-ss-label);
+        display: table-cell;
+        inline-size: 45%;
+        white-space: normal;
+        font-weight: 400;
+        color: var(--ss-fg-muted, #5A6472);
+        font-size: var(--ss-text-sm, 0.875rem);
+    }
+
+    .ss-table--stack > tbody > tr > td[data-ss-label=""]::before {
+        content: none;
+    }
+
+    .ss-table--stack > tbody > tr > td > .form-check {
+        margin-inline-start: 0 !important;
+    }
+
+    .ss-table--stack > tbody > tr > td > * {
+        max-inline-size: 100%;
+    }
+    /* end generated */
+
+    /* The row actions follow the labels to the inline start, like every other value. */
     .ss-table--stack .ss-table__actions { justify-content: flex-start; }
 }
 

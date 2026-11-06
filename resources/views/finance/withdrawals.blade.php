@@ -42,7 +42,7 @@
 
         <div class="table-responsive">
 
-            <table class="table ss-table align-middle">
+            <table class="table ss-table ss-table--stack align-middle">
 
                 <thead>
                     <tr>

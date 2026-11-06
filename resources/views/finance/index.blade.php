@@ -310,7 +310,7 @@
 
                         {{-- جدول الحركات المالية --}}
                         <div class="table-responsive mt-2">
-                            <table class="table ss-table align-middle">
+                            <table class="table ss-table ss-table--stack align-middle">
                                 <thead>
                                     <tr>
                                         <th class="text-nowrap">{{ __('ID') }}</th>
@@ -400,7 +400,7 @@
                     <div class="card-body">
                         <h5 class="card-title mb-3">{{ __('Order Financial Records') }}</h5>
                         <div class="table-responsive">
-                            <table class="table ss-table align-middle">
+                            <table class="table ss-table ss-table--stack align-middle">
                                 <thead>
                                     <tr>
                                         <th>{{ __('Order') }}</th>

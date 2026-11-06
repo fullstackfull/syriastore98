@@ -6026,7 +6026,20 @@ html[data-ss-theme="dark"] body p:not(.text-muted):not([class^="ss-"]):not([clas
     .ss-dt-card-body table.dataTable > tbody > tr > td::before {
         content: attr(data-ss-label);
         display: table-cell;
-        inline-size: 40%;
+        /* 45%, AND THE NUMBER IS MEASURED. At 40% the label cell resolved to 94px on a list card
+           and 81px on the narrower finance card, against English labels that need up to 99px
+           ("Payment Method"), 98px ("Shipping Method"), 93px ("Date Registered") and 89px
+           ("Balance Before") -- so four of five stacked screens wrapped a two-word label across
+           two lines and left its second word sitting under the value, reading as an orphan.
+           Arabic wrapped on NONE of them; its longest is 79px. So this is an English-only defect
+           and one percentage fixes both scripts.
+
+           AFTER: nine of the ten label/screen pairs measured now fit on one line. `/order`'s
+           "Shipping Method" still wraps -- 98px against 94px -- and it is LEFT wrapping on
+           purpose. The percentage that clears it by four pixels is a percentage fitted to one
+           English string, and the next font, locale or heading would move it again. Nothing is
+           hidden either way. */
+        inline-size: 45%;
         /* The label is a LABEL, whatever the column it came from was. MEASURED on `/order`: every
            `::before` inherited `white-space: nowrap` from the table, so "Shipping Method" -- 108px
            of text in a 100px column -- ran straight over its own value; and the Order Id cell

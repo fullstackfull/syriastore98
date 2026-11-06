@@ -1781,8 +1781,14 @@
         });
     }
 
-    function observeDataTables() {
-        var tables = document.querySelectorAll('.ss-dt-card-body table');
+    /* BOTH STACKED FAMILIES, which is why this is no longer called observeDataTables. Wave 28
+       stacked the host's DataTables inside `.ss-dt-card-body`; Wave 29 converged the design
+       system's own `.ss-table--stack` onto the same mechanism, and a static table needs the
+       labels and the roles just as much -- more, in fact, since it has no column-visibility
+       control to fall back on. A static table never redraws, so its observer simply never
+       fires; the cost of attaching one is a few bytes and it removes a special case. */
+    function observeStackedTables() {
+        var tables = document.querySelectorAll('.ss-dt-card-body table, .ss-table--stack');
 
         if (!tables.length) {
             return;
@@ -1817,9 +1823,9 @@
         // P2.5-WAVE-22. Wires the bars that already exist and watches for the ones DataTables
         // builds after this point.
         observeTableControlBars();
-        // P2.5-WAVE-28. Copies each column's heading onto its cells, and states the ARIA roles
+        // P2.5-WAVE-28/29. Copies each column's heading onto its cells, and states the ARIA roles
         // that `display: block` would otherwise destroy.
-        observeDataTables();
+        observeStackedTables();
     }
 
     if (document.readyState === 'loading') {

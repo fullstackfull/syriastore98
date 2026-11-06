@@ -33,4 +33,4 @@
      The rail toggle is inert on those screens either way, since no host script
      there owns #vertical-nav-toggle; this file only persists and labels a
      state it does not set, so it degrades to a no-op rather than misbehaving. --}}
-<script src="{{ asset('js/store-syria-nav.js') }}?v=p02-2"></script>
+<script src="{{ asset('js/store-syria-nav.js') }}?v={{ \App\Support\DesignSystemAssets::version('js/store-syria-nav.js') }}"></script>

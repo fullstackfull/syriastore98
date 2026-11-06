@@ -51,7 +51,7 @@
 
      Not part of store-syria-ds.js on purpose: that bundle is included
      per-screen, and the sidebar is on every screen. --}}
-<script src="{{ asset('js/store-syria-nav.js') }}?v=p02-2"></script>
+<script src="{{ asset('js/store-syria-nav.js') }}?v={{ \App\Support\DesignSystemAssets::version('js/store-syria-nav.js') }}"></script>
 <script src="{{ asset('assets/js/plugins/apexcharts.min.js') }}"></script>
 <script src="{{ asset('assets/js/plugins/simple-datatables.js') }}"></script>
 <script src="{{ asset('assets/js/plugins/notifier.js') }}"></script>

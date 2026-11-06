@@ -247,56 +247,148 @@ class StackedTableRowTest extends TestCase
         }
 
         $this->assertStringContainsString(
-            'function observeDataTables',
+            'function observeStackedTables',
             $js,
             'DataTables rewrites every cell on sort, search and paging. Without an observer the '
             . 'labels survive the first render only.'
         );
         $this->assertMatchesRegularExpression(
-            '/function init\s*\([^)]*\)\s*\{.*?observeDataTables\s*\(/s',
+            '/function init\s*\([^)]*\)\s*\{.*?observeStackedTables\s*\(/s',
             $js,
-            'observeDataTables() is defined but never called from init().'
+            'observeStackedTables() is defined but never called from init().'
         );
     }
 
     /**
-     * A wave that ships in a cached file ships for new browsers only. Both sheets this slice
-     * touches are served with `?v=time()`, but `store-syria-ds.css` and the design-system script
-     * carry a hand-bumped key -- and they are loaded from TWO places: the merchant shell, and an
-     * include that some screens pull in as well. MEASURED before this assertion existed: the
-     * script was on `p02-9` in the shell and `p02-7` in the include, two URLs for one file, and
-     * the sheet was on `p02-7` in both after its contents had changed. A returning merchant would
-     * have got this wave's labels with the previous sheet -- the pinned edge still drawn, the
-     * gutters still indenting -- which is the half-applied state the mirrored-sheet rule exists to
-     * prevent, arriving by a different door.
+     * A wave that ships in a cached file ships for new browsers only. `store-syria-ds.css` and the
+     * design-system script are referenced from TWO places -- the merchant shell and an include some
+     * screens also pull in -- and both used to carry a hand-typed `?v=p02-N`. MEASURED during
+     * Wave 29: the script was on `p02-9` in one and `p02-7` in the other, two URLs for one file;
+     * and the stylesheet was on `p02-7` in both AFTER its contents had changed in Wave 28. A
+     * returning merchant would have got this wave's labels against the previous wave's sheet.
+     *
+     * The literal is gone. Both sites derive the key from the file's own bytes, so it changes when
+     * and only when they do, and the two cannot disagree because neither carries a number.
      */
-    public function test_every_design_system_asset_reference_carries_the_same_cache_key(): void
+    /**
+     * P2.5-WAVE-29. The design system's own `.ss-table--stack` was converged onto this mechanism,
+     * and its declarations are GENERATED from the Wave 28 block by sync-stack-block.py rather than
+     * retyped -- CSS has no mixins, and the two live in different stylesheets on different
+     * breakpoints, so they cannot share a rule. This asserts the generation is current.
+     *
+     * It is the mirrored-sheet rule applied to a second pair: before Wave 29, `.ss-table--stack`
+     * was a SEPARATE implementation that nothing used and that was broken three ways -- `thead`
+     * removed rather than clipped, `content: attr(data-label)` naming an attribute nothing writes,
+     * and no ARIA roles at all. A second implementation is a second thing to get wrong.
+     */
+    public function test_the_stack_modifier_is_generated_from_the_wave_28_block(): void
     {
-        $keys = [];
+        $root = dirname(__DIR__, 3);
+        $wave28 = $this->ruleSet($this->declarations($this->block(self::SHEETS[0])), '.ss-dt-card-body table.dataTable');
+        $modifier = $this->ruleSet($this->generatedRegion(), '.ss-table--stack');
 
-        foreach (['resources/views/layouts/app.blade.php',
-                  'resources/views/layouts/includes/store-syria-ds.blade.php'] as $view) {
-            preg_match_all(
-                '#(store-syria-ds\\.(?:css|js))\'\) \}\}\?v=([A-Za-z0-9._-]+)#',
-                $this->read($view),
-                $found,
-                PREG_SET_ORDER
-            );
+        $this->assertNotEmpty($wave28, 'The Wave 28 block yielded no rules.');
+        $this->assertSame(
+            $wave28,
+            $modifier,
+            'public/css/store-syria-ds.css is out of date with the Wave 28 block. '
+            . 'Run: python3 docs/development/phase-2.5/tools/sync-stack-block.py'
+        );
+        $this->assertFileExists(
+            $root . '/docs/development/phase-2.5/tools/sync-stack-block.py',
+            'The generator is gone, so the next author would retype the block by hand.'
+        );
+    }
 
-            $this->assertNotEmpty($found, $view . ' references no design-system asset.');
+    /** The generated region of store-syria-ds.css, between its markers. */
+    private function generatedRegion(): string
+    {
+        $css = $this->read(self::DS_SHEET);
+        $open = strpos($css, 'sync-stack-block.py -- do not edit by hand */');
+        $end = strpos($css, '/* end generated */');
 
-            foreach ($found as $one) {
-                $keys[$view . ' -> ' . $one[1]] = $one[2];
+        if ($open === false || $end === false || $end < $open) {
+            return '';
+        }
+
+        return $this->declarations(substr($css, $open, $end - $open));
+    }
+
+    /**
+     * Declarations keyed by selector, with the family prefix stripped so the two sets are
+     * comparable. Order within a rule is preserved: a different order is a different cascade.
+     *
+     * @return array<string, list<string>>
+     */
+    private function ruleSet(string $css, string $prefix): array
+    {
+        $rules = [];
+
+        /* Both regions start INSIDE a comment -- `block()` anchors on the wave marker and
+           `generatedRegion()` on the generator's name -- so each slice begins with a dangling
+           comment tail that has no `/*` for `declarations()` to match. Left in, the whole opening
+           paragraph became part of the first selector and the two sets could never be equal. */
+        if (($close = strpos($css, '*/')) !== false) {
+            $open = strpos($css, '/*');
+
+            if ($open === false || $close < $open) {
+                $css = substr($css, $close + 2);
             }
         }
 
-        $this->assertCount(
-            1,
-            array_unique($keys),
-            'The design-system assets are served under more than one cache key: '
-            . json_encode($keys, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-            . ' Bump every reference together, or a merchant gets one file from this wave and '
-            . 'another from the last one.'
+        preg_match_all('/([^{}]+)\{([^{}]*)\}/s', $css, $found, PREG_SET_ORDER);
+
+        foreach ($found as $one) {
+            $selector = trim((string) preg_replace('/\s+/', ' ', $one[1]));
+
+            if (! str_contains($selector, $prefix)) {
+                continue;
+            }
+
+            $key = str_replace($prefix, '@', $selector);
+            $decls = array_values(array_filter(array_map('trim', explode(';', $one[2]))));
+            $rules[$key] = $decls;
+        }
+
+        ksort($rules);
+
+        return $rules;
+    }
+
+    public function test_the_design_system_assets_version_from_their_own_bytes(): void
+    {
+        $views = dirname(__DIR__, 3) . '/resources/views';
+        $literals = [];
+
+        $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($views));
+
+        foreach ($files as $file) {
+            if (! $file->isFile() || ! str_ends_with($file->getFilename(), '.blade.php')) {
+                continue;
+            }
+
+            $source = (string) file_get_contents($file->getPathname());
+
+            if (preg_match_all('#store-syria-[a-z-]+\\.(?:css|js)\'\) \}\}\?v=(p02-[0-9]+)#', $source, $m)) {
+                foreach ($m[1] as $key) {
+                    $literals[] = str_replace($views . '/', '', $file->getPathname()) . ' -> ' . $key;
+                }
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $literals,
+            "A design-system asset is pinned to a hand-typed cache key:\n  "
+            . implode("\n  ", $literals)
+            . "\nThere were FOUR such sites, not the two this test first looked at, and the sign-in "
+            . 'page was still on p02-7 while the merchant shell had reached p02-10 -- so a merchant '
+            . 'who signed in got a stylesheet seven waves old. Derive the key from the file.'
+        );
+
+        $this->assertFileExists(
+            dirname(__DIR__, 3) . '/app/Support/DesignSystemAssets.php',
+            'The helper every layout calls is missing, so every page would fatal.'
         );
     }
 
