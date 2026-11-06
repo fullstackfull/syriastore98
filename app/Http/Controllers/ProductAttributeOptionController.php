@@ -92,7 +92,26 @@ class ProductAttributeOptionController extends Controller
     /**
      * Show the form for creating a new resource.
      */
-    public function create($id)
+    /**
+     * P2.5-PKG-B. `$id` DEFAULTS TO NULL BECAUSE THE ROUTE SAYS IT MAY BE ABSENT.
+     *
+     * `routes/web.php:984` declares `add-attribute-option/{id?}` — optional — while this signature
+     * required it, so an authenticated request for `/add-attribute-option` died with
+     * `ArgumentCountError: Too few arguments ... 0 passed` before any line of this method ran.
+     * Measured: HTTP 500 for a signed-in merchant.
+     *
+     * THE ROUTE'S `?` IS LOAD-BEARING AND MUST NOT BE REMOVED. `layouts/app.blade.php:829` calls
+     * `route('product-attribute-option.create')` with NO id on purpose and appends `/' + i` in
+     * javascript, using the result as a URL PREFIX. Making the parameter required would make that
+     * `route()` call throw `UrlGenerationException` while rendering the layout — on every admin
+     * page. So the fix belongs here, not in the route.
+     *
+     * NOTHING ELSE CHANGES, AND THE REFUSAL PATH ALREADY EXISTED: `ownedAttribute()` returns null
+     * for an empty id, which falls into `denied()` two lines below. That guard was written and was
+     * simply unreachable, because PHP threw first. A missing id now refuses instead of crashing —
+     * strictly more restrictive than before, never less.
+     */
+    public function create($id = null)
     {
         if (!auth()->user() || !auth()->user()->isAbleTo('Create Attributes Option')) {
             return $this->denied();
@@ -192,7 +211,19 @@ class ProductAttributeOptionController extends Controller
     /**
      * Show the form for editing the specified resource.
      */
-    public function edit($id)
+    /**
+     * The same defect, the same shape, on the sibling route. `routes/web.php:992` declares
+     * `edit-attribute-option/{id?}` optional while this signature required it, so
+     * `/edit-attribute-option` answered 500 for a signed-in merchant with
+     * `ArgumentCountError ... edit(), 0 passed`.
+     *
+     * Unlike `create`, no view uses this route's no-id form as a prefix — the only caller,
+     * `attribute_option/index.blade.php:118`, always passes a real id. The route could therefore
+     * have been made required instead. It is left optional and fixed the same way deliberately:
+     * one shape for both methods is easier to keep true than two, and `ownedOption()` already
+     * refuses an empty id, so the behaviour is a refusal rather than a crash either way.
+     */
+    public function edit($id = null)
     {
         if (!auth()->user() || !auth()->user()->isAbleTo('Edit Attributes Option')) {
             return $this->denied();
