@@ -89,8 +89,46 @@ class NewsletterController extends Controller
     /**
      * Show the form for editing the specified resource.
      */
+
+    /**
+     * P2.5-PKG-B. Does the caller own this newsletter subscriber?
+     *
+     * `Newsletter` is absent from `config/tenancy.php`'s `scoped_models`, so
+     * `StoreScope::isActiveFor()` short-circuits and the global scope adds NO predicate for any
+     * principal -- route model binding reaches every tenant's rows.
+     *
+     * MEASURED in `ContentFamilyCrossTenantTest` before this guard existed: all seven controllers
+     * of this shape failed their cross-tenant cases while all seven positive controls passed, so
+     * the fixtures were sound and the holes were real.
+     *
+     * Fails closed when either side is absent -- a row with a NULL `store_id` matches no store
+     * predicate anywhere in the application and must not become visible here. No operator limb,
+     * as on `ProductBrandController::callerOwnsBrand()`.
+     */
+    private function callerOwnsNewsletter(?Newsletter $newsletter): bool
+    {
+        $user = auth()->user();
+
+        if ($user === null || $newsletter === null) {
+            return false;
+        }
+
+        $currentStore = getCurrentStore($user->id);
+
+        return ! empty($currentStore)
+            && ! empty($newsletter->store_id)
+            && (int) $newsletter->store_id === (int) $currentStore;
+    }
+
     public function edit(Newsletter $newsletter)
     {
+        // P2.5-PKG-B. AN EMPTY BODY IS STILL AN EXISTENCE ORACLE: binding resolves the row first, so the
+        // response was an empty 200 for a subscriber in ANY store and 404 only for one existing
+        // nowhere. Same shape closed on five controllers in F-SEC-02.
+        if (! $this->callerOwnsNewsletter($newsletter)) {
+            abort(404);
+        }
+
         //
     }
 
@@ -110,6 +148,11 @@ class NewsletterController extends Controller
         
         if(auth()->user() && auth()->user()->isAbleTo('Delete Newsletter'))
         {
+            // P2.5-PKG-B. Permission was checked, owner was not. The guard precedes the delete.
+            if (! $this->callerOwnsNewsletter($newsletter)) {
+                abort(404);
+            }
+
             $newsletter->delete();
             return redirect()->back()->with('success', __('Email Newsletter delete successfully.'));
         }

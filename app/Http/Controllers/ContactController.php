@@ -87,8 +87,45 @@ class ContactController extends Controller
     /**
      * Show the form for editing the specified resource.
      */
+
+    /**
+     * P2.5-PKG-B. Does the caller own this contact submission?
+     *
+     * `Contact` is absent from `config/tenancy.php`'s `scoped_models`, so
+     * `StoreScope::isActiveFor()` short-circuits and the global scope adds NO predicate for any
+     * principal -- route model binding reaches every tenant's rows.
+     *
+     * MEASURED in `ContentFamilyCrossTenantTest` before this guard existed: all seven controllers
+     * of this shape failed their cross-tenant cases while all seven positive controls passed, so
+     * the fixtures were sound and the holes were real.
+     *
+     * Fails closed when either side is absent -- a row with a NULL `store_id` matches no store
+     * predicate anywhere in the application and must not become visible here. No operator limb,
+     * as on `ProductBrandController::callerOwnsBrand()`.
+     */
+    private function callerOwnsContact(?Contact $contact): bool
+    {
+        $user = auth()->user();
+
+        if ($user === null || $contact === null) {
+            return false;
+        }
+
+        $currentStore = getCurrentStore($user->id);
+
+        return ! empty($currentStore)
+            && ! empty($contact->store_id)
+            && (int) $contact->store_id === (int) $currentStore;
+    }
+
     public function edit(Contact $contact)
     {
+        // P2.5-PKG-B. contact submission -- the name, email address and message of a person who wrote to
+        // ANOTHER merchant. Personal data, and this read had no permission check either.
+        if (! $this->callerOwnsContact($contact)) {
+            abort(404);
+        }
+
         return view('contact.edit', compact('contact'));
     }
 
@@ -99,6 +136,13 @@ class ContactController extends Controller
     {
         if(auth()->user() && auth()->user()->isAbleTo('Edit Contact Us'))
         {
+            // P2.5-PKG-B. The permission was checked and the owner was not, so this wrote onto
+            // ANOTHER STORE'S row. Above the validator, so a cross-store attempt cannot
+            // be told apart from a refusal by which error comes back.
+            if (! $this->callerOwnsContact($contact)) {
+                abort(404);
+            }
+
             $validator = \Validator::make(
                 $request->all(),
                 [
@@ -140,6 +184,11 @@ class ContactController extends Controller
     {
         if(auth()->user() && auth()->user()->isAbleTo('Delete Contact Us'))
         {
+            // P2.5-PKG-B. Permission was checked, owner was not. The guard precedes the delete.
+            if (! $this->callerOwnsContact($contact)) {
+                abort(404);
+            }
+
             $contact->delete();
             return redirect()->back()->with('success', __('Contact delete successfully.'));
         }
