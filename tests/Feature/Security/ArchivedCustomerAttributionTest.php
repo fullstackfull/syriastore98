@@ -7,6 +7,8 @@ use App\Models\Customer;
 use App\Models\Store;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Tests\Support\Security\EnablesWorkdoModules;
 
 /**
  * P2.5-PKG-E (F2) — the storefront guard resolved a shopper to their ARCHIVED row.
@@ -47,6 +49,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 class ArchivedCustomerAttributionTest extends SecurityTestCase
 {
     use RefreshDatabase;
+    use EnablesWorkdoModules;
 
     private Store $store;
 
@@ -130,6 +133,95 @@ class ArchivedCustomerAttributionTest extends SecurityTestCase
             'a store holding only an ARCHIVED row for this shopper has no customer to attribute a '
             . 'comment to, so the guard must return null and let the caller refuse — naming the '
             . 'deleted row instead is the fault this file exists for');
+    }
+
+    // =============================================================================================
+    //  THE SAME DEFECT, DRIVEN THROUGH THE REAL ROUTE INSTEAD OF REFLECTION
+    // =============================================================================================
+
+    /**
+     * THE REFLECTION TESTS ABOVE PROVE THE RESOLVER. This one proves the SCREEN, which is a
+     * different claim and the one that matters.
+     *
+     * CLAUDE.md records that **no WorkDo module loads in any test run** unless a row is inserted
+     * into `add_on_managers`, so the suite is structurally blind to module routes: a test that
+     * "passes" against one may never have reached it. `EnablesWorkdoModules` enables the module
+     * through the production loader (`PackageServiceProvider::loadAddons`) and runs its
+     * migrations, and its own contract is that every user asserts a premise afterwards. This does
+     * both, and the premises are assertions rather than skips so an unmet one is loud.
+     *
+     * THE PATH, which is narrower than it first looks. `shopperComment()` only calls
+     * `sameShopperInStore()` when the signed-in customer's store DIFFERS from the slug store
+     * (`ModuleStorefrontInputGuard.php:136-138`) — the same-store case takes
+     * `(int) $customer->id` directly. So the defect needs a shopper signed in at store B posting
+     * on store A's storefront, which is a journey the platform deliberately supports: customer
+     * e-mail uniqueness is per `(email, store_id)`, so one person legitimately holds a row at
+     * each store, and the guard's own comment explains at length why it RESOLVES that case rather
+     * than refusing it.
+     *
+     * AND THE HANDLER TAKES THE ID STRAIGHT FROM THE REQUEST —
+     * `$comment->customer_id = $request->customer_id;`
+     * (`SpamPreventController.php:87`) — which is exactly why the guard overwrites it first. So
+     * the stored row is the honest end-to-end answer to "who did the platform attribute this to".
+     */
+    public function test_a_comment_from_another_stores_shopper_is_attributed_to_the_live_row(): void
+    {
+        $failed = $this->enableWorkdoModules(['SpamPrevent']);
+        $this->assertSame([], $failed,
+            'premise: SpamPrevent migrations threw, so a later assertion would fail for that '
+            . 'reason rather than for the attribution: ' . implode(' | ', $failed));
+
+        // PREMISES, asserted rather than skipped.
+        $this->assertTrue(\Illuminate\Support\Facades\Route::has('spamprevent.store'),
+            'premise: route spamprevent.store is not registered, so the guard this test exists '
+            . 'for was never reached and a pass would mean nothing');
+        $this->assertTrue(\Illuminate\Support\Facades\Schema::hasTable('product_comments'),
+            'premise: product_comments does not exist, so nothing can be read back');
+
+        // Store A holds the archived row and the live one that replaced it.
+        $archived = $this->customer('Archived', 'shared@example.test', true);
+        $live = $this->customer('Live', 'shared@example.test');
+        $this->assertLessThan($live->id, $archived->id,
+            'premise: the archived row must be the older id');
+
+        // The shopper is signed in at a DIFFERENT store, which is the only way this path is taken.
+        $otherMerchant = $this->makeMerchant();
+        $otherStore = $this->makeStore($otherMerchant);
+        $shopperAtB = Customer::forceCreate([
+            'first_name' => 'Same', 'last_name' => 'Person',
+            'email' => 'shared@example.test', 'password' => bcrypt('x'),
+            'store_id' => $otherStore->id, 'created_by' => $otherStore->created_by,
+            'status' => 1,
+        ]);
+
+        $response = $this->actingAs($shopperAtB, 'customers')
+            ->post('/' . $this->store->slug . '/spamprevent', [
+                // Attacker-controlled, and the guard must overwrite it. Pointing it at the
+                // ARCHIVED row makes the test fail loudly if the guard stops overwriting at all.
+                'customer_id' => $archived->id,
+                'comment' => 'A comment from the same person, signed in at the other store.',
+            ]);
+
+        $this->assertSame(200, $response->status(),
+            'premise: the comment route answered ' . $response->status()
+            . ', so nothing was stored and the attribution cannot be read back');
+
+        $stored = DB::table('product_comments')
+            ->where('store_id', $this->store->id)
+            ->orderByDesc('id')
+            ->first();
+
+        $this->assertNotNull($stored, 'premise: no comment row was written');
+
+        $this->assertSame($live->id, (int) $stored->customer_id,
+            'the comment was attributed to store A\'s ARCHIVED customer rather than the live one. '
+            . 'The guard resolves the shopper with a raw query whose ordering prefers the older '
+            . 'row, and the archived row is always older');
+        $this->assertNotSame($archived->id, (int) $stored->customer_id,
+            'positive control: the two ids differ, so the assertion above is meaningful');
+        $this->assertNotSame($shopperAtB->id, (int) $stored->customer_id,
+            "and it must not be store B's row either: the write is always a customer OF THE STORE "
+            . 'BEING WRITTEN, which is the whole point of the guard');
     }
 
     public function test_an_ordinary_live_shopper_still_resolves(): void
