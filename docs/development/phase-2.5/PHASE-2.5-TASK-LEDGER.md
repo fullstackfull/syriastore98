@@ -359,7 +359,53 @@ reserves. Wave D's first slice is to put the question, with these numbers, rathe
 | **P2.5-R-04** | Six shared Flutter buttons declare `title` and `iconData` optional and then force-unwrap them — a caller taking the signature at its word gets *"Null check operator used on a null value"* at build time. | 9 tests reproduced it; repaired backward-compatibly (every existing call site passes both); the 48dp tap target from D-01 asserted to survive the icon-less branch |
 | **P2.5-R-05** | The order board's **Move** button never moved anything. Three faults, all of them the board talking to the existing writer in the wrong words: the select was named `order_status` while the handler reads `$request->delivered`; the value `picked_up` against a writer testing `pickedup`; and a `response()->json()` on every path, which strands a plain form POST on raw JSON. | measured in a browser first — **200, raw JSON, board unchanged**; after: **302**, back on the board, **Pending 1 → 0, Confirmed 1 → 2**. 10 tests, **3 bites**. **No state-transition semantics changed** — `Order::order_status_change()`, its vocabulary, its cancel guard and its money handling are untouched, which is the carve-out the owner put on this one. |
 
+| **P2.5-R-06** | The three numeric customer filters returned **wrong answers**, and each fault existed **twice** — once in `CustomerDataTable::query()` and again, byte-for-byte, in `CustomerController::CustomFilterData()`. (1) AOV `'Equal'` was `&& $AOV = $text_field_float` — a single `=`, an **assignment**, truthy for every non-zero input, so *"AOV Equal 150"* matched every customer with any computable average. (2) `No. of Orders` and `Total Spend` each had **two** branches keyed on `'Less Than'`, the second testing `>`, so *"Less Than 3"* matched `<3` **or** `>3` — everything except the exact matches. (3) Neither had a `'More Than'` branch **at all**, though the screen offers the operator, so it answered with an **empty screen**. (4) Found while biting the first three: every branch was guarded by `!empty($text_field)` and **`empty("0")` is TRUE in PHP**, so a threshold of zero was discarded and *no filter ran* — *"Total Spend Equal 0"* and *"No. of Orders Equal 0"* each returned **the entire customer list**. | all four reproduced against the unmodified code **before** any fix: 14 failed / 7 passed, each failure mapped to its own fault in `PHASE-2.5-R-06-BITE-EVIDENCE.md`. 27 tests after. The seven that passed are the operators that already worked (`AOV Less Than`/`More Than`, `Orders Equal`, `Spend Equal`) — asserted so the repair could not trade one wrong answer for another. **`CustomerListFilterApplyTest` is green, unedited**, which is the proof the extraction preserved behaviour. Positive controls on every cross-tenant assertion. **One of my own test bugs was caught by the bite step and is recorded**: `listNames()` omitted `actingAs()`, so `getCurrentStore()` returned null and the predicate became `store_id IS NULL` — 19 failures for the wrong reason, while the premise test still passed because it asserts through `withoutGlobalScopes()`. |
+| **P2.5-R-07** | The customer **grid's** filter had never worked **by any path**. Three independent faults: (1) `CustomerController::customer_grid_view()` read **none** of the three filter parameters — it was `->paginate(12)` and nothing else, so there was no server-side path to reach; (2) the Apply handler wrote its answer into `#service-filter-data`, which **no element in the view carries** — the only two occurrences in the file are the two JS writes themselves, and jQuery's `.html()` on an empty set is a silent no-op; (3) even with the container added it could not have worked, because the endpoint renders the **list's `<tr>` fragment** and table rows written into a `div` are discarded by the parser. Also fixed here: an **undefined `$activityLogEntry`** in an `@if`, which has never thrown only because `\|\|` short-circuits on an always-true left operand. | repaired with the list's already-approved **P2.5-R-02** GET-form pattern **plus the server half it never had**, calling the same `CustomerListFilter::apply()` the list calls — so the two screens cannot disagree about what an operator means, which they did in three places. 18 tests, **13 bites**. `withQueryString()` so page 2 of a filtered grid stays filtered, asserted. A test asserts the list and the grid return **identical** sets for all nine numeric field/operator pairs. **Corrects two recorded inventory findings**: `customer-list-apply-filter-dead` is *refuted as written* for the grid (the ids DO match there and a request really fires — one per click, measured), and `customer-filter-target-missing` is *confirmed* with the re-measured detail. |
+
 **Both reviews found more than they confirmed**, which is the point of running them.
+### What P2.5-R-06 and R-07 changed about the shape of the code, and what they deliberately did not
+
+The filter now lives in one place, `app/Support/Customers/CustomerListFilter.php`, and three call
+sites pass it an **already tenant-scoped** Builder: the list's DataTable, the grid, and the AJAX
+fragment. The extraction **is** the repair rather than housekeeping — fault 3 survived P2.5-R-02
+precisely because a reader who fixed one copy had not fixed the screen, and the controller's copy
+had drifted further still: its three numeric branches **discarded** the query they were handed and
+rebuilt it from scratch through variables named `$queryyy`, `$queryss` and `$queryes`.
+
+**Four things were preserved on purpose, each because changing it is reserved to the owner.**
+
+1. **The money arithmetic is copied, not improved.** `total_spend()` and `Ordercount()` are called
+   exactly as before and the AOV expression keeps its `number_format(..., 2)` then strip-commas
+   round trip verbatim. D-40 forbids changing financial calculations to repair a filter.
+2. **A customer with no orders is still skipped by every AOV operator** — an average over zero
+   orders is undefined, not zero. That is a semantic choice with money in it, so it is pinned by a
+   test rather than silently altered.
+3. **Both request-key spellings still work.** The list sends `field_name`, the grid sends
+   `customer_field`; both are live in bookmarks and shipped markup, so each caller reads its own
+   key. D-40 asks for backward-compatible repairs.
+4. **No route was removed.** `customer.filter.data` and `customer/filter.blade.php` now have **no
+   caller** — the grid was the last one. That is **recorded, not deleted**: `CustomFilterData` is a
+   guarded endpoint and removing routes is a separate, riskier change. Its own tests still drive it.
+
+**One behaviour change is named rather than folded in:** `Total Spend` cast its threshold with
+`(int)`, so *"Total Spend Equal 300.50"* silently answered *"Equal 300"*. A spend is money and its
+threshold is now read as money. `No. of Orders` keeps `(int)` because an order count genuinely is a
+whole number. No stored or computed amount changes — only how a typed threshold is read.
+
+**And one cost is recorded rather than optimised.** The numeric operators still materialise the
+candidate set and call two aggregate methods per row, which is N+1 by construction: for 100
+customers that is 1 + 200 queries. Replacing it with SQL aggregates would change **how the figures
+are computed**, which is the thing D-40 reserves, so it stays an open item.
+
+### Found while opening the customer family, NOT absorbed into these repairs
+
+| # | finding |
+|---|---|
+| F-R06-1 | `index()` and `customer_grid_view()` have **no operator limb** — they check `isAbleTo('Manage Customer')` alone, while `CustomFilterData()` correctly tests `UserPolicy::isOperator()` first. Laratrust has no super-admin bypass, so the platform operator is refused by two of the three siblings. **Not widened here**: `getCurrentStore()` (`app/Helper/helper.php:774-775`) returns a **literal `1`** for a `super admin` with an empty `current_store`, so giving these two an operator path would serve store 1's customers to an operator who selected no store. That is the same property as open item **#84** and it needs the tenancy answer first, not an authorization patch. |
+| F-R06-2 | `href="#!"` — an anchor that goes nowhere — appears in **10+ first-party views**. The grid's Reset was one of them and is fixed here; the rest are a separate sweep. Found because a page-wide absence assertion failed on somebody else's markup, which is also why that assertion was narrowed to the control it is about. |
+| F-R06-3 | **The PayHere blocker no longer applies to the committed lock.** `composer.lock` holds 237 packages (198 + 39 dev) and **contains no `lahirulhr/laravel-payhere`**; a strict `composer install` from it completed on this container with 237 of 237 installed and the autoloader generated. CI's `tests-degraded` job exists solely to tolerate that package, and its header says the strict install "cannot currently succeed ON ANY MACHINE". That is no longer true. **Nothing in CI is changed here** — removing a required job is an owner decision — but the job's stated reason to exist should be re-checked. The two install failures seen on this container were a proxy-truncated zip and one corrupted source clone, both transient and neither PayHere. |
+
+
 
 The R-01/R-02 review caught **R-03**, and caught four tests sitting under a banner claiming they
 were end-to-end when they called the query builder directly and would have passed against the

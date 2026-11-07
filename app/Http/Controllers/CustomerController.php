@@ -10,6 +10,7 @@ use App\Models\Store;
 use App\Models\Order;
 use App\Models\OrderBillingDetail;
 use App\DataTables\CustomerDataTable;
+use App\Support\Customers\CustomerListFilter;
 
 class CustomerController extends Controller
 {
@@ -540,111 +541,32 @@ public function destroy(Customer $customer)
          */
         $customerField = $requestData['customer_field'] ?? null;
 
-        if ($customerField === 'Name' || $customerField === 'Email') {
-            if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
-                // check for name and email filtering
-                if ($requestData['selected_name'] === 'Includes') {
-                    $query->where(function ($query) use ($requestData) {
-                        $query->where('first_name', 'like', '%' . $requestData['text_field'] . '%')
-                            ->orWhere('email', 'like', '%' . $requestData['text_field'] . '%');
-                    });
-                } elseif ($requestData['selected_name'] === 'Excludes') {
-                    $query->where(function ($query) use ($requestData) {
-                        $query->where(function ($query) use ($requestData) {
-                            $query->where('first_name', 'not like', '%' . $requestData['text_field'] . '%')
-                                ->orWhere('email', 'not like', '%' . $requestData['text_field'] . '%');
-                        });
-                    });
-                }
-            }
-        }
+        /*
+         * P2.5-R-06 -- THE SECOND COPY OF THE FILTER IS GONE, and that is the repair.
+         *
+         * WHAT WAS HERE: ~105 lines reimplementing CustomerDataTable::query()'s five filters, with
+         * all three numeric faults present identically -- the AOV `'Equal' && $AOV =
+         * $text_field_float` assignment, the duplicated `'Less Than'` branch testing `>`, and no
+         * `'More Than'` branch for `No. of Orders` or `Total Spend`.
+         *
+         * AND IT HAD DRIFTED FURTHER THAN THAT. The three numeric branches DISCARDED the $query
+         * built above and started again from a fresh `Customer::where('store_id',
+         * getCurrentStore())`, through throwaway variables named `$queryyy`, `$queryss` and
+         * `$queryes`. That was harmless only because `customer_field` is a single select, so a
+         * numeric field and a text field can never both be in force -- an invariant nothing
+         * asserted and the next filter option would have broken.
+         *
+         * The shared implementation narrows the query it is given and never rebuilds it, so that
+         * accident cannot recur. The tenant predicate on $query above is untouched and remains the
+         * only thing establishing tenancy here.
+         */
+        $query = CustomerListFilter::apply(
+            $query,
+            $customerField,
+            $requestData['selected_name'] ?? null,
+            $requestData['text_field'] ?? null
+        );
 
-        // Check for last active filtering
-        // P2.5-R-03 -- the same 'Last active' / 'Last Active' mismatch as
-        // CustomerDataTable::query():164, fixed the same way and for the same reason. Left
-        // half-fixed it would be a second copy of a defect that has already cost one round.
-        if (in_array($customerField, ['Last active', 'Last Active'], true)) {
-            if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
-                $dateValue = $requestData['text_field'];
-                if ($requestData['selected_name'] === 'Before') {
-                    $query->whereDate('last_active', '<', $dateValue);
-                } elseif ($requestData['selected_name'] === 'After') {
-                    $query->whereDate('last_active', '>', $dateValue);
-                } else {
-                    $query->whereDate('last_active', $dateValue);
-                }
-            }
-        }
-
-        // check for AOV filtering
-        if ($customerField == 'AOV') {
-            $queryyy = Customer::where('store_id', getCurrentStore());
-            if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
-                $filteredCustomers = [];
-                foreach ($queryyy->get() as $key => $value) {
-                    $AOV = 0;
-                    if ($value->total_spend() != 0 && $value->Ordercount() != 0) {
-                        $AOV = number_format($value->total_spend() / $value->Ordercount(), 2);
-
-                        // Check the condition and filter
-                        $text_field_float = (float) $requestData['text_field'];
-                        $AOV = (float) str_replace(',', '', $AOV);
-                        if ($requestData['selected_name'] === 'Less Than' && $AOV < $text_field_float) {
-                            $filteredCustomers[] = $value->id;
-                        } elseif ($requestData['selected_name'] === 'More Than' && $AOV > $text_field_float) {
-                            $filteredCustomers[] = $value->id;
-                        } elseif ($requestData['selected_name'] === 'Equal' && $AOV = $text_field_float) {
-                            $filteredCustomers[] = $value->id;
-                        }
-                    }
-                }
-                $query = $queryyy->whereIn('id', $filteredCustomers);
-            }
-        }
-
-        // check for number of orders filtering
-        if ($customerField == 'No. of Orders') {
-            $queryss = Customer::where('store_id', getCurrentStore());
-            if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
-                $filteredCustomers = [];
-
-                $orderCountValue = (int) $requestData['text_field'];
-                foreach ($queryss->get() as $key => $value) {
-                    $counter = $value->Ordercount();
-
-                    if ($requestData['selected_name'] === 'Less Than' && $counter < $orderCountValue) {
-                        $filteredCustomers[] = $value->id;
-                    } else if ($requestData['selected_name'] === 'Less Than' && $counter > $orderCountValue) {
-                        $filteredCustomers[] = $value->id;
-                    } else if ($requestData['selected_name'] === 'Equal' && $counter == $orderCountValue) {
-                        $filteredCustomers[] = $value->id;
-                    }
-                }
-                $query = $queryss->whereIn('id', $filteredCustomers);
-            }
-        }
-
-        // check for Total Spend filtering
-        if ($customerField == 'Total Spend') {
-            $queryes = Customer::where('store_id', getCurrentStore());
-            if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
-                $filteredCustomers = [];
-
-                $orderCountValue = (int) $requestData['text_field'];
-                foreach ($queryes->get() as $key => $value) {
-                    $counter = $value->total_spend();
-
-                    if ($requestData['selected_name'] === 'Less Than' && $counter < $orderCountValue) {
-                        $filteredCustomers[] = $value->id;
-                    } else if ($requestData['selected_name'] === 'Less Than' && $counter > $orderCountValue) {
-                        $filteredCustomers[] = $value->id;
-                    } else if ($requestData['selected_name'] === 'Equal' && $counter == $orderCountValue) {
-                        $filteredCustomers[] = $value->id;
-                    }
-                }
-                $query = $queryes->whereIn('id', $filteredCustomers);
-            }
-        }
         $customers = $query->get();
 
         $filter = view('customer.filter', compact('customers', 'activitylog'))->render();
@@ -652,10 +574,48 @@ public function destroy(Customer $customer)
         return response()->json($filter);
     }
 
+    /**
+     * P2.5-R-07 -- THE GRID'S FILTER NOW EXISTS SERVER-SIDE, which it never has.
+     *
+     * WHAT THIS METHOD WAS: a bare `Customer::where('store_id', ...)->paginate(12)` that read
+     * none of `field_name`, `selected_name` or `text_field`. The screen's Apply control DID fire a
+     * request -- measured -- but to `customer.filter.data`, whose answer is the LIST's `<tr>`
+     * fragment, written into a container id this view does not contain. So the grid's filter had
+     * never worked by any path: not through the browser, and not through the server either.
+     *
+     * ONE SEMANTICS FOR BOTH SCREENS. The filter is `CustomerListFilter::apply()`, the same call
+     * `CustomerDataTable::query()` makes, so "Less Than" cannot mean one thing on the list and
+     * another on the grid. Before P2.5-R-06 it meant three different wrong things.
+     *
+     * THE TENANT PREDICATE IS UNCHANGED and still comes from `getCurrentStore()`, never from the
+     * request. `CustomerListFilter` takes an already-scoped Builder, has no store parameter and
+     * reads no request, so it can only narrow what it is given.
+     *
+     * THE PERMISSION IS UNCHANGED -- `Manage Customer`, as before. This method is reachable
+     * exactly as it was; the change is what it does with the query string, not who may call it.
+     * (`index()` and this method both omit an operator limb, which `CustomFilterData()` carries.
+     * That asymmetry is recorded as an open finding rather than widened here: adding an operator
+     * path to a grid whose `getCurrentStore()` can resolve to a literal store 1 is a separate
+     * question with a tenancy answer, and it is the kind of change that belongs in its own
+     * reviewed slice.)
+     *
+     * `withQueryString()` IS THE OTHER HALF OF THE REPAIR. Without it, page 2 of a filtered grid
+     * drops the filter and silently shows the unfiltered remainder -- which looks like a working
+     * filter that lost its mind, and is the commonest way a GET filter half-ships.
+     */
     public function customer_grid_view(Request $request)
     {
         if(auth()->user() && auth()->user()->isAbleTo('Manage Customer')) {
-            $customers = Customer::where('store_id', getCurrentStore())->paginate(12);
+            $query = Customer::where('store_id', getCurrentStore());
+
+            $query = CustomerListFilter::apply(
+                $query,
+                $request->query('field_name'),
+                $request->query('selected_name'),
+                $request->query('text_field')
+            );
+
+            $customers = $query->paginate(12)->withQueryString();
             $customer_field = Customer::customer_field();
             return view('customer.grid', compact('customer_field','customers'));
         } else {

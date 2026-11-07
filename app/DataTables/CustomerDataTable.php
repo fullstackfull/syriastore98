@@ -4,6 +4,7 @@ namespace App\DataTables;
 
 use App\Models\Customer;
 use App\Models\ActivityLog;
+use App\Support\Customers\CustomerListFilter;
 use Illuminate\Database\Eloquent\Builder as QueryBuilder;
 use Yajra\DataTables\EloquentDataTable;
 use Yajra\DataTables\Html\Builder as HtmlBuilder;
@@ -139,125 +140,37 @@ class CustomerDataTable extends DataTable
     {
         $query = $model->newQuery()->where('store_id', getCurrentStore());
 
+        /*
+         * P2.5-R-06 -- ONE SHARED FILTER, because this method and
+         * CustomerController::CustomFilterData() each carried their own ~100-line copy and the two
+         * had drifted apart. All three numeric faults existed in BOTH: the AOV `'Equal' && $AOV =
+         * $text_field_float` ASSIGNMENT (truthy for any non-zero input, so it matched every
+         * customer with a computable average), a duplicated `'Less Than'` branch whose second limb
+         * tested `>` (so "Less Than 3" returned everything except exactly 3), and NO `'More Than'`
+         * branch at all for `No. of Orders` or `Total Spend` (so that operator answered with an
+         * empty screen).
+         *
+         * The extraction is the repair, not housekeeping: fault 3 survived P2.5-R-02 precisely
+         * because a reader who fixed one copy had not fixed the screen.
+         *
+         * THE TENANT PREDICATE STAYS HERE, on the line above. CustomerListFilter::apply() takes an
+         * already-scoped Builder, has no $storeId parameter and never reads the request, so it can
+         * only ever narrow what it is handed. A tenant predicate built from caller-supplied input
+         * is not a tenant check -- CLAUDE.md records four separate defects from that -- and none of
+         * the three values passed below can name a store.
+         *
+         * THE REQUEST KEYS ARE UNCHANGED. This screen has always sent `field_name`; the grid sends
+         * `customer_field`. Both spellings are live in bookmarks and in shipped markup, so each
+         * caller reads its own key and passes the resolved value in.
+         */
         $requestData = $request->all();
 
-        if (isset($requestData['field_name']) && ($requestData['field_name'] == 'Name' || $requestData['field_name'] == 'Email')) {
-            if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
-                // check for name and email filtering
-                if ($requestData['selected_name'] === 'Includes') {
-                    $query->where(function ($subQuery) use ($requestData) {
-                        $subQuery->where('first_name', 'like', '%' . $requestData['text_field'] . '%')
-                            ->orWhere('email', 'like', '%' . $requestData['text_field'] . '%');
-                    });
-                } elseif ($requestData['selected_name'] === 'Excludes') {
-                    $query->where(function ($subQuery) use ($requestData) {
-                        $subQuery->where(function ($sQuery) use ($requestData) {
-                            $sQuery->where('first_name', 'not like', '%' . $requestData['text_field'] . '%')
-                                ->orWhere('email', 'not like', '%' . $requestData['text_field'] . '%');
-                        });
-                    });
-                }
-            }
-        }
-
-        /*
-         * P2.5-R-03 -- BOTH SPELLINGS, because the screen has only ever submitted one of them and
-         * it is not the one this line used to test for.
-         *
-         * Customer::customer_field() offers the option VALUE 'Last active' (lower-case a,
-         * Customer.php:282). This tested `== 'Last Active'`. The two never matched, so choosing
-         * that field rendered its Before/After/Equal operators and a date input --
-         * CustomerController::CustomFilter() matches the lower-case spelling correctly at :433 and
-         * :446, which is why the controls appear -- submitted them, and applied nothing. The
-         * merchant got the FULL LIST back with the controls still showing a filter that was not in
-         * force. Nobody could reach it until P2.5-R-02 made the Apply button work, which is how it
-         * was found.
-         *
-         * Matching both rather than renaming one keeps any bookmark or saved link that already
-         * carries 'Last Active' working. The comparison stays EXACT -- a loose match would pull
-         * unrelated field names into the date branch, which is asserted against in
-         * CustomerListFilterApplyTest::test_an_unrelated_field_name_does_not_reach_the_date_branch.
-         */
-        if (isset($requestData['field_name'])
-            && in_array($requestData['field_name'], ['Last active', 'Last Active'], true)) {
-            if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
-                $dateValue = $requestData['text_field'];
-                if ($requestData['selected_name'] === 'Before') {
-                    $query->whereDate('last_active', '<', $dateValue);
-                } elseif ($requestData['selected_name'] === 'After') {
-                    $query->whereDate('last_active', '>', $dateValue);
-                } else {
-                    $query->whereDate('last_active', $dateValue);
-                }
-            }
-        }
-
-        // check for AOV filtering
-        if (isset($requestData['field_name']) && $requestData['field_name'] == 'AOV') {
-            if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
-                $filteredCustomers = [];
-                foreach ($query->get() as $key => $value) {
-                    $AOV = 0;
-                    if ($value->total_spend() != 0 && $value->Ordercount() != 0) {
-                        $AOV = number_format($value->total_spend() / $value->Ordercount(), 2);
-
-                        // Check the condition and filter
-                        $text_field_float = (float) $requestData['text_field'];
-                        $AOV = (float) str_replace(',', '', $AOV);
-                        if ($requestData['selected_name'] === 'Less Than' && $AOV < $text_field_float) {
-                            $filteredCustomers[] = $value->id;
-                        } elseif ($requestData['selected_name'] === 'More Than' && $AOV > $text_field_float) {
-                            $filteredCustomers[] = $value->id;
-                        } elseif ($requestData['selected_name'] === 'Equal' && $AOV = $text_field_float) {
-                            $filteredCustomers[] = $value->id;
-                        }
-                    }
-                }
-                $query->whereIn('id', $filteredCustomers);
-            }
-        }
-
-        // check for number of orders filtering
-        if (isset($requestData['field_name']) && $requestData['field_name'] == 'No. of Orders') {
-            if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
-                $filteredCustomers = [];
-
-                $orderCountValue = (int) $requestData['text_field'];
-                foreach ($query->get() as $key => $value) {
-                    $counter = $value->Ordercount();
-
-                    if ($requestData['selected_name'] === 'Less Than' && $counter < $orderCountValue) {
-                        $filteredCustomers[] = $value->id;
-                    } else if ($requestData['selected_name'] === 'Less Than' && $counter > $orderCountValue) {
-                        $filteredCustomers[] = $value->id;
-                    } else if ($requestData['selected_name'] === 'Equal' && $counter == $orderCountValue) {
-                        $filteredCustomers[] = $value->id;
-                    }
-                }
-                $query->whereIn('id', $filteredCustomers);
-            }
-        }
-
-        // check for Total Spend filtering
-        if (isset($requestData['field_name']) && $requestData['field_name'] == 'Total Spend') {
-            if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
-                $filteredCustomers = [];
-
-                $orderCountValue = (int) $requestData['text_field'];
-                foreach ($query->get() as $key => $value) {
-                    $counter = $value->total_spend();
-
-                    if ($requestData['selected_name'] === 'Less Than' && $counter < $orderCountValue) {
-                        $filteredCustomers[] = $value->id;
-                    } else if ($requestData['selected_name'] === 'Less Than' && $counter > $orderCountValue) {
-                        $filteredCustomers[] = $value->id;
-                    } else if ($requestData['selected_name'] === 'Equal' && $counter == $orderCountValue) {
-                        $filteredCustomers[] = $value->id;
-                    }
-                }
-                $query->whereIn('id', $filteredCustomers);
-            }
-        }
+        $query = CustomerListFilter::apply(
+            $query,
+            $requestData['field_name'] ?? null,
+            $requestData['selected_name'] ?? null,
+            $requestData['text_field'] ?? null
+        );
 
         return $query;
     }

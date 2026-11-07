@@ -28,40 +28,83 @@
         <div class="mt-2 " id="multiCollapseExample1">
             <div class="card">
                 <div class="card-body">
+                    {{--
+                        P2.5-R-07 -- A PLAIN GET FORM, the same repair and the same approved
+                        pattern as the list's P2.5-R-02.
+
+                        WHAT WAS HERE, and it had NEVER worked by any path:
+
+                          * An `<a id="apply-button">` whose handler GET-ed
+                            `customer.filter.data` and wrote the answer into
+                            `$('#service-filter-data')`. THAT ELEMENT DOES NOT EXIST IN THIS VIEW
+                            -- the only two occurrences in the file are the two JS writes
+                            themselves. jQuery's `.html()` on an empty set is a silent no-op.
+                          * Adding the container would not have helped either: the endpoint
+                            renders `customer/filter.blade.php`, which emits `<tr>` TABLE ROWS --
+                            the LIST's fragment. Table rows injected into a `div` are discarded by
+                            the parser, and a row is not a card in any case.
+                          * And there was no server-side path to fall back on:
+                            `CustomerController::customer_grid_view()` ignored every filter
+                            parameter and only paginated.
+
+                        So, unlike the list, this one needed BOTH halves: a form, and a handler
+                        that reads it. The handler now calls the same
+                        `CustomerListFilter::apply()` the list uses, so the two screens cannot
+                        disagree about what "Less Than" means -- which they did, in three places,
+                        before P2.5-R-06.
+
+                        THE ADDRESS BECOMES BOOKMARKABLE, and pagination keeps the filter: the
+                        paginator is built with `withQueryString()`, so page 2 of a filtered grid
+                        is still filtered.
+                    --}}
+                    <form method="GET" action="{{ route('customer.grid') }}" id="frm_submit"
+                          role="search" aria-label="{{ __('Filter customers') }}">
                     <div class="row align-items-center m-0 gap-1 justify-content-end">
                         <div class="col-xl-3 col-lg-3 col-md-6 col-sm-12 col-12">
                             <div class="btn-box">
-                                {{ Form::select('field_name', $customer_field, isset($_GET['field_name'])?$_GET['field_name']:null, ['class' => 'form-control', 'id' => 'customer_field', 'placeholder' => __('Select Customer Fields')]) }}
+                                <label class="visually-hidden" for="customer_field">{{ __('Select Customer Fields') }}</label>
+                                {{ Form::select('field_name', $customer_field, request()->query('field_name'), ['class' => 'form-control', 'id' => 'customer_field', 'placeholder' => __('Select Customer Fields')]) }}
                             </div>
                         </div>
-                        <div class="col-xl-3 col-lg-3 col-md-6 col-sm-12 col-12 select-container d-none">
-                            <div class="btn-box" id="select-container">
-                                {{ Form::hidden('select_value', null, ['id' => 'select-value']) }}
-                            </div>
+                        {{-- The two hidden `select_value` / `text_value` inputs that used to sit
+                             in these boxes are gone. They were written to by the change handler
+                             and read by nothing: the AJAX built its payload from the visible
+                             controls. Inside a real form they would now be submitted as two more
+                             empty parameters. --}}
+                        <div class="col-xl-3 col-lg-3 col-md-6 col-sm-12 col-12 select-container @if (! request()->filled('field_name')) d-none @endif">
+                            <div class="btn-box" id="select-container"></div>
                         </div>
-                        <div class="col-xl-3 col-lg-3 col-md-6 col-sm-12 col-12 text-field d-none">
-                            <div class="btn-box" id="text-field">
-                                {{ Form::hidden('text_value', null, ['id' => 'text-value']) }}
-                            </div>
+                        <div class="col-xl-3 col-lg-3 col-md-6 col-sm-12 col-12 text-field @if (! request()->filled('field_name')) d-none @endif">
+                            <div class="btn-box" id="text-field"></div>
                         </div>
                         <div class="m-0 p-0 col-auto">
                             <div class="row">
                                 <div class="m-0 p-0 col-auto">
-                                    <a class="btn btn-sm btn-primary" data-bs-toggle="tooltip"
-                                        title="{{ __('Apply') }}" id="apply-button"
-                                        data-original-title="{{ __('apply') }}" aria-label="{{ __('Apply') }}">
+                                    {{-- A real submit control. The old `<a>` could not be
+                                         activated by Enter or the space bar, so this also gives
+                                         the filter a keyboard path. --}}
+                                    <button type="submit" class="btn btn-sm btn-primary" data-bs-toggle="tooltip"
+                                        title="{{ __('Apply') }}" id="applyfilter"
+                                        data-original-title="{{ __('apply') }}">
                                         <span class="btn-inner--icon"><i class="ti ti-search"></i></span>
-                                    </a>
-                                    <a href="#!" class="btn btn-sm btn-danger " data-bs-toggle="tooltip"
+                                        <span class="visually-hidden">{{ __('Apply') }}</span>
+                                    </button>
+                                    {{-- A LINK to the unfiltered address, not type="reset":
+                                         reset restores the form's INITIAL values, which on a
+                                         filtered page are the filters themselves. The old
+                                         `href="#!"` went nowhere at all. --}}
+                                    <a href="{{ route('customer.grid') }}" class="btn btn-sm btn-danger " data-bs-toggle="tooltip"
                                         title="{{ __('Reset') }}" id="clearfilter"
-                                        data-original-title="{{ __('Reset') }}" aria-label="{{ __('Reset') }}">
+                                        data-original-title="{{ __('Reset') }}">
                                         <span class="btn-inner--icon"><i
                                                 class="ti ti-trash-off text-white-off "></i></span>
+                                        <span class="visually-hidden">{{ __('Reset') }}</span>
                                     </a>
                                 </div>
                             </div>
                         </div>
                     </div>
+                    </form>
                 </div>
             </div>
         </div>
@@ -146,7 +189,21 @@
             <div class="ss-card__footer ss-card__footer--between">
                 <div class="bottom-icons d-flex flex-wrap align-items-center justify-content-between">
                     <div class="customer-grid-btn">
-                    @if (($customer && $customer->id) || $activityLogEntry)
+                    {{--
+                        P2.5-R-07 (found while opening this view, recorded separately).
+                        `$activityLogEntry` IS NOT DEFINED IN THIS VIEW. `customer_grid_view()`
+                        passes only `customer_field` and `customers`; the name is a leftover from
+                        `CustomerDataTable`, where it is a real local. It has never thrown only
+                        because `||` short-circuits and the left operand is true for every row in
+                        the loop -- every `$customer` here came from the database and has an id.
+                        A falsy id would have made this page fatal on an undefined variable.
+
+                        The dead operand is removed rather than the variable supplied: nothing on
+                        the card reads an activity-log entry, and `CustomerDataTable` collapsed
+                        its own two byte-identical `if ($activityLogEntry)` branches for the same
+                        reason in F98.
+                    --}}
+                    @if ($customer && $customer->id)
                         <a href="{{ route('customer.timeline', $customer->id) }}"
                             class="btn btn-sm btn-icon border me-2"
                             data-bs-placement="top" data-bs-toggle="tooltip" title="{{ __('Show') }}">
@@ -272,9 +329,6 @@
                                 inputElement.attr('type', inputType);
                                 $('#text-field').append(inputElement);
 
-                                // Set the values of the hidden input fields
-                                $('#select-value').val(selectBox.val());
-                                $('#text-value').val(inputElement.val());
                             } else {
                                 $('.text-field').addClass('d-none');
                             }
@@ -288,40 +342,48 @@
                 });
             });
 
-            $('#frm_submit').on('submit', function(event) {
-                event.preventDefault();
-                applyFilter();
-            });
+            /*
+             * P2.5-R-07. The submit handler, the click handler and `applyFilter()` are gone with
+             * the AJAX they called. The form above submits itself and
+             * `CustomerController::customer_grid_view()` does the filtering, through the same
+             * `CustomerListFilter::apply()` the list uses.
+             *
+             * WHAT WAS REMOVED, so it is not re-added by someone reading it as the mechanism:
+             * `applyFilter()` GET-ed the filter-data endpoint and wrote the response into a
+             * container id this view does not contain -- and that endpoint answers with the
+             * LIST's `<tr>` fragment, which is not a grid in any case. Leaving the block in place
+             * would mean a click both submitted the form and fired an AJAX whose answer is
+             * discarded. The dead id is named in the Blade comment on the form above, which is
+             * compiled away rather than shipped, so the rendered page can be asserted free of it.
+             *
+             * What remains is the other half of a GET filter: showing the merchant the filter
+             * that is in force. The operator and value controls are injected by the `change`
+             * handler above, so on a filtered page they do not exist yet. This replays that
+             * injection once and then puts the submitted values back, so a merchant who applied a
+             * filter and got a narrowed grid can SEE which filter narrowed it, and can edit it
+             * rather than rebuilding it from the first select.
+             */
+            @if (request()->filled('field_name'))
+                (function restoreSubmittedFilter() {
+                    var operator = @json(request()->query('selected_name'));
+                    var value = @json(request()->query('text_field'));
 
-            $('#apply-button').on('click', function(event) {
-                event.preventDefault();
-                applyFilter();
-            });
+                    $(document).ajaxComplete(function onInjected(event, xhr, settings) {
+                        if (! settings.url || settings.url.indexOf(@json(route('customer.filter'))) !== 0) {
+                            return;
+                        }
+                        $(document).off('ajaxComplete', onInjected);
+                        if (operator) {
+                            $('#select-container select').val(operator);
+                        }
+                        if (value) {
+                            $('#text-field input').val(value);
+                        }
+                    });
 
-            // Function to apply the filter
-            function applyFilter() {
-                var selectedValue = $('#customer_field').val();
-                var select = $('#select-container select').val();
-                var TextValue = $('#text-field input').val();
-
-                var data = {
-                    'text_field': TextValue,
-                    'selected_name': select,
-                    'customer_field': selectedValue,
-                }
-
-                $.ajax({
-                    url: '{{route('customer.filter.data')}}',
-                    type: 'GET',
-                    data: data,
-                    context: this,
-                    success: function (data) {
-                        $('#loader').fadeOut();
-                        $('#service-filter-data').html('');
-                        $('#service-filter-data').html(data);
-                    }
-                });
-            }
+                    $('#customer_field').trigger('change');
+                })();
+            @endif
         });
     </script>
 @endpush
