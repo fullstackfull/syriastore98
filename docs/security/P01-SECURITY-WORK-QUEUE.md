@@ -5478,7 +5478,56 @@ human approval` must not be added to any required-checks list — it runs in `re
 
 ---
 
-## S59 — `Api\DashboardController::store()` is an unrouted customer-creation twin carrying the two defects just repaired next door — **OPEN, LATENT**
+## S59 — `Api\DashboardController::store()` was an unrouted customer-creation twin carrying the two defects repaired next door — **CLOSED 2026-11-07, the method is deleted**
+
+> **REMOVED under the owner's instruction of 2026-11-07:** *"You may remove the unconnected
+> `DashboardController::store()` handler only after proving that it has no active routes, dynamic
+> callers, internal dependencies or required functionality. Do not create a route to it."*
+> The proof is below. **No route was created.** `addCustomer()` and its permission gate are
+> untouched.
+>
+> **How it was proven — four independent methods and two adversaries, not a grep:**
+> * **No routes.** All 70 modules force-loaded into a throwaway database (2309 routes, more than
+>   any real tenant loads), then the live router asked directly:
+>   `getByAction('…DashboardController@store')` returns **null**; a linear scan of all 2309
+>   registered routes for `/DashboardController@store$/` returns **0**; 113 routes resolve to this
+>   controller across **111 distinct methods** and `store` is not one. No route cache exists. The
+>   throwaway was deleted and `database/p2dev.sqlite` verified back at its original single row.
+> * **No module can reach it.** The string `DashboardController` appears **zero** times anywhere
+>   under `packages/workdo/` — all 70 modules, 139 route files, every file type. Read, not inferred
+>   from a green suite (which is structurally blind to modules).
+> * **No registration form was missed.** `Route::resource`/`apiResource`/`singleton`/
+>   `apiSingleton`/`fallback`/`match`/`->uses()`/`addRoute()`/`URL::action`/string `Controller@method`
+>   — all zero, on **every one of the five refs in the clone**, which closes the
+>   "a route on an unmerged branch" hazard.
+> * **No dynamic caller, and one could not exist silently.** Laravel's
+>   `Illuminate\Routing\Controller::__call()` **throws** `BadMethodCallException`, so a dynamic
+>   dispatch to a removed method is a hard error, not a quiet fallthrough.
+> * **No contract.** Nothing extends the class, it implements no interface, the parent and the one
+>   trait declare no `store()`, and no test referenced it.
+> * **No lost capability.** The shipped Flutter admin creates customers through `/AddCustomer`
+>   (`base_api.dart:92`). Nothing in either repository could reach `store()`.
+>
+> **The one real dependency, found only by the adversarial pass:**
+> `ApiStoreOwnershipPredicateTest.php:814` asserts a FLOOR of `resolveOwnedStore(` calls in this
+> controller, and the count was exactly **92 with zero headroom**. Three of the four proof agents
+> reported "deleting it breaks nothing"; that was **measurably false**, and shipping it would have
+> turned a blocking gate red.
+>
+> The floor is now **91**, lowered by exactly the one call the deleted method contained, documented
+> in that test's own comment the way its failure message demands and the way the **precedent in the
+> same file** does — it was lowered 94 → 92 by P1-INV-10 for the same reason, with the explicit
+> rationale *"Keeping the floor at 94 would mean keeping two latent cross-tenant holes alive to
+> satisfy a proxy measure."* `store()` had exactly that shape: one call satisfying the counter,
+> and an insert keyed on the raw query-string `store_id` that did not.
+>
+> **The real control is untouched and was proved so.** That test's own docblock says the count "was
+> never the real control" — the sibling `test_every_api_method_that_reads_a_request_store_id_also_proves_ownership`
+> is. An unguarded `store_id` reader was injected into the controller after the removal and that
+> assertion **failed**, then passed again on restore. Tenancy protection is exactly as strong as
+> before.
+
+**ORIGINAL FINDING, kept as the record of what was removed:**
 
 **Severity: low while unrouted; the same as S2/§5.4 the moment it is routed.** Recorded by the
 independent tenant-isolation review of the `AddCustomer` permission repair (2026-11-07).
