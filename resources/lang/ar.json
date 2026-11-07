@@ -2520,7 +2520,7 @@
     "Search Themes...": "بحث عن مواضيع...",
     "Search Users": "البحث عن المستخدمين",
     "Search Value": "قيمة البحث",
-    "Search...": "البحث...",
+    "Search...": "بحث...",
     "Searching…": "جارٍ البحث…",
     "Secret Key": "مفتاح سري",
     "Section": "القسم",
@@ -3449,5 +3449,10 @@
     "At least 8 characters. The customer can change it from your storefront.": "ثمانية أحرف على الأقل. ويمكن للعميل تغييرها من متجرك.",
     "An inactive customer cannot sign in to your storefront.": "العميل غير النشط لا يستطيع تسجيل الدخول إلى متجرك.",
     "The customer could not be created. Please try again.": "لم يتم إنشاء العميل. يُرجى المحاولة مرة أخرى.",
-    "Select a store before adding a customer.": "اختر متجراً قبل إضافة عميل."
+    "Select a store before adding a customer.": "اختر متجراً قبل إضافة عميل.",
+    "Records will appear in this table as they are created.": "ستظهر السجلات في هذا الجدول عند إنشائها.",
+    "No results match your search": "لا توجد نتائج تطابق بحثك",
+    "Try a shorter term, or clear the search to see everything.": "جرّب كلمة أقصر، أو امسح البحث لعرض كل العناصر.",
+    "{select} entries per page": "{select} لكل صفحة",
+    "Showing {start} to {end} of {rows} entries": "عرض {start}–{end} من أصل {rows}"
 }

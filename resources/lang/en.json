@@ -3418,5 +3418,10 @@
     "At least 8 characters. The customer can change it from your storefront.": "At least 8 characters. The customer can change it from your storefront.",
     "An inactive customer cannot sign in to your storefront.": "An inactive customer cannot sign in to your storefront.",
     "The customer could not be created. Please try again.": "The customer could not be created. Please try again.",
-    "Select a store before adding a customer.": "Select a store before adding a customer."
+    "Select a store before adding a customer.": "Select a store before adding a customer.",
+    "Records will appear in this table as they are created.": "Records will appear in this table as they are created.",
+    "No results match your search": "No results match your search",
+    "Try a shorter term, or clear the search to see everything.": "Try a shorter term, or clear the search to see everything.",
+    "{select} entries per page": "{select} entries per page",
+    "Showing {start} to {end} of {rows} entries": "Showing {start} to {end} of {rows} entries"
 }

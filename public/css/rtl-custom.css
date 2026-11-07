@@ -5259,8 +5259,13 @@ html:not([data-ss-theme="dark"]) body .dash-header .text-primary {
    LIGHT MODE IS UNREACHABLE BY CONSTRUCTION: this file is served in BOTH themes
    (layouts/app.blade.php), so every selector carries the `data-ss-theme="dark"` hook the layout
    publishes on <html>. The pink date pills are NOT re-inked -- they declare their own
-   `color: #ffffff` above and are immune to inheritance. Their own contrast failure is real, in
-   BOTH themes, and is a separate row that this change must not be credited with.
+   `color: #ffffff` above and are immune to inheritance.
+
+   This paragraph used to add that their own contrast failure was still open, in both themes.
+   IT IS NOT: re-measured 2026-11-07, all eight grounds those pills can take now pass AA for
+   small text. The measurement is recorded beside the colours themselves, at the `*-timeline`
+   block around :1972, which is where it belongs and where a reader will be standing when the
+   question comes up.
    ============================================================================================= */
 
 html[data-ss-theme="dark"] body .my-custom-timeline .tl-box {

@@ -2178,3 +2178,84 @@ textually inside a form that pressed nothing. The test walks the parsed ancestor
 
 Matrix: three surfaces move. WAVE-6 findings: **25 → 22** after the re-anchoring, **→ 19** after
 this slice.
+
+---
+
+## 4.17 P2.5-WAVE-6a — the DataTable empty state, and three defects only the picture caught [2026-11-07]
+
+**One area package instead of a wave of cosmetic edits**, per the owner's instruction of 2026-11-07
+(*"Avoid hundreds of cosmetic micro-waves. Use substantial area-based packages."*). The surface is
+every merchant table that can be empty.
+
+### What a merchant saw
+
+| | |
+|---|---|
+| the label | the library's hard-coded English `noRows: "No Data Found"`, overridden **nowhere** in this repository — so an Arabic merchant read English on every empty table |
+| the cell | `td.dataTables-empty` styled in **neither** first-party sheet: body-size text, start-aligned, body colour |
+| the footprint | **19 tables** — 17 across 14 first-party views plus two in vendored modules — all from **one** init site, `public/js/custom.js:12-18` |
+
+### The work-list row this came from was wrong about the symptom
+
+WAVE-6's `missing-states` row calls four of these "seven headers over an empty body". They are not
+bodiless: all four carry `class="dataTable"` and the library writes a message into them with a
+correct colspan. The `@forelse`-is-zero census is accurate; the conclusion is not — and
+`@forelse`/`@empty` would have been an **actively wrong** fix, because the library rebuilds the
+tbody from the rows it parsed, so a hand-written empty row becomes a *data* row, counted in
+"Showing 1 to 1 of 1 entries" and sortable. Corrected in the work-list itself, with two other stale
+rows found in the same check (see below).
+
+### Three defects a passing Unit test and a passing DOM probe both missed
+
+This is the entry worth re-reading, because all three were found by **looking at the capture**.
+
+1. **`padding: 0` did not win.** The plugin's `.dataTable-table > tbody > tr > td` is 0-1-3 against
+   `td.dataTables-empty`'s 0-1-1; the cell computed `8px 10px` while the sheet declared `0`, and
+   the Unit test — which asserted the *declaration* — passed. The test now asserts the selector
+   carries the prefix that makes it win; the browser check asserts the computed value.
+2. **The furniture was still English.** "Search..." and "entries per page" sat in English directly
+   above a now-Arabic empty state. All five library labels are translated now.
+3. **`ti ti-search-off` does not exist in the bundled font**, so the no-results state drew an empty
+   circle. The `<i>` was present with the right class — a class matching no `:before` rule is
+   invisible, not absent — so every assertion passed. A Unit test now resolves every icon name
+   against the shipped font; the browser check asserts non-zero glyph width.
+
+### And one defect the evidence harness invented
+
+Its first version loaded only the plugin sheet and the design system, and the search box rendered
+**white on the dark card** — indistinguishable from a dark-mode defect until traced to
+`custom.css:4823`, a dark arm the harness was not loading. The renderer now mirrors the layout's
+real four-way stylesheet branch. **A harness that omits a stylesheet does not reveal a defect, it
+manufactures one**, and a reported defect that is not real costs the same review time as a real one.
+
+### Two stale claims corrected before acting on them
+
+* **the timeline date pills pass.** Their contrast failure was recorded as open in `custom.css`, in
+  `rtl-custom.css` and in `DarkTimelineSurfaceContrastTest`'s docblock. Re-measured: white on each
+  of the eight grounds a pill can take gives **4.53:1 to 6.55:1** against a 4.5:1 bar (10px/600 is
+  small text). All eight pass. The measurement now sits beside the colours at `custom.css:1972`.
+* **the `offbrand-colour` row names seven hues** of which only `#795548` is still in the file, and
+  says "no dark arm" where `custom.css:5291-5341` carries one.
+
+(The first attempt at the first correction wrote `P2.5-A-06` into a comment; that test finds its
+block with `strpos($css, 'P2.5-A-06')`, so the boundary moved onto the comment and six assertions
+failed at once. Worth knowing before anyone writes that string in that file again.)
+
+### Arabic that is grammatical at every value
+
+`{select} entries per page` was first rendered `{select} سجل في الصفحة`, which is wrong for some
+values: 3–10 take the broken plural and 11+ the accusative singular, while the selector offers
+5/10/15/20/25. Both strings were reworded to drop the counted noun — `{select} لكل صفحة` and
+`عرض {start}–{end} من أصل {rows}` — which is idiomatic and correct at every value.
+
+### Evidence
+
+| | |
+|---|---|
+| Unit | `tests/Unit/Ui/DataTableEmptyStateTest.php` — 9 tests, 35 assertions, comments stripped before every code assertion |
+| browser | `tests/Browser/p25-datatable-empty.mjs` — 8 captures × 11 checks, both empty states, 4 combinations each |
+| images | `evidence/wave-6a/` — 8 PNGs at dpr 2, a contact sheet, and a README stating what is real in them and what is a stand-in |
+| mutation | 6 against the Unit test, all caught; 2 against the browser checks, both caught |
+| gates | Unit 1459 · Contract 32 · Feature known-outcome gate asserted |
+
+**No behaviour changed**: no controller, route, permission, tenant predicate or query is touched.

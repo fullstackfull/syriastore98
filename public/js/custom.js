@@ -6,23 +6,115 @@ $.ajaxSetup({
 
 var site_url = $('meta[name="base-url"]').attr('content');
 
+/* THE DATATABLE EMPTY STATE.  P2.5-WAVE-6a
+   =================================================================================================
+   WHAT THE 19 MERCHANT TABLES USED TO SHOW WHEN THEY HELD NOTHING. simple-datatables renders
+   `<tr><td class="dataTables-empty" colspan="N">{label}</td></tr>` from `setMessage()`, with the
+   colspan taken from the live heading count -- so the row itself was always correct. Two things
+   about it were not:
+
+     * the label was the library's hard-coded ENGLISH `"No Data Found"`. Measured: `noRows` is
+       overridden nowhere in this repository, so an Arabic merchant read English on every empty
+       table in the product.
+     * `td.dataTables-empty` is styled in NEITHER first-party sheet, so it inherited the row
+       treatment -- bare text at body size, start-aligned, in the body colour. A merchant with no
+       orders saw a table head and one line of English.
+
+   WHY THE FIX IS HERE AND NOT `@forelse`/`@empty` IN THE VIEWS. That was the first approach and it
+   is WRONG for these tables: simple-datatables initialises every `.dataTable` and REBUILDS the
+   tbody from the rows it parsed, so a hand-written empty row becomes a DATA row -- counted in
+   "Showing 1 to 1 of 1 entries", sortable, and searchable. The library already has an empty state;
+   it needed words and a treatment, not a second mechanism beside it.
+
+   THE MARKUP IS THE PROJECT'S OWN. `setMessage` injects its label with `html:`, so the label can
+   carry the same structure as `resources/views/components/ss/empty.blade.php` -- icon, title,
+   subtitle -- and the `.ss-empty` rules in store-syria-ds.css then style it in both themes with no
+   new CSS vocabulary. The strings are escaped before they are injected even though they come from
+   first-party translation files: a label is still being used as HTML, and the escape costs nothing.
+
+   ONE INIT SITE, 19 TABLES. `partision/footerlink.blade.php:72,80` loads the library and this file,
+   and `layouts/app.blade.php:785` includes it, so this is the only place any `.dataTable` in the
+   merchant admin is constructed -- measured: 17 tables across 14 first-party views, plus two in
+   vendored modules (`SMS/.../notification_templates/index.blade.php`,
+   `RewardClubPoint/.../clubPointTransections.blade.php`) which render inside this same layout and
+   so are served by it too. `new simpleDatatables.DataTable` appears ZERO times anywhere else in
+   `resources/views/` or `packages/workdo/`, so there is no second construction site to keep in
+   step. (`packages/workdo/LandingPage/.../simple-datatables.js` is a second COPY of the library,
+   not a table, and nothing in the merchant admin loads it.) */
+function ssDataTableEscape(text) {
+    return $('<div>').text(text == null ? '' : text).html();
+}
+
+function ssDataTableEmptyMarkup(title, body, icon) {
+    if (!title) {
+        return null;
+    }
+    var html = '<div class="ss-scope ss-empty">'
+        + '<div class="ss-empty__icon" aria-hidden="true"><i class="ti ti-' + icon + '"></i></div>'
+        + '<div class="ss-empty__body">'
+        + '<p class="ss-empty__title">' + ssDataTableEscape(title) + '</p>';
+    if (body) {
+        html += '<p class="ss-page-header__subtitle">' + ssDataTableEscape(body) + '</p>';
+    }
+    return html + '</div></div>';
+}
+
+/* Returns only the labels it can actually source. An absent meta -- a view reached through another
+   layout -- leaves that key out, so the library keeps its own default rather than rendering
+   "undefined" or an empty state with no words in it. */
+function ssDataTableLabels() {
+    var read = function (name) {
+        return $('meta[name="' + name + '"]').attr('content') || '';
+    };
+    var labels = {};
+    var noRows = ssDataTableEmptyMarkup(read('dt-no-rows'), read('dt-no-rows-body'), 'inbox');
+    // `zoom-cancel`, NOT `search-off`. The first version used `search-off`, which READS correctly
+    // and DOES NOT EXIST in the bundled tabler-icons.min.css -- so the no-results state rendered
+    // an empty circle where its icon should be. The DOM probe beside this said "ok": the <i>
+    // element was there with the right class, and a class that matches no `:before` rule is
+    // invisible, not absent. Found by LOOKING at the capture. A test now asserts every icon name
+    // here resolves in the shipped font.
+    var noResults = ssDataTableEmptyMarkup(read('dt-no-results'), read('dt-no-results-body'), 'zoom-cancel');
+
+    if (noRows) {
+        labels.noRows = noRows;
+    }
+    if (noResults) {
+        labels.noResults = noResults;
+    }
+
+    // The table's own furniture. Plain strings, NOT markup: the library puts `placeholder` in an
+    // input attribute and substitutes `{select}` / `{start}` / `{end}` / `{rows}` inside the other
+    // two, so HTML here would be escaped by the attribute or would break the substitution.
+    $.each({ search: 'placeholder', 'per-page': 'perPage', info: 'info' }, function (meta, key) {
+        var value = read('dt-' + meta);
+        if (value) {
+            labels[key] = value;
+        }
+    });
+
+    return labels;
+}
+
 $(document).ready(function () {
     comman_function();
     daterange();
     const tables = $(".dataTable");
     if (tables.length > 0) {
         tables.each(function() {
-            new simpleDatatables.DataTable(this);
+            new simpleDatatables.DataTable(this, { labels: ssDataTableLabels() });
         });
       //  const dataTable = new simpleDatatables.DataTable(".dataTable");
     }
     if ($(".dataTable-5").length > 0) {
         const dataTable = new simpleDatatables.DataTable(".dataTable-5", {
+            labels: ssDataTableLabels()
         })
 
     }
     if ($(".dataTable-6").length > 0) {
         const dataTable = new simpleDatatables.DataTable(".dataTable-6", {
+            labels: ssDataTableLabels()
         })
     }
 });

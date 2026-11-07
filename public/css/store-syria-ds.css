@@ -6643,3 +6643,65 @@ html:not([data-ss-theme="dark"]) [data-ss-admin] .dash-sidebar .dash-item:not(.a
     color: var(--ss-fg);
 }
 /* end P2.5-PKG-B-VARIANT-HEADING */
+
+/* =================================================================================================
+   THE DATATABLE EMPTY CELL.  P2.5-WAVE-6a
+   =================================================================================================
+   `public/js/custom.js` now hands simple-datatables the project's own `.ss-empty` markup as its
+   `noRows` / `noResults` label, and the library injects it into
+   `<td class="dataTables-empty" colspan="N">`. The `.ss-empty` rules above already do all the
+   styling; this block only undoes what a TABLE CELL does to it that a normal block parent does not.
+
+   Three things, each measured rather than assumed:
+
+     * `td` inherits the row's `text-align` -- `start` on a merchant table, and `.ss-empty` is a
+       column flex box with `align-items: center`, which centres its CHILDREN but leaves the title
+       and subtitle paragraphs' own text start-aligned. `text-align: center` here, not on `.ss-empty`,
+       so no other empty state in the product is touched.
+     * the plugin's own cell padding applies here and stacks with `.ss-empty`'s own
+       `--ss-space-12`, giving a cell taller than the state inside it. Zeroing it needs the
+       PLUGIN'S OWN SELECTOR SHAPE, which is the one correction the live pass forced:
+       `assets/css/plugins/style.css` sets `padding: 8px 10px` through
+       `.dataTable-table > tbody > tr > td` -- specificity 0-1-3 -- so a plain
+       `td.dataTables-empty` (0-1-1) LOSES, and the first version of this block did. Measured in
+       the browser, not reasoned about: the cell computed `8px 10px` while this sheet declared
+       `0`. The selector below carries the same prefix plus the class, 0-2-3, and wins without an
+       `!important`.
+     * a `td` is a table cell, so the flex box inside it needs a width to centre within. `display:
+       block` on the cell is NOT used -- it would break the colspan -- and none is needed, because
+       the cell already spans the table.
+
+   NO DARK ARM IS NEEDED and that is deliberate, not an omission: every colour in the state comes
+   from `.ss-empty`/`.ss-empty__icon`/`.ss-empty__title` and the `--ss-*` tokens they read, which
+   are redefined under `data-ss-theme="dark"` once, for every surface that uses them. Adding a
+   second definition here is how a token set stops being one.
+   ================================================================================================= */
+/* EVERY SELECTOR HERE IS CONFINED BY `:has(.ss-empty)`, and that is not a formality to satisfy
+   `DesignSystemStylesheetScopeTest` -- it is the correct rule. This sheet loads on every admin
+   page across all 70 vendored modules, and `.dataTables-empty` is the PLUGIN'S class, not ours:
+   a bare `td.dataTables-empty` would repaint the empty row of any vendored module's DataTable,
+   including ones that never asked for the project's empty state and would get a centred,
+   zero-padded cell containing the library's own bare string. `:has(.ss-empty)` matches only a
+   cell that holds the markup `custom.js` put there.
+
+   `:has()` IS A PROGRESSIVE ENHANCEMENT, the same judgement already recorded for `.ss-filterbar`
+   above: where it is unsupported the cell keeps the plugin's padding and start alignment, and the
+   empty state inside it still renders correctly -- it is a worse-looking cell, not a broken one.
+
+   `text-align` is split from `padding` on purpose: the plugin sets no alignment on a `td`, so
+   0-1-2 is enough for that half, while the padding half needs the plugin's own selector prefix to
+   outrank `.dataTable-table > tbody > tr > td` (0-1-3). See the specificity note above. */
+td.dataTables-empty:has(.ss-empty) {
+    text-align: center;
+}
+
+.dataTable-table > tbody > tr > td.dataTables-empty:has(.ss-empty) {
+    padding: 0;
+}
+
+/* The library also puts `.dataTable-empty` on the WRAPPER while a table is empty. The search box
+   and the per-page select are still useful on a table that a search just emptied, so they are left
+   alone; only the border that would draw a line under nothing is dropped. */
+.dataTable-empty .dataTable-table td.dataTables-empty:has(.ss-empty) {
+    border-bottom-width: 0;
+}
