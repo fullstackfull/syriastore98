@@ -2066,8 +2066,35 @@ public function handlePaymeraTrigger00($orderId)
             return redirect()->back()->with('error', $validator->getMessageBag()->first());
         }
 
-        // Check if customer already exists
-        $customer = Customer::where('email', $billing['email'])->first();
+        /*
+         * OWNER SAFEGUARD 1 (2026-11-07). `->where('store_id', $store->id)` -- WITHOUT IT THIS WAS A
+         * CROSS-TENANT WRITE, not merely a wrong read.
+         *
+         * The lookup carried no store predicate, and the `else` branch below WRITES `last_active`
+         * to whatever row it finds and then RETURNS it as the order's customer. So with two live
+         * customers sharing an address across stores, a guest checkout in this store could update
+         * ANOTHER store's customer row and attribute this store's order to that merchant's
+         * shopper. `->first()` has no `orderBy`, so the engine's natural order decides -- in
+         * practice the lower id, i.e. whichever store registered that shopper first.
+         *
+         * AND THE GLOBAL SCOPE IS NOT A BACKSTOP ON THIS PATH, which is the whole point. `Customer`
+         * IS in `config/tenancy.php`'s `scoped_models`, so `StoreScope` normally supplies a
+         * predicate -- but a guest checkout is ANONYMOUS, `StoreScope::resolveTenant()` returns
+         * `MODE_UNRESOLVED`, and `null_tenant => 'open'` means the scope adds NOTHING. The one path
+         * where the shopper is not signed in is the one path the scope does not cover.
+         *
+         * `$store` is already a parameter of this method, so this needs no new information and no
+         * request input: the predicate is the store the checkout is already happening in.
+         *
+         * NO PAYMENT BEHAVIOUR CHANGES. Nothing about amounts, gateways, totals or transitions is
+         * touched. This only narrows which `customers` row a lookup may return, and it can never
+         * widen it. An address known only in another store now correctly produces a NEW row in
+         * this store instead of adopting that one -- which is the state per-store e-mail
+         * uniqueness makes ordinary, and is asserted.
+         */
+        $customer = Customer::where('email', $billing['email'])
+            ->where('store_id', $store->id)
+            ->first();
         
         if (!$customer) {
             $customer = $this->createCustomer($billing, $store, false);
