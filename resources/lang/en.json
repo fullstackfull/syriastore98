@@ -3417,5 +3417,6 @@
     "Used to sign in to your storefront. It must not already belong to another customer.": "Used to sign in to your storefront. It must not already belong to another customer.",
     "At least 8 characters. The customer can change it from your storefront.": "At least 8 characters. The customer can change it from your storefront.",
     "An inactive customer cannot sign in to your storefront.": "An inactive customer cannot sign in to your storefront.",
-    "The customer could not be created. Please try again.": "The customer could not be created. Please try again."
+    "The customer could not be created. Please try again.": "The customer could not be created. Please try again.",
+    "Select a store before adding a customer.": "Select a store before adding a customer."
 }

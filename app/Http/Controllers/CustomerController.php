@@ -53,6 +53,38 @@ public function store(Request $request)
         return redirect()->back()->with('error', __('Permission denied.'));
     }
 
+    /*
+     * ISSUE #84. THE OPERATOR MUST HAVE NAMED A STORE, and the guard below cannot ask that.
+     *
+     * `getCurrentStore()` returns the integer literal `1` for a `super admin` whose
+     * `current_store` is empty -- `app/Helper/helper.php:774-775`, "Default store for super
+     * admin". `empty(1)` is FALSE, so the `empty($store)` check immediately below passes and the
+     * handler proceeds. The operator then creates a customer in WHOEVER OWNS STORE 1, with a
+     * password the operator chose and `email_verified_at` already set (see the create call below)
+     * -- an account that can sign in to that merchant's storefront at once. The merchant is not
+     * told, and the response never names the store.
+     *
+     * This is not an escalation: the operator may legitimately act in any store. The defect is
+     * that NO STORE WAS CHOSEN, and a silent default is the wrong answer to "which merchant did
+     * you mean" when the answer decides who owns a new credential.
+     *
+     * NARROW ON PURPOSE -- the fix is here, not in the helper. That literal serves a large number
+     * of call sites and changing it is a platform-wide behaviour change needing its own decision
+     * and its own evidence. This handler asks the smaller question (may I CREATE an account in a
+     * store the caller has not named) and answers it locally.
+     *
+     * THE MERCHANT PATH IS UNTOUCHED, and that is asserted: a merchant's `current_store` is set,
+     * so the helper's first branch returns it and this limb is never reached. A merchant who has
+     * no `current_store` but owns a store still falls through to the helper's own
+     * `Store::where('created_by', ...)` lookup, exactly as before.
+     *
+     * `!empty()` matches the helper's own test, so all three spellings it treats as unset --
+     * null, 0 and '' -- are refused here rather than one of them slipping through to the literal.
+     */
+    if ($isOperator && empty($user->current_store)) {
+        return redirect()->back()->with('error', __('Select a store before adding a customer.'));
+    }
+
     $store = getCurrentStore();
 
     if (empty($store)) {
