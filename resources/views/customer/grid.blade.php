@@ -125,7 +125,7 @@
                     </form>
     </div>
 </div>
-<div class="row row-gap-2 mb-2">
+<div class="row g-3 mb-2">
     {{-- P2.5-PKG-G SLICE 1. `@forelse`, because this grid had NO empty arm at all: with no
          customers, or -- far more likely now that P2.5-R-07 made the filter actually work --
          with a filter that matched nothing, the merchant got a blank page. The list beside it
@@ -138,8 +138,47 @@
          records: an empty list and a list hidden by a filter look identical and are not the
          same problem. --}}
     @forelse ($customers as $customer)
-    <div class="col-xxl-3 col-xl-4 col-sm-6 col-12">
-        <div class="card user-card">
+    @php
+        /* P2.5-PKG-G SLICE 2 -- ONE NAME, RESOLVED ONCE.
+           `first_name` and `last_name` are BOTH nullable (the customers migration) and
+           `Customer::getNameAttribute()` is a bare concatenation, so a customer with neither
+           rendered an empty avatar, a link whose accessible name was one space, and an
+           aria-label reading "Account status for ". Three places disagreed about the same
+           missing name; now they read one variable. The fallback is visible and translated,
+           following the precedent in order/grid.blade.php. */
+        $ssName = trim(($customer->first_name ?? '') . ' ' . ($customer->last_name ?? ''));
+        $ssDisplayName = $ssName !== '' ? $ssName : __('Unnamed customer');
+        $ssInitials = \Illuminate\Support\Str::upper(
+            \Illuminate\Support\Str::substr($customer->first_name ?? '', 0, 1)
+            . \Illuminate\Support\Str::substr($customer->last_name ?? '', 0, 1)
+        );
+        if ($ssInitials === '') {
+            $ssInitials = \Illuminate\Support\Str::upper(\Illuminate\Support\Str::substr($customer->email ?? '?', 0, 1));
+        }
+    @endphp
+    {{-- `col-lg-4` fills the gap the sequence left: it ran 1/2/2/2/3/4 with NOTHING between
+         576px and 1199px, so 1024, 1152 and 1180 got two ~470px cards. `d-flex` lets the column
+         stretch the card so a row of cards shares one height. --}}
+    <div class="col-xxl-3 col-xl-4 col-lg-4 col-sm-6 col-12 d-flex">
+        {{-- `ss-scope ss-card`, NOT `card user-card`.
+
+             `.card` sets `--bs-card-border-width: 0px` in BOTH sheets (style.css:4993,
+             style-dark.css), so the card had NO edge -- only a 10% black shadow, invisible on a
+             dark page -- while `.ss-card__header`'s and `.ss-card__footer`'s own borders still
+             painted: two floating hairlines and no outline around them. `.ss-card` supplies the
+             surface, the border, the radius and `display:flex; flex-direction:column`, which is
+             also what stops the footer floating mid-card.
+
+             `ss-scope` is what turns on the Arabic 1.7 line-height arm; no customer view carried
+             it.
+
+             `user-card` is dropped, and that was CHECKED rather than assumed: it has no rule of
+             its own anywhere, and every one of its 22 descendant selectors in style.css is a
+             profile-page construct -- `.change-profile`, `.cover-img-block`, `.user-about-block`,
+             `.certificated-badge`, `.wid-80`, `.hover-data`, `.label`, `.dropdown-toggle`. This
+             card contains NONE of them, so the class was vestigial, inherited by copy from the
+             vendored profile template. --}}
+        <div class="ss-scope ss-card w-100 mb-0">
             {{--
                 P2.5-PKG-C. REDESIGNED COMPOSITION, not a recolour.
 
@@ -178,17 +217,24 @@
             --}}
             <div class="ss-card__header">
                 <div class="d-flex align-items-center gap-3">
-                    <span class="ss-avatar ss-avatar--lg" aria-hidden="true">{{ \Illuminate\Support\Str::upper(\Illuminate\Support\Str::substr($customer->first_name ?? '', 0, 1) . \Illuminate\Support\Str::substr($customer->last_name ?? '', 0, 1)) }}</span>
-                    <div class="flex-grow-1 min-w-0">
+                    <span class="ss-avatar ss-avatar--lg" aria-hidden="true">{{ $ssInitials }}</span>
+                    <div class="ss-grow">
                         <a class="ss-card__title d-block text-truncate text-capitalize"
-                           href="{{ route('customer.timeline', $customer->id) }}">{{ $customer->first_name }} {{ $customer->last_name }}</a>
-                        <span class="ss-card__meta d-block text-truncate" dir="ltr">{{ $customer->email }}</span>
+                           href="{{ route('customer.timeline', $customer->id) }}">{{ $ssDisplayName }}</a>
+                        {{-- `<bdi>` ON THE RUN, not `dir="ltr"` on the block. The attribute flips
+                             this block's inherited `text-align: start` from right to left, so in
+                             Arabic the name right-aligned and the address beneath it LEFT-aligned
+                             -- two halves of one identity at opposite card edges. `<bdi>` isolates
+                             the Latin run without touching the block's alignment. It is not simply
+                             deleted: order/grid.blade.php records the measured bidi hazard that
+                             attribute was added for. --}}
+                        <span class="ss-card__meta d-block text-truncate"><bdi>{{ $customer->email }}</bdi></span>
                     </div>
                 </div>
             </div>
             <div class="ss-card__body">
                 <div class="d-flex align-items-start justify-content-between gap-3">
-                    <div class="min-w-0">
+                    <div class="ss-min-w-0">
                         {{-- NOT A LINK, and that is a correction made from the rendered capture.
                              As an `<a>` the figure took the link colour and overrode
                              `.ss-stat__value`'s `--ss-fg`, so the NAME and the NUMBER rendered in
@@ -197,7 +243,13 @@
                              the footer below already goes to `customer.show`. Plain text restores
                              the strong neutral, and leaves the name as the single interactive
                              element on the card. --}}
-                        <span class="ss-stat__value d-block">{{ $customer->Ordercount() }}</span>
+                        {{-- `--incard`: `.ss-stat__value` is `--ss-text-2xl` (1.75rem, annotated
+                             "stat figures" for the dashboard) while `.ss-card__title` is
+                             `--ss-text-lg` (18px), so the order count rendered at 1.56x the
+                             customer's NAME -- on a card whose own comment above says identity
+                             comes first. The modifier keeps the tabular figures and the bidi
+                             isolation and only changes the size. --}}
+                        <span class="ss-stat__value ss-stat__value--incard d-block">{{ $customer->Ordercount() }}</span>
                         <span class="ss-stat__label">{{ __('Orders') }}</span>
                         <span class="ss-stat__period">{{ __('All time') }}</span>
                     </div>
@@ -205,7 +257,7 @@
                         @php
                             $active = \Carbon\Carbon::parse($customer->last_active);
                         @endphp
-                        <div class="text-end min-w-0">
+                        <div class="text-end ss-min-w-0">
                             <span class="ss-card__meta d-block">{{ __('Last active') }}</span>
                             <span class="ss-card__meta d-block">{{ $active->translatedFormat('d M Y') }}</span>
                         </div>
@@ -229,17 +281,30 @@
                         its own two byte-identical `if ($activityLogEntry)` branches for the same
                         reason in F98.
                     --}}
+                    {{-- THE SAME CLASSES AND THE SAME KEYS action.blade.php ALREADY USES, so the
+                         grid card and the list row offer one vocabulary rather than two.
+
+                         `.btn` hardcodes `--bs-btn-color: #293240` BYTE-IDENTICALLY in both
+                         sheets (style.css:3444, style-dark.css:3449), and the footer's ground is
+                         `--ss-surface-sunken` -- so these glyphs measured 1.20:1 in dark. They
+                         also drew a ~28x30px target; `.ss-btn--sm` is min-height 32px and
+                         `.ss-btn--icon.ss-btn--sm` min-width 32px.
+
+                         `btn-icon` is dropped: it is defined in no stylesheet here. --}}
                     @if ($customer && $customer->id)
                         <a href="{{ route('customer.timeline', $customer->id) }}"
-                            class="btn btn-sm btn-icon border me-2"
-                            data-bs-placement="top" data-bs-toggle="tooltip" title="{{ __('Show') }}">
-                            <i class="ti ti-eye"></i>
+                            class="ss-btn ss-btn--sm ss-btn--icon ss-btn--ghost"
+                            data-bs-placement="top" data-bs-toggle="tooltip" title="{{ __('Show') }}"
+                            aria-label="{{ __('Activity timeline for :name', ['name' => $ssDisplayName]) }}">
+                            <i class="ti ti-eye" aria-hidden="true"></i>
                         </a>
                     @endif
                     @permission('Show Customer')
                         <a href="{{ route('customer.show', $customer->id) }}"
-                            class="btn btn-sm border me-2" data-bs-placement="top" data-bs-toggle="tooltip" title="{{ __('Cart') }}">
-                            <i class="ti ti-shopping-cart"></i>
+                            class="ss-btn ss-btn--sm ss-btn--icon ss-btn--secondary"
+                            data-bs-placement="top" data-bs-toggle="tooltip" title="{{ __('Cart') }}"
+                            aria-label="{{ __('Cart of :name', ['name' => $ssDisplayName]) }}">
+                            <i class="ti ti-shopping-cart" aria-hidden="true"></i>
                         </a>
                     @endpermission
                     @if (module_is_active('RewardClubPoint'))
@@ -251,7 +316,7 @@
                         @if ($customer->regiester_date != null)
                             <div class="form-check form-switch">
                                 <input class="form-check-input page-checkbox " id="{{ $customer->id }}"
-                                    aria-label="{{ __('Account status for :name', ['name' => $customer->name]) }}"
+                                    aria-label="{{ __('Account status for :name', ['name' => $ssDisplayName]) }}"
                                     type="checkbox" name="page_active" data-onstyle="success"
                                     data-offstyle="danger" data-toggle="toggle" data-on="off"
                                     data-off="on"

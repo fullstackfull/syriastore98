@@ -2054,6 +2054,13 @@
 .ss-stack  { display: flex; flex-direction: column; gap: var(--ss-space-4); }
 .ss-row    { display: flex; flex-wrap: wrap; gap: var(--ss-space-3); }
 .ss-grow   { flex: 1 1 auto; min-width: 0; }
+
+/* P2.5-PKG-G SLICE 2. The customer and order grid cards used `min-w-0` in four places to stop a
+   flex child refusing to shrink below its content -- a Tailwind class, in a codebase with no
+   Tailwind build. Measured: zero occurrences in store-syria-ds.css, custom.css or style.css, so
+   all four were inert and the truncation they were guarding never happened. `.ss-grow` above
+   covers the growing case; this covers the one that must only shrink. */
+.ss-min-w-0 { min-width: 0; }
 .ss-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ==========================================================================
@@ -2191,6 +2198,13 @@
 }
 /* A measure the system genuinely cannot produce. An honest absence, and it
    must not look like a zero. */
+/* P2.5-PKG-G SLICE 2. `--ss-text-2xl` is the DASHBOARD figure size, and on a card it outranks the
+   card's own title: `.ss-card__title` is `--ss-text-lg`, so an order count rendered at 1.56x the
+   customer's NAME on a card whose composition puts identity first. This keeps everything else the
+   stat value carries -- tabular figures, `unicode-bidi: isolate` for a Latin digit run beside
+   Arabic text, the wrapping rule -- and changes only the size. */
+.ss-stat__value--incard { font-size: var(--ss-text-md); }
+
 .ss-stat--unavailable .ss-stat__value {
     font-size: var(--ss-text-base);
     font-weight: var(--ss-weight-normal);

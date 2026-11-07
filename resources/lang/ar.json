@@ -3469,5 +3469,6 @@
     "Pick a date to compare the customer's last activity against.": "اختر تاريخاً لمقارنة آخر نشاط للعميل به.",
     "Type a number to compare against.": "اكتب رقماً للمقارنة به.",
     "Choose a field above to filter by.": "اختر حقلاً أعلاه للتصفية به.",
-    "Could not load the options for that field. Try again.": "تعذّر تحميل خيارات هذا الحقل. حاول مرة أخرى."
+    "Could not load the options for that field. Try again.": "تعذّر تحميل خيارات هذا الحقل. حاول مرة أخرى.",
+    "Unnamed customer": "عميل بلا اسم"
 }

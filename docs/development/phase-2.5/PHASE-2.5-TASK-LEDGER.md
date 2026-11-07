@@ -2476,3 +2476,47 @@ visibly changes. **The fixture was reversed after the capture and verified back 
 
 **No surface changes state.** 24 / 32 / 229 / 9 / 1 unchanged; Slices 2, 4 and 5 still touch these
 surfaces.
+
+---
+
+## 4.21 P2.5-PKG-G Slice 2 — one customer, presented one way [2026-11-07]
+
+The third structural consequence in the thesis: **the same customer is modelled with a different
+vocabulary on every screen**, so the area does not read as one product.
+
+### A survey claim that did not survive checking
+
+The survey listed `user-card` as "defined nowhere", one of four defects closed by moving the card
+root to `.ss-card`. **`style.css` carries 22 `.user-card …` selectors.** Removing a class that IS
+styled changes appearance unpredictably, so this was checked rather than taken on trust: there is
+no bare `.user-card {}` rule, and all 22 descendants are profile-page constructs —
+`.change-profile`, `.cover-img-block`, `.user-about-block`, `.certificated-badge`, `.wid-80`,
+`.hover-data`, `.label`, `.dropdown-toggle`. **This card contains none of them.** The conclusion
+stands; the stated reason did not, and the evidence README records both.
+
+### What was true
+
+| | |
+|---|---|
+| `.card` sets `--bs-card-border-width: 0px` in BOTH sheets | the card had **no edge** — only the header and footer hairlines painted, two floating lines with no outline around them |
+| `.btn` hardcodes `--bs-btn-color: #293240` byte-identically in both sheets | on the footer's sunken ground, the measured **1.20:1** |
+| `min-w-0` | **3 uses, 0 definitions** — Tailwind syntax in a codebase with no Tailwind build, so all inert |
+| `first_name`/`last_name` nullable + bare concatenation | an empty avatar, a link whose accessible name was one space, `aria-label="Account status for "` |
+| `.ss-stat__value` (`--ss-text-2xl`) against `.ss-card__title` (`--ss-text-lg`) | the order count at **1.56× the customer's name**, on a card whose own comment says identity comes first |
+
+### What changed
+
+`ss-scope ss-card` root (surface, border, radius, column flex — and the Arabic 1.7 leading arm no
+customer view carried); `col-lg-4` filling the 576–1199px gap where 1024/1152/1180 got two ~470px
+cards; `d-flex`+`w-100` for equal heights and one `g-3` gutter; the footer taking
+`action.blade.php`'s exact classes and keys; `.ss-min-w-0` and `.ss-stat__value--incard` as **real
+`.ss-`-confined rules** replacing two dead class names; `<bdi>` on the address instead of
+`dir="ltr"` on its block, which had been flipping that block's `text-align: start` so the name
+right-aligned and the address left-aligned — two halves of one identity at opposite card edges;
+and one display-name resolver feeding the title, the initials and the switch's aria-label.
+
+`evidence/pkg-g-slice2/` — 8 rows, 0 not clean. The BEFORE capture restores only the Blade; the two
+new rules are additive and the old markup references neither, so the difference in those images is
+the view.
+
+**No surface changes state:** 24 / 32 / 229 / 9 / 1. Slices 4 and 5 still touch this area.

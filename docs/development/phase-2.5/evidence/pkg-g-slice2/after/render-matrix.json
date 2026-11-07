@@ -1,0 +1,58 @@
+[
+ {
+  "path": "/customer-grid",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Store Syria - Customer",
+  "h1": "Customer",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/customer-grid",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Store Syria - Customer",
+  "h1": "Customer",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/customer-grid",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Store Syria - العميل",
+  "h1": "العميل",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/customer-grid",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Store Syria - العميل",
+  "h1": "العميل",
+  "consoleErrors": [],
+  "premiseFail": []
+ }
+]
