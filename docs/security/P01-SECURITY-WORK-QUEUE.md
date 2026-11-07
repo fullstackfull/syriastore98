@@ -30,6 +30,43 @@ settle it. No secret value appears in this document — only locations, names an
 
 ---
 
+## S2 — `POST api/admin/AddCustomer` has no permission check, and the web form that does the same thing has one
+
+**Added 2026-11-07 (P2.5-PKG-F).** CLAUDE.md sends readers here for open security findings, and this
+one was escalated to the owner in a report and a findings document without a row in the queue —
+so the one place a reader is told to look did not have it. That gap is the reason for this row.
+
+| | |
+|---|---|
+| **Severity** | S2 — exploitable by any principal who can already obtain an admin-API token, within their own tenant |
+| **Where** | `app/Http/Controllers/Api/DashboardController.php::addCustomer()` (~`:8585-8700`), routed at `routes/api.php:275` |
+| **State** | **MEASURED, PINNED, NOT FIXED — awaiting an owner decision** |
+| **Evidence** | `tests/Feature/Security/AdminApiCustomerCreatePermissionTest.php` — 7 tests, all passing, asserting the behaviour **as it is** |
+| **Detail** | `docs/security/P25-SECURITY-FINDINGS-2026-11-07.md` §5.4 |
+
+**The asymmetry.** `CustomerController::store()` tests the operator first and then
+`isAbleTo('Manage Customer')`. `addCustomer()` has **no `isAbleTo` and no operator limb** — only a
+401 for a missing token and the ownership 403. `resolveOwnedStore()` scopes on
+`created_by = $user->creatorId()`, and `creatorId()` returns `created_by` for any type that is not
+`admin`/`super admin`, so **a staff member resolves their owning merchant's store and passes**. The
+admin login places no restriction on `type`.
+
+**The write is a credential**: the create sets `password` from the request and
+`email_verified_at => now()`, so the account signs in to that merchant's storefront immediately.
+Measured: a staff member holding **no permissions** gets **201**, and `Hash::check` confirms the
+password is the one that caller chose.
+
+**`updateCustomerInfo()` is NOT affected** — checked, not assumed: it restricts `type`, so staff
+get 401. A test asserts it.
+
+**Why it is not fixed.** The gate would make a **shipped Flutter endpoint start refusing a principal
+it accepts today**, and the owner's instruction is *"No silent payment behavior or authentication
+policy changes."* The fix, when authorised, is the operator-first shape this codebase already uses
+— Laratrust has no super-admin bypass, so testing the permission alone would refuse the platform
+operator — and it must answer **403, not 401**, because the shipped app force-logs-out on any 401.
+
+---
+
 ## S1 — `BackupRestore` module: unauthenticated route to the whole database and `.env`
 
 **Owner action required before anything else: is `module_is_active('BackupRestore')` true on the
