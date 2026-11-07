@@ -2061,7 +2061,25 @@ a contradiction in measurement; they are two different sets of files wearing one
 worse, because a reader cannot tell which. The figure above is re-measured on the final tree against
 the list beside it, and **these are LOCAL runs, not CI.**
 
-**OFFICIAL CI ON `94373393` — THE HEAD THIS WORK WAS PUSHED TO. All ten checks complete:**
+**OFFICIAL CI ON `80230394`, all ten checks complete — the run that judged the flaky-test repair:**
+
+| check | conclusion |
+|---|---|
+| `Tests (REQUIRED -- clean install from composer.lock)` | **success** |
+| `Tests (REQUIRED -- PayHere excluded and NOT fixed)` | **success** |
+| **`Merge-base regression gate (new failures only)`** | **success** — it FAILED on `3e82e8f2` and passes here |
+| `Static checks`, `Secret scan`, `PayHere report`, `push report` | success |
+| `Dependency advisories (composer audit)` | **failure** — pre-existing, not suppressed |
+| `Security-sensitive diff: human checklist` | **failure** — awaiting the owner's own review |
+
+**THAT GREEN IS NOT THE EVIDENCE FOR THE FLAKY-TEST REPAIR, and saying so matters.** The gate was
+green on 369 runs in 370 before the repair too — that is what a 1-in-370 coincidence means. The
+evidence is that the CAUSE was identified and measured (the only three occurrences of `999` in the
+page were the fixture's own `uniqid()`-derived store name) and that the collision probability fell
+from roughly 1 in 370 to 1 in 1.5 million. A run that passes proves nothing on its own; a cause that
+is named and removed does.
+
+**OFFICIAL CI ON `94373393` — the previous HEAD. All ten checks complete:**
 
 | check | conclusion |
 |---|---|
