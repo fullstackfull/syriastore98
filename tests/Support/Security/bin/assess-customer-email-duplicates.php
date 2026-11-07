@@ -61,6 +61,7 @@ $liveStoresByEmail = []; // sha1(lower(email))                  => [store_id => 
 $liveTotal = 0;
 $liveNullStore = 0;
 $archivedTotal = 0;
+$statementsConsumed = 0;
 
 while (($line = fgets($fh)) !== false) {
     if (! $inCustomers) {
@@ -82,6 +83,8 @@ while (($line = fgets($fh)) !== false) {
     if (substr(rtrim($line), -2) !== ');') {
         continue;
     }
+
+    $statementsConsumed++;
 
     $emailIdx = array_search('email', $columns, true);
     $storeIdx = array_search('store_id', $columns, true);
@@ -180,6 +183,84 @@ while (($line = fgets($fh)) !== false) {
 
 fclose($fh);
 
+/*
+ * THE PREMISE THIS SCRIPT SHIPPED WITHOUT, AND ITS ABSENCE WAS REPORTED TO THE OWNER AS EVIDENCE.
+ *
+ * Every count below starts at zero. If the `INSERT INTO \`customers\`` regex never matches -- a
+ * dump written with extended inserts off, a different quoting style, a table prefix, compression --
+ * nothing is parsed and the output reads:
+ *
+ *      live customers : 0      archived : 0      duplicate groups : 0
+ *
+ * which is INDISTINGUISHABLE from a clean dump. "I found no duplicates" and "I read nothing" print
+ * the same answer, and the second is what would reach a migration decision. Caught by an
+ * adversarial review of this change.
+ *
+ * THE CHECK IS AN INDEPENDENT ROW COUNT, NOT A STATEMENT COUNT -- and the first version of this
+ * premise got that wrong in a way worth keeping. It compared `INSERT INTO` statement HEADERS with
+ * statements consumed, and reported "1 in the file, 5 parsed", because this dump writes ONE
+ * extended insert whose tuples span many lines and the parser handles it in buffered chunks. The
+ * premise was loud about its own metric rather than about the data.
+ *
+ * So the file is re-scanned with a SEPARATE, SIMPLER method: a character scan that counts
+ * TOP-LEVEL `(...)` tuples inside the customers insert, quote- and escape-aware, holding nothing.
+ * Two different parsers must agree on how many rows exist. They do: 62 on the committed dump,
+ * which is 25 live + 37 archived.
+ */
+$declaredRows = 0;
+$rescan = fopen($path, 'rb');
+if ($rescan !== false) {
+    $inBlock = false; $depth = 0; $inQuote = false; $escaped = false;
+    while (($l = fgets($rescan)) !== false) {
+        if (! $inBlock) {
+            if (strncmp($l, 'INSERT INTO `customers`', 23) !== 0) { continue; }
+            $inBlock = true;
+            $vi = strpos($l, 'VALUES');
+            $l = $vi === false ? '' : substr($l, $vi + 6);
+        }
+        $len = strlen($l);
+        for ($i = 0; $i < $len; $i++) {
+            $ch = $l[$i];
+            if ($inQuote) {
+                if ($escaped) { $escaped = false; }
+                elseif ($ch === '\\') { $escaped = true; }
+                elseif ($ch === "'") { $inQuote = false; }
+                continue;
+            }
+            if ($ch === "'") { $inQuote = true; }
+            elseif ($ch === '(') { $depth++; }
+            elseif ($ch === ')') { $depth--; if ($depth === 0) { $declaredRows++; } }
+            elseif ($ch === ';' && $depth === 0) { $inBlock = false; break; }
+        }
+    }
+    fclose($rescan);
+}
+
+$parsedRows = $liveTotal + $archivedTotal;
+
+if ($declaredRows === 0) {
+    fwrite(STDERR,
+        "PRECONDITION FAILED: the independent scan found NO customer rows in this file.\n"
+        . "NOTHING WAS MEASURED. Zero duplicates is NOT the finding -- zero rows were read.\n"
+        . "Do not report this run.\n");
+    exit(2);
+}
+
+if ($parsedRows === 0) {
+    fwrite(STDERR,
+        "PRECONDITION FAILED: the independent scan found {$declaredRows} customer row(s) and the\n"
+        . "parser read 0. NOTHING WAS MEASURED, so the zeros below would be a lie.\n");
+    exit(2);
+}
+
+if ($parsedRows !== $declaredRows) {
+    fwrite(STDERR,
+        "PRECONDITION FAILED: two independent scans of the same file disagree -- {$declaredRows}\n"
+        . "row(s) by character scan, {$parsedRows} by the field parser. The counts below describe\n"
+        . "only part of the table. Resolve this before using them for a schema decision.\n");
+    exit(2);
+}
+
 $exactDupGroups = count(array_filter($liveByExactPair, static fn ($c) => $c > 1));
 $foldedDupGroups = count(array_filter($liveByPair, static fn ($c) => $c > 1));
 $multiStore = count(array_filter($liveStoresByEmail, static fn ($s) => count($s) > 1));
@@ -188,6 +269,7 @@ echo str_repeat('=', 90), "\n";
 echo "CUSTOMER E-MAIL DUPLICATE ASSESSMENT -- COUNTS ONLY, NO ADDRESS PRINTED\n";
 echo str_repeat('=', 90), "\n";
 printf("source                                      : %s\n", basename($path));
+printf("customer rows: independent scan / parsed      : %d / %d   <- two parsers must agree\n", $declaredRows, $parsedRows);
 printf("live customers                              : %d\n", $liveTotal);
 printf("archived customers                          : %d\n", $archivedTotal);
 echo "\n";

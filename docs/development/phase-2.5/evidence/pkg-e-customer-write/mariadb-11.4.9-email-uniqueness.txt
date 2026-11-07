@@ -49,9 +49,12 @@ C2. WHY COALESCE(store_id, 0) -- the NAIVE expression measured side by side
          live row is exempt TODAY. The hole is what a future NULL would do, silently.
 
 D. CONCURRENCY (safeguard 5) -- two connections racing the same insert
-   PASS  CONCURRENCY: exactly one of two racing inserts survived (rows=1, loser refused SQLSTATE 23000)
+   PASS  CONCURRENCY step 1: the first connection inserted inside an OPEN transaction
+   PASS  CONCURRENCY step 2: with the first insert UNCOMMITTED, the second BLOCKED on the index (SQLSTATE HY000: Lock wait timeout exceeded; try restarting transaction)
+   PASS  CONCURRENCY step 4: after the first committed, the second is REFUSED and exactly one row survives (rows=1, SQLSTATE 23000)
          The engine is the control here, not the application. Laravel validation is check-then-act
-         and cannot close this window; the index can.
+         and cannot close this window; the index can -- and step 2 is where that is visible, because
+         the second insert is not merely refused, it is not allowed to PROCEED.
          A caller must therefore be ready for a duplicate-key exception, which is a REQUIRED
          application change if this migration is approved -- see safeguard 6.
 
@@ -102,7 +105,7 @@ H. MIGRATION IMPACT -- which ALTER ALGORITHM does this engine allow?
          scales with the table and this is the platform`s tenant-facing customer table.
 
 ================================================================================================
-22 passed, 0 failed, measured on MariaDB 11.4.9-MariaDB-ubu2404 (mariadb.org binary distribution)
+24 passed, 0 failed, measured on MariaDB 11.4.9-MariaDB-ubu2404 (mariadb.org binary distribution)
 
 WHAT THIS IS, AND WHAT IT IS NOT:
   * This server is the SAME VERSION as production, 11.4.9-MariaDB, read from the committed
@@ -117,4 +120,4 @@ WHAT THIS IS, AND WHAT IT IS NOT:
     that carries it. This is the evidence the owner asked for before deciding.
 ================================================================================================
 
-(dropped throwaway database ceu_verify_50039492)
+(dropped throwaway database ceu_verify_b512064b)

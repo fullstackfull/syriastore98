@@ -212,9 +212,30 @@ tenant-facing customer table.
 
 ### What this changes about the race — and a REQUIRED application change
 
-**The engine closes the window the application cannot.** Measured: two connections racing the same
-insert, **exactly one survived**, and the loser was refused with SQLSTATE 23000. Laravel's
-`validate()` is check-then-act and cannot close that; the index can.
+**The engine closes the window the application cannot** — and the first version of this measurement
+**did not actually race**, which is corrected here rather than quietly re-run.
+
+The earlier script opened a transaction on connection 1, inserted, **committed**, and only then
+issued connection 2's insert. So the two never contended: the second inserted against an
+already-committed row and got an ordinary duplicate-key error. That proves the index rejects a
+duplicate — true and worth knowing — but **not** that two genuinely concurrent inserts resolve to
+exactly one, which is what the owner asked to be tested and what I reported as measured. Its own
+comment claimed the second insert "must BLOCK on the unique index until the first commits", which
+the code made impossible.
+
+**What is measured now, on MariaDB 11.4.9, synchronously and without forking:**
+
+| step | result |
+|---|---|
+| 1. connection 1 inserts inside an **open** transaction | row held, uncommitted |
+| 2. connection 2 issues the same insert **while 1 is still open** | **BLOCKED** — `SQLSTATE HY000`, *"Lock wait timeout exceeded"*, at a 2-second limit |
+| 3. connection 1 commits | — |
+| 4. connection 2 retries | **refused**, `SQLSTATE 23000`, and exactly **one** row exists |
+
+**Step 2 is the half that was missing, and it is the half that matters.** The second insert is not
+merely refused — it is **not allowed to proceed**. A run where step 2 succeeded would mean the index
+is not serialising the two inserts at all. Laravel's `validate()` is check-then-act and cannot close
+that window; the index does.
 
 **So the migration is not purely additive.** With the index in place, `Customer::create()` can throw
 a duplicate-key `QueryException` where it previously succeeded. **Every writer of `customers.email`
@@ -241,6 +262,13 @@ address, which are legitimate.
 Run by `tests/Support/Security/bin/assess-customer-email-duplicates.php` over the committed dump.
 **It streams the file, hashes every address immediately and prints counts only — no address, name,
 id or row, and there is deliberately no verbose mode.**
+
+**AND IT NOW HAS THE PREMISE IT SHIPPED WITHOUT.** Every count starts at zero, so a dump the parser
+cannot read printed *"live 0, archived 0, 0 duplicate groups"* — **indistinguishable from a clean
+dump.** "I found no duplicates" and "I read nothing" gave the same answer, and the second is what
+would have reached this decision. A second, simpler parser now re-scans the file and counts
+top-level row tuples by character, quote- and escape-aware; **the two must agree or the script exits
+non-zero.** On the committed dump they do: **62 and 62**, which is 25 live + 37 archived.
 
 | measure | count |
 |---|---|

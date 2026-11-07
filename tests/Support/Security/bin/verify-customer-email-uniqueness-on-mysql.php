@@ -332,26 +332,76 @@ $table = $okCol ? 'route_a' : ($okFn ? 'route_b' : null);
 if ($table === null) {
     say(false, 'CONCURRENCY: neither route could be created, so nothing was raced');
 } else {
+    /*
+     * THIS SECTION DID NOT RACE ANYTHING, AND IT WAS REPORTED TO THE OWNER AS IF IT DID.
+     *
+     * The previous version ran:
+     *      $c1->beginTransaction(); $c1->insert(...);
+     *      $c2->exec('set innodb_lock_wait_timeout = 3');
+     *      $c1->commit();                       <-- COMMITTED HERE
+     *      $c2->insert(...);                    <-- issued AFTERWARDS
+     *
+     * So the second connection never contended for anything: it inserted against an
+     * already-committed row and got an ordinary duplicate-key error. Its own comment claimed the
+     * insert "must BLOCK on the unique index until the first commits", which the code made
+     * impossible. That proves the index rejects a duplicate -- true, and worth knowing -- but NOT
+     * that two genuinely concurrent inserts resolve to exactly one, which is the thing the owner
+     * asked to be tested and the thing I told them had been measured.
+     *
+     * Caught by an adversarial review of this change.
+     *
+     * WHAT IT DOES NOW, synchronously and without forking:
+     *   1. c1 opens a transaction and inserts. The row is locked and UNCOMMITTED.
+     *   2. c2 attempts the same insert. It MUST BLOCK -- the unique index cannot be evaluated
+     *      until c1 resolves -- and with a 2-second lock-wait timeout it must come back with
+     *      SQLSTATE HY000 / errno 1205, "Lock wait timeout exceeded". That timeout IS the
+     *      contention: it is the engine refusing to let the second insert proceed in parallel.
+     *   3. c1 commits.
+     *   4. c2 tries again and must now get a duplicate-key error, SQLSTATE 23000.
+     *   5. exactly one row exists.
+     *
+     * Step 2 is the half that was missing. A run where c2 succeeds at step 2 would mean the index
+     * is not serialising the two inserts at all.
+     */
     $pdo->exec("delete from `{$table}`");
     $c1 = connect($dsn, $user, $pass);
     $c2 = connect($dsn, $user, $pass);
 
+    $c2->exec('set session innodb_lock_wait_timeout = 2');
+
     $c1->beginTransaction();
     [$ok1] = attempt($c1, "insert into `{$table}` (email, store_id) values ('race@x.test', 7)");
+    say($ok1, 'CONCURRENCY step 1: the first connection inserted inside an OPEN transaction');
 
-    // The second connection's insert must BLOCK on the unique index until the first commits,
-    // then fail. A 3-second timeout keeps a hang from looking like a pass.
-    $c2->exec('set session innodb_lock_wait_timeout = 3');
+    // STEP 2 -- the contention itself, with c1 still uncommitted.
+    [$okBlocked, $stateBlocked, $msgBlocked] =
+        attempt($c2, "insert into `{$table}` (email, store_id) values ('race@x.test', 7)");
+
+    $wasBlocked = ! $okBlocked && (
+        stripos($msgBlocked, 'lock wait timeout') !== false || $stateBlocked === 'HY000'
+    );
+
+    say($wasBlocked,
+        'CONCURRENCY step 2: with the first insert UNCOMMITTED, the second BLOCKED on the index'
+        . ($okBlocked
+            ? ' -- IT SUCCEEDED, so the two inserts were never serialised and this is not a race'
+            : " (SQLSTATE {$stateBlocked}: " . substr($msgBlocked, 0, 70) . ')'));
+
+    // STEP 3 and 4 -- resolve the first, retry the second.
     $c1->commit();
-    [$ok2, $state2, $msg2] = attempt($c2, "insert into `{$table}` (email, store_id) values ('race@x.test', 7)");
+    [$ok2, $state2, $msg2] =
+        attempt($c2, "insert into `{$table}` (email, store_id) values ('race@x.test', 7)");
 
     $rows = (int) $pdo->query("select count(*) from `{$table}` where email = 'race@x.test'")->fetchColumn();
 
-    say($ok1 && !$ok2 && $rows === 1,
-        "CONCURRENCY: exactly one of two racing inserts survived (rows={$rows}, "
-        . 'loser ' . ($ok2 ? 'ALSO SUCCEEDED -- no enforcement' : "refused SQLSTATE {$state2}") . ')');
+    say(! $ok2 && $rows === 1,
+        "CONCURRENCY step 4: after the first committed, the second is REFUSED and exactly one row "
+        . "survives (rows={$rows}, "
+        . ($ok2 ? 'IT ALSO SUCCEEDED -- no enforcement' : "SQLSTATE {$state2}") . ')');
+
     note('The engine is the control here, not the application. Laravel validation is check-then-act');
-    note('and cannot close this window; the index can.');
+    note('and cannot close this window; the index can -- and step 2 is where that is visible, because');
+    note('the second insert is not merely refused, it is not allowed to PROCEED.');
     note('A caller must therefore be ready for a duplicate-key exception, which is a REQUIRED');
     note('application change if this migration is approved -- see safeguard 6.');
 }
