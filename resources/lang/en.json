@@ -3423,5 +3423,19 @@
     "No results match your search": "No results match your search",
     "Try a shorter term, or clear the search to see everything.": "Try a shorter term, or clear the search to see everything.",
     "{select} entries per page": "{select} entries per page",
-    "Showing {start} to {end} of {rows} entries": "Showing {start} to {end} of {rows} entries"
+    "Showing {start} to {end} of {rows} entries": "Showing {start} to {end} of {rows} entries",
+    "Includes": "Includes",
+    "Excludes": "Excludes",
+    "Less Than": "Less Than",
+    "More Than": "More Than",
+    "Equal": "Equal",
+    "Before": "Before",
+    "After": "After",
+    "No. of Orders": "No. of Orders",
+    "Condition": "Condition",
+    "Showing :count customers": "Showing :count customers",
+    "Type part of a name or an e-mail address.": "Type part of a name or an e-mail address.",
+    "Pick a date to compare the customer's last activity against.": "Pick a date to compare the customer's last activity against.",
+    "Type a number to compare against.": "Type a number to compare against.",
+    "Choose a field above to filter by.": "Choose a field above to filter by."
 }

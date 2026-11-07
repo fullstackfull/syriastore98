@@ -25,9 +25,9 @@
 @section('content')
 <div class="row">
     <div class="col-md-12">
-        <div class="mt-2 " id="multiCollapseExample1">
-            <div class="card">
-                <div class="card-body">
+            {{-- P2.5-PKG-G SLICE 1. Card wrapper and the dead `multiCollapseExample1` id removed;
+                 `.ss-filterbar` carries the surface. Same change as the list view beside it, so
+                 the two screens that filter the same customers finally look like one product. --}}
                     {{--
                         P2.5-R-07 -- A PLAIN GET FORM, the same repair and the same approved
                         pattern as the list's P2.5-R-02.
@@ -58,60 +58,86 @@
                         is still filtered.
                     --}}
                     <form method="GET" action="{{ route('customer.grid') }}" id="frm_submit"
+                          class="ss-scope ss-filterbar"
                           role="search" aria-label="{{ __('Filter customers') }}">
-                    <div class="row align-items-center m-0 gap-1 justify-content-end">
-                        <div class="col-xl-3 col-lg-3 col-md-6 col-sm-12 col-12">
-                            <div class="btn-box">
-                                <label class="visually-hidden" for="customer_field">{{ __('Select Customer Fields') }}</label>
-                                {{ Form::select('field_name', $customer_field, request()->query('field_name'), ['class' => 'form-control', 'id' => 'customer_field', 'placeholder' => __('Select Customer Fields')]) }}
-                            </div>
+
+                        {{-- SCALAR-COERCED FIRST, and this is not defensive decoration:
+                             `?field_name[]=x` makes `query('field_name')` an ARRAY, and `__()` throws a
+                             TypeError on one -- a 500 where the page should simply apply no filter.
+                             CustomerGridFilterTest's three array-valued cases exist for exactly that,
+                             and they caught this the first time it was written. --}}
+                        @php
+                            $ssScalar = static fn ($v) => is_scalar($v) ? trim((string) $v) : '';
+                            $ssFieldName = $ssScalar(request()->query('field_name'));
+                            $ssOperator = $ssScalar(request()->query('selected_name'));
+                            $ssValue = $ssScalar(request()->query('text_field'));
+                            $ssFiltered = $ssFieldName !== '';
+                        @endphp
+
+                        <x-ss.filter-summary
+                            :filters="$ssFiltered
+                                ? [trim(__($ssFieldName) . ' ' . __($ssOperator) . ' ' . $ssValue)]
+                                : []" />
+
+                        <x-ss.filter-disclosure />
+
+                        <div class="ss-filterbar__field">
+                            <label class="ss-label" for="customer_field">{{ __('Field') }}</label>
+                            {{-- By hand, so the option TEXT translates while the submitted VALUE
+                                 stays the English key `CustomerListFilter::apply()` matches on. --}}
+                            <select class="ss-select" id="customer_field" name="field_name">
+                                <option value="">{{ __('Select Customer Fields') }}</option>
+                                @foreach ($customer_field as $ssFieldKey => $ssFieldLabel)
+                                    <option value="{{ $ssFieldKey }}" @selected($ssFieldName === (string) $ssFieldKey)>{{ __($ssFieldLabel) }}</option>
+                                @endforeach
+                            </select>
                         </div>
                         {{-- The two hidden `select_value` / `text_value` inputs that used to sit
                              in these boxes are gone. They were written to by the change handler
                              and read by nothing: the AJAX built its payload from the visible
                              controls. Inside a real form they would now be submitted as two more
                              empty parameters. --}}
-                        <div class="col-xl-3 col-lg-3 col-md-6 col-sm-12 col-12 select-container @if (! request()->filled('field_name')) d-none @endif">
-                            <div class="btn-box" id="select-container"></div>
+                        <div class="ss-filterbar__field select-container @if (! $ssFiltered) d-none @endif">
+                            <label class="ss-label" for="selected_name">{{ __('Condition') }}</label>
+                            <div id="select-container"></div>
                         </div>
-                        <div class="col-xl-3 col-lg-3 col-md-6 col-sm-12 col-12 text-field @if (! request()->filled('field_name')) d-none @endif">
-                            <div class="btn-box" id="text-field"></div>
+
+                        <div class="ss-filterbar__field text-field @if (! $ssFiltered) d-none @endif">
+                            <label class="ss-label" for="text_field">{{ __('Value') }}</label>
+                            <div id="text-field"></div>
                         </div>
-                        <div class="m-0 p-0 col-auto">
-                            <div class="row">
-                                <div class="m-0 p-0 col-auto">
-                                    {{-- A real submit control. The old `<a>` could not be
-                                         activated by Enter or the space bar, so this also gives
-                                         the filter a keyboard path. --}}
-                                    <button type="submit" class="btn btn-sm btn-primary" data-bs-toggle="tooltip"
-                                        title="{{ __('Apply') }}" id="applyfilter"
-                                        data-original-title="{{ __('apply') }}">
-                                        <span class="btn-inner--icon"><i class="ti ti-search"></i></span>
-                                        <span class="visually-hidden">{{ __('Apply') }}</span>
-                                    </button>
-                                    {{-- A LINK to the unfiltered address, not type="reset":
-                                         reset restores the form's INITIAL values, which on a
-                                         filtered page are the filters themselves. The old
-                                         `href="#!"` went nowhere at all. --}}
-                                    <a href="{{ route('customer.grid') }}" class="btn btn-sm btn-danger " data-bs-toggle="tooltip"
-                                        title="{{ __('Reset') }}" id="clearfilter"
-                                        data-original-title="{{ __('Reset') }}">
-                                        <span class="btn-inner--icon"><i
-                                                class="ti ti-trash-off text-white-off "></i></span>
-                                        <span class="visually-hidden">{{ __('Reset') }}</span>
-                                    </a>
-                                </div>
-                            </div>
+
+                        <p class="ss-filterbar__hint ss-field__hint" id="ss-customer-filter-hint"></p>
+
+                        <div class="ss-filterbar__actions">
+                            {{-- A real submit control: the old `<a>` could not be activated by
+                                 Enter or the space bar. The `ti-search` glyph is dropped for the
+                                 same reason as on the list. --}}
+                            <button type="submit" class="ss-btn ss-btn--primary" id="applyfilter">{{ __('Apply filters') }}</button>
+
+                            {{-- Only when something IS filtering. A LINK, not `type="reset"`:
+                                 reset restores the form's initial values, which on a filtered
+                                 page are the filters themselves. --}}
+                            @if ($ssFiltered)
+                                <a href="{{ route('customer.grid') }}" class="ss-btn ss-btn--ghost" id="clearfilter">{{ __('Clear filters') }}</a>
+                            @endif
                         </div>
-                    </div>
                     </form>
-                </div>
-            </div>
-        </div>
     </div>
 </div>
 <div class="row row-gap-2 mb-2">
-    @foreach ($customers as $customer)
+    {{-- P2.5-PKG-G SLICE 1. `@forelse`, because this grid had NO empty arm at all: with no
+         customers, or -- far more likely now that P2.5-R-07 made the filter actually work --
+         with a filter that matched nothing, the merchant got a blank page. The list beside it
+         has said something in that situation since P2.5-WAVE-2.
+
+         THE SAME WORDS AS THE LIST, taken from `dataTableEmptyState('customer-table')`
+         (app/Helper/helper.php:3030-3058) rather than written again here, so the two screens
+         that show the same customers cannot drift into saying different things about the same
+         situation. The filtered case gets its own icon and sentence for the reason that helper
+         records: an empty list and a list hidden by a filter look identical and are not the
+         same problem. --}}
+    @forelse ($customers as $customer)
     <div class="col-xxl-3 col-xl-4 col-sm-6 col-12">
         <div class="card user-card">
             {{--
@@ -238,12 +264,46 @@
             </div>
         </div>
     </div>
-    @endforeach
+    @empty
+        <div class="col-12">
+            @if (request()->filled('field_name'))
+                <x-ss.empty
+                    icon="zoom-cancel"
+                    :title="__('Nothing matches your search or filters.')"
+                    :body="__('Clear them to see everything again.')">
+                    <x-slot:action>
+                        <a class="ss-btn ss-btn--ghost" href="{{ route('customer.grid') }}">{{ __('Clear filters') }}</a>
+                    </x-slot:action>
+                </x-ss.empty>
+            @else
+                <x-ss.empty
+                    icon="users"
+                    :title="__('No customers yet')"
+                    :body="__('Customers appear here once someone registers or places an order.')" />
+            @endif
+        </div>
+    @endforelse
 </div>
+{{-- THE TOTAL, PRINTED UNCONDITIONALLY. `layouts/global-pagination.blade.php:1` gates its
+     ENTIRE body -- the "Showing x to y of z" line included -- on `hasPages()`, which is false
+     for a single page. So the narrowed result of a filter, which is exactly when a merchant
+     most wants to know how many matched, printed no count at all. --}}
+@if ($customers->total() > 0)
+    <p class="ss-scope ss-card__meta mb-2">{{ __('Showing :count customers', ['count' => $customers->total()]) }}</p>
+@endif
 {!! $customers->links('layouts.global-pagination') !!}
 @endsection
 
 @push('custom-script')
+    @php
+        // The KEYS are the English words `CustomerController::CustomFilter()` returns
+        // verbatim from `Customer::\$fields_status*` and matches on; only the text a
+        // merchant reads is translated. Eight of these were measured absent from
+        // ar.json entirely and were added with this slice.
+        $ssFilterLabels = collect(['Includes', 'Excludes', 'Less Than', 'More Than', 'Equal', 'Before', 'After'])
+            ->mapWithKeys(fn ($w) => [$w => __($w)])
+            ->all();
+    @endphp
     <script type="text/javascript">
         $(document).ready(function() {
             $(document).on('change', '.page-checkbox', function() {
@@ -291,6 +351,15 @@
     <script>
         $(document).ready(function() {
 
+            // Emitted from Blade so the words come from the translator. KEYS are the English
+            // strings the handler compares against and must not change.
+            // Built in PHP, then emitted as one JSON literal. Blade's own json directive
+            // parses to the FIRST closing paren, so a multi-line argument does not
+            // compile. Caught by compiling the view rather than by `php -l`, which
+            // does not expand Blade directives at all.
+            var ssFilterLabels = {!! json_encode($ssFilterLabels, JSON_UNESCAPED_UNICODE) !!};
+
+
             $('#customer_field').on('change', function() {
                 var selectedValue = $(this).val();
                 var data = {
@@ -309,24 +378,31 @@
                             $('#select-container').empty();
                             $('.text-field').removeClass('d-none');
                             $('#text-field').empty();
-                            var selectBox = $('<select name="selected_name" class="form-control">');
-                            var TextField = $('<input>');
+                            // ss-select / ss-input and real ids, so the labels above bind and
+                            // the controls are visible in dark mode. Same change as the list.
+                            var selectBox = $('<select name="selected_name" id="selected_name" class="ss-select">');
 
+                            // Translated text, English value -- the handler matches on the key.
                             $.each(response.condition, function(index, option) {
                                 var optionElement = $('<option>');
                                 optionElement.val(option);
-                                optionElement.text(option);
+                                optionElement.text(ssFilterLabels[option] || option);
                                 selectBox.append(optionElement);
                             });
 
                             $('#select-container').append(selectBox);
 
+                            $('#ss-customer-filter-hint').text(response.message || '');
+
                             var inputType = response.field_type;
 
                             if (inputType === 'text' || inputType === 'number' || inputType === 'email' || inputType === 'date') {
-                                var inputElement = $('<input name="text_field" class="form-control">');
+                                var inputElement = $('<input name="text_field" id="text_field" class="ss-input">');
 
                                 inputElement.attr('type', inputType);
+                                if (response.message) {
+                                    inputElement.attr('aria-describedby', 'ss-customer-filter-hint');
+                                }
                                 $('#text-field').append(inputElement);
 
                             } else {
@@ -337,6 +413,7 @@
                             $('#select-container').empty();
                             $('.text-field').addClass('d-none');
                             $('#text-field').empty();
+                            $('#ss-customer-filter-hint').text('');
                         }
                     }
                 });

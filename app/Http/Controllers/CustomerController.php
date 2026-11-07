@@ -590,18 +590,36 @@ public function destroy(Customer $customer)
     {
         $id = $request->customer_field;
         $data = [];
+
+        /*
+         * P2.5-PKG-G SLICE 1 -- THE HINT NOW DESCRIBES THE CONTROL IT SITS UNDER.
+         *
+         * Three things were wrong, and all three were invisible until the filter bar started
+         * RENDERING this message (it was returned and discarded before, so nobody read it):
+         *
+         *   1. "search filed" -- a typo in three of the four branches, shipped in English.
+         *   2. THE NUMERIC BRANCH REUSED THE LAST-ACTIVE MESSAGE, so filtering on Total Spend,
+         *      No. of Orders or AOV told the merchant about "last active search". Visible in
+         *      the before/after capture for this slice.
+         *   3. None of them said what the VALUE control actually expects, which is the only job
+         *      a hint under that control has.
+         *
+         * The old keys are left in resources/lang/*.json rather than renamed: other locales
+         * (ru.json carries all three) resolve against them, and orphaning a translation to fix
+         * an English typo is a worse trade than leaving an unused key behind.
+         */
         if ($id == 'Name' || $id == 'Email') {
             $data['condition'] = Customer::$fields_status;
-            $data['message']  = __("Customer name and email search filed");
+            $data['message']  = __("Type part of a name or an e-mail address.");
         } else if ($id == 'Last active') {
             $data['condition'] = Customer::$fields_status1;
-            $data['message']  = __("Customer last active search filed");
+            $data['message']  = __("Pick a date to compare the customer's last activity against.");
         } else if ($id == 'Total Spend' || $id == 'No. of Orders' || $id == "AOV") {
             $data['condition'] = Customer::$fields_status2;
-            $data['message']  = __("Customer last active search filed");
+            $data['message']  = __("Type a number to compare against.");
         } else {
             $data['condition'] = [];
-            $data['message']  = __("Customer condition search filed");
+            $data['message']  = __("Choose a field above to filter by.");
         }
 
         if ($id == 'Name') {

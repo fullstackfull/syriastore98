@@ -2352,3 +2352,74 @@ the seven strings in **both** locales; every `assertStringNotContainsString`/`as
 tree; a fourth pass over count-based assertions — all agree the Kanban one was the **only**
 collision in the suite. No `known-test-outcomes.json` entry was added; that file records failures
 the owner accepted, and its own `_README` calls adding one to get green the forbidden use.
+
+---
+
+## 4.19 P2.5-PKG-G Slice 1 — the filter bar joins the design system, and says what it is doing [2026-11-07]
+
+**The package thesis, and the matrix carries its proof:** this area has been **repaired eleven
+times and designed as an area zero times**. `PHASE-2.5-COVERAGE-MATRIX.md` records 20 customer
+surfaces — **11 REDESIGNED AND VERIFIED, 0 PREMIUM, 9 PENDING** — the largest merchant area in the
+matrix with no premium surface at all. Each earlier wave fixed the element it was sent to fix and
+stopped at that element's boundary; the boundaries are where the area fails.
+
+The filter is the clearest case. `P2.5-R-02` and `P2.5-R-07` were **correctness** repairs that
+deliberately touched mechanics only, so the one control a merchant uses to find a customer was the
+only thing in the area never brought onto the design system.
+
+### Measured before the change
+
+| | |
+|---|---|
+| `ss-` classes in the whole of `customer/index.blade.php` | **1** |
+| `error:` arms against `success:` arms across both views | **0 against 4** |
+| operator/field words absent from `ar.json` **entirely** | **8** |
+| `min-w-0` in the grid card: used / defined in either stylesheet | **3 / 0** |
+
+`Total Spend`, `Last active` and `Email` *do* have Arabic entries and still rendered Latin, because
+no `__()` call ever reached them.
+
+### What changed
+
+The `.card` wrapper and the dead `multiCollapseExample1` id are gone (that id is in three views and
+nothing toggles any of them); the form carries `.ss-filterbar`; `x-ss.filter-summary` and
+`x-ss.filter-disclosure` join it; every control has a visible label and an id; option **text** is
+translated while the submitted **value** stays the English key `CustomerListFilter::apply()`
+matches on; the hint `CustomFilter()` already returned is rendered; Clear appears only when a
+filter is in force; the grid gained the `@empty` arm it never had, reusing
+`dataTableEmptyState('customer-table')`'s strings; and the grid prints its total, which
+`global-pagination` suppresses for a single page — exactly the narrowed case.
+
+### Three defects found while doing it
+
+* **A 500 on an array-valued parameter.** `?field_name[]=x` made `__()` throw. `CustomerGridFilterTest`'s
+  three array cases caught it on the first run; every request read in the bar is scalar-coerced now.
+* **The hint was wrong for half the fields.** `CustomFilter()` gave Total Spend, No. of Orders and
+  AOV the *last-active* message, and three of its four strings read "search **filed**". Invisible
+  until the bar started rendering a message the page had always discarded.
+* **One extra `</div>` per view**, caught by `BladeDivBalanceTest`.
+
+### A guard adapted, not loosened
+
+`CustomerGridFilterTest`'s Reset assertion pins the attribute **order** (`<a\s+href=...`). The new
+markup put `class` first. The anchor was reordered rather than the regex widened — editing somebody
+else's test to suit new markup is the move this project keeps recording as a defect.
+
+### And a tool lesson worth keeping
+
+**`php -l` reported "No syntax errors detected" on a Blade file that could not compile.** It does
+not expand directives. Two real errors hid behind that: a multi-line `@json(...)` argument (the
+directive parses to the first `)`), and the literal string `@json` inside a JS **comment**, which
+Blade compiled as a directive. Both found by compiling the view through `blade.compiler` and
+linting the output; that check is now the one to use on a Blade change.
+
+### Evidence
+
+`docs/development/phase-2.5/evidence/pkg-g-slice1/` — before, after and after-filtered, each in all
+four combinations, captured from the **running** admin by `render-matrix.cjs`. **24 rows, 0 not
+clean**; every row asserts its own premise. The filtered request narrows the fixture's three
+customers to two, so the captures show the filter working rather than an empty screen.
+
+**No surface changes state.** The four combinations are captured for two surfaces, but PREMIUM is a
+judgement about a FINISHED surface and Slices 2–5 still touch both of these. 24 / 32 / 229 / 9 / 1
+is unchanged.

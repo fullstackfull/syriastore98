@@ -3454,5 +3454,19 @@
     "No results match your search": "لا توجد نتائج تطابق بحثك",
     "Try a shorter term, or clear the search to see everything.": "جرّب كلمة أقصر، أو امسح البحث لعرض كل العناصر.",
     "{select} entries per page": "{select} لكل صفحة",
-    "Showing {start} to {end} of {rows} entries": "عرض {start}–{end} من أصل {rows}"
+    "Showing {start} to {end} of {rows} entries": "عرض {start}–{end} من أصل {rows}",
+    "Includes": "يحتوي",
+    "Excludes": "لا يحتوي",
+    "Less Than": "أقل من",
+    "More Than": "أكثر من",
+    "Equal": "يساوي",
+    "Before": "قبل",
+    "After": "بعد",
+    "No. of Orders": "عدد الطلبات",
+    "Condition": "الشرط",
+    "Showing :count customers": "عرض :count عميل",
+    "Type part of a name or an e-mail address.": "اكتب جزءاً من الاسم أو البريد الإلكتروني.",
+    "Pick a date to compare the customer's last activity against.": "اختر تاريخاً لمقارنة آخر نشاط للعميل به.",
+    "Type a number to compare against.": "اكتب رقماً للمقارنة به.",
+    "Choose a field above to filter by.": "اختر حقلاً أعلاه للتصفية به."
 }
