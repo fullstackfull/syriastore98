@@ -177,6 +177,17 @@ class AdminApiCustomerCreatePermissionTest extends SecurityTestCase
         ]);
 
         $response->assertRedirect();
+
+        // WHICH GATE FIRED IS THE WHOLE POINT OF THIS FILE, and "redirected with no row" cannot
+        // see it. `CustomerController::store()` returns exactly that for at least three different
+        // reasons: the permission gate at :52, the empty-store tenancy limb at :90 (which flashes
+        // the SAME string), and ordinary validation failure -- and the web rule set differs from
+        // the API payload, so a payload drift would refuse here and look identical. The flash is
+        // asserted so a validation refusal cannot masquerade as a permission refusal. The staff
+        // fixture's `current_store` is set, so :52 is the limb that actually fires.
+        // Raised by the adversarial review of this change.
+        $response->assertSessionHas('error', __('Permission denied.'));
+
         $this->assertSame(0, self::rows()->where('email', 'webattempt@example.test')->count(),
             'the merchant web form created a customer for a principal holding no permission. That '
             . 'gate is CustomerController::store():46-54 and closing it is recorded at :21-26 — if '

@@ -369,6 +369,40 @@ disagree**. That is a consequence of applying the approved policy to three of th
 and the fourth is a storefront authentication path the owner's instruction holds back. It is
 recorded for the owner's decision, not resolved here.
 
+### 5.9 A second, NARROWER review pass — and the one finding with real product risk
+
+The first pass asked each lens to go and find the change in 10,000-line controllers. A second pass
+embedded the **entire production diff (3.3 KB) in the prompt** and bounded each lens to one question
+and two files. 53 agents, 7 findings surviving adversarial verification.
+
+**THE ONE THAT MATTERS, and nothing in the suite covered it:**
+
+`Rule::unique('customers','email')->ignore($request->customer_id)->where('store_id', $storeId)
+->whereNull('deleted_at')` — **`ignore()` is what lets the shipped Flutter app re-post a customer's
+CURRENT address while editing some other field.** That is the ordinary edit, on every customer, on
+every release.
+
+**Neither update test touched it.** One moves onto a *different live* address (the held row matches
+with or without `ignore()`, so 422 either way); one moves onto an address only an *archived* row
+holds (no live candidate at all, so 200 either way). **Break or drop `ignore()` and both stay green
+while every ordinary customer edit from Flutter starts answering 422 on `email`.**
+`test_re_posting_a_customers_OWN_address_while_editing_another_field_is_allowed` now pins it, and
+was **proved to bite** by temporarily dropping `ignore()`: exactly that one test failed.
+
+**Two more weaknesses in my own tests, both fixed:**
+
+| | defect | fix |
+|---|---|---|
+| R-a | `test_the_web_form_refuses_a_staff_member_with_no_permission` asserted only *redirected + 0 rows* — satisfied by **any** refusal. `store()` returns exactly that for the permission gate, the empty-store tenancy limb (**same flash string**) and ordinary validation, and the web rule set differs from the API payload so a payload drift would look identical | asserts the flash, so a validation refusal cannot masquerade as a permission refusal |
+| R-b | `test_that_create_does_not_touch_the_other_stores_account` had **no precondition that the create happened**. Every assertion is about the *other* store's row, so all four are trivially true when nothing was created | asserts `assertSessionHasNoErrors()` and that the caller's own row exists |
+
+**Four residual disclosures, all pre-existing, none caused by this change, none fixed here:**
+
+1. **`updateCustomerInfo` discriminates 422 from 404** (`:9182`). `'customer_id' => '...|exists:customers,id'` is platform-wide and runs **before** the store-scoped lookup, so a nonexistent id answers differently from one belonging to another store: **one bit per request over the global customer id space**. The *write* is correctly gated by the hard store predicate, so this is existence disclosure only — the same shape as the 422-vs-403 leak fixed one method away, and the fix is the same: resolve through the owned store first, then validate.
+2. **An array `customer_id` is an uncaught 500.** The rules array is evaluated **before** any rule runs, so `->ignore($request->customer_id)` receives the raw value and the sibling `integer` rule cannot sanitise it. `Unique::__toString()` calls `addslashes()` on it, which **throws `TypeError` on PHP 8.3** — and `TypeError` is an `Error`, not an `\Exception`, so it passes through **both** catch blocks. A 422 is the correct answer. **No uniqueness bypass**: for string values Laravel's quoting and `str_getcsv` parsing keep an injected comma inside the field, which the reviewer checked specifically.
+3. **`addCustomer` discloses store existence before ownership** (`:8601`): a nonexistent store id answers differently from one owned by someone else. Strictly weaker than the leak the ordering fix closed — store existence, not another merchant's customer addresses — and `exists:stores,id` is what makes `integer` meaningful before the lookup.
+4. **A source-scan premise inspects only the API handler** while its name claims a comparison with the web form, and restates behavioural assertions made ten lines below it. Fails safe; the weaker half of a duplicated check.
+
 ---
 
 ## What none of this does

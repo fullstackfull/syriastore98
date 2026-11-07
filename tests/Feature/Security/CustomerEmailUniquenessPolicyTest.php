@@ -253,7 +253,18 @@ class CustomerEmailUniquenessPolicyTest extends SecurityTestCase
         $theirs = $this->customerIn($this->otherStore, 'shared@example.test');
         $theirPassword = $theirs->password;
 
-        $this->postWeb($this->webPayload(['email' => 'shared@example.test']));
+        // THE PRECONDITION, without which this test passes VACUOUSLY. Every assertion below is
+        // about the OTHER store's row, so they are all trivially true when nothing was created at
+        // all -- revert the per-store predicate and the create is refused, the other store's row
+        // is of course untouched, and this goes green while proving nothing. The same degeneration
+        // follows from any unrelated refusal: a payload drift, the permission gate, an empty
+        // getCurrentStore(). Raised by the adversarial review of this change.
+        $this->postWeb($this->webPayload(['email' => 'shared@example.test']))
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame(1, self::rows()->where('store_id', $this->store->id)
+            ->where('email', 'shared@example.test')->count(),
+            'premise: the create this test is about actually happened');
 
         $after = self::rows()->find($theirs->id);
 
@@ -368,6 +379,40 @@ class CustomerEmailUniquenessPolicyTest extends SecurityTestCase
             'an update moved one customer onto an address another LIVE customer in the same store '
             . 'already holds');
         $this->assertSame('held@example.test', (string) self::rows()->find($held->id)->email);
+    }
+
+    /**
+     * THE `ignore()` LIMB, WHICH NOTHING PINNED AND WHICH THE SHIPPED FLUTTER APP USES ON EVERY
+     * CUSTOMER EDIT. Raised by the adversarial review of this change.
+     *
+     * The rule this slice edited is
+     * `Rule::unique('customers','email')->ignore($request->customer_id)->where('store_id', $storeId)
+     * ->whereNull('deleted_at')`. `ignore()` is what lets the admin app re-post a customer's
+     * CURRENT address while changing some other field -- the ordinary edit.
+     *
+     * NEITHER update test touched it: one moves onto a DIFFERENT live address (the held row
+     * matches with or without `ignore()`, so 422 either way) and one moves onto an address only an
+     * archived row holds (no live candidate at all, so 200 either way). Break or drop `ignore()`
+     * and both stay green **while every ordinary customer edit from Flutter starts answering 422
+     * on `email`** — a user-visible regression under CLAUDE.md's second standing principle.
+     */
+    public function test_re_posting_a_customers_OWN_address_while_editing_another_field_is_allowed(): void
+    {
+        $customer = $this->customerIn($this->store, 'ownaddress@example.test');
+
+        $this->postApiUpdate($this->store->id, [
+            'customer_id' => $customer->id,
+            'email' => 'ownaddress@example.test',
+            'first_name' => 'Renamed',
+        ])->assertStatus(200);
+
+        $fresh = self::rows()->find($customer->id);
+
+        $this->assertSame('ownaddress@example.test', (string) $fresh->email,
+            'the ordinary Flutter edit — re-posting the customer\'s own address while changing '
+            . 'another field — was refused, which means `ignore()` is gone or broken');
+        $this->assertSame('Renamed', (string) $fresh->first_name,
+            'the edit was accepted but the field it was making did not change');
     }
 
     // =============================================================================================
