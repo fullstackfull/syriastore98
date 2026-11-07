@@ -8634,6 +8634,81 @@ public function addCustomer(Request $request)
         }
 
         /*
+         * S2 — THE PERMISSION CHECK THIS HANDLER SHIPPED WITHOUT. Owner-authorised 2026-11-07,
+         * "NARROW FIX AUTHORIZED", and tracked at docs/security/P01-SECURITY-WORK-QUEUE.md.
+         *
+         * Until this line the only gates were a 401 for a missing token and the ownership 403
+         * above. There was no `isAbleTo` and no operator limb anywhere in the method, while its
+         * WEB SIBLING -- `CustomerController::store():50-54` -- has required `Manage Customer`
+         * since the escalation recorded at `CustomerController.php:21-26` ("Any authenticated user
+         * could create a customer... A HIDDEN BUTTON IS NOT A FIX"). The same operation was gated
+         * on one surface and open on the other.
+         *
+         * MEASURED, not inferred: a staff member holding NO permissions obtained an admin token
+         * (`login` restricts only `is_active`/`is_enable_login`, never `type`), resolved their
+         * owning merchant's store through `resolveOwnedStore()` -- which scopes on
+         * `created_by = $user->creatorId()`, and `creatorId()` returns `created_by` for any type
+         * that is not admin/super admin -- and got 201. And the write is a CREDENTIAL: the create
+         * below sets `password` from the request and `email_verified_at => now()`, so the account
+         * signs in to that merchant's storefront at once.
+         *
+         * `MerchantPermissions::allowsAny()` AND NOT `isAbleTo()`, which is the whole of the
+         * ordering question and the reason this is not a one-liner:
+         *
+         *   * `isAbleTo()` ALONE REFUSES THE PLATFORM OPERATOR. There is no super-admin bypass in
+         *     this codebase -- operator status is a string on `users.type` -- so an operator-last
+         *     check here would be a LOCKOUT rather than a tightening. `MerchantPermissions`
+         *     answers WILDCARD for the operator, which is the established operator-first handling
+         *     and is reused rather than re-derived.
+         *   * `isAbleTo()` IS NOT STORE-SCOPED. `allPermissions()` unions every role the principal
+         *     holds with no store predicate, so a staff member granted the permission in one store
+         *     would carry it into every other store of the same merchant. `MerchantPermissions`
+         *     corrects exactly that, keeping the NULL-store arm so a merchant -- who holds the
+         *     global `admin` role -- does not lose their own permissions when they are read per
+         *     store.
+         *
+         * THE PRECEDENT IS `:2403`, the `Edit Products` gate -- about 6,280 lines ABOVE this
+         * one, not below it. An earlier draft of this comment said "150 lines below"; the
+         * independent review measured the call sites (`:804`, `:809`, `:944`, `:1083`, `:2403`,
+         * `:4804`, `:6442`, and this one) and there is NO `MerchantPermissions` call after this
+         * point in the file at all. A comment that is wrong about where its own precedent lives
+         * sends the next reader to the wrong code, which this project treats as a defect in its
+         * own right (`MerchantPermissions.php:138-141`).
+         *
+         * THE CALL IS THE SAME AS `:2403`; THE RESPONSE DELIBERATELY IS NOT. That gate answers
+         * `$this->error([...])`, and `ApiResponser::error()` is HTTP **200** with `{status: 0}`.
+         * This one answers a real 403, for two reasons that both point the same way: the owner's
+         * authorising instruction is explicit -- *"Return 403 for authenticated users lacking
+         * permission, not 401"* -- and the ownership refusal 59 lines above already answers 403
+         * with this exact body, so matching it is what keeps the two refusals indistinguishable.
+         * Matching `:2403` instead would have made the permission refusal a 200 that the shipped
+         * app reads as a generic failure. NO NEW PERMISSION MODEL: the name is the existing
+         * `MerchantDashboardAbilities::PERMISSION_CUSTOMERS`, which is what the web form, the
+         * merchant search and the quick actions all already ask for.
+         *
+         * PLACED AFTER THE OWNERSHIP 403, deliberately. Both refusals answer 403 with the same
+         * body, so a caller cannot tell "I do not own that store" from "I lack the right" -- no
+         * new existence oracle, which is the defect this same handler was repaired for earlier in
+         * this branch.
+         *
+         * 403 AND NEVER 401. `ApiResponser::error()` returns HTTP 200 by default and 401 must be
+         * passed deliberately; the shipped Flutter app FORCES A LOGOUT on any 401, so answering
+         * 401 to a permission refusal would sign a merchant's staff out of the app instead of
+         * telling them they lack a right. A test asserts the code is not 401.
+         */
+        if (! \App\Services\MerchantPermissions::allowsAny(
+            $adminUser,
+            [\App\Support\MerchantDashboardAbilities::PERMISSION_CUSTOMERS],
+            $store->id
+        )) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'You do not have permission to add customers to this store.']
+            ], 403);
+        }
+
+        /*
          * TAKE THE ID FROM THE RESOLVED STORE, NOT FROM THE QUERY STRING. Until this line,
          * `$storeId` was the caller's own `$request->query('store_id')` all the way through --
          * into the uniqueness rule below, into `Customer::create(['store_id' => $storeId])` and

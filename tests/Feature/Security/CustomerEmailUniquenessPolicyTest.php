@@ -90,7 +90,10 @@ class CustomerEmailUniquenessPolicyTest extends SecurityTestCase
         $this->merchant->current_store = $this->store->id;
         $this->merchant->save();
         $this->grantPermission(User::find($this->merchant->id), 'Manage Customer');
-        $this->merchant = User::find($this->merchant->id);
+        // AND the global role production gives every merchant, which is what the admin API's S2
+        // permission gate reads. `grantPermission()` alone makes a STORE-SCOPED role, which is
+        // correct for the web form and insufficient for a per-store API check in a second store.
+        $this->merchant = $this->grantMerchantGlobalRole(User::find($this->merchant->id));
         $this->token = $this->merchant->createToken('auth_token')->plainTextToken;
 
         $this->otherMerchant = $this->makeMerchant();

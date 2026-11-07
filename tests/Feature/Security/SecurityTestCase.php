@@ -323,6 +323,43 @@ abstract class SecurityTestCase extends TestCase
      * The shared global `admin` role as PermissionTableSeeder creates it: a
      * null store_id, shared by every self-registered merchant.
      */
+
+    /**
+     * Give the merchant the GLOBAL `admin` role, carrying the named permissions — which is what
+     * production does and what `makeMerchant()` does not.
+     *
+     * WHY THIS IS NEEDED, AND WHY IT IS A FIXTURE FIX AND NOT A GATE WEAKENING. Both
+     * `RegisteredUserController:182` and `StoreController:387` hand every merchant
+     * `Role::where('name','admin')->first()` — a role whose `store_id` is NULL, created once by
+     * `PermissionTableSeeder`. `makeMerchant()` creates a `User` with `type => 'admin'` and no role
+     * at all, so a test merchant holds NO permissions. That was invisible while the admin API had
+     * no permission gate; the S2 repair made it visible, and these fixtures are what moved, not
+     * the behaviour.
+     *
+     * `MerchantPermissions::names()` keeps the NULL-store arm specifically so this global role
+     * belongs to the merchant in every store — the class docblock records that
+     * `test_a_merchant_keeps_their_permissions_in_every_store` fails without it.
+     */
+    protected function grantMerchantGlobalRole(User $merchant, array $permissions = ['Manage Customer']): User
+    {
+        $role = \App\Models\Role::where('name', 'admin')->whereNull('store_id')->first()
+            ?: $this->makeGlobalAdminRole();
+
+        foreach ($permissions as $name) {
+            $role->givePermission(\App\Models\Permission::firstOrCreate(
+                ['name' => $name],
+                ['display_name' => $name]
+            ));
+        }
+
+        if (! $merchant->hasRole($role->name)) {
+            $merchant->addRole($role);
+        }
+        $merchant->flushCache();
+
+        return User::find($merchant->id);
+    }
+
     protected function makeGlobalAdminRole(): Role
     {
         return Role::forceCreate([

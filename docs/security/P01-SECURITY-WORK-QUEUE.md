@@ -5478,6 +5478,41 @@ human approval` must not be added to any required-checks list — it runs in `re
 
 ---
 
+## S59 — `Api\DashboardController::store()` is an unrouted customer-creation twin carrying the two defects just repaired next door — **OPEN, LATENT**
+
+**Severity: low while unrouted; the same as S2/§5.4 the moment it is routed.** Recorded by the
+independent tenant-isolation review of the `AddCustomer` permission repair (2026-11-07).
+
+`app/Http/Controllers/Api/DashboardController.php:6257-6325` is a near-duplicate of
+`addCustomer()` and has **none** of its three repairs:
+
+* **no permission gate** — only the `:6262` 401 and `resolveOwnedStore()` at `:6291`, i.e. exactly
+  the gap closed in `addCustomer()`;
+* **validation before ownership** — `Rule::unique('customers','email')->where('store_id', $storeId)`
+  at `:6276-6289` runs *before* `resolveOwnedStore()` at `:6291`, which is the e-mail enumeration
+  oracle measured in `AddCustomerEmailDisclosureTest`;
+* **query-string `store_id` straight into the insert** at `:6320`, not `$store->id`;
+* and it writes a credential: `password` from the request, `email_verified_at => now()`.
+
+**Not exploitable today.** Measured unrouted: no `Route::…'store'` for this controller in
+`routes/`, no `Route::resource`/`apiResource` on it anywhere in the repository, and no module routes
+it. `routes/api.php` declares 115 `DashboardController` routes and none maps to `store`.
+
+**Why it is still a finding.** `store` is the Laravel resource-convention method name. A single
+future `Route::apiResource('customers', DashboardController::class)` exposes it and silently reverts
+both the S2 permission repair and the §2 e-mail-oracle repair at once — in one line, with no
+diff to either repaired handler for a reviewer to notice.
+
+**Fix: delete the method, or give it the same two repairs (`resolveOwnedStore()` before
+`validate()`, plus the permission gate). DO NOT route it to "fix" it.** Out of scope for the narrow
+`AddCustomer` authorisation of 2026-11-07, so not done there.
+
+The e-mail-oracle half of this was already recorded as
+`docs/security/P25-SECURITY-FINDINGS-2026-11-07.md` §5.1; the permission half and the
+resource-convention hazard are new. Full detail: that document's §6.4.
+
+---
+
 ## Suggested package boundaries
 
 Keeping these apart is the point; each is independently reviewable and independently revertable.
@@ -5505,6 +5540,7 @@ Keeping these apart is the point; each is independently reviewable and independe
 | **P01-SEC-5** | S7 | Owner decision on the swallow |
 | **P01-SEC-6** | S9 + S10 | Cheap; can ride alongside any of the above |
 | *(precondition, not a package)* | S8 | Must be settled before P01-B ships |
+| **P25-SEC-01** | **S59** | Tiny and isolated: delete an unrouted method, or repair it. No contract impact, no client impact. Needs an owner nod only because deleting a handler is a code removal |
 
 Rotation (S2) is an owner operation, not an engineering package, and gates nothing on this list
 except the *severity* of S3.

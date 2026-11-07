@@ -60,7 +60,7 @@ class AddCustomerEmailDisclosureTest extends SecurityTestCase
         $this->storeA = $this->makeStore($this->merchantA);
         $this->merchantA->current_store = $this->storeA->id;
         $this->merchantA->save();
-        $this->merchantA = User::find($this->merchantA->id);
+        $this->merchantA = $this->grantMerchantGlobalRole(User::find($this->merchantA->id));
 
         $this->merchantB = $this->makeMerchant();
         $this->storeB = $this->makeStore($this->merchantB);

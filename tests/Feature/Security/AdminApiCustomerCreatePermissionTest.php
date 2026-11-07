@@ -45,30 +45,51 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
  * any `type` outside `['admin','super admin']`, so staff get 401 from it. The gap is specific to
  * `addCustomer`.
  *
- * WHY IT IS NOT FIXED IN THIS SLICE.
- * -------------------------------------------------------------------------------------------------
- * Adding `isAbleTo('Manage Customer')` here would make a **shipped Flutter endpoint start
- * refusing a principal it accepts today**. Any merchant whose staff use the admin app to add
- * customers would see that stop working at the next release, and nothing in this repository
- * records whether that is current practice. The owner's instruction in the message authorising this
- * slice is *"No silent payment behavior or authentication policy changes"*, and *who may create a
- * login credential* is squarely that. So it is measured, pinned, and escalated.
+ * IT IS FIXED NOW, UNDER A NARROW OWNER AUTHORISATION (2026-11-07): *"I authorize a focused
+ * repair to the documented S2 AddCustomer authorization defect. Use the existing
+ * customer-management permission policy, including the correct operator-first handling.
+ * Preserve authorized merchant and operator capabilities. Return 403 for authenticated users
+ * lacking permission, not 401, to avoid unintended Flutter logout behavior."*
  *
- * THE FIX, when it is authorised, is the operator-first shape this codebase already uses, because
- * Laratrust has no super-admin bypass and testing the permission alone would refuse the platform
- * operator:
+ * EVERYTHING ABOVE THIS LINE IS THE MEASUREMENT THAT PRECEDED THE REPAIR, kept because it is the
+ * evidence for it. Everything below is the repair.
+ *
+ * WHAT SHIPPED, AND WHY IT IS NOT THE SHAPE AN EARLIER DRAFT OF THIS DOCBLOCK PROPOSED. That
+ * draft proposed a bare operator-first `isAbleTo`:
  *
  *     $isOperator = strtolower(trim((string) $adminUser->type)) === 'super admin';
  *     if (! $isOperator && ! $adminUser->isAbleTo('Manage Customer')) { ... 403 ... }
  *
- * **403 and not 401**, because the shipped Flutter app forces a logout on any 401 — a new 401 on a
- * path a client calls is a user-visible regression, which `ApiResponser` and CLAUDE.md both record.
+ * which is correct about the operator and WRONG about the store. `isAbleTo()` is not store-scoped,
+ * so a staff member holding a role scoped to store A would have passed for store B of the same
+ * merchant. The repair uses `MerchantPermissions::allowsAny($user, [...], $store->id)` instead --
+ * the helper this codebase already uses at `DashboardController:2403`, `:4804` and `:6442`, which
+ * gives the operator the wildcard AND filters roles to `store_id === null || store_id === $storeId`.
+ * `test_the_permission_is_asked_PER_STORE_and_not_globally` is the test that separates the two
+ * shapes; the proposed one would fail it.
  *
- * EVERY TEST BELOW PASSES, AND THAT IS DELIBERATE. They assert the behaviour as it is measured
- * today, including the part that is wrong. A test failing on purpose would be an undeclared failure
- * and `.github/known-test-outcomes.json` asserts the Feature outcome set in BOTH directions, so it
- * would break that gate for every later change. When the fix lands, the two tests marked THE GAP
- * are the ones to invert.
+ * THE PREMISE THE TESTS BELOW CANNOT PROVE, so it was checked in production code instead. Every
+ * test here GRANTS `Manage Customer` to the merchant's global role in its own fixture, which
+ * manufactures the premise it depends on: these tests would all pass even if real merchants held
+ * nothing and the gate were a platform-wide lockout. The grant is real --
+ * `Utility::addNewData()` selects the global `admin` role (`Utility.php:3020`), `'Manage Customer'`
+ * is in `$companyNewPermission` (`:3192`) and is granted at `:3234`, and that runs from
+ * `AuthenticatedSessionController::store():83` as well as registration, so it is self-healing.
+ * Had that list omitted the name, this change would have locked out every merchant on the
+ * platform and nothing in this file could have seen it.
+ *
+ * WHICH TESTS ACTUALLY BITE: revert the gate and FIVE fail, measured by doing it --
+ * three here (`test_a_staff_member_with_no_permission_is_REFUSED`,
+ * `test_the_refusal_is_403_and_never_401`, `test_the_permission_is_asked_PER_STORE_and_not_globally`)
+ * and two in `AddCustomerPermissionRefusalContractTest`
+ * (`..._byte_identical_in_shape_to_the_ownership_refusal` and `..._never_401...`). The review that
+ * found this counted four, correctly for the code as it then stood: the `..._never_401...` loop
+ * could NOT fail for the change it guards, because a reverted gate answers 201 and that satisfies
+ * `assertNotSame(401, ...)`. An `assertSame(403, ...)` was added inside the loop and it is the
+ * fifth. Note also that `test_the_refusal_is_403_and_never_401` here is carried entirely by its
+ * `assertSame(403, ...)` for the same reason -- the assertion its NAME describes is the weak one.
+ * The three positive controls pass with the gate removed BY DESIGN: they detect a lockout, not the
+ * gate. The premises pass either way and say so.
  */
 class AdminApiCustomerCreatePermissionTest extends SecurityTestCase
 {
@@ -76,6 +97,8 @@ class AdminApiCustomerCreatePermissionTest extends SecurityTestCase
 
     private User $merchant;
     private Store $store;
+    private Store $secondStore;
+    private Store $otherStore;
     private User $staff;
     private string $staffToken;
 
@@ -85,9 +108,21 @@ class AdminApiCustomerCreatePermissionTest extends SecurityTestCase
 
         $this->merchant = $this->makeMerchant();
         $this->store = $this->makeStore($this->merchant, ['default_language' => 'en']);
+        // A SECOND store of the SAME merchant, for the per-store permission test, and a third
+        // belonging to somebody else, for the tenancy test.
+        $this->secondStore = $this->makeStore($this->merchant, ['default_language' => 'en']);
+        $this->otherStore = $this->makeStore($this->makeMerchant());
         $this->merchant->current_store = $this->store->id;
         $this->merchant->save();
-        $this->merchant = User::find($this->merchant->id);
+
+        // THE MERCHANT MUST HOLD THEIR OWN PERMISSIONS, as they do in production: both
+        // RegisteredUserController and StoreController hand every merchant the GLOBAL `admin`
+        // role, whose store_id is NULL. Without it this fixture is not a merchant, it is a user
+        // with a store — and the positive control below would fail for the fixture's reason
+        // rather than the gate's.
+        // Via the IDEMPOTENT helper: `roles.name` is UNIQUE and makeGlobalAdminRole() is an
+        // unconditional forceCreate.
+        $this->merchant = $this->grantMerchantGlobalRole($this->merchant);
 
         // A staff member of that merchant, holding NO permissions at all. No grantPermission call.
         $this->staff = $this->makeStaff($this->merchant, [
@@ -128,9 +163,12 @@ class AdminApiCustomerCreatePermissionTest extends SecurityTestCase
             'the fixture is not a staff row, so creatorId() does not resolve to the merchant');
     }
 
-    public function test_premise_the_staff_token_really_authenticates(): void
+    public function test_premise_creatorId_resolves_to_the_owning_merchant(): void
     {
-        // Without this, a 403 below could be an unauthenticated refusal wearing the wrong number.
+        // NOT an authentication premise, despite what this method was first called. A token that
+        // does not authenticate produces 401 from CustomAuth, which the assertion below cannot
+        // see; `test_the_refusal_is_403_and_never_401` is what covers that. This asserts only
+        // that the staff row hangs off the right merchant.
         $this->assertSame($this->merchant->id, (int) $this->staff->creatorId(),
             'creatorId() must resolve to the owning merchant, or resolveOwnedStore() would refuse '
             . 'for a tenancy reason and the permission question would never be reached');
@@ -195,42 +233,163 @@ class AdminApiCustomerCreatePermissionTest extends SecurityTestCase
     }
 
     // =============================================================================================
-    //  THE GAP — the shipped admin app accepts the same principal. INVERT THESE WHEN FIXED.
+    //  THE REPAIR — owner-authorised 2026-11-07, "NARROW FIX AUTHORIZED"
     // =============================================================================================
 
-    public function test_THE_GAP_the_admin_api_accepts_the_same_principal(): void
+    /**
+     * THE NEGATIVE. This is the inverse of the test that used to stand here asserting 201.
+     */
+    public function test_a_staff_member_with_no_permission_is_REFUSED(): void
     {
         $response = $this->withHeader('Authorization', 'Bearer ' . $this->staffToken)
             ->postJson('/api/admin/AddCustomer?store_id=' . $this->store->id, $this->apiPayload());
 
-        $this->assertSame(201, $response->getStatusCode(),
-            'MEASUREMENT, not an endorsement: if this is no longer 201 the permission gate has '
-            . 'been added and this test is what should be inverted. Body: ' . $response->getContent());
+        $response->assertStatus(403);
 
-        $created = self::rows()->where('email', 'staffmade@example.test')->first();
-
-        $this->assertNotNull($created,
-            'the endpoint answered 201 without creating a row, so this file is measuring the wrong '
-            . 'thing');
-        $this->assertSame((int) $this->store->id, (int) $created->store_id,
-            'premise: the row landed in the merchant\'s store, which is what makes this a '
-            . 'permission question rather than a tenancy one');
+        $this->assertSame(0, self::rows()->where('email', 'staffmade@example.test')->count(),
+            'the endpoint refused with 403 and created the customer anyway');
     }
 
-    public function test_THE_GAP_and_the_account_it_creates_can_sign_in(): void
+    /**
+     * **403, NEVER 401** — the owner named this explicitly, and it is not a style preference.
+     * `ApiResponser::error()` returns HTTP 200 by default and 401 must be passed deliberately; the
+     * shipped Flutter app FORCES A LOGOUT on any 401, so answering 401 to a permission refusal
+     * would sign the merchant's staff out of the app instead of telling them they lack a right.
+     */
+    public function test_the_refusal_is_403_and_never_401(): void
     {
-        $this->withHeader('Authorization', 'Bearer ' . $this->staffToken)
+        $response = $this->withHeader('Authorization', 'Bearer ' . $this->staffToken)
             ->postJson('/api/admin/AddCustomer?store_id=' . $this->store->id, $this->apiPayload());
 
-        $created = self::rows()->where('email', 'staffmade@example.test')->first();
-        $this->assertNotNull($created, 'premise: the row exists');
+        $this->assertNotSame(401, $response->getStatusCode(),
+            'a permission refusal answered 401. The shipped Flutter app force-logs-out on any 401, '
+            . 'so this would sign a merchant\'s staff out of the app rather than tell them they '
+            . 'lack a right — a user-visible regression on a path a client calls');
+        $this->assertSame(403, $response->getStatusCode());
+    }
 
-        $this->assertTrue(\Hash::check('Passw0rdLong', (string) $created->password),
-            'MEASUREMENT: the password is the one the unpermitted caller chose, so they know the '
-            . 'credential for an account in a store they hold no customer permission over');
-        $this->assertNotNull($created->email_verified_at,
-            'MEASUREMENT: the account is created already verified, so no e-mail confirmation '
-            . 'stands between the create and a working storefront login');
+    // ---------------------------------------------------------------------------------------------
+    //  THE POSITIVE CONTROLS. The owner's instruction is "Preserve authorized merchant and operator
+    //  capabilities", and a gate that refuses everyone satisfies the negative above perfectly.
+    //  Each of these FAILS if the repair is a lockout rather than a tightening.
+    // ---------------------------------------------------------------------------------------------
+
+    public function test_POSITIVE_the_merchant_who_owns_the_store_still_creates_customers(): void
+    {
+        $token = $this->merchant->createToken('auth_token')->plainTextToken;
+
+        $this->withHeader('Authorization', 'Bearer ' . $token)
+            ->postJson('/api/admin/AddCustomer?store_id=' . $this->store->id,
+                $this->apiPayload(['email' => 'byowner@example.test']))
+            ->assertStatus(201);
+
+        $this->assertSame(1, self::rows()->where('store_id', $this->store->id)
+            ->where('email', 'byowner@example.test')->count(),
+            'THE REPAIR IS A LOCKOUT, NOT A TIGHTENING: the merchant who owns the store can no '
+            . 'longer create a customer in it. Merchants hold the GLOBAL `admin` role, whose '
+            . '`store_id` is NULL — `MerchantPermissions::names()` keeps the null arm for exactly '
+            . 'this reason, and if that arm is ever dropped this is the test that says so');
+    }
+
+    public function test_POSITIVE_staff_WITH_the_permission_still_create_customers(): void
+    {
+        $permitted = $this->makeStaff($this->merchant, [
+            'current_store' => $this->store->id,
+            'is_active' => 1,
+        ]);
+        $this->grantPermission(User::find($permitted->id), 'Manage Customer');
+        $permitted = User::find($permitted->id);
+        $token = $permitted->createToken('auth_token')->plainTextToken;
+
+        $this->withHeader('Authorization', 'Bearer ' . $token)
+            ->postJson('/api/admin/AddCustomer?store_id=' . $this->store->id,
+                $this->apiPayload(['email' => 'bypermitted@example.test']))
+            ->assertStatus(201);
+
+        $this->assertSame(1, self::rows()->where('store_id', $this->store->id)
+            ->where('email', 'bypermitted@example.test')->count(),
+            'a staff member WHO HOLDS `Manage Customer` was refused. The gate is then not a '
+            . 'permission check at all — it is refusing by type, which is a different and wrong rule');
+    }
+
+    public function test_POSITIVE_the_platform_operator_still_creates_customers(): void
+    {
+        /*
+         * THE ONE THIS CODEBASE GETS WRONG MOST OFTEN. Laratrust has no super-admin bypass here:
+         * `isAbleTo()` ALONE REFUSES THE PLATFORM OPERATOR, because operator status is a string on
+         * `users.type` and not a role. A gate written as `isAbleTo('Manage Customer')` would lock
+         * the operator out of an endpoint they may legitimately use.
+         *
+         * `MerchantPermissions` answers WILDCARD for the operator, which is why the repair uses it
+         * rather than `isAbleTo()` directly.
+         */
+        $operator = $this->makePlatformAdmin();
+        $operator->current_store = $this->store->id;
+        $operator->save();
+        $operator = User::find($operator->id);
+        $token = $operator->createToken('auth_token')->plainTextToken;
+
+        $this->assertFalse($operator->isAbleTo('Manage Customer'),
+            'premise: `isAbleTo()` really does refuse the operator in this codebase. If this ever '
+            . 'passes, Laratrust has gained a super-admin bypass and the operator-first ordering '
+            . 'this project enforces everywhere needs re-reading');
+
+        $this->withHeader('Authorization', 'Bearer ' . $token)
+            ->postJson('/api/admin/AddCustomer?store_id=' . $this->store->id,
+                $this->apiPayload(['email' => 'byoperator@example.test']))
+            ->assertStatus(201);
+
+        $this->assertSame(1, self::rows()->where('store_id', $this->store->id)
+            ->where('email', 'byoperator@example.test')->count(),
+            'THE PLATFORM OPERATOR IS LOCKED OUT. The gate was written operator-last — '
+            . '`isAbleTo()` refuses them, so a permission-only check turns this repair into a '
+            . 'lockout for the one principal who may act in any store');
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    //  TENANT ISOLATION IS UNCHANGED BY THE REPAIR
+    // ---------------------------------------------------------------------------------------------
+
+    public function test_the_tenancy_refusal_still_answers_for_a_store_the_caller_does_not_own(): void
+    {
+        // The merchant holds the permission. The store is somebody else's. The answer must still
+        // be 403 and must not become 201 because the permission check passed.
+        $token = $this->merchant->createToken('auth_token')->plainTextToken;
+
+        $this->withHeader('Authorization', 'Bearer ' . $token)
+            ->postJson('/api/admin/AddCustomer?store_id=' . $this->otherStore->id,
+                $this->apiPayload(['email' => 'crosstenant@example.test']))
+            ->assertStatus(403);
+
+        $this->assertSame(0, self::rows()->where('email', 'crosstenant@example.test')->count(),
+            'a permitted merchant created a customer in a store they do not own');
+    }
+
+    public function test_the_permission_is_asked_PER_STORE_and_not_globally(): void
+    {
+        /*
+         * `isAbleTo()` is NOT store-scoped — `allPermissions()` unions every role the user holds
+         * with no store predicate, which `MerchantPermissions` exists to correct. This asserts the
+         * correction is actually in force on this endpoint: a staff member granted the permission
+         * in ONE store must not carry it into the merchant's OTHER store.
+         */
+        $permitted = $this->makeStaff($this->merchant, [
+            'current_store' => $this->store->id,
+            'is_active' => 1,
+        ]);
+        $this->grantPermission(User::find($permitted->id), 'Manage Customer');
+        $permitted = User::find($permitted->id);
+        $token = $permitted->createToken('auth_token')->plainTextToken;
+
+        $this->withHeader('Authorization', 'Bearer ' . $token)
+            ->postJson('/api/admin/AddCustomer?store_id=' . $this->secondStore->id,
+                $this->apiPayload(['email' => 'wrongstore@example.test']))
+            ->assertStatus(403);
+
+        $this->assertSame(0, self::rows()->where('email', 'wrongstore@example.test')->count(),
+            'a staff member granted `Manage Customer` in one store created a customer in a '
+            . 'DIFFERENT store of the same merchant. The permission is being read globally, which '
+            . 'is the defect MerchantPermissions was written to prevent');
     }
 
     // =============================================================================================

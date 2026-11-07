@@ -234,6 +234,10 @@ takeover risk.
 
 ### 5.4 `POST api/admin/AddCustomer` HAS NO PERMISSION CHECK — and the web form that does the same thing has one
 
+> **FIXED 2026-11-07 under a narrow owner authorisation. See §6.** The section below is the
+> measurement that preceded the repair and is kept as its evidence; it describes the handler as
+> it was, not as it now is.
+
 **The sharpest finding of the four review rounds, and it is pre-existing.** No line of the
 uniqueness change caused it or widened it; it is recorded because it is in the handler that change
 edited, on the same `validate()` call, and because the slice compared the two surfaces on uniqueness
@@ -402,6 +406,123 @@ was **proved to bite** by temporarily dropping `ignore()`: exactly that one test
 2. **An array `customer_id` is an uncaught 500.** The rules array is evaluated **before** any rule runs, so `->ignore($request->customer_id)` receives the raw value and the sibling `integer` rule cannot sanitise it. `Unique::__toString()` calls `addslashes()` on it, which **throws `TypeError` on PHP 8.3** — and `TypeError` is an `Error`, not an `\Exception`, so it passes through **both** catch blocks. A 422 is the correct answer. **No uniqueness bypass**: for string values Laravel's quoting and `str_getcsv` parsing keep an injected comma inside the field, which the reviewer checked specifically.
 3. **`addCustomer` discloses store existence before ownership** (`:8601`): a nonexistent store id answers differently from one owned by someone else. Strictly weaker than the leak the ordering fix closed — store existence, not another merchant's customer addresses — and `exists:stores,id` is what makes `integer` meaningful before the lookup.
 4. **A source-scan premise inspects only the API handler** while its name claims a comparison with the web form, and restates behavioural assertions made ten lines below it. Fails safe; the weaker half of a duplicated check.
+
+---
+
+## 6. The `AddCustomer` permission gate — FIXED, and what the review of the fix found
+
+**Authorisation (owner, 2026-11-07), quoted because it bounds the change:** *"I authorize a focused
+repair to the documented S2 `AddCustomer` authorization defect. Use the existing customer-management
+permission policy, including the correct operator-first handling. Preserve authorized merchant and
+operator capabilities. Return 403 for authenticated users lacking permission, not 401, to avoid
+unintended Flutter logout behavior. Add negative and positive tests, real API contract tests,
+tenant-isolation review and mutation verification. Do not invent a new permission model."*
+
+### 6.1 What shipped
+
+`Api\DashboardController::addCustomer()`, after the `resolveOwnedStore()` 403 and before the insert:
+
+```php
+if (! MerchantPermissions::allowsAny($adminUser, [MerchantDashboardAbilities::PERMISSION_CUSTOMERS], $store->id)) {
+    return response()->json([...], 403);
+}
+```
+
+Four properties, each one deliberate:
+
+* **`MerchantPermissions::allowsAny()`, not `isAbleTo()`.** §5.4's own proposed fix was a bare
+  operator-first `isAbleTo`, which is right about the operator and **wrong about the store** —
+  `isAbleTo()` is not store-scoped, so staff holding a role scoped to store A would have passed for
+  store B of the same merchant. `MerchantPermissions` gives the operator the wildcard *and* filters
+  roles to `store_id === null || store_id === $storeId`. It is the helper already used at
+  `DashboardController:2403`, `:4804` and `:6442`. **No new permission model**, as instructed.
+* **`PERMISSION_CUSTOMERS` is the existing `'Manage Customer'`** — the same name the web form, the
+  merchant search and the quick actions already ask for.
+* **403, never 401**, as instructed. Note this *diverges* from the `:2403` precedent, which answers
+  `$this->error()` i.e. **HTTP 200**. It matches the ownership refusal 59 lines above instead, which
+  is what keeps the two refusals indistinguishable.
+* **Placed after the ownership 403**, with a byte-identical body, so the repair adds no existence
+  oracle. Asserted by
+  `AddCustomerPermissionRefusalContractTest::test_the_permission_refusal_is_byte_identical_in_shape_to_the_ownership_refusal`.
+
+### 6.2 Evidence
+
+| | |
+|---|---|
+| negative + positive tests | `tests/Feature/Security/AdminApiCustomerCreatePermissionTest.php` — 12 tests: 3 premises, 1 web-form control, 2 negatives, **3 positive controls** (merchant, permitted staff, platform operator), 1 tenancy control, 1 per-store control, 1 unaffected sibling |
+| real API contract tests | `tests/Contract/AddCustomerPermissionRefusalContractTest.php` — 5 tests: the 201 payload shape is unchanged (4 keys, measured not assumed), the refusal shape, never-401, absent-token-still-401, validation still 422 |
+| mutation verification | the gate was commented out and the suites re-run: **5 tests fail** — 3 in the Feature file, 2 in the Contract file. Restored and re-measured green |
+| tenant-isolation review | an independent read-only review; its findings are §6.3 and §6.4 |
+
+**The premise the tests cannot prove, checked in production code instead.** Every test *grants*
+`Manage Customer` to the merchant's global role in its own fixture, so they would all pass even if
+real merchants held nothing and this gate were a platform-wide lockout. The grant is real:
+`Utility::addNewData()` selects the global `admin` role (`Utility.php:3020`), `'Manage Customer'` is
+in `$companyNewPermission` (`:3192`) and is granted at `:3234`, and that runs from
+`AuthenticatedSessionController::store():83` as well as from registration, so it is self-healing.
+**Had that list omitted the name, this change would have locked out every merchant on the platform
+and no test in the diff could have seen it.**
+
+**The one user-visible refusal this introduces**, for the release note: a staff member whose role is
+scoped to store A, using the admin app to add a customer to store B *of the same merchant*, is now
+refused. That is the deliberate design of `MerchantPermissions` and matches the `Edit Products` gate.
+
+### 6.3 Four defects the review found in the fix itself — all fixed in this change
+
+Three of the four were **false statements in my own comments**, which this project treats as defects
+in their own right (`MerchantPermissions.php:138-141`).
+
+1. **A guard that could not fail.** `AddCustomerPermissionRefusalContractTest`'s never-401 loop
+   asserted only `assertNotSame(401, $code)`. Revert the gate and the `permission` leg answers
+   **201**, which satisfies that perfectly — so the leg could never fail for the change it exists to
+   guard. An `assertSame(403, $code)` was added inside the loop; reverting the gate now fails it with
+   *"Failed asserting that 201 is identical to 403"*. **This is the fifth time this branch has
+   shipped a can-never-fail guard**, so it is named rather than quietly fixed. The same weakness
+   exists by nature in `test_the_refusal_is_403_and_never_401`, which is carried entirely by its
+   `assertSame(403, ...)` and not by the assertion its name describes; that is now written down in
+   the test.
+2. **The handler comment cited the wrong precedent.** It said the `Edit Products` gate was "150
+   lines below"; it is at `:2403`, about 6,280 lines **above**, and there is no `MerchantPermissions`
+   call anywhere after this one. Corrected, and the response-code divergence from that precedent
+   (200 vs 403) is now stated rather than glossed as "the same reasoning".
+3. **The test file's header still read as the pre-fix escalation report** — "WHY IT IS NOT FIXED IN
+   THIS SLICE", "THE FIX, when it is authorised", and a pointer to two tests marked "THE GAP" that no
+   longer exist. A reader who stopped at the docblock would have concluded the endpoint was
+   unguarded. Rewritten as the repair record.
+4. **The contract test credited its sibling with "four mutations" it does not contain.** The four
+   mutations were run by hand; they are not tests. Reworded. Also: both new files called the
+   non-idempotent `makeGlobalAdminRole()` (an unconditional `forceCreate` against a UNIQUE
+   `roles.name`) and now use the idempotent `grantMerchantGlobalRole()`.
+
+### 6.4 Three findings carried forward — NOT fixed here, and none caused by this change
+
+1. **`Api\DashboardController::store()` (`:6257-6325`) is an unrouted twin with none of the three
+   repairs.** No permission gate, validation *before* `resolveOwnedStore()` (the §5.1 / §2 e-mail
+   oracle), and the query-string `store_id` straight into the insert. Confirmed unrouted: no
+   `Route::…'store'` for this controller, no `Route::resource`/`apiResource` on it anywhere.
+   **`store` is the Laravel resource-convention method name**, so a single future
+   `Route::apiResource(...)` on this controller would silently expose it and revert both repairs at
+   once. Minimal fix: delete the method, or give it the same two repairs. **Do not route it.**
+   Out of scope for a narrow authorisation — recorded here and as a work-queue row.
+2. **Web/API parity is now inverted on the per-store axis.** `CustomerController::store():52` asks
+   `isAbleTo('Manage Customer')` *globally* and writes to `getCurrentStore()` — the mutable,
+   caller-writable switch pointer. So the staff member the API now refuses can still create that
+   customer through the **web form** by switching `current_store`. The looser surface is the web one,
+   so this change is still strictly a tightening, and the residual is intra-tenant. Pre-existing.
+   The parity framing in the test header must not be read as "parity restored" — it is not.
+3. **The NULL-store arm of `names()` is tenant-mintable.** `RoleController::store():155` sets
+   `$role->store_id = getCurrentStore()`, which returns **null** for a principal with no
+   `current_store` who owns no store (`helper.php:777-778`). A role created in that state is treated
+   as global for every store id. A staff member holding `Create Role` could therefore mint themselves
+   a role that passes this gate in every store of their merchant's tenant. **Bounded by
+   `resolveOwnedStore()`, so never cross-tenant**, and `Create Role` is already a powerful grant.
+   Pre-existing in `MerchantPermissions`; traced, not executed.
+
+**What the permission limb does NOT contribute: cross-tenant isolation.** That is carried entirely
+by `resolveOwnedStore()` on this endpoint. Because the global `admin` role is one shared row with
+`store_id` NULL held by every merchant on the platform, `names()` returns `Manage Customer` for
+*every* merchant against *any* store id passed to it. The gate bites staff with store-scoped roles,
+and nothing else. `Customer`'s `StoreScope` plays no part either way — the insert is explicit.
 
 ---
 
