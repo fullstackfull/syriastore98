@@ -129,39 +129,55 @@ public function store(Request $request)
              * removed, and a test asserts that half explicitly -- removing the rule rather than
              * narrowing it is the obvious wrong fix here.
              *
-             * WHAT THIS DELIBERATELY DOES **NOT** DO: it does not add a `store_id` predicate.
-             * This rule is GLOBAL, so a merchant still cannot add a customer whose LIVE address
-             * exists in ANOTHER store.
+             * AND IT IS NOW PER STORE. **OWNER DECISION, 2026-11-07**, approved in principle:
+             * the same e-mail MAY exist in different stores; two ACTIVE customers with the same
+             * e-mail in ONE store must NOT be allowed; ARCHIVED customers MAY re-register safely.
+             * That is one rule -- (email, store_id) unique over LIVE rows -- and the two
+             * predicates below are the whole of it.
              *
-             * THE REASON RECORDED HERE FIRST WAS WRONG, and is corrected rather than removed
-             * because this is the site a later reader consults. It said the same `unique` rule is
-             * PROTECTIVE on the API register endpoint. It is a DIFFERENT rule in a different file
-             * (`Api\AuthController.php:76`), and the create-only property there comes from
-             * CONTROL FLOW, not from the rule's scope: `$user = new Customer()` at `:142`, with
-             * the account-adoption branch inside `if ($request->register_type != 'email')` at
-             * `:144`. The e-mail path performs no lookup at all, so a per-store rule there would
-             * still be create-only. Narrowing THIS rule could not have touched it either way.
-             * Raised by the tenant-authz review of this change.
+             * THE PREDICATE COMES FROM THE PRINCIPAL, NOT FROM INPUT. `$store` is
+             * `getCurrentStore()`, resolved above and refused when empty. A `store_id` in the
+             * request body is ignored, and a test asserts that, because a tenant predicate built
+             * from caller-supplied input is not a tenant check -- it has produced four separate
+             * defects in this codebase.
              *
-             * THE REAL REASON TO ESCALATE: a global rule is a platform-wide EXISTENCE ORACLE, and
-             * it is the odd one out. FIVE other writers of `customers.email` already scope per
-             * store -- `Api/DashboardController.php:6283` and `:8611`,
-             * `AccountProfileController.php:127` and `:183`, and
-             * `Customer/Auth/CustomerLoginController.php:104`. So two stores holding one shopper
-             * is a state the product already produces, and this form is the only place that
-             * refuses it. WHICH WAY TO CONVERGE is a business-policy decision about who may hold
-             * which address, and CLAUDE.md reserves that to the owner -- so it is ESCALATED and
-             * pinned by a test, not altered here. The test's own message says it is what should be
-             * rewritten when the decision lands.
+             * WHAT THE OWNER'S CONDITIONS REQUIRED FIRST, both completed before this line changed:
+             * the tenant-authorization review (three rounds, which found three faults in my own
+             * fixes), and store-scoping the two first-party lookups that resolved a customer by
+             * e-mail with no store predicate -- `PaymentController:2070` on guest checkout, where
+             * an anonymous storefront request resolves no tenant so StoreScope adds nothing, and
+             * `HomeController:1218` on order status. Both now carry `store_id`, asserted by
+             * `UnscopedCustomerEmailLookupTest`.
              *
-             * AND IT NOW DIVERGES FROM FLUTTER ON A SECOND AXIS, which belongs in that decision:
-             * `Api\DashboardController::addCustomer()` is per-store but archived-INSENSITIVE, so
-             * the web form and the admin app give opposite answers on BOTH axes of the same
-             * operation. CLAUDE.md's second standing principle is Flutter parity.
+             * THE TWO ADMIN-APP PATHS WERE CHANGED IN THE SAME SLICE, and that is the point rather
+             * than a side effect: `Api\DashboardController::addCustomer()` and
+             * `::updateCustomerInfo()` were per-store but archived-INSENSITIVE, so the web form
+             * and the shipped Flutter app gave OPPOSITE answers on both axes of one operation.
+             * CLAUDE.md's second standing principle is Flutter parity, and
+             * `CustomerEmailUniquenessPolicyTest` now asserts the two surfaces agree instead of
+             * assuming it.
+             *
+             * WHAT IS **NOT** CHANGED, because it is a storefront AUTHENTICATION path and the
+             * owner's instruction in the same message is "No silent payment behavior or
+             * authentication policy changes": `Api\AuthController:76`, whose global
+             * `unique:customers,email` is live on the routed public `POST api/{slug}/register`;
+             * the soft-delete-blind registration existence check in
+             * `Customer\Auth\CustomerLoginController`; and `AccountProfileController:127`/`:183`,
+             * which are per-store but archived-insensitive and therefore STRICTER than the policy,
+             * i.e. failing in the safe direction. Each is recorded in
+             * `docs/security/P25-CUSTOMER-EMAIL-UNIQUENESS-PROPOSAL.md` for the owner.
+             *
+             * NO DATABASE CONSTRAINT BACKS THIS. There is no unique index on `customers.email`
+             * anywhere, and the migration is NOT authorised, so this is check-then-act and two
+             * concurrent creates can both succeed. Measured, not glossed:
+             * `verify-customer-email-uniqueness-on-mysql.php` section D, on MariaDB 11.4.9 --
+             * production's own engine version.
              */
             'email' => [
                 'required', 'email', 'max:255',
-                \Illuminate\Validation\Rule::unique('customers', 'email')->whereNull('deleted_at'),
+                \Illuminate\Validation\Rule::unique('customers', 'email')
+                    ->where('store_id', $store)
+                    ->whereNull('deleted_at'),
             ],
             'mobile' => 'nullable|string|max:20',
             'password' => 'required|string|min:8',

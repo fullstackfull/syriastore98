@@ -8633,6 +8633,29 @@ public function addCustomer(Request $request)
             ], 403);
         }
 
+        /*
+         * TAKE THE ID FROM THE RESOLVED STORE, NOT FROM THE QUERY STRING. Until this line,
+         * `$storeId` was the caller's own `$request->query('store_id')` all the way through --
+         * into the uniqueness rule below, into `Customer::create(['store_id' => $storeId])` and
+         * into the `DeliveryAddress::create()` after it.
+         *
+         * IT WAS NOT EXPLOITABLE, and that is stated rather than implied: `resolveOwnedStore()`
+         * matched `Store::where('id', $storeId)`, so the value identifies the store that was
+         * checked, and `required|integer|exists:stores,id` above rejects the shapes that could
+         * make the two queries disagree -- `'5.0'`, an overflow, a non-integer -- while numeric
+         * affinity collapses `'+5'` and `' 5'` identically in both. The review of this change
+         * tried to make them diverge and could not.
+         *
+         * SO THIS IS HARDENING, AND IT HAS NO BITE TEST, because there is no input that behaves
+         * differently before and after. Saying so is the point: the value of the line is that the
+         * next reader does not have to redo the paragraph above, and that this handler now matches
+         * `updateCustomerInfo()` (`:9156`), which has always done exactly this.
+         *
+         * It also corrects a claim I made in the commit for the ordering fix, which said `$storeId`
+         * was already reassigned here. It was not. Raised by the tenant-authz review.
+         */
+        $storeId = $store->id;
+
         $validated = $request->validate([
             'first_name' => 'required|string|max:255',
             'last_name'  => 'required|string|max:255',
@@ -8640,7 +8663,9 @@ public function addCustomer(Request $request)
                 'required',
                 'email',
                 'max:255',
-                \Illuminate\Validation\Rule::unique('customers', 'email')->where('store_id', $storeId)
+                \Illuminate\Validation\Rule::unique('customers', 'email')
+                    ->where('store_id', $storeId)
+                    ->whereNull('deleted_at')
             ],
             'mobile'     => 'required|string|regex:/^\+?[0-9\s\-]{8,20}$/',
             'password'   => 'required|string|min:8|regex:/^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*?&]{8,}$/',
@@ -9165,6 +9190,7 @@ public function updateCustomerInfo(Request $request)
                 \Illuminate\Validation\Rule::unique('customers', 'email')
                     ->ignore($request->customer_id)
                     ->where('store_id', $storeId)
+                    ->whereNull('deleted_at')
             ],
             'mobile' => 'nullable|string|max:20',
             'status' => 'nullable|in:0,1',

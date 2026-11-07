@@ -49,20 +49,27 @@ use Tests\Feature\Security\SecurityTestCase;
  * form already renders through `<x-ss.error-summary>` and `@error`. So a merchant with one bad
  * field saw the complaint twice, once in a language they may not read.
  *
- * E-4. WHAT IS **NOT** CHANGED, AND IS ESCALATED INSTEAD.
+ * E-4. THE CROSS-STORE QUESTION — ESCALATED, THEN DECIDED, THEN IMPLEMENTED.
  * -------------------------------------------------------------------------------------------------
- * `unique:customers,email` is GLOBAL -- it has no `store_id` predicate -- while the storefront's
- * own registration is per-store (`CustomerLoginController:104`,
- * `Customer::where('email', ...)->where('store_id', $store->id)->count()`). So two stores having
- * the same shopper is a state the product already produces, and the admin form is the only place
- * that refuses it. It is also an existence oracle: a merchant can discover whether any address is
- * a customer anywhere on the platform.
+ * `unique:customers,email` WAS global -- no `store_id` predicate -- while the storefront's own
+ * registration is per-store (`CustomerLoginController:104`). So two stores having the same shopper
+ * was a state the product already produced, and this form was the only place that refused it. It
+ * was also an existence oracle: a merchant could discover whether any address is a customer
+ * anywhere on the platform.
  *
- * **IT IS LEFT ALONE ON PURPOSE.** `StorefrontRegistrationTakeoverTest`'s header records that on
- * the API register endpoint the same `unique` rule is what keeps the e-mail path to create-only --
- * there it is PROTECTIVE. Scoping uniqueness per store is therefore a business-policy decision
- * with authorization implications, which the owner's directive reserves to the owner, so the
- * cross-store behaviour is PINNED by a test here rather than altered.
+ * It was PINNED by a test rather than changed, because scoping uniqueness per store is a
+ * business-policy decision and CLAUDE.md reserves those to the owner. **THE OWNER DECIDED IT ON
+ * 2026-11-07** and approved the policy in principle, so the rule is now
+ * `->where('store_id', $store)->whereNull('deleted_at')` and the pinning test has been rewritten
+ * into its inverse, as its own message said it should be.
+ *
+ * `$store` is `getCurrentStore()`, derived from the authenticated principal and refused when
+ * empty -- NOT from request input, which is the defect pattern this codebase produces most often.
+ * A test asserts that a `store_id` in the request BODY changes nothing.
+ *
+ * The policy across all three merchant write paths, the Flutter-parity assertion and the
+ * check-then-act race it does not close are all in
+ * `tests/Feature/Security/CustomerEmailUniquenessPolicyTest.php`.
  */
 class CustomerCreateFormTest extends SecurityTestCase
 {
@@ -177,33 +184,40 @@ class CustomerCreateFormTest extends SecurityTestCase
     }
 
     // =============================================================================================
-    //  E-4 — the cross-store behaviour, PINNED rather than changed (owner decision)
+    //  E-4 — the cross-store question, now ANSWERED by the owner and implemented
     // =============================================================================================
 
     /**
-     * This test asserts the CURRENT behaviour, which is a defect this slice deliberately does not
-     * repair. It exists so the behaviour cannot drift while the owner decides, and so the decision
-     * has a test to flip when it lands.
+     * THE PREVIOUS VERSION OF THIS TEST PINNED THE OPPOSITE BEHAVIOUR, and said in its own message
+     * that if it ever started failing the decision had landed and it was what should be rewritten.
+     * It did, so it is. The owner's decision of 2026-11-07 approved the policy in principle:
+     * the same e-mail MAY exist in different stores, two ACTIVE customers with one address in ONE
+     * store must NOT be allowed, and ARCHIVED customers may re-register safely.
+     *
+     * The full policy — all three clauses, across all three merchant write paths, with the parity
+     * assertion between the web form and the shipped admin app and an explicit statement of the
+     * race the policy does NOT close — lives in
+     * `tests/Feature/Security/CustomerEmailUniquenessPolicyTest.php`. This test keeps only the half
+     * that belongs to THIS form, so the two files do not restate each other.
      */
-    public function test_another_stores_live_email_is_still_refused_which_is_the_open_question(): void
+    public function test_another_stores_live_email_is_now_accepted_because_the_owner_decided(): void
     {
         $this->customerIn($this->otherStore, 'shared@example.test');
 
         $response = $this->actingAs($this->merchant)
             ->post('/customer', $this->payload(['email' => 'shared@example.test']));
 
-        $response->assertSessionHasErrors('email');
+        $response->assertSessionHasNoErrors();
 
-        $this->assertSame(0, self::rows()->where('store_id', $this->store->id)
+        $this->assertSame(1, self::rows()->where('store_id', $this->store->id)
             ->where('email', 'shared@example.test')->count(),
-            'OPEN OWNER QUESTION, not a regression: `unique:customers,email` is global, so a '
-            . "merchant cannot add a customer whose address exists in ANOTHER store -- while the "
-            . 'storefront registration is per-store (CustomerLoginController:104), so that state '
-            . 'is one the product already produces. Scoping it per store is a business-policy '
-            . 'change with authorization implications (the same rule is PROTECTIVE on the API '
-            . 'register endpoint, see StorefrontRegistrationTakeoverTest), so it is escalated '
-            . 'rather than made. If this test starts failing, the decision has been implemented '
-            . 'and this test is what should be rewritten.');
+            'the approved policy says the same address may exist in different stores, so this '
+            . 'form must accept an address that is live only in ANOTHER merchant\'s store, and '
+            . 'the new row must land in THIS merchant\'s store');
+
+        $this->assertSame(1, self::rows()->where('store_id', $this->otherStore->id)
+            ->where('email', 'shared@example.test')->count(),
+            "the other store's row was moved or removed -- this is a create, not an adoption");
     }
 
     // =============================================================================================

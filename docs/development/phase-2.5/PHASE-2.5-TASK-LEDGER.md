@@ -423,6 +423,13 @@ points at `claude/busy-edison-k0pjwa`; until the owner says whether this work sh
 there, or opened as its own pull request, it has no CI coverage at all. Nothing is claimed about
 these commits passing CI, because CI has not seen them.
 
+**SUPERSEDED, 2026-11-07.** The owner decided the branch question: a **draft** pull request from
+`claude/gracious-volta-duiynj` into `claude/busy-edison-k0pjwa`. That is PR #132, and opening it put
+this branch under `on: pull_request`, so **`ci.yml` now runs on every commit here.** The paragraph
+above is kept because it records a real state and the reason the decision mattered; it is no longer
+the current state. CI verdicts per HEAD are recorded in §4.15 below, with the exact SHA each time,
+and local runs are still labelled as local.
+
 ---
 
 ### The gates for R-06, R-07 and PKG-E, measured on the final tree
@@ -491,15 +498,14 @@ is a failure mode this phase keeps hitting.**
    **not a descendant of the form**, so pressing it submitted nothing. The test now walks ancestors
    in the parsed tree and **bites** — restoring the mis-nested markup fails it.
 
-**ESCALATED, NOT ANSWERED.** `unique:customers,email` is still **global**, so a merchant cannot
-create a customer whose **live** address belongs to another store — while the storefront's own
-registration is per-store (`CustomerLoginController:104`), so that state is one the product already
-produces, and the admin form is the only place that refuses it. It is also a cross-tenant existence
-oracle. It is left alone because `StorefrontRegistrationTakeoverTest`'s header records that on the
-**API register endpoint the same rule is protective** — it is what keeps the e-mail path to
-create-only. Scoping uniqueness per store is a business-policy decision with authorization
-implications, so it goes to the owner, and the current behaviour is **pinned by a test** whose own
-message says it is what should be rewritten when the decision lands.
+**ESCALATED, THEN ANSWERED BY THE OWNER, THEN IMPLEMENTED — see P2.5-PKG-F below.** At the time of
+PKG-E, `unique:customers,email` was still **global**, so a merchant could not create a customer
+whose **live** address belonged to another store — while the storefront's own registration is
+per-store (`CustomerLoginController:104`), so that state is one the product already produces, and
+the admin form was the only place that refused it. It was also a cross-tenant existence oracle.
+Scoping uniqueness per store is a business-policy decision, so it went to the owner and the
+behaviour stayed **pinned by a test** whose own message said it was what should be rewritten when
+the decision landed. **The owner decided it on 2026-11-07** and the test has been rewritten.
 
 Seven keys added to `ar.json` and `en.json`, because `ArabicUiCoverageTest` failed the moment the
 six new English strings landed — the bilingual ratchet working as designed.
@@ -1839,3 +1845,210 @@ A guard was added to the generator while doing this: a `VERIFIED` key matching n
 a **silent no-op** — the entry looks like a promotion and no count moves. 17 entries were checked by
 hand, which is exactly the check that should not be by hand, and a screen renamed in the inventory
 would otherwise quietly un-verify itself. It now refuses and names the orphan; proved by mutation.
+
+---
+
+## 4.15 P2.5-PKG-F — the approved customer e-mail uniqueness policy, and the engine it has to live on [2026-11-07]
+
+**Owner decision of 2026-11-07, approved in principle, with conditions.** The policy in the owner's
+own three clauses: the same e-mail **may** exist in different stores; two **active** customers with
+the same e-mail in **one** store must **not** be allowed; **archived** customers **may** re-register
+safely. Together one rule: **`(email, store_id)` unique over LIVE rows only.**
+
+The owner's conditions, and the state of each **before** a line of the policy was written:
+
+| condition | state |
+|---|---|
+| *"after completing the tenant-authorization review"* | **done, three rounds.** Round 3 found three faults in my own work — an overclaim I withdrew, a premise that could not detect its own condition, and a change with no possible failing-test coverage, now said plainly in its docblock rather than implied |
+| *"confirming that the payment and storefront lookups are properly store-scoped"* | **done.** `PaymentController:2070` (guest checkout — a cross-tenant **write**, not just a wrong read) and `HomeController:1218` each carry `->where('store_id', …)`. `UnscopedCustomerEmailLookupTest`, 6 tests |
+| *"Database migration is NOT yet authorized"* | **honoured. No migration file exists in this change** |
+| *"Do not conceal the concurrent-insert race"* | **honoured, and it is in the suite, not only in a document** — `CustomerEmailUniquenessPolicyTest::test_the_policy_is_validation_only_and_therefore_racy` |
+
+### What changed in the code: three lines, in three handlers, on purpose
+
+§1 of the proposal showed the three merchant write paths disagreeing on **both** axes of one
+operation, so repairing only the web form would have left the shipped Flutter app answering the
+opposite way — against CLAUDE.md's second standing principle:
+
+| path | before | after |
+|---|---|---|
+| `POST /customer` — `CustomerController::store()` | global, archived-aware | `->where('store_id', $store)->whereNull('deleted_at')` |
+| `POST api/admin/AddCustomer` | per-store, archived-**insensitive** | `+ ->whereNull('deleted_at')` |
+| `POST api/admin/update-customer` | per-store, archived-**insensitive** | `+ ->whereNull('deleted_at')` |
+
+`$store` is `getCurrentStore()`, derived from the authenticated principal and refused when empty —
+**not** request input, which is the pattern that has produced four separate defects here. On both
+API paths the ownership resolution now happens **above** `validate()`, and `$storeId` is taken from
+the resolved `$store->id` rather than from the query string.
+
+**ONE OF THOSE TWO WAS NOT TRUE WHEN I FIRST WROTE IT, and the review caught it.** I claimed both
+handlers already reassigned `$storeId = $store->id`. `updateCustomerInfo()` always did (`:9156`);
+`addCustomer()` **did not** — the caller's raw `$request->query('store_id')` ran straight through to
+the uniqueness rule, to `Customer::create(['store_id' => $storeId])` and to the `DeliveryAddress`
+create after it. It was **not exploitable** (`resolveOwnedStore()` matched `Store::where('id',
+$storeId)`, so the value identifies the checked store, and `required|integer|exists:stores,id`
+rejects the shapes that could make the two queries disagree), but the claim was still false, so the
+line it described has now been added for real and says in its own comment that it is hardening with
+no possible bite test.
+
+**Evidence: `tests/Feature/Security/CustomerEmailUniquenessPolicyTest.php` — 15 tests, 36
+assertions.** Written first and measured failing: **4 failed, 11 passed**. Then **each of the three
+edits was reverted individually** and re-measured, which is stronger than one revert because it also
+proves no test passes on the back of a different edit:
+
+| edit reverted | tests that fail |
+|---|---|
+| web form per-store predicate | `an address live in another merchants store may now be created here`, `…agree about ANOTHER STORES LIVE address` |
+| `addCustomer()` live-rows-only | `an archived address may be reused on the api`, `…agree about an ARCHIVED address` |
+| `updateCustomerInfo()` live-rows-only | `an update onto an address only an archived row holds is allowed` |
+
+**Re-measured after the review's fixes, not carried forward** — and the result changed, which is the
+point of re-running it. The review found that the single parity test covered only the ARCHIVED axis
+(the pre-change web rule was global but already live-only, so it accepted an archived address too)
+and therefore passed whether or not the per-store predicate existed. With the second parity case
+added, reverting the web form's predicate now fails **two** tests instead of one.
+
+All three restored: **15 passed**. `CustomerCreateFormTest`'s pinning test was rewritten into its
+inverse, exactly as its own failure message instructed.
+
+### THE OWNER WAS RIGHT THAT THE DATABASE CAN ENFORCE THIS — and then I was wrong a second time
+
+My first proposal said database-level enforcement was impossible because MySQL has no partial-index
+syntax. The owner's instruction — *"Do not claim enforcement is impossible merely because MySQL
+lacks native partial-index syntax"* — was correct: a `UNIQUE` index permits any number of `NULL`
+indexed values, so an expression that is `NULL` for archived rows **is**
+`UNIQUE (email, store_id) WHERE deleted_at IS NULL`. Verified on MySQL 8.0.46: 17 checks, 0 failed,
+**two** routes working.
+
+**Then I obtained the engine, and my own recommendation was wrong.** The committed dump
+`storesyria_ecommercego.sql` records its own producer: `-- Serverversie: 11.4.9-MariaDB`.
+**Production is MariaDB 11.4.9, not MySQL** — so **Route B, the functional unique index I had
+recommended, does not exist on it at any version.** MariaDB 11.4.9 was installed from
+`archive.mariadb.org` and the script re-run against it: **22 checks, 0 failed**, transcript at
+`docs/development/phase-2.5/evidence/pkg-e-customer-write/mariadb-11.4.9-email-uniqueness.txt`.
+
+Four things that run found which the MySQL run could not:
+
+1. **`COALESCE(store_id, 0)` is required.** Production's `store_id` is
+   `bigint(20) UNSIGNED DEFAULT NULL` and **`CONCAT()` of a `NULL` is `NULL`**, which a unique index
+   exempts — so every NULL-store row would escape the constraint silently. Measured side by side:
+   with the naive expression **two live rows with `store_id NULL` and one address were BOTH
+   accepted**; with `COALESCE` the second is refused, and a `NULL` store is still a different tenant
+   from store 1.
+2. **The script's own version gate was a real flaw.** It compared version numbers, and MariaDB 11.4
+   is numerically above MySQL 8.0.13, so it called Route B "supported" on an engine that cannot do
+   it. It now detects the **vendor**.
+3. **The NULL exemption holds at index-BUILD time, not just on insert** — asked because production
+   holds 37 archived customers and a build-time collision would be refused for a reason no
+   pre-flight query could find. Three archived rows sharing an address did **not** block the ALTER.
+4. **The single-statement ALTER mis-names the colliding value** when archived rows are present:
+   `Duplicate entry 'NULL'`, which is not the collision. The two-statement form names the real
+   address. **So the migration is two statements**, purely so a refusal on production points an
+   operator at the right rows.
+
+**Migration impact, measured:** `ALGORITHM=INSTANT`, `NOCOPY` and `INPLACE` are **all refused** —
+`COPY` is forced, so a full rebuild holding a write lock on `customers`. 62 rows today, so
+milliseconds; the figure is in the plan because it scales. `down()` destroys nothing, because the
+column it drops is **generated**.
+
+**The duplicate-data assessment, from the dump and not from production** — streamed, every address
+hashed immediately, counts only, **no verbose mode by design**: 25 live customers, 37 archived,
+**0 duplicate groups of any kind**, **0 case-insensitive duplicate groups** (the index folds case
+and accents under `utf8mb4_unicode_ci`), **0 addresses live in more than one store**, **0 live rows
+with a NULL `store_id`**. So the application change **alters no existing row's status** — it only
+changes what is accepted next — and the migration would currently succeed with nothing to resolve
+first. A dump is a point in time; the query must be re-run against production immediately before any
+schema change, which needs its own authorisation.
+
+### Three paths deliberately NOT changed, each a storefront authentication path
+
+| path | state | why |
+|---|---|---|
+| `Api\AuthController:76` — global `unique:customers,email` | live on the routed, **public** `POST api/{slug}/register` (`routes/api.php:82`) | the one reachable surface still contradicting clause 1. Changing it changes who may create a login credential, and the owner's instruction in the same message is *"No silent payment behavior or authentication policy changes."* Needs its own decision |
+| `Customer\Auth\CustomerLoginController` registration existence check | soft-delete-blind: an archived shopper is told to log in, and cannot | pinned by `StorefrontArchivedCustomerDeadEndTest`. Same reason |
+| `AccountProfileController:127`, `:183` | per-store but archived-insensitive — **stricter** than the policy | fails safe. Loosening it lets a live shopper take an archived account's address; a restore would then produce the state clause 2 forbids. **No restore route for `Customer` exists anywhere in `app/`** (verified, not assumed), so this is latent, not live |
+
+### A correction to my own earlier commit message
+
+`Api\DashboardController::store()` (~line 6257) is a **second copy** of `addCustomer()` carrying the
+same ownership-after-validation ordering that was the e-mail oracle. **It is unrouted** — 115
+`DashboardController` routes, none mapping to `store` — so it is a trap for whoever routes it, not a
+live hole. My commit for that fix said the oracle was "fixed"; that was true of `addCustomer()` and
+silent about this copy. Recorded in `P25-SECURITY-FINDINGS-2026-11-07.md` §5.1.
+
+### TWO UNDECLARED FAILURES WERE CAUGHT BEFORE THE PUSH, AND THEY WERE MINE
+
+The local Feature run reported **4 failures against a manifest declaring 2**, and the known-outcome
+gate failed — correctly, in both directions, exactly as designed.
+
+**Both new failures were line-number drift caused by `da3f9ee4`**, which added 27 lines to
+`PaymentController.php` above a set of documentation anchors:
+
+| guard | what drifted |
+|---|---|
+| `PaymeraPostCommitClaimTest::test_the_cited_anchors_still_name_what_they_claim` | four anchors cited in a docblock: `DB::beginTransaction()` :3671→:3698, `DB::commit()` :3846→:3873, `$owner->email` :3902→:3929, `OrderCompleteBinding::remember()` :3991→:4018 |
+| `SecurityLogInventoryTest::test_the_observability_inventory_matches_the_source` | ten `PaymentController` rows in `P01-OBSERVABILITY-INVENTORY.md`, each off by the same +27 |
+
+**RE-MEASURED, NOT ADDED TO THE MANIFEST.** The manifest's own README forbids that use of it, and
+these were stale pointers, not accepted failures — the guards were working.
+
+**The Paymera edit is NUMBERS ONLY, and the script asserts the line count is unchanged.** That
+docblock sits at `:1163`, **above** the anchors it cites, so adding or removing a single line would
+move them again. Its own prose already records that happening three times — *"Measure after editing
+the comment, not before"* — and this was the fourth. Asserting the line count is what stops the
+correction being stale the moment it is written.
+
+The inventory rows were re-measured from the source rather than shifted by 27: seven of them share a
+message with a sibling site, so the rows were paired against the source occurrences **in file
+order** rather than by text, which a blind `+27` would have got right by luck and a text match would
+have refused as ambiguous.
+
+**This is the concrete vindication of holding the two commits back for CI.** The owner's instruction
+was to let the run on `4bccf721` finish first; pushed unverified, `da3f9ee4` and `929c7d5a` would
+have turned the fresh run red on two guards that were behaving correctly, and the red would have
+looked like a regression in the policy change rather than a stale comment.
+
+### Gates, and the CI verdict per SHA
+
+**Local, in this container** — the FEATURE SUITE AND THE KNOWN-OUTCOME GATE, run twice. The first
+run is the one that matters, because it **failed**: 4 failures against a manifest declaring 2, both
+new ones line-number drift from `da3f9ee4` (the section above). After re-measuring the anchors, the
+second run:
+
+```
+Tests:    2 failed, 1 skipped, 8213 passed (42751 assertions)   -- 1106.34s
+testcases observed : 8216   failures observed : 2 (manifest declares 2)
+errors observed    : 0      skips observed    : 1 (manifest declares 1)
+OK: the observed outcome set matches the manifest exactly -- nothing undeclared.
+```
+
+The two declared failures are `Auth\RegistrationTest::test_new_users_can_register` and
+`ProfileTest::test_profile_page_is_displayed`, both pre-existing, both owned by `app/`, neither
+touched by this change. As the gate says of itself, that is **not** a statement that the suite is
+green — only that it fails and skips exactly what the project has recorded, for the recorded reasons.
+
+Also local — Unit **1450 passed** (11302 assertions); Contract **27 passed** (92);
+the customer and security subset together **135 passed** (407 assertions) across
+`CustomerEmailUniquenessPolicyTest`, `AddCustomerEmailDisclosureTest`,
+`OperatorCustomerStoreSelectionTest`, `ArchivedCustomerAttributionTest`,
+`StorefrontArchivedCustomerDeadEndTest`, `UnscopedCustomerEmailLookupTest`,
+`SameEmailAcrossStoresRecoveryTest`, `XssInputCorruptsIdentifiersTest`, `CustomerCreateFormTest`,
+`CustomerGridFilterTest`, `CustomerNumericFilterOperatorsTest` and
+`XssInputSanitizerProposalTest`. **These are local runs, not CI.**
+
+**OFFICIAL CI, run 42359814501 on HEAD `4bccf7215fe6ca32444f7b5ed6261223d7d5aa48`, complete:**
+
+| job | conclusion |
+|---|---|
+| `Tests (REQUIRED -- real suites, clean install from composer.lock)` | **success** — Unit, Contract and Feature all BLOCKING steps passed, and the known-outcome SET gate passed |
+| `Tests (REQUIRED -- real suites, PayHere excluded and NOT fixed)` | **success** |
+| `Merge-base regression gate (new failures only)` | **success** — Feature run at HEAD and at the merge base, failing identities compared |
+| `Static checks (no vendor needed)` | success (17 steps) |
+| `Secret scan` | success |
+| `Is the PayHere blocker still there? (report)` | success |
+| `Dependency advisories (composer audit)` | **failure** — pre-existing, and the owner's instruction is *"Do not raise the audit ceiling or suppress security findings"*, so it stays red |
+
+The two local commits were **held back until that run finished**, per the owner's instruction
+*"Finish the current GitHub CI run before pushing the two local commits"* — `ci.yml` has
+`concurrency: ci-${{ github.ref }}` with `cancel-in-progress: true`, measured from the workflow
+file, so a push would have cancelled it.

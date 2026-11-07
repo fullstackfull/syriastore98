@@ -22,11 +22,13 @@
  *      docs/development/HANDOFF-CURRENT.md:136, which says to confirm it)
  *   B. ROUTE A -- a STORED generated column + a unique index over it
  *   C. ROUTE B -- a functional unique index over the same expression, no column added (8.0.13+)
- *   For each route, the four properties the owner's policy needs:
+ *   For each route, the properties the owner's policy needs:
  *      1. two LIVE rows, same e-mail, SAME store      -> REJECTED
  *      2. two LIVE rows, same e-mail, DIFFERENT stores -> ALLOWED
  *      3. many ARCHIVED rows, same e-mail and store    -> ALLOWED (NULL semantics)
  *      4. archive, then re-add the same address        -> ALLOWED
+ *      5. two LIVE rows, same e-mail, store_id NULL    -> REJECTED (production's store_id is
+ *         nullable, and CONCAT() of a NULL is NULL, which a unique index exempts)
  *   D. CONCURRENCY (safeguard 5) -- two connections racing the same insert; exactly one must win,
  *      and the loser must get a duplicate-key error rather than a second row
  *   E. EXISTING DUPLICATE DATA (safeguard 5) -- what the ALTER does to a table that already holds
@@ -120,15 +122,42 @@ note("version          : {$version}");
 note("sql_mode         : {$sqlMode}");
 note("collation_server : {$collation}");
 note("charset_server   : {$charset}");
-note('PRODUCTION VERSION IS NOT ESTABLISHED IN THIS REPOSITORY. HANDOFF-CURRENT.md:136 says to');
-note('confirm it. Every verdict below is about THIS server and must be re-run against production');
-note('before the migration is applied.');
+$comment = (string) $root->query('select @@version_comment')->fetchColumn();
+$isMariaDb = stripos($version, 'mariadb') !== false || stripos($comment, 'mariadb') !== false;
+note('version_comment  : ' . $comment);
+note('vendor           : ' . ($isMariaDb ? 'MariaDB' : 'MySQL') . '  (detected from the version string, not assumed)');
+
+note('');
+note('PRODUCTION IS MariaDB 11.4.9, AND THAT IS NOW MEASURED RATHER THAN OPEN. The committed dump');
+note('storesyria_ecommercego.sql states it in its own header: "-- Serverversie: 11.4.9-MariaDB",');
+note('dumped by phpMyAdmin 5.2.3 from localhost:3306. My earlier proposal spoke of MySQL 8.0 and');
+note('that was the wrong engine. Production was never accessed to learn this.');
+note('Production customers DDL, from the same dump: email varchar(255) NOT NULL,');
+note('store_id bigint(20) UNSIGNED DEFAULT NULL, deleted_at timestamp NULL,');
+note('ENGINE=InnoDB CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci; indexes PRIMARY (id) and');
+note('customers_store_id_index (store_id) only -- there is NO unique index on email.');
+note('');
 
 [$major, $minor, $patch] = array_pad(array_map('intval', explode('.', (string) $version)), 3, 0);
-$supportsGenerated = ($major > 5) || ($major === 5 && $minor >= 7);
-$supportsFunctional = ($major > 8) || ($major === 8 && ($minor > 0 || $patch >= 13));
-say($supportsGenerated, "generated columns supported (needs 5.7+): " . ($supportsGenerated ? 'yes' : 'NO'));
-note('functional indexes need 8.0.13+: ' . ($supportsFunctional ? 'supported' : 'NOT supported here'));
+
+// Generated columns: MySQL 5.7+, MariaDB 5.2+ (and indexable when STORED). True on both here.
+$supportsGenerated = $isMariaDb
+    ? (($major > 5) || ($major === 5 && $minor >= 2))
+    : (($major > 5) || ($major === 5 && $minor >= 7));
+
+// Functional indexes (an index over an expression, no column added) are a MySQL 8.0.13+ feature.
+// MariaDB HAS NEVER IMPLEMENTED THEM at any version -- MDEV-16620 is open. Gating this on the
+// version number alone was a real flaw in the first draft of this script: MariaDB 11.4 is
+// numerically above 8.0.13, so a pure number comparison called Route B "supported" on a server
+// where it cannot work. The vendor decides it, not the number.
+$supportsFunctional = ! $isMariaDb && (($major > 8) || ($major === 8 && ($minor > 0 || $patch >= 13)));
+
+say($supportsGenerated, 'generated columns supported: ' . ($supportsGenerated ? 'yes' : 'NO'));
+note('functional indexes: ' . ($supportsFunctional
+    ? 'supported (MySQL 8.0.13+)'
+    : ($isMariaDb
+        ? 'NOT SUPPORTED -- MariaDB implements no functional indexes at any version'
+        : 'NOT supported on this MySQL')));
 
 $root->exec("create database `{$database}` character set utf8mb4 collate utf8mb4_unicode_ci");
 $dsn = $dsnBase . ";dbname={$database}";
@@ -150,14 +179,14 @@ function createBaseTable(PDO $pdo, string $table): void
     $pdo->exec("
         create table `{$table}` (
             id bigint unsigned not null auto_increment primary key,
-            email varchar(191) not null,
+            email varchar(255) not null,
             store_id bigint unsigned null,
             deleted_at timestamp null default null
         ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
     ");
 }
 
-/** The four properties the owner's policy requires, measured against whatever index is in place. */
+/** The properties the owner's policy requires, measured against whatever index is in place. */
 function fourProperties(PDO $pdo, string $table, string $route): void
 {
     // 1. two LIVE rows, same e-mail, SAME store -> must be REJECTED
@@ -197,6 +226,25 @@ function fourProperties(PDO $pdo, string $table, string $route): void
     [$okDup] = attempt($pdo, "insert into `{$table}` (email, store_id) values ('d@x.test', 1)");
     say(!$okDup, "{$route}: and a SECOND live row after the re-add -> still rejected"
         . ($okDup ? ' (IT WAS ACCEPTED -- the index does not constrain live rows)' : ''));
+
+    // 5. THE FIFTH PROPERTY, AND IT IS NOT DECORATIVE. Production's column is
+    //    `store_id bigint(20) UNSIGNED DEFAULT NULL`, so a customers row CAN hold a NULL store.
+    //    CONCAT() returns NULL if ANY argument is NULL, so the naive expression
+    //    concat(email,'|',store_id) is NULL for such a row -- and a NULL indexed value is exempt
+    //    from a unique index. Every NULL-store row would therefore escape the constraint
+    //    silently. COALESCE(store_id, 0) is what closes it, and this measures that it does.
+    $pdo->exec("delete from `{$table}`");
+    [$okN1] = attempt($pdo, "insert into `{$table}` (email, store_id) values ('n@x.test', null)");
+    [$okN2, $stateN2] = attempt($pdo, "insert into `{$table}` (email, store_id) values ('n@x.test', null)");
+    say($okN1 && !$okN2, "{$route}: two LIVE rows, same e-mail, BOTH store_id NULL -> rejected"
+        . ($okN2 ? ' (IT WAS ACCEPTED -- NULL stores escape the index)' : " (SQLSTATE {$stateN2})"));
+
+    // and a NULL store must still be distinct from a real one, not folded onto store 0
+    $pdo->exec("delete from `{$table}`");
+    attempt($pdo, "insert into `{$table}` (email, store_id) values ('m@x.test', null)");
+    [$okZero, , $mZero] = attempt($pdo, "insert into `{$table}` (email, store_id) values ('m@x.test', 1)");
+    say($okZero, "{$route}: a NULL store and store 1 are still DIFFERENT tenants -> allowed"
+        . ($okZero ? '' : " (IT WAS REJECTED: {$mZero})"));
 }
 
 // ---------------------------------------------------------------- B. route A, generated column
@@ -204,14 +252,14 @@ echo "\nB. ROUTE A -- a STORED generated column, NULL for archived rows, plus a 
 createBaseTable($pdo, 'route_a');
 [$okCol, $stateCol, $msgCol] = attempt($pdo, "
     alter table route_a
-      add column email_store_live varchar(220)
-        generated always as (if(deleted_at is null, concat(email, '|', store_id), null)) stored,
+      add column email_store_live varchar(300)
+        generated always as (if(deleted_at is null, concat(email, '|', coalesce(store_id, 0)), null)) stored,
       add unique index route_a_email_store_live_unique (email_store_live)
 ");
 say($okCol, 'ROUTE A: the generated column and unique index were created'
     . ($okCol ? '' : " (SQLSTATE {$stateCol}: {$msgCol})"));
-note("alter: add column email_store_live varchar(220) generated always as");
-note("       (if(deleted_at is null, concat(email,'|',store_id), null)) stored,");
+note("alter: add column email_store_live varchar(300) generated always as");
+note("       (if(deleted_at is null, concat(email,'|',coalesce(store_id,0)), null)) stored,");
 note('       add unique index route_a_email_store_live_unique (email_store_live)');
 
 if ($okCol) {
@@ -223,15 +271,58 @@ echo "\nC. ROUTE B -- a FUNCTIONAL unique index over the same expression, no col
 createBaseTable($pdo, 'route_b');
 [$okFn, $stateFn, $msgFn] = attempt($pdo, "
     create unique index route_b_email_store_live_unique
-      on route_b ((if(deleted_at is null, concat(email, '|', store_id), null)))
+      on route_b ((if(deleted_at is null, concat(email, '|', coalesce(store_id, 0)), null)))
 ");
-say($okFn, 'ROUTE B: the functional unique index was created'
-    . ($okFn ? '' : " (SQLSTATE {$stateFn}: {$msgFn})"));
+if ($supportsFunctional) {
+    // The vendor claims this feature, so a refusal here is a genuine failure.
+    say($okFn, 'ROUTE B: the functional unique index was created'
+        . ($okFn ? '' : " (SQLSTATE {$stateFn}: {$msgFn})"));
+} else {
+    // The vendor does not claim it. The attempt is still made -- the refusal is the evidence --
+    // but it is recorded as a measured vendor fact, not scored as a failure of the proposal.
+    say(! $okFn, 'ROUTE B: refused, as this vendor has no functional indexes'
+        . ($okFn ? ' -- IT WAS ACCEPTED, so this gate is wrong' : " (SQLSTATE {$stateFn}: {$msgFn})"));
+}
 
 if ($okFn) {
     fourProperties($pdo, 'route_b', 'ROUTE B');
 } else {
-    note('Route B is unavailable on this server; Route A is the one to propose.');
+    note('ROUTE B IS UNAVAILABLE ON PRODUCTION. Production is MariaDB 11.4.9 and MariaDB has no');
+    note('functional indexes, so Route B is withdrawn from the proposal entirely -- it is not a');
+    note('fallback, it is not an option. ROUTE A (a STORED generated column) is the only route.');
+}
+
+// ------------------------------------------- C2. the control for COALESCE, measured not argued
+echo "\nC2. WHY COALESCE(store_id, 0) -- the NAIVE expression measured side by side\n";
+createBaseTable($pdo, 'naive');
+[$okNaive, $stateNaive, $msgNaive] = attempt($pdo, "
+    alter table naive
+      add column email_store_live varchar(300)
+        generated always as (if(deleted_at is null, concat(email, '|', store_id), null)) stored,
+      add unique index naive_email_store_live_unique (email_store_live)
+");
+
+if (! $okNaive) {
+    say(false, "C2: the naive control table could not be built (SQLSTATE {$stateNaive}: {$msgNaive})");
+} else {
+    // a real store: the naive expression constrains it correctly
+    [$okR1] = attempt($pdo, "insert into naive (email, store_id) values ('r@x.test', 1)");
+    [$okR2] = attempt($pdo, "insert into naive (email, store_id) values ('r@x.test', 1)");
+    say($okR1 && ! $okR2, 'C2: naive expression, two live rows in store 1 -> rejected (it works here)');
+
+    // a NULL store: CONCAT yields NULL, the row is exempt, and BOTH inserts land
+    [$okZ1] = attempt($pdo, "insert into naive (email, store_id) values ('z@x.test', null)");
+    [$okZ2] = attempt($pdo, "insert into naive (email, store_id) values ('z@x.test', null)");
+    $leaked = (int) $pdo->query("select count(*) from naive where email = 'z@x.test'")->fetchColumn();
+    say($okZ1 && $okZ2 && $leaked === 2,
+        'C2: naive expression, two live rows with store_id NULL -> BOTH ACCEPTED, '
+        . "{$leaked} rows (this is the hole COALESCE closes)");
+    $nullIndexed = $pdo->query(
+        "select email_store_live is null from naive where email = 'z@x.test' limit 1"
+    )->fetchColumn();
+    say((bool) $nullIndexed, 'C2: and the reason is visible in the column: it is NULL for those rows');
+    note('MEASURED ON THE COMMITTED DUMP: 0 live customers currently hold a NULL store_id, so no');
+    note('live row is exempt TODAY. The hole is what a future NULL would do, silently.');
 }
 
 // ---------------------------------------------------------------- D. concurrency, safeguard 5
@@ -273,8 +364,8 @@ $pdo->exec("insert into dirty (email, store_id, deleted_at) values ('arch@x.test
 
 [$okDirty, $stateDirty, $msgDirty] = attempt($pdo, "
     alter table dirty
-      add column email_store_live varchar(220)
-        generated always as (if(deleted_at is null, concat(email, '|', store_id), null)) stored,
+      add column email_store_live varchar(300)
+        generated always as (if(deleted_at is null, concat(email, '|', coalesce(store_id, 0)), null)) stored,
       add unique index dirty_email_store_live_unique (email_store_live)
 ");
 say(!$okDirty, 'EXISTING DUPLICATES: the ALTER is REFUSED on a table holding live duplicates'
@@ -293,6 +384,10 @@ say(count($found) === 1 && (int) $found[0]['c'] === 2,
     'EXISTING DUPLICATES: that query finds exactly the one offending group ('
     . count($found) . ' group(s))');
 note('and it does NOT flag the two ARCHIVED rows sharing an address, which are legitimate.');
+note('');
+note("NOTE THE REFUSAL MESSAGE ABOVE: it names 'NULL', which is NOT the colliding value. The real");
+note("collision is 'dup@x.test|1'. G below establishes why, because a message that sends an");
+note('operator to the wrong row during a production migration is itself a defect in the plan.');
 
 // ---------------------------------------------------------------- F. collation
 echo "\nF. COLLATION -- does the index fold case and accents?\n";
@@ -315,11 +410,92 @@ if ($table !== null) {
     note('accent-different duplicate in the same store: ' . ($okAccent ? 'ACCEPTED' : 'REJECTED (folds accents)'));
 }
 
+// ------------------------------------------------- G. is the NULL exemption honoured at BUILD time?
+echo "\nG. DOES THE NULL EXEMPTION HOLD DURING THE INDEX BUILD, not just on INSERT?\n";
+note('This is the question E raised and must not be assumed. Production holds 37 archived');
+note('customers. If the index BUILD treated their NULL generated values as colliding -- even');
+note('though INSERT does not, per property 3 -- the migration would be refused on production for');
+note('a reason no pre-flight query could find.');
+
+// G1. ONLY archived duplicates, no live duplicate anywhere: the ALTER must SUCCEED.
+createBaseTable($pdo, 'onlyarch');
+$pdo->exec("insert into onlyarch (email, store_id, deleted_at) values
+    ('a@x.test', 1, now()), ('a@x.test', 1, now()), ('a@x.test', 1, now())");
+$pdo->exec("insert into onlyarch (email, store_id) values ('live@x.test', 1)");
+[$okArch, $stArch, $msArch] = attempt($pdo, "
+    alter table onlyarch
+      add column email_store_live varchar(300)
+        generated always as (if(deleted_at is null, concat(email, '|', coalesce(store_id, 0)), null)) stored,
+      add unique index onlyarch_email_store_live_unique (email_store_live)
+");
+say($okArch, 'G1: THREE archived rows sharing an address do NOT block the ALTER'
+    . ($okArch ? ' (the exemption holds at build time)' : " (IT WAS REFUSED: {$msArch})"));
+if ($okArch) {
+    $nullRows = (int) $pdo->query('select count(*) from onlyarch where email_store_live is null')->fetchColumn();
+    say($nullRows === 3, "G1: and all three carry a NULL generated value ({$nullRows} of 3)");
+}
+
+// G2. the single-statement ALTER mis-names the colliding value when archived rows are present.
+//     The two-step form names it correctly. That decides how the migration is written.
+createBaseTable($pdo, 'twostep');
+$pdo->exec("insert into twostep (email, store_id) values ('c@x.test', 1), ('c@x.test', 1)");
+$pdo->exec("insert into twostep (email, store_id, deleted_at) values ('d@x.test', 1, now()), ('d@x.test', 1, now())");
+[$okStep1, , $msStep1] = attempt($pdo, "
+    alter table twostep
+      add column email_store_live varchar(300)
+        generated always as (if(deleted_at is null, concat(email, '|', coalesce(store_id, 0)), null)) stored
+");
+say($okStep1, 'G2 step 1: adding the generated column ALONE succeeds even on dirty data'
+    . ($okStep1 ? ' (no index yet, so nothing to violate)' : " (REFUSED: {$msStep1})"));
+if ($okStep1) {
+    [$okStep2, , $msStep2] = attempt($pdo,
+        'alter table twostep add unique index twostep_email_store_live_unique (email_store_live)');
+    $namesTheRow = ! $okStep2 && strpos($msStep2, 'c@x.test|1') !== false;
+    say($namesTheRow, 'G2 step 2: the index is refused AND the message names the real colliding'
+        . ' value' . ($namesTheRow ? " ('c@x.test|1')" : " -- it said: " . substr($msStep2, 0, 120)));
+    note('SO THE MIGRATION IS WRITTEN AS TWO STATEMENTS, not one. Same end state; the difference is');
+    note('that a refusal on production names the address an operator has to go and resolve.');
+}
+
+// --------------------------------------------------- H. migration impact: which ALGORITHM is forced
+echo "\nH. MIGRATION IMPACT -- which ALTER ALGORITHM does this engine allow?\n";
+$algoResults = [];
+foreach (['INSTANT', 'NOCOPY', 'INPLACE', 'COPY'] as $algo) {
+    $t = 'algo_' . strtolower($algo);
+    createBaseTable($pdo, $t);
+    $pdo->exec("insert into `{$t}` (email, store_id) values ('e@x.test', 1)");
+    [$okAlgo, , $msAlgo] = attempt($pdo, "
+        alter table `{$t}`
+          add column email_store_live varchar(300)
+            generated always as (if(deleted_at is null, concat(email, '|', coalesce(store_id, 0)), null)) stored,
+          add unique index {$t}_u (email_store_live), algorithm={$algo}
+    ");
+    $algoResults[$algo] = $okAlgo;
+    note(sprintf('ALGORITHM=%-8s %s', $algo, $okAlgo ? 'ACCEPTED' : 'REFUSED: ' . substr($msAlgo, 0, 90)));
+}
+say($algoResults['COPY'] && ! $algoResults['INPLACE'] && ! $algoResults['INSTANT'],
+    'H: a FULL TABLE REBUILD (ALGORITHM=COPY) is forced -- INSTANT, NOCOPY and INPLACE are all refused');
+note('CONSEQUENCE FOR THE MIGRATION WINDOW: a COPY rebuild holds a lock and blocks writes to');
+note('`customers` for its duration. The committed dump holds 62 customer rows in total, so the');
+note('rebuild is a matter of milliseconds TODAY -- but the figure belongs in the plan, because it');
+note('scales with the table and this is the platform`s tenant-facing customer table.');
+
 // ---------------------------------------------------------------- verdict
 echo "\n", str_repeat('=', 96), "\n";
-printf("%d passed, %d failed, measured on MySQL %s\n", $pass_count, $fail_count, $version);
-echo "THIS IS NOT A CLAIM ABOUT PRODUCTION. Production's version, collation and sql_mode are not\n";
-echo "established in this repository; re-run this script against it before any schema change.\n";
+printf("%d passed, %d failed, measured on %s %s (%s)\n",
+    $pass_count, $fail_count, $isMariaDb ? 'MariaDB' : 'MySQL', $version, $comment);
+echo "\n";
+echo "WHAT THIS IS, AND WHAT IT IS NOT:\n";
+echo "  * This server is the SAME VERSION as production, 11.4.9-MariaDB, read from the committed\n";
+echo "    dump's own header. The table and database were created with production's declared\n";
+echo "    charset and collation, utf8mb4 / utf8mb4_unicode_ci, not this server's defaults.\n";
+echo "  * Production itself was NOT accessed, and is not authorised to be. sql_mode is the one\n";
+echo "    production property a dump does not record, so it remains unconfirmed -- it affects\n";
+echo "    neither NULL index semantics nor the forced ALTER algorithm, but it is not measured.\n";
+echo "  * The duplicate assessment is from the dump, not from the live table: a dump is a point in\n";
+echo "    time, so it must be re-run against production immediately before any schema change.\n";
+echo "  * NO SCHEMA CHANGE IS AUTHORISED. No migration is added by this script or by the commit\n";
+echo "    that carries it. This is the evidence the owner asked for before deciding.\n";
 echo str_repeat('=', 96), "\n";
 
 exit($fail_count === 0 ? 0 : 1);

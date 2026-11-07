@@ -1,0 +1,120 @@
+================================================================================================
+CUSTOMER E-MAIL UNIQUENESS -- DATABASE-LEVEL ENFORCEMENT, MEASURED
+================================================================================================
+
+A. THE SERVER (recorded, not assumed)
+         version          : 11.4.9-MariaDB-ubu2404
+         sql_mode         : STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION
+         collation_server : utf8mb4_uca1400_ai_ci
+         charset_server   : utf8mb4
+         version_comment  : mariadb.org binary distribution
+         vendor           : MariaDB  (detected from the version string, not assumed)
+         
+         PRODUCTION IS MariaDB 11.4.9, AND THAT IS NOW MEASURED RATHER THAN OPEN. The committed dump
+         storesyria_ecommercego.sql states it in its own header: "-- Serverversie: 11.4.9-MariaDB",
+         dumped by phpMyAdmin 5.2.3 from localhost:3306. My earlier proposal spoke of MySQL 8.0 and
+         that was the wrong engine. Production was never accessed to learn this.
+         Production customers DDL, from the same dump: email varchar(255) NOT NULL,
+         store_id bigint(20) UNSIGNED DEFAULT NULL, deleted_at timestamp NULL,
+         ENGINE=InnoDB CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci; indexes PRIMARY (id) and
+         customers_store_id_index (store_id) only -- there is NO unique index on email.
+         
+   PASS  generated columns supported: yes
+         functional indexes: NOT SUPPORTED -- MariaDB implements no functional indexes at any version
+
+B. ROUTE A -- a STORED generated column, NULL for archived rows, plus a unique index
+   PASS  ROUTE A: the generated column and unique index were created
+         alter: add column email_store_live varchar(300) generated always as
+                (if(deleted_at is null, concat(email,'|',coalesce(store_id,0)), null)) stored,
+                add unique index route_a_email_store_live_unique (email_store_live)
+   PASS  ROUTE A: two LIVE rows, same e-mail, SAME store -> rejected (SQLSTATE 23000)
+   PASS  ROUTE A: two LIVE rows, same e-mail, DIFFERENT stores -> allowed
+   PASS  ROUTE A: THREE ARCHIVED rows, same e-mail and store -> allowed (NULL semantics)
+   PASS  ROUTE A: archive, then re-add the same address -> allowed
+   PASS  ROUTE A: and a SECOND live row after the re-add -> still rejected
+   PASS  ROUTE A: two LIVE rows, same e-mail, BOTH store_id NULL -> rejected (SQLSTATE 23000)
+   PASS  ROUTE A: a NULL store and store 1 are still DIFFERENT tenants -> allowed
+
+C. ROUTE B -- a FUNCTIONAL unique index over the same expression, no column added
+   PASS  ROUTE B: refused, as this vendor has no functional indexes (SQLSTATE 42000: You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near '(if(deleted_at is null, concat(email, '|', coalesce(store_id, 0)), null)))' at line 2)
+         ROUTE B IS UNAVAILABLE ON PRODUCTION. Production is MariaDB 11.4.9 and MariaDB has no
+         functional indexes, so Route B is withdrawn from the proposal entirely -- it is not a
+         fallback, it is not an option. ROUTE A (a STORED generated column) is the only route.
+
+C2. WHY COALESCE(store_id, 0) -- the NAIVE expression measured side by side
+   PASS  C2: naive expression, two live rows in store 1 -> rejected (it works here)
+   PASS  C2: naive expression, two live rows with store_id NULL -> BOTH ACCEPTED, 2 rows (this is the hole COALESCE closes)
+   PASS  C2: and the reason is visible in the column: it is NULL for those rows
+         MEASURED ON THE COMMITTED DUMP: 0 live customers currently hold a NULL store_id, so no
+         live row is exempt TODAY. The hole is what a future NULL would do, silently.
+
+D. CONCURRENCY (safeguard 5) -- two connections racing the same insert
+   PASS  CONCURRENCY: exactly one of two racing inserts survived (rows=1, loser refused SQLSTATE 23000)
+         The engine is the control here, not the application. Laravel validation is check-then-act
+         and cannot close this window; the index can.
+         A caller must therefore be ready for a duplicate-key exception, which is a REQUIRED
+         application change if this migration is approved -- see safeguard 6.
+
+E. EXISTING DUPLICATE DATA (safeguard 5) -- what the ALTER does to a dirty table
+   PASS  EXISTING DUPLICATES: the ALTER is REFUSED on a table holding live duplicates (SQLSTATE 23000)
+         message: Duplicate entry 'NULL' for key 'dirty_email_store_live_unique'
+         So the migration CANNOT be applied blindly: the duplicates must be found and resolved first.
+         THE EXACT QUERY that finds them, which belongs in the migration as a pre-flight check:
+           select email, store_id, count(*) c from customers
+            where deleted_at is null group by email, store_id having c > 1
+   PASS  EXISTING DUPLICATES: that query finds exactly the one offending group (1 group(s))
+         and it does NOT flag the two ARCHIVED rows sharing an address, which are legitimate.
+         
+         NOTE THE REFUSAL MESSAGE ABOVE: it names 'NULL', which is NOT the colliding value. The real
+         collision is 'dup@x.test|1'. G below establishes why, because a message that sends an
+         operator to the wrong row during a production migration is itself a defect in the plan.
+
+F. COLLATION -- does the index fold case and accents?
+   PASS  COLLATION: a case-different duplicate in the same store is REJECTED (index folds case)
+         This is a FINDING either way, not a pass/fail: under utf8mb4_unicode_ci the index folds
+         case and accents, so Alice@x.com and alice@x.com in one store COLLIDE. If production
+         holds such pairs as separate live customers, the migration would refuse until they are
+         resolved -- and resolving them is a product decision about who owns the address, not a
+         schema step. The pre-flight query in E uses the same collation, so it finds them.
+         accent-different duplicate in the same store: REJECTED (folds accents)
+
+G. DOES THE NULL EXEMPTION HOLD DURING THE INDEX BUILD, not just on INSERT?
+         This is the question E raised and must not be assumed. Production holds 37 archived
+         customers. If the index BUILD treated their NULL generated values as colliding -- even
+         though INSERT does not, per property 3 -- the migration would be refused on production for
+         a reason no pre-flight query could find.
+   PASS  G1: THREE archived rows sharing an address do NOT block the ALTER (the exemption holds at build time)
+   PASS  G1: and all three carry a NULL generated value (3 of 3)
+   PASS  G2 step 1: adding the generated column ALONE succeeds even on dirty data (no index yet, so nothing to violate)
+   PASS  G2 step 2: the index is refused AND the message names the real colliding value ('c@x.test|1')
+         SO THE MIGRATION IS WRITTEN AS TWO STATEMENTS, not one. Same end state; the difference is
+         that a refusal on production names the address an operator has to go and resolve.
+
+H. MIGRATION IMPACT -- which ALTER ALGORITHM does this engine allow?
+         ALGORITHM=INSTANT  REFUSED: ALGORITHM=INSTANT is not supported for this operation. Try ALGORITHM=COPY
+         ALGORITHM=NOCOPY   REFUSED: ALGORITHM=NOCOPY is not supported for this operation. Try ALGORITHM=COPY
+         ALGORITHM=INPLACE  REFUSED: ALGORITHM=INPLACE is not supported for this operation. Try ALGORITHM=COPY
+         ALGORITHM=COPY     ACCEPTED
+   PASS  H: a FULL TABLE REBUILD (ALGORITHM=COPY) is forced -- INSTANT, NOCOPY and INPLACE are all refused
+         CONSEQUENCE FOR THE MIGRATION WINDOW: a COPY rebuild holds a lock and blocks writes to
+         `customers` for its duration. The committed dump holds 62 customer rows in total, so the
+         rebuild is a matter of milliseconds TODAY -- but the figure belongs in the plan, because it
+         scales with the table and this is the platform`s tenant-facing customer table.
+
+================================================================================================
+22 passed, 0 failed, measured on MariaDB 11.4.9-MariaDB-ubu2404 (mariadb.org binary distribution)
+
+WHAT THIS IS, AND WHAT IT IS NOT:
+  * This server is the SAME VERSION as production, 11.4.9-MariaDB, read from the committed
+    dump's own header. The table and database were created with production's declared
+    charset and collation, utf8mb4 / utf8mb4_unicode_ci, not this server's defaults.
+  * Production itself was NOT accessed, and is not authorised to be. sql_mode is the one
+    production property a dump does not record, so it remains unconfirmed -- it affects
+    neither NULL index semantics nor the forced ALTER algorithm, but it is not measured.
+  * The duplicate assessment is from the dump, not from the live table: a dump is a point in
+    time, so it must be re-run against production immediately before any schema change.
+  * NO SCHEMA CHANGE IS AUTHORISED. No migration is added by this script or by the commit
+    that carries it. This is the evidence the owner asked for before deciding.
+================================================================================================
+
+(dropped throwaway database ceu_verify_50039492)

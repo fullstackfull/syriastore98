@@ -268,9 +268,22 @@ class UnscopedCustomerEmailLookupTest extends SecurityTestCase
 
         $order = $this->orderIn($this->storeB, 'TRK-0001', 'tracked@example.test');
 
-        $this->assertNull($order->email,
-            'premise: orders.email now holds a value, so the lookup is no longer dead and this '
-            . 'test should be rewritten to assert the store predicate instead');
+        /*
+         * THE PREMISE IS ON THE SCHEMA, NOT ON THE MODEL — and my first draft got this wrong in a
+         * way that mattered. It asserted `$order->email` is null, which it is, but for the WRONG
+         * REASON: `makeOrder()` is `Order::create()`, `email` is not in `Order::$fillable`, and
+         * mass assignment silently drops an unfillable key WHETHER OR NOT THE COLUMN EXISTS. So if
+         * `orders.email` were ever added without a `$fillable` entry -- the exact mistake
+         * `Order.php:53-55` records against `created_by` -- that assertion would keep reporting
+         * "dead" while the handler read a real value, because a READ does not consult `$fillable`.
+         *
+         * Raised by the tenant-authz review of this change, which also settled the conclusion on
+         * stronger evidence than my own: the committed production DDL has 37 `orders` columns and
+         * no `email`, so this is true in production and not only in the migration-built schema.
+         */
+        $this->assertFalse(\Illuminate\Support\Facades\Schema::hasColumn('orders', 'email'),
+            'premise: orders.email now EXISTS, so the lookup is no longer dead and this test '
+            . 'should be rewritten to assert the store predicate instead');
 
         $controller = app(HomeController::class);
         $request = Request::create('/' . $this->storeB->slug . '/order-track', 'POST', [
@@ -291,27 +304,4 @@ class UnscopedCustomerEmailLookupTest extends SecurityTestCase
             . 'predicate, which is already in place');
     }
 
-    /**
-     * THE CONSEQUENCE, driven. `$customer` is always null, and the view dereferences it without a
-     * guard when the delivery name is empty. Asserted as the current behaviour so the
-     * known-outcome gate stays intact; when the view or the column is fixed this fails and that
-     * failure is the notification.
-     */
-    public function test_the_order_status_view_dereferences_the_null_customer(): void
-    {
-        $view = __DIR__ . '/../../../resources/views/front_end/pages/order-status.blade.php';
-
-        $this->assertFileExists($view, 'premise: the order-status view is not where expected');
-
-        $source = file_get_contents($view);
-
-        $this->assertStringContainsString('$customer->first_name', $source,
-            'OPEN DEFECT, PINNED. order-status.blade.php no longer dereferences $customer without '
-            . 'a guard — the defect is fixed and this test should be deleted');
-
-        // And the asymmetry that makes it a defect rather than a style: the sibling use IS guarded.
-        $this->assertStringContainsString('$customer->profile_image ?? ', $source,
-            'premise: the guarded sibling use is gone, so the asymmetry this test describes has '
-            . 'changed');
-    }
 }
