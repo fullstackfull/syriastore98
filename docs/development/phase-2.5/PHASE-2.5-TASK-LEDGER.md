@@ -2258,4 +2258,19 @@ values: 3–10 take the broken plural and 11+ the accusative singular, while the
 | mutation | 6 against the Unit test, all caught; 2 against the browser checks, both caught |
 | gates | Unit 1459 · Contract 32 · Feature known-outcome gate asserted |
 
+### NO SURFACE CHANGES STATE IN THE INVENTORY, and that is deliberate
+
+`PHASE-2.5-COVERAGE-MATRIX.md` sets the bar plainly: *"VERIFIED means rendered. A surface earns a
+verified state only when the running application was driven and captured in all four
+combinations."* These eight captures drove a **stand-in page** — real markup, real translations,
+real scripts and the real stylesheet chain, but no sidebar, no header and no signed-in merchant,
+because that needs a database and an authenticated principal. The README beside the images says so
+in those words.
+
+So **none of the 19 tables moves out of PENDING**, and the matrix is not regenerated. The empty
+state they now share is a cross-cutting improvement with its own evidence; it is not a rendered
+surface, and recording it as one would be exactly the overclaim the matrix exists to prevent. The
+counts stand at 24 PREMIUM VERIFIED / 32 REDESIGNED AND VERIFIED / 229 PENDING, unchanged by this
+package.
+
 **No behaviour changed**: no controller, route, permission, tenant predicate or query is touched.
