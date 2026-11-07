@@ -101,32 +101,6 @@
     <meta name="base-url" content="{{ URL::to('/') }}">
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
-    {{-- THE DATATABLE EMPTY STATE'S WORDS.  P2.5-WAVE-6a
-         simple-datatables carries its own hard-coded ENGLISH labels -- `noRows: "No Data Found"`
-         and `noResults: "No results match your search query"`
-         (assets/js/plugins/simple-datatables.js) -- and nothing in this repository overrode
-         either, so all 17 merchant tables showed English to an Arabic merchant. `public/js/custom.js`
-         is a static file and cannot call `__()`, so the strings travel the same way `base-url`
-         already does: a meta here, read there. A view that reaches custom.js without this layout
-         still works -- the reader falls back to the library's own label. --}}
-    <meta name="dt-no-rows" content="{{ __('Nothing here yet') }}">
-    <meta name="dt-no-rows-body" content="{{ __('Records will appear in this table as they are created.') }}">
-    <meta name="dt-no-results" content="{{ __('No results match your search') }}">
-    <meta name="dt-no-results-body" content="{{ __('Try a shorter term, or clear the search to see everything.') }}">
-
-    {{-- THE TABLE'S OWN FURNITURE, found by LOOKING at the Arabic capture rather than by the DOM
-         probe beside it, which reported the empty state correct and said nothing about these. The
-         search box read "Search..." and the pager read "10 entries per page" in English, on an
-         Arabic page, directly above a now-Arabic empty state. Same defect, same mechanism, two
-         labels over -- and translating the message while leaving the furniture English would have
-         looked more careless than translating neither.
-
-         `{select}` and the three `{...}` tokens in `info` are the library's own substitution
-         points: it replaces them by name, so they must survive translation unchanged. --}}
-    <meta name="dt-search" content="{{ __('Search...') }}">
-    <meta name="dt-per-page" content="{{ __('{select} entries per page') }}">
-    <meta name="dt-info" content="{{ __('Showing {start} to {end} of {rows} entries') }}">
-
     <meta name="title" content="{{ isset($SuperadminData['metatitle']) ? $SuperadminData['metatitle'] : 'EcommerceGo' }}">
     <meta name="keywords" content="{{ isset($SuperadminData['metakeyword']) ? $SuperadminData['metakeyword'] : 'EcommerceGo, Store with Multi theme and Multi Store' }}">
     <meta name="description" content="{{ isset($SuperadminData['metadesc']) ? $SuperadminData['metadesc'] : 'Discover the efficiency of EcommerceGo, a user-friendly web application by Workdo.io.'}}">
@@ -406,10 +380,28 @@
 
 </head>
 
-{{-- P2.5-WAVE-22: the one localised string the design-system script needs. It builds the
-     DataTables control-bar disclosure, and `.dataTable-top` does not exist in any view, so
-     the label cannot be written where the button is. Read with an English fallback, so a
-     layout that forgets it degrades to a named button rather than an unnamed one. --}}
+{{-- LOCALISED STRINGS THE PAGE'S SCRIPTS NEED, on the element they are read from.
+     P2.5-WAVE-22 + P2.5-WAVE-6a
+
+     `data-ss-label-table-options` (WAVE-22) was the first: the design-system script builds the
+     DataTables control-bar disclosure, and `.dataTable-top` does not exist in any view, so the
+     label cannot be written where the button is. This comment used to say it was "the one
+     localised string the design-system script needs". IT IS NO LONGER THE ONLY ONE, and leaving
+     that sentence standing would have been a claim that cannot be true -- which this project
+     treats as a defect in its own right.
+
+     `data-ss-dt-*` (WAVE-6a) are the seven simple-datatables labels. Same shape of problem, same
+     answer: the library's `td.dataTables-empty`, its search box and its pager are all created at
+     RUNTIME and exist in no view, so the words cannot be written where they are used. An earlier
+     version of WAVE-6a put them in `<head>` as `<meta name="dt-*">`, reasoning from `base-url`.
+     That was the wrong precedent -- `base-url` and `csrf-token` are transport facts, not
+     user-facing copy -- and the right one was 300 lines below it, here, plus
+     `partision/command-palette.blade.php:35-38`, which carries four translated strings as
+     `data-ss-*-text` on the element that consumes them. Two prefixes in two homes with no rule
+     between them is the kind of debt that is cheap now and expensive later.
+
+     EVERY ONE IS READ WITH A FALLBACK, so a layout that omits them degrades to the library's own
+     English rather than to a blank control. --}}
 {{-- `data-ss-admin` MARKS THE MERCHANT SHELL, and it exists so the design system can reach a
      host element that is appended to <body> outside every `.ss-` container -- today the notifier
      toast, which the plugin creates with `document.body.appendChild`.
@@ -425,7 +417,15 @@
      Only this layout carries it. `layouts/guest.blade.php`, `theme_layout.blade.php`, the
      storefront and the vendored LandingPage do not, which is what keeps `store-syria-ds.css` off
      checkout and the public website. Pinned by ToastContrastTest. --}}
-<body class="{{ $themeColor ?? 'theme-3'}}" data-ss-admin data-ss-label-table-options="{{ __('Table options') }}">
+<body class="{{ $themeColor ?? 'theme-3'}}" data-ss-admin
+      data-ss-label-table-options="{{ __('Table options') }}"
+      data-ss-dt-no-rows="{{ __('Nothing here yet') }}"
+      data-ss-dt-no-rows-body="{{ __('Records will appear in this table as they are created.') }}"
+      data-ss-dt-no-results="{{ __('No results match your search') }}"
+      data-ss-dt-no-results-body="{{ __('Try a shorter term, or clear the search to see everything.') }}"
+      data-ss-dt-search="{{ __('Search...') }}"
+      data-ss-dt-per-page="{{ __('{select} entries per page') }}"
+      data-ss-dt-info="{{ __('Showing {start} to {end} of {rows} entries') }}">
     {{-- P2-01-11: restore the collapsed rail BEFORE the sidebar paints.
 
          This is inline and first-in-body rather than in store-syria-nav.js for

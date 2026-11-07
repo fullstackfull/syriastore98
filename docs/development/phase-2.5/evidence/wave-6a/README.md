@@ -40,10 +40,25 @@ The library already had the mechanism. It needed words and a treatment.
 
 | file | change |
 |---|---|
-| `resources/views/layouts/app.blade.php` | seven `<meta>` tags carrying the labels through `__()`, the same bridge `base-url` already uses |
+| `resources/views/layouts/app.blade.php` | seven `data-ss-dt-*` attributes on `<body>`, carrying the labels through `__()` — the same bridge `data-ss-label-table-options` on that tag and the four `data-ss-*-text` strings in `command-palette.blade.php` already use |
 | `public/js/custom.js` | `ssDataTableLabels()` reads them and passes them at **all three** construction blocks (`.dataTable`, `.dataTable-5`, `.dataTable-6`); the empty-state label is the project's own `.ss-empty` markup, which the library injects as HTML |
 | `public/css/store-syria-ds.css` | the cell, confined by `:has(.ss-empty)` |
 | `resources/lang/ar.json`, `en.json` | five new strings, both files |
+
+## A fourth defect, found by an independent review of this change
+
+The first version used `<meta name="dt-*">` in `<head>`, reasoning from `base-url`. **That is the
+wrong precedent** — `base-url` and `csrf-token` are transport facts, not user-facing copy — and
+this codebase had already answered the localised-copy question twice, both times with a
+`data-ss-*` attribute on the consuming element: `data-ss-label-table-options` on the same `<body>`
+tag (read at `store-syria-ds.js:1683`) and four `data-ss-*-text` strings at
+`command-palette.blade.php:35-38`. Worse, the change made an existing comment **false** — the one
+at `app.blade.php` calling `data-ss-label-table-options` *"the one localised string the
+design-system script needs"*. The labels now sit on `<body>` and that comment is corrected.
+
+**This did not fix the test collision and was never going to.** Any in-document bridge puts the
+copy in the document, so the Kanban guard's whole-document substring check collided either way.
+The guard itself had to be the fix; see below.
 
 ## The three defects this capture caught that the tests did not
 

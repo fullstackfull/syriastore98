@@ -111,18 +111,40 @@ class DataTableEmptyStateTest extends TestCase
     //  THE FIX
     // =============================================================================================
 
-    public function test_the_layout_publishes_all_four_strings_through_the_translator(): void
+    /*
+     * ON `<body data-ss-dt-*>`, NOT ON A `<head>` META, and this test was rewritten when that
+     * moved. The first version of WAVE-6a used `<meta name="dt-*">`, reasoning from `base-url`.
+     * That is the wrong precedent -- `base-url` and `csrf-token` are transport facts, not
+     * user-facing copy -- and this codebase had already answered the localised-copy question
+     * twice with a `data-ss-*` attribute on the consuming element: `data-ss-label-table-options`
+     * on this same body tag, and four `data-ss-*-text` strings in `command-palette.blade.php`.
+     *
+     * The assertion also pins the ATTRIBUTE NAMES, because `custom.js` builds them by
+     * concatenating `'data-ss-dt-' + name`: rename one in the layout and the reader silently
+     * falls back to the library's English rather than failing.
+     */
+    public function test_the_layout_publishes_all_seven_strings_through_the_translator(): void
     {
         $layout = $this->read(self::LAYOUT);
 
-        foreach (['dt-no-rows', 'dt-no-rows-body', 'dt-no-results', 'dt-no-results-body'] as $name) {
+        $names = ['no-rows', 'no-rows-body', 'no-results', 'no-results-body',
+                  'search', 'per-page', 'info'];
+
+        foreach ($names as $name) {
             $this->assertMatchesRegularExpression(
-                '/<meta name="' . preg_quote($name, '/') . '" content="\{\{ __\(/',
+                '/data-ss-dt-' . preg_quote($name, '/') . '="\{\{ __\(/',
                 $layout,
-                "the {$name} meta is absent, or its content does not go through __() -- which is "
-                . 'the whole point: an untranslated string here is the defect this change repaired'
+                "the data-ss-dt-{$name} attribute is absent, or its value does not go through "
+                . '__() -- which is the whole point: an untranslated string here is the defect '
+                . 'this change repaired'
             );
         }
+
+        // And they are on the BODY, which is what `document.body.getAttribute` reads.
+        $this->assertMatchesRegularExpression('/<body[^>]*data-ss-dt-no-rows=/s', $layout,
+            'the labels are not on the <body> tag, so document.body.getAttribute() in '
+            . 'custom.js:78 returns null for every one of them and all 19 tables silently fall '
+            . "back to the library's English");
     }
 
     public function test_every_datatable_construction_site_passes_the_labels(): void
@@ -171,6 +193,12 @@ class DataTableEmptyStateTest extends TestCase
             'ssDataTableLabels sets noRows unconditionally. Passing an empty label to the library '
             . 'OVERRIDES its own default, so the message would disappear entirely rather than '
             . 'falling back');
+
+        // And the reader itself must tolerate a missing body attribute rather than throwing.
+        $this->assertStringContainsString("(body && body.getAttribute('data-ss-dt-' + name)) || ''", $script,
+            'the attribute reader no longer guards against a missing body or a missing attribute, '
+            . 'so a layout that omits them would throw inside $(document).ready and take every '
+            . 'other initialiser in custom.js down with it');
     }
 
     public function test_every_icon_the_builder_names_exists_in_the_shipped_font(): void

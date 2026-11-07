@@ -2274,3 +2274,81 @@ counts stand at 24 PREMIUM VERIFIED / 32 REDESIGNED AND VERIFIED / 229 PENDING, 
 package.
 
 **No behaviour changed**: no controller, route, permission, tenant predicate or query is touched.
+
+
+---
+
+## 4.18 P2.5-WAVE-6a fix — the regression my own change caused, and a guard that could never measure what it named [2026-11-07]
+
+**The Feature known-outcome gate caught it**, which is what that gate is for: 3 failures against 2
+declared, the new one `OrderKanbanTest::test_an_empty_board_says_so_once`. WAVE-6a put
+`__('Nothing here yet')` in the admin layout's `<head>`, and that test asserted the WHOLE rendered
+document did not contain `'Nothing here'`.
+
+### The guard was already imprecise; my change only made it visible
+
+Measured on this suite:
+
+| marker | healthy empty board | healthy LIVE board (1 order) |
+|---|---:|---:|
+| substring `Nothing here` | 1 | **7** |
+| `class="ss-board__col"` | 0 | 7 |
+| `class="ss-board__none"` | 0 | 6 |
+| `No orders match these filters.` | 1 | 0 |
+
+**Seven** is the number the guard's own failure message calls the defect — and it is what a
+*healthy* live board produces, because `kanban.blade.php:121` renders once per empty column by
+design. The needle never measured the thing it named. It was also **vacuous in Arabic**: an English
+literal that `ar.json`'s 'لا شيء هنا' never matches, held up only by `setUp()` pinning
+`default_language => 'en'`.
+
+### Renaming was not available
+
+`app/Helper/helper.php:3047` **already** emits `__('Nothing here yet')` as the generic
+unmapped-table empty-state title, with `ti-inbox` beside it, and the string is in both language
+files. My label was not new copy — it was this product's existing empty-state title. Renaming only
+the layout's copy would have made two empty-state paths say different words for the same situation.
+
+### What replaced it, and the five shapes it catches
+
+The empty case now counts the **branch** (`ss-board__col`), not only its symptom
+(`ss-board__none`), because a refactor moving `:121` to a shared class would leave a none-only
+assertion green on a board rendering all seven columns. Plus a companion test for the live half,
+which had **no test at all**.
+
+| injected defect | caught by |
+|---|---|
+| both branches render on an empty board | empty |
+| the empty branch never fires | empty |
+| the per-column message deleted | live |
+| the per-column message duplicated | live |
+| `:121` moved to a shared class **and** the early return deleted | **empty and live** |
+
+### Honest about what the swap buys
+
+An adversarial check refuted the leading analyst's decisive claim, and the ledger records the
+correction rather than the claim: swapping the needle does **not** buy more detection on its own —
+renaming the colliding label would also have restored a working guard for the one shape the old
+form could see. It buys immunity to page furniture and to locale; the **detection** comes from the
+live-board test, which catches 3 of the 5 shapes alone.
+
+### Second correction: the bridge was the wrong one
+
+I used `<meta name="dt-*">`, reasoning from `base-url`. Wrong precedent — `base-url` and
+`csrf-token` are transport facts, not user-facing copy — and this codebase had already answered the
+localised-copy question twice with `data-ss-*` on the consuming element
+(`data-ss-label-table-options` on `<body>`, read at `store-syria-ds.js:1683`; four
+`data-ss-*-text` strings at `command-palette.blade.php:35-38`). My change also made an existing
+comment **false** — the one calling that attribute *"the one localised string the design-system
+script needs"*. The labels moved to `<body data-ss-dt-*>` and the comment is rewritten.
+
+**This did not fix the test and was never going to.** Any in-document bridge puts the copy in the
+document, which is what `$this->html()` returns. Only the guard could fix the guard.
+
+### The collision sweep, because it bounds the risk
+
+Four independent methods — 3,034 extracted assertion needles; all 288 word-aligned substrings of
+the seven strings in **both** locales; every `assertStringNotContainsString`/`assertDontSee` in the
+tree; a fourth pass over count-based assertions — all agree the Kanban one was the **only**
+collision in the suite. No `known-test-outcomes.json` entry was added; that file records failures
+the owner accepted, and its own `_README` calls adding one to get green the forbidden use.

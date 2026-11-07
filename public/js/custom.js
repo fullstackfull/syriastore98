@@ -32,6 +32,9 @@ var site_url = $('meta[name="base-url"]').attr('content');
    new CSS vocabulary. The strings are escaped before they are injected even though they come from
    first-party translation files: a label is still being used as HTML, and the escape costs nothing.
 
+   THE WORDS COME FROM `<body data-ss-dt-*>`, written by `layouts/app.blade.php:421-428` through
+   `__()`. See the comment beside that body tag for why an attribute there and not a `<head>` meta.
+
    ONE INIT SITE, 19 TABLES. `partision/footerlink.blade.php:72,80` loads the library and this file,
    and `layouts/app.blade.php:785` includes it, so this is the only place any `.dataTable` in the
    merchant admin is constructed -- measured: 17 tables across 14 first-party views, plus two in
@@ -62,19 +65,27 @@ function ssDataTableEmptyMarkup(title, body, icon) {
 /* Returns only the labels it can actually source. An absent meta -- a view reached through another
    layout -- leaves that key out, so the library keeps its own default rather than rendering
    "undefined" or an empty state with no words in it. */
+/* READ FROM `<body data-ss-dt-*>`, NOT FROM A `<head>` META, and that is a correction.
+   The first version of this reached for `<meta name="dt-*">` reasoning from `base-url` --
+   the wrong precedent, because `base-url` and `csrf-token` are transport facts and these are
+   user-facing copy. This codebase had already answered the localised-copy question twice, both
+   times with a `data-ss-*` attribute on the element that consumes it:
+   `layouts/app.blade.php:420` (`data-ss-label-table-options`, read by store-syria-ds.js:1683)
+   and `partision/command-palette.blade.php:35-38` (four `data-ss-*-text` strings). */
 function ssDataTableLabels() {
+    var body = document.body;
     var read = function (name) {
-        return $('meta[name="' + name + '"]').attr('content') || '';
+        return (body && body.getAttribute('data-ss-dt-' + name)) || '';
     };
     var labels = {};
-    var noRows = ssDataTableEmptyMarkup(read('dt-no-rows'), read('dt-no-rows-body'), 'inbox');
+    var noRows = ssDataTableEmptyMarkup(read('no-rows'), read('no-rows-body'), 'inbox');
     // `zoom-cancel`, NOT `search-off`. The first version used `search-off`, which READS correctly
     // and DOES NOT EXIST in the bundled tabler-icons.min.css -- so the no-results state rendered
     // an empty circle where its icon should be. The DOM probe beside this said "ok": the <i>
     // element was there with the right class, and a class that matches no `:before` rule is
     // invisible, not absent. Found by LOOKING at the capture. A test now asserts every icon name
     // here resolves in the shipped font.
-    var noResults = ssDataTableEmptyMarkup(read('dt-no-results'), read('dt-no-results-body'), 'zoom-cancel');
+    var noResults = ssDataTableEmptyMarkup(read('no-results'), read('no-results-body'), 'zoom-cancel');
 
     if (noRows) {
         labels.noRows = noRows;
@@ -86,8 +97,8 @@ function ssDataTableLabels() {
     // The table's own furniture. Plain strings, NOT markup: the library puts `placeholder` in an
     // input attribute and substitutes `{select}` / `{start}` / `{end}` / `{rows}` inside the other
     // two, so HTML here would be escaped by the attribute or would break the substitution.
-    $.each({ search: 'placeholder', 'per-page': 'perPage', info: 'info' }, function (meta, key) {
-        var value = read('dt-' + meta);
+    $.each({ search: 'placeholder', 'per-page': 'perPage', info: 'info' }, function (attr, key) {
+        var value = read(attr);
         if (value) {
             labels[key] = value;
         }

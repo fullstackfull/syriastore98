@@ -55,17 +55,19 @@ foreach (['en' => 'ltr', 'ar' => 'rtl'] as $locale => $dir) {
 
     // The four strings, through the SAME __() calls layouts/app.blade.php makes.
     $labels = [
-        'dt-no-rows' => __('Nothing here yet'),
-        'dt-no-rows-body' => __('Records will appear in this table as they are created.'),
-        'dt-no-results' => __('No results match your search'),
-        'dt-no-results-body' => __('Try a shorter term, or clear the search to see everything.'),
-        'dt-search' => __('Search...'),
-        'dt-per-page' => __('{select} entries per page'),
-        'dt-info' => __('Showing {start} to {end} of {rows} entries'),
+        'data-ss-dt-no-rows' => __('Nothing here yet'),
+        'data-ss-dt-no-rows-body' => __('Records will appear in this table as they are created.'),
+        'data-ss-dt-no-results' => __('No results match your search'),
+        'data-ss-dt-no-results-body' => __('Try a shorter term, or clear the search to see everything.'),
+        'data-ss-dt-search' => __('Search...'),
+        'data-ss-dt-per-page' => __('{select} entries per page'),
+        'data-ss-dt-info' => __('Showing {start} to {end} of {rows} entries'),
     ];
-    $metas = '';
+    // ON THE BODY, as layouts/app.blade.php:421-428 does. The harness page must carry the
+    // labels the same way the real layout does, or it proves nothing about the real layout.
+    $bodyAttrs = '';
     foreach ($labels as $name => $content) {
-        $metas .= '    <meta name="' . $name . '" content="' . e($content) . '">' . "\n";
+        $bodyAttrs .= "\n      " . $name . '="' . e($content) . '"';
     }
 
     $heading = $locale === 'ar' ? 'النطاق المخصص' : 'Custom Domain';
@@ -95,7 +97,6 @@ foreach (['en' => 'ltr', 'ar' => 'rtl'] as $locale => $dir) {
     <title>{$heading}</title>
     <meta name="base-url" content="http://127.0.0.1">
     <meta name="csrf-token" content="harness">
-{$metas}
     <link rel="stylesheet" href="/assets/css/plugins/style.css">
     <link rel="stylesheet" href="/css/custom-color.css">
     <link rel="stylesheet" href="/assets/fonts/tabler-icons.min.css">
@@ -109,7 +110,7 @@ foreach (['en' => 'ltr', 'ar' => 'rtl'] as $locale => $dir) {
         h1 { font-size: 20px; margin: 0 0 20px; }
     </style>
 </head>
-<body>
+<body data-ss-admin{$bodyAttrs}>
     <div class="harness-card">
         <h1>{$heading}</h1>
         {$table}
