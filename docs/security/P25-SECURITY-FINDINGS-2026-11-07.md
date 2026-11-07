@@ -323,6 +323,52 @@ And one of my own, found by running the new parity case rather than by review: i
 surfaces about the **same** store, so the web create landed first and the API's refusal was clause 2
 working correctly on the row the web form had just made — a real answer to the wrong question.
 
+### 5.8 AN ADVERSARIAL MULTI-LENS REVIEW OF THE FIX ITSELF — 60 findings, and the serious ones were mine
+
+Run after the change was pushed, over the final tree: six independent lenses (production code, test
+quality, documentation accuracy, scope discipline, rule semantics, test bite), each followed by
+three refuters instructed to default to "refuted" under uncertainty. **CLAUDE.md records that three
+of the last four packages had a defect found only by this review, two of them in the fix itself.**
+That held again.
+
+**And I misreported it first.** My own journal parser read the key `value` where the runtime writes
+`result`, so I told the owner that three of seven lenses had "died" and re-ran two of them on that
+basis. **No lens died.** The probe was wrong, not the agents — the same shape of error as a test
+that measures the wrong thing, recorded here rather than quietly dropped.
+
+**What survived, all of it introduced by this change set, all fixed in the follow-up commit:**
+
+| # | defect | why it mattered |
+|---|---|---|
+| R1 | `webAccepted()` returned `! session()->has('errors')` | `store()` has **four** refusal paths and only validation flashes `errors`; the other three flash `error` (singular). So **both parity tests could pass while the web form created nothing.** Now asks the table for the row |
+| R2 | the ARCHIVED parity assertion was `assertSame($api, $web)` | satisfied by **both surfaces refusing** — agreement about the wrong answer. Now asserts the direction clause 3 requires |
+| R3 | `test_the_store_comes_from_the_authenticated_principal_not_from_request_input` could not detect its own condition | where a row LANDS is decided by `'store_id' => $store` in the create, not by the rule's predicate; an input-derived **rule** would pass it. A second test now makes the two stores give opposite answers, and it was **proved** to bite by temporarily making the rule read `$request->store_id` — only the new test failed |
+| R4 | the ledger certified an owner condition *"in the suite, not only in a document"* by naming `test_the_policy_is_validation_only_and_therefore_racy` | **a test this same commit deleted** for being an assertion that could not fail. The row cited something that no longer existed |
+| R5 | *"the script asserts the line count is unchanged"* | **no such assertion exists in this repository.** It ran in an uncommitted scratch script, so the sentence described something a reader could not find |
+| R6 | `updateCustomerInfo`'s `$storeId = $store->id` cited at `:9156` | it is at **`:9179`** — my own 23-line insertion above it moved it, and I then cited the pre-shift number **in the comment explaining the shift** |
+| R7 | `PaymentController:2070` / `HomeController:1218` cited as the lines carrying the store predicate | those are the **docblocks**; the predicates are at `:2096` and `:1230` |
+| R8 | *"ten `PaymentController` rows"* re-measured in the observability inventory | **thirteen** were |
+| R9 | two figures for "the customer and security subset" — 135/407 and 161/502 | two different file sets wearing one label. Now **one** figure, 141/448, with the fourteen files listed beside it |
+| R10 | repo B: `goldenSkipReason()` was **dead code** | `testWidgets`'s `skip` is typed `bool?`, not `dynamic`, so a String reason cannot be passed to it. Eight cases skipped **in silence** inside a gate the repository calls blocking and 100%. Now `markTestSkipped(goldenSkipReason(...))` at the top of the body — proved by hiding the baselines and watching the full reason print for all eight |
+| R11 | repo B: the same file declared the count `1165` stale and then stated `1165` as current | every mention is now explicitly historical |
+
+**The pattern is worth more than any single row: seven of the eleven are claims in prose or in a
+test name that the code did not support.** Two were assertions that could not fail, two were
+citations my own edit had invalidated in the same commit, and one certified compliance with an
+owner instruction by naming a deleted test.
+
+**What the review did NOT overturn.** The three production edits themselves survived verification —
+one refuter reported *"I tried to break it on four fronts and each attempt confirmed it instead."*
+Every per-edit revert still bites, re-measured after these repairs.
+
+**One finding is a product contradiction rather than a defect in the change, and it sharpens §5.3:**
+the merchant form will now re-create an address held only by an archived row, while shopper
+self-registration still refuses it (`CustomerLoginController:934`, a raw query with no
+`whereNull('deleted_at')`). Before this change both refused; now the two surfaces **actively
+disagree**. That is a consequence of applying the approved policy to three of the four write paths,
+and the fourth is a storefront authentication path the owner's instruction holds back. It is
+recorded for the owner's decision, not resolved here.
+
 ---
 
 ## What none of this does

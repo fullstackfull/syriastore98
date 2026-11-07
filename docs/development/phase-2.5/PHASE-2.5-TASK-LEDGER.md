@@ -1862,7 +1862,7 @@ The owner's conditions, and the state of each **before** a line of the policy wa
 | *"after completing the tenant-authorization review"* | **done, three rounds.** Round 3 found three faults in my own work — an overclaim I withdrew, a premise that could not detect its own condition, and a change with no possible failing-test coverage, now said plainly in its docblock rather than implied |
 | *"confirming that the payment and storefront lookups are properly store-scoped"* | **done.** `PaymentController:2070` (guest checkout — a cross-tenant **write**, not just a wrong read) and `HomeController:1218` each carry `->where('store_id', …)`. `UnscopedCustomerEmailLookupTest`, 6 tests |
 | *"Database migration is NOT yet authorized"* | **honoured. No migration file exists in this change** |
-| *"Do not conceal the concurrent-insert race"* | **honoured, and it is in the suite, not only in a document** — `CustomerEmailUniquenessPolicyTest::test_the_policy_is_validation_only_and_therefore_racy` |
+| *"Do not conceal the concurrent-insert race"* | **honoured, and it is in the suite, not only in a document** — it is the failure message of `CustomerEmailUniquenessPolicyTest::test_premise_the_database_has_no_unique_index_on_customer_email`, which really can fail. **An earlier version of this row named `test_the_policy_is_validation_only_and_therefore_racy`, a test THIS SAME COMMIT DELETED for being an assertion that cannot fail — so the row certified an owner condition by citing something that no longer existed. Caught by the adversarial review of this change.** |
 
 ### What changed in the code: three lines, in three handlers, on purpose
 
@@ -1992,16 +1992,23 @@ gate failed — correctly, in both directions, exactly as designed.
 **RE-MEASURED, NOT ADDED TO THE MANIFEST.** The manifest's own README forbids that use of it, and
 these were stale pointers, not accepted failures — the guards were working.
 
-**The Paymera edit is NUMBERS ONLY, and the script asserts the line count is unchanged.** That
-docblock sits at `:1163`, **above** the anchors it cites, so adding or removing a single line would
-move them again. Its own prose already records that happening three times — *"Measure after editing
-the comment, not before"* — and this was the fourth. Asserting the line count is what stops the
-correction being stale the moment it is written.
+**The Paymera edit is NUMBERS ONLY.** That docblock sits at `:1163`, **above** the anchors it
+cites, so adding or removing a single line would move them again. Its own prose already records that
+happening three times — *"Measure after editing the comment, not before"* — and this was the fourth.
 
-The inventory rows were re-measured from the source rather than shifted by 27: seven of them share a
-message with a sibling site, so the rows were paired against the source occurrences **in file
-order** rather than by text, which a blind `+27` would have got right by luck and a text match would
-have refused as ambiguous.
+**A PREVIOUS VERSION OF THIS PARAGRAPH SAID "the script asserts the line count is unchanged". NO
+SUCH ASSERTION EXISTS IN THIS REPOSITORY.** The check ran in a throwaway patch script that was never
+committed, so the sentence described something a reader could not find — the exact class of claim
+this ledger exists to prevent. Caught by the adversarial review of this change. What IS in the
+repository is `PaymeraPostCommitClaimTest::test_the_cited_anchors_still_name_what_they_claim`, which
+re-reads all four cited lines on every run and is what actually caught the drift.
+
+**Thirteen** inventory rows were re-measured, not ten — the earlier figure in this paragraph was
+wrong and is corrected rather than quietly edited, because a count nobody re-ran is how this file
+has carried stale prose before. They were re-measured from the source rather than shifted by 27:
+four messages are shared with a sibling site, so those rows were paired against the source
+occurrences **in file order** rather than by text, which a blind `+27` would have got right by luck
+and a text match would have refused as ambiguous.
 
 **This is the concrete vindication of holding the two commits back for CI.** The owner's instruction
 was to let the run on `4bccf721` finish first; pushed unverified, `da3f9ee4` and `929c7d5a` would
@@ -2028,13 +2035,64 @@ touched by this change. As the gate says of itself, that is **not** a statement 
 green — only that it fails and skips exactly what the project has recorded, for the recorded reasons.
 
 Also local — Unit **1450 passed** (11302 assertions); Contract **27 passed** (92);
-the customer and security subset together **135 passed** (407 assertions) across
-`CustomerEmailUniquenessPolicyTest`, `AddCustomerEmailDisclosureTest`,
-`OperatorCustomerStoreSelectionTest`, `ArchivedCustomerAttributionTest`,
-`StorefrontArchivedCustomerDeadEndTest`, `UnscopedCustomerEmailLookupTest`,
-`SameEmailAcrossStoresRecoveryTest`, `XssInputCorruptsIdentifiersTest`, `CustomerCreateFormTest`,
-`CustomerGridFilterTest`, `CustomerNumericFilterOperatorsTest` and
-`XssInputSanitizerProposalTest`. **These are local runs, not CI.**
+the customer and security subset together **141 passed** (448 assertions) across exactly these
+fourteen files:
+
+```
+tests/Feature/Security/CustomerEmailUniquenessPolicyTest.php
+tests/Feature/Security/AdminApiCustomerCreatePermissionTest.php
+tests/Feature/Security/AddCustomerEmailDisclosureTest.php
+tests/Feature/Security/OperatorCustomerStoreSelectionTest.php
+tests/Feature/Security/ArchivedCustomerAttributionTest.php
+tests/Feature/Security/StorefrontArchivedCustomerDeadEndTest.php
+tests/Feature/Security/UnscopedCustomerEmailLookupTest.php
+tests/Feature/Security/SameEmailAcrossStoresRecoveryTest.php
+tests/Feature/Security/XssInputCorruptsIdentifiersTest.php
+tests/Feature/Security/SecurityLogInventoryTest.php
+tests/Feature/Merchant/CustomerCreateFormTest.php
+tests/Feature/Merchant/CustomerGridFilterTest.php
+tests/Feature/Merchant/CustomerNumericFilterOperatorsTest.php
+tests/Feature/Commerce/PaymeraPostCommitClaimTest.php
+```
+
+**THE FILE SET IS LISTED BECAUSE TWO DIFFERENT FIGURES FOR "THE SUBSET" APPEARED IN THIS CHANGE —
+135/407 here and 161/502 in a progress report — and neither named what it measured.** They are not
+a contradiction in measurement; they are two different sets of files wearing one label, which is
+worse, because a reader cannot tell which. The figure above is re-measured on the final tree against
+the list beside it, and **these are LOCAL runs, not CI.**
+
+**OFFICIAL CI ON `94373393` — THE HEAD THIS WORK WAS PUSHED TO. All ten checks complete:**
+
+| check | conclusion |
+|---|---|
+| `Tests (REQUIRED -- real suites, clean install from composer.lock)` | **success** |
+| `Tests (REQUIRED -- real suites, PayHere excluded and NOT fixed)` | **success** |
+| `Merge-base regression gate (new failures only)` | **success** |
+| `Static checks (no vendor needed)` | success |
+| `Secret scan` | success |
+| `Is the PayHere blocker still there? (report)` | success |
+| `Security-sensitive diff: push report (non-blocking)` | success |
+| `Security-sensitive diff: human approval` | success — **and this does NOT mean anyone approved** |
+| `Dependency advisories (composer audit)` | **failure** — pre-existing; the owner's instruction is not to raise the ceiling or suppress findings, so it stays red |
+| `Security-sensitive diff: human checklist` | **failure** — **correct behaviour** |
+
+**TWO OF THOSE MUST NOT BE MISREAD.**
+
+`human checklist` fails because `.github/scripts/flag-sensitive-diff.sh` reads the **pull request
+body** for the line `SECURITY-DIFF-REVIEW: completed`, matched as a **whole line** (`grep -qxF`)
+after fenced blocks are stripped and whitespace trimmed — so backticks around it, a `>` blockquote,
+or the phrase inside prose all deliberately FAIL. PR #132's body does not carry it and **this agent
+must not put it there**: the owner's instruction is *"You must NOT create, impersonate, sign or
+automatically insert the security review acknowledgement."* The checklist is
+`.github/SECURITY-DIFF-REVIEW.md`.
+
+`human approval` is green for a procedural reason, stated in the workflow's own comment: *"IT IS NOT
+ENFORCING YET. Default mode is `report`, because enforcing today would produce a gate that CANNOT BE
+SATISFIED rather than a strict one: the automation and the owner are the same GitHub login in this
+repository, and GitHub refuses to let an author approve their own pull request."* **It is not an
+approval.** `docs/security/HUMAN-REVIEW-GATE.md` is how to separate the two identities.
+
+**The earlier run, for the record:**
 
 **OFFICIAL CI, run 42359814501 on HEAD `4bccf7215fe6ca32444f7b5ed6261223d7d5aa48`, complete:**
 

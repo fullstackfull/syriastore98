@@ -285,6 +285,34 @@ class CustomerEmailUniquenessPolicyTest extends SecurityTestCase
             'the customer did not land in the authenticated merchant\'s own store');
     }
 
+    /**
+     * AND THE TEST ABOVE CANNOT DETECT THE THING IT IS NAMED FOR, which the adversarial review of
+     * this change caught. Where the new row LANDS is decided by `'store_id' => $store` in the
+     * `Customer::create()` call, not by the uniqueness rule's predicate. So if the RULE were built
+     * from `$request->store_id`, every assertion above would still pass.
+     *
+     * THIS one discriminates, because it makes the two stores give OPPOSITE answers: a live row
+     * holding the address exists in the OTHER merchant's store, and that store's id is what the
+     * body names. A rule reading the body finds the duplicate and refuses; a rule reading the
+     * principal's store finds nothing and accepts. The test above keeps its place as the
+     * where-did-it-land half; this is the which-store-did-the-RULE-ask half.
+     */
+    public function test_the_uniqueness_RULE_reads_the_principals_store_not_the_posted_one(): void
+    {
+        $this->customerIn($this->otherStore, 'ruleinput@example.test');
+
+        $this->postWeb($this->webPayload([
+            'email' => 'ruleinput@example.test',
+            'store_id' => $this->otherStore->id,
+        ]))->assertSessionHasNoErrors();
+
+        $this->assertSame(1, self::rows()->where('store_id', $this->store->id)
+            ->where('email', 'ruleinput@example.test')->count(),
+            'the uniqueness rule refused an address that is live only in the store named by the '
+            . 'REQUEST BODY — so the predicate is built from caller-supplied input, which is the '
+            . 'defect pattern that has produced four separate faults in this codebase');
+    }
+
     public function test_the_api_allows_the_same_address_in_a_second_store_the_caller_owns(): void
     {
         $this->customerIn($this->store, 'twostores@example.test');
@@ -413,9 +441,24 @@ class CustomerEmailUniquenessPolicyTest extends SecurityTestCase
      * FALSE PASS. Its first disjunct was dead too: both outcomes of `store()` are redirects.
      * Raised by the tenant-authz review of this change.
      */
-    private function webAccepted(\Illuminate\Testing\TestResponse $response): bool
+    private function webAccepted(\Illuminate\Testing\TestResponse $response, string $email): bool
     {
-        return ! $response->baseResponse->getSession()->has('errors');
+        // ASK THE TABLE, NOT THE SESSION -- and the session version was a real hole, found by the
+        // adversarial review of this change. `store()` has FOUR refusal paths and only ONE of them
+        // flashes `errors`:
+        //
+        //   :52  permission denied          -> ->with('error', ...)      singular
+        //   :84  operator named no store    -> ->with('error', ...)      singular
+        //   :90  empty $store               -> ->with('error', ...)      singular
+        //        validation failure         -> ->withErrors(...)         plural, via Laravel
+        //
+        // `! has('errors')` is therefore TRUE for three refusals that create nothing, so both
+        // parity tests could have reported "the web form accepted" while the form refused. The row
+        // is the thing the parity claim is actually about, so the row is what is asked.
+        return self::rows()->where('store_id', $this->store->id)
+            ->where('email', $email)
+            ->whereNull('deleted_at')
+            ->exists();
     }
 
     public function test_the_web_form_and_the_admin_app_agree_about_an_ARCHIVED_address(): void
@@ -426,16 +469,21 @@ class CustomerEmailUniquenessPolicyTest extends SecurityTestCase
         $this->customerIn($this->secondStore, 'parity@example.test', archived: true);
 
         $webAccepted = $this->webAccepted(
-            $this->postWeb($this->webPayload(['email' => 'parity@example.test']))
+            $this->postWeb($this->webPayload(['email' => 'parity@example.test'])),
+            'parity@example.test'
         );
         $apiAccepted = $this->postApiAdd(
             $this->secondStore->id,
             $this->apiPayload(['email' => 'parity@example.test'])
         )->getStatusCode() === 201;
 
-        $this->assertSame($apiAccepted, $webAccepted,
-            'the merchant web form and the shipped admin app STILL disagree about whether an '
-            . 'ARCHIVED address may be reused. web accepted=' . var_export($webAccepted, true)
+        // DIRECTION, NOT JUST AGREEMENT. `assertSame($api, $web)` alone is satisfied by BOTH
+        // surfaces refusing, which is agreement about the wrong answer. Clause 3 of the approved
+        // policy says an archived address may be reused, so the assertion names the value.
+        // Raised by the adversarial review of this change.
+        $this->assertTrue($webAccepted && $apiAccepted,
+            'clause 3 of the approved policy says an ARCHIVED address may be reused, and the two '
+            . 'surfaces must BOTH accept it. web accepted=' . var_export($webAccepted, true)
             . ', api accepted=' . var_export($apiAccepted, true)
             . ' — CLAUDE.md\'s second standing principle is Flutter parity');
     }
@@ -458,7 +506,8 @@ class CustomerEmailUniquenessPolicyTest extends SecurityTestCase
         // `current_store`, so the API is pointed at the merchant's SECOND store instead, and
         // neither answer can be influenced by the other's row.
         $webAccepted = $this->webAccepted(
-            $this->postWeb($this->webPayload(['email' => 'crossparity@example.test']))
+            $this->postWeb($this->webPayload(['email' => 'crossparity@example.test'])),
+            'crossparity@example.test'
         );
         $apiAccepted = $this->postApiAdd(
             $this->secondStore->id,

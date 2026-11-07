@@ -566,7 +566,10 @@ lose. The rollback still forces a second `COPY` rebuild.
   concurrent creates of one address in one store can both succeed. Measured: with the index exactly
   one survives (§2, section D). Without it, nothing stops the second. There is **one test that says
   so in the suite** rather than only here —
-  `CustomerEmailUniquenessPolicyTest::test_the_policy_is_validation_only_and_therefore_racy`.
+  the failure message of
+  `CustomerEmailUniquenessPolicyTest::test_premise_the_database_has_no_unique_index_on_customer_email`,
+  which really can fail. (An earlier draft named a dedicated test for this; it was deleted for being
+  an `assertTrue(true, '…')` that could not fail, and the citation was left behind.)
 - **The existence oracle narrows but does not close.** A merchant still learns whether an address is
   a customer **in their own store**, which is information they are entitled to. The platform-wide
   bit is gone.

@@ -144,10 +144,12 @@ public function store(Request $request)
              * WHAT THE OWNER'S CONDITIONS REQUIRED FIRST, both completed before this line changed:
              * the tenant-authorization review (three rounds, which found three faults in my own
              * fixes), and store-scoping the two first-party lookups that resolved a customer by
-             * e-mail with no store predicate -- `PaymentController:2070` on guest checkout, where
+             * e-mail with no store predicate -- `PaymentController` on guest checkout, where
              * an anonymous storefront request resolves no tenant so StoreScope adds nothing, and
-             * `HomeController:1218` on order status. Both now carry `store_id`, asserted by
-             * `UnscopedCustomerEmailLookupTest`.
+             * `HomeController` on order status. **The predicates are at `PaymentController:2096`
+             * and `HomeController:1230`** -- `:2070` and `:1219` are the docblocks ABOVE them, and
+             * citing those as the predicate lines was wrong in three places in this change set.
+             * Asserted by `UnscopedCustomerEmailLookupTest`.
              *
              * THE TWO ADMIN-APP PATHS WERE CHANGED IN THE SAME SLICE, and that is the point rather
              * than a side effect: `Api\DashboardController::addCustomer()` and

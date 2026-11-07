@@ -8649,7 +8649,7 @@ public function addCustomer(Request $request)
          * SO THIS IS HARDENING, AND IT HAS NO BITE TEST, because there is no input that behaves
          * differently before and after. Saying so is the point: the value of the line is that the
          * next reader does not have to redo the paragraph above, and that this handler now matches
-         * `updateCustomerInfo()` (`:9156`), which has always done exactly this.
+         * `updateCustomerInfo()` (`:9179`), which has always done exactly this.
          *
          * It also corrects a claim I made in the commit for the ordering fix, which said `$storeId`
          * was already reassigned here. It was not. Raised by the tenant-authz review.
