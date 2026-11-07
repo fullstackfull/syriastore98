@@ -125,7 +125,7 @@ class CategoryDataTable extends DataTable
         public function getColumns(): array
     {
         return buildDataTableColumn([
-            'name' => ['title' => __('Name')],
+            'name' => ['title' => __('Name'), 'addClass' => 'ss-dt-ident'],
             'image_path' => ['title' => __('Image')],
             'icon_path' => ['title' => __('Icon')],
             'parent_id' => ['title' => __('Parent Category')],

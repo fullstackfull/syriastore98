@@ -103,12 +103,12 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                         <div class="row row-gap">
                             <div class="col-12">
                                 <input type="hidden" name="id" value="{{ $product->id }}">
-                                {!! Form::label('', __('Name'), ['class' => 'form-label']) !!}<span
-                                    class="text-danger">*</span>
+                                {!! Form::label('name', __('Name'), ['class' => 'form-label']) !!}<span
+                                    class="ss-text-danger">*</span>
                                 {!! Form::text('name', null, ['class' => 'form-control name']) !!}
                             </div>
                             <div class="col-12 parmalink ">
-                                {!! Form::label('', __('parmalink'), ['class' => 'form-label col-md-3']) !!}
+                                {!! Form::label('slug', __('parmalink'), ['class' => 'form-label col-md-3']) !!}
                                 <div class="d-flex flex-wrap gap-3">
                                     <input class="input-group-text col-12" readonly id="basic-addon2"
                                         value="{{ $link }}">
@@ -119,7 +119,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                 </div>
                             </div>
                             <div class="col-sm-6 col-12">
-                                <label class="form-label">{{ __('Category') }}</label><span class="text-danger">*</span>
+                                <label for="category_id" class="form-label">{{ __('Category') }}</label><span class="ss-text-danger">*</span>
                                 <select name="category_id" class="form-control" data-role="tagsinput" id="category_id">
                                     <option value="">{{ __('Select Category') }}</option>
                                     @foreach ($categoryTree as $cat)
@@ -130,7 +130,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                 </select>
                             </div>
                             <div class="col-md-6 col-12">
-                                {!! Form::label('', __('Tags'), ['class' => 'form-label']) !!}
+                                {!! Form::label('tag_id', __('Tags'), ['class' => 'form-label']) !!}<span class="ss-label__required" aria-hidden="true">*</span>
                                 <select name="tag_id[]" class="select2 form-control" id="tag_id" multiple required>
                                     @foreach ($tag as $key => $t)
                                     <option @if (in_array($key, $get_tags)) selected @endif value="{{ $key }}">
@@ -160,26 +160,26 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                     </select>
                                 </div>
                                 <div class="col-md-6 col-12">
-                                    {!! Form::label('', __('Tax Status'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('tax_id', __('Tax Status'), ['class' => 'form-label']) !!}
                                     {!! Form::select('tax_status', $Tax_status, null, [ 'class' => 'form-control',
                                     'data-role' => 'tagsinput', 'id' => 'tax_id', ]) !!}   {{-- duplicate id: F68, see create.blade.php --}}
                                 </div>
                                 <div class=" col-sm-6 col-12" data_val='0'>
-                                    {!! Form::label('', __('Brand'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('brand-dropdown', __('Brand'), ['class' => 'form-label']) !!}
                                     <span>
                                         {!! Form::select('brand_id', $brands, null, [ 'class' => 'form-control',
                                         'data-role' => 'tagsinput', 'id' => 'brand-dropdown', ]) !!}
                                     </span>
                                 </div>
                                 <div class=" col-sm-6 col-12" data_val='0'>
-                                    {!! Form::label('', __('Label'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('label-dropdown', __('Label'), ['class' => 'form-label']) !!}
                                     <span>
                                         {!! Form::select('label_id', $labels, null, [ 'class' => 'form-control',
                                         'data-role' => 'tagsinput', 'id' => 'label-dropdown', ]) !!}
                                     </span>
                                 </div>
                                 <div class="col-sm-6 col-12">
-                                    {!! Form::label('', __('Shipping'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('shipping_id', __('Shipping'), ['class' => 'form-label']) !!}
                                     {!! Form::select('shipping_id', $Shipping, null, [
                                     'class' => 'form-control',
                                     'data-role' => 'tagsinput',
@@ -187,7 +187,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                     ]) !!}
                                 </div>
                                 <div class="col-sm-6 col-12 product-weight">
-                                    {!! Form::label('', __('Weight(Kg)'), ['class' => 'form-label ']) !!}
+                                    {!! Form::label('product_weight', __('Weight(Kg)'), ['class' => 'form-label ']) !!}
                                     {!! Form::number('product_weight', null, ['class' => 'form-control', 'min' => '0',
                                     'step' => '0.01', 'aria-describedby' => 'product_weight-help']) !!}
                                     <x-ss.field-help for="product_weight">{{ __('Used to work out shipping. Leave blank if your shipping does not depend on weight.') }}</x-ss.field-help>
@@ -196,14 +196,14 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                               </x-ss.advanced-fields>
                             </div>
                             <div class="col-md-6 col-12 product_price product-weight">
-                                {!! Form::label('', __('Price'), ['class' => 'form-label']) !!}<span
-                                    class="text-danger">*</span>
+                                {!! Form::label('price', __('Price'), ['class' => 'form-label']) !!}<span
+                                    class="ss-text-danger">*</span>
                                 {!! Form::number('price', null, ['class' => 'form-control', 'min' => '0', 'step' =>
                                 '0.01']) !!}
                             </div>
                             <div class="col-md-6 col-12 product-weight">
-                                {!! Form::label('', __('Sale Price'), ['class' => 'form-label']) !!}<!--<span
-                                    class="text-danger">*</span>-->
+                                {!! Form::label('sale_price', __('Sale Price'), ['class' => 'form-label']) !!}<!--<span
+                                    class="ss-text-danger">*</span>-->
                                 {!! Form::number('sale_price', null, ['class' => 'form-control', 'min' => '0',
                                 'step' => '0.01', 'aria-describedby' => 'sale_price-help']) !!}
                                 <x-ss.field-help for="sale_price">{{ __('The discounted price customers pay. It must be lower than the price.') }}</x-ss.field-help>
@@ -211,8 +211,8 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                         </div>
                  
                               <div class="col-md-6 col-12 product-weight">
-    {!! Form::label('', __('Cost Price'), ['class' => 'form-label']) !!}
-    <span class="text-danger">*</span>
+    {!! Form::label('cost_price', __('Cost Price'), ['class' => 'form-label']) !!}
+    <span class="ss-text-danger">*</span>
     {!! Form::number('cost_price', null, [
         'class' => 'form-control',
         'min' => '0',
@@ -290,12 +290,12 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                             @if ($stock_management == 'on')
                                 <div class="row row-gap" id="options">
                                     <div class="col-md-6 col-12 product_stock">
-                                        {!! Form::label('', __('Stock'), ['class' => 'form-label']) !!}
+                                        {!! Form::label('product_stock', __('Stock'), ['class' => 'form-label']) !!}
                                         {!! Form::number('product_stock', null, ['class' => 'form-control
                                             productStock']) !!}
                                     </div>
                                     <div class="col-md-6 col-12">
-                                        {!! Form::label('', __('Low stock threshold'), ['class' => 'form-label']) !!}
+                                        {!! Form::label('low_stock_threshold', __('Low stock threshold'), ['class' => 'form-label']) !!}
                                         {!! Form::number('low_stock_threshold', $low_stock_threshold, ['class' =>
                                         'form-control', 'min' => '0', 'aria-describedby' => 'low_stock_threshold-help']) !!}
                                         <x-ss.field-help for="low_stock_threshold">{{ __('The product list shows Low stock at or below this number. Leave 0 to use the store default.') }}</x-ss.field-help>
@@ -390,7 +390,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                             <div class="row row-gap">
                                 <div class="col-12">
                                     {{ Form::label('sub_images', __('Upload Product Images'), ['class' => 'form-label f-w-800']) }}<span
-                                        class="text-danger">*</span>
+                                        class="ss-text-danger">*</span>
                                     <div class="dropzone dropzone-multiple" data-toggle="dropzone1"
                                         data-dropzone-url="http://" data-dropzone-multiple>
                                         <!-- Dropzone message with icon -->
@@ -440,7 +440,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                                     </div>
                                                     <div class="col-auto">
                                                         <a href="#" class="dropdown-item btn-badge" data-dz-remove>
-                                                            <i class="fas fa-trash-alt"></i>
+                                                            <i class="ti ti-trash"></i>
                                                         </a>
                                                     </div>
                                                 </div>
@@ -459,14 +459,28 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                                         class="w-100">
                                                     <div
                                                         class="position-absolute text-center top-50 end-0 start-0 pb-3">
+                                                        {{-- P2.5 `gallery-image-actions-unnamed`. Both anchors are icon-only and the
+                                                             sibling <img> is alt="", so neither had ANY accessible name: a screen
+                                                             reader announced the Download control as its own href and the Delete
+                                                             control as the bare word "link" (WCAG 2.1 SC 4.1.2). The attribute that
+                                                             looked like a name, `data-original-title`, is BOOTSTRAP 4's name -- BS5
+                                                             writes `data-bs-original-title` -- and the app's only tooltip
+                                                             constructors (assets/js/dash.js:561, side-dash.js:620) both select
+                                                             `[data-bs-toggle="tooltip"]`, which these anchors never carried, so it
+                                                             was inert markup and is dropped here. `$loop->iteration` is load-bearing:
+                                                             `$product->name` alone names all N tiles identically. The class, the
+                                                             `name`, `data-id` and the `delete_img_<id>` wrapper are UNCHANGED -- the
+                                                             delete is bound at `.deleteRecord` further down this file. --}}
                                                         <a href="{{ get_file($file->image_path) }}"
-                                                            download="" data-original-title="{{ __('Download') }}"
-                                                            class="btn btn-sm btn-primary me-2"><i
-                                                                class="ti ti-download"></i></a>
+                                                            download=""
+                                                            class="btn btn-sm btn-primary me-2"
+                                                            aria-label="{{ __('Download image :n of :name', ['n' => $loop->iteration, 'name' => $product->name]) }}"><i
+                                                                class="ti ti-download" aria-hidden="true"></i></a>
                                                         <a href="javascript::void(0)"
                                                             class="btn btn-sm btn-danger deleteRecord"
-                                                            name="deleteRecord" data-id="{{ $file->id }}"><i
-                                                                class="ti ti-trash"></i></a>
+                                                            name="deleteRecord" data-id="{{ $file->id }}"
+                                                            aria-label="{{ __('Delete image :n of :name', ['n' => $loop->iteration, 'name' => $product->name]) }}"><i
+                                                                class="ti ti-trash" aria-hidden="true"></i></a>
                                                     </div>
                                                 </div>
                                             </div>
@@ -477,7 +491,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                 <div class="col-12">
                                     <label for="cover_image"
                                         class="form-label">{{ __('Upload Cover Image') }}</label><span
-                                        class="text-danger">*</span>
+                                        class="ss-text-danger">*</span>
                                     {{-- P2-03-4 / F75: `accept` is the server's own configured list, verbatim --
                                          narrowing it here would newly block a `pdf` or `csv` that works today. --}}
                                     <input type="file" name="cover_image" id="cover_image"
@@ -568,7 +582,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                         <div class="card-body p-3 pb-0 ">
                             <div class="row row-gap">
                                 <div class="col-md-12">
-                                    {!! Form::label('', __('Product Attribute'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('attribute_id', __('Product Attribute'), ['class' => 'form-label']) !!}
                                     {!! Form::select('attribute_id[]', $ProductAttribute, $get_datas, [ 'class' =>
                                     'form-control product_attribute attribute_id', 'multiple' => 'multiple', 'data-role'
                                     => 'tagsinput', 'id' => 'attribute_id', ]) !!}
@@ -732,12 +746,12 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                             <div data-repeater-item class="mt-1">
                                 <div class="row">
                                     <div class="col-md-6">
-                                        {!! Form::label('', __('Custom Field'), ['class' => 'form-label']) !!}
+                                        {!! Form::label('custom_field', __('Custom Field'), ['class' => 'form-label']) !!}
                                         {!! Form::text('custom_field', $item['custom_field'], ['class' =>
                                         'form-control', 'placeholder' => __('Enter Custom Field')]) !!}
                                     </div>
                                     <div class="col-md-5">
-                                        {!! Form::label('', __('Custom Value'), ['class' => 'form-label']) !!}
+                                        {!! Form::label('answer', __('Custom Value'), ['class' => 'form-label']) !!}
                                         {!! Form::text('custom_value', $item['custom_value'], [ 'id' =>
                                         'answer', 'rows' => 4, 'class' => 'form-control', 'placeholder' =>
                                         __('Enter Custom Value') ]) !!}
@@ -746,7 +760,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                         <label></label>
                                         <a href="javascript:;" data-repeater-delete
                                             class="btn field-trash-btn btn-sm btn-light-danger mt-3 mt-md-8 btn-badge"
-                                            data-bs-toggle="tooltip" title="{{__('Delete')}}">
+                                            data-bs-toggle="tooltip" title="{{__('Delete')}}" aria-label="{{__('Delete')}}">
                                             <i class="ti ti-trash"></i>
                                         </a>
                                     </div>
@@ -757,12 +771,12 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                             <div data-repeater-item class="mt-1">
                                 <div class="row">
                                     <div class="col-md-6">
-                                        {!! Form::label('', __('Field'), ['class' => 'form-label']) !!}
+                                        {!! Form::label('custom_field', __('Field'), ['class' => 'form-label']) !!}
                                         {!! Form::text('custom_field', null, ['class' => 'form-control',
                                         'placeholder' => __('Enter Custom Field')]) !!}
                                     </div>
                                     <div class="col-md-5">
-                                        {!! Form::label('', __('Value'), ['class' => 'form-label']) !!}
+                                        {!! Form::label('answer', __('Value'), ['class' => 'form-label']) !!}
                                         {!! Form::text('custom_value', null, ['id' => 'answer', 'rows' => 2,
                                         'class' => 'form-control','placeholder' => __('Enter Custom Value')])
                                         !!}
@@ -771,7 +785,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                                         <label></label>
                                         <a href="javascript:;" data-repeater-delete
                                             class="btn field-trash-btn btn-sm btn-light-danger mt-3 mt-md-8 btn-badge"
-                                            data-bs-toggle="tooltip" title="{{__('Delete')}}">
+                                            data-bs-toggle="tooltip" title="{{__('Delete')}}" aria-label="{{__('Delete')}}">
                                             <i class="ti ti-trash"></i>
                                         </a>
                                     </div>
@@ -803,7 +817,21 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
       button instead of the old one.
   --}}
   <x-ss.actionbar :label="__('Save or discard your changes')">
-    <a href="#" class="btn btn-primary ss-btn"
+    {{-- P2.5-WAVE-33. This was `class="btn btn-primary ss-btn"` -- Bootstrap's variant beside the
+         design system's BASE, with no `ss-btn--primary`. `.ss-btn` is an explicit reset that
+         declares `background: transparent`, and store-syria-ds.css loads LAST of the five admin
+         sheets, so it wiped `.btn-primary`'s fill while `.btn-primary`'s white `color` survived.
+         The action bar is `--ss-surface`: #ffffff light, #262b33 dark. MEASURED at 1440x1000:
+
+             light   "Save"  #ffffff on #ffffff  = 1.00:1   <- the SAVE action, invisible
+             dark    "Save"  #ffffff on #262b33  = 14.23:1
+
+         Legible in one theme and absent in the other is why this survived a stylesheet read.
+         `.btn btn-primary` are dropped rather than kept: `.ss-btn`'s own comment says it must not
+         inherit Bootstrap's button metrics, the JS hook here is the attribute
+         `[data-ss-click-proxy]` and not `.btn`, and the other ~236 `.ss-btn` renderings in the
+         tree carry no `.btn`. --}}
+    <a href="#" class="ss-btn ss-btn--primary"
        data-ss-click-proxy="#submit-all"
        data-title="{{ __('Update Product') }}">
       <i class="ti ti-device-floppy" aria-hidden="true"></i>

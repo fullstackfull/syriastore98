@@ -24,12 +24,38 @@ use PHPUnit\Framework\TestCase;
  * `country/filter`, `state/filter`, `setting/pixel_field_setting`, `setting/webhook_setting`.
  *
  * THE RAW BROWSER DIALOGS ARE MEASURED AND FROZEN, NOT CONVERTED. Four `confirm(...)` calls remain
- * in two merchant views: `finance/withdrawals` (x2) and `pos/index` (x2). All four are translated,
- * so they are an inconsistency rather than a defect -- and converting them is not a styling change:
- * `onclick="return confirm(...)"` is SYNCHRONOUS and blocks the submit, while the SweetAlert handler
- * is asynchronous. Two of the four approve a withdrawal and mark it paid, which is a money path, so
- * the conversion needs a scope decision rather than a quiet rewrite. The count is frozen here so no
- * NEW raw dialog can appear while that decision is outstanding.
+ * in two merchant views: `finance/withdrawals` (x2) and `pos/index` (x2). Converting them is not a
+ * styling change: `onclick="return confirm(...)"` is SYNCHRONOUS and blocks the submit, while the
+ * SweetAlert handler is asynchronous. Two of the four approve a withdrawal and mark it paid, which
+ * is a money path, so the conversion needs a scope decision rather than a quiet rewrite. The count
+ * is frozen here so no NEW raw dialog can appear while that decision is outstanding.
+ *
+ * "ALL FOUR ARE TRANSLATED" WAS FALSE, AND THIS DOCBLOCK IS WHERE IT WAS CLAIMED. The sentence this
+ * paragraph replaces read "All four are translated, so they are an inconsistency rather than a
+ * defect". That was never measured; it conflated being WRAPPED in `__()` with having a translation
+ * to resolve. Counted in both files on 2026-11-04:
+ *
+ *     "Are you sure?"                                en.json 1   ar.json 1
+ *     "Remove all items from cart?"                  en.json 1   ar.json 1
+ *     "Approve this withdrawal request?"             en.json 0   ar.json 0   <-- MONEY PATH
+ *     "Confirm that this withdrawal has been paid?"  en.json 0   ar.json 0   <-- MONEY PATH
+ *
+ * `__()` falls back to its own key, so the two POS dialogs really were only an inconsistency and
+ * the two MONEY dialogs were a defect: an Arabic merchant approving a withdrawal or marking one
+ * paid was asked in English, on the two actions on this platform that move money. Exactly the
+ * screens this file had written off as fine. Both keys are now in both files, and
+ * `test_every_remaining_raw_dialog_is_translated_in_both_locales` asserts it instead of asserting
+ * it in prose -- because a frozen count whose justification is wrong is worse than no comment, and
+ * a claim in a docblock is not a check.
+ *
+ * WHY NOTHING CAUGHT IT. `ArabicUiCoverageTest::SURFACES` lists eleven globs and NONE of them
+ * matches `resources/views/finance/` (measured: 0 occurrences of "finance" in that file), so the
+ * three finance views -- `index`, `withdrawals`, `unreconciled-captures` -- had never been scanned
+ * for Arabic coverage at all. That is the same way this project's coverage checks have quietly
+ * stopped working twice before, recorded in that file's own comments (P2-06-5, P2-05-2). The
+ * assertion added here closes the hole only for the four frozen dialogs; the rest of
+ * `finance/withdrawals` is reported, not fixed, because widening that surface list is not this
+ * change's to make.
  *
  * A fifth `confirm(` in `customer/action.blade.php` is inside a Blade COMMENT describing this very
  * defect, fixed on that screen by an earlier slice. Counting it would have been a false reading, so
@@ -124,6 +150,208 @@ class ConfirmationDialogContractTest extends TestCase
 
         $this->assertLessThanOrEqual(self::RAW_DIALOG_FILES, count($files),
             'a new merchant view has introduced a raw browser dialog');
+    }
+
+    /**
+     * @return list<array{file: string, arg: string}> one entry per raw `confirm(` the census counts
+     */
+    private function rawDialogCalls(): array
+    {
+        $calls = [];
+
+        foreach ($this->merchantViews() as $path) {
+            $source = $this->withoutBladeComments((string) file_get_contents($path));
+
+            // The SAME needle the frozen census uses, so the two cannot disagree about what a
+            // raw dialog is -- one of them reporting four sites while the other reads three is
+            // precisely how a ratchet and its justification drift apart.
+            if (preg_match_all('/(?<![\w.$-])confirm\s*\(/', $source, $m, PREG_OFFSET_CAPTURE) < 1) {
+                continue;
+            }
+
+            foreach ($m[0] as [$needle, $offset]) {
+                $i = $start = $offset + strlen($needle);
+                $depth = 1;
+                $n = strlen($source);
+
+                /*
+                 * PARENTHESIS DEPTH WITH NO QUOTE TRACKING, AND THAT IS DELIBERATE. The shape on
+                 * disk is `confirm('{{ __('Approve this withdrawal request?') }}')` -- a Blade
+                 * single-quoted string nested inside a JS single-quoted string, which is only
+                 * legal because Blade renders before the browser parses. A quote-aware scanner
+                 * closes the JS string on the `'` that opens `__('`, and reads the argument as
+                 * `'{{ __('` -- empty of any key, so every site would report as untranslatable
+                 * and this case would fail for the wrong reason. Depth alone handles all four.
+                 */
+                while ($i < $n && $depth > 0) {
+                    if ($source[$i] === '(') {
+                        $depth++;
+                    } elseif ($source[$i] === ')') {
+                        $depth--;
+                    }
+                    if ($depth > 0) {
+                        $i++;
+                    }
+                }
+
+                $calls[] = [
+                    'file' => str_replace(dirname(__DIR__, 3) . '/', '', $path),
+                    // An unbalanced call yields '', which has no `__()` in it and is therefore
+                    // reported as an offender rather than skipped. A literal `(` inside a dialog
+                    // string would land here too, and failing loudly is the right answer: the
+                    // rendered JS would be broken anyway.
+                    'arg' => $depth === 0 ? substr($source, $start, $i - $start) : '',
+                ];
+            }
+        }
+
+        return $calls;
+    }
+
+    /** @return array<string,string> */
+    private function translations(string $code): array
+    {
+        $path = dirname(__DIR__, 3) . "/resources/lang/{$code}.json";
+        $this->assertFileExists($path);
+
+        $data = json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
+
+        $this->assertIsArray($data);
+        $this->assertNotEmpty($data, "premise: {$code}.json parsed to nothing, so every lookup "
+            . 'below would report as missing and this case would fail for the wrong reason');
+
+        return $data;
+    }
+
+    /**
+     * THE FROZEN DIALOGS MUST AT LEAST BE READABLE IN ARABIC WHILE THEY STAY FROZEN.
+     *
+     * The freeze above only counts dialogs. It was satisfied, for three weeks, by two money
+     * dialogs that resolved to nothing in either file -- see this class's docblock. A count is a
+     * promise that nothing NEW appears; it says nothing about whether what is already there works
+     * for the merchant reading it. This is the second half: whatever remains frozen resolves to a
+     * real key in BOTH shipped locales.
+     *
+     * WHY `en.json` TOO, when `__()` falls back to the key and English therefore renders correctly
+     * without it. Two reasons, both measured rather than stylistic. `ar.json` currently declares 31
+     * keys `en.json` does not and `TranslationFileIntegrityTest` pins that number, so adding the
+     * Arabic side alone raises it to 32 and fails that gate -- the pair is what is actually
+     * shippable. And `en.json` has zero keys without an Arabic sibling, so an entry in both files
+     * is this repository's measured convention, not a preference.
+     *
+     * A HARDCODED ARGUMENT IS AN OFFENDER, not an exemption. `front_end/pages/address.blade.php`
+     * holds `confirm('Are you sure you want to delete this address?')` with no `__()` around it at
+     * all; it is out of this scan's scope (the storefront is Phase 03's), but it is the shape this
+     * assertion exists to keep off a merchant surface, and treating "no key to look up" as "nothing
+     * to check" would let it in silently.
+     */
+    public function test_every_remaining_raw_dialog_is_translated_in_both_locales(): void
+    {
+        $en = $this->translations('en');
+        $ar = $this->translations('ar');
+
+        $calls = $this->rawDialogCalls();
+
+        // PREMISE, and this file has needed it four times: a scan that finds nothing passes every
+        // rule written over it. `merchantViews()` excluding too much, the needle being renamed, or
+        // the dialogs being converted without this case being updated all land here first.
+        $this->assertNotEmpty($calls,
+            'premise: the scan found no raw `confirm(` at all, so this case asserts nothing. If '
+            . 'the dialogs were genuinely converted, lower RAW_DIALOGS and delete this premise '
+            . 'deliberately rather than leaving a rule that passes over an empty set.');
+        $this->assertLessThanOrEqual(self::RAW_DIALOGS, count($calls),
+            'premise: the extractor disagrees with the frozen census about how many raw dialogs '
+            . 'exist, so one of the two is reading the views wrongly');
+
+        $offenders = [];
+
+        foreach ($calls as $call) {
+            // The pattern `ArabicUiCoverageTest` already uses, so one surface cannot be read two
+            // ways. `[,)]` keeps `__('x :n', ['n' => 1])` in scope.
+            $found = preg_match(
+                '/__\(\s*\'((?:[^\'\\\\]|\\\\.)*)\'\s*[,)]|__\(\s*"((?:[^"\\\\]|\\\\.)*)"\s*[,)]/',
+                $call['arg'],
+                $m
+            );
+
+            $key = $found === 1
+                ? str_replace(["\\'", '\\"'], ["'", '"'], ($m[1] ?? '') !== '' ? $m[1] : ($m[2] ?? ''))
+                : '';
+
+            if ($key === '') {
+                $offenders[] = sprintf('%s  [%s]  the argument is not a `__()` literal: %s',
+                    '(hardcoded)', $call['file'], trim($call['arg']));
+
+                continue;
+            }
+
+            $absent = [];
+            if (! array_key_exists($key, $en)) {
+                $absent[] = 'en.json';
+            }
+            if (! array_key_exists($key, $ar)) {
+                $absent[] = 'ar.json';
+            }
+
+            if ($absent !== []) {
+                $offenders[] = sprintf('"%s"  [%s]  absent from %s',
+                    $key, $call['file'], implode(' and ', $absent));
+            }
+        }
+
+        $this->assertSame([], $offenders, sprintf(
+            "%d raw browser dialog(s) do not resolve to a translation:\n  %s\n"
+            . "`__()` returns its own KEY when there is no entry, which fails silently -- the "
+            . "dialog opens, in English, and nothing logs it. Two of these four approve a "
+            . "withdrawal and mark it paid, so on an Arabic merchant's screen that is an English "
+            . 'question on a money action. Add each key to BOTH resources/lang/en.json (mapped to '
+            . 'itself) and resources/lang/ar.json. These dialogs are frozen, not blessed.',
+            count($offenders),
+            implode("\n  ", $offenders)
+        ));
+    }
+
+    /**
+     * THE PREMISE OF THE RULE ABOVE: the argument extractor really reads the argument.
+     *
+     * Without this, `rawDialogCalls()` could return `arg => ''` for every site and the rule would
+     * fail for a reason that has nothing to do with translations -- or, worse, could return the
+     * whole rest of the file and pass by finding some unrelated `__()` further down the view. Both
+     * are checked here against the Blade-inside-JS shape that actually ships, so the scanner is
+     * tested on its hard case rather than on a tidy one.
+     */
+    public function test_the_dialog_argument_extractor_reads_the_blade_inside_js_shape(): void
+    {
+        $keys = [];
+        foreach ($this->rawDialogCalls() as $call) {
+            preg_match(
+                '/__\(\s*\'((?:[^\'\\\\]|\\\\.)*)\'\s*[,)]|__\(\s*"((?:[^"\\\\]|\\\\.)*)"\s*[,)]/',
+                $call['arg'],
+                $m
+            );
+            $keys[] = ($m[1] ?? '') !== '' ? $m[1] : ($m[2] ?? '');
+        }
+
+        // Measured 2026-11-04. Both quote styles are present on disk -- `finance/withdrawals` uses
+        // `__('...')` inside a `'...'` JS string and `pos/index` uses `__("...")` -- so a scanner
+        // that handled only one of them would still look like it worked.
+        $this->assertContains('Approve this withdrawal request?', $keys,
+            'the extractor no longer reads a `__(\'...\')` key out of a Blade-in-JS confirm()');
+        $this->assertContains('Are you sure?', $keys,
+            'the extractor no longer reads a `__("...")` key out of a Blade-in-JS confirm()');
+
+        $this->assertNotContains('', $keys,
+            'the extractor returned an empty key for a dialog that has one, which would report a '
+            . 'translated dialog as hardcoded');
+
+        // And it does NOT overrun: every argument stops at its own closing paren, so a hardcoded
+        // dialog cannot be rescued by an unrelated `__()` later in the same view.
+        foreach ($this->rawDialogCalls() as $call) {
+            $this->assertSame(1, preg_match_all('/__\(/', $call['arg']),
+                'an extracted confirm() argument contains more than one `__()`, so the extractor '
+                . 'is overrunning its closing parenthesis and a hardcoded dialog could pass by '
+                . "borrowing a neighbour's translated string: " . trim($call['arg']));
+        }
     }
 
     public function test_only_one_delegated_confirmation_handler_is_bound(): void

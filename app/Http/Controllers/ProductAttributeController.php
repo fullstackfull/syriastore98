@@ -63,7 +63,12 @@ class ProductAttributeController extends Controller
      */
     public function show(ProductAttribute $productAttribute)
     {
-        //
+        // P2.5-PKG-B. AN EMPTY BODY IS STILL AN EXISTENCE ORACLE: binding resolves the row before
+        // this method runs and `ProductAttribute` is absent from `scoped_models`, so the response was an
+        // empty 200 for a row in ANY store and 404 only for one existing nowhere.
+        if ($this->ownedAttribute($productAttribute->id) === null) {
+            abort(404);
+        }
     }
 
     /**

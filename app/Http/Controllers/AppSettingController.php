@@ -27,9 +27,29 @@ class AppSettingController extends Controller
             $slug = $store->slug;
             $plan = Plan::find($user->plan_id);
             $serverIp = $subdomain_name = $subdomain_Ip = $subdomainPointing = $domainip = $domainPointing = null;
+
+            /* P2.5-WAVE-23. RESOLVED ONCE, AND NOT THROUGH `$_SERVER[...]` DIRECTLY.
+             *
+             * MEASURED: /app-setting returned HTTP 500 with `Undefined array key "SERVER_ADDR"`.
+             * The key is set by Apache and by nginx + PHP-FPM, so this is not a crash every
+             * deployment would see -- but it is absent under the PHP built-in server and under
+             * the CLI SAPI, which means this screen cannot be opened in development and any
+             * artisan command or queued job reaching this path fatals.
+             *
+             * `request()->server('SERVER_ADDR')` reads the SAME `$_SERVER` bag, so wherever the
+             * key exists the value is byte-identical and nothing changes. Where it does not, it
+             * returns null instead of raising -- and this method ALREADY handles a null address:
+             * `if (empty($serverIp)) { $serverIp = request()->ip(); }` a few dozen lines below.
+             * The accessor is not a new idea here either; line 61 of this same method used it.
+             *
+             * The comparisons below behave correctly against null: in PHP 8 a non-empty string
+             * is never == null, so an unresolved address takes the "not pointing" branch, which
+             * is the honest answer when the server's own address is unknown.
+             */
+            $serverAddr = request()->server('SERVER_ADDR');
             if ($setting) {
                 if (isset($setting['domains']) && $setting['domains']) {
-                    $serverIp   = $_SERVER['SERVER_ADDR'];
+                    $serverIp   = $serverAddr;
                     $domain = $setting['domains'];
                     if (isset($domain) && !empty($domain)) {
                         $domainip = gethostbyname($domain);
@@ -40,7 +60,7 @@ class AppSettingController extends Controller
                         $domainPointing = 0;
                     }
                 } else {
-                    $serverIp   = $_SERVER['SERVER_ADDR'];
+                    $serverIp   = $serverAddr;
                     $domain = $serverIp;
                     $domainip = gethostbyname($domain);
                     $domainPointing = 0;
@@ -55,7 +75,7 @@ class AppSettingController extends Controller
                 );
                 $serverIp   = gethostbyname($serverName);
 
-                if ($serverIp == $_SERVER['SERVER_ADDR']) {
+                if ($serverIp == $serverAddr) {
                     $serverIp;
                 } else {
                     $serverIp = request()->server('SERVER_ADDR');
@@ -75,7 +95,7 @@ class AppSettingController extends Controller
                 }
                 $urlParts = parse_url($input);
 
-                $serverIp   = $_SERVER['SERVER_ADDR'];
+                $serverIp   = $serverAddr;
 
                 if (!empty($setting['subdomain']) || !empty($urlParts['host'])) {
                     $subdomain_Ip   = gethostbyname($urlParts['host']);
@@ -579,7 +599,15 @@ $oldCustomDomainEnabled = ($settings['enable_domain'] ?? 'off') === 'on';
                 ]
             );
             if ($validator->fails()) {
-                return redirect()->back()->with('error', $validator->errors()->first());
+                // P2.5 area-wide-no-withinput-witherrors (CLASS A). The toast stays; the bag
+                // and the old input are added so the @error('store_slug') block already
+                // written into resources/views/AppSetting/index.blade.php:161 stops being
+                // dead markup. Never bare ->withInput(): see
+                // tests/Feature/Security/CredentialSinksTest.php:260.
+                return redirect()->back()
+                    ->with('error', $validator->errors()->first())
+                    ->withErrors($validator)
+                    ->withInput($request->except(['_token', 'password', 'password_confirmation']));
             }
 
             $store_slug_exists = Store::where('slug', $request->store_slug)->first();
@@ -1289,7 +1317,15 @@ if ($mayChangeRouting && $request->enable_domain === 'enable_subdomain') {
         );
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+
+            // P2.5 area-wide-no-withinput-witherrors (CLASS A), same shape as the store_slug
+            // site above. ONLY the two validators in this controller that actually call
+            // fails() are touched -- :266, :336, :603 and :611 build a validator and never
+            // consult it, and activating any of them would refuse posts that succeed today.
+            return redirect()->back()
+                ->with('error', implode(' ', $messages->all()))
+                ->withErrors($validator)
+                ->withInput($request->except(['_token', 'password', 'password_confirmation']));
         }
 
         $post['date_format'] = $request->date_format;

@@ -1,0 +1,187 @@
+
+path                 lang want obs  theme  HTTP  ss-theme  premise  title
+------------------------------------------------------------------------------------------------------------
+/dashboard           en   ltr  ltr  light  200   -         ok           Laravel - Dashboard
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/finance             en   ltr  ltr  light  200   -         ok           Laravel - Finance
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/finance/withdrawals en   ltr  ltr  light  200   -         ok           Laravel - Withdrawal Requests
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/finance/unreconciled-captures en   ltr  ltr  light  200   -         ok           Laravel - Payments Awaiting Review
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/coupon              en   ltr  ltr  light  200   -         ok           Laravel - Coupon
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/faq                 en   ltr  ltr  light  200   -         ok           Laravel - Coupon
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/flash-sale          en   ltr  ltr  light  200   -         ok           Laravel - Coupon
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/product-brand       en   ltr  ltr  light  200   -         ok           Laravel - Product Brand
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/product-label       en   ltr  ltr  light  200   -         ok           Laravel - Product Label
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/tag                 en   ltr  ltr  light  200   -         ok           Laravel - Product Label
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/testimonial         en   ltr  ltr  light  200   -         ok           Laravel - Product Label
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/order-grid          en   ltr  ltr  light  200   -         ok           Laravel - Order
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/order-kanban        en   ltr  ltr  light  200   -         ok           Laravel - Order board
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/product-list        en   ltr  ltr  light  200   -         ok           Laravel - Product
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/customer-timeline/1 en   ltr  ltr  light  200   -         ok           Laravel - Product
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/product/1/edit      en   ltr  ltr  light  200   -         ok           Laravel - Product
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/order-reports       en   ltr  ltr  light  200   -         ok           Laravel - Sales Report
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+/brand-order-reports en   ltr  -    light  200   -         ok           
+/category-order-reports en   ltr  -    light  200   -         ok           
+/product-order-reports en   ltr  -    light  500   -         HTTP 500     Laravel
+                      console: Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+/app-setting         en   ltr  -    light  500   -         HTTP 500     Laravel
+                      console: Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+/profile             en   ltr  ltr  light  200   -         ok           Laravel - Profile
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/setting             en   ltr  ltr  light  200   -         ok           Laravel - Settings
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/dashboard           en   ltr  ltr  dark   200   dark      ok           Laravel - Dashboard
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/finance             en   ltr  ltr  dark   200   dark      ok           Laravel - Finance
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/finance/withdrawals en   ltr  ltr  dark   200   dark      ok           Laravel - Withdrawal Requests
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/finance/unreconciled-captures en   ltr  ltr  dark   200   dark      ok           Laravel - Payments Awaiting Review
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/coupon              en   ltr  ltr  dark   200   dark      ok           Laravel - Coupon
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/faq                 en   ltr  ltr  dark   200   dark      ok           Laravel - Coupon
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/flash-sale          en   ltr  ltr  dark   200   dark      ok           Laravel - Coupon
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/product-brand       en   ltr  ltr  dark   200   dark      ok           Laravel - Product Brand
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/product-label       en   ltr  ltr  dark   200   dark      ok           Laravel - Product Label
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/tag                 en   ltr  ltr  dark   200   dark      ok           Laravel - Product Label
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/testimonial         en   ltr  ltr  dark   200   dark      ok           Laravel - Product Label
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/order-grid          en   ltr  ltr  dark   200   dark      ok           Laravel - Order
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/order-kanban        en   ltr  ltr  dark   200   dark      ok           Laravel - Order board
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/product-list        en   ltr  ltr  dark   200   dark      ok           Laravel - Product
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/customer-timeline/1 en   ltr  ltr  dark   200   dark      ok           Laravel - Product
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/product/1/edit      en   ltr  ltr  dark   200   dark      ok           Laravel - Product
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/order-reports       en   ltr  ltr  dark   200   dark      ok           Laravel - Sales Report
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+/brand-order-reports en   ltr  -    dark   200   -         PREMISE-FAIL 
+                      -> sheet= wanted dark
+/category-order-reports en   ltr  -    dark   200   -         PREMISE-FAIL 
+                      -> sheet= wanted dark
+/product-order-reports en   ltr  -    dark   500   -         HTTP 500     Laravel
+                      console: Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+/app-setting         en   ltr  -    dark   500   -         HTTP 500     Laravel
+                      console: Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+/profile             en   ltr  ltr  dark   200   dark      ok           Laravel - Profile
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/setting             en   ltr  ltr  dark   200   dark      ok           Laravel - Settings
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/dashboard           ar   rtl  rtl  light  200   -         ok           Laravel - لوحة التحكم
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/finance             ar   rtl  rtl  light  200   -         ok           Laravel - المالية
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/finance/withdrawals ar   rtl  rtl  light  200   -         ok           Laravel - طلبات السحب
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/finance/unreconciled-captures ar   rtl  rtl  light  200   -         ok           Laravel - مدفوعات بانتظار المراجعة
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/coupon              ar   rtl  rtl  light  200   -         ok           Laravel - كوبون
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/faq                 ar   rtl  rtl  light  200   -         ok           Laravel - كوبون
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/flash-sale          ar   rtl  rtl  light  200   -         ok           Laravel - كوبون
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/product-brand       ar   rtl  rtl  light  200   -         ok           Laravel - علامة المنتج
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/product-label       ar   rtl  rtl  light  200   -         ok           Laravel - ملصق المنتج
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/tag                 ar   rtl  rtl  light  200   -         ok           Laravel - ملصق المنتج
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/testimonial         ar   rtl  rtl  light  200   -         ok           Laravel - ملصق المنتج
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/order-grid          ar   rtl  rtl  light  200   -         ok           Laravel - الطلب
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/order-kanban        ar   rtl  rtl  light  200   -         ok           Laravel - لوحة الطلبات
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/product-list        ar   rtl  rtl  light  200   -         ok           Laravel - المنتج
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/customer-timeline/1 ar   rtl  rtl  light  200   -         ok           Laravel - المنتج
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/product/1/edit      ar   rtl  rtl  light  200   -         ok           Laravel - المنتج
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/order-reports       ar   rtl  rtl  light  200   -         ok           Laravel - تقرير المبيعات
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+/brand-order-reports ar   rtl  -    light  200   -         PREMISE-FAIL 
+                      -> dir=null wanted rtl
+/category-order-reports ar   rtl  -    light  200   -         PREMISE-FAIL 
+                      -> dir=null wanted rtl
+/product-order-reports ar   rtl  -    light  500   -         HTTP 500     Laravel
+                      console: Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+/app-setting         ar   rtl  -    light  500   -         HTTP 500     Laravel
+                      console: Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+/profile             ar   rtl  rtl  light  200   -         ok           Laravel - ملف تعريف
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/setting             ar   rtl  rtl  light  200   -         ok           Laravel - الإعدادات
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/dashboard           ar   rtl  rtl  dark   200   dark      ok           Laravel - لوحة التحكم
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/finance             ar   rtl  rtl  dark   200   dark      ok           Laravel - المالية
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/finance/withdrawals ar   rtl  rtl  dark   200   dark      ok           Laravel - طلبات السحب
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/finance/unreconciled-captures ar   rtl  rtl  dark   200   dark      ok           Laravel - مدفوعات بانتظار المراجعة
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/coupon              ar   rtl  rtl  dark   200   dark      ok           Laravel - كوبون
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/faq                 ar   rtl  rtl  dark   200   dark      ok           Laravel - كوبون
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/flash-sale          ar   rtl  rtl  dark   200   dark      ok           Laravel - كوبون
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/product-brand       ar   rtl  rtl  dark   200   dark      ok           Laravel - علامة المنتج
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/product-label       ar   rtl  rtl  dark   200   dark      ok           Laravel - ملصق المنتج
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/tag                 ar   rtl  rtl  dark   200   dark      ok           Laravel - ملصق المنتج
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/testimonial         ar   rtl  rtl  dark   200   dark      ok           Laravel - ملصق المنتج
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/order-grid          ar   rtl  rtl  dark   200   dark      ok           Laravel - الطلب
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/order-kanban        ar   rtl  rtl  dark   200   dark      ok           Laravel - لوحة الطلبات
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/product-list        ar   rtl  rtl  dark   200   dark      ok           Laravel - المنتج
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+/customer-timeline/1 ar   rtl  rtl  dark   200   dark      ok           Laravel - المنتج
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/product/1/edit      ar   rtl  rtl  dark   200   dark      ok           Laravel - المنتج
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/order-reports       ar   rtl  rtl  dark   200   dark      ok           Laravel - تقرير المبيعات
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+/brand-order-reports ar   rtl  -    dark   200   -         PREMISE-FAIL 
+                      -> dir=null wanted rtl; sheet= wanted dark
+/category-order-reports ar   rtl  -    dark   200   -         PREMISE-FAIL 
+                      -> dir=null wanted rtl; sheet= wanted dark
+/product-order-reports ar   rtl  -    dark   500   -         HTTP 500     Laravel
+                      console: Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+/app-setting         ar   rtl  -    dark   500   -         HTTP 500     Laravel
+                      console: Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+/profile             ar   rtl  rtl  dark   200   dark      ok           Laravel - ملف تعريف
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+/setting             ar   rtl  rtl  dark   200   dark      ok           Laravel - الإعدادات
+                      console: Failed to load resource: the server responded with a status of 404 (Not Found)
+
+92 rows, 14 not clean. screenshots+json in /tmp/claude-0/-home-user/c1fead93-e010-5c9c-961e-62abcd74611a/scratchpad/shots

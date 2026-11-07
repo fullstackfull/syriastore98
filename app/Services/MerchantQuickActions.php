@@ -69,7 +69,7 @@ class MerchantQuickActions
             'page' => 'product',
             'permission' => 'Create Product',
             'operator' => false,
-            'glyph' => '+',
+            'glyph' => 'ti-plus',
         ],
         [
             'name' => 'create-order',
@@ -78,7 +78,7 @@ class MerchantQuickActions
             'page' => 'order',
             'permission' => 'Manage Order',
             'operator' => true,
-            'glyph' => '+',
+            'glyph' => 'ti-plus',
         ],
         [
             'name' => 'create-customer',
@@ -90,7 +90,7 @@ class MerchantQuickActions
             'page' => 'customers',
             'permission' => 'Manage Customer',
             'operator' => true,
-            'glyph' => '+',
+            'glyph' => 'ti-plus',
         ],
         [
             'name' => 'create-coupon',
@@ -99,7 +99,7 @@ class MerchantQuickActions
             'page' => 'coupon',
             'permission' => 'Create Coupon',
             'operator' => false,
-            'glyph' => '+',
+            'glyph' => 'ti-plus',
         ],
     ];
 

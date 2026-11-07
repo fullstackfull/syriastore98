@@ -390,14 +390,14 @@ class ProductDataTable extends DataTable
         public function getColumns(): array
     {
         return buildDataTableColumn([
-            'name' => ['title' => __('Name')],
+            'name' => ['title' => __('Name'), 'addClass' => 'ss-dt-ident'],
             'category_id' => ['title' => __('Category')],
             'brand_id' => ['title' => __('Brand')],
             'label_id' => ['title' => __('Label')],
             'cover_image_path' => ['title' => __('Cover Image')],
             'variant_product' => ['title' => __('Variant')],
             'average_rating' => ['title' => __('Review')],
-            'price' => ['title' => __('Price')],
+            'price' => ['title' => __('Price'), 'addClass' => 'ss-dt-num'],
             'stock_status' => ['title' => __('Stock Status'), 'addClass' => 'text-capitalize'],
             'product_stock' => ['title' => __('Stock Quantity')]
         ]);

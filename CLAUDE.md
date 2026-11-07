@@ -156,9 +156,9 @@ reported a store-B row deleted while the raw table still held it. Assert through
 ## 3. Tests
 
 ```bash
-php artisan test --testsuite=Unit        # 339 tests (2026-10-21; counts drift)
-php artisan test --testsuite=Feature     # ~3670 tests, ~9 min
-php artisan test --testsuite=Contract    # 26 tests — the Flutter API contract
+php artisan test --testsuite=Unit        # 1079 tests, ~50s. CI RUNS THIS FIRST AND BLOCKS ON IT
+php artisan test --testsuite=Contract    # 27 tests — the Flutter API contract. Also blocking
+php artisan test --testsuite=Feature     # 7959 tests, ~9 min. SKIPPED ENTIRELY if Unit is red
 /tenant-check                            # tenancy + security suites (see .claude/commands)
 ```
 

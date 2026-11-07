@@ -1,0 +1,74 @@
+[
+ {
+  "shot": "order-view",
+  "combo": "en_ltr_light",
+  "premise": [],
+  "console": []
+ },
+ {
+  "shot": "refund-detail",
+  "combo": "en_ltr_light",
+  "premise": [],
+  "console": []
+ },
+ {
+  "shot": "quick-view-modal",
+  "combo": "en_ltr_light",
+  "premise": [],
+  "console": []
+ },
+ {
+  "shot": "order-view",
+  "combo": "en_ltr_dark",
+  "premise": [],
+  "console": []
+ },
+ {
+  "shot": "refund-detail",
+  "combo": "en_ltr_dark",
+  "premise": [],
+  "console": []
+ },
+ {
+  "shot": "quick-view-modal",
+  "combo": "en_ltr_dark",
+  "premise": [],
+  "console": []
+ },
+ {
+  "shot": "order-view",
+  "combo": "ar_rtl_light",
+  "premise": [],
+  "console": []
+ },
+ {
+  "shot": "refund-detail",
+  "combo": "ar_rtl_light",
+  "premise": [],
+  "console": []
+ },
+ {
+  "shot": "quick-view-modal",
+  "combo": "ar_rtl_light",
+  "premise": [],
+  "console": []
+ },
+ {
+  "shot": "order-view",
+  "combo": "ar_rtl_dark",
+  "premise": [],
+  "console": []
+ },
+ {
+  "shot": "refund-detail",
+  "combo": "ar_rtl_dark",
+  "premise": [],
+  "console": []
+ },
+ {
+  "shot": "quick-view-modal",
+  "combo": "ar_rtl_dark",
+  "premise": [],
+  "console": []
+ }
+]

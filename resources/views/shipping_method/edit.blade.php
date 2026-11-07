@@ -7,15 +7,15 @@
 @endphp
 <div class="row">
     <div class="form-group col-md-6">
-        {!! Form::label('', __('Name'), ['class' => 'form-label']) !!}
+        {!! Form::label('method_name', __('Name'), ['class' => 'form-label']) !!}
         {!! Form::text('method_name', null, ['class' => 'form-control','disabled']) !!}
     </div>
     <div class="form-group col-md-6">
-        {!! Form::label('', __('Cost'), ['class' => 'form-label']) !!}
+        {!! Form::label('cost', __('Cost'), ['class' => 'form-label']) !!}
         {!! Form::number('cost', null, ['class' => 'form-control','min'=>'0','step'=>'0.01']) !!}
     </div>
     <div class="form-group col-md-12">
-        {!! Form::label('calculation_type', __('Calculation type'), ['class' => 'form-label']) !!}
+        {!! Form::label('calculation_type', __('Calculation type'), ['class' => 'form-label']) !!}<span class="ss-label__required" aria-hidden="true">*</span>
         {{ Form::select('calculation_type',
         ['1'=>'Per class: Charge shipping for each shipping class individually',
         '2'=>'Per order: Charge shipping for the most expensive shipping class'],

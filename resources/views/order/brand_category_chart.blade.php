@@ -51,14 +51,41 @@
             <div class="cat-img rounded-1 border overflow-hidden border border-primary border-2 rounded">
                 <img src="{{ asset($sale->sale_image_path ?? '#') }}" alt="product-img">
             </div>
-            <div class="cat-tab-text d-flex align-items-start gap-2">
-                <p class="m-0 text-muted">{{ $sale->sale_name }}</p>
-                <span class="cat-price"><b>{{ currency_format_with_sym(($sale->total_sale ?? 0), getCurrentStore()) }}</b></span>
+            <div class="cat-tab-text ss-rank d-flex align-items-start gap-2">
+                {{-- THE NAME WAS BIGGER AND QUIETER THAN THE NUMBER IT LABELS: measured
+                     18px/400 muted against 16px/600 for the figure, so the row read
+                     upside down. `text-muted` goes rather than being overridden, which
+                     is what this project does with a host utility a later sheet owns. --}}
+                <p class="ss-rank__name">{{ $sale->sale_name }}</p>
+                <span class="cat-price ss-rank__value">{{ currency_format_with_sym(($sale->total_sale ?? 0), getCurrentStore()) }}</span>
             </div>
         </div>
     @endforeach
 @else
-    <div class="d-flex text-center align-items-center h-100 w-100 justify-content-center">
-        <span>{{ __('No Data Found') }}</span>
-    </div>
+    {{-- AN EMPTY STATE THAT SAYS WHAT IS MISSING AND WHEN IT WILL FILL.
+
+         It used to be the two words "No Data Found", centred in a card measured at 490px tall,
+         with no icon and no guidance -- and identical on both cards, because this partial had no
+         way to tell Top Category from Top Brand. `$type` now comes from the controller, so each
+         card names its own dimension.
+
+         `<x-ss.empty>` is the design system's component for this and is what the notifications,
+         customer-timeline and catalogue screens already use, so the merchant meets one empty
+         state across the admin rather than a different improvisation per card. --}}
+    @php
+        $ssDimension = ($type ?? '') === 'category' ? 'category' : (($type ?? '') === 'brand' ? 'brand' : '');
+    @endphp
+    @if ($ssDimension === 'category')
+        <x-ss.empty icon="chart-bar"
+                    :title="__('No category sales yet')"
+                    :body="__('Once orders include products that belong to a category, the categories that sell most appear here.')" />
+    @elseif ($ssDimension === 'brand')
+        <x-ss.empty icon="tag"
+                    :title="__('No brand sales yet')"
+                    :body="__('Once orders include products that carry a brand, the brands that sell most appear here.')" />
+    @else
+        <x-ss.empty icon="chart-bar"
+                    :title="__('No sales yet')"
+                    :body="__('Top sellers appear here once orders start coming in.')" />
+    @endif
 @endif

@@ -6,7 +6,7 @@
 @section('action-button')
     <div class=" text-end d-flex all-button-box justify-content-md-end justify-content-center">
         <a href="#" onclick="saveAsPDF();" id="download-buttons" class="btn btn-sm btn-primary btn-icon d-flex align-items-center"
-            data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Print')}}" aria-label="Print">
+            data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Print')}}" aria-label="{{ __('Print') }}">
             <i class="ti ti-printer" style="font-size:20px"></i>
         </a>
         @php
@@ -28,15 +28,15 @@
                     <h6 class="dropdown-header">{{ __('Set Ticket status') }}</h6>
                     @if($ticket->status == 'open')
                         <a class="dropdown-item ticket_status" href="#" data-value="In Progress">
-                            <i class="fa fa-check text-success"></i> {{ __('In Progress') }}
+                            <i class="ti ti-check text-success"></i> {{ __('In Progress') }}
                         </a>
                         <a class="dropdown-item ticket_status" href="#" data-value="Solved">
-                            <i class="fa fa-check text-success"></i> {{ __('Solved') }}
+                            <i class="ti ti-check text-success"></i> {{ __('Solved') }}
                         </a>
                     @endif
                     @if($ticket->status == 'In Progress')
                         <a class="dropdown-item ticket_status" href="#" data-value="Solved">
-                            <i class="fa fa-check text-success"></i> {{ __('Solved') }}
+                            <i class="ti ti-check text-success"></i> {{ __('Solved') }}
                         </a>
                     @endif
                 </div>
@@ -84,7 +84,7 @@
 
                                     @foreach ($attachments as $index => $attachment)
                                         <li class="list-group-item px-0">
-                                            {{ $attachment }} <a download="" href="{{ get_file($attachment) }}" class="edit-icon py-1 ml-2" title="{{ __('Download') }}"><i class="fas fa-download ms-2"></i></a>
+                                            {{ $attachment }} <a download="" href="{{ get_file($attachment) }}" class="edit-icon py-1 ml-2" title="{{ __('Download') }}"><i class="ti ti-download ms-2"></i></a>
                                         </li>
                                     @endforeach
                                 </ul>
@@ -109,7 +109,7 @@
                                 <ul class="list-group list-group-flush">
                                     @foreach ($attachments as $index => $attachment)
                                     <li class="list-group-item px-0">
-                                        {{ $attachment }}<a download="" href="{{ get_file($attachment) }}" class="edit-icon py-1 ml-2" title="{{ __('Download') }}"><i class="fa fa-download ms-2"></i></a>
+                                        {{ $attachment }}<a download="" href="{{ get_file($attachment) }}" class="edit-icon py-1 ml-2" title="{{ __('Download') }}"><i class="ti ti-download ms-2"></i></a>
                                     </li>
                                     @endforeach
                                 </ul>
@@ -135,7 +135,7 @@
                             @csrf
                             <div class="card-body">
                                 <div class="form-group col-md-7">
-                                    {!! Form::label('', __('Description'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('description', __('Description'), ['class' => 'form-label']) !!}
                                     {!! Form::textarea('reply_description', old('reply_description'), ['class' => 'form-control  summernote-simple-product', 'rows' => 1, 'id' => 'description']) !!}
                                 </div>
                                 <div class="form-group file-group mb-5 col-md-7">

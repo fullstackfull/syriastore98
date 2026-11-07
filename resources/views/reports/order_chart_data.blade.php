@@ -21,10 +21,15 @@
 
     <div class="col-12 mt-3">
         <x-ss.card :title="__('Order value before and after discounts')">
+            {{-- D-42.3. BOTH SERIES ARE MONEY, so both carry two decimal places and neither is
+                 cast to an integer on the way in. `array_map('intval', …)` here, on top of the
+                 component's own cast, printed an order worth 1234.56 as `1,234`. --}}
             <x-ss.bar-chart
                 :labels="$labels ?? []"
-                :values="array_map('intval', $grossSeries ?? [])"
-                :values2="array_map('intval', $netSeries ?? [])"
+                :values="$grossSeries ?? []"
+                :values2="$netSeries ?? []"
+                :value-decimals="2"
+                :value-decimals2="2"
                 :title="__('Order value before and after discounts')"
                 :value-label="__('Order value, before discounts')"
                 :value-label2="__('Order value')"
@@ -36,9 +41,12 @@
     <div class="col-12 mt-3">
         <x-ss.card :title="__('Orders placed')"
                    :note="__('Counts every order placed in the period, whatever its status or value. Not revenue.')">
+            {{-- A COUNT, so no decimal places: `value-decimals` defaults to 0 and is left off
+                 deliberately. The cast is dropped all the same — the component normalises, and
+                 an `intval` here would hide a handler that started returning something else. --}}
             <x-ss.bar-chart
                 :labels="$labels ?? []"
-                :values="array_map('intval', $orderSeries ?? [])"
+                :values="$orderSeries ?? []"
                 :title="__('Orders placed')"
                 :value-label="__('Orders')"
                 :column-label="__('Day')"

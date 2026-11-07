@@ -189,7 +189,13 @@
             });
         });
     </script>
-    <script src="https://rawgit.com/unconditional/jquery-table2excel/master/src/jquery.table2excel.js"></script>
+    {{-- P2.5 customer-orders-export-dead-cdn. WAS a RawGit src, a domain retired in October
+         2019 that answers 404 with a plain-text shutdown notice -- so `$.fn.table2excel` was
+         undefined and the handler below threw. HYGIENE ONLY on this page: nothing here carries
+         `.csv` and `@section('action-button')` is empty (:11-12), so the handler is unreachable,
+         and it targets `#pc-dt-export` while this page's table is `#woocom-customer-table` (:68).
+         Correcting that selector is a SEPARATE change and is deliberately not bundled here. --}}
+    <script src="{{ asset('js/jquery.table2excel.js') }}"></script>
     <script>
         const d = new Date();
         let seconds = d.getSeconds();

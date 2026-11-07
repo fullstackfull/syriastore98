@@ -1,0 +1,50 @@
+[
+ {
+  "shot": "role-create-modal",
+  "combo": "en_ltr_light",
+  "premise": [],
+  "console": []
+ },
+ {
+  "shot": "role-edit-modal",
+  "combo": "en_ltr_light",
+  "premise": [],
+  "console": []
+ },
+ {
+  "shot": "role-create-modal",
+  "combo": "en_ltr_dark",
+  "premise": [],
+  "console": []
+ },
+ {
+  "shot": "role-edit-modal",
+  "combo": "en_ltr_dark",
+  "premise": [],
+  "console": []
+ },
+ {
+  "shot": "role-create-modal",
+  "combo": "ar_rtl_light",
+  "premise": [],
+  "console": []
+ },
+ {
+  "shot": "role-edit-modal",
+  "combo": "ar_rtl_light",
+  "premise": [],
+  "console": []
+ },
+ {
+  "shot": "role-create-modal",
+  "combo": "ar_rtl_dark",
+  "premise": [],
+  "console": []
+ },
+ {
+  "shot": "role-edit-modal",
+  "combo": "ar_rtl_dark",
+  "premise": [],
+  "console": []
+ }
+]

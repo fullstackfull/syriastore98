@@ -323,7 +323,15 @@ class OrderDataTable extends DataTable
     }
 
     /** The formatted date, or a dash -- never a date the row does not have. */
-    private static function dateOrDash($value): string
+    /**
+     * PUBLIC SINCE P2.5-DESIGN-C, so the order GRID can render a date without a second
+     * implementation of this rule. The grid showed no date at all while its two siblings both
+     * did; the obvious fix was `Utility::dateFormat($order->order_date)` in the view, and that
+     * would have reintroduced F19 -- the epoch printed for a missing date -- on a second screen,
+     * which is the exact defect the guard above exists to stop. One helper, one behaviour.
+     * `hasDate()` stays private: it is this method's internal test, not a second public rule.
+     */
+    public static function dateOrDash($value): string
     {
         return self::hasDate($value) ? \App\Models\Utility::dateFormat($value) : '-';
     }
@@ -549,10 +557,10 @@ class OrderDataTable extends DataTable
  public function getColumns(): array
 {
     return buildDataTableColumn([
-        'product_order_id' => ['title' => __('Order Id')],
+        'product_order_id' => ['title' => __('Order Id'), 'addClass' => 'ss-dt-ident'],
         'order_date' => ['title' => __('Date')],
         'customer_id' => ['title' => __('Customer Info')],
-        'final_price' => ['title' => __('Price')],
+        'final_price' => ['title' => __('Price'), 'addClass' => 'ss-dt-num'],
         'payment_type' => ['title' => __('Payment Type')],
 
         'shipping_method' => [

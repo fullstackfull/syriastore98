@@ -1,0 +1,300 @@
+{
+  "ids": {
+    "order": 1,
+    "refund": 1,
+    "refundOrder": 1,
+    "customer": 1,
+    "cartCustomer": 3,
+    "wishlist": 10,
+    "orderEnc": "eyJpdiI6Ii8vaTVsSEF4eHRxY2xSNUc1OEFGUkE9PSIsInZhbHVlIjoiVzhJeDhudnRJYyt0bWtHK2NzeXdyZz09IiwibWFjIjoiNjU5ZmQxMjZiZmEwNGQyNWFhYmIyOTBmMjAxYzE2YjUyMjQ4ZjdjMmMwNjFlMmU5YThkNDYxZDVhZWFjZmIzZCIsInRhZyI6IiJ9",
+    "refundEnc": "eyJpdiI6IndSVlhZTStzSHFUK2FyNmJFckhaSGc9PSIsInZhbHVlIjoiSnpDejJMWlhibERhNXFSTWR4L29KUT09IiwibWFjIjoiNWRiM2EwNTRlNzUzNDcwZDU0M2RhNjkzNDQzZDFkMWRjOTQ2OTMxZDUzOTRmOGI1NWEwYWIyY2RkOGE0YTlkNSIsInRhZyI6IiJ9"
+  },
+  "rows": [
+    {
+      "surface": "Order list (CONTROL, verified)",
+      "route": "/order",
+      "status": 200,
+      "landed": "/order",
+      "shape": "PAGE",
+      "title": "Store Syria - Order",
+      "bodyKids": 59,
+      "tableRows": 10,
+      "chars": 1713
+    },
+    {
+      "surface": "Order board (Kanban)",
+      "route": "/order-kanban",
+      "status": 200,
+      "landed": "/order-kanban",
+      "shape": "PAGE",
+      "title": "Store Syria - Order board",
+      "bodyKids": 49,
+      "tableRows": 0,
+      "chars": 7469
+    },
+    {
+      "surface": "Order grid (card view)",
+      "route": "/order-grid",
+      "status": 200,
+      "landed": "/order-grid",
+      "shape": "PAGE",
+      "title": "Store Syria - Order",
+      "bodyKids": 50,
+      "tableRows": 0,
+      "chars": 1474
+    },
+    {
+      "surface": "Order detail (CONTROL, verified)",
+      "route": "/order-view/eyJpdiI6Ii8vaTVsSEF4eHRxY2xSNUc1OEFGUkE9PSIsInZhbHVlIjoiVzhJeDhudnRJYyt0bWtHK2NzeXdyZz09IiwibWFjIjoiNjU5ZmQxMjZiZmEwNGQyNWFhYmIyOTBmMjAxYzE2YjUyMjQ4ZjdjMmMwNjFlMmU5YThkNDYxZDVhZWFjZmIzZCIsInRhZyI6IiJ9",
+      "status": 200,
+      "landed": "/order-view/eyJpdiI6Ii8vaTVsSEF4eHRxY2xSNUc1OEFGUkE9PSIsInZhbHVlIjoiVzhJeDhudnRJYyt0bWtHK2NzeXdyZz09IiwibWFjIjoiNjU5ZmQxMjZiZmEwNGQyNWFhYmIyOTBmMjAxYzE2YjUyMjQ4ZjdjMmMwNjFlMmU5YThkNDYxZDVhZWFjZmIzZCIsInRhZyI6IiJ9",
+      "shape": "PAGE",
+      "title": "Store Syria - Order Detail",
+      "bodyKids": 51,
+      "tableRows": 2,
+      "chars": 1591
+    },
+    {
+      "surface": "Order quick preview (panel)",
+      "route": "/order-preview/1",
+      "status": 200,
+      "landed": "/order-preview/1",
+      "shape": "FRAGMENT",
+      "title": "",
+      "bodyKids": 1,
+      "tableRows": 2,
+      "chars": 394
+    },
+    {
+      "surface": "Order AJAX modal (eye/Show)",
+      "route": "/orders/order_view/eyJpdiI6Ii8vaTVsSEF4eHRxY2xSNUc1OEFGUkE9PSIsInZhbHVlIjoiVzhJeDhudnRJYyt0bWtHK2NzeXdyZz09IiwibWFjIjoiNjU5ZmQxMjZiZmEwNGQyNWFhYmIyOTBmMjAxYzE2YjUyMjQ4ZjdjMmMwNjFlMmU5YThkNDYxZDVhZWFjZmIzZCIsInRhZyI6IiJ9",
+      "status": 200,
+      "landed": "/orders/order_view/eyJpdiI6Ii8vaTVsSEF4eHRxY2xSNUc1OEFGUkE9PSIsInZhbHVlIjoiVzhJeDhudnRJYyt0bWtHK2NzeXdyZz09IiwibWFjIjoiNjU5ZmQxMjZiZmEwNGQyNWFhYmIyOTBmMjAxYzE2YjUyMjQ4ZjdjMmMwNjFlMmU5YThkNDYxZDVhZWFjZmIzZCIsInRhZyI6IiJ9",
+      "shape": "FRAGMENT",
+      "title": "",
+      "bodyKids": 1,
+      "tableRows": 2,
+      "chars": 448
+    },
+    {
+      "surface": "Order show (resource)",
+      "route": "/order/eyJpdiI6Ii8vaTVsSEF4eHRxY2xSNUc1OEFGUkE9PSIsInZhbHVlIjoiVzhJeDhudnRJYyt0bWtHK2NzeXdyZz09IiwibWFjIjoiNjU5ZmQxMjZiZmEwNGQyNWFhYmIyOTBmMjAxYzE2YjUyMjQ4ZjdjMmMwNjFlMmU5YThkNDYxZDVhZWFjZmIzZCIsInRhZyI6IiJ9",
+      "status": 200,
+      "landed": "/order/eyJpdiI6Ii8vaTVsSEF4eHRxY2xSNUc1OEFGUkE9PSIsInZhbHVlIjoiVzhJeDhudnRJYyt0bWtHK2NzeXdyZz09IiwibWFjIjoiNjU5ZmQxMjZiZmEwNGQyNWFhYmIyOTBmMjAxYzE2YjUyMjQ4ZjdjMmMwNjFlMmU5YThkNDYxZDVhZWFjZmIzZCIsInRhZyI6IiJ9",
+      "shape": "FRAGMENT",
+      "title": "",
+      "bodyKids": 1,
+      "tableRows": 2,
+      "chars": 448
+    },
+    {
+      "surface": "Create order",
+      "route": "/order/create",
+      "status": 200,
+      "landed": "/order/create",
+      "shape": "PAGE",
+      "title": "Store Syria - Create Order",
+      "bodyKids": 50,
+      "tableRows": 0,
+      "chars": 1725
+    },
+    {
+      "surface": "Refund request list",
+      "route": "/refund-request",
+      "status": 200,
+      "landed": "/refund-request",
+      "shape": "PAGE",
+      "title": "Store Syria - Order Refund Request",
+      "bodyKids": 58,
+      "tableRows": 1,
+      "chars": 547
+    },
+    {
+      "surface": "Refund detail (CONTROL, verified)",
+      "route": "/refund-request/eyJpdiI6IndSVlhZTStzSHFUK2FyNmJFckhaSGc9PSIsInZhbHVlIjoiSnpDejJMWlhibERhNXFSTWR4L29KUT09IiwibWFjIjoiNWRiM2EwNTRlNzUzNDcwZDU0M2RhNjkzNDQzZDFkMWRjOTQ2OTMxZDUzOTRmOGI1NWEwYWIyY2RkOGE0YTlkNSIsInRhZyI6IiJ9",
+      "status": 200,
+      "landed": "/refund-request/eyJpdiI6IndSVlhZTStzSHFUK2FyNmJFckhaSGc9PSIsInZhbHVlIjoiSnpDejJMWlhibERhNXFSTWR4L29KUT09IiwibWFjIjoiNWRiM2EwNTRlNzUzNDcwZDU0M2RhNjkzNDQzZDFkMWRjOTQ2OTMxZDUzOTRmOGI1NWEwYWIyY2RkOGE0YTlkNSIsInRhZyI6IiJ9",
+      "shape": "PAGE",
+      "title": "Store Syria - Order Refund Request",
+      "bodyKids": 50,
+      "tableRows": 1,
+      "chars": 897
+    },
+    {
+      "surface": "Printable receipt",
+      "route": "/order-receipt/eyJpdiI6Ii8vaTVsSEF4eHRxY2xSNUc1OEFGUkE9PSIsInZhbHVlIjoiVzhJeDhudnRJYyt0bWtHK2NzeXdyZz09IiwibWFjIjoiNjU5ZmQxMjZiZmEwNGQyNWFhYmIyOTBmMjAxYzE2YjUyMjQ4ZjdjMmMwNjFlMmU5YThkNDYxZDVhZWFjZmIzZCIsInRhZyI6IiJ9",
+      "status": 200,
+      "landed": "/dashboard",
+      "shape": "PAGE (prints, then returns)",
+      "title": "Store Syria - Dashboard",
+      "bodyKids": 32,
+      "tableRows": 19,
+      "chars": 2730
+    },
+    {
+      "surface": "Printable shipping label",
+      "route": "/shippinglabel/pdf/eyJpdiI6Ii8vaTVsSEF4eHRxY2xSNUc1OEFGUkE9PSIsInZhbHVlIjoiVzhJeDhudnRJYyt0bWtHK2NzeXdyZz09IiwibWFjIjoiNjU5ZmQxMjZiZmEwNGQyNWFhYmIyOTBmMjAxYzE2YjUyMjQ4ZjdjMmMwNjFlMmU5YThkNDYxZDVhZWFjZmIzZCIsInRhZyI6IiJ9",
+      "status": 200,
+      "landed": "/shippinglabel/pdf/eyJpdiI6Ii8vaTVsSEF4eHRxY2xSNUc1OEFGUkE9PSIsInZhbHVlIjoiVzhJeDhudnRJYyt0bWtHK2NzeXdyZz09IiwibWFjIjoiNjU5ZmQxMjZiZmEwNGQyNWFhYmIyOTBmMjAxYzE2YjUyMjQ4ZjdjMmMwNjFlMmU5YThkNDYxZDVhZWFjZmIzZCIsInRhZyI6IiJ9",
+      "shape": "FRAGMENT",
+      "title": "",
+      "bodyKids": 4,
+      "tableRows": 3,
+      "chars": 315
+    },
+    {
+      "surface": "Customer list (CONTROL, verified)",
+      "route": "/customer",
+      "status": 200,
+      "landed": "/customer",
+      "shape": "PAGE",
+      "title": "Store Syria - Customer",
+      "bodyKids": 62,
+      "tableRows": 3,
+      "chars": 806
+    },
+    {
+      "surface": "Customer grid (card view)",
+      "route": "/customer-grid",
+      "status": 200,
+      "landed": "/customer-grid",
+      "shape": "PAGE",
+      "title": "Store Syria - Customer",
+      "bodyKids": 53,
+      "tableRows": 0,
+      "chars": 573
+    },
+    {
+      "surface": "Customer filter field metadata",
+      "route": "/customer-filter",
+      "status": 200,
+      "landed": "/customer-filter",
+      "shape": "FRAGMENT",
+      "title": "",
+      "bodyKids": 2,
+      "tableRows": 0,
+      "chars": 82
+    },
+    {
+      "surface": "Customer filter result fragment",
+      "route": "/customer-filter-data",
+      "status": 200,
+      "landed": "/customer-filter-data",
+      "shape": "FRAGMENT",
+      "title": "",
+      "bodyKids": 2,
+      "tableRows": 0,
+      "chars": 4214
+    },
+    {
+      "surface": "Create customer",
+      "route": "/customer/create",
+      "status": 200,
+      "landed": "/customer/create",
+      "shape": "PAGE",
+      "title": "Store Syria - Create Customer",
+      "bodyKids": 49,
+      "tableRows": 0,
+      "chars": 464
+    },
+    {
+      "surface": "Customer orders (CONTROL, verified)",
+      "route": "/customer/1",
+      "status": 200,
+      "landed": "/customer/1",
+      "shape": "PAGE",
+      "title": "Store Syria - Orders",
+      "bodyKids": 49,
+      "tableRows": 10,
+      "chars": 1167
+    },
+    {
+      "surface": "Customer timeline (CONTROL, verified)",
+      "route": "/customer-timeline/1",
+      "status": 200,
+      "landed": "/customer-timeline/1",
+      "shape": "PAGE",
+      "title": "Store Syria - Customer Timeline",
+      "bodyKids": 49,
+      "tableRows": 0,
+      "chars": 1055
+    },
+    {
+      "surface": "Edit customer (unimplemented)",
+      "route": "/customer/1/edit",
+      "status": 404,
+      "landed": "/customer/1/edit",
+      "shape": "HTTP 404",
+      "title": "Not Found",
+      "bodyKids": 1,
+      "tableRows": 0,
+      "chars": 13
+    },
+    {
+      "surface": "Abandoned carts list",
+      "route": "/abandon-carts-handled",
+      "status": 200,
+      "landed": "/abandon-carts-handled",
+      "shape": "PAGE",
+      "title": "Store Syria - Abandon Cart",
+      "bodyKids": 59,
+      "tableRows": 3,
+      "chars": 600
+    },
+    {
+      "surface": "Abandoned-cart products modal",
+      "route": "/abandon-carts-show/3",
+      "status": 200,
+      "landed": "/abandon-carts-show/3",
+      "shape": "FRAGMENT",
+      "title": "",
+      "bodyKids": 1,
+      "tableRows": 0,
+      "chars": 104
+    },
+    {
+      "surface": "Abandoned wishlists list",
+      "route": "/wishlist",
+      "status": 200,
+      "landed": "/wishlist",
+      "shape": "PAGE",
+      "title": "Store Syria - Wishlist",
+      "bodyKids": 60,
+      "tableRows": 3,
+      "chars": 592
+    },
+    {
+      "surface": "Abandoned-wishlist products modal",
+      "route": "/wishlist/10",
+      "status": 200,
+      "landed": "/wishlist/10",
+      "shape": "FRAGMENT",
+      "title": "",
+      "bodyKids": 1,
+      "tableRows": 0,
+      "chars": 19
+    },
+    {
+      "surface": "Wishlist create (unimplemented)",
+      "route": "/wishlist/create",
+      "status": 200,
+      "landed": "/wishlist/create",
+      "shape": "FRAGMENT",
+      "title": "",
+      "bodyKids": 0,
+      "tableRows": 0,
+      "chars": 0
+    },
+    {
+      "surface": "Wishlist edit (unimplemented)",
+      "route": "/wishlist/10/edit",
+      "status": 200,
+      "landed": "/wishlist/10/edit",
+      "shape": "FRAGMENT",
+      "title": "",
+      "bodyKids": 0,
+      "tableRows": 0,
+      "chars": 0
+    }
+  ]
+}

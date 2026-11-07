@@ -1406,8 +1406,26 @@ textarea {
         font-size: 25px;
     }
 
+    /* P2.5 header-triggers-nameless-below-992: `:not(.visually-hidden)` IS LOAD-BEARING.
+       The account trigger carries `dropdown-toggle`, and its screen-reader-only label is a
+       `span` inside it. Bootstrap's `.visually-hidden` (public/assets/css/style.css:8066)
+       declares position, width, height, padding, margin, overflow, clip, white-space and
+       border -- every one `!important` -- and NO `display`, so there is nothing for this
+       `display: none` to lose to. Without the exemption the hidden label was itself
+       display:none at 390px and the markup half of that repair did nothing at exactly the
+       width the row is about.
+
+       `.text-store` IS DELIBERATELY NOT EXEMPTED: that is Quick Add's visible label, and the
+       whole point of this rule is to keep real text out of 40x40 icon chrome on a phone.
+
+       THIS EDIT IS MIRRORED IN THE OTHER CUSTOM SHEET AND MUST STAY SO. layouts/app.blade.php
+       loads rtl-custom.css INSTEAD of custom.css for Arabic (158/166 against 162/170, in light
+       and dark both), so a change in one sheet reaches exactly half the merchants -- and a
+       screen-reader-only span whose utility rule is overridden does not fail quietly, it
+       becomes ordinary VISIBLE text. `HeaderDropdownTriggerNamesTest` asserts the two blocks
+       are byte-identical. */
     .dash-header .dash-head-link .text-store,
-    .dash-header .dash-head-link.dropdown-toggle span {
+    .dash-header .dash-head-link.dropdown-toggle span:not(.visually-hidden) {
         display: none;
     }
 
@@ -1864,7 +1882,7 @@ img.refund-image {
 .my-custom-timeline .tl-box .end-date {
     font-size: 10px;
     padding: 3px;
-    background: #FF3A6E;
+    background: #DB325F;
     color: #ffffff;
     border-radius: 3px;
     -webkit-border-radius: 3px;
@@ -1952,23 +1970,23 @@ img.refund-image {
 }
 
 .register-timeline {
-    background: #4CAF50 !important;
+    background: #3A853D !important;
 }
 
 .last-login-timeline {
-    background: #607D8B !important;
+    background: #5E7A88 !important;
 }
 
 .wishlist-timeline {
-    background: #32d7a2 !important;
+    background: #1F8564 !important;
 }
 
 .dlt-wishlist-timeline {
-    background: #9E9E9E !important;
+    background: #767676 !important;
 }
 
 .add-cart-timeline {
-    background: #FFC107 !important;
+    background: #947004 !important;
 }
 
 .dlt-cart-timeline {
@@ -1976,7 +1994,7 @@ img.refund-image {
 }
 
 .order-timeline {
-    background: #2196F3 !important;
+    background: #1B79C5 !important;
 }
 
 .report-filter {
@@ -2475,8 +2493,61 @@ span.badge.rounded.p-2.m-1.px-3.bg-dark {
     color: #6c757d;
 }
 
-.nav-pills .nav-item a {
+.nav-pills .nav-item a,
+.nav-pills .nav-item button.nav-link {
     cursor: pointer;
+}
+
+/* P2.5 settings-tabs-not-keyboard-reachable. The 28 settings tabs were href-less, tabindex-less
+   <a role="tab"> elements: not focusable, not in the tab order, so 20 of a merchant's 21
+   settings panels were mouse-only (WCAG 2.1.1). They are now <button type="button">, which
+   fires click on both Enter and Space, so the delegate needs no change.
+
+   The swap is NOT inert, and these three declarations are the whole cost of it. Measured in
+   the shipped sheets, not assumed:
+     style.css:16251   .nav-pills button.nav-link { background:#f5f5f5; color:#000 }
+                       specificity (0,2,1) - DORMANT today, FIRES now, and it beats
+                       .nav-pills .nav-link (0,2,0, style.css:4444). Mirrored in
+                       style-dark.css:16254, style-rtl.css:16212, rtl-style-dark.css:16217.
+     style.css:28696   #useradd-sidenav .nav-pills .nav-link sets display:flex and height:100%
+                       and NO width. A block-level <a> fills its grid column; a form control
+                       shrink-wraps. This rail has no .nav-fill (unlike roles/create.blade.php),
+                       so without width:100% all 21 pills collapse to label width and jam
+                       against the inline-start edge.
+     custom-color.css:155  body.custom-color .nav-link { color: var(--color-customColor) }
+                       (0,2,0) LOSES to (0,2,1), which is why the brand colour has to be
+                       restated for the default chrome.
+
+   #060606 is restated deliberately: it is what the anchors compute today on a theme-1..theme-10
+   LIGHT chrome (style.css:4444). MEASURED in headless Chrome against the real sheets, with the
+   same values for the <a> before the swap and the <button> after it:
+     default custom-color, light:  rgb(51,93,168)  on rgb(255,255,255)  = 6.42:1   AA pass
+     theme-4, light:               rgb(6,6,6)      on rgb(255,255,255)  = 20.26:1  AAA pass
+     theme-4, dark:                rgb(20,83,136)  on rgb(41,42,51)     = 1.78:1   FAIL
+   The dark figure is PRE-EXISTING and this change neither causes nor cures it: a theme
+   declaration this rule does not reach governs the colour there, so the #060606 above is inert
+   in dark. Recorded as its own finding rather than silently altered inside a keyboard repair.
+   Width/background/colour parity with the pre-swap anchor was verified by measurement, as was
+   the collapse without these rules: 243.3px with them, 130.5px and 65.9px without.
+
+   No :focus rule is added. The governing declaration is the !important
+   .nav-link:hover, .nav-link:focus { background: var(--theme-color) !important;
+   color: var(--bs-white) !important } at style.css:16260 and its three mirrors - white on those
+   chrome colours measures 5.26:1 to 9.01:1, all passing, and a non-important companion could
+   not override it at any specificity.
+
+   Scoped by #useradd-sidenav so every other nav-pills rail in the admin is untouched. This
+   block is byte-identical in custom.css (LTR) and rtl-custom.css (Arabic) and sits AT the
+   existing cursor rule, outside the dark-mode sentinel blocks whose contents
+   DarkTextUtilityContrastTest and DarkModalSurfaceContrastTest police. */
+#useradd-sidenav .nav-pills button.nav-link {
+    width: 100%;
+    background: transparent;
+    color: #060606;
+}
+
+body.custom-color #useradd-sidenav .nav-pills button.nav-link {
+    color: var(--color-customColor);
 }
 
 
@@ -3737,6 +3808,46 @@ body.custom-color .nex-prev-btn-wrp .btn {
     color: #000000;
 }
 
+/* P2.5-GRID-ICONS start
+   resources/views/order/grid.blade.php, the card's Show and Edit controls. In dark mode they
+   inherit the unguarded `color: #000000` of the rule immediately above, which at 0-3-1 / 0-2-1
+   beats the host dark sheet's own rescue rule `.btn i { color: var(--bs-white) }`
+   (public/assets/css/style-dark.css:19635-19638, 0-1-1, and carrying no `!important`). Both
+   controls are transparent buttons (`--bs-btn-bg: transparent`, style-dark.css:3446) over the
+   host's dark card (`--bs-card-bg: #292A33`, style-dark.css:5006, painted :5015), so #000000
+   paints on #292A33 and measures 1.47:1 against WCAG 1.4.11's 3:1. The rule above is CORRECT in
+   light mode -- #000000 on the white card is 21:1 -- so it is left untouched and this block only
+   adds a dark-mode override.
+
+   SCOPED ON `.border`, WHICH IS WHAT SEPARATES THE UNFILLED CARD CONTROLS FROM THE FILLED PAIR.
+   Show, Edit and Delete carry `border`; the conditional return Approve/Cancel pair does not. The
+   filled pair must NOT be released to a light foreground: `.btn-primary` is
+   `background-color: var(--theme-color)` (style-dark.css:3535-3538) and `--theme-color` is one of
+   ten host presets or `var(--color-customColor)`, which the layout now selects by default. Across
+   those presets the safe foreground flips direction -- #000000 is 8.42:1 on the gold preset
+   #c0a145 but 2.33:1 on the grey #48494b -- so no unguarded value is safe there. That is a
+   SEPARATE defect: it needs `--ss-onbrand`, which custom.css already derives from the chosen
+   fill by script, not this rule.
+
+   NO `!important`, DELIBERATELY. `.text-danger` is `!important` (style-dark.css:9414-9417, with
+   `--bs-danger-rgb: 255, 58, 110` at :54), so the Delete icon keeps #FF3A6E = 4.13:1 on the card,
+   which already clears 3:1. An `!important` here would outrank it and flatten the
+   destructive-action signal to the same grey as Show and Edit: the ratio would improve while the
+   meaning was destroyed.
+
+   `.border` IS A BOOTSTRAP LAYOUT UTILITY, NOT A SEMANTIC MARKER. If this grid is ever converted
+   to the `.ss-btn` classes resources/views/order/action.blade.php already uses, DELETE this block
+   and the rule above it from BOTH sheets rather than re-pointing the selector.
+
+   Asserted by Tests\Unit\Ui\GridCardIconContrastTest, which also pins this block as a TOP-LEVEL
+   rule: inserted one line earlier, inside the declaration above, it would nest and match nothing
+   while every text-matching assertion still passed. */
+html[data-ss-theme="dark"] body .order-card .btn.border i,
+html[data-ss-theme="dark"] body .order-card .btn.border:hover i {
+    color: var(--ss-fg, #e8eaed);           /* #e8eaed on #292A33 = 11.83:1 */
+}
+/* P2.5-GRID-ICONS end */
+
 .product-grid .card .card-header .card-header-right {
     right: 16px !important;
     top: 25px !important;
@@ -4297,30 +4408,29 @@ body.custom-color .nex-prev-btn-wrp .btn {
    Note #808191, the host's own dark-sidebar grey, is NOT reused: on #1c232f it
    reaches only 4.11:1, under the 4.5:1 that `.dash-link`'s 15px/500 requires.
    ========================================================================== */
-@media (max-width: 1024px) {
-    .dash-sidebar .dash-navbar .dash-link,
-    .dash-sidebar .dash-navbar .dash-link .dash-mtext {
-        color: #c7ccd4;
-    }
+/* P2.5-PKG-A-02 REMOVED THE BLOCK THAT STOOD HERE -- all five rules, in both this file and its
+   direction twin, because every one of them was written for a drawer that does not exist.
 
-    .dash-sidebar.light-sidebar .dash-navbar .dash-link i,
-    .dash-sidebar .dash-navbar .dash-link .dash-arrow {
-        color: #c7ccd4;
-    }
+   The colours only make sense on dark: #c7ccd4 for the links, labels, icons and arrow, #e9ecf1
+   for the search field's text, #a7adba for its placeholder. The comment above this one even
+   justifies #c7ccd4 by measuring the alternative against #1c232f. MEASURED at 390px with the
+   drawer open and settled, that is not the surface:
 
-    .dash-sidebar .sidebar-input .form-control {
-        color: #e9ecf1;
-    }
+       .dash-sidebar                 { background: #1c232f }   the host's dark drawer
+       .dash-sidebar.light-sidebar   { background: #fff    }   WINS
 
-    .dash-sidebar .sidebar-input .form-control::placeholder {
-        color: #a7adba;
-        opacity: 1;
-    }
+   and `partision/sidebar.blade.php:65,67` writes both classes unconditionally, with no width,
+   theme or setting that drops the second. So in light mode a merchant on a phone read their
+   whole navigation at 1.61:1 and their search field at about 1.1:1.
 
-    .dash-sidebar .sidebar-input i {
-        color: #c7ccd4;
-    }
-}
+   WHY THE SPAN MATTERED. The first repair set `a.dash-link`'s colour and the English drawer
+   measured 16.88:1 -- but a top-level label is rendered by `<span class="dash-mtext">`, which
+   this block painted DIRECTLY, so the anchor was legible and the words were not. The browser
+   reported the fix as working; the screenshot showed grey text. Both are now measured.
+
+   Removing it lets the sidebar's own light values stand below 1025px, the same ones that are
+   verified above it. Dark mode is unaffected: `html[data-ss-theme="dark"] body .dash-sidebar
+   .dash-link` carries `!important` and lands at 5.66:1 at every width. */
 
 /* ==========================================================================
    P2-01-11: sidebar navigation zone headings
@@ -4402,18 +4512,35 @@ body.custom-color .nex-prev-btn-wrp .btn {
 
    Above 1025px nothing here applies and the light tokens stand, which is
    correct: there the sidebar really is light. */
-@media (max-width: 1024px) {
-    .dash-sidebar {
-        --ss-surface:        #263331;
-        --ss-surface-hover:  #2d3b39;
-        --ss-surface-sunken: #1f2a28;
-        --ss-fg:             #e8eded;
-        --ss-fg-muted:       #a7b2b1;
-        --ss-fg-subtle:      #95a09e;
-        --ss-border:         #364442;
-        --ss-border-strong:  #7d8a88;
-    }
-}
+/* P2.5-PKG-A-02 REMOVED THE BLOCK THAT STOOD HERE, because its premise was false.
+
+   It gave the sidebar subtree DARK token values below 1025px, on the stated grounds that
+   "below 1025px the sidebar really is dark". MEASURED on the running page at 390px in light
+   mode, with the drawer open and three and a half seconds to settle:
+
+       .dash-sidebar                 { background: #1c232f }   the host's dark drawer
+       .dash-sidebar.light-sidebar   { background: #fff    }   WINS
+
+   and `partision/sidebar.blade.php:65,67` writes `class="dash-sidebar light-sidebar"`
+   UNCONDITIONALLY -- there is no width, theme or setting under which the second class is
+   absent. So the drawer is white at every width, and these dark tokens were stranded on it.
+
+   WHAT A MERCHANT ON A PHONE SAW, measured against each element's own background:
+
+       inactive nav item   #c7ccd4 on #ffffff   1.61:1   AA wants 4.5:1
+       zone caption        #a7b2b1 on #ffffff   2.18:1
+       workspace chip      --ss-surface #263331, a dark chip on a white drawer
+
+   The chip is the visible proof: it followed the token and the surface did not. Dark mode was
+   unaffected and still is -- it takes its values from the `[data-ss-theme="dark"]` block in
+   store-syria-ds.css, which is on `<html>` and therefore already reaches the sidebar. This
+   block only ever ADDED a second, slightly different set of darks there: #a7b2b1 against the
+   design system's #a7abb2. The comment forty lines below this one warns against exactly that
+   green-grey beside the host's blue-greys, which is the argument for deleting it rather than
+   repairing it.
+
+   The grey nav rules that sat a hundred lines below this one went with it, for the same reason
+   and in the same change; store-syria-ds.css carries the replacement colour, scoped to light. */
 
 /* Placement of the chip INSIDE the host's sidebar. The component itself
    (.ss-workspace, store-syria-ds.css) is `width: 100%` with no margin, which is
@@ -4518,6 +4645,378 @@ html[data-ss-theme="dark"] body label {
 html[data-ss-theme="dark"] body [data-ss-theme="light"] label,
 html[data-ss-theme="dark"] body [data-ss-theme="light"] .ss-label {
     color: var(--ss-fg) !important;
+}
+
+
+/* =============================================================================================
+   P2.5-A-01 / ledger F126 — THE WHITE MODAL SURFACE IN DARK MODE, for every modal rather than
+   the ten views that could be marked by hand.
+   =============================================================================================
+
+   MEASURED TWICE, and the second measurement found something the first could not.
+
+   (a) Against the host's real dark-LTR stylesheet order with hand-written markup
+       (`measure-f126-cascade.cjs`, 26 surfaces):
+
+         modal .form-label / bare <label> / .ss-label   2.52:1
+         modal <p>                                      3.84:1
+         modal .form-text                               4.69:1  (passes)
+
+   (b) IN THE RUNNING APPLICATION, driving the real create-category modal
+       (`check-dark-form-surfaces-live.cjs`, both directions):
+
+         modal .modal-title                             1.00:1   WHITE ON WHITE
+
+   THE TITLE IS THE WORST CASE AND NOTHING HAD RECORDED IT. `style-dark.css:29442` carries
+   `h1,h2,h3,h4,h5,h6 { color: var(--bs-white) !important }` -- pure #ffffff, forced, on every
+   heading in the dark admin. On the dark page that is correct and deliberate. On this white
+   surface it means **every modal title in the admin was invisible**, not merely low-contrast,
+   and it had been measured at 3.84:1 by (a) because the static harness loads the four stylesheets
+   the layout names and the application loads TWENTY-FIVE. TEN of them land AFTER
+   `store-syria-ds.css`: flatpickr, summernote-bs4, emojionearea, calendar.css, two DataTables
+   sheets, a cross-origin Leaflet sheet Chromium refuses to expose, and three inline <style>
+   blocks (7, 1 and 184 rules). Counted off the running page, because the first draft of this
+   paragraph said "six" and was wrong by the four it had not looked at. A cascade harness settles
+   what the CSS says; only the running application settles what the page does.
+
+   WHY THE SURFACE IS WHITE AT ALL. `style-dark.css:6234` sets `--bs-modal-bg: #ffffff` and
+   `:6233` sets `--bs-modal-color:` to the EMPTY string, so `.modal-content`'s own
+   `color: var(--bs-modal-color)` is invalid at computed-value time and the foreground is
+   INHERITED instead. The inherited value is fine (`--bs-body-color: #293240`, 12.93:1 on white);
+   what lands on this surface and is not fine is the DARK-PAGE CHROME written for #22242c.
+
+   WHY NARROWING THE RULE ABOVE CANNOT FIX THIS, which is the thing the earlier note missed.
+   The host's own dark theme carries its OWN bare element selector --
+   `style-dark.css:29465`, `label { color: #808191 !important }` -- and `:29454` does the same
+   for `p:not([class^="ss-"])`. Narrowing custom.css's `html[...] body label` therefore does not
+   uncover a safe default; it uncovers the host's #808191, which is 3.84:1 on white. It is also
+   why #9DA3B4 reads WORSE than the host here while reading BETTER everywhere it was added for:
+   it is a lift, and a lift is the wrong direction on a light surface.
+
+   SO THE SURFACE IS NAMED INSTEAD OF THE ELEMENT. `.modal-content` is the one selector every
+   Bootstrap modal in the host and in all seventy vendored modules shares, and it is white in
+   dark mode in all of them: the only two dark-theme overrides of it,
+   `.notification-modal .modal-content` (:17098) and `.q-view-modal .modal-content` (:23371),
+   set geometry and borders only and leave `--bs-modal-bg` alone. Checked, because a dark modal
+   would have made this rule the defect.
+
+   SPECIFICITY, since every rule in play is `!important` and specificity is what decides:
+   (0,2,3) here beats custom.css's (0,1,3) above and style-dark.css's (0,0,1) and (0,2,1).
+   The values are DS LAYER-1 PRIMITIVES, which are declared once on `:root` and never re-themed,
+   so they keep their light-surface meaning inside a dark scope where `--ss-fg` would not. Each
+   carries its literal as a fallback: the design system is linked by the admin layout itself
+   (app.blade.php:225) so these resolve on every admin page, but custom.css is also served to
+   screens outside that layout, where an unresolved var() invalidates the whole declaration.
+
+   This changes no layout, no spacing and no brand colour: three foregrounds on one surface.
+   The ten views carrying `data-ss-theme="light"` are unaffected -- that escape resolves to
+   `--ss-fg` = grey-900, which is the same value this rule gives, so a marked modal and an
+   unmarked one now render identically instead of 16.06:1 and 2.52:1 apart.
+
+   STILL OPEN, measured here and deliberately NOT widened into this slice: a plain host `<p>`
+   on the host's DARK CARD (#292A33) is 3.71:1, from the same `:29454` rule. Fixing that means
+   lightening paragraph text across every dark surface in seventy modules, which needs its own
+   measurement pass over the light-surfaced containers in dark mode -- this modal is only the
+   first of them. Recorded as F126-b.
+   ============================================================================================= */
+
+/* Primary text on the white modal: the field labels, and the modal's own title.
+   The headings are in this list because of `style-dark.css:29442`, not for symmetry. */
+html[data-ss-theme="dark"] body .modal-content label,
+html[data-ss-theme="dark"] body .modal-content .form-label,
+html[data-ss-theme="dark"] body .modal-content .col-form-label,
+html[data-ss-theme="dark"] body .modal-content .ss-label,
+html[data-ss-theme="dark"] body .modal-content h1,
+html[data-ss-theme="dark"] body .modal-content h2,
+html[data-ss-theme="dark"] body .modal-content h3,
+html[data-ss-theme="dark"] body .modal-content h4,
+html[data-ss-theme="dark"] body .modal-content h5,
+html[data-ss-theme="dark"] body .modal-content h6,
+html[data-ss-theme="dark"] body .modal-content .modal-title {
+    color: var(--ss-grey-900, #1a2322) !important;   /* 16.06:1 on #ffffff */
+}
+
+/* Secondary text on the white modal: prose, hints and helper text. One value for the whole
+   tier, so the DS grey and Bootstrap's own #6c757d stop sitting next to each other. */
+html[data-ss-theme="dark"] body .modal-content p:not([class^="ss-"]):not([class*=" ss-"]),
+html[data-ss-theme="dark"] body .modal-content .form-text,
+html[data-ss-theme="dark"] body .modal-content small {
+    color: var(--ss-grey-600, #5b6665) !important;   /* 5.94:1 on #ffffff */
+}
+
+
+
+/* =============================================================================================
+   P2.5-A-02 / ledger F126-c — EVERY TEXT INPUT, SELECT AND TEXTAREA IN THE DARK ADMIN.
+   =============================================================================================
+
+   FOUND WHILE MEASURING F126 and it is the larger of the two. The modal labels F126 names are
+   ~60 forms; this is every form control on every screen in dark mode, including the ones inside
+   those modals, and it was below AA on all four surfaces measured:
+
+     MEASURED (Chromium, host dark stylesheet order; 26-surface run in
+     docs/development/phase-2.5/tools/measure-f126-cascade.cjs)
+
+       value text   #808191 on the field's own #292A33        3.71:1    need 4.5
+       value text   #808191 where the field sits on #22242c   4.03:1    need 4.5
+       placeholder  #6c757d on #292A33                        3.04:1    need 4.5
+
+   It is also the one surface in this slice that is wrong in BOTH themes' worth of markup at
+   once: the field is dark even when it sits on the white modal, so the modal fix above cannot
+   reach it and it needs its own rule.
+
+   The source is one declaration: `style-dark.css:2377` gives `.form-control`, `.custom-select`,
+   `.dataTable-selector` and `.dataTable-input` `color: #808191` on `background-color: #292A33`,
+   and `:2442` gives their placeholder `#6c757d`. Neither is `!important`, so this needs no
+   specificity contest -- custom.css simply loads later. `!important` is used anyway on the value
+   because `:2416` restates `#808191` for `:focus`, and a field that was legible until it was
+   focused would be the worse defect.
+
+   WHY NOT A BARE LIFT OF #808191, AND WHY NOT A SEMANTIC TOKEN EITHER. A lift clears AA but
+   leaves the admin with two different-looking inputs: the design system's own `.ss-input`
+   measures 11.10:1 in the same run, so a converted field and an unconverted one sit on the same
+   form looking like different controls, which is the inconsistency Phase 2.5 exists to remove.
+
+   The obvious next move is to point the host control at the design system's SEMANTIC tokens --
+   `var(--ss-fg)` and `var(--ss-fg-subtle)` -- so the two render identically. THAT WAS WRITTEN,
+   MEASURED, AND IT REGRESSED THE THING IT WAS MEANT TO FIX:
+
+       ESCAPED MODAL .form-control text   #1a2322 on #292A33   1.13:1   (from 3.71:1)
+
+   A semantic token re-themes with the nearest `data-ss-theme` scope. The host field's
+   `background-color: #292A33` comes from `style-dark.css` and does NOT -- it has no idea the
+   scope changed. So inside the ten views that carry `data-ss-theme="light"` the token resolved
+   to its LIGHT value, near-black, and painted it on a still-dark field. The rule was worse than
+   the defect, and only the 26-surface run said so.
+
+   THE RULE THIS LEAVES: match the token layer to the SURFACE, not to the component. This
+   surface is theme-independent, so its foreground must be too. LAYER-1 PRIMITIVES are declared
+   once on `:root` and never re-themed, which makes them the correct and only safe choice here --
+   the same reason A-01 above uses `--ss-grey-900` rather than `--ss-fg` on the white modal.
+
+       value        var(--ss-grey-100) -> #eef1f1   12.55:1 on #292A33, 13.63:1 on #22242c
+       placeholder  #9DA3B4 literal                  5.66:1 on #292A33,  6.14:1 on #22242c
+
+   The two keep a 2.39x luminance separation, so the placeholder still reads as clearly
+   subordinate to a typed value rather than as content -- the point of a placeholder, and the
+   reason it is not simply given the value's colour.
+
+   WHY THE PLACEHOLDER IS A LITERAL AND NOT A PRIMITIVE. The ramp has no step in the band this
+   needs: `--ss-grey-400` (#889392) measures **4.5039:1** on the field -- it passes by four
+   ten-thousandths, which is not a margin, and `--ss-grey-300` is 9.55:1 and loses the
+   hierarchy. #9DA3B4 is already this file's established "host hue, lifted" value from the F126
+   chrome block above, so reusing it adds no new colour to the palette rather than inventing one.
+
+   SCOPED TO DARK ONLY, like every rule in this block: custom.css is loaded in both themes, and
+   without the `data-ss-theme="dark"` hook these values would wash out the light admin. The
+   primitive carries its literal as a fallback. The design system is linked by the admin layout
+   itself (app.blade.php:225) so `--ss-grey-100` resolves on every admin page -- but custom.css
+   is also served to screens OUTSIDE that layout, where it does not, and an unresolved var()
+   makes the whole declaration invalid rather than merely unstyled.
+
+   NO GEOMETRY, NO BACKGROUND, NO BORDER: two foregrounds. The field keeps the host's own
+   surface, padding, radius and border, so no form reflows.
+   ============================================================================================= */
+
+html[data-ss-theme="dark"] body .form-control,
+html[data-ss-theme="dark"] body .custom-select,
+html[data-ss-theme="dark"] body .dataTable-selector,
+html[data-ss-theme="dark"] body .dataTable-input,
+html[data-ss-theme="dark"] body textarea.form-control,
+html[data-ss-theme="dark"] body .form-control:focus,
+html[data-ss-theme="dark"] body .custom-select:focus,
+html[data-ss-theme="dark"] body .dataTable-selector:focus,
+html[data-ss-theme="dark"] body .dataTable-input:focus {
+    color: var(--ss-grey-100, #eef1f1) !important;
+}
+
+html[data-ss-theme="dark"] body .form-control::placeholder,
+html[data-ss-theme="dark"] body .custom-select::placeholder,
+html[data-ss-theme="dark"] body .dataTable-selector::placeholder,
+html[data-ss-theme="dark"] body .dataTable-input::placeholder {
+    color: #9DA3B4 !important;
+    opacity: 1;            /* Firefox lowers placeholder opacity by default, which would undo the ratio. */
+}
+html[data-ss-theme="dark"] body .form-control::-moz-placeholder,
+html[data-ss-theme="dark"] body .custom-select::-moz-placeholder,
+html[data-ss-theme="dark"] body .dataTable-selector::-moz-placeholder,
+html[data-ss-theme="dark"] body .dataTable-input::-moz-placeholder {
+    color: #9DA3B4 !important;
+    opacity: 1;
+}
+/* end P2.5-A-02 — the two directions are compared byte for byte between this marker and the
+   P2.5-A-01 banner by Tests\Unit\Ui\DarkModalSurfaceContrastTest, so keep both markers. */
+
+/* ---- P2.5-WAVE-20: the modal footer's divider, which runs wider than the field above it -----
+
+   56 merchant modal views put `.modal-footer` INSIDE the form's `.row`. MEASURED on the running
+   page, box model read off the live elements:
+
+       .row           margin-inline -12px   width 482px   --bs-gutter-x 1.5rem
+       .col-12        padding-inline  12px  width 482px   -> the field's box starts 12px in
+       .modal-footer  padding-inline  16px  width 482px   margin 0
+
+   Bootstrap 5 gives every `.row > *` the gutter padding and `width: 100%`; the footer keeps its
+   own 16px instead. But padding sits INSIDE the border box and `border-top` is drawn ON it, so
+   the divider spans the whole row while the control above it is inset by the gutter.
+
+   MEASURED across four combinations, by the field's own edges rather than by % of the body:
+
+       footer outside the row (faq create)    field 20/20   footer 20/20   delta  +0/+0
+       footer inside  the row (three modals)  field 20/20   footer  8/8    delta -12/-12
+
+   Twelve of sixteen readings overhang, by exactly half the gutter, in both directions and both
+   themes.
+
+   ONE RULE RATHER THAN 56 VIEW EDITS: moving the footer out of the `.row` in every view is 56
+   files of risk for a 12px correction, and each edit could land differently.
+
+   THE WIDTH COMES DOWN BY THE WHOLE GUTTER as well as the margin going on. A margin alone on a
+   `.row > *`, which Bootstrap has already given `width: 100%`, makes the box 100% + 24px and it
+   overflows the row.
+
+   LOGICAL PROPERTIES ONLY. These two sheets are byte-identical and rtl-custom.css is loaded
+   INSTEAD of custom.css for Arabic, so a physical `margin-left` would be wrong in one of the two
+   directions whatever value it took.
+
+   Ratchet: Tests\Unit\Ui\ModalFooterDividerAlignmentTest, which pins the rule in BOTH sheets,
+   compares the two blocks byte for byte, and forbids physical inline properties by name. */
+.modal-content .row > .modal-footer {
+    width: calc(100% - var(--bs-gutter-x, 1.5rem));
+    margin-inline: calc(var(--bs-gutter-x, 1.5rem) * .5);
+}
+/* end P2.5-WAVE-20 */
+
+
+/* =============================================================================================
+   P2.5-A-05 — `.text-dark` IN DARK MODE: 1.11:1, ON THE ORDER PRICE.
+   =============================================================================================
+
+   MEASURED IN THE RUNNING ADMIN, dark theme, 1440x1000, merchant session:
+
+     screen           .text-dark visible   below 4.5:1   inside a modal
+     /order-grid              14               14              0
+     /customer-grid            9                9              0
+     /dashboard, /order, /customer, /product, /category   none
+
+     foreground  rgb(28, 35, 47)      the Bootstrap utility, unchanged by the dark sheet
+     background  rgb(41, 42, 51)      the host's dark card
+     ratio       1.11:1
+
+   WHAT IS ACTUALLY INVISIBLE. On every order card: the customer name and the line that reads
+   `Price : $148,00`. On every customer card: the name, the email and the last-active date. The
+   merchant sees a card with a heading and a blank space where the money is.
+
+   `.text-dark` MEANS "DARK TEXT", so in a dark theme it is semantically wrong wherever the
+   surface is dark -- which is why this is scoped to the theme rather than patched per screen, and
+   why it is a `color` override rather than a markup change in two Blade files. The host's own
+   dark stylesheets never redefine the utility; measured, they leave it at the light value.
+
+   AND THE ONE PLACE IT IS STILL CORRECT IS GUARDED. The host keeps `.modal-content` WHITE in dark
+   mode -- the measurement behind P2.5-A-01 -- so dark text inside a modal is right and must not be
+   lifted. The second rule below is more specific and wins there. That ordering is the whole
+   lesson of F126: a dark-mode rule that forgets the white surfaces trades one invisible text for
+   another. No `.text-dark` was found inside a modal on the audited screens, but modals open on
+   demand and the guard costs one rule.
+
+     #eeeff1 on rgb(41, 42, 51)   12.39:1   (--ss-grey-100, the design system's dark foreground)
+     #1a1d23 on #ffffff           16.88:1   (--ss-grey-900, unchanged inside the white modal)
+*/
+html[data-ss-theme="dark"] body .text-dark {
+    color: var(--ss-grey-100, #eeeff1) !important;
+}
+
+html[data-ss-theme="dark"] body .modal-content .text-dark {
+    color: var(--ss-grey-900, #1a1d23) !important;
+}
+/* end P2.5-A-05 — compared byte for byte between the two stylesheets by
+   Tests\Unit\Ui\DarkModalSurfaceContrastTest, so keep both markers. */
+
+
+
+/* =============================================================================================
+   P2.5-B-01 — THE MERCHANT'S OWN CARD ON THE DASHBOARD, AT THE ONE WIDTH IT BREAKS.
+   =============================================================================================
+
+   MEASURED IN THE RUNNING APPLICATION at five viewport widths, because this defect is invisible
+   at four of them and nobody testing at 1280px would ever see it:
+
+     viewport   .dashboard-card   .user-info   the greeting paragraph
+       1440px        366px            87px     NINE lines, one or two words each   <-- broken
+       1280px        985px           673px     1 line
+       1024px        984px           673px     1 line
+        768px        728px           449px     2 lines
+        390px        350px           316px     3 lines
+
+   WHY ONLY 1440. `col-xxl-4` engages at >=1400px and splits the row into thirds, so the card
+   becomes 366px wide on the WIDEST screens while staying ~985px on a 1280px laptop. Inside it,
+   `.card-content-info` is a flex row holding the avatar (70px), `.user-info`, and the store's QR
+   block (70px). The markup asks for the stacked layout with `flex-column flex-sm-row` -- but
+   Bootstrap breakpoints are VIEWPORT-based, and the viewport is 1440px, so the row layout wins
+   while the container is 332px. `.user-info` declares no minimum, so flex shrinks it to 87px.
+
+   THE CONDITION IS "WIDE VIEWPORT, NARROW CARD", AND THAT IS WHAT A CONTAINER QUERY SAYS.
+   A `min-inline-size` on `.user-info` would also clear the measurement, but it is a constant
+   tuned to today's grid: change `col-xxl-4` to `col-xxl-3` and it silently breaks again. The
+   container query asks the only question that actually matters -- how much room does this card
+   have -- so it stays correct at any card width, including ones that do not exist yet.
+
+   PROGRESSIVE BY CONSTRUCTION. A browser without `@container` support ignores the whole block
+   and renders exactly what it renders today; nothing is removed and no existing rule is edited.
+   `container-type: inline-size` establishes an inline-axis containment context only, so it does
+   not affect the card's height or its position in the grid.
+
+   30rem is the measured threshold, not a round number: the three children need
+   70 + 16 + ~250 + 16 + 70 = 422px to sit on one line without the paragraph dropping below a
+   readable measure, and 30rem (480px) is the first step of the spacing scale above that.
+   ============================================================================================= */
+
+/* THE CONTAINMENT GOES ON THE CARD, NOT ON THE FLEX ROW, and the difference is not cosmetic.
+   A container query CANNOT restyle its own container -- the container's size would then depend
+   on the result of a query about its size. The first version of this rule put
+   `container-type` on `.card-content-info` and then tried to set `flex-direction: column` on
+   `.card-content-info` inside the query. Measured: the paragraph went from 9 lines to 3, so the
+   rule LOOKED like it worked -- but `flex-direction` never applied at all. The improvement came
+   entirely from the `> *` rule, which does apply because the children are inside the container.
+   A rule that half-fires is worse than one that does not, because the measurement endorses it. */
+.dashboard-card {
+    container-type: inline-size;
+    container-name: ss-usercard;
+}
+
+@container ss-usercard (max-width: 30rem) {
+    /* The same shape the 390px breakpoint already produces and gets right -- stacked, centred --
+       now keyed on the card rather than on the window.
+
+       `!important` HERE IS NOT A SHORTCUT, it is the only weight that reaches. The markup is
+       `class="card-content-info d-flex gap-3 flex-wrap flex-column flex-sm-row"`, and every
+       Bootstrap flex utility carries `!important` by design -- `.flex-sm-row` resolves to
+       `flex-direction: row !important` at >=576px, which is exactly the viewport-keyed rule this
+       block exists to overrule. A plain declaration here computes to `row` and the measurement
+       says 87px, which is how the second draft of this rule was caught: the container was
+       correctly registered (`container-type: inline-size`, 366px, query matching) and the
+       declaration simply lost. Confirmed by reading `flexDirection` off the running element. */
+    .card-content-info {
+        flex-direction: column !important;
+        align-items: center !important;
+    }
+
+    /* The avatar and the QR block keep their own 70px; only the text column is told to take the
+       width, so stacking does not stretch two fixed-size images across the card. */
+    .card-content-info .user-info {
+        inline-size: 100%;
+        text-align: center;
+    }
+
+    .card-content-info > .d-flex {
+        inline-size: 100%;
+        flex-direction: column !important;
+        align-items: center !important;
+    }
+
+    .qr-code-wrp .code-img {
+        margin-inline: auto;
+    }
 }
 
 
@@ -4706,10 +5205,19 @@ html[data-ss-theme="dark"] body .card-body dl.row dd {
    LIGHT MODE ONLY, AND THAT IS A MEASURED CORRECTION RATHER THAN CAUTION. `--ss-brand-ontext` is
    darkened against the LIGHT page (`PAGE = [249,250,251]` in layouts/app.blade.php), so on a dark
    surface it is the wrong direction entirely: applying it unconditionally took the header's dark
-   mode from 0 failures to 2, at 2.72:1. The BRIGHT brand colour is already compliant there --
-   rgb(16,183,127) on rgb(38,47,63) measures 5.34:1 -- so dark mode needs no change and must not
-   get one. `data-ss-theme` is set server-side on <html> (layouts/app.blade.php:69), which is the
-   project's own theme indicator and what the design system already keys off.
+   mode from 0 failures to 2, at 2.72:1. `data-ss-theme` is set server-side on <html>
+   (layouts/app.blade.php:69), which is the project's own theme indicator and what the design
+   system already keys off.
+
+   >> CORRECTED 2026-11-05 (P2.5-DESIGN-G). This paragraph used to end "The BRIGHT brand colour is
+   >> already compliant there -- rgb(16,183,127) on rgb(38,47,63) measures 5.34:1 -- so dark mode
+   >> needs no change and must not get one." THAT IS TRUE OF WHAT IT MEASURED AND FALSE IN
+   >> GENERAL. It measured the DEFAULT theme-3 green. A brand that is already dark exits the
+   >> darkening loop on its first test and comes back unchanged, so on a dark page it is simply
+   >> the brand colour: Store Syria's own #335da8 measures 2.22:1, and 34 of 35 brand-as-text
+   >> sites failed in dark across six screens. The reasoning above was right -- this token must
+   >> not be applied in dark -- and only its conclusion was over-general. The dark case now has
+   >> its OWN token, `--ss-brand-ontext-dark`, at the foot of this file.
    (The P2-A-03 (b) breadcrumb rule above has the same shape and has not been measured on a dark
    surface; it is left alone here because F158 says to fix the sites that actually failed, and the
    breadcrumb is not one this measurement covered.)
@@ -4718,3 +5226,912 @@ html[data-ss-theme="dark"] body .card-body dl.row dd {
 html:not([data-ss-theme="dark"]) body .dash-header .text-primary {
     color: var(--ss-brand-ontext, var(--theme-color)) !important;
 }
+
+
+/* =============================================================================================
+   P2.5-A-06. THE CUSTOMER ACTIVITY TIMELINE IN DARK MODE.
+
+   `.my-custom-timeline .tl-box` is declared `background: #ffffff` above in this file -- and, byte
+   for byte, in the VENDORED dark sheets too (assets/css/style-dark.css:28010,
+   assets/css/rtl-style-dark.css:27965). The host theme never themed the component. So on
+   /customer/{id}/timeline in dark mode every log entry is a white card on the host's #22242c page,
+   immediately beside four `.card` siblings on the same view that do render `--bs-card-bg: #292A33`
+   (style-dark.css:5006, consumed :5015, with `--bs-card-border-width: 0px` at :4998).
+
+   THIS IS A CONSISTENCY DEFECT, NOT AN ACCESSIBILITY ONE, and the arithmetic is recorded so the
+   row cannot be credited as a contrast fix. Computed with the WCAG formula in
+   Tests\Unit\Ui\DarkTimelineSurfaceContrastTest, which also re-derives every number below:
+
+     TODAY   #293240 on #ffffff                12.93:1   the entry text -- fully legible
+             #505050 on #ffffff                 8.06:1   the timestamp -- fully legible
+
+   WHICH IS WHY THE BACKGROUND ALONE IS A TRAP. `--bs-body-color: #293240` is byte-identical at
+   line 71 of style.css AND style-dark.css, i.e. the dark theme never re-inks body text, so
+   painting only the surface turns a readable off-theme card into an unreadable on-theme one:
+
+     BACKGROUND ONLY   #293240 on #292A33         1.10:1
+                       #505050 on #292A33         1.77:1
+
+     REPAIRED          #eeeff1 on #292A33        12.39:1   the entry text
+                       #9DA3B4 on #292A33         5.66:1   the timestamp
+                       #1a1d23 on #E0FFF5        15.91:1   the log-type chip (see below)
+
+   THE CHIP GUARD IS MANDATORY, not caution. `.tl-btn` declares no colour in any of the four
+   sheets, so an ink on the box INHERITS into the pastel chips: #eeeff1 measures 1.08:1 on the
+   #E0FFF5 licence fill -- the only variant this view renders, 14 times -- and 1.08-1.15:1 on the
+   other three. Guarded with #1a1d23 they read 15.31-16.07:1.
+
+   THE INK IS A LAYER-1 PRIMITIVE DELIBERATELY. `var(--ss-fg)` and `var(--ss-fg-muted)` re-theme
+   inside a `data-ss-theme="light"` container -- a wrapper this project has already added to
+   several views -- while the #292A33 painted here does not. The selector's hook is `html`, so it
+   keeps matching while a nearer light scope flips the ink: measured, `--ss-grey-900` on this
+   #292A33 is 1.18:1. That is the regression the dark-modal slice measured at 1.13:1 and now
+   ratchets against; the same ban is re-asserted over this block.
+
+   EVERY SELECTOR NAMES `.my-custom-timeline`, because `.tl-btn` and `.time` are SHARED leaf
+   classes. `.tl-btn` is in six views, one of them the merchant admin order detail page
+   (resources/views/order/view.blade.php:619), where the shipped P2-04-6 rule above inks it in the
+   OPPOSITE direction; `.time` is in seven. The chip guard is written `.tl-box .tl-btn` rather than
+   bare so it cannot reach either. `my-custom-timeline` itself is in exactly one view, so the blast
+   radius is that one screen, and the test asserts the census so a future reuse is noticed.
+
+   THE RAIL AND THE NODE. #3E3F4A is the host's own dark border (style-dark.css:20175), applied to
+   the rail, to the connector stub and to the node's 3px ring -- the ring matters because the node
+   sets BOTH a fill and a `border: 3px solid #DBDBDB` above, so re-filling it alone would leave a
+   light-grey ring on a now-dark rail. These are decorative structure, not text and not a control,
+   so no AA threshold applies to them; they are matched to the host's border rather than invented.
+
+   LIGHT MODE IS UNREACHABLE BY CONSTRUCTION: this file is served in BOTH themes
+   (layouts/app.blade.php), so every selector carries the `data-ss-theme="dark"` hook the layout
+   publishes on <html>. The pink date pills are NOT re-inked -- they declare their own
+   `color: #ffffff` above and are immune to inheritance. Their own contrast failure is real, in
+   BOTH themes, and is a separate row that this change must not be credited with.
+   ============================================================================================= */
+
+html[data-ss-theme="dark"] body .my-custom-timeline .tl-box {
+    background: #292A33;
+    color: var(--ss-grey-100, #eeeff1);
+}
+
+/* THE SLAB THE CARDS SIT ON HAD NO DARK ARM.  P2.5-WAVE-16c
+   Measured on the running page: in DARK, `.custom-timeline-inner` computed to rgb(249,249,249) --
+   unchanged from light -- while `.tl-box` above correctly computed #292A33 and the body #22242C.
+   A near-white slab on a dark page, with dark cards floating on it.
+
+   THE VALUE MIRRORS THE LIGHT RELATIONSHIP rather than inventing one. In light the container
+   (#F9F9F9) sits at the body's level (#F9FAFB) and the cards (#ffffff) are BRIGHTER, so they read
+   as raised. In dark the container therefore takes the body's #22242C and the cards keep #292A33,
+   which is lighter -- the same figure/ground, not a new idea.
+
+   NOT scoped under `.my-custom-timeline`: that class is CONDITIONAL on `count($logs) > 0`, so in
+   the empty state the container has no such ancestor and a scoped rule would miss it. */
+html[data-ss-theme="dark"] body .custom-timeline-inner {
+    background: #22242C;
+    color: var(--ss-grey-100, #eeeff1);
+}
+
+/* THE TIMESTAMP IS A CHIP, NOT BARE TEXT.  P2.5-WAVE-16c
+   custom.css:1706 gives every `.time` span its own `background: rgb(248,248,248)` and 4px/6px of
+   padding. That generic rule has no dark arm, so the ink below -- added for the #292A33 card --
+   was landing on a near-white chip instead: MEASURED 2.37:1 on the running dark page, against
+   7.59:1 for the untouched host pairing (#505050 on #F8F8F8). Darkening the ink alone made this
+   site WORSE than leaving it alone, which is why the ink and the fill are set together here.
+
+   #22242C is the slab, not a new colour: in light the chip (#F8F8F8) is darker than its card
+   (#ffffff) and reads as recessed, so in dark it recesses to the page level while the card stays
+   at #292A33. Ink #9DA3B4 on it measures 6.14:1. */
+html[data-ss-theme="dark"] body .my-custom-timeline .tl-box .time-wrapper .time {
+    background: #22242C;
+    color: #9DA3B4;
+}
+
+html[data-ss-theme="dark"] body .my-custom-timeline .tl-box .tl-btn {
+    color: var(--ss-grey-900, #1a1d23);
+}
+
+html[data-ss-theme="dark"] body .my-custom-timeline .timeline:before,
+html[data-ss-theme="dark"] body .my-custom-timeline .support-time::before {
+    background: #3E3F4A;
+}
+
+html[data-ss-theme="dark"] body .my-custom-timeline .support-time::after {
+    background-color: #292A33;
+    border-color: #3E3F4A;
+}
+
+/* end P2.5-A-06 -- the two directions are compared byte for byte between these markers by
+   Tests\Unit\Ui\DarkTimelineSurfaceContrastTest, so keep both. */
+
+
+/* =============================================================================================
+   P2.5-DESIGN-G. THE MERCHANT'S BRAND COLOUR USED AS TEXT, ON THE DARK PAGE.
+
+   MEASURED across /dashboard /finance /customer /order /product-list /setting, reading
+   `--theme-color` off the live body rather than nominating a colour
+   (docs/development/phase-2.5/tools/find-brand-text-failures.cjs):
+
+       light     0 of 44 brand-as-text sites fail AA
+       dark     34 of 35 fail                      <- /setting contributes 20: its whole tab rail
+
+   Store Syria's own `#335da8` measures 2.22:1 on the card surface `rgb(41,42,51)`; the pagination
+   control measures 2.41:1 on the page.
+
+   THE NOTE AT P2-A-03 ABOVE SAYS DARK NEEDS NO CHANGE. It was right about what it measured and
+   wrong to generalise: `--ss-brand-ontext` is darkened against a hard-coded LIGHT page, so for a
+   BRIGHT brand (theme-3 `#10B77F`, the default, 5.34:1) dark really is already compliant -- and
+   for a brand that is already dark the loop exits on its first test and hands back the brand
+   unchanged. This product ships `#335da8`. That note is corrected in place, not deleted.
+
+   `--ss-brand-ontext-dark` IS THE SAME MECHANISM POINTING THE OTHER WAY, computed once in
+   layouts/app.blade.php: the merchant's own colour LIFTED TOWARDS WHITE only until it clears
+   4.5:1 on the card surface. NO BRAND COLOUR CHANGES -- every fill, border and badge keeps the
+   merchant's exact value, and a colour-picker choice goes through the same arithmetic as the ten
+   presets. BrandTextOnDarkContrastTest runs that arithmetic over all eleven and asserts each one
+   both clears AA and keeps its hue.
+
+   The fallback is `--theme-color`, i.e. today's appearance if the script is blocked -- the same
+   choice the light half makes, for the same reason.
+
+   THE FOUR SELECTORS ARE THE ONES THAT MEASURED FAILING, not a sweep of everything brand-coloured.
+   `!important` because `.text-primary` is a Bootstrap utility and carries it. */
+html[data-ss-theme="dark"] body .text-primary,
+html[data-ss-theme="dark"] body .btn-outline-primary,
+html[data-ss-theme="dark"] body .nav-link:not(.active),
+html[data-ss-theme="dark"] body .nex-prev-btn-wrp .btn,
+html[data-ss-theme="dark"] body .dash-content a:not(.btn):not(.ss-btn):not(.nav-link):not(.page-link) {
+    color: var(--ss-brand-ontext-dark, var(--theme-color)) !important;
+}
+
+/* PAGINATION NUMBERS ARE SPLIT BY STATE, and the ACTIVE one is excluded above rather than undone
+   below because the anchor arm's specificity -- (0,5,3), four `:not()` classes -- beats any undo
+   arm that names the element honestly. An active page number sits on the BRAND FILL and is white
+   via the host; the INACTIVE ones sit on rgb(28,35,47) and measured 3.37:1 BEFORE this package,
+   which is a failure that was already there and that the lift repairs to 5.15:1. */
+html[data-ss-theme="dark"] body .page-item:not(.active) > .page-link {
+    color: var(--ss-brand-ontext-dark, var(--theme-color)) !important;
+}
+
+/* THE PLAIN-ANCHOR ARM IS SCOPED THREE TIMES OVER, and every exclusion is a regression the
+   measurement caught rather than a precaution. A bare `a` rule repaints (a) every FILLED
+   `.btn-primary`, whose white label is already 6.42:1 and is handled by `--ss-onbrand`, (b) the
+   ACTIVE SIDEBAR LINK, white on the brand fill for the same reason, and (c) -- the one I actually
+   shipped for a minute -- `.ss-btn`, THE DESIGN SYSTEM'S OWN BUTTON CLASS, which is not `.btn`
+   and so slipped straight through `:not(.btn)`. That put rgb(120,148,198) on the cyan fill of the
+   primary call to action on two screens: "Add Product" and "Create Order", at 1.47:1. It was
+   white before. `.dash-content` keeps the rule inside the content column, away from the rail. The
+   pagination control is an `a.btn` that DOES need the lift and gets it from its own arm above.
+
+   ---------------------------------------------------------------------------------------------
+   AND THE COLOUR FOLLOWS THE SURFACE, NOT THE THEME.
+
+   `/finance` renders `.card-header.bg-white` INSIDE a dark `.card`: a white strip in dark mode,
+   hard-coded in the markup. The brand colour on it was 6.42:1 and correct, and the rule above
+   took it to 3.07:1 -- a fix that made one site worse while fixing thirty-four. So the light
+   token is restored on any light island, which is not a special case but the actual rule: the
+   text colour is chosen by the surface underneath it.
+
+   The white strip itself is a separate defect and is NOT fixed here -- it is a light surface
+   appearing in dark mode, which belongs with the other dark-mode surface work, not with the
+   brand-colour mechanism. Recorded, not absorbed.
+
+   `:not(.active)` ON BOTH NAV ARMS, AND IT IS THE THIRD REGRESSION THIS RULE CAUSED. An ACTIVE
+   tab sits on the BRAND FILL, not on the page and not on the white strip, so its label is white
+   via `--ss-onbrand`. Both arms hit it anyway and the undo arm won: the finance tab came out as
+   rgb(51,93,168) on rgb(51,93,168), THE SAME COLOUR TWICE, 1:1 -- worse than anything this
+   package set out to fix, on a tab that was correct at HEAD. Three regressions from three
+   selectors that each looked specific enough: `.btn` missed `.ss-btn`, the theme missed a white
+   island inside it, and the surface missed the one state that has a fill of its own. */
+html[data-ss-theme="dark"] body .bg-white .nav-link:not(.active),
+html[data-ss-theme="dark"] body .bg-white .text-primary,
+html[data-ss-theme="dark"] body .bg-white .btn-outline-primary,
+html[data-ss-theme="dark"] body .bg-white a:not(.btn):not(.ss-btn) {
+    color: var(--ss-brand-ontext, var(--theme-color)) !important;
+}
+
+
+/* =============================================================================================
+   P2.5-DESIGN-F. THE SUBDUED TEXT ON EVERY MERCHANT SCREEN, IN BOTH THEMES.
+
+   Census grouped BY COLOUR across /dashboard /finance /customer /order /product-list /setting
+   (docs/development/phase-2.5/tools/census-low-contrast-text.cjs), because a per-screen sweep
+   that prints its first five findings hides how many distinct colours are involved:
+
+       DARK   rgb(128,129,145) on rgb(41,42,51)    3.71:1   x51   /dashboard /product-list
+       DARK   rgb(108,117,125) on rgb(41,42,51)    3.04:1   x15   /finance
+       DARK   rgb(128,129,145) on rgb(34,36,44)    4.03:1   x5    /product-list
+       DARK   rgb(108,117,125) on rgb(34,36,44)    3.30:1   x6    all six -- the footer
+       LIGHT  rgb(108,117,125) on rgb(249,250,251) 4.49:1   x7    all six
+
+   IT IS TWO GREYS, NOT ONE. Asked of Chromium rather than grepped:
+
+     `.text-muted { color: #6c757d !important }` -- Bootstrap's default, BYTE-IDENTICAL in the
+        light and the dark sheet. It is theme-blind, which is why it fails in both: 4.49:1 on
+        white (under AA by a hair, on every screen's footer) and 3.04:1 on a dark card.
+     `.details-card, .dashboard-card { color: #808191 !important }` -- a CONTAINER rule, so every
+        element inside a dashboard card inherits it whatever its tag. 51 of the 84 failing nodes
+        are `<b>`, `<span>` and bare `<p>` with no colour of their own.
+     `… .dataTable-info, p:not([class^="ss-"]):not([class*=" ss-"]) { color: #808191 !important }`
+
+   WHAT IT CARRIES IS NOT DECORATION: "Available Balance", "Pending Withdrawals", "Total Income",
+   the 500.00 column on /finance, $462.00 on the dashboard. Money, at 3.04:1.
+
+   `<p>` IS FULL-CONTRAST BODY TEXT IN LIGHT AND SUBDUED IN DARK -- rgb(41,50,64) at 12.37:1
+   against rgb(128,129,145) at 3.71:1. THAT ASYMMETRY IS THE DEFECT, not a design decision, and
+   the fix is to give dark the two levels light already has: body at `--ss-fg`, muted at
+   `--ss-fg-muted`. Measured after: 12.87:1 and 6.19:1 in dark, 12.37:1 and 6.14:1 in light.
+
+   THE DESIGN SYSTEM EXCLUSION IS THE HOST'S OWN IDIOM, copied rather than invented:
+   `:not([class^="ss-"]):not([class*=" ss-"])` is already in the rule being overridden. It anchors
+   at the start of the class list or after a space, so it cannot be fooled by a class that merely
+   CONTAINS "ss-" (`press-note` does). `.ss-section__note`, `.ss-page-header__subtitle` and
+   `.ss-stat__period` already declare `var(--ss-fg-muted)` and already pass; they are left alone.
+
+   `:not(.text-muted)` ON THE BODY ARM IS LOAD-BEARING: without it the `p` arm (0,4,3) outranks the
+   `.text-muted` arm (0,1,2), every muted paragraph becomes body text, and the two levels this
+   block exists to separate collapse back into one.
+
+   AND THE MUTED ARM CARRIES THE SAME EXCLUSION, which is not only consistent but LOAD-BEARING
+   for a second reason: specificity. The host's `p:not([class^="ss-"]):not([class*=" ss-"])` is
+   (0,2,1), and a plain `html body .text-muted` is (0,1,2) -- fewer classes, so IT LOSES. Measured:
+   with the plain selector the census fell from 84 failing nodes to 47 and every survivor was a
+   `p.text-muted`, still at #808191. The same idiom on both arms makes the muted arm (0,3,2),
+   which wins, and says the true thing while doing it.
+
+   Ratchet: MutedTextContrastTest. Ratios measured by census-low-contrast-text.cjs. */
+html body .text-muted:not([class^="ss-"]):not([class*=" ss-"]) {
+    color: var(--ss-fg-muted) !important;
+}
+
+html[data-ss-theme="dark"] body .details-card,
+html[data-ss-theme="dark"] body .dashboard-card,
+html[data-ss-theme="dark"] body p:not(.text-muted):not([class^="ss-"]):not([class*=" ss-"]) {
+    color: var(--ss-fg) !important;
+}
+
+/* ---- P2.5-WAVE-22: the merchant header is three rows tall on a phone -----------------------
+
+   MEASURED at 320x568, on every merchant screen:
+
+       .header-wrapper        320 x 158   flex, WRAP, padding 15px 20px
+         > ul (hamburger+company)  88 x 40     — 88 of 280 usable px, the rest of that line empty
+         > .dash-right-drp        280 x 79     — display:block, so it cannot share the line
+             > .header-icon-list  280 x 79     — inline-flex, WRAP: six icons over two rows
+
+   Eight controls in three rows, 158px of a 568px screen — 28% of the phone spent on chrome
+   before the page's own title. The first row uses 88 of its 280 usable pixels and leaves the
+   rest empty, because `.dash-right-drp` is a 280px BLOCK and therefore wraps whole.
+
+   THE REPAIR IS ONE ROW, NOT SMALLER TARGETS. Shrinking the icons to make eight fit would have
+   traded a layout defect for a touch-target one, and this project already repaired a target-size
+   failure (P2.5-DESIGN-K). Instead the right-hand group is allowed to SHARE the line and its
+   icon strip WRAPS to a second line when it runs out of room, so every control keeps its 40px box.
+
+   THIS PARAGRAPH USED TO SAY THE STRIP SCROLLED, and measurement refuted it in P2.5-WAVE-22 --
+   see the rule below. `justify-content: flex-end` sends the overflow in the START direction,
+   which no scroll can reach, and two controls were being clipped away entirely. The claim that
+   "focusing a control that is out of view scrolls it into view" was true of a scroller and this
+   was not one. The correction is recorded rather than quietly overwritten, because the wrong
+   version of it shipped.
+
+   NOTHING IS REMOVED OR HIDDEN. All eight controls stay in the DOM, in order, on screen, and
+   keyboard reachable — now verified by a sweep that checks every header control against every
+   ancestor overflow box rather than by reading the rule.
+
+   ONLY BELOW 576px. Above it the header is exactly as it was.
+
+   Mirrored: custom.css serves LTR and rtl-custom.css serves Arabic INSTEAD of it, so this block
+   is byte-identical in both. Logical properties throughout.
+
+   Ratchet: Tests\Unit\Ui\PhoneHeaderCompactionTest. */
+
+/* Above the phone breakpoint the bar is untouched, so the toggle must not exist visually. Stated
+   OUTSIDE the media query on purpose: the script sets `data-ss-controls` on every screen width, and
+   this is the one declaration that makes that harmless. Without it the button would render on every
+   desktop list screen -- and it would do nothing, because the show/hide rules are phone-only.
+
+   IT MUST PRECEDE THE MEDIA QUERY. A media query adds no specificity, so with both selectors at
+   (0,1,0) the later declaration wins -- stated after, `display: none` would also win below 576px
+   and the toggle would never appear at all. Caught by measuring, not by reading. */
+.ss-dt-controls__toggle { display: none; }
+
+@media (max-width: 575.98px) {
+    .dash-header .header-wrapper {
+        flex-wrap: nowrap;
+        gap: var(--ss-space-2, 8px);
+        padding: var(--ss-space-2, 8px) var(--ss-space-3, 12px);
+    }
+
+    /* It was a 280px block on its own line; now it takes whatever the first group leaves. */
+    .dash-header .dash-right-drp {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    /* IT WRAPS. The first version of this rule scrolled, and MEASURING IT REFUTED THE PARAGRAPH
+       ABOVE: the list reported clientWidth 192 and scrollWidth 192 -- NOTHING to scroll -- while
+       its own items ran from x=4 to x=308. A flex row justified to the end overflows towards the
+       START, and start-direction overflow is clipped and cannot be reached by scrolling at all.
+       An independent sweep of every header control against its ancestors' overflow boxes named
+       the casualties in both directions: Notifications and Store Link (الإخطارات، وصلة التخزين).
+       They were gone, not merely off-screen.
+
+       Eight controls at a 40px box do not fit one 320px row, and that is arithmetic: the left
+       group measures 88px and the right group 278px against 296px of usable width. So the row
+       wraps, the header costs about 44px more than the scrolling version did, and every control
+       keeps its size, its order and its reachability. A clipped control is worse than a second
+       row -- and a screenshot caught this where the height number did not. */
+    .dash-header .header-icon-list {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        row-gap: var(--ss-space-1, 4px);
+    }
+
+    /* Children must not shrink, or the 40px targets become 20px ones. */
+    .dash-header .header-icon-list > li { flex: 0 0 auto; }
+
+    /* THE CONTENT'S OFFSET HAS TO FOLLOW THE HEADER, and before this slice it did not.
+       MEASURED: `.dash-header` is `position: absolute` at top 0 and `.dash-container` is
+       `position: relative; top: 105px` -- a hard-coded number. With the old 158px header that
+       put 53px of the page UNDER it: the page title and breadcrumb sat behind the chrome at
+       phone width, which is why the first screen looked even emptier than the numbers said.
+       With the header now 70px the same constant leaves a 35px dead band instead.
+
+       A SECOND HARD-CODED NUMBER WAS THE WRONG ANSWER, and this slice shipped one before
+       measuring its consequence: `top: 70px` matched the one-row header exactly, and then the
+       icon strip had to wrap to stop clipping controls, the header became 96px, and 26px of the
+       page went back under it. The header's height is NOT a constant -- it depends on how many
+       controls the merchant's permissions put in the strip and how many rows those wrap to.
+
+       SO THE CONSTANT GOES. At phone width the header stops being `position: absolute` and
+       becomes a sticky element in normal flow: it occupies its own height, whatever that turns
+       out to be, and `.dash-container` starts at 0 directly beneath it. Nothing can sit under the
+       header because nothing is overlapping any more, and the header still stays pinned while the
+       list scrolls, which is the app-bar behaviour the absolute version was there to provide. */
+    .dash-header {
+        position: sticky;
+        inset-block-start: 0;
+    }
+
+    .dash-container { top: 0; }
+
+    /* ---- The table toolbar and the page header ------------------------------------------
+
+       `.dataTable-top` MEASURED 103px on every list screen, of which 50 is its own
+       `padding: 25px 0`. It is 905px wide because it sits INSIDE the horizontally scrolling
+       `.table-responsive`, so its width is not the cost -- only that padding is. Halving it
+       changes no control and no behaviour.
+
+       `.page-header` MEASURED 60px on /product and 108px on /order, because the order list
+       carries more action buttons and they wrap onto a second row. Letting the cluster scroll
+       instead of wrap gives every screen the same one-row header, and keeps every button: the
+       same app-bar pattern as the site header above, for the same reason. */
+    /* FOUR classes, and the count is MEASURED rather than guessed. Two earlier attempts had no
+       effect at all: the winning declaration is `.card:not(.table-card) .dataTable-top
+       { padding: 25px 0 }` in the vendored theme sheet, and `:not(.table-card)` counts as a class,
+       so that selector is (0,3,0) -- it outranks both `.dataTable-top` (0,1,0) and
+       `.ss-dt-card-body .dataTable-top` (0,2,0). Read off the rendered page with
+       CSS.getMatchedStylesForNode, not inferred. (0,4,0) settles it without `!important`, which
+       would win here but would also be unarguable for the next slice that needs to override it.
+       Horizontal padding is deliberately NOT restated: the theme's shorthand already sets it to 0
+       and `padding-block` touches only the block axis. */
+    .card.ss-dt-card .ss-dt-card-body .dataTable-top { padding-block: var(--ss-space-3, 12px); }
+
+    /* ============================================================================================
+       THE TABLE CONTROL BAR IS OFF-SCREEN AT PHONE WIDTH -- and that is the real defect here, not
+       its height. MEASURED on /order at 320px: `.table-responsive` has clientWidth 250 and
+       scrollWidth 1141, `.dataTable-top` is 905px wide, and its button block starts at x=376 --
+       56px PAST the right edge of a 320px screen. So the search box, the export button, the
+       column-visibility collection and the reset button are all present in the DOM and all
+       unreachable without first discovering that the table scrolls sideways. The length selector
+       at x=35 is the only control a merchant can actually see.
+
+       The width comes from the wrapper, which DataTables sizes to the TABLE rather than to its
+       container. Pinning the wrapper back to its container's own inline size puts every control
+       on screen; the table keeps overflowing it and `.table-responsive` keeps scrolling the table,
+       which is the behaviour Wave 21 measured and deliberately left alone.
+
+       NOTHING IS HIDDEN OR MOVED -- the same controls, in the same order, inside the viewport. */
+    /* NO `.card.ss-dt-card` PREFIX, and dropping it is a repair rather than a tidy-up.
+       MEASURED on /stock-reports: its card carries `card mb-3` while its BODY carries
+       `ss-dt-card-body`, so the prefixed form never matched and that screen's wrapper stayed
+       905px wide inside a 250px scroller -- its search input rendered at x=35 with a width of
+       314, i.e. 29px past the right edge of the window, exactly the defect this rule exists to
+       remove. The body class is the honest hook; the card class is not always beside it. */
+    .ss-dt-card-body > .table-responsive > .dataTables_wrapper {
+        inline-size: 100%;
+        min-inline-size: 0;
+    }
+
+    /* The bar itself then has to be allowed to reflow inside 250px instead of laying its two
+       blocks out side by side: the length selector on one line, the button/search block under it.
+       `min-inline-size: 0` on the children is what lets the search input actually shrink -- a flex
+       item's default `min-width: auto` would otherwise hold it at its content width. */
+    .card.ss-dt-card .ss-dt-card-body .dataTable-top {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--ss-space-2, 8px);
+        align-items: center;
+    }
+
+    .card.ss-dt-card .ss-dt-card-body .dataTable-top > * {
+        min-inline-size: 0;
+        max-inline-size: 100%;
+        float: none;
+    }
+
+    /* The search field is the one control a merchant reaches for most, so it gets the full line
+       rather than whatever is left over after four buttons. */
+    /* `.dataTable-botton` is the theme's own wrapper around the button group and the search box,
+       and it is a flex row ending at `flex-end`. MEASURED: with 280px of content in a 250px box
+       the overflow goes LEFT, so `.dt-buttons` rendered at x=1 -- 34px outside the card, under the
+       page gutter. Wrapping it is what keeps the overflow inside the box. */
+    .card.ss-dt-card .ss-dt-card-body .dataTable-top .dataTable-botton {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        gap: var(--ss-space-2, 8px);
+        inline-size: 100%;
+        min-inline-size: 0;
+    }
+
+    /* THE SEARCH FIELD, ON BOTH TABLE LAYOUTS. The `.dataTable-top` form below is the list
+       family's; /stock-reports and its siblings put the same control in a Bootstrap `.row`
+       inside the wrapper and have no `.dataTable-top` at all, so a rule scoped to that element
+       misses them. MEASURED there: the input rendered at x=35 with a width of 314 in a 320px
+       window -- 29px past the edge -- and pinning the wrapper alone did NOT fix it, because an
+       `<input>` carries an intrinsic width and nothing was telling it to shrink. */
+    .ss-dt-card-body .dataTables_filter { inline-size: 100%; min-inline-size: 0; }
+    .ss-dt-card-body .dataTables_filter label { display: block; inline-size: 100%; }
+    /* The long form is MEASURED, not decorative. The vendored theme carries
+       `div.dataTables_wrapper div.dataTables_filter input { width: auto }` at (0,2,3), and
+       `auto` on an <input> means its intrinsic size -- 314px here. The short selector
+       `.ss-dt-card-body .dataTables_filter input` is (0,2,1) and lost, which is why pinning the
+       wrapper alone left the field exactly as wide as before. */
+    .ss-dt-card-body div.dataTables_wrapper div.dataTables_filter input {
+        inline-size: 100%;
+        min-inline-size: 0;
+        box-sizing: border-box;
+    }
+
+    .card.ss-dt-card .ss-dt-card-body .dataTable-top .dataTables_filter { inline-size: 100%; }
+    .card.ss-dt-card .ss-dt-card-body .dataTable-top .dataTables_filter label { inline-size: 100%; }
+    .card.ss-dt-card .ss-dt-card-body .dataTable-top .dataTables_filter input {
+        inline-size: 100%;
+        min-block-size: 2.75rem;
+    }
+
+    .page-header .all-button-box {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+        justify-content: flex-end;
+    }
+    .page-header .all-button-box::-webkit-scrollbar { display: none; }
+    .page-header .all-button-box > * { flex: 0 0 auto; }
+
+    /* --------------------------------------------------------------------------------------------
+       The control-bar disclosure. The button is built by store-syria-ds.js, which explains why --
+       `.dataTable-top` is created by DataTables at run time, so there is no view to put it in.
+       The BREAKPOINT LIVES HERE, not in the script: the script sets the attribute unconditionally
+       and these rules only act below 576px, so a resize or a rotation needs no JavaScript at all.
+       -------------------------------------------------------------------------------------------- */
+    .ss-dt-controls__toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        inline-size: 2.75rem;
+        min-block-size: 2.75rem;
+        padding: 0;
+        border: 1px solid var(--ss-border, #D5DBE3);
+        border-radius: var(--ss-radius-md, 8px);
+        background: var(--ss-surface-sunken, #F4F6F9);
+        color: var(--ss-fg, #10151C);
+        font-size: 1.125rem;
+        line-height: 1;
+        cursor: pointer;
+    }
+
+    .ss-dt-controls__toggle:focus-visible {
+        outline: var(--ss-focus-width, 3px) solid var(--ss-focus-ring, #1C7ED6);
+        outline-offset: var(--ss-focus-offset, 2px);
+    }
+
+    /* Closed: the search field keeps the line beside the toggle, because it is the control a
+       merchant reaches for most. The length selector and the button group are one tap away. */
+    .dataTable-top[data-ss-controls] .dataTable-dropdown,
+    .dataTable-top[data-ss-controls] .dt-buttons { display: none; }
+
+    /* The long prefix is NOT decoration. The base rule a few lines up is
+       `.card.ss-dt-card .ss-dt-card-body .dataTable-top .dataTable-botton { inline-size: 100% }`
+       at (0,4,0); the short form of this selector is (0,3,0) and MEASURED as losing -- the search
+       field dropped to its own line at y=619 instead of sitting beside the toggle at y=567, which
+       cost 60px of the height this whole disclosure exists to save. */
+    .card.ss-dt-card .ss-dt-card-body .dataTable-top[data-ss-controls] .dataTable-botton {
+        /* `1 1 0`, not `1 1 auto`. MEASURED with `auto`: the bar stayed 128px because a flex item
+           sized from its content asks for the search input's intrinsic width, which does not fit
+           beside a 44px toggle in 250px, so it wrapped to its own line -- exactly the 60px this
+           disclosure exists to remove. A zero basis plus `min-inline-size: 0` lets it take the
+           space that is left instead of demanding the space it would like. */
+        flex: 1 1 0;
+        inline-size: auto;
+        min-inline-size: 0;
+    }
+
+    .dataTable-top[data-ss-controls="open"] .dataTable-dropdown {
+        display: block;
+        inline-size: 100%;
+    }
+
+    .dataTable-top[data-ss-controls="open"] .dt-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--ss-space-2, 8px);
+        inline-size: 100%;
+    }
+
+    .card.ss-dt-card .ss-dt-card-body .dataTable-top[data-ss-controls="open"] .dataTable-botton {
+        flex: 1 1 100%;
+        inline-size: 100%;
+    }
+
+    /* --------------------------------------------------------------------------------------------
+       CHROME ONLY. Each of these is a gap or a pad, never content: MEASURED as 20 + 16 + 24 + 16 +
+       16 + 15 = 107px of pure spacing above the first order on a 568px screen. Halving the ones
+       that are the host's desktop rhythm keeps the vertical grouping readable -- related blocks
+       still sit closer to each other than to the next -- while giving ~45px back to data.
+       -------------------------------------------------------------------------------------------- */
+    .dash-container > .dash-content { padding-block-start: var(--ss-space-3, 12px); }
+
+    /* NOT HERE: `.ss-filterbar`, `.ss-filterbar__saved` and `.ss-dt-card-body` padding. Three rules
+       were written here first and MEASURED as dead -- `store-syria-ds.css` is loaded AFTER this
+       sheet (layouts/app.blade.php), so its own `.ss-filterbar { padding: var(--ss-space-3) }` won
+       on source order and the computed padding never moved off 12px. The two `ss-` components are
+       now tuned in that sheet, where they belong; `.ss-dt-card-body`'s 15px belongs to a host rule
+       more specific than (0,3,0) and is left alone rather than chased for 3px. */
+
+    /* `!important`, and NOT as a shortcut. `mb-3`, `mb-4` and `mb-md-4` are Bootstrap spacing
+       utilities and Bootstrap declares every one of them `!important`, so nothing without it can
+       win however specific it is -- MEASURED: six rules written without it changed none of the six
+       margins. The alternative was editing the utility class out of 107 views, which would move the
+       desktop rhythm too. The override is phone-only and named, so the desktop spacing is intact. */
+    .dash-content > .page-header { margin-block-end: var(--ss-space-2, 8px) !important; }
+    .ss-attention { margin-block-end: var(--ss-space-3, 12px) !important; }
+    .ss-filterbar { margin-block-end: var(--ss-space-2, 8px) !important; }
+    .ss-filterbar__saved { margin-block-end: var(--ss-space-2, 8px) !important; }
+
+    /* ============================================================================================
+       P2.5-WAVE-23 — the two things that still pushed the PAGE sideways at 320px.
+       MEASURED by sweeping all 24 destinations the merchant's sidebar offers: 5 of 21 list
+       screens had documentElement.scrollWidth > clientWidth, which Wave 21 defined as always a
+       defect (a table scrolling inside its own container is not).
+       -------------------------------------------------------------------------------------------- */
+
+    /* 1. THE TOAST OVERLAY IS NOT TOUCHED HERE, and the reason is worth keeping.
+       MEASURED: `.notifier-container` is `position: fixed`, `width: 400px; max-width: 98%`, with
+       ZERO children and 8px of height on every merchant screen -- an empty overlay whose
+       percentage resolves against a containing block that tracks the document, so on a wide page
+       it widens further (400px at left 146 on /product-brand). It LOOKS like the cause and it is
+       not: hiding it changed scrollWidth by exactly nothing, on all five screens.
+
+       A clamp was written here and then REMOVED. ToastErrorPersistenceContractTest asserts that
+       no stylesheet styles the notifier, because a toast restyle is a separate sequencing item
+       that needs the mirrored pair AND a dark variant -- and shipping an unmeasured change to
+       satisfy a hunch is exactly what this project's measuring discipline exists to stop.
+
+       The observation is handed over rather than acted on: when a toast IS present, a 400px
+       container in a 320px window puts part of it off-screen. That belongs to the slice that owns
+       the toast, with its own measurement of a toast actually rendered. */
+
+    /* 2. The chart legend chips on the three sale-report screens. MEASURED: four
+       `button.ss-chip.chart-data` at left=55, width 299, right=354 in a 320px viewport -- in
+       normal flow, so they push the page itself rather than scrolling inside anything. */
+    .ss-chip.chart-data {
+        max-inline-size: 100%;
+        min-inline-size: 0;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    /* 3. AND THE ONE THAT ACTUALLY DID IT on the sale-report screens -- the chips above were a
+       passenger, which measuring proved: clamping them removed them from the over-edge list and
+       left scrollWidth at 354 exactly. The real cause is one level up. `.ss-toolbar` is 250px
+       wide at x=35, correct, and `.ss-field` inside it renders 299px wide at x=55 -- it overflows
+       its own parent by 69px, and `.ss-toolbar` is `overflow-x: visible`, so that reaches the
+       page. A flex item defaults to `min-width: auto`, which refuses to shrink below its content,
+       and the content is a date input carrying an intrinsic width. */
+    .ss-toolbar { flex-wrap: wrap; }
+    .ss-toolbar > .ss-field,
+    .ss-toolbar .ss-field {
+        min-inline-size: 0;
+        max-inline-size: 100%;
+    }
+    .ss-toolbar .ss-field > .ss-input,
+    .ss-toolbar .ss-field > .ss-select { inline-size: 100%; min-inline-size: 0; }
+
+    /* 4. /product-brand and /product-label: scrollWidth 550 and 342 in a 320px viewport with NOT
+       ONE visible box past the edge -- the notifier was already clamped to 304, the scroller was
+       already scrolling internally (clientWidth 250, scrollWidth 634), body and footer were both
+       320. The overflow was in the document's scrollable-overflow region, not in anything a
+       rectangle sweep could point at.
+
+       THREE HYPOTHESES WERE MEASURED AND REFUTED before this one: the empty `.notifier-container`
+       (hiding it changed nothing), the chart chips (clamping them left scrollWidth at 354
+       exactly), and the sticky actions column (`position: static !important` on `.ss-col-locked`
+       left it at 550). `contain: paint` on the scroller took /product-brand 550 -> 320 and
+       /product-label 342 -> 320, and left /product -- which never overflowed -- at 320.
+
+       WHY IT IS SAFE HERE, and the concern is real: `contain: paint` makes the element a
+       containing block for absolutely positioned descendants, so one could now be clipped where
+       it used to escape. Inside this scroller the only absolutely positioned descendants MEASURED
+       are two `.ss-visually-hidden` spans, and `overflow-x: auto` already forces `overflow-y` to
+       a non-visible value, so anything that paints outside is already cut today. It is scoped to
+       phone width, where that scroller is 250px wide and nothing useful could escape it anyway. */
+    .ss-dt-card-body > .table-responsive { contain: paint; }
+
+    /* ============================================================================================
+       P2.5-WAVE-24 — the reports and finance family, which the list-screen work never reached.
+       MEASURED at 320x568 across every sidebar destination: these screens render a table but have
+       NO `.dataTable-top`, so every Wave 22 control-bar improvement missed them. Their first data
+       rows: /finance 2131, /category-order-sale-reports 1543, /Brand-order-sale-reports 1496,
+       /product-order-sale-reports 1358, /stock-reports 684, /order-country-reports 598,
+       /Status-reports 558 -- all with ZERO rows visible.
+
+       They are ANALYTICS screens, not list screens: the table is a detail panel under a chart, so
+       the chart and the filters legitimately come first. What does not is a desktop multi-column
+       grid stacking into a tall single column on a phone.
+       -------------------------------------------------------------------------------------------- */
+
+    /* 1. The shared report period picker, used by reports/index and the three sale-by screens.
+       MEASURED: four mutually exclusive period options rendered as four FULL-WIDTH pills, one per
+       line, about 41px each. Four options that are one choice read as a group, not a stack, so
+       they go two-up -- 164px of pills becomes ~96px and every label still fits at ~136px wide
+       ("Last 7 days" is the longest). The date field and Generate keep their own full line,
+       because they are a different kind of control and sharing a row with a period would say they
+       belong to it. */
+    /* NOT HERE: the `.ss-toolbar` rules. They were written in this sheet first and MEASURED as
+       dead -- `store-syria-ds.css` loads AFTER this one, and it already carries
+       `.ss-toolbar { flex-direction: column }` at this breakpoint, which makes the main axis
+       VERTICAL so a `flex-basis` of 50% means nothing at all. The pills stayed 210px wide, one per
+       line, and the padding stayed 16px/20px. They now live in that sheet, beside the rule they
+       have to argue with. Same trap as Wave 22's `.ss-filterbar`, hit twice. */
+
+    /* 2. /finance's action row. MEASURED: four permission-gated buttons at four different widths,
+       each on its own line, 196px in total, and reading as four different levels of importance
+       because they carry four different Bootstrap variants. Two-up with a shared width makes them
+       one group of actions; the variants are left alone, because which of them is primary is a
+       product decision and not a layout one. */
+    /* THE HOOK IS `ss-finance-actions`, AND THE FIRST NAME I GAVE IT WAS A BUG.
+       It was `ss-actionbar` -- a class that ALREADY EXISTS in this design system as the sticky
+       action bar (`components/ss/actionbar.blade.php`, `store-syria-ds.css:2442`, with
+       `__status` and `__actions` children, a box-shadow and `flex-direction: column` at this very
+       breakpoint). So the finance row silently inherited a different component's layout, and the
+       rules written here to correct it would have changed that component everywhere it is used.
+
+       THE SYMPTOM IS WORTH REMEMBERING because it cost four refuted hypotheses: every declaration
+       applied -- `flex: 1 1 calc(50% - 8px)`, `white-space: normal`, `min-width: 0` all read back
+       correctly off the element -- and the layout ignored all of them, because in a COLUMN
+       `flex-basis: 50%` is half the HEIGHT. The buttons came out 206px wide and 96px tall, two
+       columns overflowing a 320px window. What settled it was CSS.getMatchedStylesForNode, which
+       showed TWO `.ss-actionbar` rules at this breakpoint and the later one winning.
+
+       CHECK WHETHER A CLASS NAME IS TAKEN BEFORE INVENTING ONE. A grep would have cost seconds. */
+    .ss-finance-actions {
+        flex: 1 1 100%;
+        inline-size: 100%;
+        min-inline-size: 0;
+    }
+
+    .ss-finance-actions > .btn {
+        flex: 1 1 calc(50% - var(--ss-space-2, 8px));
+        justify-content: center;
+        text-align: center;
+        min-block-size: 2.75rem;
+        /* BOTH OF THESE ARE LOAD BEARING, and the first version had neither. `.btn` carries
+           `white-space: nowrap`, so its min-content width is the whole label -- 206px for
+           "Withdrawal Requests" -- and a flex item cannot shrink below min-content while
+           `min-width` is `auto`. MEASURED: the second column started at x=235 and ran to 441 in a
+           320px window, i.e. I introduced a page overflow on /finance while removing one
+           elsewhere. Wrapping the label is the honest fix; truncating it would hide which button
+           is which. */
+        min-inline-size: 0;
+        white-space: normal;
+    }
+
+    /* 3. /finance's stat cards. MEASURED: five cards at 102px each, of which about 50px is empty
+       space under the figure. They are NOT put two-up: a card would then be ~130px wide and a
+       real balance like 1,234,567.00 at `h3` size would not fit, which trades a height defect for
+       a truncation one. Instead each card becomes a single line -- label on one side, figure on
+       the other -- which keeps the full width for the number and still halves the height. */
+    .ss-finance-overview > [class*="col-"] .card-body {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: var(--ss-space-3, 12px);
+        padding: var(--ss-space-3, 12px) var(--ss-space-4, 16px);
+    }
+
+    .ss-finance-overview > [class*="col-"] .card-body > h6 {
+        margin-block-end: 0 !important;
+        min-inline-size: 0;
+    }
+
+    .ss-finance-overview > [class*="col-"] .card-body > h3 {
+        margin-block-end: 0;
+        white-space: nowrap;
+        font-size: var(--ss-text-xl, 1.25rem);
+    }
+
+    .ss-finance-overview > [class*="col-"].mb-4 { margin-block-end: var(--ss-space-2, 8px) !important; }
+
+    /* ============================================================================================
+       P2.5-WAVE-28 — each row becomes a readable block instead of one column of twelve.
+
+       MEASURED at 320x568 over eleven list screens: 4 to 12 columns per table, 2 to 4 inside the
+       250px scrollport, of which one is the empty select-all column and one is the pinned Action
+       column. /order showed an order id and NOTHING else -- no date, no customer, no total, no
+       status. Tables measured 417 to 1200px inside that 250px box.
+
+       NOTHING IS HIDDEN. Every cell is still rendered; it is laid out as a labelled line instead
+       of a column the merchant has to scroll sideways to reach. The label is the cell's own column
+       heading, copied onto it by store-syria-ds.js, because CSS cannot read another element's text
+       and DataTables generates the cells.
+
+       `thead` IS CLIPPED, NOT REMOVED. The script reads the headings from it, and a screen reader
+       still needs the column headers to make sense of the roles. `display: none` would take both.
+       -------------------------------------------------------------------------------------------- */
+    .ss-dt-card-body table.dataTable,
+    .ss-dt-card-body table.dataTable > tbody,
+    .ss-dt-card-body table.dataTable > tbody > tr,
+    .ss-dt-card-body table.dataTable > tbody > tr > td {
+        display: block;
+        inline-size: auto;
+        max-inline-size: 100%;
+    }
+
+    .ss-dt-card-body table.dataTable > thead {
+        position: absolute;
+        inline-size: 1px;
+        block-size: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+
+    .ss-dt-card-body table.dataTable > tbody > tr {
+        border: 1px solid var(--ss-border, #D5DBE3);
+        border-radius: var(--ss-radius-md, 8px);
+        margin-block-end: var(--ss-space-2, 8px);
+        padding: var(--ss-space-2, 8px);
+        background: var(--ss-surface, #FFF);
+    }
+
+    /* Label on one side, value on the other: the same shape the finance stat cards took, so a
+       merchant reads one vocabulary across the admin rather than two. */
+    /* `display: table`, NOT `grid`, and that is the second attempt. A two-column grid holds only
+       while the value is ONE box, and a cell is free to hold several: MEASURED on `/product`, the
+       Review cell is `<i class="ti..."></i> 0` -- an element and a text run, so grid auto-placement
+       put the icon in column 2 and wrapped the number to column 1 of the next row, directly under
+       the label. Every multi-child cell in the admin would have done the same.
+
+       CSS table fixup is what makes this robust: contiguous content after a `table-cell` is wrapped
+       in exactly ONE anonymous cell, however many nodes it is, so the value is a single box by
+       construction rather than by assumption. `table-layout: fixed` makes the label's 40% hold
+       instead of being renegotiated per row, which also keeps every label the same width down the
+       card -- the thing a merchant actually scans. Baseline alignment is the table default. */
+    .ss-dt-card-body table.dataTable > tbody > tr > td {
+        display: table;
+        table-layout: fixed;
+        inline-size: 100%;
+        border-spacing: var(--ss-space-2, 8px) 0;
+        padding-block: var(--ss-space-1, 4px);
+        padding-inline: 0;
+        border: 0;
+        overflow-wrap: anywhere;
+    }
+
+    /* A COLUMN ALIGNMENT IS A STATEMENT ABOUT A COLUMN, and stacked there are no columns.
+       MEASURED on `/order`: the Price cell carries the design system's own `.ss-dt-num`
+       (`text-align: end`) and the Action cell Bootstrap's `.text-center` -- both right for a
+       table, both wrong for a card, and together they put values and labels at three different x
+       positions down one card with nothing for the eye to follow.
+
+       This is the one place in the wave that out-shouts a utility, and it is deliberate: the
+       utility's premise -- that there is a column to align within -- is false for exactly this
+       width, the override is withdrawn with the media query, and the alternative was wrapping
+       every cell's contents in a span from JavaScript on every DataTables redraw. */
+    /* `:not([data-ss-label=""])` EXEMPTS THE UNLABELLED CELL, and the exemption is written into
+       this rule rather than layered over it. A cell with no label is not a column either, and the
+       one shape that reaches here is the `@empty` row -- `<td colspan="10" class="text-center">No
+       financial transactions found.</td>` -- which this would otherwise drag to the inline start,
+       turning a centred empty state into a ragged one. Writing the exemption as a second
+       `!important` on top would have been a THIRD in this block, and the ceiling assertion in
+       StackedTableRowTest exists to make that a decision rather than a reflex. It is not needed:
+       the rule can simply stop matching the cell it should never have matched. */
+    .ss-dt-card-body table.dataTable > tbody > tr > td:not([data-ss-label=""]) {
+        text-align: start !important;
+    }
+
+    .ss-dt-card-body table.dataTable > tbody > tr > td::before {
+        content: attr(data-ss-label);
+        display: table-cell;
+        /* 45%, AND THE NUMBER IS MEASURED. At 40% the label cell resolved to 94px on a list card
+           and 81px on the narrower finance card, against English labels that need up to 99px
+           ("Payment Method"), 98px ("Shipping Method"), 93px ("Date Registered") and 89px
+           ("Balance Before") -- so four of five stacked screens wrapped a two-word label across
+           two lines and left its second word sitting under the value, reading as an orphan.
+           Arabic wrapped on NONE of them; its longest is 79px. So this is an English-only defect
+           and one percentage fixes both scripts.
+
+           AFTER: nine of the ten label/screen pairs measured fit on one line. `/order`'s
+           "Shipping Method" still wraps -- 98px against 94px -- and it is LEFT wrapping on
+           purpose. The percentage that clears it by four pixels is a percentage fitted to one
+           English string, and the next font, locale or heading would move it again. Nothing is
+           hidden either way.
+
+           AND 94px AT 45% IS NOT AN ARITHMETIC SLIP, which is worth writing down because an
+           adversarial review read it as one: it computed 94 x 45/40 = 105.75 and concluded the
+           wrap was already gone. The percentage does not resolve against the cell's full width.
+           `border-spacing: var(--ss-space-2) 0` on the same rule takes 8px between the two cells
+           and 8px at each outer edge, so on `/order` the 234px cell offers 210px of column space
+           and 45% of that is 94.5px -- which is what the browser reports. Re-measured after that
+           review with the computed `inline-size` of the `::before` itself: /finance 91px,
+           /finance/withdrawals 104px, /order 94px. The original sentence was right. */
+        inline-size: 45%;
+        /* The label is a LABEL, whatever the column it came from was. MEASURED on `/order`: every
+           `::before` inherited `white-space: nowrap` from the table, so "Shipping Method" -- 108px
+           of text in a 100px column -- ran straight over its own value; and the Order Id cell
+           carries `.ss-dt-ident`, whose `font-weight: 600` the label inherited too, so one label
+           down the card was bold and the other eight were not. A label that wraps keeps the value
+           column where it is; a label that does not wrap moves into it. */
+        white-space: normal;
+        font-weight: 400;
+        color: var(--ss-fg-muted, #5A6472);
+        font-size: var(--ss-text-sm, 0.875rem);
+    }
+
+    /* A column with no heading -- the select-all checkbox -- gets no label cell either, so its
+       content is the only thing in the table and the anonymous cell takes the full width. The
+       empty string is written deliberately by the script so this can tell "no heading" apart from
+       "not processed yet". */
+    .ss-dt-card-body table.dataTable > tbody > tr > td[data-ss-label=""]::before { content: none; }
+
+
+    /* The pinned Action column is unpinned for this width in `store-syria-ds.css`, beside the
+       rules that pin it -- NOT here. Those rules are global and that file loads AFTER this one,
+       so an equal-specificity `box-shadow: none` written here loses the cascade and the pinned
+       edge stays drawn: MEASURED, as a grey bar floating beside the Action row. Withdrawing a
+       component's behaviour belongs with the component. */
+
+    /* The row status switch is inset by `.card .form-switch { margin: 0 4px !important }`, which
+       in a table is breathing room beside a 24px target (P2.5-DESIGN-K) and in a card is 4px of
+       drift: MEASURED on `/customer`, its value box started at 103px while the other eight started
+       at 99px, so the one switch in the card hung out of line with every value above it.
+
+       THIS IS THE SECOND AND LAST `!important` IN THIS BLOCK, and it is here because the first
+       attempt without it was MATCHED AND IGNORED -- an `!important` declaration cannot be beaten
+       on specificity, only answered. Both overrides are the same shape: a declaration that is
+       right for a table row and wrong for a card, withdrawn again above 575.98px. Only the START
+       margin goes; the end one still separates the switch from anything beside it. */
+    .ss-dt-card-body table.dataTable > tbody > tr > td > .form-check {
+        margin-inline-start: 0 !important;
+    }
+
+    /* PREVENTION, AND SAID AS PREVENTION. A screenshot of `/order` read as though the status chip
+       were cut off at the card's edge, and this rule was written to fix that. Measuring it
+       refuted the premise: the chip's right edge sits 8px INSIDE its own cell and 17px inside the
+       row, on every screen tested in all four combinations. It was tight, not truncated.
+
+       The rule stays because `table-layout: fixed` means the value cell does not grow for its
+       content, and a cell is free to hold something that does not shrink -- a product image, a
+       long badge, an embedded chart. Nothing measured overflows today; this keeps that true. It
+       is NOT evidence that anything was ever observed to overflow. */
+    .ss-dt-card-body table.dataTable > tbody > tr > td > * {
+        max-inline-size: 100%;
+    }
+    /* end P2.5-WAVE-28 */
+}
+/* end P2.5-WAVE-22 */

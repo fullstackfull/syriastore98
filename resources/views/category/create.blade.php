@@ -52,7 +52,7 @@
 @if (isset(auth()->user()->currentPlan) && auth()->user()->currentPlan->enable_chatgpt == 'on')
 <div class="d-flex justify-content-end mb-1">
     <a href="#" class="ss-btn ss-btn--secondary ss-btn--sm me-2 ai-btn" data-size="lg" data-ss-panel-open="ai-generate" data-ss-panel-url="{{ route('generate',['category']) }}" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
-        <i class="fas fa-robot" aria-hidden="true"></i> <span>{{ __('Generate with AI') }}</span>
+        <i class="ti ti-wand" aria-hidden="true"></i> <span>{{ __('Generate with AI') }}</span>
     </a>
 </div>
 @endif
@@ -82,7 +82,7 @@
                 <div class="image-upload bg-primary pointer w-100 logo_update"> <i
                         class="ti ti-upload px-1"></i>{{ __('Choose File Here') }}
                 </div>
-                <input type="file" class="form-control file d-none"
+                <input type="file" class="form-control file ss-visually-hidden"
                     name="image" id="upload_image"
                     data-filename="logo_update"
                     onchange="document.getElementById('categoryImage').src = window.URL.createObjectURL(this.files[0])">
@@ -103,7 +103,7 @@
                 <div class="image-upload bg-primary pointer w-100 logo_update"> <i
                         class="ti ti-upload px-1"></i>{{ __('Choose File Here') }}
                 </div>
-                <input type="file" class="form-control file d-none"
+                <input type="file" class="form-control file ss-visually-hidden"
                     name="icon_image" id="upload_icon_image"
                     data-filename="logo_update"
                     onchange="document.getElementById('categoryIcon').src = window.URL.createObjectURL(this.files[0])">

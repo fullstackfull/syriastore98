@@ -198,8 +198,50 @@ class FocusIndicatorRestorationTest extends TestCase
      */
     public function test_the_unconfined_rule_is_not_in_the_design_system(): void
     {
-        $this->assertStringNotContainsString('*:focus-visible', $this->read(self::DESIGN_SYSTEM),
+        $this->assertStringNotContainsString('*:focus-visible', $this->declarations(self::DESIGN_SYSTEM),
             'an unconfined selector was added to store-syria-ds.css, which breaks the confinement '
             . 'property DesignSystemStylesheetScopeTest enforces');
+    }
+
+    /**
+     * The same assertion still has to BITE, so the comment-stripping below cannot have turned this
+     * file into a test that passes whatever is in the sheet.
+     */
+    public function test_the_check_still_catches_a_real_unconfined_rule(): void
+    {
+        $this->assertStringContainsString(
+            '*:focus-visible',
+            $this->strip("/* a docblock naming *:focus-visible */\n*:focus-visible { outline: 1px; }"),
+            'the comment stripper has eaten the rule as well as the prose');
+
+        $this->assertStringNotContainsString(
+            '*:focus-visible',
+            $this->strip("/* a docblock naming *:focus-visible and nothing else */\n.ss-x { color: red; }"),
+            'the comment stripper no longer removes prose');
+    }
+
+    /**
+     * P2.5-WAVE-22. The assertion above reads the sheet's DECLARATIONS, not its bytes.
+     *
+     * IT FAILED ON PROSE. Wave 22 moved the filter-bar focus ring onto the disclosure label and
+     * documented why in the design-system sheet: `.ss-visually-hidden` clips, so the checkbox stays
+     * focusable, and store-syria-a11y.css restores an outline for `*:focus-visible` -- which would
+     * therefore be painted on a 1px box no keyboard user can see. Naming the selector in that
+     * explanation reddened this test, which was comparing raw bytes.
+     *
+     * A COMMENT CANNOT CREATE A CSS RULE, so stripping comments does not weaken the guarantee --
+     * it makes the assertion say what its own docblock already says it means ("an unconfined
+     * selector was ADDED"). THE THIRD TIME in this project a test has failed on its own prose; the
+     * other two were ModalFooterButtonContrastTest and ModalFooterDividerAlignmentTest, both fixed
+     * the same way.
+     */
+    private function declarations(string $relative): string
+    {
+        return $this->strip($this->read($relative));
+    }
+
+    private function strip(string $css): string
+    {
+        return (string) preg_replace('#/\*.*?\*/#s', '', $css);
     }
 }

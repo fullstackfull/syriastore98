@@ -29,7 +29,7 @@
     $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold');
 @endphp
 @section('content')
-    <div class="row pt-4">
+    <div class="row pt-4" id="ss-product-show">
         <div class="col-md-12">
             <div class="row">
                 <div class="col-lg-4 col-md-6 col-12">
@@ -39,13 +39,13 @@
                             <div class="row">
                                 <input type="hidden" name="id" value="{{ $product->id }}">
                                 <div class="form-group col-12">
-                                    {!! Form::label('', __('Name'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('name', __('Name'), ['class' => 'form-label']) !!}
                                     {!! Form::text('name', $product->name, ['class' => 'form-control name']) !!}
                                 </div>
                             </div>
                             <div class="row">
                                 <div class="form-group col-12 parmalink ">
-                                    {!! Form::label('', __('Permalink'), ['class' => 'form-label col-md-3']) !!}
+                                    {!! Form::label('slug', __('Permalink'), ['class' => 'form-label col-md-3']) !!}
                                     <div class="d-flex flex-wrap gap-3">
                                         <span class="input-group-text col-12" id="basic-addon2">{{ $link }}</span>
                                         {!! Form::text('slug', $product->slug, ['class' => 'form-control slug col-12']) !!}
@@ -54,7 +54,7 @@
                             </div>
                             <div class="row">
                                 <div class="form-group col-12">
-                                    {!! Form::label('', __('Category'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('category_id', __('Category'), ['class' => 'form-label']) !!}
                                     {!! Form::select('category_id', $Category, $product->category_id, [
                                         'class' => 'form-control',
                                         'data-role' => 'tagsinput',
@@ -76,7 +76,7 @@
 
                                 </div>
                                 <div class="form-group col-md-6 col-12">
-                                    {!! Form::label('', __('Tax Status'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('tax_id', __('Tax Status'), ['class' => 'form-label']) !!}
                                     {!! Form::select('tax_status', $Tax_status, $product->tax_status, [
                                         'class' => 'form-control',
                                         'data-role' => 'tagsinput',
@@ -86,7 +86,7 @@
                             </div>
                             <div class="row">
                                 <div class="form-group  col-12" data_val='0'>
-                                    {!! Form::label('', __('Brand'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('brand-dropdown', __('Brand'), ['class' => 'form-label']) !!}
                                     {!! Form::select('brand_id', $brands, $product->brand_id, [
                                         'class' => 'form-control',
                                         'data-role' => 'tagsinput',
@@ -96,7 +96,7 @@
                             </div>
                             <div class="row">
                                 <div class="form-group  col-12" data_val='0'>
-                                    {!! Form::label('', __('Label'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('label-dropdown', __('Label'), ['class' => 'form-label']) !!}
                                     {!! Form::select('label_id', $labels, $product->label_id, [
                                         'class' => 'form-control',
                                         'data-role' => 'tagsinput',
@@ -106,7 +106,7 @@
                             </div>
                             <div class="row">
                                 <div class="form-group col-12">
-                                    {!! Form::label('', __('Tags'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('tag_id', __('Tags'), ['class' => 'form-label']) !!}<span class="ss-label__required" aria-hidden="true">*</span>
                                     <select name ="tag_id[]" class="select2 form-control" id="tag_id" multiple required>
                                         @foreach ($tag as $key => $t)
                                             <option @if (in_array($key, $get_tags)) selected @endif
@@ -118,7 +118,7 @@
                             </div>
                             <div class="row">
                                 <div class="form-group col-12">
-                                    {!! Form::label('', __('Shipping'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('shipping_id', __('Shipping'), ['class' => 'form-label']) !!}
                                     {!! Form::select('shipping_id', $Shipping, $product->shipping_id, [
                                         'class' => 'form-control',
                                         'data-role' => 'tagsinput',
@@ -129,17 +129,17 @@
 
                             <div class="row">
                                 <div class="form-group col-12 product-weight">
-                                    {!! Form::label('', __('Weight(Kg)'), ['class' => 'form-label ']) !!}
+                                    {!! Form::label('product_weight', __('Weight(Kg)'), ['class' => 'form-label ']) !!}
                                     {!! Form::number('product_weight',  $product->product_weight, ['class' => 'form-control', 'min' => '0', 'step' => '0.01']) !!}
                                 </div>
                             </div>
                             <div class="row product-price-div">
                                 <div class="form-group col-md-6 col-12 product_price">
-                                    {!! Form::label('', __('Price'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('price', __('Price'), ['class' => 'form-label']) !!}
                                     {!! Form::number('price',  $product->price, ['class' => 'form-control', 'min' => '0', 'step' => '0.01']) !!}
                                 </div>
                                 <div class="form-group col-md-6 col-12">
-                                    {!! Form::label('', __('Sale Price'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('sale_price', __('Sale Price'), ['class' => 'form-label']) !!}
                                     {!! Form::number('sale_price',  $product->sale_price, ['class' => 'form-control', 'min' => '0', 'step' => '0.01']) !!}
                                 </div>
                             </div>
@@ -149,7 +149,7 @@
                                 <div class="row">
                                     @if ($stock_management == 'on')
                                         <div class="form-group col-md-6 col-12">
-                                            {!! Form::label('', __('Stock Management'), ['class' => 'form-label']) !!}
+                                            {!! Form::label('enable_product_stock', __('Stock Management'), ['class' => 'form-label']) !!}
                                             <div class="form-check form-switch">
                                                 <input type="hidden" name="track_stock" value="0">
                                                 {!! Form::checkbox('track_stock', 1, $product->track_stock, [
@@ -203,11 +203,11 @@
                                 @if ($stock_management == 'on')
                                     <div class="row" id="options">
                                         <div class="form-group col-md-6 col-12 product_stock">
-                                            {!! Form::label('', __('Stock'), ['class' => 'form-label']) !!}
+                                            {!! Form::label('product_stock', __('Stock'), ['class' => 'form-label']) !!}
                                             {!! Form::number('product_stock', $product->product_stock, ['class' => 'form-control productStock']) !!}
                                         </div>
                                         <div class="form-group col-md-6 col-12">
-                                            {!! Form::label('', __('Low stock threshold'), ['class' => 'form-label']) !!}
+                                            {!! Form::label('low_stock_threshold', __('Low stock threshold'), ['class' => 'form-label']) !!}
                                             {!! Form::number('low_stock_threshold', $low_stock_threshold, ['class' => 'form-control', 'min' => '0']) !!}
                                         </div>
                                         <div class="col-12 mb-3">
@@ -415,7 +415,7 @@
                                 <div class="card-body">
                                     <div class="row">
                                         <div class="form-group col-md-12">
-                                            {!! Form::label('', __('Product Attribute'), ['class' => 'form-label']) !!}
+                                            {!! Form::label('attribute_id', __('Product Attribute'), ['class' => 'form-label']) !!}
                                             {!! Form::select('attribute_id[]', $ProductAttribute, $get_datas, [
                                                 'class' => 'form-control product_attribute attribute_id',
                                                 'multiple' => 'multiple',
@@ -557,11 +557,11 @@
                                                                 <div data-repeater-item>
                                                                     <div class="form-group row">
                                                                         <div class="col-md-6">
-                                                                            {!! Form::label('', __('Custom Field'), ['class' => 'form-label']) !!}
+                                                                            {!! Form::label('custom_field', __('Custom Field'), ['class' => 'form-label']) !!}
                                                                             {!! Form::text('custom_field', $item['custom_field'], ['class' => 'form-control']) !!}
                                                                         </div>
                                                                         <div class="col-md-6">
-                                                                            {!! Form::label('', __('Custom Value'), ['class' => 'form-label']) !!}
+                                                                            {!! Form::label('answer', __('Custom Value'), ['class' => 'form-label']) !!}
                                                                             {!! Form::text('custom_value', $item['custom_value'], [
                                                                                 'id' => 'answer',
                                                                                 'rows' => 4,
@@ -582,11 +582,11 @@
                                                             <div data-repeater-item>
                                                                 <div class="form-group row">
                                                                     <div class="col-md-6">
-                                                                        {!! Form::label('', __('Custom Field'), ['class' => 'form-label']) !!}
+                                                                        {!! Form::label('custom_field', __('Custom Field'), ['class' => 'form-label']) !!}
                                                                         {!! Form::text('custom_field', null, ['class' => 'form-control']) !!}
                                                                     </div>
                                                                     <div class="col-md-6">
-                                                                        {!! Form::label('', __('Custom Value'), ['class' => 'form-label']) !!}
+                                                                        {!! Form::label('answer', __('Custom Value'), ['class' => 'form-label']) !!}
                                                                         {!! Form::text('custom_value', null, ['id' => 'answer', 'rows' => 2, 'class' => 'form-control']) !!}
 
                                                                     </div>
@@ -631,8 +631,9 @@
 
         `.attribute_combination` above is filled with the SAME `attribute_combinations_data`
         partial the editor uses, and that partial's per-variant trash button is fully functional
-        here: the `$('input').attr('readonly', true)` sweep in this file's script runs before the
-        async injection and never touches an `<a>` anyway. So without this include the read-only
+        here: the `ssLockProductShow()` lock in this file's script re-runs after each async
+        injection, but it selects only inputs, textareas and selects and never touches an `<a>`.
+        So without this include the read-only
         screen would keep the bare one-click delete the editor just lost, and the owner's condition
         -- a visible explicit confirmation before EVERY permitted delete -- would hold on one
         screen and not the other.
@@ -645,9 +646,59 @@
     <script src="{{ asset('js/repeater.js') }}"></script>
     <script src="{{ asset('assets/css/summernote/summernote-bs4.js') }}"></script>
     <script>
+        /* P2.5 F-show-readonly: the Choices-backed selects must be disabled BEFORE custom.js
+           builds them, so this statement is deliberately at script TOP LEVEL rather than inside
+           the ready callback below. public/js/custom.js is loaded at
+           partision/footerlink.blade.php:64 (layouts/app.blade.php:626) and only REGISTERS a
+           ready handler, so its comman_function() runs first among ready callbacks; a top-level
+           statement in this pushed block runs before any of them, and the content was parsed at
+           layouts/app.blade.php:531.
+
+           Why it has to be this early: custom.js:168 constructs
+           new Choices(element, {editItems: true, removeItemButton: true}) for every
+           [data-role="tagsinput"] select, and Choices reads the state ONCE, at construction --
+           public/assets/js/plugins/choices.min.js ends its init with
+           (!this.config.addItems || this.passedElement.element.hasAttribute("disabled")) &&
+           this.disable() -- and that file contains zero MutationObserver. So disabling the select
+           after init changes nothing about the rendered widget. attr(), not prop(), because the
+           library's check is hasAttribute(). Choices' own disable() removes every listener and
+           leaves the chips visible and readable, needs no CSS, and is direction-independent. */
+        $('#ss-product-show').find('select[data-role="tagsinput"]').attr('disabled', 'disabled');
+
+        /* The read-only lock for this screen, declared at top level because the AJAX success
+           callbacks that re-run it live in a later <script> block and only share global scope.
+           It is scoped to #ss-product-show: the document-wide input-and-select sweep this
+           replaced also reached the shared chrome -- the sidebar search and the command-palette
+           input, both already in the DOM -- and killed the sidebar nav filter plus its palette
+           fallback on this route only. */
+        function ssLockProductShow() {
+            var $scope = $('#ss-product-show');
+
+            /* readonly is not a content attribute of <select>, a checkbox or a radio, and no CSS
+               compensates -- the only [readonly] rule in the design system is prefixed .ss-input
+               and these are un-prefixed Bootstrap controls. So those get disabled instead.
+               `disabled` does not change `checked`, so the three checked readers in this file are
+               unaffected, and nothing here is ever submitted: this view has no form at all. */
+            $scope.find('input, textarea').attr('readonly', true);
+            $scope.find('select, input[type=checkbox], input[type=radio], input[type=file]')
+                .prop('disabled', true);
+
+            /* The three summernote-simple-product textareas (:350, :354, :358) are hidden by
+               custom.js:217 and replaced with a contenteditable sibling carrying a full toolbar
+               including codeview, so readonly on the textarea is a measured no-op.
+               summernote('disable') is in the vendored build and is what actually locks them.
+               custom.js's ready callback runs before this one so the instance exists; the data()
+               guard covers the case where it does not. */
+            $scope.find('.summernote-simple-product').each(function() {
+                if ($(this).data('summernote')) {
+                    $(this).summernote('disable');
+                    $(this).next('.note-editor').find('.note-toolbar').hide();
+                }
+            });
+        }
+
         $(document).ready(function() {
-            $('input').attr('readonly', true);
-            $('select').attr('readonly', true);
+            ssLockProductShow();
             attribute_option_data();
             type();
 
@@ -759,6 +810,7 @@
                 success: function(data) {
                     $('#loader').fadeOut();
                     $('.attribute_combination').html(data);
+                    ssLockProductShow();
                     if (data.length > 1) {
                         $('#quantity').hide();
                     } else {
@@ -778,6 +830,7 @@
                 success: function(data) {
                     $('#loader').fadeOut();
                     $('.attribute_combination').html(data);
+                    ssLockProductShow();
                     if (data.length > 1) {
                         $('#quantity').hide();
                     } else {

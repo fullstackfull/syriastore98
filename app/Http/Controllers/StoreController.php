@@ -113,7 +113,7 @@ class StoreController extends Controller
     if ($validator->fails()) {
         $messages = $validator->getMessageBag();
 
-        return redirect()->back()->with('error', $messages->first());
+        return redirect()->back()->with('error', implode(' ', $messages->all()));
     }
 
     /*
@@ -475,7 +475,7 @@ foreach ($defaultCurrencies as $currency) {
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
 
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
             $slug = User::slugs($request->storename);
 
@@ -548,7 +548,7 @@ foreach ($defaultCurrencies as $currency) {
             );
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
             $enable_storelink = Utility::GetValueByName('enable_storelink', $store->id);
             $enable_domain = Utility::GetValueByName('enable_domain', $store->id);
@@ -1031,7 +1031,15 @@ foreach ($defaultCurrencies as $currency) {
             );
             $serverIp = gethostbyname($serverName);
 
-            if ($serverIp == $_SERVER['SERVER_ADDR']) {
+            /* P2.5-WAVE-23. The same unguarded `$_SERVER['SERVER_ADDR']` read that made
+             * /app-setting return HTTP 500 under a SAPI that does not set the key.
+             *
+             * STATED HONESTLY: this route was NOT driven, so this is prevention, not a measured
+             * repair -- the crash was measured on AppSettingController::index and this is the
+             * identical pattern two files away. `request()->server()` reads the same `$_SERVER`
+             * bag, so where the key exists nothing changes at all; the else-branch below already
+             * used the safe accessor. */
+            if ($serverIp == request()->server('SERVER_ADDR')) {
                 $serverIp;
             } else {
                 $serverIp = request()->server('SERVER_ADDR');

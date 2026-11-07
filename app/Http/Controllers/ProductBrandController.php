@@ -25,8 +25,23 @@ class ProductBrandController extends Controller
     /**
      * Show the form for creating a new resource.
      */
+    /**
+     * P2.5-PKG-B. THE FORM NOW REFUSES EXACTLY WHEN THE SUBMIT WOULD.
+     *
+     * This method had NO permission check at all, while `store()` -- the only thing this form can
+     * submit to -- checks `Create Product Brand`. The index view already hides the button behind
+     * `@permission('Create Product Brand')` (product_brand/index.blade.php:6), so the gate existed
+     * everywhere except the handler.
+     *
+     * No operator limb, deliberately: `store()` has none either, and adding one here would let the
+     * platform operator compose a write the submit then refuses.
+     */
     public function create()
     {
+        if (! auth()->user() || ! auth()->user()->isAbleTo('Create Product Brand')) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         return view('product_brand.create');
     }
 
@@ -45,7 +60,7 @@ class ProductBrandController extends Controller
             if($validator->fails())
             {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
             $slug = ProductBrand::slugs($request->name);
 
@@ -91,14 +106,80 @@ class ProductBrandController extends Controller
      */
     public function show(ProductBrand $productBrand)
     {
-        //
+        // P2.5-PKG-B. AN EMPTY BODY IS STILL AN EXISTENCE ORACLE. Route model binding resolves the
+        // row BEFORE this method runs, and `ProductBrand` is absent from `config/tenancy.php`'s
+        // `scoped_models`, so it resolves any tenant's id: the response was an empty 200 for a row
+        // that exists in ANY store and a 404 only for one that exists nowhere. That difference
+        // answers "does row N exist on this platform" for every id, to any authenticated
+        // principal. The guard makes the two indistinguishable. Nothing in the repository
+        // references this route -- `product-brand.show` has no callers in resources/, app/, routes/ or
+        // packages/ -- so the route is left registered rather than removed: refusing what it must
+        // not serve is a smaller change than withdrawing a URL some client may hold.
+
+        if (! $this->callerOwnsBrand($productBrand)) {
+            abort(404);
+        }
     }
 
     /**
      * Show the form for editing the specified resource.
      */
+    /**
+     * P2.5-PKG-B. THE OWNERSHIP HALF OF `resolveOwnedBrand()`, for the route-model-bound methods.
+     *
+     * `resolveOwnedBrand()` below reads an id out of a Request, which suits the two POST toggles
+     * and suits nothing else. `edit()`, `update()` and `destroy()` receive an already-bound
+     * `ProductBrand`, and ROUTE MODEL BINDING IS NOT TENANT SCOPED: `ProductBrand` registers no
+     * global scope and is absent from `config/tenancy.php`'s `scoped_models`, so the bound
+     * instance can be any row in the table.
+     *
+     * FAIL CLOSED ON EITHER SIDE BEING ABSENT, exactly as the sibling does. A row with a NULL
+     * `store_id` is invisible to every store predicate in the application and must not become
+     * visible here.
+     *
+     * NO OPERATOR LIMB, AND THAT IS A DECISION RATHER THAN AN OVERSIGHT. `resolveOwnedBrand()`
+     * gives the operator a pass for the status toggles. These three are the editor, and owner
+     * decision F206 (`app/Services/OperatorCatalogueWrite.php:8-15`) says the platform operator
+     * may read merchant catalogues but may not edit them. The three methods already refuse the
+     * operator today, because `isAbleTo()` alone does; adding a limb here would widen what F206
+     * narrows. This change only ever REMOVES access.
+     */
+    private function callerOwnsBrand(?ProductBrand $brand): bool
+    {
+        $user = auth()->user();
+
+        if ($user === null || $brand === null) {
+            return false;
+        }
+
+        $currentStore = getCurrentStore($user->id);
+
+        return ! empty($currentStore)
+            && ! empty($brand->store_id)
+            && (int) $brand->store_id === (int) $currentStore;
+    }
+
+    /**
+     * P2.5-PKG-B. THIS HAD NO PERMISSION CHECK AND NO OWNERSHIP CHECK.
+     *
+     * MEASURED, not inferred: `BrandCrossTenantReadWriteTest` drove a second merchant at a
+     * foreign brand's edit form and it answered 200 carrying that brand's name.
+     *
+     * `Edit Product Brand` is the permission `update()` already uses on this same row, so the
+     * form now refuses exactly when the submit would. 404 for a foreign or absent row, because a
+     * row outside the caller's store must be indistinguishable from one that does not exist --
+     * the same non-oracle property `resolveOwnedBrand()` documents.
+     */
     public function edit(ProductBrand $productBrand)
     {
+        if (! auth()->user() || ! auth()->user()->isAbleTo('Edit Product Brand')) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        if (! $this->callerOwnsBrand($productBrand)) {
+            abort(404);
+        }
+
         return view('product_brand.edit', compact('productBrand'));
 
     }
@@ -106,10 +187,25 @@ class ProductBrandController extends Controller
     /**
      * Update the specified resource in storage.
      */
+    /**
+     * P2.5-PKG-B. THE PERMISSION WAS CHECKED AND THE OWNER WAS NOT, AND THE CONSEQUENCE IS WORSE
+     * THAN AN UNAUTHORISED EDIT.
+     *
+     * Further down, this method does `$productBrand->store_id = getCurrentStore();`. That is not
+     * an ownership CHECK, it is an ownership REASSIGNMENT -- so a foreign row reaching it was not
+     * merely edited, it CHANGED HANDS into the caller's store.
+     *
+     * MEASURED before the fix, in `BrandCrossTenantReadWriteTest`: a second merchant holding
+     * `Edit Product Brand` renamed another tenant's brand AND moved it into their own store.
+     */
     public function update(Request $request, ProductBrand $productBrand)
     {
 
         if (auth()->user() && auth()->user()->isAbleTo('Edit Product Brand')) {
+
+            if (! $this->callerOwnsBrand($productBrand)) {
+                abort(404);
+            }
 
             $validator = \Validator::make(
                 $request->all(),
@@ -120,7 +216,7 @@ class ProductBrandController extends Controller
             if($validator->fails())
             {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
 
             $url = null;
@@ -155,7 +251,16 @@ class ProductBrandController extends Controller
             if (isset($request->is_popular)) {
                 $productBrand->is_popular          = $request->is_popular;
             }
-            $productBrand->store_id            = getCurrentStore();
+            // THE ASSIGNMENT THAT USED TO BE HERE IS GONE, not merely guarded.
+            // `$productBrand->store_id = getCurrentStore();` was the takeover primitive: a foreign
+            // row reaching it did not just get edited, it CHANGED HANDS into the caller's store.
+            // callerOwnsBrand() above now guarantees the two values are already equal, so the line
+            // was a no-op -- but leaving it means any future weakening of the guard re-opens a
+            // TRANSFER rather than an unauthorised edit. Raised by the tenant-authz review, which
+            // also noted the Admin API sibling (Api\DashboardController) has never done this.
+            //
+            // `store()` at :95 keeps ITS assignment: that one STAMPS a brand-new row with the
+            // creator's store, which is where the value has to come from.
             $productBrand->save();
 
             return redirect()->back()->with('success', __('Product Brand successfully updated.'));
@@ -167,9 +272,20 @@ class ProductBrandController extends Controller
     /**
      * Remove the specified resource from storage.
      */
+    /**
+     * P2.5-PKG-B. The permission was checked and the owner was not.
+     *
+     * MEASURED before the fix: a second merchant holding `Delete Product Brand` deleted another
+     * tenant's brand. The ownership check goes BEFORE the storage-limit accounting below, so a
+     * refused call also leaves the victim's storage figures untouched.
+     */
     public function destroy(ProductBrand $productBrand)
     {
         if (auth()->user() && auth()->user()->isAbleTo('Delete Product Brand')) {
+            if (! $this->callerOwnsBrand($productBrand)) {
+                abort(404);
+            }
+
             if ($productBrand->logo !== '/storage/uploads/default.jpg' && \File::exists(base_path($productBrand->logo))) {
                 Utility::changeStorageLimit(\Auth::user()->creatorId(), $productBrand->logo );
             }

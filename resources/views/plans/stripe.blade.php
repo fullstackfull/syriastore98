@@ -954,7 +954,7 @@
                                             <div class="row">
                                                 <div class="col-md-12">
                                                     <div class="form-group">
-                                                        <label for="mobile_number" class="mb-1">{{ __('Mobile Number') }}</label>
+                                                        <label for="mobile_number" class="mb-1">{{ __('Mobile Number') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                                                         <input type="text" id="mobile_number" name="mobile_number"
                                                             class="form-control coupon"
                                                             placeholder="{{ __('Enter Mobile Number') }}" required>
@@ -2176,11 +2176,11 @@
                                                 </div>
                                             </div>
                                             <div class="form-group col-md-6" id="mobile_div">
-                                                {{Form::label('mobile_number',__('Mobile Number'),['class'=>'form-label'])}}
+                                                {{Form::label('mobile_number',__('Mobile Number'),['class'=>'form-label'])}}<span class="ss-label__required" aria-hidden="true">*</span>
                                                 <input type="text" name="mobile_number" class="form-control font-style mobile_number" id="mobile_number" required>
                                             </div>
                                             <div class="form-group col-md-6" id="channel_div">
-                                                {{Form::label('channel',__('Channel'),['class'=>'form-label'])}}
+                                                {{Form::label('channel',__('Channel'),['class'=>'form-label'])}}<span class="ss-label__required" aria-hidden="true">*</span>
                                                 <input type="text" name="channel" class="form-control font-style channel" id="channel" required>
                                                 <small class="text-danger">{{__('Example')}} : {{__('OMCIV2,MOMO,CARD,FLOOZ ,PAYPAL')}}</small>
                                             </div>

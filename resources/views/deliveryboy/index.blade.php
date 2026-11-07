@@ -14,12 +14,12 @@
 
 @section('action-button')
     <div class="text-end d-flex all-button-box justify-content-md-end justify-content-center">
-        <a href="{{ route('deliveryboy.list') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('List View') }}" class="btn btn-sm btn-primary btn-icon ">
+        <a href="{{ route('deliveryboy.list') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('List View') }}" class="btn btn-sm btn-primary btn-icon " aria-label="{{ __('List View') }}">
                 <i class="ti ti-list"></i>
             </a>
         @permission('Create DeliveryBoy')
         <a href="#" class="btn btn-sm btn-primary btn-badge mx-1" data-ajax-popup="true" data-size="md" data-title="{{__('Create DeliveryBoy')}}"
-            data-url="{{ route('deliveryboy.create') }}" data-bs-toggle="tooltip" title="{{ __('Add DeliveryBoy') }}">
+            data-url="{{ route('deliveryboy.create') }}" data-bs-toggle="tooltip" title="{{ __('Add DeliveryBoy') }}" aria-label="{{__('Create DeliveryBoy')}}">
             <i class="ti ti-plus"></i>
         </a>
         @endpermission
@@ -41,8 +41,8 @@
                                     <div class="card-header-right">
                                         <div class="btn-group card-option">
                                             <button type="button" class="btn dropdown-toggle" data-bs-toggle="dropdown"
-                                                aria-haspopup="true" aria-expanded="false">
-                                                <i class="feather icon-more-vertical"></i>
+                                                aria-haspopup="true" aria-expanded="false" aria-label="{{ __('More actions') }}">
+                                                <i class="ti ti-dots-vertical" aria-hidden="true"></i>
                                             </button>
                                             <div class="dropdown-menu dropdown-menu-end">
                                                 @permission('Edit Deliveryboy')

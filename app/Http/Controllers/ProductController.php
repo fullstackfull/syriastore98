@@ -5438,15 +5438,28 @@ $Product->cost_price = $request->cost_price;
             $products = Product::where('product_type', null)->where('store_id', getCurrentStore())->orderBy('id', 'desc')->paginate(11);
             $settings = Setting::where('store_id', getCurrentStore())->pluck('value', 'name')->toArray();
 
+            /*
+             * P2.5-R-01 -- `filterCategories` used to be in each compact() below and was never
+             * assigned in this method, so compact() raised `Undefined variable $filterCategories`
+             * and every request for this screen ended as an HTTP 500.
+             *
+             * It is NOT reinstated as a query, because nothing here would read it. The variable
+             * belongs to index() (:521), whose view product/index.blade.php pulls in
+             * product/partials/filters.blade.php -- that partial reads $filterCategories at :30,
+             * :58 and :106. product/list.blade.php includes no filter partial and never names the
+             * variable, so passing it would be a category query per request for data no view
+             * receives. If this screen ever grows the same filter bar, define it here the way
+             * index() does rather than restoring the name alone.
+             */
             if ($request->id == 1) {
                 $msg = __('Product Successfully Created');
-                return view('product.list', compact('products', 'settings', 'msg', 'filterCategories'));
+                return view('product.list', compact('products', 'settings', 'msg'));
             } elseif ($request->id == 2) {
                 $msg = __('Product Successfully Updated');
-                return view('product.list', compact('products', 'settings', 'msg', 'filterCategories'));
+                return view('product.list', compact('products', 'settings', 'msg'));
             } else {
                 $msg = 0;
-                return view('product.list', compact('products', 'settings', 'msg', 'filterCategories'));
+                return view('product.list', compact('products', 'settings', 'msg'));
             }
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));

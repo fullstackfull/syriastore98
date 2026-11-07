@@ -28,7 +28,7 @@
                 <input type="url" id="url_{{ $item->id }}" class="form-control flex-1" value="{{ $item->menuItemable->url }}">
             </div>
             <div class="form-group">
-                <label class="f-w-600 w-100">{{ __('Icon') }}</label>
+                <label for="iconSelect_{{ $item->id }}" class="f-w-600 w-100">{{ __('Icon') }}</label>
                 <div class="d-flex gap-2 align-items-center">
                     <select name="icon_type" class="form-select icon-select" id="iconSelect_{{ $item->id }}" data-item-id="{{ $item->id }}">
                         <option value="">{{ __('Select Icon Type') }}</option>
@@ -67,7 +67,7 @@
     @else
     <div class="collapse p-3 border rounded" id="collapse_{{ $item->id }}">
         <div class="form-group">
-            <label class="f-w-600 w-100">{{ __('Icon') }}</label>
+            <label for="iconSelect_{{ $item->id }}" class="f-w-600 w-100">{{ __('Icon') }}</label>
             <div class="d-flex gap-2 align-items-center">
                 <select name="icon_type" class="form-select icon-select" id="iconSelect_{{ $item->id }}" data-item-id="{{ $item->id }}">
                     <option value="">{{ __('Select Icon Type') }}</option>

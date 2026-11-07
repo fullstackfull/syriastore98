@@ -316,7 +316,7 @@
                                                     </a>
                                                 </div>
                                                 <div class="text-end d-flex all-button-box justify-content-md-end justify-content-center">
-                                                    <a href="{{ route('module.add') }}" class="btn btn-primary btn-badge" title="{{ __('Add More Themes') }}" data-bs-toggle="tooltip">
+                                                    <a href="{{ route('module.add') }}" class="btn btn-primary btn-badge" title="{{ __('Add More Themes') }}" data-bs-toggle="tooltip" aria-label="{{ __('Add More Themes') }}">
                                                         <i class="ti ti-plus"></i>
                                                     </a>
                                                 </div>

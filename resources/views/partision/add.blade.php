@@ -28,7 +28,11 @@
     
     
 </div>
-<script src="{{ asset('public/js/jquery-3.6.0.min.js') }}"></script>
+{{-- P2.5-WAVE-33. The doubled `public/` segment is corrected here for consistency with the
+     other six sites, but NOTHING INCLUDES THIS PARTIAL -- `grep -rn "partision.add"` over
+     resources/ and app/ returns only this file -- so the correction changes no behaviour. It is
+     recorded rather than claimed as a repair. --}}
+<script src="{{ asset('js/jquery-3.6.0.min.js') }}"></script>
 <script type="text/javascript">
     (function() {
 

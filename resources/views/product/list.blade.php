@@ -22,11 +22,11 @@ $admin = getAdminAllSetting();
     @include('import-export::export.button', ['module' => 'product'])
     @endpermission
     @endif
-    <a href="{{ route('product.index') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('List View') }}" class="btn btn-sm btn-primary btn-icon ">
+    <a href="{{ route('product.index') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('List View') }}" class="btn btn-sm btn-primary btn-icon " aria-label="{{ __('List View') }}">
         <i class="ti ti-list"></i>
     </a>
     <a href="{{ route('product.create') }}" class="btn btn-sm btn-primary" data-title="{{ __('Create New Product') }}"
-        data-bs-toggle="tooltip" title="{{ __('Add New Product') }}">
+        data-bs-toggle="tooltip" title="{{ __('Add New Product') }}" aria-label="{{ __('Create New Product') }}">
         <i class="ti ti-plus"></i>
     </a>
 </div>
@@ -57,8 +57,8 @@ $admin = getAdminAllSetting();
                 <div class="card-header-right">
                     <div class="btn-group card-option">
                         <button type="button" class="btn dropdown-toggle" data-bs-toggle="dropdown"
-                            aria-haspopup="true" aria-expanded="false">
-                            <i class="feather icon-more-vertical"></i>
+                            aria-haspopup="true" aria-expanded="false" aria-label="{{ __('More actions') }}">
+                            <i class="ti ti-dots-vertical" aria-hidden="true"></i>
                         </button>
                         <div class="dropdown-menu dropdown-menu-end">
                             <a class="dropdown-item"
@@ -83,8 +83,8 @@ $admin = getAdminAllSetting();
             </div>
             <div class="card-body p-3">
                 <div class="row g-2 justify-content-between">
-                    <div class="col-auto"><span
-                            class="badge rounded-pill bg-success">{{ !empty($product->ProductData) ? $product->ProductData->name : '-' }}</span>
+                    <div class="col-auto"><x-ss.chip :interactive="false"
+                            :label="!empty($product->ProductData) ? $product->ProductData->name : '-'" />
                     </div>
                 </div>
                 <div class="card mb-0 mt-3">
@@ -114,17 +114,17 @@ $admin = getAdminAllSetting();
                                 <h6>
                                     @if ($product->track_stock == 0)
                                     @if ($product->stock_status == 'out_of_stock')
-                                    <span class="badge rounded-pill bg-danger">{{ __('Out of stock') }}</span>
+                                    <x-ss.status-badge tone="danger" :label="__('Out of stock')" />
                                     @elseif($product->stock_status == 'on_backorder')
-                                    <span class="badge rounded-pill bg-warning">{{__('On Backorder') }}</span>
+                                    <x-ss.status-badge tone="warning" :label="__('On Backorder')" />
                                     @else
-                                    <span class="badge rounded-pill bg-primary">{{ __('In stock') }}</span>
+                                    <x-ss.status-badge tone="success" :label="__('In stock')" />
                                     @endif
                                     @else
                                     @if ($product->product_stock <= (isset($settings['out_of_stock_threshold']) ? $settings['out_of_stock_threshold'] : 0))
-                                        <span class="badge rounded-pill bg-danger">{{ __('Out of stock') }}</span>
+                                        <x-ss.status-badge tone="danger" :label="__('Out of stock')" />
                                         @else
-                                        <span class="badge rounded-pill bg-primary">{{ __('In stock') }}</span>
+                                        <x-ss.status-badge tone="success" :label="__('In stock')" />
                                         @endif
                                         @endif
                                 </h6>

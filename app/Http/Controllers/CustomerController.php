@@ -408,13 +408,40 @@ public function destroy(Customer $customer)
             }
         }
 
-        $activityLog = ActivityLog::where('customer_id', $ids)
-            ->groupBy('customer_id')
-            ->first();
+        /*
+         * P2.5-PKG-C (F-C-09). SCOPED TO THE CUSTOMER'S OWN STORE, which these three queries were
+         * not. The ownership check above decides WHICH CUSTOMER may be opened; it says nothing
+         * about whose activity is then listed, and `ActivityLog` is absent from `scoped_models`
+         * even though it HAS a `store_id` column.
+         *
+         * WHAT THE FEED LEAKED IS NOT MERELY "ACTIVITY": `ActivityLog::order_entry()` writes
+         * `remark` as JSON carrying `order_id`, `order_date`, `product`, `price` and
+         * `payment_type`, so a merchant reading one of their OWN customers' timelines saw another
+         * store's order references, products and PRICES. Measured in
+         * CustomerTimelineTenancyTest.
+         *
+         * THE CUSTOMER'S OWN STORE, not `getCurrentStore()`, and that is deliberate for the reason
+         * F-C-07 records: `getCurrentStore()` returns the literal 1 for a super admin with an
+         * empty `current_store`, and this route explicitly admits the operator to ANY store's
+         * customer -- so a `getCurrentStore()` predicate would have shown store 1's activity on a
+         * store-7 customer's page. A fabrication is worse than a refusal.
+         *
+         * Fails closed: a customer with no store matches no activity rather than all of it.
+         */
+        $timelineStoreId = (int) ($customer->store_id ?? 0);
 
-        $logs = ActivityLog::where('customer_id', $ids)->get();
+        $activityLog = $timelineStoreId > 0
+            ? ActivityLog::where('store_id', $timelineStoreId)
+                ->where('customer_id', $ids)
+                ->groupBy('customer_id')
+                ->first()
+            : null;
 
-        $totalSpend = ActivityLog::totalspend($ids);
+        $logs = $timelineStoreId > 0
+            ? ActivityLog::where('store_id', $timelineStoreId)->where('customer_id', $ids)->get()
+            : collect();
+
+        $totalSpend = ActivityLog::totalspend($ids, $timelineStoreId > 0 ? $timelineStoreId : null);
 
         $customer_data = Customer::find($ids);
 
@@ -455,12 +482,65 @@ public function destroy(Customer $customer)
 
     public function CustomFilterData(Request $request)
     {
+        /*
+         * P2.5-PKG-C (F-C-06). THIS HANDLER CHECKED NOTHING -- no permission, no policy, no
+         * operator limb -- while returning every customer in the caller's store with first and
+         * last name, EMAIL, registration date, last-active date, order count and total spend.
+         *
+         * Reachable by any authenticated `web` principal: its route sits in the
+         * `['auth','xss','setlocate','verified']` group, so a newly added staff user holding ZERO
+         * customer permissions could issue the request and read the lot. Raised by the
+         * tenant-authz review of the F-C-03 fix, and correctly NOT counted against that fix:
+         * the gap was already reachable with any query parameter at all (any value misses all
+         * five filter branches and falls through to `$query->get()`), so guarding the absent-key
+         * case conferred no new capability. It is still a live gap, so it is closed here.
+         *
+         * `Manage Customer`, NOT A NEW PERMISSION NAME. Both siblings that render this data
+         * already require exactly that -- `index()` and `customer_grid_view()` -- and this
+         * fragment is requested over ajax from `customer/grid.blade.php:265`, a page the refused
+         * principal cannot open. So anyone who can legitimately reach this endpoint already holds
+         * the permission and the gate locks nobody out.
+         *
+         * OPERATOR FIRST, which the two siblings omit. Laratrust has no super-admin bypass and the
+         * platform operator holds no merchant role, so a bare `isAbleTo()` refuses the one
+         * principal who legitimately reads across stores -- CLAUDE.md records this ordering as a
+         * repeated source of defects. Through `UserPolicy::isOperator()` rather than a fourth
+         * spelling of the comparison, as P1-SEC-11 criterion 3 asks.
+         *
+         * This changes WHO reaches the endpoint, so it is deliberately a refusal and not a
+         * narrowing of the data: the tenant predicate below is unchanged.
+         */
+        $user = auth()->user();
+
+        if ($user === null
+            || (! \App\Policies\UserPolicy::isOperator($user) && ! $user->isAbleTo('Manage Customer'))) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         $activitylog = ActivityLog::groupBy('customer_id')->where('store_id', getCurrentStore())->get();
 
         $requestData = $request->all();
 
         $query = Customer::where('store_id', getCurrentStore());
-        if ($requestData['customer_field'] == 'Name' || $requestData['customer_field'] == 'Email') {
+        /*
+         * P2.5-PKG-C (F-C-03). READ ONCE, GUARDED, AND USED EVERYWHERE BELOW.
+         *
+         * MEASURED: `GET /customer-filter-data` with no query string answered HTTP 500,
+         * `Undefined array key "customer_field"`. The route is called over ajax from
+         * `customer/grid.blade.php:265` and that caller always sends the key, so a bare request is
+         * what reaches it -- but an undefined-key fatal is never the right answer to a missing
+         * parameter, and ONE of the six reads in this method already carried `?? null` with a
+         * comment about a previous round of exactly this defect. The other five did not.
+         *
+         * Absent now means "no filter", which is what the unfiltered list already shows.
+         *
+         * Six reads, one variable, deliberately: guarding only the first would have left the next
+         * five to throw, which is what the first attempt at this fix did -- the probe still
+         * answered 500 and named the second site.
+         */
+        $customerField = $requestData['customer_field'] ?? null;
+
+        if ($customerField === 'Name' || $customerField === 'Email') {
             if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
                 // check for name and email filtering
                 if ($requestData['selected_name'] === 'Includes') {
@@ -480,7 +560,10 @@ public function destroy(Customer $customer)
         }
 
         // Check for last active filtering
-        if ($requestData['customer_field'] == 'Last Active') {
+        // P2.5-R-03 -- the same 'Last active' / 'Last Active' mismatch as
+        // CustomerDataTable::query():164, fixed the same way and for the same reason. Left
+        // half-fixed it would be a second copy of a defect that has already cost one round.
+        if (in_array($customerField, ['Last active', 'Last Active'], true)) {
             if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
                 $dateValue = $requestData['text_field'];
                 if ($requestData['selected_name'] === 'Before') {
@@ -494,7 +577,7 @@ public function destroy(Customer $customer)
         }
 
         // check for AOV filtering
-        if ($requestData['customer_field'] == 'AOV') {
+        if ($customerField == 'AOV') {
             $queryyy = Customer::where('store_id', getCurrentStore());
             if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
                 $filteredCustomers = [];
@@ -520,7 +603,7 @@ public function destroy(Customer $customer)
         }
 
         // check for number of orders filtering
-        if ($requestData['customer_field'] == 'No. of Orders') {
+        if ($customerField == 'No. of Orders') {
             $queryss = Customer::where('store_id', getCurrentStore());
             if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
                 $filteredCustomers = [];
@@ -542,7 +625,7 @@ public function destroy(Customer $customer)
         }
 
         // check for Total Spend filtering
-        if ($requestData['customer_field'] == 'Total Spend') {
+        if ($customerField == 'Total Spend') {
             $queryes = Customer::where('store_id', getCurrentStore());
             if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
                 $filteredCustomers = [];

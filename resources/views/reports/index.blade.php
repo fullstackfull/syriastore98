@@ -108,9 +108,42 @@
                     method: 'GET',
                     success: function(data) {
                         $('#loader').fadeOut();
-                        if (data.hasOwnProperty("monthList") && data.hasOwnProperty(
-                                "userTotal") && data.hasOwnProperty("registerTotal") && data
-                            .hasOwnProperty("guest") && data.hasOwnProperty("newguestTotal")) {
+
+                        {{-- A failed export used to be entirely silent: no file, no message, and not even a
+                             spinner -- #loader is display:none and nothing on this path ever shows it. The only
+                             handling of a bad payload was console.error, which no merchant reads. Five of the six
+                             handlers answered HTTP 500 on a session that had never fetched a chart; the sixth
+                             returned an empty-string sentinel that passed every hasOwnProperty guard and
+                             downloaded a file with nothing but a header row.
+
+                             FOUR FAILURES, FOUR INSTRUMENTS, and none of them is redundant:
+                               * error: catches the transport failure -- a dropped network, a session that expired
+                                 mid-visit. It earns its place however well the handler is guarded.
+                               * Array.isArray separates a real series from that '' sentinel BY TYPE.
+                                 hasOwnProperty was true for the string, so it admitted what the loop cannot read.
+                               * the length branch is what stops a header-only download, and it is NOT optional.
+                                 The handler now defaults every key to [], so Array.isArray([]) is TRUE and the
+                                 type guard passes on its own -- without this branch all six screens would hand
+                                 over a header-only file in silence, turning one defect into six. It is also the
+                                 right answer for a genuinely empty period: a header row is not an export.
+                               * try/catch, because error: CANNOT see a throw inside success -- and
+                                 data.NetSaleTotal[0].name is reachable with NetSaleTotal empty.
+                             --}}
+                        if (!Array.isArray(data.monthList)
+                            || !Array.isArray(data.userTotal)
+                            || !Array.isArray(data.registerTotal)
+                            || !Array.isArray(data.guest)
+                            || !Array.isArray(data.newguestTotal)) {
+                            show_toastr(@json(__('Error')), @json(__('Something went wrong. Please try again.')), 'error');
+                            return;
+                        }
+
+                        if (data.monthList.length === 0) {
+                            show_toastr(@json(__('Error')), @json(__('No records found')), 'error');
+                            return;
+                        }
+
+                        try {
                             /* The header row is translated: a merchant reading the admin in
                                Arabic was handed a CSV with English column names. */
                             var header = [
@@ -134,9 +167,16 @@
                             document.body.appendChild(link);
 
                             link.click();
-                        } else {
-                            console.error("Data is not in the expected format:", data);
+                        } catch (e) {
+                            show_toastr(@json(__('Error')), @json(__('Something went wrong. Please try again.')), 'error');
                         }
+                    },
+                    error: function(xhr) {
+                        $('#loader').fadeOut();
+                        show_toastr(@json(__('Error')),
+                            (xhr && xhr.responseJSON && xhr.responseJSON.message)
+                                ? xhr.responseJSON.message
+                                : @json(__('Something went wrong. Please try again.')), 'error');
                     }
                 });
             });

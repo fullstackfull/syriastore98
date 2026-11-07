@@ -65,9 +65,46 @@ class ProductQuestionController extends Controller
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
+
+    /**
+     * P2.5-PKG-B. Does the caller own this product question?
+     *
+     * `ProductQuestion` is absent from `config/tenancy.php`'s `scoped_models`, so
+     * `StoreScope::isActiveFor()` short-circuits and the global scope adds NO predicate for any
+     * principal -- `ProductQuestion::find($id)` reaches every tenant's rows.
+     *
+     * MEASURED in `ContentFamilyCrossTenantTest` before this guard existed: all seven controllers
+     * of this shape failed their cross-tenant cases while all seven positive controls passed, so
+     * the fixtures were sound and the holes were real.
+     *
+     * Fails closed when either side is absent -- a row with a NULL `store_id` matches no store
+     * predicate anywhere in the application and must not become visible here. No operator limb,
+     * as on `ProductBrandController::callerOwnsBrand()`.
+     */
+    private function callerOwnsQuestion(?ProductQuestion $question): bool
+    {
+        $user = auth()->user();
+
+        if ($user === null || $question === null) {
+            return false;
+        }
+
+        $currentStore = getCurrentStore($user->id);
+
+        return ! empty($currentStore)
+            && ! empty($question->store_id)
+            && (int) $question->store_id === (int) $currentStore;
+    }
+
     public function edit($id)
     {
         $question = ProductQuestion::find($id);
+
+
+        // P2.5-PKG-B. The reply modal had no permission check AND no tenant predicate.
+        if (! $this->callerOwnsQuestion($question)) {
+            abort(404);
+        }
         return view('product-question.edit', compact('question'));
     }
 
@@ -83,6 +120,11 @@ class ProductQuestionController extends Controller
         if(auth()->user() && auth()->user()->isAbleTo('Replay Product Question'))
         {
             $question = ProductQuestion::find($id);
+            // P2.5-PKG-B. Permission was checked, owner was not. The guard precedes the delete.
+            if (! $this->callerOwnsQuestion($question)) {
+                abort(404);
+            }
+
             $validator = \Validator::make(
                 $request->all(),
                 [
@@ -118,6 +160,11 @@ class ProductQuestionController extends Controller
         if(auth()->user() && auth()->user()->isAbleTo('Delete Product Question'))
         {
             $question = ProductQuestion::find($id);
+            // P2.5-PKG-B. Permission was checked, owner was not. The guard precedes the delete.
+            if (! $this->callerOwnsQuestion($question)) {
+                abort(404);
+            }
+
             $question->delete();
             return redirect()->back()->with('success', __('Product Question delete successfully.'));
         }

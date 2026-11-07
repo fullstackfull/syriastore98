@@ -70,7 +70,7 @@ class EmailTemplateController extends Controller
         {
             $messages = $validator->getMessageBag();
 
-            return redirect()->back()->with('error', $messages->first());
+            return redirect()->back()->with('error', implode(' ', $messages->all()));
         }
 
         $emailTemplate       = EmailTemplate::where('id',$id)->first();

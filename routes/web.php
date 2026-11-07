@@ -1137,8 +1137,8 @@ Route::get(
 
     // abandon carts handled
     Route::get('abandon-carts-handled', [CartController::class, 'abandon_carts_handled'])->name('abandon.carts.handled');
-    Route::get('abandon-carts-show/{cartId}', [CartController::class, 'abandon_carts_show'])->name('carts.show');
-    Route::delete('abandon-carts-destroy/{cartId}', [CartController::class, 'abandon_carts_destroy'])->name('carts.destroy');
+    Route::get('abandon-carts-show/{customerId}', [CartController::class, 'abandon_carts_show'])->name('carts.show');
+    Route::delete('abandon-carts-destroy/{customerId}', [CartController::class, 'abandon_carts_destroy'])->name('carts.destroy');
     Route::post('abandon-carts-emailsend', [CartController::class, 'abandon_carts_emailsend'])->name('carts.emailsend');
 
     Route::post('abandon-carts-messagesend', [CartController::class, 'abandon_carts_messsend'])->name('carts.messagesend');
@@ -1164,7 +1164,31 @@ Route::get(
         ->name('generate.response');
 
     // Customer Route
-    Route::resource('customer', CustomerController::class);
+    /*
+     * P2.5-PKG-C (F-C-04). `except(['edit','update'])`, because `CustomerController` has NEITHER
+     * METHOD and the resource was registering both anyway.
+     *
+     * MEASURED: `GET /customer/1/edit` answered HTTP 500,
+     * `BadMethodCallException: Method App\Http\Controllers\CustomerController::edit does not
+     * exist.` The coverage matrix already describes this surface as "registered, unimplemented" --
+     * but unimplemented here meant a 500 ERROR PAGE, not a 404, and a registered route that
+     * throws is a defect regardless of whether anything links to it.
+     *
+     * NOTHING LINKS EITHER ONE, verified rather than assumed: a repository-wide search for
+     * `customer.edit` and `customer.update` (any quoting, including the `'route' => ...` form that
+     * a `route('...')`-only grep would miss) returns no hit outside the Shopify and WooCommerce
+     * controllers, which have their own separate resources. For contrast the same search finds
+     * `customer.store` at `customer/create.blade.php:28`, so the method is sound.
+     *
+     * 404 IS THE CORRECT ANSWER for a screen that does not exist. This is the opposite call to
+     * F-SEC-07's -- there the routes stayed registered because a handler existed and had to start
+     * REFUSING; here there is no handler at all, so there is nothing to refuse with.
+     *
+     * WHETHER A MERCHANT SHOULD BE ABLE TO EDIT A CUSTOMER IS A SEPARATE, FUNCTIONAL QUESTION and
+     * is not answered here. Implementing it would be new merchant functionality, which Phase 2.5
+     * does not authorise; this change only stops the dead URL throwing.
+     */
+    Route::resource('customer', CustomerController::class)->except(['edit', 'update']);
     Route::get('/customer-filter', [CustomerController::class, 'CustomFilter'])->name('customer.filter');
     Route::get('/customer-filter-data', [CustomerController::class, 'CustomFilterData'])->name('customer.filter.data');
     /*
@@ -1208,7 +1232,7 @@ Route::get(
     // themes references this route (`grep -rn "order.view\|order-view" themes/`
     // returns nothing). Every caller is an admin screen or DataTable --
     // app/DataTables/OrderDataTable.php:31, resources/views/order/action.blade.php:20,
-    // resources/views/order/grid.blade.php:89,112, resources/views/dashboard.blade.php:364,
+    // resources/views/order/grid.blade.php:136,161, resources/views/dashboard.blade.php:364,
     // resources/views/customer/view.blade.php:44,185, plus four workdo admin packages.
     //
     // `themelanguage` is added here so the effective middleware is what was
@@ -1467,12 +1491,12 @@ Route::get(
   //        order.receipt      resources/views/order/view.blade.php:31 (the admin
   //                           order screen that order_view itself renders)
   //        order.order_view   resources/views/order/action.blade.php:13,
-  //                           resources/views/order/grid.blade.php:105,
+  //                           resources/views/order/grid.blade.php:154,
   //                           packages/workdo/PreOrder/.../preorder/action.blade.php:19
   //        order.return       resources/views/order/view.blade.php:635 (admin AJAX)
   //        order.return.request
   //                           resources/views/order/index.blade.php:56,
-  //                           resources/views/order/grid.blade.php:153,
+  //                           resources/views/order/grid.blade.php:215,
   //                           packages/workdo/AuctionProduct/.../auctionorder/index.blade.php:37,
   //                           packages/workdo/PreOrder/.../preorder/index.blade.php:37
   //   3. The customer-facing order flow is a SEPARATE set of routes in

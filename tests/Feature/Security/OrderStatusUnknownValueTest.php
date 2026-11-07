@@ -73,10 +73,33 @@ class OrderStatusUnknownValueTest extends SecurityTestCase
 
         $answers = [];
 
+        /*
+         * `X-Requested-With: XMLHttpRequest` ADDED 2026-11-03 BY P2.5-R-05, and it makes this
+         * test MORE faithful rather than accommodating a change.
+         *
+         * This test is about the order DETAIL page's status dropdown, whose caller is
+         * resources/views/order/view.blade.php:858 -- a jQuery `$.ajax` with no `dataType`, which
+         * sends exactly this header and an "accept anything" Accept. A bare `post()` sends
+         * neither, so it was standing in for a caller that does not exist.
+         *
+         * BOTH HEADERS ARE REQUIRED AND THE SECOND IS NOT OBVIOUS. `expectsJson()` is
+         * `(ajax() && !pjax() && acceptsAnyContentType()) || wantsJson()`, and
+         * `Request::create()` -- which is what the test client builds -- injects a BROWSER-like
+         * Accept of `text/html,application/xhtml+xml,application/xml` plus a wildcard. Measured:
+         * with the X-Requested-With header alone, `ajax()` is 1 but `acceptsAnyContentType()` is
+         * 0, so `expectsJson()` is still 0 and the route redirects. The pair below is what jQuery
+         * actually puts on the wire.
+         *
+         * That only started to matter when P2.5-R-05 gave the handler a second caller: the order
+         * board posts a plain <form>, and answering a form POST with JSON left the merchant on a
+         * page of raw JSON. `expectsJson()` now separates the two, and a test that did not send
+         * what the real client sends landed on the wrong side of that split.
+         */
         foreach (['confirmed', 'pickedup', 'shipped', 'delivered', 'cancel'] as $value) {
             $order = $this->orderIn($store, $merchant);
             $response = $this->actingAs($merchant)
-                ->post('/order-status-change/' . $order->id, ['delivered' => $value, 'id' => $order->id]);
+                ->post('/order-status-change/' . $order->id, ['delivered' => $value, 'id' => $order->id],
+                    ['X-Requested-With' => 'XMLHttpRequest', 'Accept' => '*/*']);
             $answers[$value] = [$response->getStatusCode(), $response->json('status')];
         }
 

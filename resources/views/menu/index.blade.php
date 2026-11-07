@@ -10,7 +10,7 @@
     @permission('Create Menu')
     <div class="text-end d-flex all-button-box justify-content-md-end justify-content-center">
         <a href="#" class="btn btn-sm btn-primary" data-ajax-popup="true" data-size="md" data-title="{{__('Add Menus')}}"
-            data-url="{{ route('menus.create') }}" data-bs-toggle="tooltip" title="{{ __('Add Menu') }}">
+            data-url="{{ route('menus.create') }}" data-bs-toggle="tooltip" title="{{ __('Add Menu') }}" aria-label="{{__('Add Menus')}}">
             <i class="ti ti-plus"></i>
         </a>
     </div>

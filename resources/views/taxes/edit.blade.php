@@ -2,7 +2,7 @@
 
 <div class="row">
     <div class="form-group col-md-12">
-        {!! Form::label('', __('Name'), ['class' => 'form-label']) !!}
+        {!! Form::label('name', __('Name'), ['class' => 'form-label']) !!}
         {!! Form::text('name', null, ['class' => 'form-control']) !!}
     </div>
     <div class="modal-footer pb-0">

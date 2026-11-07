@@ -55,7 +55,13 @@
                 <label class="ss-label ss-visually-hidden" for="ss-move-{{ $ssOrder->id }}">
                     {{ __('Move order :ref to', ['ref' => $ssOrder->product_order_id]) }}
                 </label>
-                <select class="ss-select ss-select--sm" id="ss-move-{{ $ssOrder->id }}" name="order_status">
+                {{-- P2.5-R-05. `delivered`, NOT `order_status`. OrderController::order_status_change()
+                     reads `$request->delivered` -- the key the detail page's AJAX caller has always
+                     sent (order/view.blade.php:853). Named `order_status`, every move on this board
+                     was authorised, written to the order-note log, and then discarded, because
+                     `$data['order_status']` was null and the writer matched none of its branches.
+                     OrderKanbanMoveTest asserts BOTH ends of this contract. --}}
+                <select class="ss-select ss-select--sm" id="ss-move-{{ $ssOrder->id }}" name="delivered">
                     <option value="">{{ __('Move to…') }}</option>
                     @foreach ($ssOffer as $ssValue => $ssLabel)
                         <option value="{{ $ssValue }}">{{ $ssLabel }}</option>

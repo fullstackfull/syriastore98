@@ -24,7 +24,7 @@
                         aria-describedby="button-addon2" readonly>
                     <button class="btn btn-outline-primary btn-badge" type="button"
                         onclick="myFunction('myInput_{{ $store->slug }}')" id="button-addon2"><i
-                            class="far fa-copy"></i>
+                            class="ti ti-copy"></i>
                         {{ __('Store Link') }}</button>
                 </td>
             </tr>

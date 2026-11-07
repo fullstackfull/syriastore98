@@ -5,7 +5,7 @@
 @if (isset(auth()->user()->currentPlan) && auth()->user()->currentPlan->enable_chatgpt == 'on')
 <div class="d-flex justify-content-end mb-1">
     <a href="#" class="btn btn-primary me-2 ai-btn btn-badge" data-size="lg" data-ss-panel-open="ai-generate" data-ss-panel-url="{{ route('generate',['blog']) }}" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
-        <i class="fas fa-robot"></i> {{ __('Generate with AI') }}
+        <i class="ti ti-wand"></i> {{ __('Generate with AI') }}
     </a>
 </div>
 @endif
@@ -39,7 +39,7 @@
         <label for="upload_cover_image" class="image-upload bg-primary pointer w-100">
             <i class="ti ti-upload px-1"></i> {{ __('Choose File Here') }}
         </label>
-        <input type="file" name="cover_image" id="upload_cover_image" class="d-none">
+        <input type="file" name="cover_image" id="upload_cover_image" class="ss-visually-hidden">
     </div>
 
     <div class="modal-footer pb-0">

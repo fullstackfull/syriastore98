@@ -35,7 +35,7 @@
                         <!-- الاسم الأول -->
                         <div class="col-md-6">
                             <div class="form-group">
-                                {{ Form::label('first_name', __('First Name'), ['class' => 'form-label']) }}
+                                {{ Form::label('first_name', __('First Name'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                                 {{ Form::text('first_name', null, ['class' => 'form-control' . ($errors->has('first_name') ? ' is-invalid' : ''), 'placeholder' => __('Enter First Name'), 'required' => 'required']) }}
                                 @error('first_name')
                                     <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
@@ -46,7 +46,7 @@
                         <!-- الاسم الأخير -->
                         <div class="col-md-6">
                             <div class="form-group">
-                                {{ Form::label('last_name', __('Last Name'), ['class' => 'form-label']) }}
+                                {{ Form::label('last_name', __('Last Name'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                                 {{ Form::text('last_name', null, ['class' => 'form-control' . ($errors->has('last_name') ? ' is-invalid' : ''), 'placeholder' => __('Enter Last Name'), 'required' => 'required']) }}
                                 @error('last_name')
                                     <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
@@ -57,7 +57,7 @@
                         <!-- البريد الإلكتروني -->
                         <div class="col-md-6">
                             <div class="form-group">
-                                {{ Form::label('email', __('Email'), ['class' => 'form-label']) }}
+                                {{ Form::label('email', __('Email'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                                 {{ Form::email('email', null, ['class' => 'form-control' . ($errors->has('email') ? ' is-invalid' : ''), 'placeholder' => __('Enter Email'), 'required' => 'required']) }}
                                 @error('email')
                                     <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
@@ -79,7 +79,7 @@
                         <!-- كلمة المرور -->
                         <div class="col-md-6">
                             <div class="form-group">
-                                {{ Form::label('password', __('Password'), ['class' => 'form-label']) }}
+                                {{ Form::label('password', __('Password'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                                 {{ Form::password('password', ['class' => 'form-control' . ($errors->has('password') ? ' is-invalid' : ''), 'placeholder' => __('Enter Password'), 'required' => 'required']) }}
                                 @error('password')
                                     <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
@@ -90,7 +90,7 @@
                         <!-- الحالة -->
                         <div class="col-md-6">
                             <div class="form-group">
-                                {{ Form::label('status', __('Status'), ['class' => 'form-label']) }}
+                                {{ Form::label('status', __('Status'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                                 <select name="status" class="form-control select2 @error('status') is-invalid @enderror" required>
                                     <option value="1" {{ old('status') == '1' ? 'selected' : '' }}>{{ __('Active') }}</option>
                                     <option value="0" {{ old('status') == '0' ? 'selected' : '' }}>{{ __('Inactive') }}</option>

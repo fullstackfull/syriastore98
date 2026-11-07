@@ -621,12 +621,29 @@ class OrderDocumentAccessTest extends SecurityTestCase
      * The second uri on an already-guarded handler. Guarding by uri means guarding one uri does
      * not guard another that reaches the same action, so this is the regression test for that.
      *
-     * MEASURED, AND THE TWO FORMS BEHAVE DIFFERENTLY HERE, which is why both are asserted.
-     * `Route::resource('order', ...)` binds `{order}` implicitly, and
-     * Illuminate\Routing\Middleware\SubstituteBindings sits BEFORE this guard in the resolved
-     * stack, so an ENCRYPTED id is not a findable key and the request 404s at binding before the
-     * guard is ever consulted. A RAW id binds successfully and reaches the handler, so the raw
-     * form is the path that was actually reachable -- and it is the one the guard has to refuse.
+     * UPDATED BY P2.5-PKG-C (F-C-02), AND THE REASON IS WORTH READING. Both forms still REFUSE;
+     * what changed is which component refuses, which is exactly what the comment on the second
+     * assertion below said it existed to surface. It surfaced it.
+     *
+     * WHAT THIS TEST USED TO SAY, and why it was half right:
+     *   raw id        -> 403. "A RAW id binds successfully and reaches the handler, so the raw
+     *                    form is the path that was actually reachable -- and it is the one the
+     *                    guard has to refuse."
+     *   encrypted id  -> 404, refused by SubstituteBindings before the guard was consulted.
+     *
+     * THE RAW-ID ASSERTION WAS PASSING FOR THE WRONG REASON. The handler was declared
+     * `show(Order $order, $id)`, so a raw id did bind -- and the guard then received an **Order
+     * instance**, not a string. `resolveOrderId()` opens with `if (! is_string($raw))` and
+     * returned null, so the guard denied on a PARSE failure rather than on the ownership
+     * comparison. The 403 was real but it was not the control this test believed it was measuring:
+     * the owner's OWN order answered 403 too, and nothing here could tell the two apart. That is
+     * the same blind spot the Package C census had, in a test written to prevent it.
+     *
+     * NOW: the unused bound parameter is gone (`OrderController::show($id)`), so both forms reach
+     * the guard as strings and both are refused by the ownership comparison at
+     * `OrderDocumentAccessGuard:468`. `OrderDocumentGuardBoundParameterTest` supplies the control
+     * that was missing -- the owner's own order answers 200 -- so a 403 here now means "not
+     * yours" and can no longer mean "unparseable".
      */
     public function test_a_merchant_cannot_read_another_tenants_order_through_the_resource_show_uri(): void
     {
@@ -641,12 +658,14 @@ class OrderDocumentAccessTest extends SecurityTestCase
             ->get('/order/' . $orderB->id)
             ->assertForbidden();
 
-        // The encrypted form never reaches the guard -- SubstituteBindings refuses it first.
-        // Asserted so that a future reordering of the stack shows up here rather than silently
-        // changing which component is doing the work.
+        // The encrypted form, which is what every sibling order surface links. It USED to answer
+        // 404 because SubstituteBindings could find no row keyed by the ciphertext; with the bound
+        // parameter gone it now reaches the guard and is refused on ownership like the raw form.
+        // Still a refusal, by a better mechanism -- and kept as a separate assertion because the
+        // two inputs travel different paths to get here.
         $this->actingAs($ownerA)
             ->get('/order/' . Crypt::encrypt($orderB->id))
-            ->assertNotFound();
+            ->assertForbidden();
     }
 
     // ---------------------------------------------------------------------------------------

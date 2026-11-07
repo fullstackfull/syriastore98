@@ -6,7 +6,7 @@
 @permission('Create Blog')
     <div class="text-end d-flex all-button-box justify-content-md-end justify-content-center">
         <a href="#" class="btn btn-sm btn-primary" data-ajax-popup="true" data-size="lg" data-title="{{__('Add Blog')}}"
-            data-url="{{ route('blog.create') }}" data-bs-toggle="tooltip" title="{{ __('Add Blog') }}">
+            data-url="{{ route('blog.create') }}" data-bs-toggle="tooltip" title="{{ __('Add Blog') }}" aria-label="{{__('Add Blog')}}">
             <i class="ti ti-plus"></i>
         </a>
     </div>

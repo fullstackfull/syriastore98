@@ -65,7 +65,29 @@ class HeaderAccessibleNamesTest extends TestCase
             $text = preg_replace('/\{\{--.*?--\}\}/s', '', $inner);
             $text = trim((string) preg_replace('/<[^>]+>/', '', (string) $text));
 
-            $named = preg_match('/aria-label|aria-labelledby|\btitle\s*=/', $attrs) === 1;
+            /*
+             * `title=` IS NOT A NAME ON A `data-bs-toggle="tooltip"` CONTROL, and counting it as
+             * one made this test pass while three header controls announced bare "link".
+             * (P2.5 header-icononly-name-lost-by-tooltip.) Bootstrap 5.1.3's `_fixTitle()` in
+             * `public/assets/js/plugins/bootstrap.min.js` moves `title` into
+             * `data-bs-original-title`, writes an `aria-label` only when the element has neither
+             * an `aria-label` nor any `textContent`, and then sets `title=""` unconditionally.
+             * Every icon-only control in this partial has a newline plus indentation before its
+             * inline SVG, so `textContent` is a truthy whitespace string, the fallback
+             * short-circuits, and the name is gone by the time a screen reader reads the DOM.
+             * The docblock above ("exactly one had no accessible name") was wrong for Clear
+             * Cache, Store Link and POS precisely because of this regex.
+             *
+             * Measured when this was tightened: the only controls that newly failed were those
+             * three. The bell passes on its `.visually-hidden` text, and Quick Add carries
+             * `data-bs-toggle="dropdown"`, which `_fixTitle()` never touches, as well as its own
+             * visible `.text-store` label.
+             */
+            $isTooltipControl = preg_match('/data-bs-toggle\s*=\s*"tooltip"/', $attrs) === 1;
+
+            $named = $isTooltipControl
+                ? preg_match('/aria-label|aria-labelledby/', $attrs) === 1
+                : preg_match('/aria-label|aria-labelledby|\btitle\s*=/', $attrs) === 1;
 
             if ($text === '' && ! $named) {
                 $offenders[] = [

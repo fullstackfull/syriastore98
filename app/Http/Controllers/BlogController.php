@@ -61,7 +61,7 @@ class BlogController extends Controller
             if($validator->fails())
             {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
             $dir        = 'uploads/' . getCurrentStore();
             if($request->cover_image) {
@@ -111,9 +111,47 @@ class BlogController extends Controller
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
+
+    /**
+     * P2.5-PKG-B. Does the caller own this blog post?
+     *
+     * `Blog` is absent from `config/tenancy.php`'s `scoped_models`, so
+     * `StoreScope::isActiveFor()` short-circuits and the global scope adds NO predicate for any
+     * principal -- `Blog::find($id)` reaches every tenant's rows.
+     *
+     * MEASURED in `ContentFamilyCrossTenantTest` before this guard existed: all seven controllers
+     * of this shape failed their cross-tenant cases while all seven positive controls passed, so
+     * the fixtures were sound and the holes were real.
+     *
+     * Fails closed when either side is absent -- a row with a NULL `store_id` matches no store
+     * predicate anywhere in the application and must not become visible here. No operator limb,
+     * as on `ProductBrandController::callerOwnsBrand()`.
+     */
+    private function callerOwnsBlog(?Blog $blog): bool
+    {
+        $user = auth()->user();
+
+        if ($user === null || $blog === null) {
+            return false;
+        }
+
+        $currentStore = getCurrentStore($user->id);
+
+        return ! empty($currentStore)
+            && ! empty($blog->store_id)
+            && (int) $blog->store_id === (int) $currentStore;
+    }
+
     public function edit($id)
     {
         $blog = Blog::find($id);
+
+        // P2.5-PKG-B. edit() had NO permission check at all, so any authenticated principal -- staff holding
+        // zero permissions -- could read any tenant's full post by id. 404 for
+        // foreign-or-absent, so the response is not an existence oracle.
+        if (! $this->callerOwnsBlog($blog)) {
+            abort(404);
+        }
         $blogCategoryList = BlogCategory::where('status', 1)->where('store_id',getCurrentStore())->pluck('name', 'id');
         return view('blog.edit', compact('blogCategoryList' ,'blog'));
     }
@@ -129,6 +167,18 @@ class BlogController extends Controller
     {
         if(auth()->user() && auth()->user()->isAbleTo('Edit Blog'))
         {
+            $blog = Blog::find($id);
+
+            // P2.5-PKG-B. The permission was checked and the owner was not, so this rewrote
+            // ANOTHER STORE'S post. ABOVE THE VALIDATOR deliberately: with the guard below it, an
+            // INVALID payload returned the validation redirect and a VALID one returned 404, which
+            // distinguishes "exists elsewhere" from "refused" for a caller who can vary the
+            // payload. Raised by the tenant-authz review, which measured that my first placement
+            // did not hold the invariant this comment claims.
+            if (! $this->callerOwnsBlog($blog)) {
+                abort(404);
+            }
+
             $validator = \Validator::make(
                 $request->all(),
                 [
@@ -144,10 +194,9 @@ class BlogController extends Controller
             if($validator->fails())
             {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
 
-            $blog = Blog::find($id);
             $dir        = 'uploads/'. getCurrentStore();
 
             if($request->cover_image) {
@@ -206,6 +255,11 @@ class BlogController extends Controller
         if(auth()->user() && auth()->user()->isAbleTo('Delete Blog'))
         {
             $blog = Blog::find($id);
+            // P2.5-PKG-B. Permission was checked, owner was not. The guard precedes the delete.
+            if (! $this->callerOwnsBlog($blog)) {
+                abort(404);
+            }
+
             $file_path =  $blog->cover_image_path;
             Utility::changeStorageLimit(auth()->user()->creatorId(), $file_path);
 

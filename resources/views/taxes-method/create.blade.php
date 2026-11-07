@@ -2,11 +2,11 @@
 <div class="row">
     {!! Form::hidden('tax_id', $tax_option_id, ['class' => 'form-control']) !!}
     <div class="form-group col-md-6">
-        {!! Form::label('', __('Tax Name'), ['class' => 'form-label']) !!}
+        {!! Form::label('name', __('Tax Name'), ['class' => 'form-label']) !!}
         {!! Form::text('name', null, ['class' => 'form-control']) !!}
     </div>
     <div class="form-group col-md-6">
-        {!! Form::label('', __('Rate %'), ['class' => 'form-label']) !!}
+        {!! Form::label('tax_rate', __('Rate %'), ['class' => 'form-label']) !!}
         {!! Form::number('tax_rate', 0, ['class' => 'form-control', 'min' => '0', 'step' => '0.10']) !!}
     </div>
     <div class="form-group list_height_css col-md-12">
@@ -36,7 +36,7 @@
         </div>
     </div>
     <div class="form-group col-md-6">
-        {!! Form::label('', __('Priority'), ['class' => 'form-label']) !!}
+        {!! Form::label('priority', __('Priority'), ['class' => 'form-label']) !!}
         {!! Form::number('priority', 0, ['class' => 'form-control']) !!}
     </div>
     <div class="form-group col-md-6">

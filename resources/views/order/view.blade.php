@@ -107,13 +107,13 @@
                                             <h5 class="dropdown-header text-wrap ss-menu__group" style="font-size: 14px;">{{ __('Set order status') }}</h5>
                                             @if ($order['order_status'] == 0 || $order['order_status'] == 8)
                                                 <a class="dropdown-item order_status ss-menu__item" href="#" data-value="confirmed">
-                                                    <i class="fa fa-check-circle text-success me-1" style="margin-left: -5px;"></i> {{ __(' Confirmed') }}
+                                                    <i class="ti ti-circle-check text-success me-1"></i> {{ __(' Confirmed') }}
                                                 </a>
                                                 @stack('AddOrderStatus')
                                             @endif
                                             @if ($order['order_status'] == 0 || $order['order_status'] == 4 || $order['order_status'] == 7 || $order['order_status'] == 8)
                                                 <a class="dropdown-item order_status ss-menu__item" href="#" data-value="pickedup">
-                                                    <i class="fa fa-truck text-success me-1" style="margin-left: -5px;"></i> {{ __(' Picked Up') }}
+                                                    <i class="ti ti-package text-success me-1"></i> {{ __(' Picked Up') }}
                                                 </a>
                                             @endif
                                             @if (
@@ -123,7 +123,7 @@
                                                     $order['order_status'] == 7 ||
                                                     $order['order_status'] == 8)
                                                 <a class="dropdown-item order_status ss-menu__item" href="#" data-value="shipped">
-                                                    <i class="fa fa-spinner text-success me-1" style="margin-left: -5px;"></i> {{ __(' Shipped') }}
+                                                    <i class="ti ti-truck-delivery text-success me-1"></i> {{ __(' Shipped') }}
                                                 </a>
                                             @endif
                                             @if (
@@ -134,7 +134,7 @@
                                                     $order['order_status'] == 7 ||
                                                     $order['order_status'] == 8)
                                                 <a class="dropdown-item order_status ss-menu__item" href="#" data-value="delivered">
-                                                    <i class="fa fa-check text-success me-1" style="margin-left: -5px;"></i> {{ __(' Delivered') }}
+                                                    <i class="ti ti-check text-success me-1"></i> {{ __(' Delivered') }}
                                                 </a>
                                             @endif
                                             @if (
@@ -144,7 +144,7 @@
                                                     $order['order_status'] == 7 ||
                                                     $order['order_status'] == 8)
                                                 <a class="dropdown-item order_status ss-menu__item ss-menu__item--danger" href="#" data-value="cancel">
-                                                    <i class="fa fa-check text-danger me-1" style="margin-left: -5px;"></i> {{ __(' Cancel Order') }}
+                                                    <i class="ti ti-ban text-danger me-1"></i> {{ __(' Cancel Order') }}
                                                 </a>
                                             @endif
                                             {{--
@@ -173,12 +173,12 @@
                                                     data-text-yes="{{ __('Yes') }}"
                                                     data-text-no="{{ __('No') }}"
                                                     aria-label="{{ __('Cancel and replace order :id', ['id' => $order['order_id'] ?? $order['id']]) }}">
-                                                    <i class="ti ti-refresh text-danger me-1" style="margin-left: -5px;" aria-hidden="true"></i> {{ __('Cancel and Replace') }}
+                                                    <i class="ti ti-refresh text-danger me-1" aria-hidden="true"></i> {{ __('Cancel and Replace') }}
                                                 </a>
                                             @endif
                                             @if ($order['order_status'] == 1 && $order['is_guest'] == 0)
                                                 <a class="dropdown-item order_status ss-menu__item ss-menu__item--danger" href="#" data-value="return">
-                                                    <i class="fa fa-check text-danger me-1" style="margin-left: -5px;"></i> {{ __(' Return Order') }}
+                                                    <i class="ti ti-arrow-back-up text-danger me-1"></i> {{ __(' Return Order') }}
                                                 </a>
                                             @endif
                                         </div>
@@ -192,10 +192,20 @@
                                      `select category` may be matched by theme CSS or a handler, and
                                      a restyle that silently removed a hook would break the control
                                      rather than recolour it. --}}
+                                {{-- P2.5 detail-note-form-labels-unassociated. This select had NO name of
+                                     any kind -- no `<label for>`, no `aria-label`, no `title` -- so it
+                                     announced as its selected option only, and it ASSIGNS THE DRIVER. There
+                                     is no visible label in this toolbar row to associate, so the name is
+                                     given with `aria-label`. `__()` inside a PHP attributes array renders
+                                     the translated string directly, so this deliberately does NOT match
+                                     `OrderDetailShellContractTest`'s source-level
+                                     /\baria-label="\{\{\s*__\(/ ratchet -- that loop (:275-279) inspects
+                                     `<a>` tags only. Do not "fix" it into a Blade interpolation. --}}
                                 {!! Form::select('delivery_boy', $deliveryboys, $order['deliveryboy_id'], [
                                     'class' => 'form-control select category h-100 ss-select',
                                     'style' => 'padding-right: 35px !important;',
                                     'id' => 'delivery_boy',
+                                    'aria-label' => __('Delivery Boy'),
                                     'disabled' => $disableSelectBox,
                                 ]) !!}
                             </div>
@@ -212,9 +222,13 @@
                                         ->map(fn ($label) => __($label))->all();
                                 @endphp
                                 {{-- P2-04-6. `ss-select` added; see the delivery select above. --}}
+                                {{-- P2.5 detail-note-form-labels-unassociated. Unnamed for the same
+                                     reason as the driver select above, and it CHANGES THE PAYMENT STATUS.
+                                     See that comment for why `aria-label` and not a Blade interpolation. --}}
                                 {!! Form::select('payment_status', $ssPaymentOptions, $order['payment_status'], [
                                     'class' => 'form-control select category btn-badge h-100 ss-select',
                                     'id' => 'payment_status',
+                                    'aria-label' => __('Payment Status'),
                                 ]) !!}
                             </div>
                         </div>
@@ -363,7 +377,7 @@
                                         ->where('store_id', $ssOrderStore)->get()->keyBy('id');
                             @endphp
                             <div class="table-responsive">
-                                <table class="table">
+                                <table class="table ss-table">
                                     <thead>
                                         <tr>
                                             <th>{{ __('Item') }}</th>
@@ -658,11 +672,17 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                             <div class="row">
                                 <input type="hidden" class="hidden" name="order_id" value="{{ $order['id'] }}">
                                 <div class="form-group col-md-8">
-                                    {!! Form::label('', __('Note'), ['class' => 'form-label']) !!}
-                                    <textarea name="note" rows="3" class="autogrow form-control" placeholder="Enter Message here..."></textarea>
+                                    {{-- P2.5 detail-note-form-labels-unassociated. The FIRST argument of
+                                         `Form::label()` is interpolated straight into the `for` attribute
+                                         (konekt/html FormBuilder.php:259), so the `''` that used to be here
+                                         rendered `for=""` -- present, matching nothing. The textarea is a
+                                         SIBLING of this label, not nested, so there was no implicit
+                                         association either. --}}
+                                    {!! Form::label('note', __('Note'), ['class' => 'form-label']) !!}
+                                    <textarea name="note" id="note" rows="3" class="autogrow form-control" placeholder="Enter Message here..."></textarea>
                                 </div>
                                 <div class="form-group col-md-4">
-                                    {!! Form::label('', __('Note Type'), ['class' => 'form-label']) !!}
+                                    {!! Form::label('note_type', __('Note Type'), ['class' => 'form-label']) !!}
                                     {{-- P2-04-6. `ss-select` added: these two options measured
                                          4.03:1 in dark mode. The labels are translated at the call
                                          site for the same reason the payment select's are -- the
@@ -672,6 +692,15 @@ class="text-start ps-3"><b>{{ order_currency_format_with_sym($order['coupon_pric
                                         'to_customer' => __('To Customer'),
                                     ], null, [
                                         'class' => 'form-control ss-select',
+                                        // EXPLICIT, although the label fix above would now also make
+                                        // konekt/html auto-assign `id="note_type"`
+                                        // (FormBuilder.php:1268-1277 returns the field name as the id when
+                                        // a previous `label()` pushed that name). That implicit path
+                                        // couples this id to label call ORDER through a mutable singleton
+                                        // whose only reset is `Form::close()`, so inserting a close or
+                                        // swapping the two columns would silently drop the id and re-break
+                                        // the `for` with no visible change.
+                                        'id' => 'note_type',
                                     ]) !!}
                                 </div>
                                 <div class="form-group col-md-4">

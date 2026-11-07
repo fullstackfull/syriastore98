@@ -13,10 +13,35 @@
                 @include('import-export::export.brand_export', ['module' => 'brand'])
             @endpermission
         @endif
-        <a href="#" class="btn btn-sm btn-primary add_attribute" data-ajax-popup="true" data-size="md"
-            data-title="{{ __('Add Brand') }}" data-url="{{ route('product-brand.create') }}" data-bs-toggle="tooltip"
-            title="{{ __('Add Brand') }}">
-            <i class="ti ti-plus"></i>
+        {{-- Phase 2.5 / primary-action-named-only-by-title. This anchor's only name was `title`,
+             which Bootstrap 5.1.3 MOVES to `data-bs-original-title` and blanks when dash.js builds
+             a Tooltip for it on load; its own `aria-label` fallback does not fire, because 5.1.3
+             tests the UNTRIMMED textContent, which on a multi-line anchor is truthy whitespace.
+             What remained was an unnamed control around an unhidden icon font, so the accessible
+             name computed as the Tabler private-use glyph U+EB0B. Fixed the way the three shipped
+             precedents do it (category/index, attributes/index, attribute_option/index): a visible
+             translated <span>, `aria-hidden` on the <i>, and NO `aria-label` -- a control named by
+             its own visible text must not also carry one, because the two can drift (WCAG 2.5.3).
+
+             `.add_attribute` is KEPT because `public/css/custom.css:1518` and its mirror
+             `public/css/rtl-custom.css:1530` both style it, and to match attributes/index -- NOT
+             because any JavaScript binds it. Nothing does: `grep -rn add_attribute public/
+             --include=*.js` and the same over packages/ are both empty. That rule is overridden
+             only by link order (both selectors are 0,1,0; store-syria-ds.css links after
+             custom.css in layouts/app.blade.php, and `.ss-btn` resets font-family), so the link
+             order is load-bearing.
+
+             The Bootstrap `btn` classes go because `.ss-btn` is an explicit metrics reset for
+             exactly this reason -- an element carrying both renders as neither.
+
+             RESIDUAL, DISCLOSED: with ImportExport active, this screen's two module buttons above
+             still have this same defect. They are vendored and out of bounds, so this screen is
+             PARTIALLY closed, not clean. --}}
+        <a href="#" class="ss-btn ss-btn--primary ss-btn--sm add_attribute" data-ajax-popup="true" data-size="md"
+            data-title="{{ __('Add Brand') }}" data-url="{{ route('product-brand.create') }}"
+            data-bs-placement="top" data-bs-toggle="tooltip" title="{{ __('Add Brand') }}">
+            <i class="ti ti-plus" aria-hidden="true"></i>
+            <span>{{ __('Add Brand') }}</span>
         </a>
     </div>
     @endpermission

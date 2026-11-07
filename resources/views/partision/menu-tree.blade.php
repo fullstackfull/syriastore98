@@ -68,7 +68,13 @@
                 {{ $node['title'] }}
             @endif
             @if (! empty($node['children']))
-                <span class="dash-arrow"><i data-feather="chevron-right"></i></span>
+                {{-- TABLER, NOT FEATHER. This was the last feather icon in the merchant
+                     shell -- six feather renderings on /product, in a sidebar whose every other icon
+                     is `ti ti-*`. The SPAN is untouched on purpose: the host positions it
+                     absolutely and rotates the span, not the icon inside it, to show a menu
+                     open, so the affordance survives the swap. ds.css restates the 16px the
+                     host gave `.dash-arrow > svg`, since a glyph is sized by font-size. --}}
+                <span class="dash-arrow"><i class="ti ti-chevron-right"></i></span>
             @endif
         </a>
         @if (! empty($node['children']))

@@ -1,8 +1,11 @@
 {{ Form::model($role, ['route' => ['roles.update', $role->id], 'method' => 'PUT']) }}
-<div class="modal-body">
+{{-- P2.5-WAVE-25: a scope for the permission grid, and the name was checked against the
+     sheets and the views before being used -- Wave 24 learned that lesson by colliding
+     with `.ss-actionbar`, an existing component. --}}
+<div class="modal-body ss-permission-matrix">
     <div class="row">
         <div class="form-group">
-            {{ Form::label('name', __('Name'), ['class' => 'form-label']) }}
+            {{ Form::label('name', __('Name'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
 
             <div class="form-icon-user">
                 {{ Form::text('name', null, ['class' => 'form-control', 'placeholder' => __('Enter Role Name'), 'required' => 'required']) }}
@@ -47,7 +50,7 @@
                                             {{ Form::label('checkall-' . strtolower($module), 'Assign ' . Module_Alias_Name($module) . ' Permission to Roles', ['class' => 'form-check-label pointer']) }}
                                         </small>
                                         <div class="table-responsive role-data-table">
-                                            <table class="table table-striped mb-0  mt-3" id="dataTable-1">
+                                            <table class="table ss-table mb-0 mt-3" id="dataTable-1">
                                                 <thead>
                                                     <tr>
                                                         <th>

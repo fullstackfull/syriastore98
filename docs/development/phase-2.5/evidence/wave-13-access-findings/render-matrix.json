@@ -1,0 +1,282 @@
+[
+ {
+  "path": "/customer/1",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Laravel - Dashboard",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/store/customdomain",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Laravel - Dashboard",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/store/subdomain",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Laravel - Dashboard",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/email_template_lang",
+  "lang": "en",
+  "theme": "light",
+  "status": 500,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Laravel",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/customer/1",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Laravel - Dashboard",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/store/customdomain",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Laravel - Dashboard",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/store/subdomain",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Laravel - Dashboard",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/email_template_lang",
+  "lang": "en",
+  "theme": "dark",
+  "status": 500,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Laravel",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/customer/1",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Laravel - لوحة التحكم",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/store/customdomain",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Laravel - لوحة التحكم",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/store/subdomain",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Laravel - لوحة التحكم",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/email_template_lang",
+  "lang": "ar",
+  "theme": "light",
+  "status": 500,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Laravel",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/customer/1",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Laravel - لوحة التحكم",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/store/customdomain",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Laravel - لوحة التحكم",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/store/subdomain",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Laravel - لوحة التحكم",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/email_template_lang",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 500,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Laravel",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ }
+]

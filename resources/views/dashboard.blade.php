@@ -127,8 +127,8 @@
                         <div class="col-xxl-4 col-12">
                             <div class="dashboard-card">
                                 <div class="d-flex align-items-center justify-content-between gap-3 mb-4">
-                                    <h4 class="m-0">{{ __('Top Category') }}</h4>
-                                    <p class="m-0">{{ __('By Sales') }}</p>
+                                    <h2 class="ss-card__title">{{ __('Top Category') }}</h2>
+                                    <p class="ss-card__meta">{{ __('By Sales') }}</p>
                                 </div>
                                 <div class="dash-category-tab" id="useradd-sidenav">
                                     <ul class="nav nav-pills w-100 pro-cat row store-setting-tab" id="pills-cat-tab"
@@ -189,8 +189,8 @@
                         <div class="col-xxl-4 col-12">
                             <div class="dashboard-card">
                                 <div class="d-flex align-items-center justify-content-between gap-3 mb-4">
-                                    <h4 class="m-0">{{ __('Top Brand') }}</h4>
-                                    <p class="m-0">{{ __('By Sales') }}</p>
+                                    <h2 class="ss-card__title">{{ __('Top Brand') }}</h2>
+                                    <p class="ss-card__meta">{{ __('By Sales') }}</p>
                                 </div>
                                 <div class="dash-brand-tab" id="brand-sidenav">
                                     <ul class="nav nav-pills w-100 pro-cat row store-setting-tab" id="pills-brand-tab"
@@ -253,7 +253,7 @@
                 </div>
             </div>
             <div class="row g-4 admin-cards">
-                <div class="col-xxl-4 col-12">
+                <div class="col-xxl-6 col-12">
                     <div class="row g-4">
                         <div class="col-12">
                             <div class="dashboard-card">
@@ -266,8 +266,12 @@
                                                 alt="user-image">
                                         </a>
                                         <div class="user-info">
-                                            <h4 class="mb-2">{{ __(auth()->user()->name) }}
-                                            </h4>
+                                            {{-- THE GREETING CARD'S TITLE, on the same component as every
+                                                 other card title here. It was the last `h4` on the page and
+                                                 therefore the last 20px: measured, one element at one size,
+                                                 which is how a type scale acquires a step nobody chose. --}}
+                                            <h2 class="ss-card__title mb-2">{{ __(auth()->user()->name) }}
+                                            </h2>
                                             <p>{{ __('Have a nice day! Did you know that you can quickly add your favorite product or category to the theme?') }}
                                             </p>
                                             <div
@@ -300,6 +304,7 @@
                                                     </div>
                                                 </div>
                                                 <a href="#" id="socialShareButton"
+                                                    aria-label="{{ __('Share store link') }}"
                                                     class="socialShareButton btn btn-sm btn-outline-primary btn-badge">
                                                     <i class="ti ti-share"></i>
                                                 </a>
@@ -307,7 +312,7 @@
                                                     data-link="{{ $theme_url }}" data-bs-toggle="tooltip"
                                                     data-bs-placement="top" title="{{ __('Click to copy link') }}">
                                                     {{ __('Theme Link') }}
-                                                    <i class="ms-1" data-feather="copy"></i>
+                                                    <i class="ti ti-copy ms-1"></i>
                                                 </a>
 
                                                 <div id="sharingButtonsContainer" class="sharingButtonsContainer"
@@ -320,7 +325,7 @@
                                         </div>
                                     </div>
                                     <div class="qr-code-wrp">
-                                        <h5 class="text-capitalize text-center">{{ $store->name }}</h5>
+                                        <h3 class="h5 text-capitalize text-center">{{ $store->name }}</h3>
                                         <div class="code-img">
                                             {!! QrCode::generate($theme_url) !!}
                                         </div>
@@ -380,7 +385,16 @@
                                             $ssStorageNote = __(':used MB used', ['used' => $ssStorageUsed]);
                                         }
                                     @endphp
-                                    <h4>{{ __('Storage Status') }}<small>({{ $ssStorageNote }})</small></h4>
+                                    {{-- THE NOTE IS NOT PART OF THE HEADING. It used to sit inside this
+                                         <h2> as a <small>, which put it in the heading's accessible
+                                         name -- a screen reader announced "Storage Status (0 MB used of
+                                         unlimited storage)" as one heading -- and rendered it at 16px
+                                         weight 600, measured, so on screen it read as a second title
+                                         that had wrapped. The parentheses go with it: they were there to
+                                         separate the note from the title, and a separate element does
+                                         that better. --}}
+                                    <h2 class="ss-card__title">{{ __('Storage Status') }}</h2>
+                                    <p class="ss-card__meta">{{ $ssStorageNote }}</p>
                                 </div>
                                 <div class="card-body">
                                     @if ($ssStorageKnown)
@@ -403,10 +417,10 @@
                      best-selling and no other region on the page answers it. --}}
                 @if (\App\Support\MerchantDashboardAbilities::mayManageProducts())
                 {{-- latest product --}}
-                <div class="col-xxl-4 col-12">
+                <div class="col-xxl-6 col-12">
                     <div class="overflow-auto dashboard-card">
                         <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
-                            <h4 class="m-0">{{ __('Latest Products') }}</h4>
+                            <h2 class="ss-card__title">{{ __('Latest Products') }}</h2>
                             @if ($latests && count($latests) > 0)
                                 <a class="text-primary" href="{{ route('product.index') }}">{{ __('View All') }}</a>
                             @endif
@@ -433,33 +447,59 @@
                                             <tr>
                                                 <td>
                                                     <div class="d-flex align-items-center">
-                                                        <a href="{{ route('product.index') }}" target="_blank"
-                                                            class="rounded-1 border overflow-hidden border border-primary border-2 rounded">
-                                                            @if ($latest->cover_image_path)
+                                                        {{-- THE LINK ONLY EXISTS WHEN THERE IS AN
+                                                            IMAGE TO BE. The `@if` used to sit
+                                                            INSIDE the anchor, so a product with no
+                                                            cover image rendered an EMPTY link:
+                                                            measured on /dashboard as a 4x4 control
+                                                            -- two 2px borders and nothing between
+                                                            them -- with no accessible name, which
+                                                            is both a blue dot nobody can explain
+                                                            and a tab stop that announces nothing.
+                                                            The `alt` was the string "images",
+                                                            which names no particular product; it
+                                                            is the product's own name now. --}}
+                                                        @if ($latest->cover_image_path)
+                                                            <a href="{{ route('product.index') }}" target="_blank"
+                                                                class="rounded-1 border overflow-hidden border border-primary border-2 rounded">
                                                                 <img src="{{ get_file($latest->cover_image_path) }}" width="100"
-                                                                    class="cover_img1" alt="images">
-                                                            @endif
-                                                        </a>
+                                                                    class="cover_img1" alt="{{ $latest->name }}">
+                                                            </a>
+                                                        @endif
                                                     </div>
                                                 </td>
                                                 <td>
                                                     <div class="d-flex align-items-center">
-                                                        <h6 class="m-0">{{ $latest->name }}
-                                                        </h6>
+                                                        {{-- PACKAGE A. A TABLE CELL'S VALUE IS NOT A HEADING. These three were
+                                                             `<h6>`: a product name, a price and a
+                                                             status word, inside `<td>`s. A screen
+                                                             reader's heading list filled with
+                                                             product names and prices, and the
+                                                             dashboard's outline measured a
+                                                             h4->h6 skip because of them. The
+                                                             design system already carries the
+                                                             right classes and says so in its own
+                                                             docblock -- `.ss-text-strong` is "the
+                                                             emphasised text of a row ... a VALUE,
+                                                             not a heading", and `.ss-money` gives
+                                                             a numeric column tabular figures so it
+                                                             aligns. --}}
+                                                        <span class="ss-text-strong d-block">{{ $latest->name }}
+                                                        </span>
                                                     </div>
                                                 </td>
                                                 @if ($latest->variant_product == 0)
 
                                                                         <td>
-                                                                            <h6 class="m-0">
+                                                                            <span class="ss-money">
                                                                                 {{ currency_format_with_sym($latest->final_price ?? 0, getCurrentStore()) ??
                                                     SetNumberFormat($latest->final_price) }}
-                                                                            </h6>
+                                                                            </span>
                                                                         </td>
                                                 @else
 
                                                     <td>
-                                                        <h6 class="m-0">{{ __('In Variant') }}</h6>
+                                                        <span class="text-muted">{{ __('In Variant') }}</span>
                                                     </td>
                                                 @endif
                                             </tr>
@@ -714,7 +754,53 @@
                         $('#loader').fadeOut();
                     },
                     error: function (xhr, status, error) {
-                        // Handle error
+                        {{-- bysales-ajax-loader-stuck. The overlay is raised on every tab change
+                             but used to be released ONLY from success:, so any non-2xx or network
+                             failure stranded #loader — position:fixed, z-index:9999999, no
+                             pointer-events escape and no dismiss control (public/css/loader.css)
+                             — over a dashboard the merchant could no longer click.
+
+                             An ABORT is not a failure: it is the merchant navigating away, and
+                             public/js/loader.js raises the same overlay on beforeunload, so
+                             releasing it here would tear down the navigation scrim and park a red
+                             alert on a page that is leaving. 'error', 'timeout' and 'parsererror'
+                             fall through, which is the point of this handler.
+
+                             Wording is status-aware and reuses the three keys already translated
+                             in BOTH resources/lang/en.json and ar.json, matching the house
+                             precedent in resources/views/order/index.blade.php. No bespoke string:
+                             __() falls back to the key, and this view is scanned by no
+                             ArabicUiCoverageTest::SURFACES glob, so an untranslated sentence here
+                             would be announced in English by role="alert" to an Arabic
+                             screen-reader user and nothing in CI would notice (F259).
+
+                             xhr.responseJSON.message is deliberately NOT passed through: the
+                             precedent feeds it to a transient toast, whereas this alert persists
+                             in the card, and on 419 Laravel's body is "CSRF token mismatch.".
+
+                             Contrast measured with the WCAG 2.x formula, not assumed:
+                             --ss-danger-fg on --ss-danger-bg is #8c1d17 on #fdeeee = 8.09:1 light
+                             and #f3a9a4 on #2c1413 = 9.06:1 dark. Both clear AA and AAA, in both
+                             directions. .ss-alert__body is what escapes the host dark sheets'
+                             p:not([class^="ss-"]) { color:#808191 !important }, and
+                             .ss-alert__content carries min-width:0 so a long Arabic sentence
+                             cannot overflow the flex line. --}}
+                        if (status === 'abort') {
+                            return;
+                        }
+                        $('#loader').fadeOut();
+                        var message = (xhr.status === 403)
+                            ? @json(__('You are not allowed to do this.'))
+                            : ((xhr.status === 419 || xhr.status === 401)
+                                ? @json(__('Your session has expired. Please reload the page.'))
+                                : @json(__('Something went wrong. Please try again.')));
+                        $('#' + type + '-tab-data')
+                            .empty()
+                            .append($('<div/>', {
+                                'class': 'ss-alert ss-alert--danger',
+                                role: 'alert'
+                            }).append($('<div/>', { 'class': 'ss-alert__content' })
+                                .append($('<p/>', { 'class': 'ss-alert__body' }).text(message))));
                         console.error(error);
                     }
                 });

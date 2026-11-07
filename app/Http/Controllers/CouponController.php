@@ -75,7 +75,7 @@ class CouponController extends Controller
                 if ($validator->fails()) {
                     $messages = $validator->getMessageBag();
 
-                    return redirect()->back()->with('error', $messages->first());
+                    return redirect()->back()->with('error', implode(' ', $messages->all()));
                 }
             }
 
@@ -93,7 +93,7 @@ class CouponController extends Controller
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
 
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
 
             $coupon = new Coupon();
@@ -381,7 +381,7 @@ class CouponController extends Controller
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
 
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
         }
         if (auth()->user() && auth()->user()->isAbleTo('Edit Coupon')) {
@@ -404,7 +404,7 @@ class CouponController extends Controller
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
 
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
 
             $coupon->coupon_name = $request->coupon_name;

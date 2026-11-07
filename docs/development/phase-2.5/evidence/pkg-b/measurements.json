@@ -1,0 +1,866 @@
+[
+  {
+    "combo": "en_ltr_light",
+    "name": "category",
+    "route": "/category",
+    "title": "Category",
+    "worst": {
+      "value": 5.05,
+      "floor": 4.5,
+      "px": 12,
+      "weight": "400",
+      "text": "Switch store",
+      "tag": "span.ss-workspace__meta"
+    },
+    "first": {
+      "kind": "card",
+      "y": 172
+    },
+    "rowCount": 4,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 47,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "en_ltr_light",
+    "name": "brand",
+    "route": "/product-brand",
+    "title": "Product Brand",
+    "worst": {
+      "value": 5.05,
+      "floor": 4.5,
+      "px": 12,
+      "weight": "400",
+      "text": "Switch store",
+      "tag": "span.ss-workspace__meta"
+    },
+    "first": {
+      "kind": "card",
+      "y": 172
+    },
+    "rowCount": 3,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 44,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "en_ltr_light",
+    "name": "attribute",
+    "route": "/product-attributes",
+    "title": "Attributes",
+    "worst": {
+      "value": 5.05,
+      "floor": 4.5,
+      "px": 12,
+      "weight": "400",
+      "text": "Switch store",
+      "tag": "span.ss-workspace__meta"
+    },
+    "first": {
+      "kind": "card",
+      "y": 172
+    },
+    "rowCount": 2,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 43,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "en_ltr_light",
+    "name": "label",
+    "route": "/product-label",
+    "title": "Product Label",
+    "worst": {
+      "value": 5.05,
+      "floor": 4.5,
+      "px": 12,
+      "weight": "400",
+      "text": "Switch store",
+      "tag": "span.ss-workspace__meta"
+    },
+    "first": {
+      "kind": "card",
+      "y": 172
+    },
+    "rowCount": 3,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 44,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "en_ltr_light",
+    "name": "coupon",
+    "route": "/coupon",
+    "title": "Coupon",
+    "worst": {
+      "value": 5.05,
+      "floor": 4.5,
+      "px": 12,
+      "weight": "400",
+      "text": "Switch store",
+      "tag": "span.ss-workspace__meta"
+    },
+    "first": {
+      "kind": "card",
+      "y": 172
+    },
+    "rowCount": 1,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 40,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "en_ltr_light",
+    "name": "product-list",
+    "route": "/product",
+    "title": "Product",
+    "worst": {
+      "value": 5.05,
+      "floor": 4.5,
+      "px": 12,
+      "weight": "400",
+      "text": "Switch store",
+      "tag": "span.ss-workspace__meta"
+    },
+    "first": {
+      "kind": "card",
+      "y": 367
+    },
+    "rowCount": 10,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 82,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "en_ltr_light",
+    "name": "product-create",
+    "route": "/product/create",
+    "title": "Product",
+    "worst": {
+      "value": 5.05,
+      "floor": 4.5,
+      "px": 12,
+      "weight": "400",
+      "text": "Switch store",
+      "tag": "span.ss-workspace__meta"
+    },
+    "first": {
+      "kind": "card",
+      "y": 225
+    },
+    "rowCount": 0,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 37,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "en_ltr_light",
+    "name": "product-edit",
+    "route": "/product/1/edit",
+    "title": "Product",
+    "worst": {
+      "value": 5.05,
+      "floor": 4.5,
+      "px": 12,
+      "weight": "400",
+      "text": "Switch store",
+      "tag": "span.ss-workspace__meta"
+    },
+    "first": {
+      "kind": "card",
+      "y": 225
+    },
+    "rowCount": 0,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 62,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "en_ltr_light",
+    "name": "product-show",
+    "route": "/product/1",
+    "title": "Product",
+    "worst": {
+      "value": 5.05,
+      "floor": 4.5,
+      "px": 12,
+      "weight": "400",
+      "text": "Switch store",
+      "tag": "span.ss-workspace__meta"
+    },
+    "first": {
+      "kind": "card",
+      "y": 232
+    },
+    "rowCount": 0,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 43,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "en_ltr_dark",
+    "name": "category",
+    "route": "/category",
+    "title": "Category",
+    "worst": {
+      "value": 4.89,
+      "floor": 4.5,
+      "px": 14,
+      "weight": "500",
+      "text": "Hi, Amina Haddad!",
+      "tag": "span.hide-mob"
+    },
+    "first": {
+      "kind": "card",
+      "y": 172
+    },
+    "rowCount": 4,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 47,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "en_ltr_dark",
+    "name": "brand",
+    "route": "/product-brand",
+    "title": "Product Brand",
+    "worst": {
+      "value": 4.89,
+      "floor": 4.5,
+      "px": 14,
+      "weight": "500",
+      "text": "Hi, Amina Haddad!",
+      "tag": "span.hide-mob"
+    },
+    "first": {
+      "kind": "card",
+      "y": 172
+    },
+    "rowCount": 3,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 44,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "en_ltr_dark",
+    "name": "attribute",
+    "route": "/product-attributes",
+    "title": "Attributes",
+    "worst": {
+      "value": 4.89,
+      "floor": 4.5,
+      "px": 14,
+      "weight": "500",
+      "text": "Hi, Amina Haddad!",
+      "tag": "span.hide-mob"
+    },
+    "first": {
+      "kind": "card",
+      "y": 172
+    },
+    "rowCount": 2,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 43,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "en_ltr_dark",
+    "name": "label",
+    "route": "/product-label",
+    "title": "Product Label",
+    "worst": {
+      "value": 4.89,
+      "floor": 4.5,
+      "px": 14,
+      "weight": "500",
+      "text": "Hi, Amina Haddad!",
+      "tag": "span.hide-mob"
+    },
+    "first": {
+      "kind": "card",
+      "y": 172
+    },
+    "rowCount": 3,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 44,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "en_ltr_dark",
+    "name": "coupon",
+    "route": "/coupon",
+    "title": "Coupon",
+    "worst": {
+      "value": 4.89,
+      "floor": 4.5,
+      "px": 14,
+      "weight": "500",
+      "text": "Hi, Amina Haddad!",
+      "tag": "span.hide-mob"
+    },
+    "first": {
+      "kind": "card",
+      "y": 172
+    },
+    "rowCount": 1,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 40,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "en_ltr_dark",
+    "name": "product-list",
+    "route": "/product",
+    "title": "Product",
+    "worst": {
+      "value": 4.89,
+      "floor": 4.5,
+      "px": 14,
+      "weight": "500",
+      "text": "Hi, Amina Haddad!",
+      "tag": "span.hide-mob"
+    },
+    "first": {
+      "kind": "card",
+      "y": 367
+    },
+    "rowCount": 10,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 82,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "en_ltr_dark",
+    "name": "product-create",
+    "route": "/product/create",
+    "title": "Product",
+    "worst": {
+      "value": 4.89,
+      "floor": 4.5,
+      "px": 14,
+      "weight": "500",
+      "text": "Hi, Amina Haddad!",
+      "tag": "span.hide-mob"
+    },
+    "first": {
+      "kind": "card",
+      "y": 225
+    },
+    "rowCount": 0,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 37,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "en_ltr_dark",
+    "name": "product-edit",
+    "route": "/product/1/edit",
+    "title": "Product",
+    "worst": {
+      "value": 4.89,
+      "floor": 4.5,
+      "px": 14,
+      "weight": "500",
+      "text": "Hi, Amina Haddad!",
+      "tag": "span.hide-mob"
+    },
+    "first": {
+      "kind": "card",
+      "y": 225
+    },
+    "rowCount": 0,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 62,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "en_ltr_dark",
+    "name": "product-show",
+    "route": "/product/1",
+    "title": "Product",
+    "worst": {
+      "value": 4.89,
+      "floor": 4.5,
+      "px": 14,
+      "weight": "500",
+      "text": "Hi, Amina Haddad!",
+      "tag": "span.hide-mob"
+    },
+    "first": {
+      "kind": "card",
+      "y": 232
+    },
+    "rowCount": 0,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 43,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "ar_rtl_light",
+    "name": "category",
+    "route": "/category",
+    "title": "فئة",
+    "worst": {
+      "value": 5.05,
+      "floor": 4.5,
+      "px": 12,
+      "weight": "400",
+      "text": "تبديل المتجر",
+      "tag": "span.ss-workspace__meta"
+    },
+    "first": {
+      "kind": "card",
+      "y": 174
+    },
+    "rowCount": 4,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 47,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "ar_rtl_light",
+    "name": "brand",
+    "route": "/product-brand",
+    "title": "علامة المنتج",
+    "worst": {
+      "value": 5.05,
+      "floor": 4.5,
+      "px": 12,
+      "weight": "400",
+      "text": "تبديل المتجر",
+      "tag": "span.ss-workspace__meta"
+    },
+    "first": {
+      "kind": "card",
+      "y": 174
+    },
+    "rowCount": 3,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 44,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "ar_rtl_light",
+    "name": "attribute",
+    "route": "/product-attributes",
+    "title": "سمات",
+    "worst": {
+      "value": 5.05,
+      "floor": 4.5,
+      "px": 12,
+      "weight": "400",
+      "text": "تبديل المتجر",
+      "tag": "span.ss-workspace__meta"
+    },
+    "first": {
+      "kind": "card",
+      "y": 174
+    },
+    "rowCount": 2,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 43,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "ar_rtl_light",
+    "name": "label",
+    "route": "/product-label",
+    "title": "ملصق المنتج",
+    "worst": {
+      "value": 5.05,
+      "floor": 4.5,
+      "px": 12,
+      "weight": "400",
+      "text": "تبديل المتجر",
+      "tag": "span.ss-workspace__meta"
+    },
+    "first": {
+      "kind": "card",
+      "y": 174
+    },
+    "rowCount": 3,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 44,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "ar_rtl_light",
+    "name": "coupon",
+    "route": "/coupon",
+    "title": "كوبون",
+    "worst": {
+      "value": 5.05,
+      "floor": 4.5,
+      "px": 12,
+      "weight": "400",
+      "text": "تبديل المتجر",
+      "tag": "span.ss-workspace__meta"
+    },
+    "first": {
+      "kind": "card",
+      "y": 174
+    },
+    "rowCount": 1,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 40,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "ar_rtl_light",
+    "name": "product-list",
+    "route": "/product",
+    "title": "المنتج",
+    "worst": {
+      "value": 5.05,
+      "floor": 4.5,
+      "px": 12,
+      "weight": "400",
+      "text": "تبديل المتجر",
+      "tag": "span.ss-workspace__meta"
+    },
+    "first": {
+      "kind": "card",
+      "y": 375
+    },
+    "rowCount": 10,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 82,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "ar_rtl_light",
+    "name": "product-create",
+    "route": "/product/create",
+    "title": "المنتج",
+    "worst": {
+      "value": 5.05,
+      "floor": 4.5,
+      "px": 12,
+      "weight": "400",
+      "text": "تبديل المتجر",
+      "tag": "span.ss-workspace__meta"
+    },
+    "first": {
+      "kind": "card",
+      "y": 227
+    },
+    "rowCount": 0,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 37,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "ar_rtl_light",
+    "name": "product-edit",
+    "route": "/product/1/edit",
+    "title": "المنتج",
+    "worst": {
+      "value": 5.05,
+      "floor": 4.5,
+      "px": 12,
+      "weight": "400",
+      "text": "تبديل المتجر",
+      "tag": "span.ss-workspace__meta"
+    },
+    "first": {
+      "kind": "card",
+      "y": 227
+    },
+    "rowCount": 0,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 62,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "ar_rtl_light",
+    "name": "product-show",
+    "route": "/product/1",
+    "title": "المنتج",
+    "worst": {
+      "value": 5.05,
+      "floor": 4.5,
+      "px": 12,
+      "weight": "400",
+      "text": "تبديل المتجر",
+      "tag": "span.ss-workspace__meta"
+    },
+    "first": {
+      "kind": "card",
+      "y": 234
+    },
+    "rowCount": 0,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 43,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "ar_rtl_dark",
+    "name": "category",
+    "route": "/category",
+    "title": "فئة",
+    "worst": {
+      "value": 4.89,
+      "floor": 4.5,
+      "px": 14,
+      "weight": "500",
+      "text": "مرحباً، Amina Haddad!",
+      "tag": "span.hide-mob"
+    },
+    "first": {
+      "kind": "card",
+      "y": 174
+    },
+    "rowCount": 4,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 47,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "ar_rtl_dark",
+    "name": "brand",
+    "route": "/product-brand",
+    "title": "علامة المنتج",
+    "worst": {
+      "value": 4.89,
+      "floor": 4.5,
+      "px": 14,
+      "weight": "500",
+      "text": "مرحباً، Amina Haddad!",
+      "tag": "span.hide-mob"
+    },
+    "first": {
+      "kind": "card",
+      "y": 174
+    },
+    "rowCount": 3,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 44,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "ar_rtl_dark",
+    "name": "attribute",
+    "route": "/product-attributes",
+    "title": "سمات",
+    "worst": {
+      "value": 4.89,
+      "floor": 4.5,
+      "px": 14,
+      "weight": "500",
+      "text": "مرحباً، Amina Haddad!",
+      "tag": "span.hide-mob"
+    },
+    "first": {
+      "kind": "card",
+      "y": 174
+    },
+    "rowCount": 2,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 43,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "ar_rtl_dark",
+    "name": "label",
+    "route": "/product-label",
+    "title": "ملصق المنتج",
+    "worst": {
+      "value": 4.89,
+      "floor": 4.5,
+      "px": 14,
+      "weight": "500",
+      "text": "مرحباً، Amina Haddad!",
+      "tag": "span.hide-mob"
+    },
+    "first": {
+      "kind": "card",
+      "y": 174
+    },
+    "rowCount": 3,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 44,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "ar_rtl_dark",
+    "name": "coupon",
+    "route": "/coupon",
+    "title": "كوبون",
+    "worst": {
+      "value": 4.89,
+      "floor": 4.5,
+      "px": 14,
+      "weight": "500",
+      "text": "مرحباً، Amina Haddad!",
+      "tag": "span.hide-mob"
+    },
+    "first": {
+      "kind": "card",
+      "y": 174
+    },
+    "rowCount": 1,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 40,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "ar_rtl_dark",
+    "name": "product-list",
+    "route": "/product",
+    "title": "المنتج",
+    "worst": {
+      "value": 4.89,
+      "floor": 4.5,
+      "px": 14,
+      "weight": "500",
+      "text": "مرحباً، Amina Haddad!",
+      "tag": "span.hide-mob"
+    },
+    "first": {
+      "kind": "card",
+      "y": 375
+    },
+    "rowCount": 10,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 82,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "ar_rtl_dark",
+    "name": "product-create",
+    "route": "/product/create",
+    "title": "المنتج",
+    "worst": {
+      "value": 4.89,
+      "floor": 4.5,
+      "px": 14,
+      "weight": "500",
+      "text": "مرحباً، Amina Haddad!",
+      "tag": "span.hide-mob"
+    },
+    "first": {
+      "kind": "card",
+      "y": 227
+    },
+    "rowCount": 0,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 37,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "ar_rtl_dark",
+    "name": "product-edit",
+    "route": "/product/1/edit",
+    "title": "المنتج",
+    "worst": {
+      "value": 4.89,
+      "floor": 4.5,
+      "px": 14,
+      "weight": "500",
+      "text": "مرحباً، Amina Haddad!",
+      "tag": "span.hide-mob"
+    },
+    "first": {
+      "kind": "card",
+      "y": 227
+    },
+    "rowCount": 0,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 62,
+      "feather": 0
+    }
+  },
+  {
+    "combo": "ar_rtl_dark",
+    "name": "product-show",
+    "route": "/product/1",
+    "title": "المنتج",
+    "worst": {
+      "value": 4.89,
+      "floor": 4.5,
+      "px": 14,
+      "weight": "500",
+      "text": "مرحباً، Amina Haddad!",
+      "tag": "span.hide-mob"
+    },
+    "first": {
+      "kind": "card",
+      "y": 234
+    },
+    "rowCount": 0,
+    "emptyState": 0,
+    "icons": {
+      "tabler": 43,
+      "feather": 0
+    }
+  }
+]

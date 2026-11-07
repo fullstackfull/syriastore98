@@ -240,7 +240,7 @@ class ShippingController extends Controller
         if($validator->fails())
         {
             $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+            return redirect()->back()->with('error', implode(' ', $messages->all()));
         }
         $slug = str_replace(' ', '-', strtolower($request->name));
         $shipping                   = new Shipping();
@@ -298,7 +298,7 @@ class ShippingController extends Controller
         if($validator->fails())
         {
             $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+            return redirect()->back()->with('error', implode(' ', $messages->all()));
         }
 
         $shipping = $this->scopedShipping($id);

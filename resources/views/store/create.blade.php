@@ -16,7 +16,7 @@
             <a href="#" class="btn btn-primary btn-badge me-2 ai-btn" data-size="lg" data-ss-panel-open="ai-generate"
                 data-ss-panel-url="{{ route('generate', ['store']) }}" data-bs-toggle="tooltip" data-bs-placement="top"
                 title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
-                <i class="fas fa-robot"></i> {{ __('Generate with AI') }}
+                <i class="ti ti-wand"></i> {{ __('Generate with AI') }}
             </a>
         </div>
     @endif
@@ -26,7 +26,7 @@
             <a href="#" class="btn btn-primary me-2 ai-btn btn-badge" data-size="lg" data-ss-panel-open="ai-generate"
                 data-ss-panel-url="{{ route('generate', ['store']) }}" data-bs-toggle="tooltip" data-bs-placement="top"
                 title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
-                <i class="fas fa-robot"></i> {{ __('Generate with AI') }}
+                <i class="ti ti-wand"></i> {{ __('Generate with AI') }}
             </a>
         </div>
     @endif

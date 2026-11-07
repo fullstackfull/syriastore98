@@ -25,7 +25,7 @@
         <div class="row">
             <div class="col-lg-6">
                 <div class="ss-field">
-            <label for="chat_gpt_model" class="ss-label">{{ __('Chat GPT Model Name') }}</label>
+            <label for="chat_gpt_model" class="ss-label">{{ __('Chat GPT Model Name') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                 <select name="chat_gpt_model" id="chat_gpt_model" class="ss-select" required>
                     @foreach(getAiModelName() as $groupLabel => $options)
                         @if(is_array($options))

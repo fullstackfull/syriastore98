@@ -87,16 +87,16 @@
                         </div>
 
                         <div class="form-group col-md-6">
-                            {{ Form::label('subject', __('Subject'), ['class' => 'form-label text-dark']) }}
+                            {{ Form::label('subject', __('Subject'), ['class' => 'form-label text-dark']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                             {{ Form::text('subject', null, ['class' => 'form-control font-style', 'required' => 'required']) }}
                         </div>
                         <div class="form-group col-md-6">
-                            {{ Form::label('from', __('From'), ['class' => 'form-label text-dark']) }}
+                            {{ Form::label('from', __('From'), ['class' => 'form-label text-dark']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                             {{ Form::text('from', $emailTemplate->from, ['class' => 'form-control font-style', 'required' => 'required']) }}
                         </div>
 
                         <div class="form-group col-12">
-                            {{ Form::label('content', __('Email Message'), ['class' => 'form-label text-dark']) }}
+                            {{ Form::label('content', __('Email Message'), ['class' => 'form-label text-dark']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                             {{ Form::textarea('content', $currEmailTempLang->content, ['class' => 'summernote-simple', 'required' => 'required']) }}
                         </div>
 

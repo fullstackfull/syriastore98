@@ -468,7 +468,7 @@
                                                         'placeholder' => __('Choose icon...'),
                                                         ]) !!}
                                                         <span class="input-group-text icon-picker-button" style="cursor: pointer;">
-                                                            <i class="fas fa-icons"></i>
+                                                            <i class="ti ti-apps"></i>
                                                         </span>
                                                     </div>
                                                     <div class="icon-preview mt-2" style="font-size: 24px;">

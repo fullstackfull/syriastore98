@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en" data-ss-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>F126 cascade measurement</title>
+<!-- EXACT host order for the dark LTR branch, layouts/app.blade.php:144-168 -->
+<link rel="stylesheet" href="../../../../public/assets/css/style-dark.css" id="main-style-link">
+<link rel="stylesheet" href="../../../../public/css/custom.css" id="main-style-custom-link">
+<link rel="stylesheet" href="../../../../public/css/store-syria-a11y.css">
+<!-- @stack('css') position: the design system, when a page opts in -->
+<link rel="stylesheet" href="../../../../public/css/store-syria-ds.css">
+</head>
+<body>
+<div class="dash-container"><div class="dash-content">
+
+<!-- (1) A HOST BOOTSTRAP MODAL, the ~60-form case F126 names. Markup copied from the
+     host's ajax-popup shell: #commanModel > .modal-dialog > .modal-content -->
+<div class="modal fade show" id="commanModel" style="display:block">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title" id="t-title">Create category</h5></div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label" for="i1" id="t-formlabel">Title</label>
+        <input type="text" class="form-control" id="i1">
+        <p id="t-p">Pick a short name shoppers will recognise.</p>
+        <small class="form-text" id="t-small">Up to 60 characters.</small>
+      </div>
+      <div class="form-group">
+        <label for="i2" id="t-barelabel">Parent category</label>
+        <select class="form-control" id="i2"><option id="t-option">Top level</option></select>
+      </div>
+      <div class="ss-field">
+        <label class="ss-label" for="i3" id="t-sslabel">Icon</label>
+        <input type="text" class="ss-input" id="i3">
+      </div>
+    </div>
+  </div></div>
+</div>
+
+<!-- (2) The SAME modal but inside the existing scoped escape, which 10 views already use -->
+<div class="modal fade show" data-ss-theme="light" style="display:block">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-body">
+      <label class="form-label" for="i4" id="e-formlabel">Title</label>
+      <input type="text" class="form-control" id="i4">
+      <label class="ss-label" for="i5" id="e-sslabel">Icon</label>
+      <p id="e-p">Pick a short name shoppers will recognise.</p>
+    </div>
+  </div></div>
+</div>
+
+<!-- (3) THE CHROME THE RULE WAS WRITTEN FOR — must not regress -->
+<nav class="dash-sidebar light-sidebar">
+  <div class="sidebar-input"><i class="ti ti-search"></i>
+    <input type="text" id="sidebar-search" class="form-control" placeholder="Search">
+  </div>
+  <ul class="dash-navbar"><li class="dash-item"><a class="dash-link" href="#"><span class="dash-mtext" id="c-navtext">Orders</span></a></li></ul>
+</nav>
+<div class="dataTables_wrapper">
+  <div class="dataTables_length"><label id="c-dtlength">Show <select class="form-control"><option>10</option></select> entries</label></div>
+  <div class="dataTables_filter"><label id="c-dtfilter">Search:<input type="search" class="form-control"></label></div>
+  <div class="dataTables_info" id="c-dtinfo">Showing 1 to 10 of 57 entries</div>
+</div>
+<div class="dataTable-top"><div class="dataTable-dropdown"><label id="c-ddlabel">Show <select class="dataTable-selector"><option>10</option></select></label></div></div>
+<nav><ol class="breadcrumb"><li class="breadcrumb-item"><a href="#" id="c-crumb">Dashboard</a></li></ol></nav>
+
+<!-- (4) A label on the host's DARK CARD — the other surface the rule serves -->
+<div class="card"><div class="card-body">
+  <label class="form-label" for="i6" id="d-cardlabel">Store name</label>
+  <input type="text" class="form-control" id="i6">
+  <p id="d-cardp">Shown on your storefront.</p>
+</div></div>
+
+<!-- (5) A label directly on the dark PAGE -->
+<label class="form-label" for="i7" id="d-pagelabel">Plain page label</label>
+<input type="text" class="form-control" id="i7">
+
+</div></div>
+</body></html>

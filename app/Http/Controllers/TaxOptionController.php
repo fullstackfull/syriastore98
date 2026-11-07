@@ -84,7 +84,7 @@ class TaxOptionController extends Controller
             if($validator->fails())
             {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
             // Prepare data for database insertion/update
             $post['price_type']          = $request->price_type;

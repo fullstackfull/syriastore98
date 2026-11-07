@@ -10,12 +10,12 @@
         <a href="{{ route('store.customdomain') }}" class="btn btn-sm btn-primary btn-badge btn-icon" data-bs-toggle="tooltip"
             data-bs-placement="top" title="{{ __('Custom Domain') }}">{{ __('Custom Domain') }}</a>
 
-        <a href="{{ route('store.list') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('List View') }}" class="btn btn-sm btn-primary btn-icon ">
+        <a href="{{ route('store.list') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('List View') }}" class="btn btn-sm btn-primary btn-icon " aria-label="{{ __('List View') }}">
             <i class="ti ti-list"></i>
         </a>
         <a href="javascript::void(0)" class="btn btn-sm btn-primary btn-badge btn-icon" data-ajax-popup="true" data-size="md"
             data-title="{{ __('Create New User') }}" data-url="{{ route('store.user.create') }}" data-bs-toggle="tooltip"
-            title="{{ __('Add New User') }}">
+            title="{{ __('Add New User') }}" aria-label="{{ __('Create New User') }}">
             <i class="ti ti-plus"></i>
         </a>
          <!-- Search Input -->
@@ -55,7 +55,7 @@
                                     <div class="card-header-right">
                                         <div class="btn-group card-option">
                                             <button type="button" class="btn dropdown-toggle" data-bs-toggle="dropdown"
-                                                aria-haspopup="true" aria-expanded="false">
+                                                aria-haspopup="true" aria-expanded="false" aria-label="{{ __('More actions') }}">
                                                 <i class="ti ti-dots-vertical"></i>
                                             </button>
 

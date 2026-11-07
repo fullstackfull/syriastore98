@@ -51,7 +51,7 @@
                                         @if ( in_array($data['email'],$upddata))
                                         @permission('Edit Shopify Customer')
                                             <a href="{{ route('shopify_customer.edit', $data['id']) }}"  class="btn btn-sm btn-info"
-                                                data-title="{{ __('Sync Again') }}" data-bs-toggle="tooltip" title="{{ __('Sync Again') }}">
+                                                data-title="{{ __('Sync Again') }}" data-bs-toggle="tooltip" title="{{ __('Sync Again') }}" aria-label="{{ __('Sync Again') }}">
                                                 <i class="ti ti-refresh"></i>
                                             </a>
                                         @endpermission
@@ -59,7 +59,7 @@
                                         @permission('Create Shopify Customer')
                                             <a href="{{ route('shopify_customer.show', $data['id']) }}" class="btn btn-sm btn-primary"
                                                 data-title="{{__('Add Customer')}}"
-                                                data-bs-toggle="tooltip" title="{{ __('Add Customer') }}">
+                                                data-bs-toggle="tooltip" title="{{ __('Add Customer') }}" aria-label="{{__('Add Customer')}}">
                                                 <i class="ti ti-plus"></i>
                                             </a>
                                         @endpermission

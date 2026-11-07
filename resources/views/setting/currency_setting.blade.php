@@ -58,12 +58,24 @@
                 </div>
             </div>
 
+            @php
+                /* D-42.3. THE SCREEN MUST REPORT THE FORMAT THE STORE IS ACTUALLY USING.
+                   `@selected(($setting['decimal_separator'] ?? '') === 'dot')` marked NO option at
+                   all when nothing was stored, so the browser fell back to showing the first one --
+                   `Dot` -- while the four formatters were using a comma. A merchant reading this
+                   screen was told the opposite of what their storefront did.
+                   `CurrencySeparators::tokensFromSettings()` is the same resolver those formatters
+                   use, including its collision rule, so the marked options cannot disagree with the
+                   behaviour again. */
+                $ssSeparators = \App\Support\Money\CurrencySeparators::tokensFromSettings($setting ?? []);
+            @endphp
+
             <div class="col-md-6">
                 <div class="ss-field">
                     <label class="ss-label" for="decimal_separator">{{ __('Decimal Separator') }}</label>
                     <select name="decimal_separator" class="ss-input currency_note" id="decimal_separator">
-                        <option value="dot" @selected(($setting['decimal_separator'] ?? '') === 'dot')>{{ __('Dot') }}</option>
-                        <option value="comma" @selected(($setting['decimal_separator'] ?? '') === 'comma')>{{ __('Comma') }}</option>
+                        <option value="dot" @selected($ssSeparators['decimal'] === 'dot')>{{ __('Dot') }}</option>
+                        <option value="comma" @selected($ssSeparators['decimal'] === 'comma')>{{ __('Comma') }}</option>
                     </select>
                 </div>
             </div>
@@ -72,8 +84,8 @@
                 <div class="ss-field">
                     <label class="ss-label" for="thousand_separator">{{ __('Thousands Separator') }}</label>
                     <select name="thousand_separator" class="ss-input currency_note" id="thousand_separator">
-                        <option value="dot" @selected(($setting['thousand_separator'] ?? '') === 'dot')>{{ __('Dot') }}</option>
-                        <option value="comma" @selected(($setting['thousand_separator'] ?? '') === 'comma')>{{ __('Comma') }}</option>
+                        <option value="dot" @selected($ssSeparators['thousand'] === 'dot')>{{ __('Dot') }}</option>
+                        <option value="comma" @selected($ssSeparators['thousand'] === 'comma')>{{ __('Comma') }}</option>
                     </select>
                 </div>
             </div>

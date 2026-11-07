@@ -1051,7 +1051,37 @@ class SubscriptionAuthorizationTest extends SecurityTestCase
 
         $this->assertNotFalse($start, 'UserController::editprofile has moved or been renamed.');
 
-        $body = substr($source, $start, 1600);
+        /*
+         * THE SLICE IS THE WHOLE METHOD, NOT A FIXED BYTE WINDOW. This read `substr($source,
+         * $start, 1600)`, which made the assertion below a claim about the first 1600 bytes of
+         * editprofile rather than about editprofile. P2.5 added a withErrors/withInput failure
+         * path and its reasoning to this method, which pushed `$user_id` to offset 2211 and
+         * turned this test red WITHOUT any caller-supplied id appearing anywhere -- a false
+         * reading, and the second assertion had silently been covering less and less of the
+         * method for as long as the window stood.
+         *
+         * Taking the slice to the next method declaration STRENGTHENS both assertions: the
+         * negative one now sees every line of editprofile instead of its first two thirds. The
+         * two premises below are what stop the slice from being wrong in the other direction --
+         * one proves it reaches the END of the method, the other proves it stops before the
+         * next one, so neither a truncated nor an over-long slice can pass quietly.
+         */
+        $end = strpos($source, 'public function password_update', $start);
+
+        $this->assertNotFalse($end,
+            'password_update has moved or been renamed, so this slice no longer has an end.');
+
+        $body = substr($source, $start, $end - $start);
+
+        $this->assertStringContainsString(
+            "return redirect()->back()->with('success', __('Personal info successfully updated.'));",
+            $body,
+            'premise: the slice reaches the end of editprofile. Without this the negative '
+            . 'assertion below could pass by covering only part of the method.');
+
+        $this->assertStringNotContainsString('function password_update', $body,
+            'premise: the slice stops before the next method, so an assertion about '
+            . 'editprofile cannot be satisfied or broken by password_update.');
 
         $this->assertStringContainsString('$user_id = \Auth::guard()->user()->id;', $body);
         $this->assertStringNotContainsString('$request->user_id', $body,

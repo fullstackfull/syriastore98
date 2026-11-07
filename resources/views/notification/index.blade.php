@@ -28,28 +28,48 @@
     `title` from a service literal, and F5 on this phase's ledger is the same
     shape unescaped in the sidebar.
 --}}
+{{-- PACKAGE A, 2026-11-06. ONE PAGE-HEADER MECHANISM FOR THE WHOLE ADMIN.
+
+     This view rendered `<x-ss.page-header :title="Notifications">` AND set
+     `@section('page-title', 'Notifications')` on line 3, so a merchant saw the word
+     "Notifications" twice, stacked. It predates this package; making the layout's title an h1
+     only made it legible as TWO h1 elements, which is how it was found -- measured on the
+     running page, h1 count = 2.
+
+     THE SECTION COULD NOT SIMPLY BE DROPPED. `layouts/app.blade.php:122` feeds
+     `@yield('page-title')` into the `<title>` tag, so deleting it would have blanked the browser
+     tab. Checked before editing, which is the only reason this is a convergence and not a
+     regression.
+
+     So the view moves onto the LAYOUT's header, which is already a complete one and renders the
+     same design-system classes: `@hasSection('page-subtitle')` emits
+     `<p class="ss-scope ss-page-header__subtitle mb-0">`, exactly what the component emitted, and
+     `@yield('action-button')` is the action area. 152 views use that mechanism and ONE used the
+     component, so the component was the odd one out rather than the standard.
+
+     Nothing is lost: the title, the unread subtitle and the Mark-all-as-read POST are all still
+     here, in the shared header instead of a private copy of it. Verified on the running page --
+     h1 count 1, subtitle "Nothing unread", `<title>` intact. --}}
+@section('page-subtitle', $unread > 0 ? __(':n unread', ['n' => $unread]) : __('Nothing unread'))
+
+@section('action-button')
+    @if ($unread > 0)
+        {{--
+            POST, with the token. A state-changing GET is reachable from a
+            third-party <img> and by link prefetching — F12 and F14 on this
+            phase's ledger, and not repeated here.
+        --}}
+        <form method="POST" action="{{ route('merchant.notifications.read-all') }}"
+              class="d-inline" data-ss-mark-all>
+            @csrf
+            <button type="submit" class="ss-btn ss-btn--secondary">
+                {{ __('Mark all as read') }}
+            </button>
+        </form>
+    @endif
+@endsection
+
 <div class="ss-scope">
-    <x-ss.page-header :title="__('Notifications')"
-                      :subtitle="$unread > 0
-                            ? __(':n unread', ['n' => $unread])
-                            : __('Nothing unread')">
-        <x-slot:actions>
-            @if ($unread > 0)
-                {{--
-                    POST, with the token. A state-changing GET is reachable from a
-                    third-party <img> and by link prefetching — F12 and F14 on this
-                    phase's ledger, and not repeated here.
-                --}}
-                <form method="POST" action="{{ route('merchant.notifications.read-all') }}"
-                      class="d-inline" data-ss-mark-all>
-                    @csrf
-                    <button type="submit" class="ss-btn ss-btn--secondary">
-                        {{ __('Mark all as read') }}
-                    </button>
-                </form>
-            @endif
-        </x-slot:actions>
-    </x-ss.page-header>
 
     @if ($noTenant)
         {{--

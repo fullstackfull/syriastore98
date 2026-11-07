@@ -85,7 +85,7 @@ function addMenuItemToMenu(menuItem) {
                     <input type="url" id="url_${menuItem.id}" class="form-control" value="${url}">
                 </div>
                 <div class="form-group">
-                    <label class="f-w-600 w-100">{{ __('Icon') }}</label>
+                    <label for="iconSelect_${menuItem.id}" class="f-w-600 w-100">{{ __('Icon') }}</label>
                     <div class="d-flex gap-2 align-items-center">
                         <select name="icon_type" class="form-select icon-select" id="iconSelect_${menuItem.id}" data-item-id="${menuItem.id}">
                             <option value="">{{ __('Select Icon Type') }}</option>
@@ -119,7 +119,7 @@ function addMenuItemToMenu(menuItem) {
         menuItemHtml += `
         <div class="collapse p-3 border rounded" id="collapse_${menuItem.id}">
             <div class="form-group">
-                <label class="f-w-600 w-100">{{ __('Icon') }}</label>
+                <label for="iconSelect_${menuItem.id}" class="f-w-600 w-100">{{ __('Icon') }}</label>
                 <div class="d-flex gap-2 align-items-center">
                     <select name="icon_type" class="form-select icon-select" id="iconSelect_${menuItem.id}" data-item-id="${menuItem.id}">
                         <option value="">{{ __('Select Icon Type') }}</option>

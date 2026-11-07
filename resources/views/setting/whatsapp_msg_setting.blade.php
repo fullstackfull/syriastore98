@@ -86,7 +86,7 @@
                 </dl>
 
                 <div class="ss-field">
-                    <label class="ss-label" for="whatsapp_item_variable"><code>{item_variable}</code></label>
+                    <label class="ss-label" for="whatsapp_item_variable"><code>{item_variable}</code></label><span class="ss-label__required" aria-hidden="true">*</span>
                     <input type="text" class="ss-input" id="whatsapp_item_variable" name="whatsapp_item_variable"
                            value="{{ $setting['whatsapp_item_variable'] ?? '' }}"
                            placeholder="{quantity} x {product_name} - {variant_name} + {item_tax} = {item_total}">

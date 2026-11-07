@@ -81,7 +81,7 @@ class UserDataTable extends DataTable
     {
         return buildDataTableColumn([
             'avatar' => ['title' => __('Avatar'), 'orderable' => false, 'searchable' => false, 'exportable' => false],
-            'name' => ['title' => __('Name')],
+            'name' => ['title' => __('Name'), 'addClass' => 'ss-dt-ident'],
             'email' => ['title' => __('Email')],
             'type' => ['title' => __('Role')]
         ]);

@@ -51,7 +51,7 @@ class TagDataTable extends DataTable
         public function getColumns(): array
     {
         return buildDataTableColumn([
-            'name' => ['title' => __('Name')]
+            'name' => ['title' => __('Name'), 'addClass' => 'ss-dt-ident']
         ]);
     }
 

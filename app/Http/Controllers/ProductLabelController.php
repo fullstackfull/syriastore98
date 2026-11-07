@@ -23,9 +23,48 @@ class ProductLabelController extends Controller
     /**
      * Show the form for creating a new resource.
      */
+    /**
+     * P2.5-PKG-B. The form now refuses exactly when the submit would: `store()` checks
+     * `Create Product Label` and this checked nothing.
+     */
     public function create()
     {
+        if (! auth()->user() || ! auth()->user()->isAbleTo('Create Product Label')) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         return view('product_label.create');
+    }
+
+    /**
+     * P2.5-PKG-B. Does the caller own this label?
+     *
+     * `ProductLabel` registers no global scope and is absent from `config/tenancy.php`'s
+     * `scoped_models`, so `ProductLabel::find($id)` reaches every tenant's rows. MEASURED in
+     * `BrandCrossTenantReadWriteTest` before this guard existed: a second merchant opened, renamed,
+     * TOOK and deleted another tenant's label.
+     *
+     * Fails closed on either side being absent -- a row with a NULL `store_id` is invisible to
+     * every store predicate in the application and must not become visible here.
+     *
+     * No operator limb, for the reason recorded on `ProductBrandController::callerOwnsBrand()`:
+     * these are the editor, owner decision F206 says the operator may read merchant catalogues but
+     * not edit them, and all three methods already refuse the operator because `isAbleTo()` alone
+     * does. This only ever removes access.
+     */
+    private function callerOwnsLabel(?ProductLabel $label): bool
+    {
+        $user = auth()->user();
+
+        if ($user === null || $label === null) {
+            return false;
+        }
+
+        $currentStore = getCurrentStore($user->id);
+
+        return ! empty($currentStore)
+            && ! empty($label->store_id)
+            && (int) $label->store_id === (int) $currentStore;
     }
 
     /**
@@ -43,7 +82,7 @@ class ProductLabelController extends Controller
             if($validator->fails())
             {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
             $slug = ProductLabel::slugs($request->name);
 
@@ -71,9 +110,25 @@ class ProductLabelController extends Controller
     /**
      * Show the form for editing the specified resource.
      */
+    /**
+     * P2.5-PKG-B. This had NO permission check and NO ownership check -- so any authenticated web
+     * principal, with zero label permissions, could read another store's label.
+     *
+     * 404 for a foreign or absent row, so the two are indistinguishable and the response is not an
+     * existence oracle.
+     */
     public function edit($id)
     {
+        if (! auth()->user() || ! auth()->user()->isAbleTo('Edit Product Label')) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         $productLabel = ProductLabel::find($id);
+
+        if (! $this->callerOwnsLabel($productLabel)) {
+            abort(404);
+        }
+
         return view('product_label.edit', compact('productLabel'));
     }
 
@@ -84,6 +139,13 @@ class ProductLabelController extends Controller
     {
         if (auth()->user() && auth()->user()->isAbleTo('Edit Product Label')) {
             $productLabel = ProductLabel::find($id);
+
+            // P2.5-PKG-B. The permission was checked and the owner was not, and the assignment
+            // further down made that a TAKEOVER rather than an unauthorised edit.
+            if (! $this->callerOwnsLabel($productLabel)) {
+                abort(404);
+            }
+
             $validator = \Validator::make(
                 $request->all(),
                 [
@@ -93,7 +155,7 @@ class ProductLabelController extends Controller
             if($validator->fails())
             {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
 
 
@@ -102,7 +164,13 @@ class ProductLabelController extends Controller
             if (isset($request->status)) {
                 $productLabel->status              = $request->status;
             }
-            $productLabel->store_id            = getCurrentStore();
+            // THE ASSIGNMENT THAT USED TO BE HERE IS GONE, not merely guarded.
+            // `$productLabel->store_id = getCurrentStore();` was the takeover primitive: a foreign
+            // row reaching it did not just get edited, it CHANGED HANDS. callerOwnsLabel() above
+            // now guarantees the two values are already equal, so the line was a no-op -- but
+            // leaving it means any future weakening of the guard re-opens a TRANSFER rather than
+            // an unauthorised edit. Raised by the tenant-authz review. The Admin API sibling has
+            // never done this.
             $productLabel->save();
 
             return redirect()->back()->with('success', __('Product Label successfully updated.'));
@@ -118,6 +186,12 @@ class ProductLabelController extends Controller
     {
         if (auth()->user() && auth()->user()->isAbleTo('Delete Product Label')) {
             $productLabel = ProductLabel::find($id);
+
+            // P2.5-PKG-B. Permission was checked, owner was not. The guard precedes the delete.
+            if (! $this->callerOwnsLabel($productLabel)) {
+                abort(404);
+            }
+
             $productLabel->delete();
             return redirect()->back()->with('success', __('Product Label delete successfully.'));
 

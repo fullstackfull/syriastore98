@@ -93,7 +93,7 @@ class UserController extends Controller
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
 
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
 
             $user = \Auth::user();
@@ -412,7 +412,30 @@ AuditLog::record('user_deleted', $user, [
         if($validator->fails())
         {
             $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+
+            // P2.5: toast KEPT (five security tests read it), bag and old input ADDED, both
+            // inside fails(). Never bare withInput(): see CredentialSinksTest:260. Full reasoning
+            // in tests/Feature/Merchant/ProfileValidationFeedbackTest.php.
+            //
+            // `type` IS EXCLUDED HERE FOR THE SAME REASON AS password_update BELOW, and the two
+            // lists are deliberately identical. profile.blade.php:209 renders
+            // Form::hidden('type', Auth::guard()->user()->type), and konekt's
+            // getValueAttribute() (vendor/konekt/html/src/FormBuilder.php:1293-1297) reads old()
+            // BEFORE the model value, so a flashed `type` re-renders an attacker-supplied value
+            // in that hidden field. This method persists only name/email/mobile/profile_image by
+            // explicit assignment -- there is no fill() and no $user->type here -- so nothing
+            // escalates today; excluding it keeps that true if anyone later adds one.
+            return redirect()->back()
+                ->with('error', $messages->first())
+                ->withErrors($validator)
+                ->withInput($request->except([
+                    'password',
+                    'password_confirmation',
+                    'old_password',
+                    'new_password',
+                    'new_password_confirmation',
+                    'type',
+                ]));
         }
 
         if ($request->hasFile('profile_image')) {
@@ -457,7 +480,26 @@ AuditLog::record('user_deleted', $user, [
         $validator = \Validator::make($request->all(), $rule);
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+
+            // P2.5 area-wide-no-withinput-witherrors (CLASS A). Same shape as editprofile
+            // above: the toast stays, the bag and old input are added, both inside fails().
+            //
+            // `type` IS IN THE EXCLUSION LIST ON PURPOSE. resources/views/users/profile.blade.php
+            // renders Form::hidden('type', Auth::guard()->user()->type), and konekt/html's
+            // getValueAttribute() (vendor/konekt/html/src/FormBuilder.php:1293-1297) reads
+            // old() BEFORE the model value -- so a flashed `type` would overwrite the
+            // account's real type in the re-rendered hidden field.
+            return redirect()->back()
+                ->with('error', $messages->first())
+                ->withErrors($validator)
+                ->withInput($request->except([
+                    'password',
+                    'password_confirmation',
+                    'old_password',
+                    'new_password',
+                    'new_password_confirmation',
+                    'type',
+                ]));
         }
 
         // `==`, not `=`: the original assignments overwrote $request->type and

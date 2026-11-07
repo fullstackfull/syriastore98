@@ -923,11 +923,85 @@ foreach ($galleryTargets as $gp) {
 
 }
 
+/*
+ * ONE REFUND REQUEST (P2.5-WAVE-11). `order_refunds` was empty in this fixture, so
+ * `/refund-request/{id}` and `order/refund_details.blade.php` could not be rendered at all:
+ * `OrderRefundController::show()` dereferences `product_refund_id` on `OrderRefund::first()`,
+ * which was null. One idempotent row for the first store order. `product_refund_id` names
+ * product 4 (Linen Tea Towel Set, a NON-variant, so `Product::find()->name` resolves without a
+ * `ProductVariant` lookup that would throw). Status `Processing` is the initial pending state the
+ * refund-detail view renders with its full action set; `attachments` is an empty array so the
+ * evidence-image block is correctly skipped rather than pointing at a missing upload.
+ */
+$ssRefundOrder = Order::where('store_id', $store->id)->orderBy('id')->first();
+if ($ssRefundOrder && ! \App\Models\OrderRefund::where('order_id', $ssRefundOrder->id)->exists()) {
+    \App\Models\OrderRefund::create([
+        'order_id' => $ssRefundOrder->id,
+        'refund_status' => 'Processing',
+        'refund_reason' => 'Item arrived with a damaged seam',
+        'custom_refund_reason' => '',
+        'attachments' => json_encode([]),
+        'product_refund_id' => json_encode([
+            ['product_refund_id' => 4, 'quantity' => 1, 'return_price' => '18.00'],
+        ]),
+        'product_refund_price' => '18.00',
+        'refund_amount' => 18.00,
+        'store_id' => $store->id,
+    ]);
+}
+
+/*
+ * THE CUSTOMER TIMELINE'S SEVEN EVENT TYPES (P2.5-WAVE-16b).
+ *
+ * `activity_logs` was EMPTY, so /customer-timeline/{id} rendered nothing at all -- which is how
+ * the missing empty state was found, but it also meant the seven coloured date pills
+ * (.register-timeline ... .order-timeline, custom.css:1972-1997) could not be rendered and so
+ * their contrast could not be MEASURED in either theme. A live reading returned no elements.
+ *
+ * One row per `log_type` the view branches on, so every branch and every pill colour is on screen
+ * at once. The `remark` payload carries EVERY key any branch decodes (date, order_date, order_id,
+ * payment_type, price, product, variant) rather than a per-type shape: a branch that finds a key
+ * missing throws on `->` and takes the whole screen with it, and this is a fixture, not a model of
+ * what the application writes.
+ *
+ * product 4 is NON-variant (Linen Tea Towel Set) and variant 1 exists, so ActivityLog::products()
+ * and ::variants() both resolve to a real name instead of null.
+ */
+$ssTimelineCustomer = \App\Models\Customer::withoutGlobalScopes()
+    ->where('store_id', $store->id)->orderBy('id')->first();
+
+if ($ssTimelineCustomer && ! \App\Models\ActivityLog::where('customer_id', $ssTimelineCustomer->id)->exists()) {
+    $ssRemark = json_encode([
+        'date' => now()->subDays(6)->format('Y-m-d H:i:s'),
+        'order_date' => now()->subDays(2)->format('Y-m-d'),
+        'order_id' => 'ORD-2041',
+        'payment_type' => 'cod',
+        'price' => '48.00',
+        'product' => 4,
+        'variant' => 1,
+    ]);
+
+    $ssLogTypes = ['register', 'last login', 'add wishlist', 'delete wishlist',
+                   'add to cart', 'remove to cart', 'place order'];
+
+    foreach ($ssLogTypes as $ssI => $ssType) {
+        \App\Models\ActivityLog::create([
+            'customer_id' => $ssTimelineCustomer->id,
+            'log_type' => $ssType,
+            'remark' => $ssRemark,
+            'store_id' => $store->id,
+            'created_at' => now()->subDays(7 - $ssI),
+            'updated_at' => now()->subDays(7 - $ssI),
+        ]);
+    }
+}
+
 echo "seeded: merchant={$merchant->id} store={$store->id}"
     . " categories=" . \App\Models\Category::where("store_id", $store->id)->count()
     . " tags=" . \App\Models\Tag::where("store_id", $store->id)->count()
     . " products=" . Product::where('store_id', $store->id)->count()
    . " orders=" . Order::where('store_id', $store->id)->count()
+   . " refunds=" . \App\Models\OrderRefund::where('store_id', $store->id)->count()
    . " billing=" . DB::table('order_billing_details')->count()
    . " notes=" . \App\Models\OrderNote::where('store_id', $store->id)->count()
    . " attrs=" . \App\Models\ProductAttribute::where('store_id', $store->id)->count()
