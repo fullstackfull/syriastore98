@@ -397,6 +397,55 @@ candidate set and call two aggregate methods per row, which is N+1 by constructi
 customers that is 1 + 200 queries. Replacing it with SQL aggregates would change **how the figures
 are computed**, which is the thing D-40 reserves, so it stays an open item.
 
+### P2.5-PKG-E — the customer write path (`D-40` repairs + the premium pass)
+
+Opened after R-06/R-07 as the next **area-based** package rather than another wave. Three repairs,
+five form corrections, and **one question escalated instead of answered**.
+
+| slice | what it was | evidence |
+|---|---|---|
+| **E-1** | **Archive, then add that person again — a dead end in two clicks.** `destroy()` is `$customer->delete()` and `Customer` uses `SoftDeletes`, so archiving sets `deleted_at`. `store()` validated `unique:customers,email`, and Laravel's rule queries the table with **no `deleted_at` predicate**, so it counted the archived row: the address was reserved for ever and the form answered *"The email has already been taken"* for someone the merchant can no longer see anywhere. **And there is no way back** — no restore route, no archived view, no `withTrashed()` in the controller. | `Rule::unique(…)->whereNull('deleted_at')`. **A live duplicate in the same store is still refused**, asserted by its own test, because removing the rule instead of narrowing it is the obvious wrong fix. |
+| **E-2** | **The raw exception message was printed on the merchant's screen** — `'Error: ' . $e->getMessage()`. A database exception carries SQL, table and column names and sometimes values, and `'Error: '` was untranslated. | A translated generic sentence; the exception class (newly added), message, file and line are still logged. |
+| **E-3** | **Validation was reported twice, the second time in English only.** `validate()` throws and Laravel's handler already redirects back with errors and input; the handler **caught** that and redid it, adding an untranslated `'Validation failed: …'` listing every message on top of the per-field ones. | The catch is gone and **`validate()` moved outside the `try`**. The first attempt left it inside, and because **`ValidationException` extends `Exception`** the generic catch swallowed it and discarded every field error — caught by four of my own tests, not by reading. |
+| **E-4** | **The form asked for three different kinds of thing in one flat grid**, with the password sitting between a phone number and a status dropdown as though it were the same kind of fact. | Three `<fieldset>` groups: identity, contact, account access. |
+| **E-5** | Five measured corrections: **`dir="ltr"`** on e-mail and mobile (a Latin address reorders *as it is typed* in the RTL interface; the grid already guards its e-mail this way, the form a merchant types it into did not) · **`autocomplete`** on all five text fields, `new-password` among them, without which a manager offers the **merchant's own** credential for the customer being created · **`minlength="8"`** with a bound `x-ss.field-help`, because the server's `min:8` was discoverable only by being refused · a real **`<button type="submit">`**, since `Form::submit()` cannot contain an icon · and **five Arabic HTML comments** that were shipped to every browser on every render. | 13 tests / 49 assertions, from a bite of **6 failed / 6 passed**. `render-matrix.cjs` 4 rows 0 not clean, before and after. |
+
+**TWO DEFECTS OF MY OWN, measured out before the evidence was accepted, and recorded because each
+is a failure mode this phase keeps hitting.**
+
+1. **My three new `<legend>` headings were invisible in dark mode.** They carried the host's
+   `.form-label` and `census-low-contrast-text.cjs` measured **1.1:1** — `rgb(41,50,64)` on
+   `rgb(41,42,51)`, three failing nodes. The host's class is not theme-aware on a `<legend>`.
+   Replaced with `.ss-label` plus a new `.ss-form-legend` taking its colour from `--ss-fg`;
+   **re-measured 0 failing nodes in both themes.** The new rule also sets `float: none` and an
+   explicit width, because a bare `<legend>` is laid out by the browser's legend algorithm rather
+   than as a block and half-overlaps the fieldset's border edge in a Bootstrap grid.
+2. **My submit button was outside the form.** The first draft opened `Form::open()` inside
+   `.card-body` and put the button in `.card-footer`, so the `<form>` opened inside one `<div>` and
+   closed after another had already closed. A test asserting the button EXISTS passes against that,
+   **and so does a regex test that matches the form** — a regex reads source order and the button
+   is textually between the tags. Only a **DOM-parsing** assertion sees it: parsed, the button was
+   **not a descendant of the form**, so pressing it submitted nothing. The test now walks ancestors
+   in the parsed tree and **bites** — restoring the mis-nested markup fails it.
+
+**ESCALATED, NOT ANSWERED.** `unique:customers,email` is still **global**, so a merchant cannot
+create a customer whose **live** address belongs to another store — while the storefront's own
+registration is per-store (`CustomerLoginController:104`), so that state is one the product already
+produces, and the admin form is the only place that refuses it. It is also a cross-tenant existence
+oracle. It is left alone because `StorefrontRegistrationTakeoverTest`'s header records that on the
+**API register endpoint the same rule is protective** — it is what keeps the e-mail path to
+create-only. Scoping uniqueness per store is a business-policy decision with authorization
+implications, so it goes to the owner, and the current behaviour is **pinned by a test** whose own
+message says it is what should be rewritten when the decision lands.
+
+Seven keys added to `ar.json` and `en.json`, because `ArabicUiCoverageTest` failed the moment the
+six new English strings landed — the bilingual ratchet working as designed.
+
+Matrix: **'Create customer'** PENDING → REDESIGNED AND VERIFIED. PENDING 230 → **229**, verified
+55 → **56** of 295.
+
+---
+
 ### The tenant-authz review of P2.5-R-06/R-07, which found a regression *in the fix*
 
 **Verdict: no tenancy or authorization hole.** The three tenant predicates are unchanged and still

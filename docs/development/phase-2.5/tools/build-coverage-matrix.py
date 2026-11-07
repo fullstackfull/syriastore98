@@ -140,6 +140,20 @@ VERIFIED = {
     # photographed, and in that state EVERY filter returned all three cards because the handler
     # read no parameters.
     'Customer grid (card view)':    ('REDESIGNED AND VERIFIED', 'r06-customer-filter', 'grid-unfiltered_', 'P2.5-R-07'),
+
+    # P2.5-PKG-E. The create form was regrouped into the three things it actually asks for
+    # (identity, contact, account access) and five measured corrections applied: dir="ltr" on the
+    # e-mail and mobile inputs (a Latin address reorders as it is typed in the Arabic interface),
+    # autocomplete tokens on all five text fields, the server's `min:8` stated on the control
+    # rather than discovered by being refused, a real <button type="submit"> in place of
+    # Form::submit(), and five Arabic HTML comments that were being shipped to every browser.
+    #
+    # TWO DEFECTS OF MY OWN WERE MEASURED OUT OF IT BEFORE THIS ENTRY WAS ADDED: the three new
+    # <legend> headings carried the host's `.form-label` and census-low-contrast-text.cjs returned
+    # 1.1:1 in dark mode (three failing nodes); and the first draft opened the form inside
+    # .card-body while the submit button sat in .card-footer, which a DOM-parsing test proved left
+    # the button OUTSIDE the form element. Both are fixed and both have their own assertion.
+    'Create customer':              ('REDESIGNED AND VERIFIED', 'pkg-e-customer-write', '_customer_create__', 'P2.5-PKG-E'),
     # 'Delivery boys' WAS HERE AND ITS EVIDENCE WAS FALSE. Removed 2026-11-06, so the surface
     # falls back to PENDING, which is the truth: it has never been rendered.
     # All four wave-33 captures (_deliveryboy__*) are screenshots of the DASHBOARD carrying a

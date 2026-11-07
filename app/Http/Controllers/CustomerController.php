@@ -59,16 +59,64 @@ public function store(Request $request)
         return redirect()->back()->with('error', __('Permission denied.'));
     }
 
-    try {
-        $validated = $request->validate([
+    /*
+     * P2.5-PKG-E (E-3, corrected). VALIDATION RUNS **OUTSIDE** THE try, and that placement is the
+     * whole fix rather than a tidy-up.
+     *
+     * The first attempt simply deleted the `catch (ValidationException $e)` block and left
+     * `validate()` inside the try. **ValidationException EXTENDS Exception**, so the generic
+     * `catch (\Exception $e)` below swallowed it and replaced the per-field errors with the
+     * generic "could not be created" flash -- every field message gone, and the merchant told
+     * nothing about what was wrong. Caught by
+     * CustomerCreateFormTest::test_a_live_duplicate_in_the_same_store_is_still_refused and three
+     * siblings, which is why that test asserts the refusal rather than only the repair.
+     *
+     * Outside the try, a validation failure propagates to Laravel's own handler, which redirects
+     * back with the errors and the old input -- exactly what `<x-ss.error-summary>` and the
+     * `@error` blocks render. One report, in the merchant's own language.
+     */
+    $validated = $request->validate([
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
-            'email' => 'required|email|max:255|unique:customers,email',
+            /*
+             * P2.5-PKG-E (E-1). `whereNull('deleted_at')` -- AN ARCHIVED E-MAIL STOPS BEING
+             * RESERVED, and that closes a dead end a merchant reaches in two clicks.
+             *
+             * `destroy()` is `$customer->delete()` and `Customer` uses `SoftDeletes`, so archiving
+             * sets `deleted_at` and the merchant is told "Customer archived successfully."
+             * Laravel's `unique` rule queries the table with NO `deleted_at` predicate, so it
+             * counted the archived row: the address was reserved for ever and the create form
+             * answered "The email has already been taken" for a person the merchant can no longer
+             * see anywhere in their own interface.
+             *
+             * AND THERE IS NO WAY BACK. No restore route, no archived-customer view, and no
+             * `withTrashed()` anywhere in this controller -- so the merchant had archived someone,
+             * wanted them back, and the product offered neither re-create nor restore.
+             *
+             * A LIVE DUPLICATE IS STILL REFUSED. The rule is narrowed to archived rows, not
+             * removed, and a test asserts that half explicitly -- removing the rule rather than
+             * narrowing it is the obvious wrong fix here.
+             *
+             * WHAT THIS DELIBERATELY DOES **NOT** DO: it does not add a `store_id` predicate.
+             * This rule is GLOBAL, so a merchant still cannot add a customer whose address exists
+             * in ANOTHER store -- while the storefront's own registration is per-store
+             * (`CustomerLoginController:104`), so that state is one the product already produces.
+             * Scoping it per store is a business-policy change with authorization implications:
+             * `StorefrontRegistrationTakeoverTest`'s header records that on the API register
+             * endpoint the same `unique` rule is what keeps the e-mail path to create-only, where
+             * it is PROTECTIVE. So the cross-store behaviour is ESCALATED to the owner and pinned
+             * by a test, not altered here.
+             */
+            'email' => [
+                'required', 'email', 'max:255',
+                \Illuminate\Validation\Rule::unique('customers', 'email')->whereNull('deleted_at'),
+            ],
             'mobile' => 'nullable|string|max:20',
             'password' => 'required|string|min:8',
-            'status' => 'required|in:0,1',
-        ]);
+        'status' => 'required|in:0,1',
+    ]);
 
+    try {
         $customer = Customer::create([
             'first_name' => $validated['first_name'],
             'last_name' => $validated['last_name'],
@@ -87,23 +135,40 @@ public function store(Request $request)
         return redirect()->route('customer.index')
             ->with('success', __('Customer created successfully.'));
 
-    } catch (\Illuminate\Validation\ValidationException $e) {
-        $errorMessages = $e->validator->errors()->all();
-        \Log::error('Validation Error:', $errorMessages);
-        
-        return redirect()->back()
-            ->withErrors($e->validator)
-            ->withInput($request->except(['password', 'password_confirmation']))
-            ->with('error', 'Validation failed: ' . implode(', ', $errorMessages));
-            
+    /*
+     * P2.5-PKG-E (E-3). THE ValidationException CATCH IS GONE, because it reported the same
+     * failure a second time and in English only.
+     *
+     * `$request->validate()` throws, and Laravel's own handler already redirects back with the
+     * errors and the old input -- which is what `<x-ss.error-summary>` and the `@error` blocks on
+     * the form render. The catch redid that redirect and added
+     * `->with('error', 'Validation failed: ' . implode(', ', $errorMessages))`: an untranslated
+     * English sentence listing every message, on top of the per-field messages. A merchant with
+     * one bad field was told twice, once in a language they may not read.
+     *
+     * Letting it propagate also keeps `withInput()` consistent with the rest of the application
+     * instead of this handler's own copy.
+     */
     } catch (\Exception $e) {
+        /*
+         * P2.5-PKG-E (E-2). THE RAW EXCEPTION MESSAGE IS NO LONGER PUT ON THE MERCHANT'S SCREEN.
+         *
+         * This was `->with('error', 'Error: ' . $e->getMessage())`. A database exception's message
+         * carries SQL, table and column names and sometimes values, so an internal detail reached
+         * a merchant-facing page -- and `'Error: '` was untranslated, so an Arabic merchant read an
+         * English prefix in front of it.
+         *
+         * NOTHING IS LOST FOR DIAGNOSIS: the full message, file and line are still logged, and the
+         * exception class is added, which the previous log line omitted.
+         */
         \Log::error('Customer Creation Error:', [
+            'exception' => get_class($e),
             'message' => $e->getMessage(),
             'file' => $e->getFile(),
             'line' => $e->getLine()
         ]);
         return redirect()->back()
-            ->with('error', 'Error: ' . $e->getMessage())
+            ->with('error', __('The customer could not be created. Please try again.'))
             ->withInput($request->except(['password', 'password_confirmation']));
     }
 }
