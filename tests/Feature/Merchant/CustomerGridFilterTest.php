@@ -274,7 +274,19 @@ class CustomerGridFilterTest extends SecurityTestCase
             'the grid still references the list-fragment endpoint, which answers with <tr> rows');
     }
 
-    public function test_the_three_control_names_are_the_ones_the_filter_reads(): void
+    /**
+     * THE CONTROLS MUST BE INSIDE THE FORM, not merely present on the page.
+     *
+     * The first draft of this test asserted only that the three names appear somewhere in the
+     * document, and the tenant-authz review of this change showed it CANNOT FAIL on revert: all
+     * three were already present before the repair. `name="selected_name"` and `name="text_field"`
+     * come from the JS injector this slice did not touch, and `name="field_name"` from the field
+     * select, which also predates it. My own bite run agreed — it passed against the original.
+     *
+     * A control outside the form is submitted by nothing, which IS the defect, so containment is
+     * the claim worth asserting.
+     */
+    public function test_the_three_control_names_sit_inside_the_filter_form(): void
     {
         $html = $this->grid();
 
@@ -284,6 +296,23 @@ class CustomerGridFilterTest extends SecurityTestCase
             'the injected operator select no longer carries the name customer_grid_view() reads');
         $this->assertStringContainsString('name="text_field"', $html,
             'the injected value input no longer carries the name customer_grid_view() reads');
+
+        $this->assertMatchesRegularExpression(
+            '/<form[^>]+id="frm_submit"[^>]*>(.*?)<\\/form>/s', $html,
+            'premise: the filter form is absent, so containment cannot be asserted');
+
+        preg_match('/<form[^>]+id="frm_submit"[^>]*>(.*?)<\\/form>/s', $html, $m);
+        $inside = $m[1] ?? '';
+
+        $this->assertStringContainsString('name="field_name"', $inside,
+            'the field select is OUTSIDE the form, so submitting the form does not send it');
+        $this->assertStringContainsString('id="select-container"', $inside,
+            'the operator container is outside the form, so the injected select is never '
+            . 'submitted — which is the defect this slice repairs');
+        $this->assertStringContainsString('id="text-field"', $inside,
+            'the value container is outside the form');
+        $this->assertStringContainsString('id="applyfilter"', $inside,
+            'the submit control is outside the form it is meant to submit');
     }
 
     /**
@@ -380,6 +409,80 @@ class CustomerGridFilterTest extends SecurityTestCase
     }
 
     // =============================================================================================
+    //  F2 — AN ARRAY-VALUED PARAMETER MUST DEGRADE TO "no filter", NOT CRASH
+    // =============================================================================================
+
+    /**
+     * RAISED BY THE TENANT-AUTHZ REVIEW OF THIS VERY CHANGE, and it was a regression the repair
+     * introduced rather than one it inherited.
+     *
+     * `CustomerListFilter::apply()` first took `?string` for all three values.
+     * `$request->query('field_name')` returns an **array** for `?field_name[]=Name`, and an array
+     * is not coercible to string in weak or strict mode — so the request was a **TypeError, HTTP
+     * 500**, reachable by any principal holding `Manage Customer`. An array in `text_field`
+     * reached the `(string)` casts instead and raised "Array to string conversion", which
+     * Laravel's error handler promotes to an ErrorException: 500 again.
+     *
+     * That is strictly worse than what it replaced. Before this slice `customer_grid_view()` read
+     * no parameters at all and answered 200, and the two inline copies compared the array against
+     * string literals, matched no branch, and degraded to an unfiltered list. So "no filter" is
+     * the behaviour to restore, and these tests pin it on every one of the three parameters.
+     *
+     * The XSS middleware cannot be relied on to flatten these: it uses `array_walk_recursive` and
+     * `$request->merge()`, both of which preserve array shape.
+     */
+    public function test_an_array_valued_field_name_applies_no_filter_rather_than_crashing(): void
+    {
+        $this->seedCustomers();
+
+        $this->assertSame(['Amal', 'Bilal', 'Carla', 'Dalia', 'Eyad'],
+            $this->shown(['field_name' => ['Name'], 'selected_name' => 'Includes', 'text_field' => 'x']),
+            'an array in field_name is a TypeError at apply(), so the grid answered 500 where it '
+            . 'used to answer 200 with an unfiltered list');
+    }
+
+    public function test_an_array_valued_text_field_applies_no_filter_rather_than_crashing(): void
+    {
+        $this->seedCustomers();
+
+        $this->assertSame(['Amal', 'Bilal', 'Carla', 'Dalia', 'Eyad'],
+            $this->shown(['field_name' => 'Name', 'selected_name' => 'Includes', 'text_field' => ['x']]),
+            'an array in text_field reaches a (string) cast and raises "Array to string '
+            . 'conversion", which Laravel promotes to an ErrorException');
+    }
+
+    public function test_an_array_valued_operator_applies_no_filter_rather_than_crashing(): void
+    {
+        $this->seedCustomers();
+
+        $this->assertSame(['Amal', 'Bilal', 'Carla', 'Dalia', 'Eyad'],
+            $this->shown(['field_name' => 'No. of Orders', 'selected_name' => ['Equal'], 'text_field' => '2']),
+            'an array in selected_name is a TypeError at apply()');
+    }
+
+    /**
+     * The same three values against the AJAX fragment, which is the second call site and was
+     * reachable by the operator as well as by a `Manage Customer` holder.
+     */
+    public function test_the_fragment_survives_an_array_valued_parameter(): void
+    {
+        $this->seedCustomers();
+
+        foreach ([
+            ['customer_field' => ['Name'], 'selected_name' => 'Includes', 'text_field' => 'x'],
+            ['customer_field' => 'Name', 'selected_name' => 'Includes', 'text_field' => ['x']],
+            ['customer_field' => 'No. of Orders', 'selected_name' => ['Equal'], 'text_field' => '2'],
+        ] as $i => $query) {
+            $response = $this->actingAs($this->merchant)
+                ->get('/customer-filter-data?' . http_build_query($query));
+
+            $this->assertSame(200, $response->status(),
+                "case {$i}: the filter fragment answered {$response->status()} for an array-valued "
+                . 'parameter rather than degrading to no filter');
+        }
+    }
+
+    // =============================================================================================
     //  TENANCY AND PERMISSION — unchanged by this repair, and asserted because it touches a query
     // =============================================================================================
 
@@ -439,7 +542,11 @@ class CustomerGridFilterTest extends SecurityTestCase
             'field_name' => 'No. of Orders', 'selected_name' => 'More Than', 'text_field' => '0',
         ]));
 
-        $this->assertNotSame(200, $response->status(),
-            'a staff user holding no customer permission reached the filtered grid');
+        // assertStatus(302), NOT assertNotSame(200): the tenant-authz review of this change
+        // pointed out that a 500 or a 404 satisfies "not 200" just as well as a refusal does, so
+        // the weaker assertion would have reported a crash as a successful permission check. The
+        // handler's refusal path is `redirect()->back()->with('error', ...)`.
+        $response->assertStatus(302);
+        $response->assertSessionHas('error');
     }
 }

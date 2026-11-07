@@ -64,19 +64,42 @@ use Illuminate\Database\Eloquent\Builder;
  * reads its own key and passes the resolved value in, which keeps both contracts working — D-40
  * asks for backward-compatible repairs.
  *
- * THE ONE INPUT-PARSING CORRECTION, NAMED BECAUSE IT IS A BEHAVIOUR CHANGE
+ * THE TWO INPUT-PARSING CORRECTIONS, NAMED BECAUSE EACH IS A BEHAVIOUR CHANGE
  * -------------------------------------------------------------------------------------------------
  *
- * `'Total Spend'` cast its threshold with `(int)`, so "Total Spend Equal 300.50" silently became
- * "Equal 300" and answered a question the merchant did not ask. A spend is money and its threshold
- * is read as money here. `'No. of Orders'` keeps `(int)`, because an order count genuinely is a
- * whole number. This changes no stored or computed amount — only how the typed threshold is read —
- * and it is reported to the owner as its own sub-finding rather than folded into the three faults.
+ * (This section said "THE ONE" until the tenant-authz review of this change pointed out that
+ * fault 4 above is a second one. A docblock that undercounts its own behaviour changes is how the
+ * next reader "restores" one of them, so both are listed.)
  *
- * THE QUERY SHAPE IS UNCHANGED, INCLUDING ITS COST. The numeric operators still materialise the
- * candidate set and call two aggregate methods per row, which is N+1 by construction. Replacing it
- * with SQL aggregates would change how the figures are computed, which is the thing D-40 reserves,
- * so the cost is recorded in the ledger as an open item instead of being optimised here.
+ * **1.** `'Total Spend'` cast its threshold with `(int)`, so "Total Spend Equal 300.50" silently
+ * became "Equal 300" and answered a question the merchant did not ask. A spend is money and its
+ * threshold is read as money here. `'No. of Orders'` keeps `(int)`, because an order count
+ * genuinely is a whole number. This changes no stored or computed amount — only how the typed
+ * threshold is read.
+ *
+ * **2.** A threshold of `"0"` is a value rather than an absence — fault 4, whose guard is
+ * commented in place below.
+ *
+ * Both are reported to the owner as sub-findings rather than folded into the four faults.
+ *
+ * THE QUERY SHAPE IS UNCHANGED FOR THE LIST — BUT NOT FOR THE GRID, and the first draft of this
+ * paragraph got that wrong. The numeric operators materialise the candidate set and call two
+ * aggregate methods per row, each routing through `Customer::ownStoreOrders()`, which itself runs
+ * an `exists()` probe plus the count or sum: up to three `orders` queries per customer, plus an
+ * `order_billing_details` pluck on the guest branch.
+ *
+ * For `CustomerDataTable` that cost is genuinely unchanged — the list always did this. For
+ * `customer_grid_view()` it is NEW: that method was `->paginate(12)` and now, when a NUMERIC filter
+ * is in force, it hydrates every customer in the store and pays ~3N queries before paginating
+ * twelve of them. An unfiltered grid, and a grid filtered on name / e-mail / last-active, still
+ * paginate as before.
+ *
+ * Raised by the tenant-authz review of this change. Replacing it with SQL aggregates would change
+ * HOW THE FIGURES ARE COMPUTED, which is the thing D-40 reserves, so it is recorded in the ledger
+ * as an open item — against the grid as well as the list — rather than optimised here.
+ *
+ * A second-order limit, at scale only: `whereIn('id', $matched)` past roughly 65k matched ids
+ * exceeds PDO's placeholder limit and the query fails outright.
  */
 final class CustomerListFilter
 {
@@ -103,8 +126,40 @@ final class CustomerListFilter
      * @param string|null $operator the chosen operator, as `Customer::$fields_status*` spells it
      * @param mixed       $value    the merchant's typed threshold, raw off the request
      */
-    public static function apply(Builder $query, ?string $field, ?string $operator, $value): Builder
+    public static function apply(Builder $query, $field, $operator, $value): Builder
     {
+        /*
+         * F2, RAISED BY THE TENANT-AUTHZ REVIEW OF THIS VERY CHANGE, and it was a regression I
+         * introduced rather than one I inherited.
+         *
+         * The first draft typed all three as `?string`. `$request->query('field_name')` returns an
+         * ARRAY for `?field_name[]=Name`, and array is not coercible to string in either weak or
+         * strict mode -- so `GET /customer-grid?field_name[]=Name` was a **TypeError, HTTP 500**,
+         * reachable by any authenticated principal holding `Manage Customer`. `?text_field[]=x`
+         * reached the `(string) $value` casts instead and raised "Array to string conversion",
+         * which Laravel's error handler promotes to an ErrorException: 500 again.
+         *
+         * MEASURED: `take(["Name"])` against a `?string` parameter -> "must be of type ?string,
+         * array given"; `(string) ["x"]` -> warning, and the value "Array".
+         *
+         * THAT IS A BEHAVIOUR REGRESSION, NOT A HOLE -- read-only, authenticated, no disclosure,
+         * no state change. But it is worse than what it replaced: before this slice the grid read
+         * no parameters at all and answered 200, and the two inline copies compared the array
+         * against string literals, matched no branch, and degraded to an unfiltered list.
+         *
+         * So the parameters are `mixed` and a non-scalar means "no filter", which restores exactly
+         * the old degradation. The XSS middleware cannot be relied on to flatten these: it uses
+         * `array_walk_recursive` and `$request->merge()`, both of which preserve array shape.
+         */
+        if (($field !== null && ! is_scalar($field))
+            || ($operator !== null && ! is_scalar($operator))
+            || ($value !== null && ! is_scalar($value))) {
+            return $query;
+        }
+
+        $field = $field === null ? null : (string) $field;
+        $operator = $operator === null ? null : (string) $operator;
+
         if ($field === null || $field === '') {
             return $query;
         }

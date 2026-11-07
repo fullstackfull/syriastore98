@@ -397,6 +397,48 @@ candidate set and call two aggregate methods per row, which is N+1 by constructi
 customers that is 1 + 200 queries. Replacing it with SQL aggregates would change **how the figures
 are computed**, which is the thing D-40 reserves, so it stays an open item.
 
+### The tenant-authz review of P2.5-R-06/R-07, which found a regression *in the fix*
+
+**Verdict: no tenancy or authorization hole.** The three tenant predicates are unchanged and still
+server-derived, and the reviewer rejected the shortcut of taking that on reading alone.
+
+**It verified the mechanism I had only reasoned about.** `applyNumeric()` materialises the candidate
+set with `$query->get()` and then appends `whereIn('id', $matched)` to *the same builder*. Why that
+is safe is not obvious and depends on a detail of this codebase: `Customer` is `Cachable`, and
+`laravel-model-caching`'s `makeCacheKey()` calls `applyScopesToInstance()`, which applies every
+global scope **directly to the live builder** and sets `scopesAreApplied = true`. So the inner
+`get()` *bakes* `store_id IN (admissible)` and `deleted_at IS NULL` into `$query` itself, and the
+final execution does not re-apply them — **both executions provably see the same predicate set**.
+It also confirmed Laravel compiles an empty `whereIn` to `0 = 1`, so an empty candidate set means
+zero rows rather than no predicate. A side effect in the safe direction: after the inner `get()` the
+tenant predicate is inline rather than scope-supplied, so even a later `withoutGlobalScope()` could
+not remove it.
+
+**And it found one regression this slice introduced, which is now fixed with four bites of its own.**
+
+| # | finding | disposition |
+|---|---|---|
+| **F2** | `apply()` typed its three values `?string`. `$request->query('field_name')` returns an **array** for `?field_name[]=Name`, and array is not coercible to string in either mode — so `GET /customer-grid?field_name[]=Name` was a **TypeError, HTTP 500**, reachable by any `Manage Customer` holder; an array in `text_field` hit the `(string)` casts and raised *"Array to string conversion"*, which Laravel promotes to an ErrorException. **Strictly worse than what it replaced**: the old grid read no parameters and answered 200, and the old inline copies compared the array against string literals and degraded to an unfiltered list. | **FIXED.** The parameters are `mixed` and a non-scalar means "no filter", restoring the old degradation. Measured first (`take(["Name"])` → TypeError; `(string) ["x"]` → `"Array"`), then **4 tests, 4 bites**. The XSS middleware was checked rather than assumed — `array_walk_recursive` + `$request->merge()` preserve array shape, so it is not a defence here. |
+| **F1** | My docblock said "THE **ONE** input-parsing correction". Fault 4 makes it two. | **FIXED** — both listed. A docblock that undercounts its own behaviour changes is how the next reader restores one of them. |
+| **F3** | I wrote that the N+1 cost is "unchanged, including its cost". True of the **list**, false of the **grid**: that method was `->paginate(12)` and now, under a numeric filter, hydrates every customer in the store and pays ~3 `orders` queries per row before paginating twelve. | **FIXED** in the docblock and recorded against the grid here. Not optimised: SQL aggregates would change *how the figures are computed*, which D-40 reserves. Second-order, at scale only: `whereIn` past ~65k ids exceeds PDO's placeholder limit. |
+| **F4** | `CustomFilterData()`'s gate rationale cited a caller at `grid.blade.php:265` — **the AJAX this slice deleted**. The gate still holds; the justification had gone false, and a gate justified by a caller that no longer exists is one the next reader may think unnecessary. | **FIXED** — the comment now records that the grid was the last caller and why the gate is kept anyway (the endpoint still renders the whole roster including e-mail). |
+| **F5** | `test_the_three_control_names_...` **could not fail on revert** — all three names predate the repair, and my own bite run showed it passing against the original. Separately, `assertNotSame(200, ...)` would have reported a 500 as a successful permission check. | **FIXED** — the first now asserts the controls sit **inside** `#frm_submit`, which is the actual claim; the second is `assertStatus(302)` plus `assertSessionHas('error')`. |
+| F6 | **Latent, pre-existing, unchanged.** `getCurrentStore()` returns `null` for a web user with an empty `current_store` who created no store; `where('store_id', null)` compiles to `store_id IS NULL`, and `StoreScope` returns `MODE_UNRESOLVED` → `null_tenant => 'open'` → **no scope predicate**. The result would be every orphaned customer row on the platform. The line is byte-identical before and after this diff; whether such rows exist is unproven. | recorded. Hardening, not a hole here. |
+| F7 | **Pre-existing wrong answers, deliberately preserved.** `Excludes` is `NOT LIKE name OR NOT LIKE email` where it should be `AND`, so a customer whose e-mail matches but whose name does not is still returned. `whereDate('last_active', '<', $value)` with a non-date string yields no rows on MySQL but compares strings on SQLite and can return **everything** — which also makes a SQLite test of that branch unreliable. `XSS.php` strips `javascript`/`alert`/`&lt;`/`&gt;` from the merchant's own search term before the handler sees it. | recorded, not fixed: each changes results for an operator that works today, and none is in task #88's named scope. |
+
+The reviewer also **agreed with the decision not to give the grid an operator limb**: it would extend
+`getCurrentStore()`'s literal-`1` default to a second paginated screen for a principal with no store
+context, which is a widening rather than a fix. And it noted the control of record for all three
+sites is `users.current_store` integrity, not the scope — `StoreScope::admissibleStoreIds()`
+*includes* `current_store` in the admissible set by design, so whoever can write that column
+re-tenants all three screens and the scope will not catch it.
+
+Two things it verified clean: **no duplicate route declaration** shadows either path (`web.php:1193`
+and `:1207` are the only ones, both in `['auth','xss','setlocate','verified']`), and the grid's
+replay uses Blade's `@json`, whose `JSON_HEX_TAG|HEX_AMP|HEX_APOS|HEX_QUOT` makes both a
+`</script>` break and a JS-string break impossible — so no XSS, and no open redirect (form action
+and Reset are both `route('customer.grid')`).
+
 ### Found while opening the customer family, NOT absorbed into these repairs
 
 | # | finding |

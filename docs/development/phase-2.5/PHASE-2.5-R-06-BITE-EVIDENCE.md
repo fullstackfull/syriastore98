@@ -75,3 +75,34 @@ AFTER THE FIX
   CustomerListFilterApplyTest          13 passed (23 assertions)  <- UNCHANGED FILE. This is the
       proof the extraction preserved behaviour: it was written against the old inline filter and
       is green against the shared one without a single edit.
+
+F2 BITE — the regression the tenant-authz review of this change caught, and its own four bites
+==============================================================================================
+The first draft typed CustomerListFilter::apply()'s three values as `?string`. The review
+pointed out that `$request->query('field_name')` returns an ARRAY for `?field_name[]=Name`,
+and array is not coercible to string in weak or strict mode.
+
+MEASURED directly, before writing any test:
+  take(["Name"]) against a ?string parameter  ->  TypeError: "must be of type ?string, array given"
+  (string) ["x"]                              ->  warning "Array to string conversion", value "Array"
+
+Laravel's HandleExceptions::handleError promotes that warning to an ErrorException, so both
+shapes were HTTP 500 -- reachable by any authenticated principal holding `Manage Customer`,
+and on the fragment by the operator too.
+
+STRICTLY WORSE THAN WHAT IT REPLACED, which is why it is a regression and not an inherited
+fault: before this slice `customer_grid_view()` read no parameters at all and answered 200,
+and the two inline copies compared the array against string literals, matched no branch, and
+degraded to an unfiltered list.
+
+Bite, with the guard removed and the ?string signature restored:
+  an array valued field name applies no filter rather than crashing    FAILED
+  an array valued text field applies no filter rather than crashing    FAILED
+  an array valued operator applies no filter rather than crashing      FAILED
+  the fragment survives an array valued parameter                      FAILED
+  -> 4 failed (4 assertions)
+
+With the guard in place: 62 passed (210 assertions) across all three customer-filter files.
+
+The XSS middleware is not a defence here and was checked rather than assumed: it uses
+`array_walk_recursive` and `$request->merge()`, both of which preserve array shape.

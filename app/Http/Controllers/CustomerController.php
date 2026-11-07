@@ -497,10 +497,22 @@ public function destroy(Customer $customer)
          * case conferred no new capability. It is still a live gap, so it is closed here.
          *
          * `Manage Customer`, NOT A NEW PERMISSION NAME. Both siblings that render this data
-         * already require exactly that -- `index()` and `customer_grid_view()` -- and this
-         * fragment is requested over ajax from `customer/grid.blade.php:265`, a page the refused
-         * principal cannot open. So anyone who can legitimately reach this endpoint already holds
-         * the permission and the gate locks nobody out.
+         * already require exactly that -- `index()` and `customer_grid_view()`.
+         *
+         * THE SENTENCE THAT USED TO FOLLOW IS NOW FALSE AND IS CORRECTED RATHER THAN LEFT. It said
+         * "this fragment is requested over ajax from `customer/grid.blade.php:265`, a page the
+         * refused principal cannot open". **P2.5-R-07 DELETED THAT AJAX CALL.** Measured on the
+         * current tree, `customer.filter.data` appears only in this route's declaration
+         * (`routes/web.php:1193`), in comments, and in three test files -- no view, no script and
+         * no module calls it. The grid was its last caller. Raised by the tenant-authz review of
+         * that change, which correctly noted that a gate justified by a caller that no longer
+         * exists is a gate the next reader may think is unnecessary.
+         *
+         * THE GATE ABOVE STILL HOLDS AND IS DELIBERATELY KEPT. This endpoint still renders the
+         * whole store's customer roster -- names, EMAIL, registration date, last active, order
+         * count and total spend -- so the permission is what stands between that roster and any
+         * authenticated `web` principal. Retaining or retiring the route is a separate decision
+         * with its own risk; it is recorded in the ledger, not folded into this slice.
          *
          * OPERATOR FIRST, which the two siblings omit. Laratrust has no super-admin bypass and the
          * platform operator holds no merchant role, so a bare `isAbleTo()` refuses the one
