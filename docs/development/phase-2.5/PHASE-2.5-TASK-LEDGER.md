@@ -397,6 +397,41 @@ candidate set and call two aggregate methods per row, which is N+1 by constructi
 customers that is 1 + 200 queries. Replacing it with SQL aggregates would change **how the figures
 are computed**, which is the thing D-40 reserves, so it stays an open item.
 
+### The gates for R-06, R-07 and PKG-E, measured on the final tree
+
+Run with the worktree **clean** (`git status --short` → 0 lines) and nothing touched under it, which
+is stated because two earlier runs in this session were **stopped rather than reported**: one would
+have described a tree the review fixes then changed, and in the other I edited the guard for a bite
+while the suite was running — this branch's documented known risk #1. A number from an invalidated
+run is not evidence.
+
+| suite | result |
+|---|---|
+| Unit | **1429 passed** (11274 assertions) |
+| Contract | **27 passed** (92 assertions) |
+| Feature | **8160 passed, 2 failed, 1 skipped** (42625 assertions) |
+| known-outcome gate | **OK** — *"the observed outcome set matches the manifest exactly: 2 declared failures, 1 declared skip, 0 errors, and nothing undeclared"* |
+| the five customer test files together | **81 passed** (292 assertions) |
+
+**The Feature suite is not green and is not meant to be.** The two failures are declared by name in
+`.github/known-test-outcomes.json`.
+
+**68 tests added, and the arithmetic closes exactly:**
+
+| file | tests |
+|---|---:|
+| `CustomerNumericFilterOperatorsTest` | 27 |
+| `CustomerGridFilterTest` | 22 |
+| `CustomerCreateFormTest` | 14 |
+| `ArchivedCustomerAttributionTest` | 5 |
+| **total** | **68** |
+
+Testcases observed went from the handoff's **8095** (8092 + 2 + 1) to **8163** (8160 + 2 + 1) — a
+delta of exactly 68. So every new test runs, every one passes, and none of them introduced an
+undeclared failure or a new skip, which the gate asserts in both directions.
+
+---
+
 ### P2.5-PKG-E — the customer write path (`D-40` repairs + the premium pass)
 
 Opened after R-06/R-07 as the next **area-based** package rather than another wave. Three repairs,
