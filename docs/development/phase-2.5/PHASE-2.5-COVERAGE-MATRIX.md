@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 30 | 10.2% |
+| REDESIGNED AND VERIFIED | 32 | 10.8% |
 | BLOCKED | 9 | 3.1% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 231 | 78.3% |
+| PENDING | 229 | 77.6% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -36,7 +36,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | Phase 2.5 Wave A | 30 | 0 | 0 | 0 | 0 | 30 |
 | Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 0 | 1 | 0 | 25 |
 | Flutter merchant/employee admin app | 24 | 0 | 0 | 3 | 0 | 21 |
-| Customers and customer management | 20 | 0 | 9 | 0 | 0 | 11 |
+| Customers and customer management | 20 | 0 | 11 | 0 | 0 | 9 |
 | ORDERS | 17 | 0 | 3 | 3 | 0 | 11 |
 | PRODUCTS | 16 | 1 | 2 | 1 | 0 | 12 |
 | Merchant admin NAVIGATION SHELL | 13 | 4 | 7 | 0 | 0 | 2 |
@@ -290,12 +290,12 @@ actually been done to it since. They are different questions and the matrix keep
 | surface | route / kind | audit | state | evidence or reason |
 |---|---|---|---|---|
 | Customer list | ``GET customer (customer.index)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WAVE-1; four captures under evidence/wave-1/ |
-| Customer grid (card view) | ``GET customer-grid (customer.grid)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Customer grid (card view) | ``GET customer-grid (customer.grid)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-R-07; four captures under evidence/r06-customer-filter/ |
 | Customer row actions | ``partial/component (rendered into the DataTable 'action' colum` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Customer status toggle | ``partial/component (DataTable 'status' column) + POST customer` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Customer filter result fragment | ``GET customer-filter-data (customer.filter.data)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Customer filter field metadata | ``GET customer-filter (customer.filter)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Create customer | ``GET customer/create (customer.create) + POST customer (custom` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Create customer | ``GET customer/create (customer.create) + POST customer (custom` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-PKG-E; four captures under evidence/pkg-e-customer-write/ |
 | Customer orders (reached by the cart icon) | ``GET customer/{id} (customer.show)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-13; four captures under evidence/wave-13/ |
 | Customer activity timeline | ``GET customer-timeline/{id} (customer.timeline)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-16 + 16c; four captures under evidence/wave-16c/ |
 | Archive customer | ``DELETE customer/{customer} (customer.destroy)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |

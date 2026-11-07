@@ -359,7 +359,238 @@ reserves. Wave D's first slice is to put the question, with these numbers, rathe
 | **P2.5-R-04** | Six shared Flutter buttons declare `title` and `iconData` optional and then force-unwrap them — a caller taking the signature at its word gets *"Null check operator used on a null value"* at build time. | 9 tests reproduced it; repaired backward-compatibly (every existing call site passes both); the 48dp tap target from D-01 asserted to survive the icon-less branch |
 | **P2.5-R-05** | The order board's **Move** button never moved anything. Three faults, all of them the board talking to the existing writer in the wrong words: the select was named `order_status` while the handler reads `$request->delivered`; the value `picked_up` against a writer testing `pickedup`; and a `response()->json()` on every path, which strands a plain form POST on raw JSON. | measured in a browser first — **200, raw JSON, board unchanged**; after: **302**, back on the board, **Pending 1 → 0, Confirmed 1 → 2**. 10 tests, **3 bites**. **No state-transition semantics changed** — `Order::order_status_change()`, its vocabulary, its cancel guard and its money handling are untouched, which is the carve-out the owner put on this one. |
 
+| **P2.5-R-06** | The three numeric customer filters returned **wrong answers**, and each fault existed **twice** — once in `CustomerDataTable::query()` and again, byte-for-byte, in `CustomerController::CustomFilterData()`. (1) AOV `'Equal'` was `&& $AOV = $text_field_float` — a single `=`, an **assignment**, truthy for every non-zero input, so *"AOV Equal 150"* matched every customer with any computable average. (2) `No. of Orders` and `Total Spend` each had **two** branches keyed on `'Less Than'`, the second testing `>`, so *"Less Than 3"* matched `<3` **or** `>3` — everything except the exact matches. (3) Neither had a `'More Than'` branch **at all**, though the screen offers the operator, so it answered with an **empty screen**. (4) Found while biting the first three: every branch was guarded by `!empty($text_field)` and **`empty("0")` is TRUE in PHP**, so a threshold of zero was discarded and *no filter ran* — *"Total Spend Equal 0"* and *"No. of Orders Equal 0"* each returned **the entire customer list**. | all four reproduced against the unmodified code **before** any fix: 14 failed / 7 passed, each failure mapped to its own fault in `PHASE-2.5-R-06-BITE-EVIDENCE.md`. 27 tests after. The seven that passed are the operators that already worked (`AOV Less Than`/`More Than`, `Orders Equal`, `Spend Equal`) — asserted so the repair could not trade one wrong answer for another. **`CustomerListFilterApplyTest` is green, unedited**, which is the proof the extraction preserved behaviour. Positive controls on every cross-tenant assertion. **One of my own test bugs was caught by the bite step and is recorded**: `listNames()` omitted `actingAs()`, so `getCurrentStore()` returned null and the predicate became `store_id IS NULL` — 19 failures for the wrong reason, while the premise test still passed because it asserts through `withoutGlobalScopes()`. |
+| **P2.5-R-07** | The customer **grid's** filter had never worked **by any path**. Three independent faults: (1) `CustomerController::customer_grid_view()` read **none** of the three filter parameters — it was `->paginate(12)` and nothing else, so there was no server-side path to reach; (2) the Apply handler wrote its answer into `#service-filter-data`, which **no element in the view carries** — the only two occurrences in the file are the two JS writes themselves, and jQuery's `.html()` on an empty set is a silent no-op; (3) even with the container added it could not have worked, because the endpoint renders the **list's `<tr>` fragment** and table rows written into a `div` are discarded by the parser. Also fixed here: an **undefined `$activityLogEntry`** in an `@if`, which has never thrown only because `\|\|` short-circuits on an always-true left operand. | repaired with the list's already-approved **P2.5-R-02** GET-form pattern **plus the server half it never had**, calling the same `CustomerListFilter::apply()` the list calls — so the two screens cannot disagree about what an operator means, which they did in three places. 18 tests, **13 bites**. `withQueryString()` so page 2 of a filtered grid stays filtered, asserted. A test asserts the list and the grid return **identical** sets for all nine numeric field/operator pairs. **Corrects two recorded inventory findings**: `customer-list-apply-filter-dead` is *refuted as written* for the grid (the ids DO match there and a request really fires — one per click, measured), and `customer-filter-target-missing` is *confirmed* with the re-measured detail. |
+
 **Both reviews found more than they confirmed**, which is the point of running them.
+### What P2.5-R-06 and R-07 changed about the shape of the code, and what they deliberately did not
+
+The filter now lives in one place, `app/Support/Customers/CustomerListFilter.php`, and three call
+sites pass it an **already tenant-scoped** Builder: the list's DataTable, the grid, and the AJAX
+fragment. The extraction **is** the repair rather than housekeeping — fault 3 survived P2.5-R-02
+precisely because a reader who fixed one copy had not fixed the screen, and the controller's copy
+had drifted further still: its three numeric branches **discarded** the query they were handed and
+rebuilt it from scratch through variables named `$queryyy`, `$queryss` and `$queryes`.
+
+**Four things were preserved on purpose, each because changing it is reserved to the owner.**
+
+1. **The money arithmetic is copied, not improved.** `total_spend()` and `Ordercount()` are called
+   exactly as before and the AOV expression keeps its `number_format(..., 2)` then strip-commas
+   round trip verbatim. D-40 forbids changing financial calculations to repair a filter.
+2. **A customer with no orders is still skipped by every AOV operator** — an average over zero
+   orders is undefined, not zero. That is a semantic choice with money in it, so it is pinned by a
+   test rather than silently altered.
+3. **Both request-key spellings still work.** The list sends `field_name`, the grid sends
+   `customer_field`; both are live in bookmarks and shipped markup, so each caller reads its own
+   key. D-40 asks for backward-compatible repairs.
+4. **No route was removed.** `customer.filter.data` and `customer/filter.blade.php` now have **no
+   caller** — the grid was the last one. That is **recorded, not deleted**: `CustomFilterData` is a
+   guarded endpoint and removing routes is a separate, riskier change. Its own tests still drive it.
+
+**One behaviour change is named rather than folded in:** `Total Spend` cast its threshold with
+`(int)`, so *"Total Spend Equal 300.50"* silently answered *"Equal 300"*. A spend is money and its
+threshold is now read as money. `No. of Orders` keeps `(int)` because an order count genuinely is a
+whole number. No stored or computed amount changes — only how a typed threshold is read.
+
+**And one cost is recorded rather than optimised.** The numeric operators still materialise the
+candidate set and call two aggregate methods per row, which is N+1 by construction: for 100
+customers that is 1 + 200 queries. Replacing it with SQL aggregates would change **how the figures
+are computed**, which is the thing D-40 reserves, so it stays an open item.
+
+### CI HAS NOT RUN ON THIS BRANCH, and that is a consequence of the open branch decision
+
+Measured, not assumed. `.github/workflows/ci.yml` declares:
+
+```yaml
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+```
+
+`claude/gracious-volta-duiynj` is neither `main` nor the head of any pull request, so **`ci.yml`
+has not executed on a single commit of this work**. Confirmed by listing workflow runs for the
+branch: 8 runs, every one of them `security-attestation-push.yml`, and **all green**. Zero runs of
+`ci.yml`.
+
+So the `Tests (REQUIRED)` jobs, `Static checks`, `Secret scan`, the `Merge-base regression gate`
+and `Dependency advisories` have **not** verified these commits. The gate results recorded below
+were executed **locally in this container** — they are real runs with real output, and they cover
+the same suites CI runs, but they are not CI.
+
+**This is why the branch decision in the Arabic report §9(أ) is not administrative.** PR #130
+points at `claude/busy-edison-k0pjwa`; until the owner says whether this work should be pushed
+there, or opened as its own pull request, it has no CI coverage at all. Nothing is claimed about
+these commits passing CI, because CI has not seen them.
+
+**SUPERSEDED, 2026-11-07.** The owner decided the branch question: a **draft** pull request from
+`claude/gracious-volta-duiynj` into `claude/busy-edison-k0pjwa`. That is PR #132, and opening it put
+this branch under `on: pull_request`, so **`ci.yml` now runs on every commit here.** The paragraph
+above is kept because it records a real state and the reason the decision mattered; it is no longer
+the current state. CI verdicts per HEAD are recorded in §4.15 below, with the exact SHA each time,
+and local runs are still labelled as local.
+
+---
+
+### The gates for R-06, R-07 and PKG-E, measured on the final tree
+
+Run with the worktree **clean** (`git status --short` → 0 lines) and nothing touched under it, which
+is stated because two earlier runs in this session were **stopped rather than reported**: one would
+have described a tree the review fixes then changed, and in the other I edited the guard for a bite
+while the suite was running — this branch's documented known risk #1. A number from an invalidated
+run is not evidence.
+
+| suite | result |
+|---|---|
+| Unit | **1429 passed** (11274 assertions) |
+| Contract | **27 passed** (92 assertions) |
+| Feature | **8160 passed, 2 failed, 1 skipped** (42625 assertions) |
+| known-outcome gate | **OK** — *"the observed outcome set matches the manifest exactly: 2 declared failures, 1 declared skip, 0 errors, and nothing undeclared"* |
+| the five customer test files together | **81 passed** (292 assertions) |
+
+**The Feature suite is not green and is not meant to be.** The two failures are declared by name in
+`.github/known-test-outcomes.json`.
+
+**68 tests added, and the arithmetic closes exactly:**
+
+| file | tests |
+|---|---:|
+| `CustomerNumericFilterOperatorsTest` | 27 |
+| `CustomerGridFilterTest` | 22 |
+| `CustomerCreateFormTest` | 14 |
+| `ArchivedCustomerAttributionTest` | 5 |
+| **total** | **68** |
+
+Testcases observed went from the handoff's **8095** (8092 + 2 + 1) to **8163** (8160 + 2 + 1) — a
+delta of exactly 68. So every new test runs, every one passes, and none of them introduced an
+undeclared failure or a new skip, which the gate asserts in both directions.
+
+---
+
+### P2.5-PKG-E — the customer write path (`D-40` repairs + the premium pass)
+
+Opened after R-06/R-07 as the next **area-based** package rather than another wave. Three repairs,
+five form corrections, and **one question escalated instead of answered**.
+
+| slice | what it was | evidence |
+|---|---|---|
+| **E-1** | **Archive, then add that person again — a dead end in two clicks.** `destroy()` is `$customer->delete()` and `Customer` uses `SoftDeletes`, so archiving sets `deleted_at`. `store()` validated `unique:customers,email`, and Laravel's rule queries the table with **no `deleted_at` predicate**, so it counted the archived row: the address was reserved for ever and the form answered *"The email has already been taken"* for someone the merchant can no longer see anywhere. **And there is no way back** — no restore route, no archived view, no `withTrashed()` in the controller. | `Rule::unique(…)->whereNull('deleted_at')`. **A live duplicate in the same store is still refused**, asserted by its own test, because removing the rule instead of narrowing it is the obvious wrong fix. |
+| **E-2** | **The raw exception message was printed on the merchant's screen** — `'Error: ' . $e->getMessage()`. A database exception carries SQL, table and column names and sometimes values, and `'Error: '` was untranslated. | A translated generic sentence; the exception class (newly added), message, file and line are still logged. |
+| **E-3** | **Validation was reported twice, the second time in English only.** `validate()` throws and Laravel's handler already redirects back with errors and input; the handler **caught** that and redid it, adding an untranslated `'Validation failed: …'` listing every message on top of the per-field ones. | The catch is gone and **`validate()` moved outside the `try`**. The first attempt left it inside, and because **`ValidationException` extends `Exception`** the generic catch swallowed it and discarded every field error — caught by four of my own tests, not by reading. |
+| **E-4** | **The form asked for three different kinds of thing in one flat grid**, with the password sitting between a phone number and a status dropdown as though it were the same kind of fact. | Three `<fieldset>` groups: identity, contact, account access. |
+| **E-5** | Five measured corrections: **`dir="ltr"`** on e-mail and mobile (a Latin address reorders *as it is typed* in the RTL interface; the grid already guards its e-mail this way, the form a merchant types it into did not) · **`autocomplete`** on all five text fields, `new-password` among them, without which a manager offers the **merchant's own** credential for the customer being created · **`minlength="8"`** with a bound `x-ss.field-help`, because the server's `min:8` was discoverable only by being refused · a real **`<button type="submit">`**, since `Form::submit()` cannot contain an icon · and **five Arabic HTML comments** that were shipped to every browser on every render. | 13 tests / 49 assertions, from a bite of **6 failed / 6 passed**. `render-matrix.cjs` 4 rows 0 not clean, before and after. |
+
+**TWO DEFECTS OF MY OWN, measured out before the evidence was accepted, and recorded because each
+is a failure mode this phase keeps hitting.**
+
+1. **My three new `<legend>` headings were invisible in dark mode.** They carried the host's
+   `.form-label` and `census-low-contrast-text.cjs` measured **1.1:1** — `rgb(41,50,64)` on
+   `rgb(41,42,51)`, three failing nodes. The host's class is not theme-aware on a `<legend>`.
+   Replaced with `.ss-label` plus a new `.ss-form-legend` taking its colour from `--ss-fg`;
+   **re-measured 0 failing nodes in both themes.** The new rule also sets `float: none` and an
+   explicit width, because a bare `<legend>` is laid out by the browser's legend algorithm rather
+   than as a block and half-overlaps the fieldset's border edge in a Bootstrap grid.
+2. **My submit button was outside the form.** The first draft opened `Form::open()` inside
+   `.card-body` and put the button in `.card-footer`, so the `<form>` opened inside one `<div>` and
+   closed after another had already closed. A test asserting the button EXISTS passes against that,
+   **and so does a regex test that matches the form** — a regex reads source order and the button
+   is textually between the tags. Only a **DOM-parsing** assertion sees it: parsed, the button was
+   **not a descendant of the form**, so pressing it submitted nothing. The test now walks ancestors
+   in the parsed tree and **bites** — restoring the mis-nested markup fails it.
+
+**ESCALATED, THEN ANSWERED BY THE OWNER, THEN IMPLEMENTED — see P2.5-PKG-F below.** At the time of
+PKG-E, `unique:customers,email` was still **global**, so a merchant could not create a customer
+whose **live** address belonged to another store — while the storefront's own registration is
+per-store (`CustomerLoginController:104`), so that state is one the product already produces, and
+the admin form was the only place that refused it. It was also a cross-tenant existence oracle.
+Scoping uniqueness per store is a business-policy decision, so it went to the owner and the
+behaviour stayed **pinned by a test** whose own message said it was what should be rewritten when
+the decision landed. **The owner decided it on 2026-11-07** and the test has been rewritten.
+
+Seven keys added to `ar.json` and `en.json`, because `ArabicUiCoverageTest` failed the moment the
+six new English strings landed — the bilingual ratchet working as designed.
+
+Matrix: **'Create customer'** PENDING → REDESIGNED AND VERIFIED. PENDING 230 → **229**, verified
+55 → **56** of 295.
+
+---
+
+### The tenant-authz review of P2.5-PKG-E — eight findings, one of them a consequence of the repair
+
+**Verdict: the authorization and tenancy content is clean.** No new cross-tenant read or write, no
+request-derived tenant predicate, no credential boundary weakened. `->whereNull('deleted_at')`
+widens exactly the set it names. It also confirmed `getEmailForPasswordReset()` still returns
+`'customer:' . $this->getKey()` rather than an address, so the duplicate-address password-reset
+takeover this codebase fixed earlier cannot return through this change.
+
+| # | finding | disposition |
+|---|---|---|
+| **F2** | **A consequence the repair enables, and the sharpest finding of the eight.** `ModuleStorefrontInputGuard::sameShopperInStore()` (`:168`) resolves a shopper with a **raw** `DB::table('customers')` query — so no `SoftDeletingScope` — and `orderBy('id')` ascending takes the **oldest** row. The archived twin is always older. So with a trashed row and a live row sharing one address in one store — the state E-1 newly permits — a storefront review or comment is attributed to the **soft-deleted** customer rather than the live one. Its own docblock claims it matches `Utility::CustomerAuthCheck()`, which uses **Eloquent** (`Utility.php:1079`) where the scope does apply; that divergence is the whole defect. Same store, so a wrong answer rather than a breach. | **FIXED** with `->whereNull('deleted_at')`, which also makes the code match its own stated contract. **5 tests, 3 bites** in its own file `tests/Feature/Security/ArchivedCustomerAttributionTest.php`. Three drive the private resolver through reflection; **one drives the REAL MODULE ROUTE end to end** — `EnablesWorkdoModules` enables SpamPrevent through the production loader (`PackageServiceProvider::loadAddons`) and runs its migrations, a shopper signed in at store B posts on store A's `{storeSlug}/spamprevent`, and the stored `product_comments.customer_id` is read back. That matters because CLAUDE.md records the suite is **structurally blind to module routes** — no module loads unless an `add_on_managers` row is inserted — so a route test without the trait would have passed without reaching the code. **The premises are assertions, not skips**: the route's registration and the table's existence are asserted, so an unmet premise is loud. The posted `customer_id` deliberately points at the ARCHIVED row, so the test also fails loudly if the guard ever stops overwriting it. On revert, 3 fail with *"the comment was attributed to store A's ARCHIVED customer rather than the live one"*; the premise and the ordinary single-live-customer case pass either way, as they should. **The path is narrower than the review stated and that is recorded:** `shopperComment()` only calls the resolver when the signed-in customer's store DIFFERS from the slug store, so it needs a shopper signed in at one store posting on another — a journey the platform deliberately supports, because customer e-mail uniqueness is per `(email, store_id)` and the guard's own comment explains at length why it resolves that case rather than refusing it. That comment is also **independent corroboration** that per-store is the intended semantic, which strengthens the F4 escalation. |
+| **F4** | **My recorded reason for escalating was wrong, even though the decision was right.** I wrote that the same `unique` rule is protective on the API register endpoint. It is a **different rule in a different file** (`Api/AuthController.php:76`), and the create-only property there comes from **control flow** — `$user = new Customer()` at `:142` with the adoption branch inside `if ($request->register_type != 'email')` at `:144` — not from the rule's scope. A per-store rule there would still be create-only. And **five** other writers of `customers.email` already scope per store. | **FIXED** — the recorded reason is replaced with the true one: a global rule is a platform-wide existence oracle, the five other writers are per-store, and which way to converge is the owner's. The decision itself is unchanged. This repository has been bitten before by a stale justification at the site a later reader consults. |
+| **F5** | **A claim of mine about test coverage that was false.** The view said the `aria-describedby` pairing is "the association `ContextualFieldHelpTest` enforces in both directions". That test covers five **product** fields and loads only the product create/edit screens; nothing asserted the four new customer pairs. | **FIXED** both ways — the overclaim is gone and `CustomerCreateFormTest` now asserts all four customer pairs in both directions. |
+| **F1** | **REFUTED, and measured rather than argued.** It reported `Form::open()` still inside `.card-body` with a div balance off by one, and judged my DOM test green for a libxml2-specific reason that would not transfer to a browser. Measured on the current tree: `Form::open()` is at `create.blade.php:67`, **before** `<div class="card">` at `:68`; the rendered source between `<form>` and `</form>` has **19 `<div>` and 19 `</div>`, balance 0**; and a real Chromium reports `closest('form') === the form` and `button.form === the form` for the Create Customer button, with all six controls owned by that form. The libxml2 claim is refuted by my own bite run, which **failed** on the mis-nested markup. The reviewer had read the pre-restructure tree — it warned about exactly that on the previous review. **One thing it did surface:** `document.querySelector('button[type="submit"]')` on this page finds the header's **store-switcher** button first, not the form's, which is what made my first ad-hoc probe report a false negative. |
+| F3 | **Web ↔ Flutter parity, newly divergent on a second axis.** `CustomerController::store()` refuses another store's live address and allows an archived one; `Api\DashboardController::addCustomer()` (`:6283`, `:8611`) does the opposite — per-store, archived-sensitive. The cross-store axis pre-dates this; **the archived axis is new.** | recorded, and folded into the owner escalation, since CLAUDE.md §2 principle 2 is Flutter parity. |
+| F6 | **Pre-existing, in the edited handler.** `getCurrentStore()` returns a literal `1` for a `super admin` with an empty `current_store`, so the platform operator submitting this form creates a customer — with a password the operator chose and `email_verified_at = now()` — in **store 1**, i.e. whichever merchant owns it. The `empty($store)` guard cannot see it because `1` is not empty. Same property as open item **#84**. | recorded. No test drives the operator through `store()`; that belongs with the #84 decision, not here. |
+| F7 | **Pre-existing, and worth its own issue.** `XSS.php:53-59` runs `str_replace(['&lt;','&gt;','javascript','alert'], '', $value)` over every `web` input **before validation and before the insert**, so `alerts@company.com` is stored as `s@company.com` — a silent corruption of the identifier every recovery flow keys on. Affects every `web` form. | recorded. |
+| F8 | **Pre-existing nit:** four spellings of the operator check in one file. `store()` normalises with `strtolower(trim(...))` while `destroy()`, `show()` and `customerStatus()` compare against `UserPolicy::PLATFORM_ADMIN`, and the policy uses `rtrim($type, ' ')` only. Not exploitable — no reachable path writes `users.type` from request input. | recorded as hardening: route all four through `UserPolicy::isOperator()`, which P1-SEC-11 criterion 3 already asks for. |
+
+It also verified clean, which is a result worth recording: the seven lang keys are present once each in both files with no duplicates and `"Contact"` correctly not re-added; `ValidationFeedbackVisibilityTest`'s expectation of six `@error` blocks still holds; the error-summary anchors still resolve; `store_id` comes from `getCurrentStore()` and never from the request; the uniqueness check reads the real table and so is immune to both the model cache and the global scopes, **which is why `whereNull('deleted_at')` had to be spelled out**; and every test in the new file fails on revert except the ones explicitly labelled premise, pin or positive control.
+
+**One adjacent pre-existing item it raised, out of scope:** in `Api\DashboardController::addCustomer` the uniqueness predicate is built from `$request->query('store_id')` while `resolveOwnedStore()` is called **after** `validate()` — so an admin-API caller can probe whether an address is a customer in a store they do not own, and get the answer *before* the 403. Worth an issue.
+
+---
+
+### The tenant-authz review of P2.5-R-06/R-07, which found a regression *in the fix*
+
+**Verdict: no tenancy or authorization hole.** The three tenant predicates are unchanged and still
+server-derived, and the reviewer rejected the shortcut of taking that on reading alone.
+
+**It verified the mechanism I had only reasoned about.** `applyNumeric()` materialises the candidate
+set with `$query->get()` and then appends `whereIn('id', $matched)` to *the same builder*. Why that
+is safe is not obvious and depends on a detail of this codebase: `Customer` is `Cachable`, and
+`laravel-model-caching`'s `makeCacheKey()` calls `applyScopesToInstance()`, which applies every
+global scope **directly to the live builder** and sets `scopesAreApplied = true`. So the inner
+`get()` *bakes* `store_id IN (admissible)` and `deleted_at IS NULL` into `$query` itself, and the
+final execution does not re-apply them — **both executions provably see the same predicate set**.
+It also confirmed Laravel compiles an empty `whereIn` to `0 = 1`, so an empty candidate set means
+zero rows rather than no predicate. A side effect in the safe direction: after the inner `get()` the
+tenant predicate is inline rather than scope-supplied, so even a later `withoutGlobalScope()` could
+not remove it.
+
+**And it found one regression this slice introduced, which is now fixed with four bites of its own.**
+
+| # | finding | disposition |
+|---|---|---|
+| **F2** | `apply()` typed its three values `?string`. `$request->query('field_name')` returns an **array** for `?field_name[]=Name`, and array is not coercible to string in either mode — so `GET /customer-grid?field_name[]=Name` was a **TypeError, HTTP 500**, reachable by any `Manage Customer` holder; an array in `text_field` hit the `(string)` casts and raised *"Array to string conversion"*, which Laravel promotes to an ErrorException. **Strictly worse than what it replaced**: the old grid read no parameters and answered 200, and the old inline copies compared the array against string literals and degraded to an unfiltered list. | **FIXED.** The parameters are `mixed` and a non-scalar means "no filter", restoring the old degradation. Measured first (`take(["Name"])` → TypeError; `(string) ["x"]` → `"Array"`), then **4 tests, 4 bites**. The XSS middleware was checked rather than assumed — `array_walk_recursive` + `$request->merge()` preserve array shape, so it is not a defence here. |
+| **F1** | My docblock said "THE **ONE** input-parsing correction". Fault 4 makes it two. | **FIXED** — both listed. A docblock that undercounts its own behaviour changes is how the next reader restores one of them. |
+| **F3** | I wrote that the N+1 cost is "unchanged, including its cost". True of the **list**, false of the **grid**: that method was `->paginate(12)` and now, under a numeric filter, hydrates every customer in the store and pays ~3 `orders` queries per row before paginating twelve. | **FIXED** in the docblock and recorded against the grid here. Not optimised: SQL aggregates would change *how the figures are computed*, which D-40 reserves. Second-order, at scale only: `whereIn` past ~65k ids exceeds PDO's placeholder limit. |
+| **F4** | `CustomFilterData()`'s gate rationale cited a caller at `grid.blade.php:265` — **the AJAX this slice deleted**. The gate still holds; the justification had gone false, and a gate justified by a caller that no longer exists is one the next reader may think unnecessary. | **FIXED** — the comment now records that the grid was the last caller and why the gate is kept anyway (the endpoint still renders the whole roster including e-mail). |
+| **F5** | `test_the_three_control_names_...` **could not fail on revert** — all three names predate the repair, and my own bite run showed it passing against the original. Separately, `assertNotSame(200, ...)` would have reported a 500 as a successful permission check. | **FIXED** — the first now asserts the controls sit **inside** `#frm_submit`, which is the actual claim; the second is `assertStatus(302)` plus `assertSessionHas('error')`. |
+| F6 | **Latent, pre-existing, unchanged.** `getCurrentStore()` returns `null` for a web user with an empty `current_store` who created no store; `where('store_id', null)` compiles to `store_id IS NULL`, and `StoreScope` returns `MODE_UNRESOLVED` → `null_tenant => 'open'` → **no scope predicate**. The result would be every orphaned customer row on the platform. The line is byte-identical before and after this diff; whether such rows exist is unproven. | recorded. Hardening, not a hole here. |
+| F7 | **Pre-existing wrong answers, deliberately preserved.** `Excludes` is `NOT LIKE name OR NOT LIKE email` where it should be `AND`, so a customer whose e-mail matches but whose name does not is still returned. `whereDate('last_active', '<', $value)` with a non-date string yields no rows on MySQL but compares strings on SQLite and can return **everything** — which also makes a SQLite test of that branch unreliable. `XSS.php` strips `javascript`/`alert`/`&lt;`/`&gt;` from the merchant's own search term before the handler sees it. | recorded, not fixed: each changes results for an operator that works today, and none is in task #88's named scope. |
+
+The reviewer also **agreed with the decision not to give the grid an operator limb**: it would extend
+`getCurrentStore()`'s literal-`1` default to a second paginated screen for a principal with no store
+context, which is a widening rather than a fix. And it noted the control of record for all three
+sites is `users.current_store` integrity, not the scope — `StoreScope::admissibleStoreIds()`
+*includes* `current_store` in the admissible set by design, so whoever can write that column
+re-tenants all three screens and the scope will not catch it.
+
+Two things it verified clean: **no duplicate route declaration** shadows either path (`web.php:1193`
+and `:1207` are the only ones, both in `['auth','xss','setlocate','verified']`), and the grid's
+replay uses Blade's `@json`, whose `JSON_HEX_TAG|HEX_AMP|HEX_APOS|HEX_QUOT` makes both a
+`</script>` break and a JS-string break impossible — so no XSS, and no open redirect (form action
+and Reset are both `route('customer.grid')`).
+
+### Found while opening the customer family, NOT absorbed into these repairs
+
+| # | finding |
+|---|---|
+| F-R06-1 | `index()` and `customer_grid_view()` have **no operator limb** — they check `isAbleTo('Manage Customer')` alone, while `CustomFilterData()` correctly tests `UserPolicy::isOperator()` first. Laratrust has no super-admin bypass, so the platform operator is refused by two of the three siblings. **Not widened here**: `getCurrentStore()` (`app/Helper/helper.php:774-775`) returns a **literal `1`** for a `super admin` with an empty `current_store`, so giving these two an operator path would serve store 1's customers to an operator who selected no store. That is the same property as open item **#84** and it needs the tenancy answer first, not an authorization patch. |
+| F-R06-2 | `href="#!"` — an anchor that goes nowhere — appears in **10+ first-party views**. The grid's Reset was one of them and is fixed here; the rest are a separate sweep. Found because a page-wide absence assertion failed on somebody else's markup, which is also why that assertion was narrowed to the control it is about. |
+| F-R06-3 | **The PayHere blocker no longer applies to the committed lock.** `composer.lock` holds 237 packages (198 + 39 dev) and **contains no `lahirulhr/laravel-payhere`**; a strict `composer install` from it completed on this container with 237 of 237 installed and the autoloader generated. CI's `tests-degraded` job exists solely to tolerate that package, and its header says the strict install "cannot currently succeed ON ANY MACHINE". That is no longer true. **Nothing in CI is changed here** — removing a required job is an owner decision — but the job's stated reason to exist should be re-checked. The two install failures seen on this container were a proxy-truncated zip and one corrupted source clone, both transient and neither PayHere. |
+
+
 
 The R-01/R-02 review caught **R-03**, and caught four tests sitting under a banner claiming they
 were end-to-end when they called the query builder directly and would have passed against the
@@ -1614,3 +1845,336 @@ A guard was added to the generator while doing this: a `VERIFIED` key matching n
 a **silent no-op** — the entry looks like a promotion and no count moves. 17 entries were checked by
 hand, which is exactly the check that should not be by hand, and a screen renamed in the inventory
 would otherwise quietly un-verify itself. It now refuses and names the orphan; proved by mutation.
+
+---
+
+## 4.15 P2.5-PKG-F — the approved customer e-mail uniqueness policy, and the engine it has to live on [2026-11-07]
+
+**Owner decision of 2026-11-07, approved in principle, with conditions.** The policy in the owner's
+own three clauses: the same e-mail **may** exist in different stores; two **active** customers with
+the same e-mail in **one** store must **not** be allowed; **archived** customers **may** re-register
+safely. Together one rule: **`(email, store_id)` unique over LIVE rows only.**
+
+The owner's conditions, and the state of each **before** a line of the policy was written:
+
+| condition | state |
+|---|---|
+| *"after completing the tenant-authorization review"* | **done, three rounds.** Round 3 found three faults in my own work — an overclaim I withdrew, a premise that could not detect its own condition, and a change with no possible failing-test coverage, now said plainly in its docblock rather than implied |
+| *"confirming that the payment and storefront lookups are properly store-scoped"* | **done.** `PaymentController:2070` (guest checkout — a cross-tenant **write**, not just a wrong read) and `HomeController:1218` each carry `->where('store_id', …)`. `UnscopedCustomerEmailLookupTest`, 6 tests |
+| *"Database migration is NOT yet authorized"* | **honoured. No migration file exists in this change** |
+| *"Do not conceal the concurrent-insert race"* | **honoured, and it is in the suite, not only in a document** — it is the failure message of `CustomerEmailUniquenessPolicyTest::test_premise_the_database_has_no_unique_index_on_customer_email`, which really can fail. **An earlier version of this row named `test_the_policy_is_validation_only_and_therefore_racy`, a test THIS SAME COMMIT DELETED for being an assertion that cannot fail — so the row certified an owner condition by citing something that no longer existed. Caught by the adversarial review of this change.** |
+
+### What changed in the code: three lines, in three handlers, on purpose
+
+§1 of the proposal showed the three merchant write paths disagreeing on **both** axes of one
+operation, so repairing only the web form would have left the shipped Flutter app answering the
+opposite way — against CLAUDE.md's second standing principle:
+
+| path | before | after |
+|---|---|---|
+| `POST /customer` — `CustomerController::store()` | global, archived-aware | `->where('store_id', $store)->whereNull('deleted_at')` |
+| `POST api/admin/AddCustomer` | per-store, archived-**insensitive** | `+ ->whereNull('deleted_at')` |
+| `POST api/admin/update-customer` | per-store, archived-**insensitive** | `+ ->whereNull('deleted_at')` |
+
+`$store` is `getCurrentStore()`, derived from the authenticated principal and refused when empty —
+**not** request input, which is the pattern that has produced four separate defects here. On both
+API paths the ownership resolution now happens **above** `validate()`, and `$storeId` is taken from
+the resolved `$store->id` rather than from the query string.
+
+**ONE OF THOSE TWO WAS NOT TRUE WHEN I FIRST WROTE IT, and the review caught it.** I claimed both
+handlers already reassigned `$storeId = $store->id`. `updateCustomerInfo()` always did (`:9156`);
+`addCustomer()` **did not** — the caller's raw `$request->query('store_id')` ran straight through to
+the uniqueness rule, to `Customer::create(['store_id' => $storeId])` and to the `DeliveryAddress`
+create after it. It was **not exploitable** (`resolveOwnedStore()` matched `Store::where('id',
+$storeId)`, so the value identifies the checked store, and `required|integer|exists:stores,id`
+rejects the shapes that could make the two queries disagree), but the claim was still false, so the
+line it described has now been added for real and says in its own comment that it is hardening with
+no possible bite test.
+
+**Evidence: `tests/Feature/Security/CustomerEmailUniquenessPolicyTest.php` — 15 tests, 36
+assertions.** Written first and measured failing: **4 failed, 11 passed**. Then **each of the three
+edits was reverted individually** and re-measured, which is stronger than one revert because it also
+proves no test passes on the back of a different edit:
+
+| edit reverted | tests that fail |
+|---|---|
+| web form per-store predicate | `an address live in another merchants store may now be created here`, `…agree about ANOTHER STORES LIVE address` |
+| `addCustomer()` live-rows-only | `an archived address may be reused on the api`, `…agree about an ARCHIVED address` |
+| `updateCustomerInfo()` live-rows-only | `an update onto an address only an archived row holds is allowed` |
+
+**Re-measured after the review's fixes, not carried forward** — and the result changed, which is the
+point of re-running it. The review found that the single parity test covered only the ARCHIVED axis
+(the pre-change web rule was global but already live-only, so it accepted an archived address too)
+and therefore passed whether or not the per-store predicate existed. With the second parity case
+added, reverting the web form's predicate now fails **two** tests instead of one.
+
+All three restored: **15 passed**. `CustomerCreateFormTest`'s pinning test was rewritten into its
+inverse, exactly as its own failure message instructed.
+
+### THE OWNER WAS RIGHT THAT THE DATABASE CAN ENFORCE THIS — and then I was wrong a second time
+
+My first proposal said database-level enforcement was impossible because MySQL has no partial-index
+syntax. The owner's instruction — *"Do not claim enforcement is impossible merely because MySQL
+lacks native partial-index syntax"* — was correct: a `UNIQUE` index permits any number of `NULL`
+indexed values, so an expression that is `NULL` for archived rows **is**
+`UNIQUE (email, store_id) WHERE deleted_at IS NULL`. Verified on MySQL 8.0.46: 17 checks, 0 failed,
+**two** routes working.
+
+**Then I obtained the engine, and my own recommendation was wrong.** The committed dump
+`storesyria_ecommercego.sql` records its own producer: `-- Serverversie: 11.4.9-MariaDB`.
+**Production is MariaDB 11.4.9, not MySQL** — so **Route B, the functional unique index I had
+recommended, does not exist on it at any version.** MariaDB 11.4.9 was installed from
+`archive.mariadb.org` and the script re-run against it: **22 checks, 0 failed**, transcript at
+`docs/development/phase-2.5/evidence/pkg-e-customer-write/mariadb-11.4.9-email-uniqueness.txt`.
+
+Four things that run found which the MySQL run could not:
+
+1. **`COALESCE(store_id, 0)` is required.** Production's `store_id` is
+   `bigint(20) UNSIGNED DEFAULT NULL` and **`CONCAT()` of a `NULL` is `NULL`**, which a unique index
+   exempts — so every NULL-store row would escape the constraint silently. Measured side by side:
+   with the naive expression **two live rows with `store_id NULL` and one address were BOTH
+   accepted**; with `COALESCE` the second is refused, and a `NULL` store is still a different tenant
+   from store 1.
+2. **The script's own version gate was a real flaw.** It compared version numbers, and MariaDB 11.4
+   is numerically above MySQL 8.0.13, so it called Route B "supported" on an engine that cannot do
+   it. It now detects the **vendor**.
+3. **The NULL exemption holds at index-BUILD time, not just on insert** — asked because production
+   holds 37 archived customers and a build-time collision would be refused for a reason no
+   pre-flight query could find. Three archived rows sharing an address did **not** block the ALTER.
+4. **The single-statement ALTER mis-names the colliding value** when archived rows are present:
+   `Duplicate entry 'NULL'`, which is not the collision. The two-statement form names the real
+   address. **So the migration is two statements**, purely so a refusal on production points an
+   operator at the right rows.
+
+**Migration impact, measured:** `ALGORITHM=INSTANT`, `NOCOPY` and `INPLACE` are **all refused** —
+`COPY` is forced, so a full rebuild holding a write lock on `customers`. 62 rows today, so
+milliseconds; the figure is in the plan because it scales. `down()` destroys nothing, because the
+column it drops is **generated**.
+
+**The duplicate-data assessment, from the dump and not from production** — streamed, every address
+hashed immediately, counts only, **no verbose mode by design**: 25 live customers, 37 archived,
+**0 duplicate groups of any kind**, **0 case-insensitive duplicate groups** (the index folds case
+and accents under `utf8mb4_unicode_ci`), **0 addresses live in more than one store**, **0 live rows
+with a NULL `store_id`**. So the application change **alters no existing row's status** — it only
+changes what is accepted next — and the migration would currently succeed with nothing to resolve
+first. A dump is a point in time; the query must be re-run against production immediately before any
+schema change, which needs its own authorisation.
+
+### Three paths deliberately NOT changed, each a storefront authentication path
+
+| path | state | why |
+|---|---|---|
+| `Api\AuthController:76` — global `unique:customers,email` | live on the routed, **public** `POST api/{slug}/register` (`routes/api.php:82`) | the one reachable surface still contradicting clause 1. Changing it changes who may create a login credential, and the owner's instruction in the same message is *"No silent payment behavior or authentication policy changes."* Needs its own decision |
+| `Customer\Auth\CustomerLoginController` registration existence check | soft-delete-blind: an archived shopper is told to log in, and cannot | pinned by `StorefrontArchivedCustomerDeadEndTest`. Same reason |
+| `AccountProfileController:127`, `:183` | per-store but archived-insensitive — **stricter** than the policy | fails safe. Loosening it lets a live shopper take an archived account's address; a restore would then produce the state clause 2 forbids. **No restore route for `Customer` exists anywhere in `app/`** (verified, not assumed), so this is latent, not live |
+
+### A correction to my own earlier commit message
+
+`Api\DashboardController::store()` (~line 6257) is a **second copy** of `addCustomer()` carrying the
+same ownership-after-validation ordering that was the e-mail oracle. **It is unrouted** — 115
+`DashboardController` routes, none mapping to `store` — so it is a trap for whoever routes it, not a
+live hole. My commit for that fix said the oracle was "fixed"; that was true of `addCustomer()` and
+silent about this copy. Recorded in `P25-SECURITY-FINDINGS-2026-11-07.md` §5.1.
+
+### TWO UNDECLARED FAILURES WERE CAUGHT BEFORE THE PUSH, AND THEY WERE MINE
+
+The local Feature run reported **4 failures against a manifest declaring 2**, and the known-outcome
+gate failed — correctly, in both directions, exactly as designed.
+
+**Both new failures were line-number drift caused by `da3f9ee4`**, which added 27 lines to
+`PaymentController.php` above a set of documentation anchors:
+
+| guard | what drifted |
+|---|---|
+| `PaymeraPostCommitClaimTest::test_the_cited_anchors_still_name_what_they_claim` | four anchors cited in a docblock: `DB::beginTransaction()` :3671→:3698, `DB::commit()` :3846→:3873, `$owner->email` :3902→:3929, `OrderCompleteBinding::remember()` :3991→:4018 |
+| `SecurityLogInventoryTest::test_the_observability_inventory_matches_the_source` | ten `PaymentController` rows in `P01-OBSERVABILITY-INVENTORY.md`, each off by the same +27 |
+
+**RE-MEASURED, NOT ADDED TO THE MANIFEST.** The manifest's own README forbids that use of it, and
+these were stale pointers, not accepted failures — the guards were working.
+
+**The Paymera edit is NUMBERS ONLY.** That docblock sits at `:1163`, **above** the anchors it
+cites, so adding or removing a single line would move them again. Its own prose already records that
+happening three times — *"Measure after editing the comment, not before"* — and this was the fourth.
+
+**A PREVIOUS VERSION OF THIS PARAGRAPH SAID "the script asserts the line count is unchanged". NO
+SUCH ASSERTION EXISTS IN THIS REPOSITORY.** The check ran in a throwaway patch script that was never
+committed, so the sentence described something a reader could not find — the exact class of claim
+this ledger exists to prevent. Caught by the adversarial review of this change. What IS in the
+repository is `PaymeraPostCommitClaimTest::test_the_cited_anchors_still_name_what_they_claim`, which
+re-reads all four cited lines on every run and is what actually caught the drift.
+
+**Thirteen** inventory rows were re-measured, not ten — the earlier figure in this paragraph was
+wrong and is corrected rather than quietly edited, because a count nobody re-ran is how this file
+has carried stale prose before. They were re-measured from the source rather than shifted by 27:
+four messages are shared with a sibling site, so those rows were paired against the source
+occurrences **in file order** rather than by text, which a blind `+27` would have got right by luck
+and a text match would have refused as ambiguous.
+
+**This is the concrete vindication of holding the two commits back for CI.** The owner's instruction
+was to let the run on `4bccf721` finish first; pushed unverified, `da3f9ee4` and `929c7d5a` would
+have turned the fresh run red on two guards that were behaving correctly, and the red would have
+looked like a regression in the policy change rather than a stale comment.
+
+### Gates, and the CI verdict per SHA
+
+**Local, in this container** — the FEATURE SUITE AND THE KNOWN-OUTCOME GATE, run twice. The first
+run is the one that matters, because it **failed**: 4 failures against a manifest declaring 2, both
+new ones line-number drift from `da3f9ee4` (the section above). After re-measuring the anchors, the
+second run:
+
+```
+Tests:    2 failed, 1 skipped, 8213 passed (42751 assertions)   -- 1106.34s
+testcases observed : 8216   failures observed : 2 (manifest declares 2)
+errors observed    : 0      skips observed    : 1 (manifest declares 1)
+OK: the observed outcome set matches the manifest exactly -- nothing undeclared.
+```
+
+The two declared failures are `Auth\RegistrationTest::test_new_users_can_register` and
+`ProfileTest::test_profile_page_is_displayed`, both pre-existing, both owned by `app/`, neither
+touched by this change. As the gate says of itself, that is **not** a statement that the suite is
+green — only that it fails and skips exactly what the project has recorded, for the recorded reasons.
+
+Also local — Unit **1450 passed** (11302 assertions); Contract **27 passed** (92);
+the customer and security subset together **141 passed** (448 assertions) across exactly these
+fourteen files:
+
+```
+tests/Feature/Security/CustomerEmailUniquenessPolicyTest.php
+tests/Feature/Security/AdminApiCustomerCreatePermissionTest.php
+tests/Feature/Security/AddCustomerEmailDisclosureTest.php
+tests/Feature/Security/OperatorCustomerStoreSelectionTest.php
+tests/Feature/Security/ArchivedCustomerAttributionTest.php
+tests/Feature/Security/StorefrontArchivedCustomerDeadEndTest.php
+tests/Feature/Security/UnscopedCustomerEmailLookupTest.php
+tests/Feature/Security/SameEmailAcrossStoresRecoveryTest.php
+tests/Feature/Security/XssInputCorruptsIdentifiersTest.php
+tests/Feature/Security/SecurityLogInventoryTest.php
+tests/Feature/Merchant/CustomerCreateFormTest.php
+tests/Feature/Merchant/CustomerGridFilterTest.php
+tests/Feature/Merchant/CustomerNumericFilterOperatorsTest.php
+tests/Feature/Commerce/PaymeraPostCommitClaimTest.php
+```
+
+**THE FILE SET IS LISTED BECAUSE TWO DIFFERENT FIGURES FOR "THE SUBSET" APPEARED IN THIS CHANGE —
+135/407 here and 161/502 in a progress report — and neither named what it measured.** They are not
+a contradiction in measurement; they are two different sets of files wearing one label, which is
+worse, because a reader cannot tell which. The figure above is re-measured on the final tree against
+the list beside it, and **these are LOCAL runs, not CI.**
+
+**OFFICIAL CI ON `80230394`, all ten checks complete — the run that judged the flaky-test repair:**
+
+| check | conclusion |
+|---|---|
+| `Tests (REQUIRED -- clean install from composer.lock)` | **success** |
+| `Tests (REQUIRED -- PayHere excluded and NOT fixed)` | **success** |
+| **`Merge-base regression gate (new failures only)`** | **success** — it FAILED on `3e82e8f2` and passes here |
+| `Static checks`, `Secret scan`, `PayHere report`, `push report` | success |
+| `Dependency advisories (composer audit)` | **failure** — pre-existing, not suppressed |
+| `Security-sensitive diff: human checklist` | **failure** — awaiting the owner's own review |
+
+**THAT GREEN IS NOT THE EVIDENCE FOR THE FLAKY-TEST REPAIR, and saying so matters.** The gate was
+green on 369 runs in 370 before the repair too — that is what a 1-in-370 coincidence means. The
+evidence is that the CAUSE was identified and measured (the only three occurrences of `999` in the
+page were the fixture's own `uniqid()`-derived store name) and that the collision probability fell
+from roughly 1 in 370 to 1 in 1.5 million. A run that passes proves nothing on its own; a cause that
+is named and removed does.
+
+**OFFICIAL CI ON `94373393` — the previous HEAD. All ten checks complete:**
+
+| check | conclusion |
+|---|---|
+| `Tests (REQUIRED -- real suites, clean install from composer.lock)` | **success** |
+| `Tests (REQUIRED -- real suites, PayHere excluded and NOT fixed)` | **success** |
+| `Merge-base regression gate (new failures only)` | **success** |
+| `Static checks (no vendor needed)` | success |
+| `Secret scan` | success |
+| `Is the PayHere blocker still there? (report)` | success |
+| `Security-sensitive diff: push report (non-blocking)` | success |
+| `Security-sensitive diff: human approval` | success — **and this does NOT mean anyone approved** |
+| `Dependency advisories (composer audit)` | **failure** — pre-existing; the owner's instruction is not to raise the ceiling or suppress findings, so it stays red |
+| `Security-sensitive diff: human checklist` | **failure** — **correct behaviour** |
+
+**TWO OF THOSE MUST NOT BE MISREAD.**
+
+`human checklist` fails because `.github/scripts/flag-sensitive-diff.sh` reads the **pull request
+body** for the line `SECURITY-DIFF-REVIEW: completed`, matched as a **whole line** (`grep -qxF`)
+after fenced blocks are stripped and whitespace trimmed — so backticks around it, a `>` blockquote,
+or the phrase inside prose all deliberately FAIL. PR #132's body does not carry it and **this agent
+must not put it there**: the owner's instruction is *"You must NOT create, impersonate, sign or
+automatically insert the security review acknowledgement."* The checklist is
+`.github/SECURITY-DIFF-REVIEW.md`.
+
+`human approval` is green for a procedural reason, stated in the workflow's own comment: *"IT IS NOT
+ENFORCING YET. Default mode is `report`, because enforcing today would produce a gate that CANNOT BE
+SATISFIED rather than a strict one: the automation and the owner are the same GitHub login in this
+repository, and GitHub refuses to let an author approve their own pull request."* **It is not an
+approval.** `docs/security/HUMAN-REVIEW-GATE.md` is how to separate the two identities.
+
+**The earlier run, for the record:**
+
+**OFFICIAL CI, run 42359814501 on HEAD `4bccf7215fe6ca32444f7b5ed6261223d7d5aa48`, complete:**
+
+| job | conclusion |
+|---|---|
+| `Tests (REQUIRED -- real suites, clean install from composer.lock)` | **success** — Unit, Contract and Feature all BLOCKING steps passed, and the known-outcome SET gate passed |
+| `Tests (REQUIRED -- real suites, PayHere excluded and NOT fixed)` | **success** |
+| `Merge-base regression gate (new failures only)` | **success** — Feature run at HEAD and at the merge base, failing identities compared |
+| `Static checks (no vendor needed)` | success (17 steps) |
+| `Secret scan` | success |
+| `Is the PayHere blocker still there? (report)` | success |
+| `Dependency advisories (composer audit)` | **failure** — pre-existing, and the owner's instruction is *"Do not raise the audit ceiling or suppress security findings"*, so it stays red |
+
+The two local commits were **held back until that run finished**, per the owner's instruction
+*"Finish the current GitHub CI run before pushing the two local commits"* — `ci.yml` has
+`concurrency: ci-${{ github.ref }}` with `cancel-in-progress: true`, measured from the workflow
+file, so a push would have cancelled it.
+
+---
+
+## 4.16 P2.5-WAVE-6 (first slice) — three store tables join the design system [2026-11-07]
+
+**The work-list said four tables; it is three, and that was established before anything was
+edited** — `PHASE-2.5-WAVE-6-REANCHOR.md`. Row #7, `customer/view.blade.php:47`, claims that table
+is outside Wave 1's scope; line 45 already reads
+`<div class="card-body table-border-style ss-dt-card-body">`. The audit snapshot predates the commit
+that wrapped it.
+
+| table | before | reached from |
+|---|---|---|
+| `store/view-storelinks.blade.php:1` | `.table-responsive.ecom-data-table` — **no `.card-body` at all** | the Store-links modal, **two entry points**: `store/index:93-99` and `store/action:31-37` |
+| `store/custom_domain.blade.php:36` | `.card-body table-border-style` | `store.customdomain` |
+| `store/subdomain.blade.php:36` | `.card-body table-border-style` | `store.subdomain`, reached from the one above by a button |
+
+Wave 1's 51 rules are scoped `.ss-dt-card-body ...`, emitted only by
+`components/datatable.blade.php:37` (the shared `<x-datatable>`, 66 tables) and
+`reports/stock_report.blade.php`. A hand-rolled table got **none** of it: no 13px semibold header,
+no row rule, no hover, no pinned action column, no `--ss-dt-card-bg` dark-mode hook, no tabular
+money.
+
+**AND THE ARABIC CASE ASYMMETRY CLOSES AS A SIDE EFFECT**, which is why this is worth more than
+three class attributes. `public/assets/css/style.css:27493-27498` sets
+`.table thead th { text-transform: uppercase }` and **`style-rtl.css` carries it identically** — so
+an Arabic merchant gets a transform that does nothing for a script with no case. The design system's
+undo is scoped to the same class, so it only ever reached wrapped tables. **The vendored sheet is
+not edited.**
+
+**The undo's citation in the work-list was wrong, and the way it hid is the lesson.** It cites
+`store-syria-ds.css:4747-4748`; that is a dropzone dark-mode rule. A text search for
+`text-transform: none` in that file returns lines 1428, 1437 and 1449 — **all three inside a comment
+block** documenting a rule P2.5-WAVE-6 deleted, exactly the trap the work-list's own preamble warns
+about. Blanking comments while preserving line structure leaves **five** live `text-transform`
+declarations, and the one that matters is at **`:5251-5252`**. The test asserts it against the live
+CSS, not the file.
+
+**Evidence: `StoreTablesInDesignSystemTest`, 7 tests, 22 assertions, and each wrapper reverted
+individually — every one fails 2 tests.** Three premises run first: the design system still scopes
+its table rules to that class; the undo is **live CSS and not commentary**; and the vendored
+uppercase is still present in **both** sheets (if it ever stops being, the reason for this slice has
+changed and that should be noticed rather than inherited).
+
+**One assertion is a DOM parse, not a grep**, because this project has already shipped a wrapper
+that read correctly to a text search and was not an ancestor in the parsed tree — a submit button
+textually inside a form that pressed nothing. The test walks the parsed ancestors of the `<table>`.
+
+Matrix: three surfaces move. WAVE-6 findings: **25 → 22** after the re-anchoring, **→ 19** after
+this slice.

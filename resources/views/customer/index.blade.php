@@ -205,9 +205,6 @@
                                 inputElement.attr('type', inputType);
                                 $('#text-field').append(inputElement);
 
-                                // Set the values of the hidden input fields
-                                $('#select-value').val(selectBox.val());
-                                $('#text-value').val(inputElement.val());
                             } else {
                                 $('.text-field').addClass('d-none');
                             }

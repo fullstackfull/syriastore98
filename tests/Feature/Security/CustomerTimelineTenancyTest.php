@@ -98,7 +98,47 @@ class CustomerTimelineTenancyTest extends SecurityTestCase
         $foreignRef = 'FOREIGN-REF-' . uniqid();
 
         $this->logOrderFor($customer->id, $storeA->id, $ownRef, 11.00);
-        $this->logOrderFor($customer->id, $storeB->id, $foreignRef, 999.00);
+
+        /*
+         * THE FOREIGN PRICE IS 987654.32 AND NOT 999.00, AND THE REASON IS A REAL CI FAILURE.
+         *
+         * This test asserted `assertDontSee('999', false)` -- three digits, matched as a substring
+         * against the WHOLE RENDERED PAGE. On 2026-11-07 the merge-base regression gate reported it
+         * as a new failure on a branch that had not touched the timeline at all, while the same
+         * commit passed it in two other CI jobs and passed it locally.
+         *
+         * THE PAGE CONTAINED `999` FOR A REASON THAT HAS NOTHING TO DO WITH THE OTHER STORE'S
+         * ORDER. `makeTenant()` names its store with `uniqid()`, which is hexadecimal, and that run
+         * drew `Store 1-6aef11ffb999f`. The name is printed three times in the merchant shell --
+         * the workspace label and two header copies -- so the assertion matched the FIXTURE'S OWN
+         * STORE NAME. Measured from the CI log: the only three occurrences of `999` in the 63,650
+         * characters of that page were all the store name.
+         *
+         * A 13-character hex string contains `999` about once in every 370 runs. So the test was
+         * not wrong about tenancy; it was an assertion that could fail for a reason unrelated to
+         * what it tests, which is the defect class this project keeps a record of. A price whose
+         * decimal form is six digits long cannot collide with a hex id or a base62 CSRF token by
+         * accident -- roughly one run in 1.5 million rather than one in 370.
+         *
+         * THE ASSERTION IS NOT WEAKENED, and the bite was RE-MEASURED rather than assumed --
+         * which turned out to matter, because the first attempt to demonstrate it FAILED and the
+         * reason is worth keeping.
+         *
+         * `customerTimeline()` builds TWO queries from `$timelineStoreId`:
+         *
+         *   :570  $activityLog = ActivityLog::where('store_id', ...)->groupBy('customer_id')->first()
+         *   :577  $logs        = ActivityLog::where('store_id', ...)->get()
+         *
+         * Removing the predicate from `:570` leaves this test GREEN. Removing it from `:577` turns
+         * it RED on exactly the two assertions below. So the view iterates `$logs`, and `:577` is
+         * the line this test actually guards.
+         *
+         * **`:570` THEREFORE HAS NO BITE COVERAGE HERE**, and that is stated rather than implied:
+         * a reader who deletes its predicate gets a green suite. It is a `first()` used for a
+         * summary rather than the list, so the consequence is narrower -- but "narrower" is not
+         * "none", and nothing in this file would notice.
+         */
+        $this->logOrderFor($customer->id, $storeB->id, $foreignRef, 987654.32);
 
         $response = $this->actingAs($merchantA)->get('/customer-timeline/' . $customer->id);
 
@@ -106,7 +146,7 @@ class CustomerTimelineTenancyTest extends SecurityTestCase
 
         // The other store's order reference and its PRICE must both be absent.
         $response->assertDontSee($foreignRef, false);
-        $response->assertDontSee('999', false);
+        $response->assertDontSee('987654', false);
 
         // POSITIVE CONTROL: a fix that listed nothing would satisfy both assertions above, and
         // the first draft of this test did exactly that -- see logOrderFor()'s docblock.

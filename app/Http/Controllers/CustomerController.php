@@ -10,6 +10,7 @@ use App\Models\Store;
 use App\Models\Order;
 use App\Models\OrderBillingDetail;
 use App\DataTables\CustomerDataTable;
+use App\Support\Customers\CustomerListFilter;
 
 class CustomerController extends Controller
 {
@@ -52,22 +53,140 @@ public function store(Request $request)
         return redirect()->back()->with('error', __('Permission denied.'));
     }
 
+    /*
+     * ISSUE #84. THE OPERATOR MUST HAVE NAMED A STORE, and the guard below cannot ask that.
+     *
+     * `getCurrentStore()` returns the integer literal `1` for a `super admin` whose
+     * `current_store` is empty -- `app/Helper/helper.php:774-775`, "Default store for super
+     * admin". `empty(1)` is FALSE, so the `empty($store)` check immediately below passes and the
+     * handler proceeds. The operator then creates a customer in WHOEVER OWNS STORE 1, with a
+     * password the operator chose and `email_verified_at` already set (see the create call below)
+     * -- an account that can sign in to that merchant's storefront at once. The merchant is not
+     * told, and the response never names the store.
+     *
+     * This is not an escalation: the operator may legitimately act in any store. The defect is
+     * that NO STORE WAS CHOSEN, and a silent default is the wrong answer to "which merchant did
+     * you mean" when the answer decides who owns a new credential.
+     *
+     * NARROW ON PURPOSE -- the fix is here, not in the helper. That literal serves a large number
+     * of call sites and changing it is a platform-wide behaviour change needing its own decision
+     * and its own evidence. This handler asks the smaller question (may I CREATE an account in a
+     * store the caller has not named) and answers it locally.
+     *
+     * THE MERCHANT PATH IS UNTOUCHED, and that is asserted: a merchant's `current_store` is set,
+     * so the helper's first branch returns it and this limb is never reached. A merchant who has
+     * no `current_store` but owns a store still falls through to the helper's own
+     * `Store::where('created_by', ...)` lookup, exactly as before.
+     *
+     * `!empty()` matches the helper's own test, so all three spellings it treats as unset --
+     * null, 0 and '' -- are refused here rather than one of them slipping through to the literal.
+     */
+    if ($isOperator && empty($user->current_store)) {
+        return redirect()->back()->with('error', __('Select a store before adding a customer.'));
+    }
+
     $store = getCurrentStore();
 
     if (empty($store)) {
         return redirect()->back()->with('error', __('Permission denied.'));
     }
 
-    try {
-        $validated = $request->validate([
+    /*
+     * P2.5-PKG-E (E-3, corrected). VALIDATION RUNS **OUTSIDE** THE try, and that placement is the
+     * whole fix rather than a tidy-up.
+     *
+     * The first attempt simply deleted the `catch (ValidationException $e)` block and left
+     * `validate()` inside the try. **ValidationException EXTENDS Exception**, so the generic
+     * `catch (\Exception $e)` below swallowed it and replaced the per-field errors with the
+     * generic "could not be created" flash -- every field message gone, and the merchant told
+     * nothing about what was wrong. Caught by
+     * CustomerCreateFormTest::test_a_live_duplicate_in_the_same_store_is_still_refused and three
+     * siblings, which is why that test asserts the refusal rather than only the repair.
+     *
+     * Outside the try, a validation failure propagates to Laravel's own handler, which redirects
+     * back with the errors and the old input -- exactly what `<x-ss.error-summary>` and the
+     * `@error` blocks render. One report, in the merchant's own language.
+     */
+    $validated = $request->validate([
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
-            'email' => 'required|email|max:255|unique:customers,email',
+            /*
+             * P2.5-PKG-E (E-1). `whereNull('deleted_at')` -- AN ARCHIVED E-MAIL STOPS BEING
+             * RESERVED, and that closes a dead end a merchant reaches in two clicks.
+             *
+             * `destroy()` is `$customer->delete()` and `Customer` uses `SoftDeletes`, so archiving
+             * sets `deleted_at` and the merchant is told "Customer archived successfully."
+             * Laravel's `unique` rule queries the table with NO `deleted_at` predicate, so it
+             * counted the archived row: the address was reserved for ever and the create form
+             * answered "The email has already been taken" for a person the merchant can no longer
+             * see anywhere in their own interface.
+             *
+             * AND THERE IS NO WAY BACK. No restore route, no archived-customer view, and no
+             * `withTrashed()` anywhere in this controller -- so the merchant had archived someone,
+             * wanted them back, and the product offered neither re-create nor restore.
+             *
+             * A LIVE DUPLICATE IS STILL REFUSED. The rule is narrowed to archived rows, not
+             * removed, and a test asserts that half explicitly -- removing the rule rather than
+             * narrowing it is the obvious wrong fix here.
+             *
+             * AND IT IS NOW PER STORE. **OWNER DECISION, 2026-11-07**, approved in principle:
+             * the same e-mail MAY exist in different stores; two ACTIVE customers with the same
+             * e-mail in ONE store must NOT be allowed; ARCHIVED customers MAY re-register safely.
+             * That is one rule -- (email, store_id) unique over LIVE rows -- and the two
+             * predicates below are the whole of it.
+             *
+             * THE PREDICATE COMES FROM THE PRINCIPAL, NOT FROM INPUT. `$store` is
+             * `getCurrentStore()`, resolved above and refused when empty. A `store_id` in the
+             * request body is ignored, and a test asserts that, because a tenant predicate built
+             * from caller-supplied input is not a tenant check -- it has produced four separate
+             * defects in this codebase.
+             *
+             * WHAT THE OWNER'S CONDITIONS REQUIRED FIRST, both completed before this line changed:
+             * the tenant-authorization review (three rounds, which found three faults in my own
+             * fixes), and store-scoping the two first-party lookups that resolved a customer by
+             * e-mail with no store predicate -- `PaymentController` on guest checkout, where
+             * an anonymous storefront request resolves no tenant so StoreScope adds nothing, and
+             * `HomeController` on order status. **The predicates are at `PaymentController:2096`
+             * and `HomeController:1230`** -- `:2070` and `:1219` are the docblocks ABOVE them, and
+             * citing those as the predicate lines was wrong in three places in this change set.
+             * Asserted by `UnscopedCustomerEmailLookupTest`.
+             *
+             * THE TWO ADMIN-APP PATHS WERE CHANGED IN THE SAME SLICE, and that is the point rather
+             * than a side effect: `Api\DashboardController::addCustomer()` and
+             * `::updateCustomerInfo()` were per-store but archived-INSENSITIVE, so the web form
+             * and the shipped Flutter app gave OPPOSITE answers on both axes of one operation.
+             * CLAUDE.md's second standing principle is Flutter parity, and
+             * `CustomerEmailUniquenessPolicyTest` now asserts the two surfaces agree instead of
+             * assuming it.
+             *
+             * WHAT IS **NOT** CHANGED, because it is a storefront AUTHENTICATION path and the
+             * owner's instruction in the same message is "No silent payment behavior or
+             * authentication policy changes": `Api\AuthController:76`, whose global
+             * `unique:customers,email` is live on the routed public `POST api/{slug}/register`;
+             * the soft-delete-blind registration existence check in
+             * `Customer\Auth\CustomerLoginController`; and `AccountProfileController:127`/`:183`,
+             * which are per-store but archived-insensitive and therefore STRICTER than the policy,
+             * i.e. failing in the safe direction. Each is recorded in
+             * `docs/security/P25-CUSTOMER-EMAIL-UNIQUENESS-PROPOSAL.md` for the owner.
+             *
+             * NO DATABASE CONSTRAINT BACKS THIS. There is no unique index on `customers.email`
+             * anywhere, and the migration is NOT authorised, so this is check-then-act and two
+             * concurrent creates can both succeed. Measured, not glossed:
+             * `verify-customer-email-uniqueness-on-mysql.php` section D, on MariaDB 11.4.9 --
+             * production's own engine version.
+             */
+            'email' => [
+                'required', 'email', 'max:255',
+                \Illuminate\Validation\Rule::unique('customers', 'email')
+                    ->where('store_id', $store)
+                    ->whereNull('deleted_at'),
+            ],
             'mobile' => 'nullable|string|max:20',
             'password' => 'required|string|min:8',
-            'status' => 'required|in:0,1',
-        ]);
+        'status' => 'required|in:0,1',
+    ]);
 
+    try {
         $customer = Customer::create([
             'first_name' => $validated['first_name'],
             'last_name' => $validated['last_name'],
@@ -86,23 +205,40 @@ public function store(Request $request)
         return redirect()->route('customer.index')
             ->with('success', __('Customer created successfully.'));
 
-    } catch (\Illuminate\Validation\ValidationException $e) {
-        $errorMessages = $e->validator->errors()->all();
-        \Log::error('Validation Error:', $errorMessages);
-        
-        return redirect()->back()
-            ->withErrors($e->validator)
-            ->withInput($request->except(['password', 'password_confirmation']))
-            ->with('error', 'Validation failed: ' . implode(', ', $errorMessages));
-            
+    /*
+     * P2.5-PKG-E (E-3). THE ValidationException CATCH IS GONE, because it reported the same
+     * failure a second time and in English only.
+     *
+     * `$request->validate()` throws, and Laravel's own handler already redirects back with the
+     * errors and the old input -- which is what `<x-ss.error-summary>` and the `@error` blocks on
+     * the form render. The catch redid that redirect and added
+     * `->with('error', 'Validation failed: ' . implode(', ', $errorMessages))`: an untranslated
+     * English sentence listing every message, on top of the per-field messages. A merchant with
+     * one bad field was told twice, once in a language they may not read.
+     *
+     * Letting it propagate also keeps `withInput()` consistent with the rest of the application
+     * instead of this handler's own copy.
+     */
     } catch (\Exception $e) {
+        /*
+         * P2.5-PKG-E (E-2). THE RAW EXCEPTION MESSAGE IS NO LONGER PUT ON THE MERCHANT'S SCREEN.
+         *
+         * This was `->with('error', 'Error: ' . $e->getMessage())`. A database exception's message
+         * carries SQL, table and column names and sometimes values, so an internal detail reached
+         * a merchant-facing page -- and `'Error: '` was untranslated, so an Arabic merchant read an
+         * English prefix in front of it.
+         *
+         * NOTHING IS LOST FOR DIAGNOSIS: the full message, file and line are still logged, and the
+         * exception class is added, which the previous log line omitted.
+         */
         \Log::error('Customer Creation Error:', [
+            'exception' => get_class($e),
             'message' => $e->getMessage(),
             'file' => $e->getFile(),
             'line' => $e->getLine()
         ]);
         return redirect()->back()
-            ->with('error', 'Error: ' . $e->getMessage())
+            ->with('error', __('The customer could not be created. Please try again.'))
             ->withInput($request->except(['password', 'password_confirmation']));
     }
 }
@@ -496,10 +632,22 @@ public function destroy(Customer $customer)
          * case conferred no new capability. It is still a live gap, so it is closed here.
          *
          * `Manage Customer`, NOT A NEW PERMISSION NAME. Both siblings that render this data
-         * already require exactly that -- `index()` and `customer_grid_view()` -- and this
-         * fragment is requested over ajax from `customer/grid.blade.php:265`, a page the refused
-         * principal cannot open. So anyone who can legitimately reach this endpoint already holds
-         * the permission and the gate locks nobody out.
+         * already require exactly that -- `index()` and `customer_grid_view()`.
+         *
+         * THE SENTENCE THAT USED TO FOLLOW IS NOW FALSE AND IS CORRECTED RATHER THAN LEFT. It said
+         * "this fragment is requested over ajax from `customer/grid.blade.php:265`, a page the
+         * refused principal cannot open". **P2.5-R-07 DELETED THAT AJAX CALL.** Measured on the
+         * current tree, `customer.filter.data` appears only in this route's declaration
+         * (`routes/web.php:1193`), in comments, and in three test files -- no view, no script and
+         * no module calls it. The grid was its last caller. Raised by the tenant-authz review of
+         * that change, which correctly noted that a gate justified by a caller that no longer
+         * exists is a gate the next reader may think is unnecessary.
+         *
+         * THE GATE ABOVE STILL HOLDS AND IS DELIBERATELY KEPT. This endpoint still renders the
+         * whole store's customer roster -- names, EMAIL, registration date, last active, order
+         * count and total spend -- so the permission is what stands between that roster and any
+         * authenticated `web` principal. Retaining or retiring the route is a separate decision
+         * with its own risk; it is recorded in the ledger, not folded into this slice.
          *
          * OPERATOR FIRST, which the two siblings omit. Laratrust has no super-admin bypass and the
          * platform operator holds no merchant role, so a bare `isAbleTo()` refuses the one
@@ -540,111 +688,32 @@ public function destroy(Customer $customer)
          */
         $customerField = $requestData['customer_field'] ?? null;
 
-        if ($customerField === 'Name' || $customerField === 'Email') {
-            if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
-                // check for name and email filtering
-                if ($requestData['selected_name'] === 'Includes') {
-                    $query->where(function ($query) use ($requestData) {
-                        $query->where('first_name', 'like', '%' . $requestData['text_field'] . '%')
-                            ->orWhere('email', 'like', '%' . $requestData['text_field'] . '%');
-                    });
-                } elseif ($requestData['selected_name'] === 'Excludes') {
-                    $query->where(function ($query) use ($requestData) {
-                        $query->where(function ($query) use ($requestData) {
-                            $query->where('first_name', 'not like', '%' . $requestData['text_field'] . '%')
-                                ->orWhere('email', 'not like', '%' . $requestData['text_field'] . '%');
-                        });
-                    });
-                }
-            }
-        }
+        /*
+         * P2.5-R-06 -- THE SECOND COPY OF THE FILTER IS GONE, and that is the repair.
+         *
+         * WHAT WAS HERE: ~105 lines reimplementing CustomerDataTable::query()'s five filters, with
+         * all three numeric faults present identically -- the AOV `'Equal' && $AOV =
+         * $text_field_float` assignment, the duplicated `'Less Than'` branch testing `>`, and no
+         * `'More Than'` branch for `No. of Orders` or `Total Spend`.
+         *
+         * AND IT HAD DRIFTED FURTHER THAN THAT. The three numeric branches DISCARDED the $query
+         * built above and started again from a fresh `Customer::where('store_id',
+         * getCurrentStore())`, through throwaway variables named `$queryyy`, `$queryss` and
+         * `$queryes`. That was harmless only because `customer_field` is a single select, so a
+         * numeric field and a text field can never both be in force -- an invariant nothing
+         * asserted and the next filter option would have broken.
+         *
+         * The shared implementation narrows the query it is given and never rebuilds it, so that
+         * accident cannot recur. The tenant predicate on $query above is untouched and remains the
+         * only thing establishing tenancy here.
+         */
+        $query = CustomerListFilter::apply(
+            $query,
+            $customerField,
+            $requestData['selected_name'] ?? null,
+            $requestData['text_field'] ?? null
+        );
 
-        // Check for last active filtering
-        // P2.5-R-03 -- the same 'Last active' / 'Last Active' mismatch as
-        // CustomerDataTable::query():164, fixed the same way and for the same reason. Left
-        // half-fixed it would be a second copy of a defect that has already cost one round.
-        if (in_array($customerField, ['Last active', 'Last Active'], true)) {
-            if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
-                $dateValue = $requestData['text_field'];
-                if ($requestData['selected_name'] === 'Before') {
-                    $query->whereDate('last_active', '<', $dateValue);
-                } elseif ($requestData['selected_name'] === 'After') {
-                    $query->whereDate('last_active', '>', $dateValue);
-                } else {
-                    $query->whereDate('last_active', $dateValue);
-                }
-            }
-        }
-
-        // check for AOV filtering
-        if ($customerField == 'AOV') {
-            $queryyy = Customer::where('store_id', getCurrentStore());
-            if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
-                $filteredCustomers = [];
-                foreach ($queryyy->get() as $key => $value) {
-                    $AOV = 0;
-                    if ($value->total_spend() != 0 && $value->Ordercount() != 0) {
-                        $AOV = number_format($value->total_spend() / $value->Ordercount(), 2);
-
-                        // Check the condition and filter
-                        $text_field_float = (float) $requestData['text_field'];
-                        $AOV = (float) str_replace(',', '', $AOV);
-                        if ($requestData['selected_name'] === 'Less Than' && $AOV < $text_field_float) {
-                            $filteredCustomers[] = $value->id;
-                        } elseif ($requestData['selected_name'] === 'More Than' && $AOV > $text_field_float) {
-                            $filteredCustomers[] = $value->id;
-                        } elseif ($requestData['selected_name'] === 'Equal' && $AOV = $text_field_float) {
-                            $filteredCustomers[] = $value->id;
-                        }
-                    }
-                }
-                $query = $queryyy->whereIn('id', $filteredCustomers);
-            }
-        }
-
-        // check for number of orders filtering
-        if ($customerField == 'No. of Orders') {
-            $queryss = Customer::where('store_id', getCurrentStore());
-            if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
-                $filteredCustomers = [];
-
-                $orderCountValue = (int) $requestData['text_field'];
-                foreach ($queryss->get() as $key => $value) {
-                    $counter = $value->Ordercount();
-
-                    if ($requestData['selected_name'] === 'Less Than' && $counter < $orderCountValue) {
-                        $filteredCustomers[] = $value->id;
-                    } else if ($requestData['selected_name'] === 'Less Than' && $counter > $orderCountValue) {
-                        $filteredCustomers[] = $value->id;
-                    } else if ($requestData['selected_name'] === 'Equal' && $counter == $orderCountValue) {
-                        $filteredCustomers[] = $value->id;
-                    }
-                }
-                $query = $queryss->whereIn('id', $filteredCustomers);
-            }
-        }
-
-        // check for Total Spend filtering
-        if ($customerField == 'Total Spend') {
-            $queryes = Customer::where('store_id', getCurrentStore());
-            if (!empty($requestData['selected_name']) && !empty($requestData['text_field'])) {
-                $filteredCustomers = [];
-
-                $orderCountValue = (int) $requestData['text_field'];
-                foreach ($queryes->get() as $key => $value) {
-                    $counter = $value->total_spend();
-
-                    if ($requestData['selected_name'] === 'Less Than' && $counter < $orderCountValue) {
-                        $filteredCustomers[] = $value->id;
-                    } else if ($requestData['selected_name'] === 'Less Than' && $counter > $orderCountValue) {
-                        $filteredCustomers[] = $value->id;
-                    } else if ($requestData['selected_name'] === 'Equal' && $counter == $orderCountValue) {
-                        $filteredCustomers[] = $value->id;
-                    }
-                }
-                $query = $queryes->whereIn('id', $filteredCustomers);
-            }
-        }
         $customers = $query->get();
 
         $filter = view('customer.filter', compact('customers', 'activitylog'))->render();
@@ -652,10 +721,48 @@ public function destroy(Customer $customer)
         return response()->json($filter);
     }
 
+    /**
+     * P2.5-R-07 -- THE GRID'S FILTER NOW EXISTS SERVER-SIDE, which it never has.
+     *
+     * WHAT THIS METHOD WAS: a bare `Customer::where('store_id', ...)->paginate(12)` that read
+     * none of `field_name`, `selected_name` or `text_field`. The screen's Apply control DID fire a
+     * request -- measured -- but to `customer.filter.data`, whose answer is the LIST's `<tr>`
+     * fragment, written into a container id this view does not contain. So the grid's filter had
+     * never worked by any path: not through the browser, and not through the server either.
+     *
+     * ONE SEMANTICS FOR BOTH SCREENS. The filter is `CustomerListFilter::apply()`, the same call
+     * `CustomerDataTable::query()` makes, so "Less Than" cannot mean one thing on the list and
+     * another on the grid. Before P2.5-R-06 it meant three different wrong things.
+     *
+     * THE TENANT PREDICATE IS UNCHANGED and still comes from `getCurrentStore()`, never from the
+     * request. `CustomerListFilter` takes an already-scoped Builder, has no store parameter and
+     * reads no request, so it can only narrow what it is given.
+     *
+     * THE PERMISSION IS UNCHANGED -- `Manage Customer`, as before. This method is reachable
+     * exactly as it was; the change is what it does with the query string, not who may call it.
+     * (`index()` and this method both omit an operator limb, which `CustomFilterData()` carries.
+     * That asymmetry is recorded as an open finding rather than widened here: adding an operator
+     * path to a grid whose `getCurrentStore()` can resolve to a literal store 1 is a separate
+     * question with a tenancy answer, and it is the kind of change that belongs in its own
+     * reviewed slice.)
+     *
+     * `withQueryString()` IS THE OTHER HALF OF THE REPAIR. Without it, page 2 of a filtered grid
+     * drops the filter and silently shows the unfiltered remainder -- which looks like a working
+     * filter that lost its mind, and is the commonest way a GET filter half-ships.
+     */
     public function customer_grid_view(Request $request)
     {
         if(auth()->user() && auth()->user()->isAbleTo('Manage Customer')) {
-            $customers = Customer::where('store_id', getCurrentStore())->paginate(12);
+            $query = Customer::where('store_id', getCurrentStore());
+
+            $query = CustomerListFilter::apply(
+                $query,
+                $request->query('field_name'),
+                $request->query('selected_name'),
+                $request->query('text_field')
+            );
+
+            $customers = $query->paginate(12)->withQueryString();
             $customer_field = Customer::customer_field();
             return view('customer.grid', compact('customer_field','customers'));
         } else {

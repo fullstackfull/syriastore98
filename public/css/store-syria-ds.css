@@ -906,6 +906,29 @@
 }
 .ss-label__required { color: var(--ss-danger); margin-inline-start: 2px; }
 
+/* ---- P2.5-PKG-E: a fieldset legend, because a grouped form needs its groups named ----------
+   MEASURED FIRST. The customer create form's three group headings first carried the host's
+   `.form-label`, and census-low-contrast-text.cjs returned 1.1:1 in dark mode --
+   rgb(41,50,64) on rgb(41,42,51), three failing nodes. The host's class is not theme-aware on a
+   `<legend>`, and a `<legend>` also defaults to the browser's own sizing, which ignores the type
+   scale entirely.
+
+   `.ss-label` supplies the colour from `--ss-fg`; this adds only the size and weight a group
+   heading needs to sit above its fields without competing with the card title. `float: none` and
+   the explicit width are not decoration: a bare `<legend>` inside a `<fieldset>` is laid out by
+   the browser's legend algorithm rather than as a block, which in a Bootstrap grid puts it
+   half-overlapping the fieldset's border edge. */
+.ss-form-legend {
+    display: block;
+    float: none;
+    width: 100%;
+    padding: 0;
+    font-size: var(--ss-text-base);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg);
+    line-height: var(--ss-leading-tight);
+}
+
 /* Optional-marking is better than required-marking when most fields are
    required, but the host's forms mark required, so we match the host. */
 

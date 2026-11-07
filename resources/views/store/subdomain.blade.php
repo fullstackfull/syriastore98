@@ -33,7 +33,7 @@
     <div class="row">
         <div class="col-md-12">
             <div class="card">
-                <div class="card-body table-border-style">
+                <div class="card-body table-border-style ss-dt-card-body">
                     <div class="table-responsive">
                         <table class="table mb-0 dataTable">
                             <thead>

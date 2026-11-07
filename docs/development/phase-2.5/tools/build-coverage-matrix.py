@@ -125,6 +125,35 @@ VERIFIED = {
     'Users / staff list (card grid)': ('REDESIGNED AND VERIFIED', 'wave-33', '_users__', 'P2.5-WAVE-33'),
 
     'Category list':                ('PREMIUM VERIFIED', 'wave-33', '_category__', 'P2.5-WAVE-33'),
+
+    # P2.5-R-07. THE GRID'S FILTER TOOLBAR WAS REPLACED, so this is REDESIGNED rather than
+    # PREMIUM VERIFIED: the dead AJAX Apply (an <a> whose handler wrote into an element the view
+    # does not contain) became the list's already-approved GET-form pattern, and
+    # customer_grid_view() gained the server-side filter it never had.
+    #
+    # The CARDS themselves were redesigned earlier by P2.5-PKG-C and are not re-claimed here.
+    #
+    # DRIVEN, not just rendered: verify-customer-grid-filter-live.cjs applies four numeric filters
+    # in each of the four combinations and asserts the card count AND which customers remain by
+    # name -- a count alone would not distinguish the right two cards from the wrong two. The
+    # before/after pair is a real revert: the pre-fix files were checked out from 7ba0af90 and
+    # photographed, and in that state EVERY filter returned all three cards because the handler
+    # read no parameters.
+    'Customer grid (card view)':    ('REDESIGNED AND VERIFIED', 'r06-customer-filter', 'grid-unfiltered_', 'P2.5-R-07'),
+
+    # P2.5-PKG-E. The create form was regrouped into the three things it actually asks for
+    # (identity, contact, account access) and five measured corrections applied: dir="ltr" on the
+    # e-mail and mobile inputs (a Latin address reorders as it is typed in the Arabic interface),
+    # autocomplete tokens on all five text fields, the server's `min:8` stated on the control
+    # rather than discovered by being refused, a real <button type="submit"> in place of
+    # Form::submit(), and five Arabic HTML comments that were being shipped to every browser.
+    #
+    # TWO DEFECTS OF MY OWN WERE MEASURED OUT OF IT BEFORE THIS ENTRY WAS ADDED: the three new
+    # <legend> headings carried the host's `.form-label` and census-low-contrast-text.cjs returned
+    # 1.1:1 in dark mode (three failing nodes); and the first draft opened the form inside
+    # .card-body while the submit button sat in .card-footer, which a DOM-parsing test proved left
+    # the button OUTSIDE the form element. Both are fixed and both have their own assertion.
+    'Create customer':              ('REDESIGNED AND VERIFIED', 'pkg-e-customer-write', '_customer_create__', 'P2.5-PKG-E'),
     # 'Delivery boys' WAS HERE AND ITS EVIDENCE WAS FALSE. Removed 2026-11-06, so the surface
     # falls back to PENDING, which is the truth: it has never been rendered.
     # All four wave-33 captures (_deliveryboy__*) are screenshots of the DASHBOARD carrying a

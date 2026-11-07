@@ -1215,7 +1215,20 @@ class HomeController extends Controller
                 $order_detail = Order::order_detail($order->id);
             }
             if (!empty($order)) {
-                $customer = Customer::where('email', $order->email)->first();
+                /*
+                 * OWNER SAFEGUARD 1 (2026-11-07). `->where('store_id', $store->id)`.
+                 *
+                 * The ORDER lookup above is already correctly store-scoped (`:1203`); this customer
+                 * lookup was not, so with two live customers sharing an address across stores the
+                 * order-status page could show ANOTHER store's customer alongside this store's
+                 * order. Read-only -- the value is passed to the view -- which is why this is the
+                 * milder of the two sites, but it is the same omission.
+                 *
+                 * `$store` is already resolved in this method. No request input is involved.
+                 */
+                $customer = Customer::where('email', $order->email)
+                    ->where('store_id', $store->id)
+                    ->first();
             }
 
             $storeUrl = getFrontThemeUrl($store);

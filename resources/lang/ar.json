@@ -3441,5 +3441,13 @@
     "Abandoned carts": "عربات التسوق المتروكة",
     "Abandoned wishlists": "قوائم الرغبات المتروكة",
     "Product no longer available": "منتج غير متوفّر",
-    "Cart not found.": "عربة التسوق غير موجودة"
+    "Cart not found.": "عربة التسوق غير موجودة",
+    "Identity": "الهوية",
+    "Account access": "الوصول إلى الحساب",
+    "Optional.": "اختياري.",
+    "Used to sign in to your storefront. It must not already belong to another customer.": "يُستخدم لتسجيل الدخول إلى متجرك. ويجب ألّا يكون مملوكاً لعميل آخر.",
+    "At least 8 characters. The customer can change it from your storefront.": "ثمانية أحرف على الأقل. ويمكن للعميل تغييرها من متجرك.",
+    "An inactive customer cannot sign in to your storefront.": "العميل غير النشط لا يستطيع تسجيل الدخول إلى متجرك.",
+    "The customer could not be created. Please try again.": "لم يتم إنشاء العميل. يُرجى المحاولة مرة أخرى.",
+    "Select a store before adding a customer.": "اختر متجراً قبل إضافة عميل."
 }

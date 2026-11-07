@@ -68,8 +68,23 @@
                                             </a>
                                         </td>
                                         <td class="order">
-                                            <span
-                                                class="h6 text-sm font-weight-bold mb-0">{{ \App\Models\Utility::dateFormat($order->created_at) }}</span>
+                                            {{--
+                                                THREE SIZE MECHANISMS ON ONE CELL, AND THE SMALLEST
+                                                WON. It read
+                                                `class="h6 text-sm font-weight-bold mb-0"`, and
+                                                `.text-sm` is `font-size: 0.75rem !important`
+                                                (style.css:15112) while `.h6` is `0.9375rem`
+                                                (:263). The `!important` wins, so the `.h6` was
+                                                INERT and this one column rendered at 12px -- bold,
+                                                and smaller than every cell beside it.
+
+                                                Its siblings in this table are bare `<span>`s (the
+                                                price cell below), so the date now matches them
+                                                instead of carrying a heading class, a size
+                                                override and a weight that nothing else in the row
+                                                has. The date is data, like the price.
+                                            --}}
+                                            <span>{{ \App\Models\Utility::dateFormat($order->created_at) }}</span>
                                         </td>
                                         <td>
                                             @if ($order->customer_id == 0)

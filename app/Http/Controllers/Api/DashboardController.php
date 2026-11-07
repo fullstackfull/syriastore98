@@ -8601,6 +8601,61 @@ public function addCustomer(Request $request)
             'store_id' => 'required|integer|exists:stores,id'
         ])->validate();
 
+        /*
+         * OWNERSHIP BEFORE FIELD VALIDATION, and the ORDER is the fix -- no rule here changes.
+         *
+         * `$storeId` above is `$request->query('store_id')`: CALLER-SUPPLIED. The e-mail rule
+         * below is correctly scoped to it, but until `resolveOwnedStore()` has run nothing has
+         * checked that the caller owns that store. So a merchant posted another merchant's
+         * `store_id` with an address and the 422 told them whether that address is a customer of
+         * that store; the 403 arrived only afterwards, for requests that got past validation.
+         *
+         * MEASURED before the move, in AddCustomerEmailDisclosureTest: a known address answered
+         * **422** and an unknown one **403** for the same non-owned store. One bit per request,
+         * and a list of addresses enumerates another merchant's customer base.
+         *
+         * `resolveOwnedStore()` itself was already correct (`:4543-4563`) -- it compares
+         * `created_by` against `creatorId()` and exempts the operator. It was simply called too
+         * late to protect anything.
+         *
+         * NOTHING CHANGES FOR A CALLER WHO OWNS THE STORE: same rules, same 422, same reason, and
+         * two tests pin that. Only a NON-owner's answer changes, from 422 to 403, which is the
+         * point. 403 and not 401, so the shipped Flutter app's force-logout-on-401 rule is not
+         * engaged by this.
+         */
+        $store = $this->resolveOwnedStore($storeId);
+
+        if (!$store) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'You do not have permission to add customers to this store.']
+            ], 403);
+        }
+
+        /*
+         * TAKE THE ID FROM THE RESOLVED STORE, NOT FROM THE QUERY STRING. Until this line,
+         * `$storeId` was the caller's own `$request->query('store_id')` all the way through --
+         * into the uniqueness rule below, into `Customer::create(['store_id' => $storeId])` and
+         * into the `DeliveryAddress::create()` after it.
+         *
+         * IT WAS NOT EXPLOITABLE, and that is stated rather than implied: `resolveOwnedStore()`
+         * matched `Store::where('id', $storeId)`, so the value identifies the store that was
+         * checked, and `required|integer|exists:stores,id` above rejects the shapes that could
+         * make the two queries disagree -- `'5.0'`, an overflow, a non-integer -- while numeric
+         * affinity collapses `'+5'` and `' 5'` identically in both. The review of this change
+         * tried to make them diverge and could not.
+         *
+         * SO THIS IS HARDENING, AND IT HAS NO BITE TEST, because there is no input that behaves
+         * differently before and after. Saying so is the point: the value of the line is that the
+         * next reader does not have to redo the paragraph above, and that this handler now matches
+         * `updateCustomerInfo()` (`:9179`), which has always done exactly this.
+         *
+         * It also corrects a claim I made in the commit for the ordering fix, which said `$storeId`
+         * was already reassigned here. It was not. Raised by the tenant-authz review.
+         */
+        $storeId = $store->id;
+
         $validated = $request->validate([
             'first_name' => 'required|string|max:255',
             'last_name'  => 'required|string|max:255',
@@ -8608,7 +8663,9 @@ public function addCustomer(Request $request)
                 'required',
                 'email',
                 'max:255',
-                \Illuminate\Validation\Rule::unique('customers', 'email')->where('store_id', $storeId)
+                \Illuminate\Validation\Rule::unique('customers', 'email')
+                    ->where('store_id', $storeId)
+                    ->whereNull('deleted_at')
             ],
             'mobile'     => 'required|string|regex:/^\+?[0-9\s\-]{8,20}$/',
             'password'   => 'required|string|min:8|regex:/^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*?&]{8,}$/',
@@ -8625,15 +8682,9 @@ public function addCustomer(Request $request)
             'address_type'        => 'nullable|in:0,1,2',
         ]);
 
-        $store = $this->resolveOwnedStore($storeId);
-
-        if (!$store) {
-            return response()->json([
-                'status' => 0,
-                'message' => 'fail',
-                'data' => ['message' => 'You do not have permission to add customers to this store.']
-            ], 403);
-        }
+        // The ownership resolution that used to sit HERE has moved ABOVE the field validation.
+        // See the note there: it was the ordering, not the check, that leaked. $store is
+        // already resolved and already proven owned by the time this point is reached.
 
         \DB::beginTransaction();
 
@@ -9139,6 +9190,7 @@ public function updateCustomerInfo(Request $request)
                 \Illuminate\Validation\Rule::unique('customers', 'email')
                     ->ignore($request->customer_id)
                     ->where('store_id', $storeId)
+                    ->whereNull('deleted_at')
             ],
             'mobile' => 'nullable|string|max:20',
             'status' => 'nullable|in:0,1',
