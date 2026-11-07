@@ -47,8 +47,14 @@
 
         3. THE PASSWORD RULE IS STATED. The server requires `min:8` (CustomerController::store())
            and the form said nothing, so a merchant learned the rule by being refused.
-           `minlength="8"` plus an `x-ss.field-help` bound through `aria-describedby`, which is the
-           association `ContextualFieldHelpTest` enforces in both directions.
+           `minlength="8"` plus an `x-ss.field-help` bound through `aria-describedby`.
+
+           THE FIRST VERSION OF THIS NOTE CLAIMED `ContextualFieldHelpTest` enforces that
+           association here. IT DOES NOT -- that test lists five PRODUCT fields and loads only the
+           product create and edit screens, so nothing asserted these four customer pairs in
+           either direction. Raised by the tenant-authz review of this change. The assertion now
+           lives in CustomerCreateFormTest, in both directions: every `aria-describedby` points at
+           an element that exists, and every hint id is referenced by a control.
 
         4. A REAL `<button type="submit">`. `Form::submit()` renders `<input type="submit">`, which
            cannot contain a child, so the primary action on the page was the only button in this

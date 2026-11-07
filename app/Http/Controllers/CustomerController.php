@@ -98,14 +98,34 @@ public function store(Request $request)
              * narrowing it is the obvious wrong fix here.
              *
              * WHAT THIS DELIBERATELY DOES **NOT** DO: it does not add a `store_id` predicate.
-             * This rule is GLOBAL, so a merchant still cannot add a customer whose address exists
-             * in ANOTHER store -- while the storefront's own registration is per-store
-             * (`CustomerLoginController:104`), so that state is one the product already produces.
-             * Scoping it per store is a business-policy change with authorization implications:
-             * `StorefrontRegistrationTakeoverTest`'s header records that on the API register
-             * endpoint the same `unique` rule is what keeps the e-mail path to create-only, where
-             * it is PROTECTIVE. So the cross-store behaviour is ESCALATED to the owner and pinned
-             * by a test, not altered here.
+             * This rule is GLOBAL, so a merchant still cannot add a customer whose LIVE address
+             * exists in ANOTHER store.
+             *
+             * THE REASON RECORDED HERE FIRST WAS WRONG, and is corrected rather than removed
+             * because this is the site a later reader consults. It said the same `unique` rule is
+             * PROTECTIVE on the API register endpoint. It is a DIFFERENT rule in a different file
+             * (`Api\AuthController.php:76`), and the create-only property there comes from
+             * CONTROL FLOW, not from the rule's scope: `$user = new Customer()` at `:142`, with
+             * the account-adoption branch inside `if ($request->register_type != 'email')` at
+             * `:144`. The e-mail path performs no lookup at all, so a per-store rule there would
+             * still be create-only. Narrowing THIS rule could not have touched it either way.
+             * Raised by the tenant-authz review of this change.
+             *
+             * THE REAL REASON TO ESCALATE: a global rule is a platform-wide EXISTENCE ORACLE, and
+             * it is the odd one out. FIVE other writers of `customers.email` already scope per
+             * store -- `Api/DashboardController.php:6283` and `:8611`,
+             * `AccountProfileController.php:127` and `:183`, and
+             * `Customer/Auth/CustomerLoginController.php:104`. So two stores holding one shopper
+             * is a state the product already produces, and this form is the only place that
+             * refuses it. WHICH WAY TO CONVERGE is a business-policy decision about who may hold
+             * which address, and CLAUDE.md reserves that to the owner -- so it is ESCALATED and
+             * pinned by a test, not altered here. The test's own message says it is what should be
+             * rewritten when the decision lands.
+             *
+             * AND IT NOW DIVERGES FROM FLUTTER ON A SECOND AXIS, which belongs in that decision:
+             * `Api\DashboardController::addCustomer()` is per-store but archived-INSENSITIVE, so
+             * the web form and the admin app give opposite answers on BOTH axes of the same
+             * operation. CLAUDE.md's second standing principle is Flutter parity.
              */
             'email' => [
                 'required', 'email', 'max:255',

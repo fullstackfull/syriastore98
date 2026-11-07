@@ -165,7 +165,31 @@ class ModuleStorefrontInputGuard
             return null;
         }
 
-        $id = DB::table('customers')->where('store_id', $storeId)->where('email', $email)->orderBy('id')->value('id');
+        /*
+         * P2.5-PKG-E (F2). `whereNull('deleted_at')` -- WITHOUT IT THIS RESOLVES TO THE ARCHIVED
+         * TWIN, and the docblock above was already claiming otherwise.
+         *
+         * This is a RAW query builder, so `Customer`'s `SoftDeletingScope` does not apply, and
+         * `orderBy('id')` ascending takes the OLDEST matching row. An archived customer is always
+         * older than the live one who replaced them. So for a store holding both -- a state
+         * `CustomerController::store()` permits since P2.5-PKG-E narrowed its uniqueness rule to
+         * live rows -- a storefront review or comment was attributed to the SOFT-DELETED customer
+         * rather than the live one. Same store, so a wrong answer rather than a cross-tenant
+         * write, but a wrong answer on an attribution.
+         *
+         * THE DOCBLOCK ABOVE SAYS THIS MATCHES `Utility::CustomerAuthCheck()`. That one is
+         * ELOQUENT (`Utility.php:1079`), where the soft-delete scope DOES apply -- so the two
+         * disagreed, and this line is what made them disagree. Raised by the tenant-authz review
+         * of P2.5-PKG-E as a consequence of that repair rather than a pre-existing fault: a
+         * trashed-ONLY row already resolved here, but a trashed row sitting beside a correct LIVE
+         * one is new.
+         */
+        $id = DB::table('customers')
+            ->where('store_id', $storeId)
+            ->where('email', $email)
+            ->whereNull('deleted_at')
+            ->orderBy('id')
+            ->value('id');
 
         return $id === null ? null : (int) $id;
     }

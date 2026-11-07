@@ -372,6 +372,57 @@ class CustomerCreateFormTest extends SecurityTestCase
     }
 
     // =============================================================================================
+    //  F5 — the aria-describedby pairing, asserted HERE because nothing else asserts it
+    // =============================================================================================
+
+    /**
+     * The view first claimed `ContextualFieldHelpTest` enforced this. It does not — that test
+     * lists five PRODUCT fields and loads only the product create and edit screens, so these four
+     * customer pairs were asserted by nothing. Raised by the tenant-authz review of this change.
+     *
+     * BOTH DIRECTIONS, which is the whole point of the pairing: a dangling `aria-describedby` is
+     * worse than silence, because a screen reader announces neither the hint nor an error; and an
+     * orphan hint that nothing references is decoration.
+     */
+    public function test_every_field_hint_is_bound_to_its_control_in_both_directions(): void
+    {
+        $html = $this->actingAs($this->merchant)->get('/customer/create')->getContent();
+
+        $dom = new \DOMDocument();
+        libxml_use_internal_errors(true);
+        $dom->loadHTML('<?xml encoding="UTF-8">' . $html);
+        libxml_clear_errors();
+        $xpath = new \DOMXPath($dom);
+
+        $describedBy = [];
+        foreach (['email', 'mobile', 'password', 'status'] as $field) {
+            $nodes = $xpath->query("//*[@name='{$field}'][@aria-describedby]");
+            $this->assertGreaterThan(0, $nodes->length,
+                "the {$field} control carries no aria-describedby, so its hint is not announced");
+            $describedBy[$field] = $nodes->item(0)->getAttribute('aria-describedby');
+        }
+
+        // FORWARD: every id a control points at must exist.
+        foreach ($describedBy as $field => $id) {
+            $target = $xpath->query("//*[@id='" . $id . "']");
+            $this->assertGreaterThan(0, $target->length,
+                "the {$field} control's aria-describedby points at '{$id}', which is in no element "
+                . '— a dangling reference announces nothing at all');
+            $this->assertNotSame('', trim($target->item(0)->textContent),
+                "the {$field} control's hint element '{$id}' is empty");
+        }
+
+        // BACKWARD: every hint this view renders must be referenced by a control.
+        $hints = $xpath->query("//*[@data-ss-field-help]");
+        $this->assertGreaterThan(0, $hints->length, 'premise: no field hints were rendered');
+        foreach ($hints as $hint) {
+            $id = $hint->getAttribute('id');
+            $this->assertContains($id, array_values($describedBy),
+                "the hint '{$id}' is referenced by no control on this page, so it is decoration");
+        }
+    }
+
+    // =============================================================================================
     //  AUTHORIZATION — unchanged by this slice, asserted because the handler was edited
     // =============================================================================================
 
