@@ -397,6 +397,34 @@ candidate set and call two aggregate methods per row, which is N+1 by constructi
 customers that is 1 + 200 queries. Replacing it with SQL aggregates would change **how the figures
 are computed**, which is the thing D-40 reserves, so it stays an open item.
 
+### CI HAS NOT RUN ON THIS BRANCH, and that is a consequence of the open branch decision
+
+Measured, not assumed. `.github/workflows/ci.yml` declares:
+
+```yaml
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+```
+
+`claude/gracious-volta-duiynj` is neither `main` nor the head of any pull request, so **`ci.yml`
+has not executed on a single commit of this work**. Confirmed by listing workflow runs for the
+branch: 8 runs, every one of them `security-attestation-push.yml`, and **all green**. Zero runs of
+`ci.yml`.
+
+So the `Tests (REQUIRED)` jobs, `Static checks`, `Secret scan`, the `Merge-base regression gate`
+and `Dependency advisories` have **not** verified these commits. The gate results recorded below
+were executed **locally in this container** — they are real runs with real output, and they cover
+the same suites CI runs, but they are not CI.
+
+**This is why the branch decision in the Arabic report §9(أ) is not administrative.** PR #130
+points at `claude/busy-edison-k0pjwa`; until the owner says whether this work should be pushed
+there, or opened as its own pull request, it has no CI coverage at all. Nothing is claimed about
+these commits passing CI, because CI has not seen them.
+
+---
+
 ### The gates for R-06, R-07 and PKG-E, measured on the final tree
 
 Run with the worktree **clean** (`git status --short` → 0 lines) and nothing touched under it, which
