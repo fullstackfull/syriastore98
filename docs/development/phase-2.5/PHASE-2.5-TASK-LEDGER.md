@@ -2423,3 +2423,56 @@ customers to two, so the captures show the filter working rather than an empty s
 **No surface changes state.** The four combinations are captured for two surfaces, but PREMIUM is a
 judgement about a FINISHED surface and Slices 2–5 still touch both of these. 24 / 32 / 229 / 9 / 1
 is unchanged.
+
+---
+
+## 4.20 P2.5-PKG-G Slice 3 — the status write tells the truth [2026-11-07]
+
+The package thesis names three structural consequences. This closes the second: **no state other
+than "it worked" was ever drawn in this area.**
+
+| measured before | |
+|---|---|
+| `error:` arms against `success:` arms across the two views | **0 against 4** |
+| `$('#loader').fadeOut()` calls against an element anything ever shows | **4 against 0** |
+| Status cells rendered for a guest, or a viewer without the permission | **nothing — not a dash, not a word** |
+
+### The switch showed the opposite of the database
+
+`customerStatus()` answers real refusals — 403 twice, 404 twice, each with a translated `error`
+body — and jQuery routed every one to an `error:` callback that did not exist. The body was never
+read, no toast fired, and because the browser's native click had already flipped the checkbox, the
+switch sat where the merchant dragged it while `customers.status` was unchanged.
+
+The project had already written the rule down at `store-syria-ds.js:1937-2012` — *"THE SERVER
+DECIDES, THE BUTTON REFLECTS … a refusal leaves the control showing the truth instead of a state
+the server rejected"*. This switch was that rule's counter-example. Both call sites now revert and
+report the handler's own reason; the falsy-`success` branch reverts too.
+
+### A loader nothing ever showed
+
+`#loader` ships `style="display: none;"` and the codebase has no `ajaxStart`, `.show()` or
+`.fadeIn()` for it. Four `fadeOut()` calls were fading out an element that was never visible.
+Replaced with state scoped to the control that is waiting — `aria-busy` on the switch and on Apply,
+where `.ss-btn[aria-busy="true"]` already carries the spinner.
+
+### The Status column printed a header over nothing
+
+`status.blade.php` wrapped its switch in two conditions with **no else**. A guest (null
+`regiester_date`, which is how this codebase models one) and a viewer without `Status Customer`
+— the platform operator included, since `@permission` has no super-admin bypass while
+`customerStatus()` itself admits the operator — both got an empty cell under a printed header.
+Each now renders a read-only `x-ss.status-badge`.
+
+### Evidence, and a fixture written to make it visible
+
+All three fixture customers are registered, so the guest branch could not be photographed. The new
+`seed-dev-guest-customer-fixture.php` adds one — idempotent, tagged `p25guest-`, reversible,
+through Eloquent because `Customer` is `Cachable`. It follows `seed-dev-customer-filter-fixtures.php`,
+which exists for the same reason: the only honest evidence is a before/after where the answer
+visibly changes. **The fixture was reversed after the capture and verified back at three customers.**
+
+`evidence/pkg-g-slice3/` — 8 rows, 0 not clean.
+
+**No surface changes state.** 24 / 32 / 229 / 9 / 1 unchanged; Slices 2, 4 and 5 still touch these
+surfaces.

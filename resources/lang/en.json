@@ -3437,5 +3437,6 @@
     "Type part of a name or an e-mail address.": "Type part of a name or an e-mail address.",
     "Pick a date to compare the customer's last activity against.": "Pick a date to compare the customer's last activity against.",
     "Type a number to compare against.": "Type a number to compare against.",
-    "Choose a field above to filter by.": "Choose a field above to filter by."
+    "Choose a field above to filter by.": "Choose a field above to filter by.",
+    "Could not load the options for that field. Try again.": "Could not load the options for that field. Try again."
 }

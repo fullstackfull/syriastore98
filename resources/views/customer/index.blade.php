@@ -183,6 +183,30 @@
                 var status = $(this).prop('checked') == true ? 1 : 0;
                 var customer_id = $(this).attr('id');
 
+                // P2.5-PKG-G SLICE 3. THE SERVER DECIDES, THE SWITCH REFLECTS.
+                //
+                // The browser's native click has ALREADY flipped this checkbox by the time the
+                // request leaves. `customerStatus()` answers real refusals -- 403 twice and 404
+                // twice, each with a translated `error` body -- and jQuery routes every one of
+                // them to an `error:` callback that did not exist. So the body was never read,
+                // no toast fired, and the switch sat where the merchant dragged it while
+                // `customers.status` was unchanged: the control showed the OPPOSITE of the
+                // database, silently.
+                //
+                // This is the rule the project already wrote down for itself at
+                // store-syria-ds.js:1937-2012 -- "THE SERVER DECIDES, THE BUTTON REFLECTS ... a
+                // refusal leaves the control showing the truth instead of a state the server
+                // rejected". This switch was that rule's counter-example.
+                var $switch = $(this);
+
+                // SCOPED BUSY STATE, not the page loader. `#loader` ships
+                // `style="display: none;"` (layouts/app.blade.php:749) and NOTHING in this
+                // codebase ever shows it -- no ajaxStart, no .show(), no .fadeIn -- so the
+                // `$('#loader').fadeOut()` these handlers called was fading out an element that
+                // was never visible. A full-page curtain for a one-row toggle is the wrong
+                // weight anyway.
+                $switch.prop('disabled', true).attr('aria-busy', 'true');
+
                 $.ajax({
                     // P2-05-1. POST, not GET: this route writes `customers.status`, and a
                     // state-changing GET is reachable from a third-party <img src> and by link
@@ -198,12 +222,28 @@
                         'customer_id': customer_id
                     },
                     success: function(data) {
-                        $('#loader').fadeOut();
                         if (data.success) {
-                            show_toastr('Success', data.success, 'success');
+                            show_toastr("{{ __('Success') }}", data.success, 'success');
                         } else {
-                            show_toastr('Error', "{{ __('Something went wrong.') }}", 'error');
+                            // A falsy `success` is still a write that did not happen, so the
+                            // switch goes back here too -- it used to toast and stay moved.
+                            $switch.prop('checked', !status);
+                            show_toastr("{{ __('Error') }}", "{{ __('Something went wrong.') }}", 'error');
                         }
+                    },
+                    error: function(xhr) {
+                        // BACK TO WHAT THE DATABASE SAYS.
+                        $switch.prop('checked', !status);
+                        show_toastr(
+                            "{{ __('Error') }}",
+                            (xhr.responseJSON && xhr.responseJSON.error)
+                                ? xhr.responseJSON.error
+                                : "{{ __('Something went wrong.') }}",
+                            'error'
+                        );
+                    },
+                    complete: function() {
+                        $switch.prop('disabled', false).removeAttr('aria-busy');
                     },
                 });
             })
@@ -239,14 +279,21 @@
                 var data = {
                     customer_field: selectedValue,
                 }
+
+                // SCOPED BUSY STATE on the control that is waiting, not a full-page curtain.
+                // `.ss-btn[aria-busy="true"]` already carries the spinner (store-syria-ds.css).
+                $('#applyfilter').prop('disabled', true).attr('aria-busy', 'true');
+
                 $.ajax({
                     url: '{{ route('customer.filter') }}',
                     method: 'GET',
                     data: data,
                     context: this,
                     success: function(response) {
-                        $('#loader').fadeOut();                       
-
+                        // The `$('#loader').fadeOut()` that stood here faded out an element
+                        // that is never shown: `#loader` ships `style="display: none;"`
+                        // (layouts/app.blade.php:749) and nothing in this codebase has an
+                        // ajaxStart, a .show() or a .fadeIn for it.
                         if (response.condition && response.condition.length > 0) {
                             $('.select-container').removeClass('d-none');
                             $('#select-container').empty();
@@ -299,7 +346,20 @@
                             $('#text-field').empty();
                             $('#ss-customer-filter-hint').text('');
                         }
-                    }
+                    },
+                    // THE FAILURE THIS BAR COULD NOT REPORT. If this metadata request fails,
+                    // the operator and value controls stay hidden for ever with nothing saying
+                    // why -- the merchant picks a field and the bar simply never finishes. The
+                    // message goes in the bar's own hint rather than a toast, because the
+                    // failure is scoped to the bar and a page-level toast would outlive it.
+                    error: function() {
+                        $('#ss-customer-filter-hint').text(
+                            "{{ __('Could not load the options for that field. Try again.') }}"
+                        );
+                    },
+                    complete: function() {
+                        $('#applyfilter').prop('disabled', false).removeAttr('aria-busy');
+                    },
                 });
             });
 

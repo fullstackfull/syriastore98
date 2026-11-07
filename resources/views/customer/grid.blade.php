@@ -310,6 +310,12 @@
                 var status = $(this).prop('checked') == true ? 1 : 0;
                 var customer_id = $(this).attr('id');
 
+                // P2.5-PKG-G SLICE 3 -- the SECOND caller, changed with the first for the same
+                // F14 reason the POST verb was: a defect fixed where it was noticed and not
+                // where it lives comes back on the screen nobody was looking at.
+                var $switch = $(this);
+                $switch.prop('disabled', true).attr('aria-busy', 'true');
+
                 $.ajax({
                     // P2-05-1. POST, not GET -- the SECOND caller of this route.
                     // The index view was the one somebody was looking at; this grid view calls
@@ -324,12 +330,27 @@
                         'customer_id': customer_id
                     },
                     success: function(data) {
-                        $('#loader').fadeOut();
                         if (data.success) {
-                            show_toastr('Success', data.success, 'success');
+                            show_toastr("{{ __('Success') }}", data.success, 'success');
                         } else {
-                            show_toastr('Error', "{{ __('Something went wrong.') }}", 'error');
+                            $switch.prop('checked', !status);
+                            show_toastr("{{ __('Error') }}", "{{ __('Something went wrong.') }}", 'error');
                         }
+                    },
+                    error: function(xhr) {
+                        // The control goes back to what the database says. See the list view
+                        // for the full reasoning.
+                        $switch.prop('checked', !status);
+                        show_toastr(
+                            "{{ __('Error') }}",
+                            (xhr.responseJSON && xhr.responseJSON.error)
+                                ? xhr.responseJSON.error
+                                : "{{ __('Something went wrong.') }}",
+                            'error'
+                        );
+                    },
+                    complete: function() {
+                        $switch.prop('disabled', false).removeAttr('aria-busy');
                     },
                 });
             })
@@ -365,14 +386,21 @@
                 var data = {
                     customer_field: selectedValue,
                 }
+
+                // SCOPED BUSY STATE on the control that is waiting, not a full-page curtain.
+                // `.ss-btn[aria-busy="true"]` already carries the spinner (store-syria-ds.css).
+                $('#applyfilter').prop('disabled', true).attr('aria-busy', 'true');
+
                 $.ajax({
                     url: '{{ route('customer.filter') }}',
                     method: 'GET',
                     data: data,
                     context: this,
                     success: function(response) {
-                        $('#loader').fadeOut();                       
-
+                        // The `$('#loader').fadeOut()` that stood here faded out an element
+                        // that is never shown: `#loader` ships `style="display: none;"`
+                        // (layouts/app.blade.php:749) and nothing in this codebase has an
+                        // ajaxStart, a .show() or a .fadeIn for it.
                         if (response.condition && response.condition.length > 0) {
                             $('.select-container').removeClass('d-none');
                             $('#select-container').empty();
@@ -415,7 +443,20 @@
                             $('#text-field').empty();
                             $('#ss-customer-filter-hint').text('');
                         }
-                    }
+                    },
+                    // THE FAILURE THIS BAR COULD NOT REPORT. If this metadata request fails,
+                    // the operator and value controls stay hidden for ever with nothing saying
+                    // why -- the merchant picks a field and the bar simply never finishes. The
+                    // message goes in the bar's own hint rather than a toast, because the
+                    // failure is scoped to the bar and a page-level toast would outlive it.
+                    error: function() {
+                        $('#ss-customer-filter-hint').text(
+                            "{{ __('Could not load the options for that field. Try again.') }}"
+                        );
+                    },
+                    complete: function() {
+                        $('#applyfilter').prop('disabled', false).removeAttr('aria-busy');
+                    },
                 });
             });
 
