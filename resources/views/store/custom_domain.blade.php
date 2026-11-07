@@ -33,7 +33,7 @@
 <div class="row">
     <div class="col-md-12">
         <div class="card">
-            <div class="card-body table-border-style">
+            <div class="card-body table-border-style ss-dt-card-body">
                 <h6 class="text-muted text-sm my-2">{{__('If you\'re using cPanel or Plesk then you need to manually add below custom domain in your server with the same root directory as the script\'s installation. and user need to point their custom domain A record with your server IP '.$serverIp.'')}}</h6>
                 <div class="table-responsive">
                     <table class="table mb-0 dataTable">

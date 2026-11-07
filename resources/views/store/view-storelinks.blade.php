@@ -1,4 +1,4 @@
-<div class="table-responsive ecom-data-table">
+<div class="table-responsive ecom-data-table ss-dt-card-body">
 <table class="table dataTable">
     <thead>
         <tr>

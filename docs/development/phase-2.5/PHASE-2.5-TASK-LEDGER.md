@@ -2110,3 +2110,53 @@ The two local commits were **held back until that run finished**, per the owner'
 *"Finish the current GitHub CI run before pushing the two local commits"* — `ci.yml` has
 `concurrency: ci-${{ github.ref }}` with `cancel-in-progress: true`, measured from the workflow
 file, so a push would have cancelled it.
+
+---
+
+## 4.16 P2.5-WAVE-6 (first slice) — three store tables join the design system [2026-11-07]
+
+**The work-list said four tables; it is three, and that was established before anything was
+edited** — `PHASE-2.5-WAVE-6-REANCHOR.md`. Row #7, `customer/view.blade.php:47`, claims that table
+is outside Wave 1's scope; line 45 already reads
+`<div class="card-body table-border-style ss-dt-card-body">`. The audit snapshot predates the commit
+that wrapped it.
+
+| table | before | reached from |
+|---|---|---|
+| `store/view-storelinks.blade.php:1` | `.table-responsive.ecom-data-table` — **no `.card-body` at all** | the Store-links modal, **two entry points**: `store/index:93-99` and `store/action:31-37` |
+| `store/custom_domain.blade.php:36` | `.card-body table-border-style` | `store.customdomain` |
+| `store/subdomain.blade.php:36` | `.card-body table-border-style` | `store.subdomain`, reached from the one above by a button |
+
+Wave 1's 51 rules are scoped `.ss-dt-card-body ...`, emitted only by
+`components/datatable.blade.php:37` (the shared `<x-datatable>`, 66 tables) and
+`reports/stock_report.blade.php`. A hand-rolled table got **none** of it: no 13px semibold header,
+no row rule, no hover, no pinned action column, no `--ss-dt-card-bg` dark-mode hook, no tabular
+money.
+
+**AND THE ARABIC CASE ASYMMETRY CLOSES AS A SIDE EFFECT**, which is why this is worth more than
+three class attributes. `public/assets/css/style.css:27493-27498` sets
+`.table thead th { text-transform: uppercase }` and **`style-rtl.css` carries it identically** — so
+an Arabic merchant gets a transform that does nothing for a script with no case. The design system's
+undo is scoped to the same class, so it only ever reached wrapped tables. **The vendored sheet is
+not edited.**
+
+**The undo's citation in the work-list was wrong, and the way it hid is the lesson.** It cites
+`store-syria-ds.css:4747-4748`; that is a dropzone dark-mode rule. A text search for
+`text-transform: none` in that file returns lines 1428, 1437 and 1449 — **all three inside a comment
+block** documenting a rule P2.5-WAVE-6 deleted, exactly the trap the work-list's own preamble warns
+about. Blanking comments while preserving line structure leaves **five** live `text-transform`
+declarations, and the one that matters is at **`:5251-5252`**. The test asserts it against the live
+CSS, not the file.
+
+**Evidence: `StoreTablesInDesignSystemTest`, 7 tests, 22 assertions, and each wrapper reverted
+individually — every one fails 2 tests.** Three premises run first: the design system still scopes
+its table rules to that class; the undo is **live CSS and not commentary**; and the vendored
+uppercase is still present in **both** sheets (if it ever stops being, the reason for this slice has
+changed and that should be noticed rather than inherited).
+
+**One assertion is a DOM parse, not a grep**, because this project has already shipped a wrapper
+that read correctly to a text search and was not an ancestor in the parsed tree — a submit button
+textually inside a form that pressed nothing. The test walks the parsed ancestors of the `<table>`.
+
+Matrix: three surfaces move. WAVE-6 findings: **25 → 22** after the re-anchoring, **→ 19** after
+this slice.
