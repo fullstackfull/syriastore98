@@ -3470,5 +3470,18 @@
     "Type a number to compare against.": "اكتب رقماً للمقارنة به.",
     "Choose a field above to filter by.": "اختر حقلاً أعلاه للتصفية به.",
     "Could not load the options for that field. Try again.": "تعذّر تحميل خيارات هذا الحقل. حاول مرة أخرى.",
-    "Unnamed customer": "عميل بلا اسم"
+    "Unnamed customer": "عميل بلا اسم",
+    "Registered": "سجّل",
+    "Signed in": "سجّل الدخول",
+    "Added to wishlist": "أضاف إلى المفضّلة",
+    "Removed from wishlist": "أزال من المفضّلة",
+    "Added to cart": "أضاف إلى السلة",
+    "Removed from cart": "أزال من السلة",
+    "Placed an order": "أنشأ طلباً",
+    "Email:-": "البريد الإلكتروني:",
+    "Contact:-": "رقم الهاتف:",
+    "Register Date:-": "تاريخ التسجيل:",
+    "Last Login Date:-": "تاريخ آخر دخول:",
+    "Product:-": "المنتج:",
+    "Variant:-": "الخيار:"
 }

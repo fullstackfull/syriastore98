@@ -3439,5 +3439,18 @@
     "Type a number to compare against.": "Type a number to compare against.",
     "Choose a field above to filter by.": "Choose a field above to filter by.",
     "Could not load the options for that field. Try again.": "Could not load the options for that field. Try again.",
-    "Unnamed customer": "Unnamed customer"
+    "Unnamed customer": "Unnamed customer",
+    "Registered": "Registered",
+    "Signed in": "Signed in",
+    "Added to wishlist": "Added to wishlist",
+    "Removed from wishlist": "Removed from wishlist",
+    "Added to cart": "Added to cart",
+    "Removed from cart": "Removed from cart",
+    "Placed an order": "Placed an order",
+    "Email:-": "Email:-",
+    "Contact:-": "Contact:-",
+    "Register Date:-": "Register Date:-",
+    "Last Login Date:-": "Last Login Date:-",
+    "Product:-": "Product:-",
+    "Variant:-": "Variant:-"
 }

@@ -2557,3 +2557,59 @@ Rewriting the assertion to accept a group was the alternative. **Deleting one cl
 more obviously correct than rewriting a guard to suit new markup.** Both guards pass untouched.
 
 `evidence/pkg-g-slice4/` — 8 rows, 0 not clean. **No surface changes state:** 24 / 32 / 229 / 9 / 1.
+
+---
+
+## 4.23 P2.5-PKG-G Slice 5 — the timeline said `register` in Arabic, and one of ten product renders printed an id [2026-11-08]
+
+### Measured
+
+| | |
+|---|---|
+| `{{ $value->log_type }}` printed **bare** | **14 sites**, never through `__()` |
+| the seven stored enum values in `ar.json` | **all seven absent** — wrapping in `__()` alone would have changed nothing |
+| six field labels (`Email:-`, `Contact:-`, `Register Date:-`, `Last Login Date:-`, `Product:-`, `Variant:-`) | hardcoded English, **all six absent** from `ar.json` |
+| `Total Spend` | a hardcoded `.00` and **no currency symbol at all** |
+
+An Arabic merchant read a register card whose first two labels were Arabic and whose next three
+were English, under a chip showing the raw database string.
+
+### The defect the duplication was hiding
+
+The `$key % 2` arms are **95.8% identical** (216 lines against 214). Diffing them found one
+difference that is not the `left`/`right` class: **line 173 is the only one of ten product renders
+in the file that prints `json_decode(...)->product` raw** instead of through
+`ActivityLog::products()`, which turns ids into names. So an "add wishlist" event showed a bare id
+on an even row and the product's name on an odd one. **That is the argument for the dedup, measured
+rather than asserted.**
+
+### A documented trap, walked into and caught by looking
+
+The first capture reported 4 rows, 0 not clean, HTTP 200 — and was **the dashboard**.
+`customerTimeline()` needs `Show Customer`, which the fixture role lacks, and the controller
+**redirects**. `render-matrix.cjs` checks status, direction and theme, not that it reached the page
+it asked for; the tell was its own title column reading `لوحة التحكم` for a `/customer-timeline/1`
+request. `grant-dev-screen-permissions.php` exists for precisely this and its docblock calls such a
+screenshot *"the single most dangerous reading this project can take, because it looks like
+evidence."* The permission was granted with that tool — an additive dev-fixture change, recorded.
+
+### Done, and deliberately not done
+
+**Done:** the line-173 defect; `App\Support\ActivityLogLabel` (shaped after `PaymentTypeLabel`,
+which the sibling screen already uses for this exact problem) with an unknown type passing through
+**unchanged** rather than becoming a dash — the sibling's comment records 52 of 71 values rendering
+blank behind a placeholder; the six labels wrapped; 13 keys in both language files; `Total Spend`
+through `currency_format_with_sym()`.
+
+**Not done:** the 430-line dedup. It needs matching single-column geometry in both `custom.css` and
+`rtl-custom.css`, and is a structural change to a 520-line file with six inline SVGs. The content
+fixes were applied to **both** arms, so nothing is authored once and lost. It stays open with the
+line-173 finding as its evidence.
+
+### A false claim written and corrected in the same session
+
+`ActivityLogLabelTest`'s first docblock claimed `__()` falls through to its key with no translator
+bound. **It throws.** Two of five tests failed immediately. The test now extends the Laravel base
+case and the docblock records the correction.
+
+`evidence/pkg-g-slice5/` — 8 rows, 0 not clean. **No surface changes state:** 24 / 32 / 229 / 9 / 1.
