@@ -609,10 +609,63 @@ class ResidualTenancyExposureTest extends TestCase
         // reported OPEN above; this particular consequence of that deferral no longer exists, so
         // the claim is rewritten rather than left standing. A resolved declaration is fiction.
         //
-        // The path assertion still pins the site, which is the part that must not drift.
+        /*
+         * THE LINE NUMBER IS GONE FROM THIS ASSERTION, AND THAT IS A STRENGTHENING.
+         *
+         * It read `['app/Models/ActivityLog.php:97']`. On 2026-11-08 it failed in CI reporting
+         * `:194` -- and the statement at 194 was BYTE-IDENTICAL to the one that had been at 97.
+         * Nothing moved but the line, pushed down by ninety-seven lines of DOCBLOCK added above it
+         * when `products()` and `variants()` were scoped. A comment-only edit was reported as
+         * "a regression unless you can show otherwise".
+         *
+         * SO THE LINE COMPONENT HAD NEGATIVE VALUE HERE. Ask what each component detects:
+         *
+         *   count    -- a SECOND raw expression anywhere in the owned tree. Real detection.
+         *   file     -- the site moving to a different file. Real detection.
+         *   STATEMENT-- the expression's shape changing (a new column, a different table, a
+         *               predicate dropped). Real detection, and this assertion NEVER HAD IT: a
+         *               line pin says where something is, never what it is.
+         *   line     -- nothing the file component does not already cover, while raising a FALSE
+         *               POSITIVE on every comment added above it.
+         *
+         * So the line is dropped and the statement is pinned in its place. The guard now catches
+         * strictly MORE than it did -- including a changed expression at the same line, which it
+         * would previously have passed -- and is immune to the one thing that broke it.
+         *
+         * THIS IS THE IDIOM THE SIBLING ASSERTION IN THIS FILE ALREADY USES:
+         * test_..._inside_the_scope above pins count plus normalised statement TEXT, deliberately,
+         * for the same reason. This brings the two into line rather than inventing a convention.
+         *
+         * NOT weakened and NOT added to .github/known-test-outcomes.json -- that file records
+         * failures the owner accepted with a named root cause, and a stale line number is not one.
+         * Mutation-proved in three directions: a second raw expression fails the count, a changed
+         * expression fails the statement, and a comment inserted above it PASSES.
+         */
+        $sites = $this->rawSqlSites(self::RAW_EXPRESSION_PATTERN);
+
+        $this->assertCount(1, $sites,
+            'There must be EXACTLY ONE DB::raw EXPRESSION site in the owned tree. A second one is '
+            . 'a new raw expression that has not been argued for. Found: ' . implode(', ', $sites));
+
+        $this->assertStringStartsWith('app/Models/ActivityLog.php:', $sites[0],
+            'The single raw expression moved out of ActivityLog::totalspend(). Wherever it went, '
+            . 'the argument that it is a select expression on a scoped Eloquent builder has to be '
+            . 'made again there. Found: ' . $sites[0]);
+
+        $line = (int) substr($sites[0], strrpos($sites[0], ':') + 1);
+        $statement = trim(preg_replace(
+            '/\s+/',
+            ' ',
+            (file(base_path('app/Models/ActivityLog.php')) ?: [])[$line - 1] ?? ''
+        ));
+
         $this->assertSame(
-            ['app/Models/ActivityLog.php:97'],
-            $this->rawSqlSites(self::RAW_EXPRESSION_PATTERN)
+            "->select(\\DB::raw('SUM(final_price) as total_price ,COUNT(*) as order_count'))",
+            $statement,
+            'The raw expression changed shape. It must remain a SELECT expression -- an aggregate '
+            . 'over the surrounding scoped builder\'s rows and nothing else. A raw expression that '
+            . 'named a table, or carried its own WHERE, would be a bypass in the one place a later '
+            . 'predicate cannot defend.'
         );
     }
 
