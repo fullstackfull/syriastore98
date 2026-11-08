@@ -68,7 +68,7 @@
      shared keys are NOT edited here: public/js/custom.js records 65 `.show_confirm` triggers
      across 55 views depending on them, so that is a repository-wide change needing its own
      slice. --}}
-<button aria-label="{{ __('Delete :thing', ['thing' => __('Cart')]) }}" type="button" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm" data-bs-toggle="tooltip" data-confirm="{{ __('Delete this abandoned cart?') }}"
+<button aria-label="{{ __('Delete :thing', ['thing' => __('Cart')]) }}" type="button" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm" data-bs-toggle="tooltip" data-confirm="{{ __('Delete this abandoned cart?') }}" data-confirm-tone="danger"
 data-text="{{ __('This removes all :count items in :name\'s abandoned cart. It cannot be undone.', ['count' => $ssCartCount, 'name' => $ssCustomerName]) }}" data-text-yes="{{ __('Delete cart') }}" data-text-no="{{ __('Keep it') }}" 
 title="{{ __('Delete') }}">
     <i class="ti ti-trash" aria-hidden="true"></i>

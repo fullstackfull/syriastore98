@@ -245,10 +245,32 @@ $(document).on('click', '.show_confirm', function (e) {
     if (no == '' || no == undefined) {
         no = "No";
     }
+    /*
+     * P2.5-PKG-I -- THE COLOURS ARE INVERTED ON A DESTRUCTIVE DIALOG, AND THIS IS OPT-IN REPAIR.
+     *
+     * The default below paints the CONFIRM button -- the one that submits the DELETE form --
+     * `btn-success` (green), and the CANCEL button -- the one that does nothing -- `btn-danger`
+     * (red). So on a delete confirmation the eye is pulled to the safe action and the destructive
+     * one reads as the mild choice. Seen in a capture of the abandoned-cart dialog before anyone
+     * went looking for it.
+     *
+     * IT IS NOT CHANGED GLOBALLY, and that is deliberate rather than timid. Measured: 123
+     * `.show_confirm` triggers across 107 views. 91 are demonstrably inside a DELETE form, and the
+     * other 32 are UNRESOLVED rather than known-safe -- the detector's window simply did not reach
+     * their `Form::open`, which is how `customer/action.blade.php` landed in that bucket despite
+     * being a DELETE form I had just edited. Flipping a colour for 123 dialogs on a measurement I
+     * know to be imprecise is not a repair, it is a guess with wide reach.
+     *
+     * So a trigger OPTS IN with `data-confirm-tone="danger"` and gets the correct pairing; every
+     * trigger that does not is byte-for-byte unaffected. Same shape as the per-trigger
+     * `data-text-yes`/`-no` labels in the same package, and for the same reason: the repo-wide
+     * sweep is a separate slice with its own evidence.
+     */
+    var tone = $(this).attr("data-confirm-tone");
     const swalWithBootstrapButtons = Swal.mixin({
         customClass: {
-            confirmButton: 'btn btn-success',
-            cancelButton: 'btn btn-danger'
+            confirmButton: tone === 'danger' ? 'btn btn-danger' : 'btn btn-success',
+            cancelButton: tone === 'danger' ? 'btn btn-secondary' : 'btn btn-danger'
         },
         buttonsStyling: false
     })

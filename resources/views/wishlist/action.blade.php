@@ -47,7 +47,7 @@
 
 @permission('Delete Wishlist')
     {!! Form::open(['method' => 'DELETE', 'route' => ['wishlist.destroy', $wishlist->customer_id], 'class' => 'd-inline']) !!}
-    <button aria-label="{{ __('Delete :thing', ['thing' => __('Wishlist')]) }}" type="button" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm"  data-bs-toggle="tooltip" data-confirm="{{ __('Delete this abandoned wishlist?') }}"
+    <button aria-label="{{ __('Delete :thing', ['thing' => __('Wishlist')]) }}" type="button" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm"  data-bs-toggle="tooltip" data-confirm="{{ __('Delete this abandoned wishlist?') }}" data-confirm-tone="danger"
     data-text="{{ __('This removes all :count items in :name\'s wishlist. It cannot be undone.', ['count' => $ssWishlistCount, 'name' => $ssWishCustomerName]) }}" data-text-yes="{{ __('Delete wishlist') }}" data-text-no="{{ __('Keep it') }}" 
     title="{{ __('Delete') }}">
         <i class="ti ti-trash" aria-hidden="true"></i>
