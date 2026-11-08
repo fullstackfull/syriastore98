@@ -11,7 +11,7 @@
 
 @section('breadcrumb')
     <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('customer.index') }}">{{ __('Customer') }}</a></li>
-    <li aria-current="page" class="ss-breadcrumb__item"> {{ $customer_data->first_name }} </li>
+    <li aria-current="page" class="ss-breadcrumb__item"> <bdi>{{ $customer_data->first_name }}</bdi> </li>
 @endsection
 
 @section('content')
@@ -194,22 +194,62 @@
                                             <i class="ti ti-user-plus" aria-hidden="true"></i>
                                             {{ \App\Support\ActivityLogLabel::for($value->log_type) }}
                                         </span>
+                                        {{-- P2.5-PKG-H SLICE 6 -- THIS CARD WAS SHOWING A `users` ROW, NOT THE CUSTOMER.
+
+                                             It read `$value->userinfo`, and `ActivityLog::userinfo()` was
+                                             `hasOne(User::class, 'id', 'customer_id')`. `customer_id` refers to the
+                                             CUSTOMERS table; that joined it against `users.id`. So the card rendered
+                                             whichever USER happened to share the id.
+
+                                             MEASURED on the dev fixture, by LOOKING at a capture rather than by
+                                             reading code: customer #1 is Layla Haddad, and her register card printed
+                                             `operator@example.test` -- user #1, the PLATFORM OPERATOR. Customer #2
+                                             would print user #2, another merchant. The collision is not exotic: both
+                                             id sequences start at 1, so every customer inside the `users` id range
+                                             printed somebody's address and mobile number.
+
+                                             AND FOUR OF THE FIVE FIELDS WERE ALWAYS BLANK, which is the tell that the
+                                             relation was wrong from the start rather than recently broken: `users`
+                                             has no `first_name`, no `last_name` and no `regiester_date`. Only `email`
+                                             and `mobile` resolved -- the two that leak.
+
+                                             `$customer_data` IS THE RIGHT SOURCE, not a repointed relation. The
+                                             controller already fetched it AND ownership-checked it, so the card
+                                             cannot name anyone else by construction. Repointing `userinfo` at
+                                             `Customer` and rendering through it would ALSO be scoped -- `Customer` is
+                                             in `scoped_models` -- and this route deliberately admits the operator to
+                                             any store's customer while `getCurrentStore()` returns the literal 1 for
+                                             them, so the card would have blanked on a store-7 customer instead. The
+                                             relation is repaired too, for whatever reaches for it next. --}}
+                                        {{-- NO ROW IS DRAWN FOR A VALUE THE CUSTOMER DOES NOT HAVE.
+                                             Measured in the live capture: `Contact:-` rendered a label with NOTHING
+                                             after it, because `customers.mobile` is nullable and this customer's is
+                                             null. A label over an empty value reads as a broken screen rather than as
+                                             absent data -- the same defect, and the same repair, as the Flutter
+                                             customer card earlier in this phase. First and last name stay
+                                             unconditional: a customer row cannot exist without them. --}}
                                         <ul>
                                             <li><span><b>{{ __('First Name:-') }}
-                                                    </b></span><span>{{ $value->userinfo->first_name }} </span></li>
+                                                    </b></span><span><bdi>{{ $customer_data->first_name }}</bdi> </span></li>
                                             <li><span><b>{{ __('Last Name:-') }}
-                                                    </b></span><span>{{ $value->userinfo->last_name }} </span></li>
-                                            <li><span><b>{{ __('Email:-') }}
-                                                    </b></span><span>{{ $value->userinfo->email }}</span>
-                                            </li>
-                                            <li><span><b>{{ __('Contact:-') }}
-                                                    </b></span><span>{{ $value->userinfo->mobile }}</span></li>
-                                            <li><span><b>{{ __('Register Date:-') }} </b></span><span
-                                                    class="end-date register-timeline">{{ $value->userinfo->regiester_date }}</span>
-                                            </li>
+                                                    </b></span><span><bdi>{{ $customer_data->last_name }}</bdi> </span></li>
+                                            @if (!empty($customer_data->email))
+                                                <li><span><b>{{ __('Email:-') }}
+                                                        </b></span><span><bdi>{{ $customer_data->email }}</bdi></span>
+                                                </li>
+                                            @endif
+                                            @if (!empty($customer_data->mobile))
+                                                <li><span><b>{{ __('Contact:-') }}
+                                                        </b></span><span><bdi>{{ $customer_data->mobile }}</bdi></span></li>
+                                            @endif
+                                            @if (!empty($customer_data->regiester_date))
+                                                <li><span><b>{{ __('Register Date:-') }} </b></span><span
+                                                        class="end-date register-timeline"><bdi>{{ $customer_data->regiester_date }}</bdi></span>
+                                                </li>
+                                            @endif
                                         </ul>
                                         <div class="time-wrapper d-flex align-content-center">
-                                            <span class="time">{{ $value->created_at->format('d M Y h:i A') }}</span>
+                                            <span class="time"><bdi>{{ $value->created_at->format('d M Y h:i A') }}</bdi></span>
                                         </div>
                                     </div>
                                 </div>
@@ -223,11 +263,11 @@
                                         </span>
                                         <ul>
                                             <li><span><b>{{ __('Last Login Date:-') }} </b></span><span
-                                                    class="end-date last-login-timeline">{{ json_decode($value->remark)->date }}</span>
+                                                    class="end-date last-login-timeline"><bdi>{{ json_decode($value->remark)->date }}</bdi></span>
                                             </li>
                                         </ul>
                                         <div class="time-wrapper d-flex align-content-center">
-                                            <span class="time">{{ $value->created_at->format('d M Y h:i A') }}</span>
+                                            <span class="time"><bdi>{{ $value->created_at->format('d M Y h:i A') }}</bdi></span>
                                         </div>
                                     </div>
                                 </div>
@@ -253,11 +293,11 @@
                                         ARE GONE as of P2.5-PKG-H slice 1 -- one body now, and the side
                                         is computed -- so this records what happened, not a live hazard.
                                         It is kept because it is the argument for the collapse. --}}
-                                            <li><span><b>{{ __('Product:-') }} </b></span><span class="end-date wishlist-timeline">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</span>
+                                            <li><span><b>{{ __('Product:-') }} </b></span><span class="end-date wishlist-timeline"><bdi>{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</bdi></span>
                                             </li>
                                         </ul>
                                         <div class="time-wrapper d-flex align-content-center">
-                                            <span class="time">{{ $value->created_at->format('d M Y h:i A') }}</span>
+                                            <span class="time"><bdi>{{ $value->created_at->format('d M Y h:i A') }}</bdi></span>
                                         </div>
                                     </div>
                                 </div>
@@ -272,11 +312,11 @@
                                         </span>
                                         <ul>
                                             <li><span><b>{{ __('Product:-') }} </b></span><span
-                                                    class="end-date dlt-wishlist-timeline">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</span>
+                                                    class="end-date dlt-wishlist-timeline"><bdi>{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</bdi></span>
                                             </li>
                                         </ul>
                                         <div class="time-wrapper d-flex align-content-center">
-                                            <span class="time">{{ $value->created_at->format('d M Y h:i A') }}</span>
+                                            <span class="time"><bdi>{{ $value->created_at->format('d M Y h:i A') }}</bdi></span>
                                         </div>
                                     </div>
                                 </div>
@@ -291,17 +331,17 @@
                                         <ul>
                                             <li><span><b>{{ __('Product:-') }} </b></span>
                                                 <span
-                                                    class="end-date">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</span>
+                                                    class="end-date"><bdi>{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</bdi></span>
                                             </li>
                                             @if (json_decode($value->remark)->variant != '0')
                                                 <li><span><b>{{ __('Variant:-') }} </b></span>
                                                     <span
-                                                        class="end-date add-cart-timeline">{{ App\Models\ActivityLog::variants(json_decode($value->remark)->variant, $timelineStoreId) }}</span>
+                                                        class="end-date add-cart-timeline"><bdi>{{ App\Models\ActivityLog::variants(json_decode($value->remark)->variant, $timelineStoreId) }}</bdi></span>
                                                 </li>
                                             @endif
                                         </ul>
                                         <div class="time-wrapper d-flex align-content-center">
-                                            <span class="time">{{ $value->created_at->format('d M Y h:i A') }}</span>
+                                            <span class="time"><bdi>{{ $value->created_at->format('d M Y h:i A') }}</bdi></span>
                                         </div>
                                     </div>
                                 </div>
@@ -316,17 +356,17 @@
                                         <ul>
                                             <li><span><b>{{ __('Product:-') }} </b></span>
                                                 <span
-                                                    class="end-date">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</span>
+                                                    class="end-date"><bdi>{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</bdi></span>
                                             </li>
                                             @if (json_decode($value->remark)->variant != '0')
                                                 <li><span><b>{{ __('Variant:-') }} </b></span>
                                                     <span
-                                                        class="end-date dlt-cart-timeline">{{ App\Models\ActivityLog::variants(json_decode($value->remark)->variant, $timelineStoreId) }}</span>
+                                                        class="end-date dlt-cart-timeline"><bdi>{{ App\Models\ActivityLog::variants(json_decode($value->remark)->variant, $timelineStoreId) }}</bdi></span>
                                                 </li>
                                             @endif
                                         </ul>
                                         <div class="time-wrapper d-flex align-content-center">
-                                            <span class="time">{{ $value->created_at->format('d M Y h:i A') }}</span>
+                                            <span class="time"><bdi>{{ $value->created_at->format('d M Y h:i A') }}</bdi></span>
                                         </div>
                                     </div>
                                 </div>
@@ -340,22 +380,22 @@
                                         </span>
                                         <ul>
                                             <li><span><b>{{ __('Order Id:-') }}
-                                                    </b></span><span>{{ json_decode($value->remark)->order_id }} </span></li>
+                                                    </b></span><span><bdi>{{ json_decode($value->remark)->order_id }}</bdi> </span></li>
                                             <li><span><b>{{ __('Order Date:-') }}
-                                                    </b></span><span>{{ Carbon\Carbon::parse(json_decode($value->remark)->order_date)->format('d M Y') }}
+                                                    </b></span><span><bdi>{{ Carbon\Carbon::parse(json_decode($value->remark)->order_date)->format('d M Y') }}</bdi>
                                                 </span></li>
                                             <li><span><b>{{ __('Product:-') }} </b></span>
                                                 <span
-                                                    class="end-date order-timeline">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</span>
+                                                    class="end-date order-timeline"><bdi>{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</bdi></span>
                                             </li>
                                             <li><span><b>{{ __('Order Price:-') }}
-                                                    </b></span><span>{{ json_decode($value->remark)->price }} </span></li>
+                                                    </b></span><span><bdi>{{ json_decode($value->remark)->price }}</bdi> </span></li>
                                             <li><span><b>{{ __('Payment Type:-') }}
-                                                    </b></span><span>{{ json_decode($value->remark)->payment_type }} </span>
+                                                    </b></span><span><bdi>{{ json_decode($value->remark)->payment_type }}</bdi> </span>
                                             </li>
                                         </ul>
                                         <div class="time-wrapper d-flex align-content-center">
-                                            <span class="time">{{ $value->created_at->format('d M Y h:i A') }}</span>
+                                            <span class="time"><bdi>{{ $value->created_at->format('d M Y h:i A') }}</bdi></span>
                                         </div>
                                     </div>
                                 </div>

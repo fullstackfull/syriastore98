@@ -37,9 +37,32 @@ class ActivityLog extends Model
         $ActivityLog->save();
     }
 
+    /**
+     * P2.5-PKG-H SLICE 6 -- THIS POINTED AT `User`, AND `customer_id` IS NOT A USER ID.
+     *
+     * It was `hasOne(User::class, 'id', 'customer_id')`, joining `activity_logs.customer_id`
+     * against `users.id`. The column refers to the CUSTOMERS table. So the timeline's register
+     * card rendered whichever USER shared the id -- measured on the dev fixture as
+     * `operator@example.test`, the platform operator, on customer #1's page. Both id sequences
+     * start at 1, so the collision is the normal case, not an edge.
+     *
+     * FOUR OF THE FIVE FIELDS THE VIEW READ WERE ALWAYS BLANK -- `users` has no `first_name`,
+     * `last_name` or `regiester_date` -- which is the tell that this was never right. Only
+     * `email` and `mobile` resolved, and those are precisely what leaked.
+     *
+     * `belongsTo` rather than `hasOne`: `activity_logs` holds the foreign key, so this is the
+     * owning side. The emitted query is the same `select * from customers where id = ?`.
+     *
+     * THE VIEW NO LONGER USES THIS. `customer/timeline.blade.php` reads `$customer_data`, which
+     * the controller fetched and ownership-checked, because `Customer` carries StoreScope and the
+     * operator -- admitted to any store's customer by that route -- resolves `getCurrentStore()`
+     * to the literal 1, so rendering through a scoped relation would blank the card on a store-7
+     * customer. This is repaired rather than deleted so the next caller gets the right entity;
+     * it is not load-bearing for any screen today.
+     */
     public function userinfo()
     {
-        return $this->hasOne(User::class, 'id', 'customer_id');
+        return $this->belongsTo(Customer::class, 'customer_id', 'id');
     }
 
     /**

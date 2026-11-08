@@ -517,4 +517,97 @@ class CustomerTimelineTenancyTest extends SecurityTestCase
             'store_id' => $storeId,
         ]);
     }
+
+    /**
+     * THE REGISTER CARD SHOWED A `users` ROW, NOT THE CUSTOMER -- found by LOOKING at a capture,
+     * which is the only reason it was found at all.
+     *
+     * `ActivityLog::userinfo()` was `hasOne(User::class, 'id', 'customer_id')`. `customer_id`
+     * refers to the `customers` table; this joined it against `users.id`. So the "Registered"
+     * card on a customer's timeline rendered whichever USER happened to share that id.
+     *
+     * MEASURED on the dev fixture before the fix: customer #1 is Layla Haddad, and her timeline's
+     * register card printed `operator@example.test` -- user #1, the PLATFORM OPERATOR. Customer
+     * #2 would print user #2, another merchant. Every customer whose id falls inside the `users`
+     * id range prints somebody's address.
+     *
+     * SO IT IS A DISCLOSURE, not only a display defect: a merchant reading their own customer's
+     * page is shown an unrelated principal's e-mail and mobile number.
+     *
+     * AND FOUR OF THE FIVE FIELDS WERE ALWAYS BLANK, which is the tell that the relation was
+     * always wrong rather than recently broken: `users` has no `first_name`, no `last_name` and
+     * no `regiester_date`. Only `email` and `mobile` resolved -- the two that leak.
+     *
+     * THE VIEW NOW READS `$customer_data`, the customer the controller already fetched AND
+     * ownership-checked, so the card cannot name anyone else by construction. That is better than
+     * repointing the relation at `Customer` and re-rendering through it, because `Customer` is in
+     * `scoped_models` and the operator -- whom this route deliberately admits to any store's
+     * customer -- resolves `getCurrentStore()` to the literal 1, which would have blanked the card
+     * on a store-7 customer instead. The relation is repaired too, for anything that reaches for
+     * it later.
+     *
+     * THE RELATION REPAIR HAS NO BITE COVERAGE HERE, AND THAT IS STATED RATHER THAN IMPLIED.
+     * Measured both ways after the fix:
+     *
+     *   view back on `$value->userinfo` (relation still correct) -> this test FAILS
+     *   relation back to `User` (view on `$customer_data`)       -> this test PASSES
+     *
+     * So what this test guards is the VIEW reading `$customer_data`. Repointing `userinfo` at
+     * `Customer` is correctness hygiene for a relation nothing renders through today, and a
+     * reader who deletes that repair gets a green suite. Writing a test for an unused relation
+     * would pin a shape no screen depends on; disclosing the gap is the honest alternative, and
+     * it is the same disclosure this file already makes about `:570`.
+     */
+    public function test_the_register_card_names_the_customer_and_never_a_user_row(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+        $this->grantPermission($merchantA, 'Show Customer');
+
+        $customer = Customer::forceCreate([
+            'first_name' => 'RegisterCardNeedle', 'last_name' => 'Customer',
+            'email' => 'registercard-' . uniqid() . '@example.test',
+            'password' => bcrypt('x'), 'store_id' => $storeA->id,
+            'mobile' => '0911222333',
+            'regiester_date' => now()->toDateString(),
+        ]);
+
+        /*
+         * THE COLLISION IS NATURAL, NOT ENGINEERED, and that is the point: `makeTenant()` creates
+         * the first `users` row and this is the first `customers` row, so they share an id exactly
+         * as they do in any deployment where both sequences started at 1. The broken relation
+         * therefore resolved to a REAL user -- here the viewing merchant, on the dev fixture the
+         * PLATFORM OPERATOR. No id surgery is needed to reproduce it, and an earlier draft that
+         * tried to force one failed on a unique constraint for the obvious reason.
+         */
+        $collidingUser = \App\Models\User::find($customer->id);
+        $this->assertNotNull(
+            $collidingUser,
+            'PREMISE: no users row shares this customer id, so the broken relation would have '
+            . 'resolved to null and this test could not tell a fix from an absence.'
+        );
+
+        $collidingUser->email = 'LEAKYUSERNEEDLE' . strtoupper(bin2hex(random_bytes(4))) . '@example.test';
+        $collidingUser->save();
+        $collidingUser->flushCache();
+
+        ActivityLog::forceCreate([
+            'customer_id' => $customer->id,
+            'log_type' => 'register',
+            'remark' => json_encode(['date' => now()->toDateTimeString()]),
+            'store_id' => $storeA->id,
+        ]);
+
+        $response = $this->actingAs($merchantA)->get('/customer-timeline/' . $customer->id);
+
+        $response->assertStatus(200);
+
+        // The other principal's address must not appear anywhere on the page.
+        $response->assertDontSee($collidingUser->email, false);
+
+        // POSITIVE CONTROL: the card must still name the CUSTOMER, or a fix that printed nothing
+        // would satisfy the assertion above and leave the card blank -- which is what three of
+        // these five fields already did.
+        $response->assertSee($customer->first_name, false);
+        $response->assertSee($customer->email, false);
+    }
 }
