@@ -416,6 +416,57 @@ OUT_OF_SCOPE = {
     'Super Admin dashboard': 'Phase 06 (SaaS & Super Admin), not Phase 2.5 Merchant Experience',
 }
 
+# DECLARED BLOCKERS: a surface that CANNOT become a finished merchant screen, with the reason and
+# the remediation, as the directive's four states require of BLOCKED.
+#
+# THIS DICT EXISTS BECAUSE THERE WAS NO WAY TO SAY THIS. Until now BLOCKED could only ARISE -- from
+# a VERIFIED claim whose captures are missing, or from an audit that returned 'unknown'. A route
+# that is registered but renders nothing, or whose handler body is literally `//`, fell through to
+# PENDING, which reads as "not done yet" and invites the next person to go and do it. The owner's
+# instruction is the opposite: "Registered but unimplemented routes must not be presented as
+# working screens. Do not invent backend commerce functionality merely to increase the verified
+# count. Record blockers accurately."
+#
+# A row here is a claim that WORK IS NOT POSSIBLE, so each carries the evidence for that, and each
+# names what would unblock it. None of these is a defect to fix inside Phase 2.5.
+BLOCKED_SURFACES = {
+    'Edit customer (registered, unimplemented)':
+        'NOT a missing screen -- a WEB/FLUTTER PARITY GAP, and the inventory description is stale. '
+        'The routes are NOT registered: routes/web.php:1191 is '
+        "Route::resource('customer', ...)->except(['edit','update']), applied by P2.5-PKG-C (F-C-04) "
+        'because CustomerController has neither method and GET /customer/1/edit answered HTTP 500. '
+        'But a COMPLETE customer-update backend ships today and the Flutter admin already uses it: '
+        'routes/api.php:267 POST update-customer -> DashboardController::updateCustomerInfo (:9113), '
+        'writing first_name/last_name/email/mobile/status at :9193-9197, consumed by '
+        'StoreSyria_app98 lib/utils/base_api.dart:122 through an edit bottom-sheet. '
+        'REMEDIATION: an owner decision on whether the WEB screen should exist. Building it is new '
+        'merchant functionality, which routes/web.php:1187-1189 records as unauthorised in Phase 2.5.',
+
+    'Wishlist create / edit / store / update (registered, unimplemented)':
+        'All four routes resolve and none renders a byte. WishlistController::create() (:34) and '
+        '::store() (:45) have bodies that are literally `//`; ::edit() and ::update() carry P2.5-PKG-B '
+        'security guards that REFUSE rather than render. No control on any merchant screen targets '
+        'any of the four. '
+        'REMEDIATION: owner decision on whether merchant-authored wishlists are a product feature at '
+        'all. There is nothing to design until there is something to render.',
+
+    'Customer filter result fragment':
+        'GET customer-filter-data answers HTTP 200 and has NO CALLER. Its former parent was the '
+        'customer grid, which no longer calls it (recorded in customer/grid.blade.php:38-39 during '
+        'P2.5-R-07). It returns a JSON-encoded HTML string of customer/filter.blade.php, not a page. '
+        'It cannot be made a screen without inventing a consumer for it. '
+        'REMEDIATION: either a deliberate decision to retire the route, or a consumer that a '
+        'merchant-facing feature actually needs. Neither is a design task.',
+
+    'Customer filter field metadata':
+        'GET customer-filter returns application/json and never a view, so it is not a screen and '
+        'cannot earn a screen state. Its OUTPUT is already rendered -- by the customer filter bar '
+        'redesigned and captured in P2.5-PKG-G -- so the merchant-visible half of this surface is '
+        'verified THERE. Claiming it separately would mean reusing that evidence for a second '
+        'surface, which the owner forbids by name. '
+        'REMEDIATION: none needed; it is correctly covered as part of the filter bar.',
+}
+
 COMBOS = ['en_ltr_light', 'en_ltr_dark', 'ar_rtl_light', 'ar_rtl_dark']
 
 
@@ -438,6 +489,10 @@ def classify(row):
     """Audit state plus work done -> one of the directive's four, or PENDING."""
     if row['screen'] in OUT_OF_SCOPE:
         return 'OUT OF SCOPE', OUT_OF_SCOPE[row['screen']]
+    # A declared blocker outranks a VERIFIED claim deliberately: if someone later adds captures for
+    # a surface that cannot exist, the captures are the thing to doubt, not the blocker.
+    if row['screen'] in BLOCKED_SURFACES:
+        return 'BLOCKED', BLOCKED_SURFACES[row['screen']]
     if row['screen'] in VERIFIED:
         entry = VERIFIED[row['screen']]
         state, wave, prefix, pkg = entry[0], entry[1], entry[2], entry[3]
