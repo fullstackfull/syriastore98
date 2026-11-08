@@ -73,6 +73,21 @@ driven. The shared fix is proved on the pathways listed, and the completeness ra
 (`ConfirmDialogButtonContrastTest::test_no_confirmation_pathway_uses_a_button_variant_the_repair_does_not_cover`)
 fails if a pathway ever starts using a variant these two rules do not cover.
 
+### A VENDORED pathway, driven for real (added after the first push)
+
+The claim above said the fix reaches `packages/workdo/` "by code identity". It does not have to be
+taken on trust: **BulkDelete is enabled in the dev fixture** (`add_on_managers`, `is_enable = 1`),
+so its own `Swal.mixin` — declared in
+`packages/workdo/BulkDelete/src/resources/views/pages/script.blade.php:49`, a file this slice does
+not edit — was fired on `/customer` in dark mode with a row selected:
+
+```
+confirm  "Yes, delete it!"  [swal2-confirm btn btn-success]  rgb(22,94,52)  on rgb(255,255,255)  -> 7.82:1
+cancel   "No, cancel!"      [swal2-cancel btn btn-danger]    rgb(140,29,23) on rgb(255,222,228)  -> 7.30:1
+```
+
+The same two figures as the first-party pathways, on a dialog belonging to a vendored module.
+
 ## 5. Mutations — both applied to the sheet and re-measured live
 
 | mutation | result |
