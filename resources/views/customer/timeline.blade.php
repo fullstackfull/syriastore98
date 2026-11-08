@@ -185,7 +185,7 @@
                                                          reading differently depending on whether it landed on an EVEN or
                                                          an ODD row, because the two arms of the `$key % 2` alternation
                                                          are 95.8% identical copies that had drifted apart. --}}
-                                                    class="end-date wishlist-timeline">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product) }}</span>
+                                                    class="end-date wishlist-timeline">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</span>
                                             </li>
                                         </ul>
                                         <div class="time-wrapper d-flex align-content-center">
@@ -207,7 +207,7 @@
                                         </span>
                                         <ul>
                                             <li><span><b>{{ __('Product:-') }} </b></span><span
-                                                    class="end-date dlt-wishlist-timeline">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product) }}</span>
+                                                    class="end-date dlt-wishlist-timeline">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</span>
                                             </li>
                                         </ul>
                                         <div class="time-wrapper d-flex align-content-center">
@@ -229,12 +229,12 @@
                                         <ul>
                                             <li><span><b>{{ __('Product:-') }} </b></span>
                                                 <span
-                                                    class="end-date">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product) }}</span>
+                                                    class="end-date">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</span>
                                             </li>
                                             @if (json_decode($value->remark)->variant != '0')
                                                 <li><span><b>{{ __('Variant:-') }} </b></span>
                                                     <span
-                                                        class="end-date add-cart-timeline">{{ App\Models\ActivityLog::variants(json_decode($value->remark)->variant) }}</span>
+                                                        class="end-date add-cart-timeline">{{ App\Models\ActivityLog::variants(json_decode($value->remark)->variant, $timelineStoreId) }}</span>
                                                 </li>
                                             @endif
                                         </ul>
@@ -257,12 +257,12 @@
                                         <ul>
                                             <li><span><b>{{ __('Product:-') }} </b></span>
                                                 <span
-                                                    class="end-date">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product) }}</span>
+                                                    class="end-date">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</span>
                                             </li>
                                             @if (json_decode($value->remark)->variant != '0')
                                                 <li><span><b>{{ __('Variant:-') }} </b></span>
                                                     <span
-                                                        class="end-date dlt-cart-timeline">{{ App\Models\ActivityLog::variants(json_decode($value->remark)->variant) }}</span>
+                                                        class="end-date dlt-cart-timeline">{{ App\Models\ActivityLog::variants(json_decode($value->remark)->variant, $timelineStoreId) }}</span>
                                                 </li>
                                             @endif
                                         </ul>
@@ -292,7 +292,7 @@
                                                 </span></li>
                                             <li><span><b>{{ __('Product:-') }} </b></span>
                                                 <span
-                                                    class="end-date order-timeline">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product) }}</span>
+                                                    class="end-date order-timeline">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</span>
                                             </li>
                                             <li><span><b>{{ __('Order Price:-') }}
                                                     </b></span><span>{{ json_decode($value->remark)->price }} </span></li>
@@ -401,7 +401,7 @@
                                         </span>
                                         <ul>
                                             <li><span><b>{{ __('Product:-') }} </b></span><span
-                                                    class="end-date wishlist-timeline">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product) }}</span>
+                                                    class="end-date wishlist-timeline">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</span>
                                             </li>
                                         </ul>
                                         <div class="time-wrapper d-flex align-content-center">
@@ -422,7 +422,7 @@
                                         </span>
                                         <ul>
                                             <li><span><b>{{ __('Product:-') }} </b></span><span
-                                                    class="end-date dlt-wishlist-timeline">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product) }}</span>
+                                                    class="end-date dlt-wishlist-timeline">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</span>
                                             </li>
                                         </ul>
                                         <div class="time-wrapper d-flex align-content-center">
@@ -444,12 +444,12 @@
                                         <ul>
                                             <li><span><b>{{ __('Product:-') }} </b></span>
                                                 <span
-                                                    class="end-date">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product) }}</span>
+                                                    class="end-date">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</span>
                                             </li>
                                             @if (json_decode($value->remark)->variant != '0')
                                                 <li><span><b>{{ __('Variant:-') }} </b></span>
                                                     <span
-                                                        class="end-date add-cart-timeline">{{ App\Models\ActivityLog::variants(json_decode($value->remark)->variant) }}</span>
+                                                        class="end-date add-cart-timeline">{{ App\Models\ActivityLog::variants(json_decode($value->remark)->variant, $timelineStoreId) }}</span>
                                                 </li>
                                             @endif
                                         </ul>
@@ -472,12 +472,12 @@
                                         <ul>
                                             <li><span><b>{{ __('Product:-') }} </b></span>
                                                 <span
-                                                    class="end-date">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product) }}</span>
+                                                    class="end-date">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</span>
                                             </li>
                                             @if (json_decode($value->remark)->variant != '0')
                                                 <li><span><b>{{ __('Variant:-') }} </b></span>
                                                     <span
-                                                        class="end-date dlt-cart-timeline">{{ App\Models\ActivityLog::variants(json_decode($value->remark)->variant) }}</span>
+                                                        class="end-date dlt-cart-timeline">{{ App\Models\ActivityLog::variants(json_decode($value->remark)->variant, $timelineStoreId) }}</span>
                                                 </li>
                                             @endif
                                         </ul>
@@ -507,7 +507,7 @@
                                                 </span></li>
                                             <li><span><b>{{ __('Product:-') }} </b></span>
                                                 <span
-                                                    class="end-date order-timeline">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product) }}</span>
+                                                    class="end-date order-timeline">{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</span>
                                             </li>
                                             <li><span><b>{{ __('Order Price:-') }}
                                                     </b></span><span>{{ json_decode($value->remark)->price }} </span></li>

@@ -582,7 +582,13 @@ public function destroy(Customer $customer)
         $customer_data = Customer::find($ids);
 
 
-        return view('customer.timeline', compact('logs', 'activityLog', 'totalSpend', 'customer_data'));
+        /*
+         * `$timelineStoreId` GOES TO THE VIEW because `ActivityLog::products()` now requires it,
+         * and the authority for WHICH store may be named belongs here -- beside the comment above
+         * that explains why it is the customer's own store and not `getCurrentStore()` -- rather
+         * than being re-derived in a Blade template ten times.
+         */
+        return view('customer.timeline', compact('logs', 'activityLog', 'totalSpend', 'customer_data', 'timelineStoreId'));
     }
 
 
