@@ -2,6 +2,13 @@
 
 @section('page-title', __('Customer Timeline'))
 
+@section('page-subtitle')
+    {{ trim($customer_data->first_name . ' ' . $customer_data->last_name) }}
+    @if (!empty($customer_data->email))
+        &middot; <bdi>{{ $customer_data->email }}</bdi>
+    @endif
+@endsection
+
 @section('breadcrumb')
     <li class="ss-breadcrumb__item"><a class="ss-breadcrumb__link" href="{{ route('customer.index') }}">{{ __('Customer') }}</a></li>
     <li aria-current="page" class="ss-breadcrumb__item"> {{ $customer_data->first_name }} </li>
@@ -9,61 +16,62 @@
 
 @section('content')
     <div class="row  custom-timeline-2 ">
+        {{-- P2.5-PKG-H SLICE 3 -- FOUR HAND-ROLLED CARDS BECOME TWO MEASURES AND A SUBTITLE.
+
+             WHAT WAS HERE: four `card stats-wrapper info-card` tiles, each an `<h6>` label over an
+             `<h3>` value, with `public/css/custom.css` forcing that `<h3>` to 24px.
+
+             AND ALL FOUR WERE MALFORMED, which no plan noticed and a markup count did. Every tile
+             ended `<h3 class="mb-0">VALUE <span class="text-success text-sm">` -- FOUR `<h3>`
+             opened and ZERO closed, each holding an EMPTY `<span>` that also never closed. Eight
+             unclosed elements and four dead size-and-colour declarations, in the first fifty lines
+             of the screen. Counted directly before this edit: 4 open, 0 close.
+
+             ONLY TWO OF THE FOUR WERE MEASURES, and that distinction is why this is not a
+             four-for-four swap. `x-ss.stat` requires `period` and deliberately gives it no default,
+             because "a count with no period is the commonest way a dashboard misleads". Total Spend
+             and Total Orders have an honest period -- `ActivityLog::totalspend()` applies no date
+             filter, so it really is all time. Customer Name and Customer Email have none: "Customer
+             Name, all time" is not a thing, and passing a period to make the component accept them
+             would be dressing identity up as a metric.
+
+             SO IDENTITY MOVED TO THE PAGE HEADER, into a slot this view never used. The layout
+             renders `@hasSection('page-subtitle')` as `.ss-page-header__subtitle` right under the
+             h1, and the h1 here says only "Customer Timeline" -- generic. Name and e-mail there
+             turn a generic title into a specific one, which is what a subtitle is for, and costs
+             two cards that were pretending to be measures.
+
+             `<bdi>` ON THE E-MAIL, not `dir="ltr"`: an address is a Latin run inside a possibly
+             Arabic line, and `<bdi>` isolates it without forcing a direction on the whole line.
+
+             AND NOT `<x-ss.page-header>`: `MerchantPageHeadingOutlineTest` fails any view that
+             sets `@section('page-title')` -- this one does, at :3 -- and also renders that
+             component, because the layout would then print the title twice. Measured by an
+             independent check that inserted it and watched the test fail. The sections are the
+             supported route; notification/index.blade.php is the shipped precedent. --}}
         <div class="col-xl-12">
-            <div class="row gy-3">
-                <div class="col-lg-3 col-6">
-                    <div class="card stats-wrapper info-card">
-                        <div class="card-body stats">
-                            <div class="theme-avtar bg-success badge">
-                                <i class="ti ti-user" aria-hidden="true"></i>
-                            </div>
-                            <h6 class="mt-4 mb-2">{{ __('Customer Name') }}</h6>
-                            <h3 class="mb-0">
-                                {{ $customer_data->first_name . ' ' . $customer_data->last_name }} <span
-                                    class="text-success text-sm">
-                        </div>
-                    </div>
-                </div>
-                <div class="col-lg-3 col-6">
-                    <div class="card stats-wrapper info-card">
-                        <div class="card-body stats">
-                            <div class="theme-avtar bg-info badge">
-                                <i class="ti ti-mail" aria-hidden="true"></i>
-                            </div>
-                            <h6 class="mt-4 mb-2">{{ __('Customer Email') }}</h6>
-                            <h3 class="mb-0">{{ $customer_data->email }}<span class="text-success text-sm">
-                        </div>
-                    </div>
-                </div>
-                <div class="col-lg-3 col-6">
-                    <div class="card stats-wrapper info-card">
-                        <div class="card-body stats">
-                            <div class="theme-avtar bg-warning badge">
-                                <i class="ti ti-report-money" aria-hidden="true"></i>
-                            </div>
-                            <h6 class="mt-4 mb-2">{{ __('Total Spend') }}</h6>
-                            {{-- P2.5-PKG-G SLICE 5. A HARDCODED `.00` AND NO CURRENCY SYMBOL AT ALL. The figure is a
-                                 SUM over `orders.final_price`, printed with two decimals glued on and nothing
-                                 saying what unit it is in -- on the one card on this screen whose whole job is
-                                 to state an amount. The sibling screen formats the same kind of figure with
-                                 `currency_format_with_sym(..., getCurrentStore())`
-                                 (customer/view.blade.php:99); this is that call. --}}
-                            <h3 class="mb-0">{{ currency_format_with_sym(($totalSpend['total_spend'] ?? 0), getCurrentStore()) }} <span class="text-success text-sm">
-                        </div>
-                    </div>
-                </div>
-                <div class="col-lg-3 col-6">
-                    <div class="card stats-wrapper info-card">
-                        <div class="card-body stats">
-                            <div class="theme-avtar bg-dark badge">
-                                <i class="ti ti-shopping-cart text-dark" aria-hidden="true"></i>
-                            </div>
-                            <h6 class="mt-4 mb-2">{{ __('Total Orders') }}</h6>
-                            <h3 class="mb-0">{{ $totalSpend['total_orders'] }} <span class="text-success text-sm">
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <x-ss.stats :label="__('Customer totals')">
+                <x-ss.stat
+                    :label="__('Total Spend')"
+                    :value="currency_format_with_sym(($totalSpend['total_spend'] ?? 0), getCurrentStore())"
+                    :period="__('all time')" />
+                <x-ss.stat
+                    :label="__('Total Orders')"
+                    :value="$totalSpend['total_orders'] ?? 0"
+                    :period="__('all time')"
+                    {{-- THIS CUSTOMER's orders, not a global list. `customer.show` renders
+                         customer/view.blade.php with `Order::where('customer_id', $id)
+                         ->where('store_id', ...)`, and it gates on the same `Show Customer`
+                         permission `customerTimeline()` already required to reach this page, so a
+                         viewer who can read the figure can always open what it counts.
+
+                         `route('order.index')` WAS WRITTEN HERE FIRST AND DOES NOT EXIST. The
+                         repository has order.view, order.grid, order.kanban and nine more, but no
+                         `order.index` -- it would have thrown RouteNotFoundException on render.
+                         Caught by grepping the route files before testing, not by the renderer. --}}
+                    :href="route('customer.show', $customer_data->id)"
+                    :hint="__('Opens this customer\'s orders')" />
+            </x-ss.stats>
         </div>
 
         @if (!empty($customer_data->regiester_date))
@@ -357,9 +365,46 @@
             </div>
         </div>
         @else
-        <div class="text-center pt-5">
-            <h2>{{ __('User') }} {{ $customer_data->first_name }} {{ __('has not registered.') }}</h2>
-        </div>
+            {{-- P2.5-PKG-H SLICE 4 -- THE "NEVER REGISTERED" BRANCH WAS A BARE SENTENCE AT h2.
+
+                 THREE THINGS WERE WRONG.
+
+                 1. THE HEADING OUTRANKED THE PAGE TITLE. It was the vendored `<h2>`, which this
+                    theme takes up to 1.75rem, while `--ss-type-page` -- the h1 the layout renders
+                    from `@section('page-title')` -- is 1.5rem. So a status note about one customer
+                    was the largest text on the screen, above the name of the screen itself.
+
+                 2. THE SENTENCE WAS ASSEMBLED FROM THREE FRAGMENTS:
+                    `__('User') . $first_name . __('has not registered.')`. That is the i18n defect
+                    this codebase has the idiom to avoid -- `status.blade.php` already uses
+                    `__('Account status for :name', ['name' => ...])`. Fragment concatenation fixes
+                    ENGLISH word order into every locale: an Arabic translator cannot move the name,
+                    because the name is not in either string. One key with a placeholder can be
+                    reordered freely, and `ar.json` carries one.
+
+                 3. IT WAS THE ONLY EMPTY-ISH STATE ON THIS SCREEN WITH NO ICON AND NO NEXT ACTION
+                    -- a dead end that states a fact and offers nothing.
+
+                 THE ACTION IS REAL, not decoration, and that was checked in the controller rather
+                 than assumed: `CustomerController::show()` falls back to matching
+                 `OrderBillingDetail` on the customer's e-mail when no order carries their
+                 `customer_id` (:404-414), precisely so a GUEST's orders are still reachable. So a
+                 never-registered customer can genuinely have orders to look at, and this is the
+                 one screen that would otherwise hide them. It gates on `Show Customer`, which the
+                 viewer already needed to reach this page.
+
+                 `ti-user-off` was checked against the bundled font before use; ti-user-question,
+                 ti-user-search, ti-id-off and ti-user-circle are all ABSENT from it. --}}
+            <x-ss.empty
+                icon="user-off"
+                :title="__(':name has not registered an account', ['name' => trim($customer_data->first_name . ' ' . $customer_data->last_name)])"
+                :body="__('There is no account activity to show. They may still have ordered as a guest, in which case their orders are listed on their orders page.')">
+                <x-slot:action>
+                    <a href="{{ route('customer.show', $customer_data->id) }}" class="ss-btn ss-btn--secondary ss-btn--sm">
+                        {{ __('View their orders') }}
+                    </a>
+                </x-slot:action>
+            </x-ss.empty>
         @endif
     </div>
 @endsection

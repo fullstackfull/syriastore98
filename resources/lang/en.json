@@ -3452,5 +3452,10 @@
     "Register Date:-": "Register Date:-",
     "Last Login Date:-": "Last Login Date:-",
     "Product:-": "Product:-",
-    "Variant:-": "Variant:-"
+    "Variant:-": "Variant:-",
+    "Customer totals": "Customer totals",
+    "Opens this customer's orders": "Opens this customer's orders",
+    ":name has not registered an account": ":name has not registered an account",
+    "There is no account activity to show. They may still have ordered as a guest, in which case their orders are listed on their orders page.": "There is no account activity to show. They may still have ordered as a guest, in which case their orders are listed on their orders page.",
+    "View their orders": "View their orders"
 }

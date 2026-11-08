@@ -1890,6 +1890,23 @@ img.refund-image {
     -ms-border-radius: 3px;
     -o-border-radius: 3px;
     font-weight: 600;
+    /* P2.5-PKG-H SLICE 5 -- THE PILL FRAGMENTED WHEN ITS TEXT WRAPPED.
+       `.end-date` declared no `display`, so a <span> took the initial `inline`. An inline box that
+       wraps is painted as ONE RECTANGLE PER LINE, and `padding: 3px` is applied only at the two
+       OUTER ends -- so a product list long enough to wrap (an order with several items, which is
+       what `ActivityLog::products()` returns as a comma-separated run of NAMES) broke the pill into
+       ragged background slabs with no padding where it split. Worst at phone width, where the
+       timeline is already one column.
+       MEASURED, in headless Chromium at 360px with a five-name product run in a 300px container:
+       `display:inline` gives getClientRects() length 2 -- 225x17 and 89x17, two separate slabs --
+       and `inline-block; max-width:100%` gives length 1, a single 300x28 box.
+       `inline-block` makes it one box whose text wraps INSIDE it; `max-width: 100%` keeps that box
+       inside the <li> rather than overflowing the card. The pill stays inline-level, so it still
+       sits beside its own label.
+       IDENTICAL IN BOTH MIRRORED SHEETS, and deliberately so: there is no physical value here, so
+       the LTR and RTL copies must not diverge. */
+    display: inline-block;
+    max-width: 100%;
 }
 
 .my-custom-timeline .timeline-schedule {

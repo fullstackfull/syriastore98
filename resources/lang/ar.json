@@ -3483,5 +3483,10 @@
     "Register Date:-": "تاريخ التسجيل:",
     "Last Login Date:-": "تاريخ آخر دخول:",
     "Product:-": "المنتج:",
-    "Variant:-": "الخيار:"
+    "Variant:-": "الخيار:",
+    "Customer totals": "إجماليات العميل",
+    "Opens this customer's orders": "يفتح طلبات هذا العميل",
+    ":name has not registered an account": "لم يُنشئ :name حساباً",
+    "There is no account activity to show. They may still have ordered as a guest, in which case their orders are listed on their orders page.": "لا يوجد نشاط حساب لعرضه. قد يكون اشترى كزائر، وفي هذه الحالة تُدرَج طلباته في صفحة طلباته.",
+    "View their orders": "عرض طلباته"
 }
