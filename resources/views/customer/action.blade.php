@@ -68,10 +68,24 @@
                 class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm"
                 data-bs-placement="top"
                 data-bs-toggle="tooltip"
-                data-confirm="{{ __('Are You Sure?') }}"
-                data-text="{{ __('Are you sure you want to delete this customer? This will archive the customer data.') }}"
-                data-text-yes="{{ __('Yes') }}"
-                data-text-no="{{ __('No') }}"
+                {{-- P2.5-PKG-I -- THE SAME DIALOG REPAIR AS THE TWO ABANDONED-* PARTIALS, and it
+                     is applied here because this is the third of the three destructive dialogs in
+                     this package's nine surfaces. Leaving one of them saying «نعم ..» while its
+                     siblings say "Archive customer" would be a worse outcome than not touching any:
+                     a merchant would meet two different confirmation conventions in one area.
+
+                     THE MESSAGE WAS ALREADY THE BEST OF THE THREE -- it says the record is
+                     ARCHIVED, not destroyed, which is true (`destroy()` soft-deletes) and is more
+                     than the cart and wishlist dialogs said. It is kept and the customer is named,
+                     so the merchant can see WHICH record before confirming.
+
+                     `data-confirm-tone="danger"` opts this trigger into the corrected colour
+                     pairing; the other 120 `.show_confirm` triggers are untouched. --}}
+                data-confirm="{{ __('Archive this customer?') }}"
+                data-text="{{ __(':name will be archived. Their orders and history are kept, and the record stops appearing in the customer list.', ['name' => $customer->name]) }}"
+                data-text-yes="{{ __('Archive customer') }}"
+                data-text-no="{{ __('Keep it') }}"
+                data-confirm-tone="danger"
                 title="{{ __('Delete') }}"
                 aria-label="{{ __('Delete customer :name', ['name' => $customer->name]) }}">
             <i class="ti ti-trash" aria-hidden="true"></i>

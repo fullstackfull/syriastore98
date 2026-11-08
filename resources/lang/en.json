@@ -3466,5 +3466,8 @@
     "Delete wishlist": "Delete wishlist",
     "Keep it": "Keep it",
     "No actions available with your permissions": "No actions available with your permissions",
-    "this customer": "this customer"
+    "this customer": "this customer",
+    "Archive this customer?": "Archive this customer?",
+    ":name will be archived. Their orders and history are kept, and the record stops appearing in the customer list.": ":name will be archived. Their orders and history are kept, and the record stops appearing in the customer list.",
+    "Archive customer": "Archive customer"
 }

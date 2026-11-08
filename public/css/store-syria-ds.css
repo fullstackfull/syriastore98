@@ -6743,3 +6743,43 @@ td.dataTables-empty:has(.ss-empty) {
 .dataTable-empty .dataTable-table td.dataTables-empty:has(.ss-empty) {
     border-bottom-width: 0;
 }
+
+/* ---- The confirmation dialog's TITLE was white on white in dark mode (P2.5-PKG-I) ----
+   ===============================================================================================
+   MEASURED in the running admin, with the dialog actually open:
+
+       .swal2-title   color      rgb(255, 255, 255)
+       .swal2-popup   background rgb(255, 255, 255)      ->  1.00:1
+
+   Not low contrast. INVISIBLE. The merchant sees the warning icon and the body text with a blank
+   band between them where the question should be, on EVERY confirmation in the admin -- 123
+   `.show_confirm` triggers across 107 views -- whenever the dark theme is on.
+
+   THE CAUSE IS THE RULE THIS FILE ALREADY QUOTES TWICE, reached through a surface it did not
+   cover:
+
+       h1, h2, h3, h4, h5, h6 { color: var(--bs-white) !important }        style-dark.css:29442
+
+   `.swal2-title` is an `<h2>`. On the dark page that blanket rule is correct and deliberate; on a
+   panel that stays WHITE in both themes it erases the text. This file records the identical defect
+   for Bootstrap modals -- "every modal title in the admin was invisible" -- and answers it with
+   `[data-ss-theme="dark"] .modal-content ...` overrides. SweetAlert's popup is not a `.modal`, so
+   none of them reached it and the dialog kept the defect after the modal was repaired.
+
+   SAME SHAPE AS THAT FIX, scoped to the always-light surface and `!important` because it is
+   answering an `!important` element selector that a component-level declaration cannot outrank.
+
+   FOUND BY LOOKING AT A CAPTURE. The DOM reported the title present and `display: block`, every
+   test passed, and the string was in the page -- which is why a text-based assertion could never
+   have caught it.
+
+   `--ss-grey-900`, NOT `--ss-fg`, AND I GOT THAT WRONG FIRST. `--ss-fg` is a THEME-SWITCHING
+   token: in dark mode it resolves to the light ink #E8EAED, so the first version of this rule
+   moved the title from #FFFFFF to #E8EAED -- still near-white, still on a white panel, still
+   unreadable. Measured, which is the only reason I noticed. `--ss-grey-900` is the fixed dark ink
+   this file already uses for exactly this situation, on the timeline chip that also keeps a light
+   ground in dark mode. The lesson is the one two comments above state: a theme-switching token on
+   an ALWAYS-LIGHT surface is the defect, not the cure. */
+[data-ss-theme="dark"] .swal2-popup .swal2-title {
+    color: var(--ss-grey-900, #1a1d23) !important;
+}

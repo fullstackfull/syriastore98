@@ -267,10 +267,32 @@ $(document).on('click', '.show_confirm', function (e) {
      * sweep is a separate slice with its own evidence.
      */
     var tone = $(this).attr("data-confirm-tone");
+    /*
+     * THE OPT-IN PATH USES THE DESIGN SYSTEM'S BUTTONS, NOT THE VENDORED `.btn` VARIANTS, and
+     * that is a correction to my own first attempt rather than a preference. The first version of
+     * this opt-in used `btn btn-danger` / `btn btn-secondary`, and the dark-mode capture showed
+     * the confirm button with NO VISIBLE LABEL. Measured in the running page:
+     *
+     *   btn btn-danger       #E8EAED on rgba(255,174,189,.41) over white  ->   1.04:1  FAIL
+     *   btn btn-secondary    #A7ABB2 on rgba(108,117,125,.25) over white  ->   1.68:1  FAIL
+     *   ss-btn ss-btn--danger    #3B0D0A on #F3A9A4                       ->   8.83:1  PASS
+     *   ss-btn ss-btn--secondary #E8EAED on #262B33                       ->  11.81:1  PASS
+     *
+     * The vendored variants pair near-white ink with a translucent pastel, which over the
+     * dialog's white panel is a label you cannot read. The design system's own are built for
+     * both themes and are already ratcheted.
+     *
+     * THE DEFAULT PATH IS LEFT EXACTLY AS IT WAS and is NOT fixed here, which means the other
+     * 120 `.show_confirm` triggers still cancel through a `btn btn-danger` measured at 1.04:1 in
+     * dark mode. That is a real finding and it is recorded rather than swept in: changing it
+     * touches every confirmation in the admin and belongs to the repository-wide slice, with its
+     * own captures. What is NOT acceptable is introducing a new broken pairing while claiming a
+     * repair, which is what the first version of this block did.
+     */
     const swalWithBootstrapButtons = Swal.mixin({
         customClass: {
-            confirmButton: tone === 'danger' ? 'btn btn-danger' : 'btn btn-success',
-            cancelButton: tone === 'danger' ? 'btn btn-secondary' : 'btn btn-danger'
+            confirmButton: tone === 'danger' ? 'ss-btn ss-btn--danger' : 'btn btn-success',
+            cancelButton: tone === 'danger' ? 'ss-btn ss-btn--secondary' : 'btn btn-danger'
         },
         buttonsStyling: false
     })

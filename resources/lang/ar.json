@@ -3497,5 +3497,8 @@
     "Delete wishlist": "حذف قائمة الرغبات",
     "Keep it": "الإبقاء عليها",
     "No actions available with your permissions": "لا إجراءات متاحة بصلاحياتك",
-    "this customer": "هذا العميل"
+    "this customer": "هذا العميل",
+    "Archive this customer?": "أرشفة هذا العميل؟",
+    ":name will be archived. Their orders and history are kept, and the record stops appearing in the customer list.": "ستُؤرشَف :name. تُحفَظ طلباته وسجلّه، ويتوقّف ظهور السجلّ في قائمة العملاء.",
+    "Archive customer": "أرشفة العميل"
 }
