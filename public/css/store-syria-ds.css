@@ -4499,6 +4499,30 @@ a.ss-setup__item:focus-visible {
    `.ss-col-locked` is included because the same cell carries both classes and `.ss-col-locked`
    is the half that sets `inset-inline-end`. Ratchet: StackedTableRowTest. */
 @media (max-width: 575.98px) {
+    /* P2.5-PKG-I -- A LONG VALUE WAS CLIPPED, AND IN RTL IT LOST ITS START.
+       ======================================================================================
+       MEASURED on the abandoned-carts row at 320px, in the running admin: the e-mail cell held
+       the full `nour.saleh@example.test` in the DOM but rendered `.saleh@example.test`.
+
+           scrollWidth 269   clientWidth 232      -> overflows by 37px
+           white-space nowrap                     -> cannot wrap away the overflow
+           text-overflow clip                     -> no ellipsis, the text is simply cut
+           direction rtl                          -> the cut falls on the LOGICAL START
+
+       So the merchant lost the beginning of the address -- the part that identifies the person --
+       while the domain, which identifies nobody, survived. An ellipsis would be no better here:
+       an e-mail is an identifier a merchant may need to READ, not a label to recognise, so the
+       repair is to let it WRAP rather than to truncate it more politely.
+
+       `anywhere` and not `break-word`: an address has no spaces, so only a rule permitting a
+       break at an arbitrary point can place one. Scoped to the stacked card, where a cell is a
+       full-width row and a second line costs nothing; the wide table is untouched, and nothing
+       here is a physical value. */
+    .ss-dt-card-body table.dataTable > tbody > tr > td {
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
     .ss-dt-card-body table.dataTable > tbody > tr > td.ss-col-locked,
     .ss-dt-card-body table.dataTable > thead > tr > th.ss-col-locked,
     .ss-dt-card-body table.dataTable > tbody > tr > td.ss-col-pinned,
