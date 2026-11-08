@@ -3488,5 +3488,14 @@
     "Opens this customer's orders": "يفتح طلبات هذا العميل",
     ":name has not registered an account": "لم يُنشئ :name حساباً",
     "There is no account activity to show. They may still have ordered as a guest, in which case their orders are listed on their orders page.": "لا يوجد نشاط حساب لعرضه. قد يكون اشترى كزائر، وفي هذه الحالة تُدرَج طلباته في صفحة طلباته.",
-    "View their orders": "عرض طلباته"
+    "View their orders": "عرض طلباته",
+    "Delete this abandoned cart?": "حذف هذه السلّة المتروكة؟",
+    "Delete this abandoned wishlist?": "حذف قائمة الرغبات المتروكة هذه؟",
+    "This removes all :count items in :name's abandoned cart. It cannot be undone.": "يحذف هذا كل العناصر (:count) في سلّة :name المتروكة. لا يمكن التراجع.",
+    "This removes all :count items in :name's wishlist. It cannot be undone.": "يحذف هذا كل العناصر (:count) في قائمة رغبات :name. لا يمكن التراجع.",
+    "Delete cart": "حذف السلّة",
+    "Delete wishlist": "حذف قائمة الرغبات",
+    "Keep it": "الإبقاء عليها",
+    "No actions available with your permissions": "لا إجراءات متاحة بصلاحياتك",
+    "this customer": "هذا العميل"
 }

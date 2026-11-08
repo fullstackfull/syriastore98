@@ -3457,5 +3457,14 @@
     "Opens this customer's orders": "Opens this customer's orders",
     ":name has not registered an account": ":name has not registered an account",
     "There is no account activity to show. They may still have ordered as a guest, in which case their orders are listed on their orders page.": "There is no account activity to show. They may still have ordered as a guest, in which case their orders are listed on their orders page.",
-    "View their orders": "View their orders"
+    "View their orders": "View their orders",
+    "Delete this abandoned cart?": "Delete this abandoned cart?",
+    "Delete this abandoned wishlist?": "Delete this abandoned wishlist?",
+    "This removes all :count items in :name's abandoned cart. It cannot be undone.": "This removes all :count items in :name's abandoned cart. It cannot be undone.",
+    "This removes all :count items in :name's wishlist. It cannot be undone.": "This removes all :count items in :name's wishlist. It cannot be undone.",
+    "Delete cart": "Delete cart",
+    "Delete wishlist": "Delete wishlist",
+    "Keep it": "Keep it",
+    "No actions available with your permissions": "No actions available with your permissions",
+    "this customer": "this customer"
 }
