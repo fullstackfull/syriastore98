@@ -46,6 +46,36 @@ Every Kanban card carries a `نقل إلى…` select **and** a `نقل` button.
 controls on one screen, each of which can move an order to another status. The board's own
 drag-and-drop presumably does the same thing.
 
+## At 390px — twelve more captures, 0 premise failures
+
+The table becomes stacked label/value rows, which is the phone pattern this project already has.
+Three of the six findings above survive the width, and two more appear that 1440 did not show.
+
+### F-M-05 confirmed
+`#P25CUSTFILTER-2-2` still renders as `P25CUSTFILTER-2-2#`. Not a desktop-only artefact.
+
+### F-M-07 — the dates are not localised at all, not just the placeholders
+Rows read `Nov 6, 2026` on the Arabic page: a Latin month abbreviation in a right-to-left line.
+F-M-02 was the browser's `mm/dd/yyyy` *placeholder*; this is the rendered value, and it is the same
+defect P2.5-PKG-L fixed on the customer timeline with `App\Support\TimelineMoment` — `format()`
+rather than `translatedFormat()`. **The helper already exists**, so this is a reuse rather than a
+new mechanism.
+
+### F-M-08 — a status chip with a date inside it
+`حالة الطلب` renders `معلق : Nov 6, 2026` — an Arabic status, a Latin colon and a Latin date inside
+one coloured chip. Two facts in one control, in two scripts, with punctuation from a third
+convention.
+
+### F-M-09 — four unlabelled icon buttons in the action row
+Delete, edit, view and one more, at phone size, with no visible text. This project has an
+established `aria-label` pattern for exactly this (P2.5-PKG-I's action cells); whether these four
+carry one has not been checked yet.
+
+### Not a finding, worth recording: `نقداً عند التسليم`
+The order list **does** translate the payment type. The customer timeline did not until PKG-L, and
+the two go through different code paths — so the fix there was not redundant, and this screen is
+evidence that the translation exists to be reached.
+
 ## What this is not
 
 * Not a defect list to fix blind. The owner's instruction is that the worklist is "leads requiring
