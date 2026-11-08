@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\{ActivityLog, Cart, Customer, Store, Wishlist};
+use App\Services\AbandonedMessageDispatch;
 use App\Models\ProductVariant;
 use App\Models\Utility;
 use Illuminate\Http\Request;
@@ -546,7 +547,15 @@ class WishlistController extends Controller
         }
 
         $customer_id = $cart->customer_id;
-        $mobile = $cart->UserData;
+
+        /*
+         * P2.5-PKG-K. `UserData` IS THE RELATION, SO `->mobile` IS THE PHONE NUMBER. This line
+         * used to hand the whole Customer MODEL to `Utility::SendMsgs()`, which does not throw --
+         * `Eloquent\Model::__toString()` is `toJson()` -- so the WhatsApp recipient became the
+         * shopper's record serialised as JSON. See the identical note in
+         * CartController::abandon_carts_messsend() for the measurement.
+         */
+        $mobile = $cart->UserData?->mobile;
         try {
             $dArr = Wishlist::where('customer_id', $customer_id)->where('store_id', $storeId)
                 ->pluck('product_id')->toArray();
@@ -558,31 +567,49 @@ class WishlistController extends Controller
             $product_name = implode(',', $product);
             $store = getStoreById(getCurrentStore());
             $msg = __("We noticed that you have been browsing our site and have added some fantastic items to your wishlist. Hurry, some of these items are selling out fast. With limited stock and high demand, now is the perfect time to make your dream purchases, Added Product name : $product_name");
-            $resp = Utility::SendMsgs('Abandon Cart', $mobile, $msg);
+            /*
+             * THE OUTCOME IS DERIVED FROM THE STATE, NOT FROM THE RETURN VALUE, because there is
+             * no return value: `Utility::SendMsgs()` has no `return` on any path that does not
+             * throw, and `null == false` is true in PHP -- so this handler reported failure 100%
+             * of the time with a hardcoded "Invalid Auth access token" whatever the cause.
+             * Measured byte-identical for an unconfigured store and a fully configured one.
+             *
+             * THE TEMPLATE NAME IS 'Abandon Cart' ON A WISHLIST ACTION, and that is NOT corrected
+             * here. It is the same name `SendMsgs()` was already being given, so changing it would
+             * change which template this action reads and could silence a merchant whose
+             * 'Abandon Cart' template is on and 'Abandon Wishlist' is off. It sits beside the
+             * permission mismatch the block above records for the same reason. Both are reported,
+             * neither is changed, and the test asserts the name actually used.
+             *
+             * `SendMsgs()` itself is unchanged -- the shared contract is reserved to the owner --
+             * so the honest report is that the message was HANDED TO WhatsApp, not delivered.
+             */
+            $dispatch = app(AbandonedMessageDispatch::class);
+            $blocked = $dispatch->blockedReason('Abandon Cart', $mobile, (int) $storeId);
 
-            // $return = 'Mail send successfully';
-            if ($resp == false) {
-                return response()->json(
-                    [
-                        'is_success' => false,
-                        'message' => __("Invalid Auth access token - Cannot parse access token"),
-                    ]
-                );
-            } else {
-                return response()->json(
-                    [
-                        'is_success' => true,
-                        'message' => __('Message send successfully'),
-                    ]
-                );
+            if ($blocked !== null) {
+                return response()->json(['is_success' => false, 'message' => $blocked]);
             }
-        } catch (\Exception $e) {
 
-            $smtp_error = __('Invalid Auth access token - Cannot parse access token');
+            $dispatch->handOver('Abandon Cart', (string) $mobile, $msg);
+
+            return response()->json(
+                [
+                    'is_success' => true,
+                    'message' => __('Message queued for WhatsApp delivery.'),
+                ]
+            );
+        } catch (\Exception $e) {
+            \Log::warning('abandoned-wishlist WhatsApp nudge failed', [
+                'store_id' => $storeId,
+                'wish_id' => $request->wish_id,
+                'exception' => $e->getMessage(),
+            ]);
+
             return response()->json(
                 [
                     'is_success' => false,
-                    'message' => $smtp_error,
+                    'message' => __('The message could not be prepared. Please try again, and check the WhatsApp settings if it keeps failing.'),
                 ]
             );
         }

@@ -19,6 +19,8 @@ use Tests\Feature\Security\SecurityTestCase;
  * a rendered partial". True of the source, false of the running screen. The table rendered
  *
  *     HEADERS: ["", "العميل", "البريد الإلكتروني", "المنتجات", "العمل"]
+ *     (P2.5-PKG-L renamed the Arabic `Customer` to "الزبون", to agree with the sidebar's
+ *     "الزبائن"; the line above is the measurement as it was taken and is left as the record.)
  *     ROW 0:   ["", "Nour Saleh", "nour.saleh@example.test", "5", ""]
  *
  * -- a column titled "Action" whose every cell was LITERALLY EMPTY for a viewer holding none of

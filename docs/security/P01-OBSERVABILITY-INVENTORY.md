@@ -162,8 +162,10 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Api/DeliverySyriaOrderController.php:82` | Delivery Syria invalid credentials |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:342` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:384` | AuthorizeNet capture refused: no server-computed payable in the stored state. |
-| `app/Http/Controllers/CartController.php:247` | product_cart: refused a non-positive or non-integer quantity |
-| `app/Http/Controllers/CartController.php:300` | product_cart: refused a product belonging to another store |
+| `app/Http/Controllers/CartController.php:248` | product_cart: refused a non-positive or non-integer quantity |
+| `app/Http/Controllers/CartController.php:301` | product_cart: refused a product belonging to another store |
+| `app/Http/Controllers/CartController.php:1447` | abandoned-cart WhatsApp nudge failed |
+| `app/Http/Controllers/WishlistController.php:603` | abandoned-wishlist WhatsApp nudge failed |
 | `app/Http/Controllers/CinetPayController.php:516` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:133` | Gateway return refused: no server-stored checkout state. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:282` | Gateway return carries no claimable identity; falling back to the session control alone. |
