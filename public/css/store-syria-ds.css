@@ -1914,6 +1914,96 @@
     color: var(--ss-fg) !important;
 }
 
+/* ---- P2.5-PKG-J: the SAME TWO BUTTONS, on the confirmation dialog's white sheet --------------
+
+   THE RULE DIRECTLY ABOVE IS THE CAUSE OF A 1.04:1 LABEL, and this block is its correction rather
+   than a new feature. Measured in the running admin with the dialog actually open, via
+   `CSS.getMatchedStylesForNode` so the winning declaration is the cascade's own answer and not my
+   reading of four stylesheets:
+
+       .swal2-cancel   is `btn btn-danger`.  `--bs-btn-bg: rgba(255,174,189,.41)` (style-dark.css
+                       :3612) over the sheet composites to rgb(255,222,228) -- a pale pink, not the
+                       "mid mauve" the rule above was measured against -- and the rule above then
+                       puts `--ss-fg` #e8eaed on it.          1.04:1     A LABEL NOBODY CAN READ.
+
+       .swal2-confirm  is `btn btn-success`.  `--bs-btn-color: #5eb839` with
+                       `--bs-btn-bg: var(--third-color)`, and `--third-color` RESOLVES TO THE EMPTY
+                       STRING on this element, so the fill is invalid-at-computed-value and falls
+                       back to transparent. Light green on the white sheet.      2.50:1.
+
+   SO IT IS NOT ONLY THE CANCEL BUTTON. The 1.04:1 figure recorded in `custom.js` named the cancel
+   button alone because that is where the capture was looked at; measuring every part of the open
+   dialog found the CONFIRM button failing too, at 2.50:1, which means the merchant cannot read
+   EITHER answer to a destructive question in the dark theme.
+
+   THE SHAPE IS THE ONE THIS FILE HAS NOW RECORDED THREE TIMES. `data-ss-theme` sits on <html>, so
+   a dark-page rule also reaches every surface that deliberately stays LIGHT in dark mode:
+
+       P2.5-A-02    `.btn-secondary` on the page            -> right
+       P2.5-WAVE-17a the same button inside `.modal-content` -> 1.69:1, corrected by naming it
+       P2.5-PKG-I   `.swal2-title`                           -> 1.00:1, corrected by naming it
+       P2.5-PKG-J   these two buttons on `.swal2-popup`      -> 1.04:1 and 2.50:1
+
+   Each time the page-level rule was correct and incomplete, and each time the SweetAlert sheet was
+   missed because IT IS NOT A `.modal` -- none of the `.modal-content` overrides reach it.
+
+   THE TARGET IS NOT INVENTED: IT IS WHAT LIGHT MODE ALREADY SHOWS ON THIS SAME SHEET. The sheet
+   is `#ffffff` in both themes and the host paints the two fills identically in both sheets
+   (style.css:3555 == style-dark.css:3561), so the light theme's own inks are already measured
+   correct against exactly these grounds -- 7.82:1 and 7.30:1, captured in all three widths. This
+   block therefore makes the dark dialog IDENTICAL to the light dialog rather than giving it a
+   fourth appearance, and the two figures above are a PREDICTION this block must reproduce.
+
+   LAYER-1 PRIMITIVES, NOT `--ss-success-fg` / `--ss-danger-fg`, AND THAT IS THE WHOLE LESSON OF
+   THE THREE ROWS ABOVE. Those semantic tokens re-theme: inside `[data-ss-theme="dark"]` they
+   resolve to #7fd6a0 and #f3a9a4 (:579-581), light inks, which on a pale pink ground is the defect
+   again with a different hex. `--ss-green-800` #165e34 and `--ss-red-800` #8c1d17 are never
+   re-declared in the dark block, and they are byte-identical to the inks light mode already uses
+   here. I got this wrong twice before -- once with `--ss-fg` on the title, once with the modal --
+   so it is stated rather than assumed.
+
+   AND IT WAS NOT LEFT AS AN ASSERTION: the semantic version was applied to this sheet and
+   re-measured in the running admin. #7fd6a0 on the white sheet is 1.75:1 and #f3a9a4 on the pale
+   pink is 1.53:1 -- so the obvious repair leaves the cancel button unreadable and makes the
+   confirm button WORSE than the 2.50:1 defect it replaces. Removing both rules put 2.50:1 and
+   1.04:1 straight back, which is how I know these two declarations are what is carrying the
+   change and not a cache.
+
+   ONLY THE TEXT COLOUR MOVES, same as the block above. The fills stay as the host paints them,
+   which is what keeps this change confined to the dialog's labels. One consequence is inherited
+   and NOT introduced here: the confirm button has no visible fill, because `var(--third-color)`
+   resolves to nothing -- in LIGHT mode too. That is the shape defect the P2.5-A-02 docblock
+   already records as out of scope for a text-colour change, and it is unchanged by this block.
+
+   REACH, MEASURED RATHER THAN ESTIMATED. `btn btn-success` / `btn btn-danger` is the pairing of
+   EVERY first-party and vendored confirmation pathway: the shared `.show_confirm` handler
+   (124 triggers across 107 views, 55 first-party + 52 vendored), `.order_replace` in
+   order/view.blade.php, both terminal refund dialogs in order/refund_details.blade.php, and four
+   vendored modules including BulkDelete. A rule scoped to `.swal2-popup` reaches all of them
+   WITHOUT editing anything under packages/workdo/.
+
+   WHAT THIS DOES NOT FIX, measured and left alone deliberately:
+     - the warning icon ring and its `!` glyph, #ffa21d on white, 2.01:1 -- which fails in LIGHT
+       mode too, so it is not this defect and recolouring it changes every dialog in both themes;
+     - `.swal2-close`, which measures 1.61:1 but is 0x0 px because `showCloseButton` is never set,
+       so it does not render and is not a defect.
+
+   Ratchet: Tests\Unit\Ui\ConfirmDialogButtonContrastTest, which recomputes both ratios from the
+   two colours, forbids the semantic-token simplification by name, and fails if a confirmation
+   pathway starts using a button variant this block does not cover. Measured in situ by
+   docs/development/phase-2.5/tools/audit-dialog-contrast.cjs in all four combinations at 1440,
+   390 and 320. */
+[data-ss-theme="dark"] .swal2-popup .btn-success,
+[data-ss-theme="dark"] .swal2-popup .btn-success:not(:hover):not(:focus):not(:active) {
+    color: var(--ss-green-800, #165e34) !important;
+}
+
+[data-ss-theme="dark"] .swal2-popup .btn-danger,
+[data-ss-theme="dark"] .swal2-popup .btn-danger:not(:hover):not(:focus):not(:active) {
+    color: var(--ss-red-800, #8c1d17) !important;
+}
+/* end P2.5-PKG-J */
+
 /* `.btn-info` IS THE ONLY VARIANT WHOSE CHIP DOES NOT CHANGE WITH THE THEME -- the host paints it
    `#e8f8ff` in BOTH sheets -- so it gets ONE declaration across both, and the token has to be one
    that does not flip. A semantic `--ss-*-fg` would: it is a dark step in light and a light step in

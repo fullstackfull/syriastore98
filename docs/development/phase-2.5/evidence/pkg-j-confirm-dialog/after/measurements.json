@@ -1,0 +1,7742 @@
+[
+  {
+    "id": "A-shared-destructive__en-light-desktop",
+    "key": "A-shared-destructive",
+    "cls": "destructive",
+    "lang": "en",
+    "dir": "ltr",
+    "theme": "light",
+    "width": "desktop",
+    "premise": [
+      "signed-in",
+      "dir=ltr",
+      "theme=light",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "Delete this abandoned cart?",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 512,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "This removes all 5 items in Nour Saleh's",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 454,
+        "h": 54,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "Delete cart",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 112,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "Keep it",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 88,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A-shared-destructive__en-light-desktop.png",
+    "ok": true
+  },
+  {
+    "id": "A2-shared-optin__en-light-desktop",
+    "key": "A2-shared-optin",
+    "cls": "destructive (opt-in tone, already repaired in PKG-I)",
+    "lang": "en",
+    "dir": "ltr",
+    "theme": "light",
+    "width": "desktop",
+    "premise": [
+      "signed-in",
+      "dir=ltr",
+      "theme=light",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "Delete this abandoned cart?",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 512,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "This removes all 5 items in Nour Saleh's",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 454,
+        "h": 54,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "Delete cart",
+        "ink": [
+          255,
+          255,
+          255
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          179,
+          38,
+          30
+        ],
+        "declaredBg": "rgb(179, 38, 30)",
+        "borderColor": "rgb(179, 38, 30)",
+        "w": 105,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm ss-btn ss-btn--danger",
+        "rendered": true,
+        "ratio": 6.54,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "Keep it",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgb(255, 255, 255)",
+        "borderColor": "rgb(136, 140, 147)",
+        "w": 79,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel ss-btn ss-btn--secondary",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A2-shared-optin__en-light-desktop.png",
+    "ok": true
+  },
+  {
+    "id": "C-refund-cancel__en-light-desktop",
+    "key": "C-refund-cancel",
+    "cls": "payment-adjacent (terminal)",
+    "lang": "en",
+    "dir": "ltr",
+    "theme": "light",
+    "width": "desktop",
+    "premise": [
+      "signed-in",
+      "dir=ltr",
+      "theme=light",
+      "url=/refund-request/eyJpdiI6IlRmcDRaRW5tSDBtUWt0dDcyRFA1d1E9PSIsInZhbHVlIjoiMTBVL1YxeFNRbVlhTEZCdWdZVjdSUT09IiwibWFjIjoiNmQ2MTJkNDhiMGNlNTlhYzg4NWU5NzI1NGZhOGE4NmNjMjAxYjEwMjU1M2Q5NTkyZmRhZmM1YzgzODE4M2UwMyIsInRhZyI6IiJ9",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "Are You Sure?",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 512,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "This action can not be undone. Do you wa",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 454,
+        "h": 27,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "Yes",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 64,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "No",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 62,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__C-refund-cancel__en-light-desktop.png",
+    "ok": true
+  },
+  {
+    "id": "A-shared-destructive__en-light-w390",
+    "key": "A-shared-destructive",
+    "cls": "destructive",
+    "lang": "en",
+    "dir": "ltr",
+    "theme": "light",
+    "width": "w390",
+    "premise": [
+      "signed-in",
+      "dir=ltr",
+      "theme=light",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "Delete this abandoned cart?",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 373,
+        "h": 96,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "This removes all 5 items in Nour Saleh's",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 315,
+        "h": 81,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "Delete cart",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 112,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "Keep it",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 88,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A-shared-destructive__en-light-w390.png",
+    "ok": true
+  },
+  {
+    "id": "A2-shared-optin__en-light-w390",
+    "key": "A2-shared-optin",
+    "cls": "destructive (opt-in tone, already repaired in PKG-I)",
+    "lang": "en",
+    "dir": "ltr",
+    "theme": "light",
+    "width": "w390",
+    "premise": [
+      "signed-in",
+      "dir=ltr",
+      "theme=light",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "Delete this abandoned cart?",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 373,
+        "h": 96,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "This removes all 5 items in Nour Saleh's",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 315,
+        "h": 81,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "Delete cart",
+        "ink": [
+          255,
+          255,
+          255
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          179,
+          38,
+          30
+        ],
+        "declaredBg": "rgb(179, 38, 30)",
+        "borderColor": "rgb(179, 38, 30)",
+        "w": 105,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm ss-btn ss-btn--danger",
+        "rendered": true,
+        "ratio": 6.54,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "Keep it",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgb(255, 255, 255)",
+        "borderColor": "rgb(136, 140, 147)",
+        "w": 79,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel ss-btn ss-btn--secondary",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A2-shared-optin__en-light-w390.png",
+    "ok": true
+  },
+  {
+    "id": "C-refund-cancel__en-light-w390",
+    "key": "C-refund-cancel",
+    "cls": "payment-adjacent (terminal)",
+    "lang": "en",
+    "dir": "ltr",
+    "theme": "light",
+    "width": "w390",
+    "premise": [
+      "signed-in",
+      "dir=ltr",
+      "theme=light",
+      "url=/refund-request/eyJpdiI6Imd2cDVLL0U0NEJScnZxS25aaXpINlE9PSIsInZhbHVlIjoiRDUxWldTL3dIc2RpRkkwbzNRMy9PQT09IiwibWFjIjoiMWU3ZWYwMTEzNWUxNzRmNDQ5NzVlMDJmMmRiNTQyNjg2ZmVmY2JmMjgwYzcyOTcwNDI2MzUyYWIxNDhhODRkMyIsInRhZyI6IiJ9",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "Are You Sure?",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 373,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "This action can not be undone. Do you wa",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 315,
+        "h": 54,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "Yes",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 64,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "No",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 62,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__C-refund-cancel__en-light-w390.png",
+    "ok": true
+  },
+  {
+    "id": "A-shared-destructive__en-light-w320",
+    "key": "A-shared-destructive",
+    "cls": "destructive",
+    "lang": "en",
+    "dir": "ltr",
+    "theme": "light",
+    "width": "w320",
+    "premise": [
+      "signed-in",
+      "dir=ltr",
+      "theme=light",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "Delete this abandoned cart?",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 303,
+        "h": 96,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "This removes all 5 items in Nour Saleh's",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 245,
+        "h": 81,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "Delete cart",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 112,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "Keep it",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 88,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A-shared-destructive__en-light-w320.png",
+    "ok": true
+  },
+  {
+    "id": "A2-shared-optin__en-light-w320",
+    "key": "A2-shared-optin",
+    "cls": "destructive (opt-in tone, already repaired in PKG-I)",
+    "lang": "en",
+    "dir": "ltr",
+    "theme": "light",
+    "width": "w320",
+    "premise": [
+      "signed-in",
+      "dir=ltr",
+      "theme=light",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "Delete this abandoned cart?",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 303,
+        "h": 96,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "This removes all 5 items in Nour Saleh's",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 245,
+        "h": 81,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "Delete cart",
+        "ink": [
+          255,
+          255,
+          255
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          179,
+          38,
+          30
+        ],
+        "declaredBg": "rgb(179, 38, 30)",
+        "borderColor": "rgb(179, 38, 30)",
+        "w": 105,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm ss-btn ss-btn--danger",
+        "rendered": true,
+        "ratio": 6.54,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "Keep it",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgb(255, 255, 255)",
+        "borderColor": "rgb(136, 140, 147)",
+        "w": 79,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel ss-btn ss-btn--secondary",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A2-shared-optin__en-light-w320.png",
+    "ok": true
+  },
+  {
+    "id": "C-refund-cancel__en-light-w320",
+    "key": "C-refund-cancel",
+    "cls": "payment-adjacent (terminal)",
+    "lang": "en",
+    "dir": "ltr",
+    "theme": "light",
+    "width": "w320",
+    "premise": [
+      "signed-in",
+      "dir=ltr",
+      "theme=light",
+      "url=/refund-request/eyJpdiI6IjlwSVZRd1JrWnQvMGJZTzZ3elB0UVE9PSIsInZhbHVlIjoiREo5MDlpb2dMdGhGM1BQUzRLWFFoZz09IiwibWFjIjoiZWRhZjAwYjJjNDI5ZjkyM2FkYjE1ODlkYTdjY2FlOTc5ZTM4MjA5YTYwZThlOTg4NjVkMjQxOGE2ZWE3MjdhOCIsInRhZyI6IiJ9",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "Are You Sure?",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 303,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "This action can not be undone. Do you wa",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 245,
+        "h": 81,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "Yes",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 64,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "No",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 62,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__C-refund-cancel__en-light-w320.png",
+    "ok": true
+  },
+  {
+    "id": "A-shared-destructive__en-dark-desktop",
+    "key": "A-shared-destructive",
+    "cls": "destructive",
+    "lang": "en",
+    "dir": "ltr",
+    "theme": "dark",
+    "width": "desktop",
+    "premise": [
+      "signed-in",
+      "dir=ltr",
+      "theme=dark",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "Delete this abandoned cart?",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(26, 29, 35)",
+        "w": 512,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "This removes all 5 items in Nour Saleh's",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 454,
+        "h": 54,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "Delete cart",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 112,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "Keep it",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 88,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A-shared-destructive__en-dark-desktop.png",
+    "ok": true
+  },
+  {
+    "id": "A2-shared-optin__en-dark-desktop",
+    "key": "A2-shared-optin",
+    "cls": "destructive (opt-in tone, already repaired in PKG-I)",
+    "lang": "en",
+    "dir": "ltr",
+    "theme": "dark",
+    "width": "desktop",
+    "premise": [
+      "signed-in",
+      "dir=ltr",
+      "theme=dark",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "Delete this abandoned cart?",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(26, 29, 35)",
+        "w": 512,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "This removes all 5 items in Nour Saleh's",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 454,
+        "h": 54,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "Delete cart",
+        "ink": [
+          59,
+          13,
+          10
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          243,
+          169,
+          164
+        ],
+        "declaredBg": "rgb(243, 169, 164)",
+        "borderColor": "rgb(243, 169, 164)",
+        "w": 105,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm ss-btn ss-btn--danger",
+        "rendered": true,
+        "ratio": 8.83,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "Keep it",
+        "ink": [
+          232,
+          234,
+          237
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          38,
+          43,
+          51
+        ],
+        "declaredBg": "rgb(38, 43, 51)",
+        "borderColor": "rgb(125, 130, 138)",
+        "w": 79,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel ss-btn ss-btn--secondary",
+        "rendered": true,
+        "ratio": 11.81,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A2-shared-optin__en-dark-desktop.png",
+    "ok": true
+  },
+  {
+    "id": "C-refund-cancel__en-dark-desktop",
+    "key": "C-refund-cancel",
+    "cls": "payment-adjacent (terminal)",
+    "lang": "en",
+    "dir": "ltr",
+    "theme": "dark",
+    "width": "desktop",
+    "premise": [
+      "signed-in",
+      "dir=ltr",
+      "theme=dark",
+      "url=/refund-request/eyJpdiI6IlFGMWRjZnpzWEdFWitoT2c2c2xTckE9PSIsInZhbHVlIjoiTEQxZng4Mk81RjdIRm9GTDd0aE5NQT09IiwibWFjIjoiYjlhZmEwMWMyZTgxOWE0ZGE4NTU5NmY4Yjc4OWNiYTQ3ODkxNTk1MTI2NWIzODNmNzM1OGE4MzhkYmMyYzk1NCIsInRhZyI6IiJ9",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "Are You Sure?",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(26, 29, 35)",
+        "w": 512,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "This action can not be undone. Do you wa",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 454,
+        "h": 27,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "Yes",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 64,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "No",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 62,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__C-refund-cancel__en-dark-desktop.png",
+    "ok": true
+  },
+  {
+    "id": "A-shared-destructive__en-dark-w390",
+    "key": "A-shared-destructive",
+    "cls": "destructive",
+    "lang": "en",
+    "dir": "ltr",
+    "theme": "dark",
+    "width": "w390",
+    "premise": [
+      "signed-in",
+      "dir=ltr",
+      "theme=dark",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "Delete this abandoned cart?",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(26, 29, 35)",
+        "w": 373,
+        "h": 96,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "This removes all 5 items in Nour Saleh's",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 315,
+        "h": 81,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "Delete cart",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 112,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "Keep it",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 88,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A-shared-destructive__en-dark-w390.png",
+    "ok": true
+  },
+  {
+    "id": "A2-shared-optin__en-dark-w390",
+    "key": "A2-shared-optin",
+    "cls": "destructive (opt-in tone, already repaired in PKG-I)",
+    "lang": "en",
+    "dir": "ltr",
+    "theme": "dark",
+    "width": "w390",
+    "premise": [
+      "signed-in",
+      "dir=ltr",
+      "theme=dark",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "Delete this abandoned cart?",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(26, 29, 35)",
+        "w": 373,
+        "h": 96,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "This removes all 5 items in Nour Saleh's",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 315,
+        "h": 81,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "Delete cart",
+        "ink": [
+          59,
+          13,
+          10
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          243,
+          169,
+          164
+        ],
+        "declaredBg": "rgb(243, 169, 164)",
+        "borderColor": "rgb(243, 169, 164)",
+        "w": 105,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm ss-btn ss-btn--danger",
+        "rendered": true,
+        "ratio": 8.83,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "Keep it",
+        "ink": [
+          232,
+          234,
+          237
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          38,
+          43,
+          51
+        ],
+        "declaredBg": "rgb(38, 43, 51)",
+        "borderColor": "rgb(125, 130, 138)",
+        "w": 79,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel ss-btn ss-btn--secondary",
+        "rendered": true,
+        "ratio": 11.81,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A2-shared-optin__en-dark-w390.png",
+    "ok": true
+  },
+  {
+    "id": "C-refund-cancel__en-dark-w390",
+    "key": "C-refund-cancel",
+    "cls": "payment-adjacent (terminal)",
+    "lang": "en",
+    "dir": "ltr",
+    "theme": "dark",
+    "width": "w390",
+    "premise": [
+      "signed-in",
+      "dir=ltr",
+      "theme=dark",
+      "url=/refund-request/eyJpdiI6Imk3cDBJOVpXN24zeDlSa083TFI2RkE9PSIsInZhbHVlIjoiVnEyNm5SQUdQV0tnbWJpTjdZZFRRUT09IiwibWFjIjoiZThmYWZmNjc1NjA1YWI4NTY0MTViMWIxZTAwYzhlNDk4NmE4NmM2ZTVjZjE5NDkyNGQ0Mzk5OTQyMTNjOWUzZSIsInRhZyI6IiJ9",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "Are You Sure?",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(26, 29, 35)",
+        "w": 373,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "This action can not be undone. Do you wa",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 315,
+        "h": 54,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "Yes",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 64,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "No",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 62,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__C-refund-cancel__en-dark-w390.png",
+    "ok": true
+  },
+  {
+    "id": "A-shared-destructive__en-dark-w320",
+    "key": "A-shared-destructive",
+    "cls": "destructive",
+    "lang": "en",
+    "dir": "ltr",
+    "theme": "dark",
+    "width": "w320",
+    "premise": [
+      "signed-in",
+      "dir=ltr",
+      "theme=dark",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "Delete this abandoned cart?",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(26, 29, 35)",
+        "w": 303,
+        "h": 96,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "This removes all 5 items in Nour Saleh's",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 245,
+        "h": 81,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "Delete cart",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 112,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "Keep it",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 88,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A-shared-destructive__en-dark-w320.png",
+    "ok": true
+  },
+  {
+    "id": "A2-shared-optin__en-dark-w320",
+    "key": "A2-shared-optin",
+    "cls": "destructive (opt-in tone, already repaired in PKG-I)",
+    "lang": "en",
+    "dir": "ltr",
+    "theme": "dark",
+    "width": "w320",
+    "premise": [
+      "signed-in",
+      "dir=ltr",
+      "theme=dark",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "Delete this abandoned cart?",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(26, 29, 35)",
+        "w": 303,
+        "h": 96,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "This removes all 5 items in Nour Saleh's",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 245,
+        "h": 81,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "Delete cart",
+        "ink": [
+          59,
+          13,
+          10
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          243,
+          169,
+          164
+        ],
+        "declaredBg": "rgb(243, 169, 164)",
+        "borderColor": "rgb(243, 169, 164)",
+        "w": 105,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm ss-btn ss-btn--danger",
+        "rendered": true,
+        "ratio": 8.83,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "Keep it",
+        "ink": [
+          232,
+          234,
+          237
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          38,
+          43,
+          51
+        ],
+        "declaredBg": "rgb(38, 43, 51)",
+        "borderColor": "rgb(125, 130, 138)",
+        "w": 79,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel ss-btn ss-btn--secondary",
+        "rendered": true,
+        "ratio": 11.81,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A2-shared-optin__en-dark-w320.png",
+    "ok": true
+  },
+  {
+    "id": "C-refund-cancel__en-dark-w320",
+    "key": "C-refund-cancel",
+    "cls": "payment-adjacent (terminal)",
+    "lang": "en",
+    "dir": "ltr",
+    "theme": "dark",
+    "width": "w320",
+    "premise": [
+      "signed-in",
+      "dir=ltr",
+      "theme=dark",
+      "url=/refund-request/eyJpdiI6IlRrNXJka3FGdmY0Y1FlQUhFM0k2ZlE9PSIsInZhbHVlIjoiVnVVWlYyd2ZQNHg5Zk1XdDlHNFduZz09IiwibWFjIjoiNzAwMTYxOTNjMjQxMmI4NDEyZDE3MDkxMzgwZTJmMTYzYzI4ZDJiNDM3MGUyZDRjMDI5M2Y2YjU2NjY5ZGZlZSIsInRhZyI6IiJ9",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "Are You Sure?",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(26, 29, 35)",
+        "w": 303,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "This action can not be undone. Do you wa",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 245,
+        "h": 81,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "Yes",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 64,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "No",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 62,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__C-refund-cancel__en-dark-w320.png",
+    "ok": true
+  },
+  {
+    "id": "A-shared-destructive__ar-light-desktop",
+    "key": "A-shared-destructive",
+    "cls": "destructive",
+    "lang": "ar",
+    "dir": "rtl",
+    "theme": "light",
+    "width": "desktop",
+    "premise": [
+      "signed-in",
+      "dir=rtl",
+      "theme=light",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "حذف هذه السلّة المتروكة؟",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 512,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "يحذف هذا كل العناصر (5) في سلّة Nour Sal",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 454,
+        "h": 54,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "حذف السلّة",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 105,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "الإبقاء عليها",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 104,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A-shared-destructive__ar-light-desktop.png",
+    "ok": true
+  },
+  {
+    "id": "A2-shared-optin__ar-light-desktop",
+    "key": "A2-shared-optin",
+    "cls": "destructive (opt-in tone, already repaired in PKG-I)",
+    "lang": "ar",
+    "dir": "rtl",
+    "theme": "light",
+    "width": "desktop",
+    "premise": [
+      "signed-in",
+      "dir=rtl",
+      "theme=light",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "حذف هذه السلّة المتروكة؟",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 512,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "يحذف هذا كل العناصر (5) في سلّة Nour Sal",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 454,
+        "h": 54,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "حذف السلّة",
+        "ink": [
+          255,
+          255,
+          255
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          179,
+          38,
+          30
+        ],
+        "declaredBg": "rgb(179, 38, 30)",
+        "borderColor": "rgb(179, 38, 30)",
+        "w": 97,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm ss-btn ss-btn--danger",
+        "rendered": true,
+        "ratio": 6.54,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "الإبقاء عليها",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgb(255, 255, 255)",
+        "borderColor": "rgb(136, 140, 147)",
+        "w": 95,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel ss-btn ss-btn--secondary",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A2-shared-optin__ar-light-desktop.png",
+    "ok": true
+  },
+  {
+    "id": "C-refund-cancel__ar-light-desktop",
+    "key": "C-refund-cancel",
+    "cls": "payment-adjacent (terminal)",
+    "lang": "ar",
+    "dir": "rtl",
+    "theme": "light",
+    "width": "desktop",
+    "premise": [
+      "signed-in",
+      "dir=rtl",
+      "theme=light",
+      "url=/refund-request/eyJpdiI6IlJadC9jQnp4VjRib0x0dTAzVDB3SXc9PSIsInZhbHVlIjoiMHdEWmhnU2pyTXhobU13UHJsaFlvZz09IiwibWFjIjoiOTYxOTFiOGFmZjQ3MzliOWMyMDBiMjg5ODYzYTg0ODc0ZmNmMjNkMWM1ODU4ZjIxNDhlNTc3MDVhNzVmMmY3NCIsInRhZyI6IiJ9",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "هل أنت متأكد؟",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 512,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "هذا الإجراء لا يمكن إلغائه هل تريد أن تس",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 454,
+        "h": 27,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "نعم",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 62,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "لا",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 51,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__C-refund-cancel__ar-light-desktop.png",
+    "ok": true
+  },
+  {
+    "id": "A-shared-destructive__ar-light-w390",
+    "key": "A-shared-destructive",
+    "cls": "destructive",
+    "lang": "ar",
+    "dir": "rtl",
+    "theme": "light",
+    "width": "w390",
+    "premise": [
+      "signed-in",
+      "dir=rtl",
+      "theme=light",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "حذف هذه السلّة المتروكة؟",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 373,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "يحذف هذا كل العناصر (5) في سلّة Nour Sal",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 315,
+        "h": 54,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "حذف السلّة",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 105,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "الإبقاء عليها",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 104,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A-shared-destructive__ar-light-w390.png",
+    "ok": true
+  },
+  {
+    "id": "A2-shared-optin__ar-light-w390",
+    "key": "A2-shared-optin",
+    "cls": "destructive (opt-in tone, already repaired in PKG-I)",
+    "lang": "ar",
+    "dir": "rtl",
+    "theme": "light",
+    "width": "w390",
+    "premise": [
+      "signed-in",
+      "dir=rtl",
+      "theme=light",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "حذف هذه السلّة المتروكة؟",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 373,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "يحذف هذا كل العناصر (5) في سلّة Nour Sal",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 315,
+        "h": 54,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "حذف السلّة",
+        "ink": [
+          255,
+          255,
+          255
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          179,
+          38,
+          30
+        ],
+        "declaredBg": "rgb(179, 38, 30)",
+        "borderColor": "rgb(179, 38, 30)",
+        "w": 97,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm ss-btn ss-btn--danger",
+        "rendered": true,
+        "ratio": 6.54,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "الإبقاء عليها",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgb(255, 255, 255)",
+        "borderColor": "rgb(136, 140, 147)",
+        "w": 95,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel ss-btn ss-btn--secondary",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A2-shared-optin__ar-light-w390.png",
+    "ok": true
+  },
+  {
+    "id": "C-refund-cancel__ar-light-w390",
+    "key": "C-refund-cancel",
+    "cls": "payment-adjacent (terminal)",
+    "lang": "ar",
+    "dir": "rtl",
+    "theme": "light",
+    "width": "w390",
+    "premise": [
+      "signed-in",
+      "dir=rtl",
+      "theme=light",
+      "url=/refund-request/eyJpdiI6IlJVb1lSYS9WNHR1eWdTLy90KzYwdkE9PSIsInZhbHVlIjoiY0Rhb2E3WGVqR0hRcEFnWFlRTWNUUT09IiwibWFjIjoiZTIyZTdhNjQzZjBkNzBhNzNiOGIxNWQ3YzRhZWY5ZDFlN2QyMGQwM2UwOWQzMDA1YzAwOGU4MDliMjhkODRiNSIsInRhZyI6IiJ9",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "هل أنت متأكد؟",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 373,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "هذا الإجراء لا يمكن إلغائه هل تريد أن تس",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 315,
+        "h": 27,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "نعم",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 62,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "لا",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 51,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__C-refund-cancel__ar-light-w390.png",
+    "ok": true
+  },
+  {
+    "id": "A-shared-destructive__ar-light-w320",
+    "key": "A-shared-destructive",
+    "cls": "destructive",
+    "lang": "ar",
+    "dir": "rtl",
+    "theme": "light",
+    "width": "w320",
+    "premise": [
+      "signed-in",
+      "dir=rtl",
+      "theme=light",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "حذف هذه السلّة المتروكة؟",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 303,
+        "h": 96,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "يحذف هذا كل العناصر (5) في سلّة Nour Sal",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 245,
+        "h": 81,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "حذف السلّة",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 105,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "الإبقاء عليها",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 104,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A-shared-destructive__ar-light-w320.png",
+    "ok": true
+  },
+  {
+    "id": "A2-shared-optin__ar-light-w320",
+    "key": "A2-shared-optin",
+    "cls": "destructive (opt-in tone, already repaired in PKG-I)",
+    "lang": "ar",
+    "dir": "rtl",
+    "theme": "light",
+    "width": "w320",
+    "premise": [
+      "signed-in",
+      "dir=rtl",
+      "theme=light",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "حذف هذه السلّة المتروكة؟",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 303,
+        "h": 96,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "يحذف هذا كل العناصر (5) في سلّة Nour Sal",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 245,
+        "h": 81,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "حذف السلّة",
+        "ink": [
+          255,
+          255,
+          255
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          179,
+          38,
+          30
+        ],
+        "declaredBg": "rgb(179, 38, 30)",
+        "borderColor": "rgb(179, 38, 30)",
+        "w": 97,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm ss-btn ss-btn--danger",
+        "rendered": true,
+        "ratio": 6.54,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "الإبقاء عليها",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgb(255, 255, 255)",
+        "borderColor": "rgb(136, 140, 147)",
+        "w": 95,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel ss-btn ss-btn--secondary",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A2-shared-optin__ar-light-w320.png",
+    "ok": true
+  },
+  {
+    "id": "C-refund-cancel__ar-light-w320",
+    "key": "C-refund-cancel",
+    "cls": "payment-adjacent (terminal)",
+    "lang": "ar",
+    "dir": "rtl",
+    "theme": "light",
+    "width": "w320",
+    "premise": [
+      "signed-in",
+      "dir=rtl",
+      "theme=light",
+      "url=/refund-request/eyJpdiI6IlVmY21WT0JFc1VsUW1SNFFNOFVpN2c9PSIsInZhbHVlIjoiTW9VcjB1a0FBd2ZsTGx3NU95L1R0dz09IiwibWFjIjoiMzBmMTVkZDYwYzIxZTE2ZjZmNTRhMjIyNjAzMmQ4Y2ZkMWUxNDYwMTc1M2RiNTlkNzg1MjA2YjU5MzFmMzAxOSIsInRhZyI6IiJ9",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "هل أنت متأكد؟",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 303,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "هذا الإجراء لا يمكن إلغائه هل تريد أن تس",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 245,
+        "h": 54,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "نعم",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 62,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "لا",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 51,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__C-refund-cancel__ar-light-w320.png",
+    "ok": true
+  },
+  {
+    "id": "A-shared-destructive__ar-dark-desktop",
+    "key": "A-shared-destructive",
+    "cls": "destructive",
+    "lang": "ar",
+    "dir": "rtl",
+    "theme": "dark",
+    "width": "desktop",
+    "premise": [
+      "signed-in",
+      "dir=rtl",
+      "theme=dark",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "حذف هذه السلّة المتروكة؟",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(26, 29, 35)",
+        "w": 512,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "يحذف هذا كل العناصر (5) في سلّة Nour Sal",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 454,
+        "h": 54,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "حذف السلّة",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 105,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "الإبقاء عليها",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 104,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A-shared-destructive__ar-dark-desktop.png",
+    "ok": true
+  },
+  {
+    "id": "A2-shared-optin__ar-dark-desktop",
+    "key": "A2-shared-optin",
+    "cls": "destructive (opt-in tone, already repaired in PKG-I)",
+    "lang": "ar",
+    "dir": "rtl",
+    "theme": "dark",
+    "width": "desktop",
+    "premise": [
+      "signed-in",
+      "dir=rtl",
+      "theme=dark",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "حذف هذه السلّة المتروكة؟",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(26, 29, 35)",
+        "w": 512,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "يحذف هذا كل العناصر (5) في سلّة Nour Sal",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 454,
+        "h": 54,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "حذف السلّة",
+        "ink": [
+          59,
+          13,
+          10
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          243,
+          169,
+          164
+        ],
+        "declaredBg": "rgb(243, 169, 164)",
+        "borderColor": "rgb(243, 169, 164)",
+        "w": 97,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm ss-btn ss-btn--danger",
+        "rendered": true,
+        "ratio": 8.83,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "الإبقاء عليها",
+        "ink": [
+          232,
+          234,
+          237
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          38,
+          43,
+          51
+        ],
+        "declaredBg": "rgb(38, 43, 51)",
+        "borderColor": "rgb(125, 130, 138)",
+        "w": 95,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel ss-btn ss-btn--secondary",
+        "rendered": true,
+        "ratio": 11.81,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A2-shared-optin__ar-dark-desktop.png",
+    "ok": true
+  },
+  {
+    "id": "C-refund-cancel__ar-dark-desktop",
+    "key": "C-refund-cancel",
+    "cls": "payment-adjacent (terminal)",
+    "lang": "ar",
+    "dir": "rtl",
+    "theme": "dark",
+    "width": "desktop",
+    "premise": [
+      "signed-in",
+      "dir=rtl",
+      "theme=dark",
+      "url=/refund-request/eyJpdiI6ImR6aVl4OW93eGJnWVNobXNmeklJU3c9PSIsInZhbHVlIjoiUFY1ZjJGQmtwSXgzdEZISGdIaGphdz09IiwibWFjIjoiMjRmNTIyMThmZjI1NmRhYjdmNGQ5Y2RkZWIwMTMyYzYzNGRlODk2M2ZmZGEzNmM1NWNlZDg0NWJlMzgzNmNjNiIsInRhZyI6IiJ9",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "هل أنت متأكد؟",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(26, 29, 35)",
+        "w": 512,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "هذا الإجراء لا يمكن إلغائه هل تريد أن تس",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 454,
+        "h": 27,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "نعم",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 62,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "لا",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 51,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__C-refund-cancel__ar-dark-desktop.png",
+    "ok": true
+  },
+  {
+    "id": "A-shared-destructive__ar-dark-w390",
+    "key": "A-shared-destructive",
+    "cls": "destructive",
+    "lang": "ar",
+    "dir": "rtl",
+    "theme": "dark",
+    "width": "w390",
+    "premise": [
+      "signed-in",
+      "dir=rtl",
+      "theme=dark",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "حذف هذه السلّة المتروكة؟",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(26, 29, 35)",
+        "w": 373,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "يحذف هذا كل العناصر (5) في سلّة Nour Sal",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 315,
+        "h": 54,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "حذف السلّة",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 105,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "الإبقاء عليها",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 104,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A-shared-destructive__ar-dark-w390.png",
+    "ok": true
+  },
+  {
+    "id": "A2-shared-optin__ar-dark-w390",
+    "key": "A2-shared-optin",
+    "cls": "destructive (opt-in tone, already repaired in PKG-I)",
+    "lang": "ar",
+    "dir": "rtl",
+    "theme": "dark",
+    "width": "w390",
+    "premise": [
+      "signed-in",
+      "dir=rtl",
+      "theme=dark",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "حذف هذه السلّة المتروكة؟",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(26, 29, 35)",
+        "w": 373,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "يحذف هذا كل العناصر (5) في سلّة Nour Sal",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 315,
+        "h": 54,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "حذف السلّة",
+        "ink": [
+          59,
+          13,
+          10
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          243,
+          169,
+          164
+        ],
+        "declaredBg": "rgb(243, 169, 164)",
+        "borderColor": "rgb(243, 169, 164)",
+        "w": 97,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm ss-btn ss-btn--danger",
+        "rendered": true,
+        "ratio": 8.83,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "الإبقاء عليها",
+        "ink": [
+          232,
+          234,
+          237
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          38,
+          43,
+          51
+        ],
+        "declaredBg": "rgb(38, 43, 51)",
+        "borderColor": "rgb(125, 130, 138)",
+        "w": 95,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel ss-btn ss-btn--secondary",
+        "rendered": true,
+        "ratio": 11.81,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A2-shared-optin__ar-dark-w390.png",
+    "ok": true
+  },
+  {
+    "id": "C-refund-cancel__ar-dark-w390",
+    "key": "C-refund-cancel",
+    "cls": "payment-adjacent (terminal)",
+    "lang": "ar",
+    "dir": "rtl",
+    "theme": "dark",
+    "width": "w390",
+    "premise": [
+      "signed-in",
+      "dir=rtl",
+      "theme=dark",
+      "url=/refund-request/eyJpdiI6IlAzSmJFOGd3ZEZJOWZWd2lkeFNqY1E9PSIsInZhbHVlIjoiWHlVVVpOVnM0NFVzL0lIbG9jeXB2QT09IiwibWFjIjoiYTE0OTI5YWUwN2U0Y2I4MDhjMWI3NWVlNjU3ODdkN2ZlZmRlNTdmNTcwZTY5NGU2Yjg3MGY5NmYwODNlNjNlYiIsInRhZyI6IiJ9",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "هل أنت متأكد؟",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(26, 29, 35)",
+        "w": 373,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "هذا الإجراء لا يمكن إلغائه هل تريد أن تس",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 315,
+        "h": 27,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "نعم",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 62,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "لا",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 51,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__C-refund-cancel__ar-dark-w390.png",
+    "ok": true
+  },
+  {
+    "id": "A-shared-destructive__ar-dark-w320",
+    "key": "A-shared-destructive",
+    "cls": "destructive",
+    "lang": "ar",
+    "dir": "rtl",
+    "theme": "dark",
+    "width": "w320",
+    "premise": [
+      "signed-in",
+      "dir=rtl",
+      "theme=dark",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "حذف هذه السلّة المتروكة؟",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(26, 29, 35)",
+        "w": 303,
+        "h": 96,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "يحذف هذا كل العناصر (5) في سلّة Nour Sal",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 245,
+        "h": 81,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "حذف السلّة",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 105,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "الإبقاء عليها",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 104,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A-shared-destructive__ar-dark-w320.png",
+    "ok": true
+  },
+  {
+    "id": "A2-shared-optin__ar-dark-w320",
+    "key": "A2-shared-optin",
+    "cls": "destructive (opt-in tone, already repaired in PKG-I)",
+    "lang": "ar",
+    "dir": "rtl",
+    "theme": "dark",
+    "width": "w320",
+    "premise": [
+      "signed-in",
+      "dir=rtl",
+      "theme=dark",
+      "url=/abandon-carts-handled",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "حذف هذه السلّة المتروكة؟",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(26, 29, 35)",
+        "w": 303,
+        "h": 96,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "يحذف هذا كل العناصر (5) في سلّة Nour Sal",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 245,
+        "h": 81,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "حذف السلّة",
+        "ink": [
+          59,
+          13,
+          10
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          243,
+          169,
+          164
+        ],
+        "declaredBg": "rgb(243, 169, 164)",
+        "borderColor": "rgb(243, 169, 164)",
+        "w": 97,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm ss-btn ss-btn--danger",
+        "rendered": true,
+        "ratio": 8.83,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "الإبقاء عليها",
+        "ink": [
+          232,
+          234,
+          237
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          38,
+          43,
+          51
+        ],
+        "declaredBg": "rgb(38, 43, 51)",
+        "borderColor": "rgb(125, 130, 138)",
+        "w": 95,
+        "h": 38,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel ss-btn ss-btn--secondary",
+        "rendered": true,
+        "ratio": 11.81,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__A2-shared-optin__ar-dark-w320.png",
+    "ok": true
+  },
+  {
+    "id": "C-refund-cancel__ar-dark-w320",
+    "key": "C-refund-cancel",
+    "cls": "payment-adjacent (terminal)",
+    "lang": "ar",
+    "dir": "rtl",
+    "theme": "dark",
+    "width": "w320",
+    "premise": [
+      "signed-in",
+      "dir=rtl",
+      "theme=dark",
+      "url=/refund-request/eyJpdiI6Ik5oS3p3L0hoWmh5dDREZTBQYjlpNkE9PSIsInZhbHVlIjoidklmUmovOXlJdWp5c2dvVVhoZFk4QT09IiwibWFjIjoiNTc0YzFjYzE4YjQ1ODgxNTBiNTg2MTE1ZjE5NmRmODk5ZmE2ZmQ4NTYzZjA1NWM0MDVhOTA2MWRlODhkMjZjMSIsInRhZyI6IiJ9",
+      "dialog-open"
+    ],
+    "measures": [
+      {
+        "name": "title",
+        "present": true,
+        "text": "هل أنت متأكد؟",
+        "ink": [
+          26,
+          29,
+          35
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(26, 29, 35)",
+        "w": 303,
+        "h": 60,
+        "fontSize": "30px",
+        "fontWeight": "600",
+        "cls": "swal2-title",
+        "rendered": true,
+        "ratio": 16.88,
+        "threshold": 3,
+        "pass": true
+      },
+      {
+        "name": "body",
+        "present": true,
+        "text": "هذا الإجراء لا يمكن إلغائه هل تريد أن تس",
+        "ink": [
+          84,
+          84,
+          84
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(84, 84, 84)",
+        "w": 245,
+        "h": 54,
+        "fontSize": "18px",
+        "fontWeight": "400",
+        "cls": "swal2-html-container",
+        "rendered": true,
+        "ratio": 7.57,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "confirm",
+        "present": true,
+        "text": "نعم",
+        "ink": [
+          22,
+          94,
+          52
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(22, 94, 52)",
+        "w": 62,
+        "h": 39,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-confirm btn btn-success",
+        "rendered": true,
+        "ratio": 7.82,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "cancel",
+        "present": true,
+        "text": "لا",
+        "ink": [
+          140,
+          29,
+          23
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          222,
+          228
+        ],
+        "declaredBg": "rgba(255, 174, 189, 0.41)",
+        "borderColor": "rgba(255, 174, 189, 0.41)",
+        "w": 51,
+        "h": 41,
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "cls": "swal2-cancel btn btn-danger",
+        "rendered": true,
+        "ratio": 7.3,
+        "threshold": 4.5,
+        "pass": true
+      },
+      {
+        "name": "close",
+        "present": true,
+        "text": "×",
+        "ink": [
+          204,
+          204,
+          204
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(204, 204, 204)",
+        "w": 0,
+        "h": 0,
+        "fontSize": "40px",
+        "fontWeight": "400",
+        "cls": "swal2-close",
+        "rendered": false
+      },
+      {
+        "name": "icon-ring",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 193, 106)",
+        "w": 88,
+        "h": 88,
+        "fontSize": "16px",
+        "fontWeight": "400",
+        "cls": "swal2-icon swal2-warning swal2-icon-show",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "icon-glyph",
+        "present": true,
+        "text": "!",
+        "ink": [
+          255,
+          162,
+          29
+        ],
+        "inkAlpha": 1,
+        "ground": [
+          255,
+          255,
+          255
+        ],
+        "declaredBg": "rgba(0, 0, 0, 0)",
+        "borderColor": "rgb(255, 162, 29)",
+        "w": 17,
+        "h": 80,
+        "fontSize": "60px",
+        "fontWeight": "400",
+        "cls": "swal2-icon-content",
+        "rendered": true,
+        "ratio": 2.01,
+        "threshold": 3,
+        "pass": false
+      },
+      {
+        "name": "_sheet",
+        "present": true,
+        "ground": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "shot": "/tmp/claude-0/-home-user/b3d395c0-7d66-5b88-9dd0-c7a5d2eac733/scratchpad/modal/final/after__C-refund-cancel__ar-dark-w320.png",
+    "ok": true
+  }
+]
