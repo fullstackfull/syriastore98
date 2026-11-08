@@ -24,9 +24,16 @@
  * A row failing any premise is reported PREMISE-FAIL and its image is DELETED rather than kept,
  * because a kept image is evidence whether or not a column next to it says the reading was bad.
  *
- * ONE SCENARIO = ONE SURFACE = ITS OWN IMAGE. The owner forbids reusing a single generic screenshot
- * as evidence for several independent surfaces, so the file name carries the scenario key and the
- * scenarios photograph different things even when they share a parent screen.
+ * ONE SCENARIO = ONE SURFACE = ITS OWN IMAGE, AND A DISTINCT NAME IS NOT ENOUGH. The first run of
+ * this harness gave `customer-row-actions` and `customer-status-toggle` different filenames and
+ * BYTE-IDENTICAL contents, because both photographed the whole of /customer with no interaction to
+ * tell them apart. `check-distinct-surface-captures.py` failed CI on exactly that, and it is right
+ * to: it exists because three surfaces were once marked PREMIUM VERIFIED on twelve screenshots
+ * that were all the dashboard. Two names over one image is the same lie in a smaller size.
+ *
+ * So a scenario that photographs a CELL now names that cell in `shoot`, and the image is of the
+ * element rather than the viewport. That is also the more honest picture: the surface under review
+ * IS the action cell, not the page it sits on.
  *
  * usage:
  *   node capture-interactions.cjs --base http://127.0.0.1:8899 --out <dir> [--only key,key]
@@ -78,7 +85,7 @@ const SCENARIOS = [
     title: 'Customer row actions (the action cell as it sits)',
     path: '/customer', expect: { en: 'Customer', ar: 'العميل' },
     needs: 'table a[href*="customer-timeline"], table .action-btn, table form[action*="customer"]',
-    act: null, after: null,
+    shoot: 'table tbody tr:first-child', act: null, after: null,
   },
   {
     key: 'customer-archive-confirm',
@@ -93,14 +100,14 @@ const SCENARIOS = [
     title: 'Customer status toggle (the status cell)',
     path: '/customer', expect: { en: 'Customer', ar: 'العميل' },
     needs: '.page-checkbox, .form-check.form-switch, .ss-status-badge',
-    act: null, after: null,
+    shoot: '.page-checkbox, .form-check.form-switch, .ss-status-badge', act: null, after: null,
   },
   {
     key: 'abandoned-cart-row-actions',
     title: 'Abandoned-cart row actions (the action cell)',
     path: '/abandon-carts-handled', expect: { en: 'Abandoned carts', ar: 'عربات التسوق المتروكة' },
     needs: 'table a, table button, table form',
-    act: null, after: null,
+    shoot: 'table tbody tr:first-child', act: null, after: null,
   },
   {
     key: 'abandoned-cart-delete-confirm',
@@ -115,7 +122,7 @@ const SCENARIOS = [
     title: 'Abandoned-wishlist row actions (the action cell)',
     path: '/wishlist', expect: { en: 'Abandoned wishlists', ar: 'قوائم الرغبات المتروكة' },
     needs: 'table a, table button, table form',
-    act: null, after: null,
+    shoot: 'table tbody tr:first-child', act: null, after: null,
   },
   {
     key: 'abandoned-wishlist-delete-confirm',
@@ -220,7 +227,17 @@ function setState(theme, dir, lang) {
         }
 
         if (!premise.length) {
-          await page.screenshot({ path: shot, fullPage: false }).catch(() => {});
+          // A cell scenario photographs ITS OWN element. Two surfaces sharing a parent screen
+          // would otherwise produce byte-identical images under different names, which
+          // check-distinct-surface-captures.py fails CI on -- correctly.
+          const target = sc.shoot ? page.locator(sc.shoot).first() : null;
+          if (target && await target.count().catch(() => 0)) {
+            await target.screenshot({ path: shot }).catch(async () => {
+              await page.screenshot({ path: shot, fullPage: false }).catch(() => {});
+            });
+          } else {
+            await page.screenshot({ path: shot, fullPage: false }).catch(() => {});
+          }
         } else if (fs.existsSync(shot)) {
           fs.unlinkSync(shot); // a bad reading must not leave an image behind
         }

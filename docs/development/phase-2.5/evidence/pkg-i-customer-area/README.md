@@ -12,6 +12,26 @@ the workspace chip proves the right store; the control being photographed existe
 click; direction and theme are what was asked for; and for the four interactive scenarios the
 dialog really opened. A row failing any premise has its image deleted rather than kept.
 
+## A distinct NAME was not enough, and a CI guard said so
+
+The first version of this set gave `customer-row-actions` and `customer-status-toggle` different
+filenames and **byte-identical contents**: both photographed the whole of `/customer` with no
+interaction to tell them apart. `check-distinct-surface-captures.py` failed CI on exactly that, and
+it was right to — that guard exists because three surfaces were once marked PREMIUM VERIFIED on
+twelve screenshots that were all the dashboard. Two names over one image is the same error, smaller.
+
+So a scenario that photographs a **cell** now photographs that element rather than the viewport.
+That is also the more honest picture: the surface under review is the action cell, not the page it
+sits on.
+
+Both guards are now run locally before any push, not discovered in CI:
+
+    check-distinct-surface-captures.py   -> no two captures claiming different surfaces share content
+    detect-refusal-toast-captures.py     -> no capture shows a permission-refusal toast
+
+Neither proves a capture shows the *right* screen — the harness's own page-title premise does that,
+and the two guards are complementary to it rather than a substitute.
+
 ## One scenario = one surface = its own image
 
 | scenario | surface | parent screen | interaction |
