@@ -590,6 +590,23 @@ class LynomiaFlowBuilderTest extends TestCase
      * Arabic: "Live" reads as "alive", "Off" as the imperative "turn it off!", and Yes and No
      * carry trailing dots from another screen's sentence. Found by reading the Arabic page in a
      * browser. A namespaced PHP group cannot be overridden by flat JSON; this keeps it that way.
+     *
+     * TWO OF THE FOUR HAVE SINCE BEEN FIXED AT THE SOURCE, which is why this test no longer asks
+     * the same question of all four. P2.5-PKG-J found the trailing dots from the other end -- the
+     * Arabic confirmation dialog offered `نعم ..` and `لا ..` -- and repaired `resources/lang/ar.json`
+     * itself, so the host now says exactly what the Studio says. Asserting that the namespaced
+     * value still DIFFERS would now fail for `yes` and `no`, and it would be failing because the
+     * defect is gone: the wrong thing to assert.
+     *
+     * SO THE RULE IS PER WORD, with the host's own value pinned where it has been repaired. That
+     * keeps the bite in both directions -- reintroducing the dots in ar.json fails the `yes`/`no`
+     * rows here, and letting the host's "Live"/"Off" leak into the Studio fails the other two --
+     * and it says out loud which of the four collisions is still live.
+     *
+     * THE NAMESPACED GROUP STAYS FOR ALL FOUR. The reason in the paragraph above is about the
+     * MECHANISM, not about today's values: flat JSON keyed by English text is a shared namespace
+     * that any later change can reach into, and a namespaced group cannot be reached. A redundant
+     * guarantee is not a wrong one.
      */
     public function test_the_four_words_the_host_dictionary_would_hijack_are_namespaced(): void
     {
@@ -599,18 +616,48 @@ class LynomiaFlowBuilderTest extends TestCase
 
         app()->setLocale('ar');
 
-        foreach (['state_published' => 'Live', 'state_disabled' => 'Off', 'yes' => 'Yes', 'no' => 'No'] as $key => $english) {
+        /*
+         * `collides` -- the host's flat JSON still says something else in Arabic, so the namespaced
+         *               value MUST differ from it.
+         * `repaired` -- the host was fixed at the source (P2.5-PKG-J) and now agrees. The host's
+         *               value is pinned here, so putting the trailing dots back fails this test as
+         *               well as TranslationFileIntegrityTest.
+         */
+        $words = [
+            'state_published' => ['english' => 'Live', 'state' => 'collides'],
+            'state_disabled' => ['english' => 'Off', 'state' => 'collides'],
+            'yes' => ['english' => 'Yes', 'state' => 'repaired', 'host' => 'نعم'],
+            'no' => ['english' => 'No', 'state' => 'repaired', 'host' => 'لا'],
+        ];
+
+        foreach ($words as $key => $word) {
+            $english = $word['english'];
             $namespaced = __("lynomia-chat::studio.{$key}");
 
             $this->assertNotSame("lynomia-chat::studio.{$key}", $namespaced, "studio.{$key} has no Arabic");
             $this->assertMatchesRegularExpression('/[\x{0600}-\x{06FF}]/u', $namespaced, "studio.{$key} is not Arabic");
 
-            // And it is genuinely different from what the host would have answered -- which is
-            // the whole reason these four are not JSON.
-            if (isset($host[$english])) {
-                $this->assertNotSame($host[$english], $namespaced,
-                    "studio.{$key} now matches the host's own '{$english}', so namespacing it bought nothing");
+            if (! isset($host[$english])) {
+                continue;
             }
+
+            if ($word['state'] === 'collides') {
+                // The host still answers something else, which is the whole reason this is not JSON.
+                $this->assertNotSame($host[$english], $namespaced,
+                    "studio.{$key} now matches the host's own '{$english}'. If the host's Arabic was "
+                    . 'repaired, move this word to the `repaired` state with its new value rather '
+                    . 'than deleting the assertion.');
+
+                continue;
+            }
+
+            // Repaired at the source: the host's value is pinned, and the Studio agrees with it.
+            $this->assertSame($word['host'], $host[$english],
+                "the host's Arabic for '{$english}' is no longer {$word['host']}. If the trailing "
+                . 'dots came back, P2.5-PKG-J regressed; if it was changed deliberately, update '
+                . 'this expectation in the same commit.');
+            $this->assertSame($word['host'], $namespaced,
+                "studio.{$key} no longer agrees with the host's repaired Arabic for '{$english}'.");
         }
 
         foreach (['merchant/builder', 'merchant/automation'] as $view) {
