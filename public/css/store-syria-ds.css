@@ -6873,3 +6873,312 @@ td.dataTables-empty:has(.ss-empty) {
 [data-ss-theme="dark"] .swal2-popup .swal2-title {
     color: var(--ss-grey-900, #1a1d23) !important;
 }
+
+/* ---- P2.5-PKG-L: the customer timeline reads as one column, not two half-empty ones ----------
+   ===============================================================================================
+   THE OWNER REVIEWED THE SCREEN AND NAMED SIX THINGS. This block answers the layout half of them;
+   the labelling and date half is in the view. MEASURED on the real page before any edit, at 1440
+   and at 320, in all four language/theme combinations:
+
+       en desktop   1807px tall for SEVEN events        ar desktop   1812px
+       en 390/320   2046px                              ar 390       2051px, ar 320 2072px
+
+   WHERE THE HEIGHT WENT. `.tl-container` is `max-width: 50%` and alternates `left`/`right` around
+   a centre rail, so EVERY CARD LEAVES THE OTHER HALF OF THE CANVAS EMPTY -- on a 1440 screen that
+   is roughly 450px of card beside 450px of nothing, repeated seven times, plus ~150px of vertical
+   gap between consecutive cards because a left card and the right card after it do not share a
+   row. Slightly over half the content area is blank.
+
+   AND THE ALTERNATION CARRIES NO MEANING. It is not grouping by anything -- `$ssSide` is
+   `$key % 2`, the row's position in the list. A reader scanning for "what happened next" has to
+   zig-zag across 900px to follow a sequence that is simply chronological.
+
+   SO: ONE COLUMN, ONE RAIL ON THE LEADING EDGE. The cards keep their own markup and their seven
+   branches; only the geometry changes. The rail drops from 6px to 2px because at 6px it competed
+   with the cards it was meant to connect.
+
+   LOGICAL PROPERTIES THROUGHOUT, and that is load-bearing rather than tidy. The vendored mobile
+   block (custom.css:1946-1984) pins `text-align: left` on `.tl-container`, `.tl-container.left`
+   and `.tl-box` -- so at 767px and below the ARABIC cards align their text to the LEFT, against
+   the direction of the page. `text-align: start` is the same declaration in LTR and the correct
+   one in RTL, so one rule set serves both and rtl-custom.css needs no copy.
+
+   WHY NOT IN custom.css. `DesignSystemStylesheetScopeTest` requires every selector in THIS file to
+   be confined by an `.ss-` class or a `data-ss-` attribute, which is why the view now carries
+   `ss-timeline` beside `my-custom-timeline`. Putting the redesign here rather than in custom.css
+   keeps it in the authoritative sheet and under that test.
+
+   NOTHING HERE TOUCHES A TIMESTAMP, AN AMOUNT OR AN ACTIVITY-LOG VALUE. The owner's instruction is
+   explicit on that point and this is a stylesheet; the two date REPRESENTATIONS are relabelled in
+   the view, where the words are, and the values they print are unchanged. */
+
+/* The outer padding was 60px top and bottom plus another 40px inside the inner wrapper: 200px of
+   empty page around seven cards. */
+.ss-timeline.my-custom-timeline {
+    padding: 8px 0 24px;
+}
+
+.ss-timeline .custom-timeline-inner {
+    padding: 0;
+    max-width: 760px;
+    margin-inline: 0;
+}
+
+/* The rail: 2px, on the leading edge, in a token that follows the theme instead of #DBDBDB. */
+/* PHYSICAL EDGES ARE FORBIDDEN IN THIS FILE and are not needed to beat the vendored ones.
+   `DesignSystemStylesheetScopeTest` fails any `left`/`right`/`margin-left` here, and the first
+   draft of this block used all three to neutralise custom.css's `left: 50%` and `margin-left: -3px`.
+   It does not have to: `inset-inline-start` COMPUTES TO `left` in LTR, so being the later sheet it
+   simply wins the same property; and in RTL it computes to `right`, where the vendored `left` is
+   the ignored edge for an absolutely positioned box that has a width. The margin needs both
+   logical sides because `margin-left` is the START margin in LTR and the END margin in RTL. */
+.ss-timeline .timeline::before {
+    inset-inline-start: 11px;
+    width: 2px;
+    margin-inline-start: 0;
+    margin-inline-end: 0;
+    top: 4px;
+    height: calc(100% - 8px);
+    background: var(--ss-border, #DBDBDB);
+}
+
+/* One column. `.left` and `.right` both become the same thing; the classes stay on the elements
+   because the view still computes `$ssSide`, and removing that is a view change with its own
+   output-neutrality question. */
+.ss-timeline .tl-container,
+.ss-timeline .tl-container.left,
+.ss-timeline .tl-container.right {
+    max-width: 100%;
+    width: 100%;
+    inset-inline-start: 0;
+    text-align: start;
+    padding: 0;
+    padding-inline-start: 36px;
+}
+
+.ss-timeline .tl-container + .tl-container {
+    margin-top: 10px;
+}
+
+/* The connector stub pointed from a card to a centre rail. With the rail beside the card there is
+   nothing for it to span, and it read as a stray dash. */
+.ss-timeline .support-time::before,
+.ss-timeline .left .support-time::before {
+    content: none;
+}
+
+/* The marker sits ON the rail, in both directions, and takes the card's own ground so the rail
+   appears to pass behind it. */
+.ss-timeline .support-time::after,
+.ss-timeline .left .support-time::after {
+    inset-inline-start: -31px;
+    top: 22px;
+    width: 10px;
+    height: 10px;
+    border-width: 2px;
+    border-color: var(--ss-border, #DBDBDB);
+    background-color: var(--ss-surface, #ffffff);
+}
+
+/* ---- THE SECOND HALF OF THE WHITESPACE, which the first pass only MOVED -------------------
+   Going to one column took the page from 1807px to 1676px -- 7%, and the empty half of the canvas
+   became an empty right-hand two thirds INSIDE each card. "Signed in" was a 120px-tall card
+   holding one fact. Each card stacked four blocks down the page: chip, then a <ul> of one-per-row
+   `Label value` lines, then the timestamp on its own line.
+   So the card becomes a flex container and the content flows ACROSS it:
+     row 1   the event chip, and the timestamp pushed to the far edge of the same row
+     row 2+  the facts, inline and wrapping, instead of one per line
+   Nothing is hidden and no value changes; the same text occupies two rows instead of six. */
+.ss-timeline .tl-box {
+    margin-top: 0;
+    padding: 12px 16px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 8px;
+}
+
+.ss-timeline .tl-btn {
+    order: 1;
+    margin-bottom: 0;
+}
+
+/* `margin-inline-start: auto` and not `float`/`text-align`: this has to work in both directions,
+   and in RTL the "far edge" is the left one. */
+.ss-timeline .tl-box .time-wrapper,
+.ss-timeline .left .tl-box .time-wrapper {
+    order: 2;
+    margin: 0;
+    margin-inline-start: auto;
+    justify-content: flex-end;
+}
+
+.ss-timeline ul {
+    order: 3;
+    flex-basis: 100%;
+    margin-bottom: 0;
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: 22px;
+    row-gap: 4px;
+    align-items: baseline;
+}
+
+.ss-timeline ul li {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    align-items: baseline;
+    justify-content: flex-start;
+}
+
+/* The rail and its markers were #DBDBDB on an #F7F8FA page -- 1.12:1, so the thing that ties the
+   cards together was the faintest mark on the screen. These are decoration rather than content,
+   so 3:1 is not required of them, but being visible is the whole job. */
+.ss-timeline .timeline::before {
+    background: var(--ss-grey-300, #c7cbd1);
+}
+
+.ss-timeline .support-time::after,
+.ss-timeline .left .support-time::after {
+    border-color: var(--ss-grey-400, #a7abb2);
+}
+
+@media screen and (max-width: 767px) {
+    /* The vendored block's `text-align: left` is the defect this overrides -- see the note above. */
+    .ss-timeline .tl-container,
+    .ss-timeline .tl-container.left,
+    .ss-timeline .tl-container.right,
+    .ss-timeline .tl-box {
+        text-align: start;
+    }
+
+    .ss-timeline .tl-container,
+    .ss-timeline .tl-container.left,
+    .ss-timeline .tl-container.right {
+        padding-inline-start: 28px;
+        margin-bottom: 0;
+    }
+
+    .ss-timeline .tl-container:not(:last-of-type) {
+        margin-bottom: 0;
+    }
+
+    .ss-timeline .tl-container + .tl-container {
+        margin-top: 8px;
+    }
+
+    .ss-timeline .custom-timeline-inner {
+        padding: 0;
+    }
+
+    /* The vendored block hides the rail's marker on phones and drops the rail behind the content
+       (`z-index: -1`). With one column the rail is the only thing tying the cards together, so it
+       and its markers come back. */
+    .ss-timeline .timeline::before {
+        z-index: 1;
+        top: 4px;
+        inset-inline-start: 7px;
+    }
+
+    .ss-timeline .support-time::after,
+    .ss-timeline .left .support-time::after {
+        display: block;
+        inset-inline-start: -25px;
+        top: 20px;
+    }
+
+    .ss-timeline .support-time::before,
+    .ss-timeline .left .support-time::before {
+        display: none;
+    }
+
+    /* AT 320 THE RECORDED TIME WAS FLOATING. `margin-inline-start: auto` is right on a wide card,
+       where it puts the timestamp opposite the event badge on one line. On a phone the badge and
+       the timestamp cannot share a line, so the timestamp wrapped onto its own row and `auto`
+       then pushed it to the far edge of THAT row -- a right-aligned fragment under a left-aligned
+       badge, belonging to neither. Seen in the 320px capture, not predicted. It becomes a plain
+       full-width row instead. */
+    .ss-timeline .tl-box .time-wrapper,
+    .ss-timeline .left .tl-box .time-wrapper {
+        flex-basis: 100%;
+        margin-inline-start: 0;
+        justify-content: flex-start;
+        margin-top: 0;
+    }
+
+    /* And a long value is allowed to wrap UNDER its label rather than being squeezed beside it:
+       "Last Login Date" + a localised datetime does not fit on one 320px line in either language. */
+    .ss-timeline ul li {
+        flex-wrap: wrap;
+    }
+
+    .ss-timeline ul {
+        column-gap: 16px;
+    }
+}
+/* end P2.5-PKG-L */
+
+/* ---- P2.5-PKG-L (continued): a chip's colour has to mean something -------------------------
+   MEASURED BY LOOKING AT THE SCREEN. The SAME product name, "Linen Tea Towel Set", was painted in
+   FIVE DIFFERENT COLOURS down one page -- green on "added to wishlist", grey on "removed from
+   wishlist", crimson on both cart rows and blue on the order -- and the same variant, "S-Natural",
+   was amber on one card and brown on the next. The suffix classes
+   (`wishlist-timeline`, `add-cart-timeline`, `order-timeline`, ...) key on THE EVENT, not on what
+   the chip contains, so a reader who learns "green means wishlist" learns nothing transferable:
+   the product has not changed, only the row it sits on.
+   AND THE EVENT ALREADY HAS A COLOUR -- the `.tl-btn` badge at the top of the card, which is what
+   `ActivityLogLabel::for()` names in words. Painting the value a second colour for the same reason
+   says the same thing twice and makes the value look like a status.
+   SO EVERY VALUE CHIP IS ONE NEUTRAL CHIP. The event stays coloured; the data stops pretending to
+   be. Neither the markup nor any value changes -- the suffix classes are still emitted, they just
+   no longer paint. */
+/* `!important` HERE ANSWERS `!important` THERE, which is the only reason it appears. The seven
+   suffix rules are bare single-class selectors carrying `!important` (custom.css:2009-2035), so a
+   scoped rule of any specificity loses to them without it. The scope is still `.ss-timeline`: the
+   classes keep working anywhere else they are used. */
+.ss-timeline .tl-box .end-date,
+.ss-timeline .tl-box .end-date.register-timeline,
+.ss-timeline .tl-box .end-date.last-login-timeline,
+.ss-timeline .tl-box .end-date.wishlist-timeline,
+.ss-timeline .tl-box .end-date.dlt-wishlist-timeline,
+.ss-timeline .tl-box .end-date.add-cart-timeline,
+.ss-timeline .tl-box .end-date.dlt-cart-timeline,
+.ss-timeline .tl-box .end-date.order-timeline {
+    background: var(--ss-surface-hover, #f1f3f5) !important;
+    color: var(--ss-fg, #1a1d23) !important;
+    border: 1px solid var(--ss-border, #dfe3e8);
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+}
+
+/* THESE TWO TOKENS RE-THEME, AND HERE THAT IS CORRECT -- which is the opposite of the P2.5-PKG-J
+   rule two blocks up, so it is worth saying why. The SweetAlert sheet stays WHITE in dark mode, so
+   a theme-switching ink on it resolves to the wrong value; the timeline CARD does not -- it takes
+   `--ss-surface` and really is dark in dark mode. A chip on a surface that follows the theme must
+   follow it too. The first version used the fixed `--ss-grey-100`/`--ss-grey-900` pair, which gave
+   a near-white pill on a #262b33 card: legible at about 16:1, and LOUDER than the event badge it
+   sits under, which inverts the hierarchy this block exists to establish. Seen in the 390px dark
+   capture. */
+
+/* A DATE IS NOT A CHIP. The register and last-login dates were painted as `.end-date` pills in the
+   event's colour, which made a timestamp look like a status badge and put the page's two dates in
+   two different visual registers. They are values now, in the card's own ink. */
+.ss-timeline .ss-timeline__value {
+    color: var(--ss-fg, #1a1d23);
+    font-variant-numeric: tabular-nums;
+}
+
+/* `Recorded <date>` instead of a bare date. The card used to end in an unlabelled timestamp that
+   was IDENTICAL on all seven cards -- the activity-log row's `created_at` -- next to an in-card
+   date in a different format that was the event's own. Two dates, no labels. The label is in the
+   view; this keeps the pair legible by making the recorded one quieter than the event's own. */
+.ss-timeline .tl-box .time-wrapper .time {
+    display: inline-flex;
+    gap: 5px;
+    align-items: baseline;
+    white-space: nowrap;
+}
+/* end P2.5-PKG-L (continued) */

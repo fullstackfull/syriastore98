@@ -75,7 +75,15 @@
         </div>
 
         @if (!empty($customer_data->regiester_date))
-        <div @if (count($logs) > 0) class="my-custom-timeline" @endif>
+        {{-- P2.5-PKG-L -- `ss-timeline` IS THE HOOK THE REDESIGN HANGS ON, and it is a second class
+             rather than a replacement. `my-custom-timeline` still carries the vendored geometry in
+             public/css/custom.css; the design system's block overrides only what the owner's six
+             observations name, and `DesignSystemStylesheetScopeTest` requires every selector in
+             store-syria-ds.css to be confined by an `.ss-` class -- so the redesign could not live
+             in the authoritative sheet at all without this hook. One consequence worth having: the
+             new rules use LOGICAL properties, so RTL needs no second copy in rtl-custom.css, which
+             is where the existing `text-align: left` mobile rules put the cards on the wrong side. --}}
+        <div @if (count($logs) > 0) class="my-custom-timeline ss-timeline" @endif>
             {{-- REGISTERED, BUT NOTHING HAS HAPPENED YET. The `@else` further down answers
                  "never registered"; this answers the commoner case, which rendered an empty
                  unclassed <div> and nothing else -- a blank panel with no explanation. --}}
@@ -229,27 +237,28 @@
                                              customer card earlier in this phase. First and last name stay
                                              unconditional: a customer row cannot exist without them. --}}
                                         <ul>
-                                            <li><span><b>{{ __('First Name:-') }}
+                                            <li><span><b>{{ __('First Name') }}
                                                     </b></span><span><bdi>{{ $customer_data->first_name }}</bdi> </span></li>
-                                            <li><span><b>{{ __('Last Name:-') }}
+                                            <li><span><b>{{ __('Last Name') }}
                                                     </b></span><span><bdi>{{ $customer_data->last_name }}</bdi> </span></li>
                                             @if (!empty($customer_data->email))
-                                                <li><span><b>{{ __('Email:-') }}
+                                                <li><span><b>{{ __('Email') }}
                                                         </b></span><span><bdi>{{ $customer_data->email }}</bdi></span>
                                                 </li>
                                             @endif
                                             @if (!empty($customer_data->mobile))
-                                                <li><span><b>{{ __('Contact:-') }}
+                                                <li><span><b>{{ __('Mobile') }}
                                                         </b></span><span><bdi>{{ $customer_data->mobile }}</bdi></span></li>
                                             @endif
                                             @if (!empty($customer_data->regiester_date))
-                                                <li><span><b>{{ __('Register Date:-') }} </b></span><span
-                                                        class="end-date register-timeline"><bdi>{{ $customer_data->regiester_date }}</bdi></span>
+                                                <li><span><b>{{ __('Register Date') }}</b></span><span
+                                                        class="ss-timeline__value"><bdi>{{ \App\Support\TimelineMoment::format($customer_data->regiester_date) }}</bdi></span>
                                                 </li>
                                             @endif
                                         </ul>
                                         <div class="time-wrapper d-flex align-content-center">
-                                            <span class="time"><bdi>{{ $value->created_at->format('d M Y h:i A') }}</bdi></span>
+                                            <span class="time">{{ __('Recorded') }}
+                                                <bdi>{{ \App\Support\TimelineMoment::format($value->created_at) }}</bdi></span>
                                         </div>
                                     </div>
                                 </div>
@@ -262,12 +271,13 @@
                                             {{ \App\Support\ActivityLogLabel::for($value->log_type) }}
                                         </span>
                                         <ul>
-                                            <li><span><b>{{ __('Last Login Date:-') }} </b></span><span
-                                                    class="end-date last-login-timeline"><bdi>{{ json_decode($value->remark)->date }}</bdi></span>
+                                            <li><span><b>{{ __('Last Login Date') }}</b></span><span
+                                                    class="ss-timeline__value"><bdi>{{ \App\Support\TimelineMoment::format(json_decode($value->remark)->date ?? null) }}</bdi></span>
                                             </li>
                                         </ul>
                                         <div class="time-wrapper d-flex align-content-center">
-                                            <span class="time"><bdi>{{ $value->created_at->format('d M Y h:i A') }}</bdi></span>
+                                            <span class="time">{{ __('Recorded') }}
+                                                <bdi>{{ \App\Support\TimelineMoment::format($value->created_at) }}</bdi></span>
                                         </div>
                                     </div>
                                 </div>
@@ -293,11 +303,12 @@
                                         ARE GONE as of P2.5-PKG-H slice 1 -- one body now, and the side
                                         is computed -- so this records what happened, not a live hazard.
                                         It is kept because it is the argument for the collapse. --}}
-                                            <li><span><b>{{ __('Product:-') }} </b></span><span class="end-date wishlist-timeline"><bdi>{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</bdi></span>
+                                            <li><span><b>{{ __('Product') }} </b></span><span class="end-date wishlist-timeline"><bdi>{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</bdi></span>
                                             </li>
                                         </ul>
                                         <div class="time-wrapper d-flex align-content-center">
-                                            <span class="time"><bdi>{{ $value->created_at->format('d M Y h:i A') }}</bdi></span>
+                                            <span class="time">{{ __('Recorded') }}
+                                                <bdi>{{ \App\Support\TimelineMoment::format($value->created_at) }}</bdi></span>
                                         </div>
                                     </div>
                                 </div>
@@ -311,12 +322,13 @@
                                             {{ \App\Support\ActivityLogLabel::for($value->log_type) }}
                                         </span>
                                         <ul>
-                                            <li><span><b>{{ __('Product:-') }} </b></span><span
+                                            <li><span><b>{{ __('Product') }} </b></span><span
                                                     class="end-date dlt-wishlist-timeline"><bdi>{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</bdi></span>
                                             </li>
                                         </ul>
                                         <div class="time-wrapper d-flex align-content-center">
-                                            <span class="time"><bdi>{{ $value->created_at->format('d M Y h:i A') }}</bdi></span>
+                                            <span class="time">{{ __('Recorded') }}
+                                                <bdi>{{ \App\Support\TimelineMoment::format($value->created_at) }}</bdi></span>
                                         </div>
                                     </div>
                                 </div>
@@ -329,19 +341,20 @@
                                             {{ \App\Support\ActivityLogLabel::for($value->log_type) }}
                                         </span>
                                         <ul>
-                                            <li><span><b>{{ __('Product:-') }} </b></span>
+                                            <li><span><b>{{ __('Product') }} </b></span>
                                                 <span
                                                     class="end-date"><bdi>{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</bdi></span>
                                             </li>
                                             @if (json_decode($value->remark)->variant != '0')
-                                                <li><span><b>{{ __('Variant:-') }} </b></span>
+                                                <li><span><b>{{ __('Variant') }} </b></span>
                                                     <span
                                                         class="end-date add-cart-timeline"><bdi>{{ App\Models\ActivityLog::variants(json_decode($value->remark)->variant, $timelineStoreId) }}</bdi></span>
                                                 </li>
                                             @endif
                                         </ul>
                                         <div class="time-wrapper d-flex align-content-center">
-                                            <span class="time"><bdi>{{ $value->created_at->format('d M Y h:i A') }}</bdi></span>
+                                            <span class="time">{{ __('Recorded') }}
+                                                <bdi>{{ \App\Support\TimelineMoment::format($value->created_at) }}</bdi></span>
                                         </div>
                                     </div>
                                 </div>
@@ -354,19 +367,20 @@
                                             {{ \App\Support\ActivityLogLabel::for($value->log_type) }}
                                         </span>
                                         <ul>
-                                            <li><span><b>{{ __('Product:-') }} </b></span>
+                                            <li><span><b>{{ __('Product') }} </b></span>
                                                 <span
                                                     class="end-date"><bdi>{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</bdi></span>
                                             </li>
                                             @if (json_decode($value->remark)->variant != '0')
-                                                <li><span><b>{{ __('Variant:-') }} </b></span>
+                                                <li><span><b>{{ __('Variant') }} </b></span>
                                                     <span
                                                         class="end-date dlt-cart-timeline"><bdi>{{ App\Models\ActivityLog::variants(json_decode($value->remark)->variant, $timelineStoreId) }}</bdi></span>
                                                 </li>
                                             @endif
                                         </ul>
                                         <div class="time-wrapper d-flex align-content-center">
-                                            <span class="time"><bdi>{{ $value->created_at->format('d M Y h:i A') }}</bdi></span>
+                                            <span class="time">{{ __('Recorded') }}
+                                                <bdi>{{ \App\Support\TimelineMoment::format($value->created_at) }}</bdi></span>
                                         </div>
                                     </div>
                                 </div>
@@ -379,23 +393,24 @@
                                             {{ \App\Support\ActivityLogLabel::for($value->log_type) }}
                                         </span>
                                         <ul>
-                                            <li><span><b>{{ __('Order Id:-') }}
+                                            <li><span><b>{{ __('Order Id') }}
                                                     </b></span><span><bdi>{{ json_decode($value->remark)->order_id }}</bdi> </span></li>
-                                            <li><span><b>{{ __('Order Date:-') }}
-                                                    </b></span><span><bdi>{{ Carbon\Carbon::parse(json_decode($value->remark)->order_date)->format('d M Y') }}</bdi>
-                                                </span></li>
-                                            <li><span><b>{{ __('Product:-') }} </b></span>
+                                            <li><span><b>{{ __('Order Date') }}</b></span><span
+                                                    class="ss-timeline__value"><bdi>{{ \App\Support\TimelineMoment::formatDate(json_decode($value->remark)->order_date ?? null) }}</bdi></span>
+                                                </li>
+                                            <li><span><b>{{ __('Product') }} </b></span>
                                                 <span
                                                     class="end-date order-timeline"><bdi>{{ App\Models\ActivityLog::products(json_decode($value->remark)->product, $timelineStoreId) }}</bdi></span>
                                             </li>
-                                            <li><span><b>{{ __('Order Price:-') }}
+                                            <li><span><b>{{ __('Order Price') }}
                                                     </b></span><span><bdi>{{ json_decode($value->remark)->price }}</bdi> </span></li>
-                                            <li><span><b>{{ __('Payment Type:-') }}
-                                                    </b></span><span><bdi>{{ json_decode($value->remark)->payment_type }}</bdi> </span>
+                                            <li><span><b>{{ __('Payment Type') }}
+                                                    </b></span><span><bdi>{{ __(json_decode($value->remark)->payment_type ?? '') }}</bdi></span>
                                             </li>
                                         </ul>
                                         <div class="time-wrapper d-flex align-content-center">
-                                            <span class="time"><bdi>{{ $value->created_at->format('d M Y h:i A') }}</bdi></span>
+                                            <span class="time">{{ __('Recorded') }}
+                                                <bdi>{{ \App\Support\TimelineMoment::format($value->created_at) }}</bdi></span>
                                         </div>
                                     </div>
                                 </div>

@@ -3469,5 +3469,16 @@
     "this customer": "this customer",
     "Archive this customer?": "Archive this customer?",
     ":name will be archived. Their orders and history are kept, and the record stops appearing in the customer list.": ":name will be archived. Their orders and history are kept, and the record stops appearing in the customer list.",
-    "Archive customer": "Archive customer"
+    "Archive customer": "Archive customer",
+    "This shopper has no mobile number on file, so there is nothing to message.": "This shopper has no mobile number on file, so there is nothing to message.",
+    "WhatsApp messaging is not set up for this store. Add the WhatsApp phone number ID and access token in the store settings.": "WhatsApp messaging is not set up for this store. Add the WhatsApp phone number ID and access token in the store settings.",
+    "The \":template\" WhatsApp template does not exist for this store yet.": "The \":template\" WhatsApp template does not exist for this store yet.",
+    "The \":template\" WhatsApp template is switched off. Turn it on to message shoppers.": "The \":template\" WhatsApp template is switched off. Turn it on to message shoppers.",
+    "Message queued for WhatsApp delivery.": "Message queued for WhatsApp delivery.",
+    "The message could not be prepared. Please try again, and check the WhatsApp settings if it keeps failing.": "The message could not be prepared. Please try again, and check the WhatsApp settings if it keeps failing.",
+    "Register Date": "Register Date",
+    "Last Login Date": "Last Login Date",
+    "Order Price": "Order Price",
+    "Recorded": "Recorded",
+    "cod": "Cash on delivery"
 }

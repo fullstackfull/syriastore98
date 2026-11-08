@@ -83,14 +83,14 @@ const SCENARIOS = [
   {
     key: 'customer-row-actions',
     title: 'Customer row actions (the action cell as it sits)',
-    path: '/customer', expect: { en: 'Customer', ar: 'العميل' },
+    path: '/customer', expect: { en: 'Customer', ar: 'الزبون' },
     needs: 'table a[href*="customer-timeline"], table .action-btn, table form[action*="customer"]',
     shoot: 'table tbody tr:first-child', act: null, after: null,
   },
   {
     key: 'customer-archive-confirm',
     title: 'Archive customer (the destructive confirmation)',
-    path: '/customer', expect: { en: 'Customer', ar: 'العميل' },
+    path: '/customer', expect: { en: 'Customer', ar: 'الزبون' },
     needs: 'form[action*="customer"] .show_confirm, .show_confirm',
     act: async (page) => { await page.locator('.show_confirm').first().click({ timeout: 8000 }); },
     after: '.swal2-popup, .swal2-container',
@@ -98,7 +98,7 @@ const SCENARIOS = [
   {
     key: 'customer-status-toggle',
     title: 'Customer status toggle (the status cell)',
-    path: '/customer', expect: { en: 'Customer', ar: 'العميل' },
+    path: '/customer', expect: { en: 'Customer', ar: 'الزبون' },
     needs: '.page-checkbox, .form-check.form-switch, .ss-status-badge',
     shoot: '.page-checkbox, .form-check.form-switch, .ss-status-badge', act: null, after: null,
   },
