@@ -3480,5 +3480,7 @@
     "Last Login Date": "Last Login Date",
     "Order Price": "Order Price",
     "Recorded": "Recorded",
-    "cod": "Cash on delivery"
+    "cod": "Cash on delivery",
+    "Order cards": "Order cards",
+    "pending": "Pending"
 }

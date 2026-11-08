@@ -1,6 +1,11 @@
 @extends('layouts.app')
 
-@section('page-title', __('Order'))
+{{-- P2.5-PKG-M (F-M-01). `__('Order')` -- SINGULAR, and SHARED WITH order/grid.blade.php, so
+     two different screens titled themselves identically and the browser tab said the same
+     thing for both. The Arabic made it worse: `الطلب` ("the order") against the sidebar's
+     `الطلبات`, the same disagreement PKG-L fixed between `العميل` and `الزبائن`. Both keys
+     already exist in ar.json, so this is a key change, not a translation change. --}}
+@section('page-title', __('Orders'))
 
 @section('action-button')
 <div class="text-end d-flex flex-wrap gap-2 justify-content-end">
