@@ -2520,3 +2520,40 @@ new rules are additive and the old markup references neither, so the difference 
 the view.
 
 **No surface changes state:** 24 / 32 / 229 / 9 / 1. Slices 4 and 5 still touch this area.
+
+---
+
+## 4.22 P2.5-PKG-G Slice 4 — the required marker marked the control, not the field [2026-11-08]
+
+The five `*` spans were **siblings** of their labels inside `.ss-field`, which is a column flex —
+so each became its own flex item and rendered on a standalone row, 16px below its label and 8px
+above its input, reading as though it marked the control. `.ss-label__required`'s
+`margin-inline-start: 2px` was written for an inline marker and did nothing.
+
+### The trap, and why every control now carries an explicit id
+
+konekt's `FormBuilder::label()` pushes the field name into `$this->labels` (`:249`), and
+`getIdAttribute()` (`:1268-1277`) returns the name as the element id **only if it is in that
+array**. So hand-writing the labels makes `Form::text('first_name', …)` emit **no id** — silently
+killing the `for` association, `x-ss.error-summary`'s `href="#first_name"`, and every
+`aria-describedby` pair. All five controls now pass `'id' => '<name>'`.
+
+### Status lost `select2`, and that one class was the whole defect
+
+`tags: true` with a permissive `createTag` let a merchant type a free value that
+`'status' => 'required|in:0,1'` then refused; `is-invalid` painted on the 1×1
+`.select2-hidden-accessible` box; and the summary's `href="#status"` focused that pixel while the
+visible combobox stayed unfocused.
+
+### A group of radios was tried first and rejected — the reason is the point
+
+Radios fix all three, and the survey preferred them. But `x-ss.choice-group` moves the hint to a
+`<fieldset>`, and `CustomerCreateFormTest` asserts in **both directions** that every hint is bound
+to a control carrying that field's `name`; a fieldset has none. A second guard then caught that the
+radios rendered a sixth `invalid-feedback` with no matching `is-invalid` — which the theme **hides
+outright**, refusing a merchant with no reason shown.
+
+Rewriting the assertion to accept a group was the alternative. **Deleting one class is smaller and
+more obviously correct than rewriting a guard to suit new markup.** Both guards pass untouched.
+
+`evidence/pkg-g-slice4/` — 8 rows, 0 not clean. **No surface changes state:** 24 / 32 / 229 / 9 / 1.

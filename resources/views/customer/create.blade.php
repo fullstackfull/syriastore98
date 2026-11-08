@@ -105,8 +105,31 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="form-group ss-field">
-                                    {{ Form::label('first_name', __('First Name'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
-                                    {{ Form::text('first_name', null, ['class' => 'form-control' . ($errors->has('first_name') ? ' is-invalid' : ''), 'placeholder' => __('Enter First Name'), 'required' => 'required', 'autocomplete' => 'given-name', 'maxlength' => '255']) }}
+                                    {{-- P2.5-PKG-G SLICE 4. THE MARKER IS INSIDE THE LABEL NOW.
+                                         It used to be a SIBLING of it, and `.ss-field` is
+                                         `display:flex; flex-direction:column`, so every direct
+                                         child is its own flex item: the `*` rendered on a
+                                         standalone row 16px below its label and 8px above the
+                                         input, reading as though it marked the control rather
+                                         than the field. `.ss-label__required`'s
+                                         `margin-inline-start: 2px` was written for an inline
+                                         marker and did nothing there. Hand-written the way
+                                         components/ss/secret-field.blade.php already does it.
+
+                                         THE TRAP THIS CREATES, and why every control below now
+                                         carries an explicit `id`: konekt's FormBuilder pushes the
+                                         name into `$this->labels` inside `label()`
+                                         (FormBuilder.php:249), and `getIdAttribute()`
+                                         (:1268-1277) returns the name as the element id ONLY if
+                                         it is in that array. Drop the `Form::label()` call and
+                                         `Form::text('first_name', ...)` emits NO id -- which
+                                         silently kills the `for` association, kills
+                                         x-ss.error-summary's `href="#first_name"`, and orphans
+                                         every aria-describedby pair on the form. --}}
+                                    <label class="ss-label" for="first_name">{{ __('First Name') }}
+                                        <span class="ss-label__required" aria-hidden="true">*</span>
+                                    </label>
+                                    {{ Form::text('first_name', null, ['id' => 'first_name', 'class' => 'form-control' . ($errors->has('first_name') ? ' is-invalid' : ''), 'placeholder' => __('Enter First Name'), 'required' => 'required', 'autocomplete' => 'given-name', 'maxlength' => '255']) }}
                                     @error('first_name')
                                         <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
                                     @enderror
@@ -115,8 +138,10 @@
 
                             <div class="col-md-6">
                                 <div class="form-group ss-field">
-                                    {{ Form::label('last_name', __('Last Name'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
-                                    {{ Form::text('last_name', null, ['class' => 'form-control' . ($errors->has('last_name') ? ' is-invalid' : ''), 'placeholder' => __('Enter Last Name'), 'required' => 'required', 'autocomplete' => 'family-name', 'maxlength' => '255']) }}
+                                    <label class="ss-label" for="last_name">{{ __('Last Name') }}
+                                        <span class="ss-label__required" aria-hidden="true">*</span>
+                                    </label>
+                                    {{ Form::text('last_name', null, ['id' => 'last_name', 'class' => 'form-control' . ($errors->has('last_name') ? ' is-invalid' : ''), 'placeholder' => __('Enter Last Name'), 'required' => 'required', 'autocomplete' => 'family-name', 'maxlength' => '255']) }}
                                     @error('last_name')
                                         <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
                                     @enderror
@@ -130,9 +155,11 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="form-group ss-field">
-                                    {{ Form::label('email', __('Email'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
+                                    <label class="ss-label" for="email">{{ __('Email') }}
+                                        <span class="ss-label__required" aria-hidden="true">*</span>
+                                    </label>
                                     {{-- dir="ltr": see note 1 in the block above. --}}
-                                    {{ Form::email('email', null, ['class' => 'form-control' . ($errors->has('email') ? ' is-invalid' : ''), 'placeholder' => __('Enter Email'), 'required' => 'required', 'autocomplete' => 'email', 'maxlength' => '255', 'dir' => 'ltr', 'aria-describedby' => 'email-help']) }}
+                                    {{ Form::email('email', null, ['id' => 'email', 'class' => 'form-control' . ($errors->has('email') ? ' is-invalid' : ''), 'placeholder' => __('Enter Email'), 'required' => 'required', 'autocomplete' => 'email', 'maxlength' => '255', 'dir' => 'ltr', 'aria-describedby' => 'email-help']) }}
                                     <x-ss.field-help for="email">{{ __('Used to sign in to your storefront. It must not already belong to another customer.') }}</x-ss.field-help>
                                     @error('email')
                                         <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
@@ -142,8 +169,9 @@
 
                             <div class="col-md-6">
                                 <div class="form-group ss-field">
-                                    {{ Form::label('mobile', __('Mobile'), ['class' => 'form-label']) }}
-                                    {{ Form::text('mobile', null, ['class' => 'form-control' . ($errors->has('mobile') ? ' is-invalid' : ''), 'placeholder' => __('Enter Mobile Number'), 'autocomplete' => 'tel', 'maxlength' => '20', 'dir' => 'ltr', 'aria-describedby' => 'mobile-help']) }}
+                                    <label class="ss-label" for="mobile">{{ __('Mobile') }}
+                                    </label>
+                                    {{ Form::text('mobile', null, ['id' => 'mobile', 'class' => 'form-control' . ($errors->has('mobile') ? ' is-invalid' : ''), 'placeholder' => __('Enter Mobile Number'), 'autocomplete' => 'tel', 'maxlength' => '20', 'dir' => 'ltr', 'aria-describedby' => 'mobile-help']) }}
                                     <x-ss.field-help for="mobile">{{ __('Optional.') }}</x-ss.field-help>
                                     @error('mobile')
                                         <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
@@ -158,9 +186,11 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="form-group ss-field">
-                                    {{ Form::label('password', __('Password'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
+                                    <label class="ss-label" for="password">{{ __('Password') }}
+                                        <span class="ss-label__required" aria-hidden="true">*</span>
+                                    </label>
                                     {{-- minlength mirrors the server's `min:8`. See note 3. --}}
-                                    {{ Form::password('password', ['class' => 'form-control' . ($errors->has('password') ? ' is-invalid' : ''), 'placeholder' => __('Enter Password'), 'required' => 'required', 'autocomplete' => 'new-password', 'minlength' => '8', 'aria-describedby' => 'password-help']) }}
+                                    {{ Form::password('password', ['id' => 'password', 'class' => 'form-control' . ($errors->has('password') ? ' is-invalid' : ''), 'placeholder' => __('Enter Password'), 'required' => 'required', 'autocomplete' => 'new-password', 'minlength' => '8', 'aria-describedby' => 'password-help']) }}
                                     <x-ss.field-help for="password">{{ __('At least 8 characters. The customer can change it from your storefront.') }}</x-ss.field-help>
                                     @error('password')
                                         <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
@@ -170,8 +200,41 @@
 
                             <div class="col-md-6">
                                 <div class="form-group ss-field">
-                                    {{ Form::label('status', __('Status'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
-                                    <select name="status" id="status" class="form-control select2 @error('status') is-invalid @enderror" required aria-describedby="status-help">
+                                    <label class="ss-label" for="status">{{ __('Status') }}
+                                        <span class="ss-label__required" aria-hidden="true">*</span>
+                                    </label>
+                                    {{-- P2.5-PKG-G SLICE 4. `select2` IS REMOVED, and that one
+                                         class was the whole defect. THREE things close with it:
+
+                                         (a) layouts/app.blade.php:823-836 initialises EVERY
+                                             `.select2` with `tags: true` and a `createTag` that
+                                             accepts any trimmed term. So a merchant could type a
+                                             free value into Status, it POSTed, and
+                                             `'status' => 'required|in:0,1'` refused their own
+                                             dropdown's answer.
+                                         (b) `@error('status') is-invalid @enderror` landed on the
+                                             original `<select>`, which select2 gives
+                                             `.select2-hidden-accessible` -- clipped to 1x1 by
+                                             select2.min.css -- so the red border painted on a
+                                             one-pixel box, and no `is-invalid` rule for
+                                             `.select2-selection` exists in any stylesheet here.
+                                         (c) the error summary's `href="#status"` moved focus onto
+                                             that 1px element while select2's visible combobox
+                                             stayed unfocused.
+
+                                         A NATIVE SELECT WAS TRIED AGAINST A GROUP OF RADIOS and
+                                         is the better change here. Radios would also fix all
+                                         three -- but they move the hint from the control to a
+                                         `<fieldset>`, and `CustomerCreateFormTest` asserts, in
+                                         both directions, that every hint on this screen is bound
+                                         to a control carrying that field's `name`. A fieldset has
+                                         no name. Rewriting that assertion to accept a group was
+                                         the alternative, and deleting one class is a smaller,
+                                         more obviously correct change than rewriting a guard to
+                                         suit new markup. Two options for a binary choice is also
+                                         not what a dropdown is bad at; a tagging library attached
+                                         to it is. --}}
+                                    <select name="status" id="status" class="form-control @error('status') is-invalid @enderror" required aria-describedby="status-help">
                                         <option value="1" {{ old('status', '1') == '1' ? 'selected' : '' }}>{{ __('Active') }}</option>
                                         <option value="0" {{ old('status') === '0' ? 'selected' : '' }}>{{ __('Inactive') }}</option>
                                     </select>

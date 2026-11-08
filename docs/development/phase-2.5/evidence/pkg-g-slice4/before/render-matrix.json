@@ -1,0 +1,58 @@
+[
+ {
+  "path": "/customer/create",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Store Syria - Create Customer",
+  "h1": "Create Customer",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/customer/create",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Store Syria - Create Customer",
+  "h1": "Create Customer",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/customer/create",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Store Syria - إنشاء عميل",
+  "h1": "إنشاء عميل",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/customer/create",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Store Syria - إنشاء عميل",
+  "h1": "إنشاء عميل",
+  "consoleErrors": [],
+  "premiseFail": []
+ }
+]
