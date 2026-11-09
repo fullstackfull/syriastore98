@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 56 | 19.0% |
+| REDESIGNED AND VERIFIED | 58 | 19.7% |
 | BLOCKED | 10 | 3.4% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 204 | 69.2% |
+| PENDING | 202 | 68.5% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -30,7 +30,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
-| Flutter merchant admin app | 51 | 0 | 17 | 0 | 0 | 34 |
+| Flutter merchant admin app | 51 | 0 | 19 | 0 | 0 | 32 |
 | CATALOGUE taxonomy | 38 | 13 | 1 | 0 | 0 | 24 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 3 | 1 | 0 | 31 |
 | Phase 2.5 Wave A | 30 | 0 | 0 | 0 | 0 | 30 |
@@ -62,7 +62,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Order detail | ``Get.to(() => OrderDetailScreen()) from orders, notifications,` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Create order | ``GetX /addOrder, and Get.to(() => CreateOrderScreen()) from or` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Invoice (PDF build) / Invoice viewer | ``Get.to(() => InvoicePdfViewScreen()) from order detail`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Products list (tab 2) | ``tab 2 of /dashboard`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Products list (tab 2) | ``tab 2 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-PRICE; four captures under evidence/flutter-harness-2026-11-09/ |
 | Product detail | ``Get.to(() => ProductDetailScreen()) from products list`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Add / edit product | ``Get.to(() => AddNewProductScreen(isUpdate:)) from products li` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Add rating / review | ``Get.to(() => AddRatingScreen()) from product detail`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
@@ -72,7 +72,7 @@ actually been done to it since. They are different questions and the matrix keep
 | More / Settings grid (tab 4) | ``tab 4 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SETTINGS; four captures under evidence/flutter-settings-2026-11-09/ |
 | App settings | ``GetX /appSettings`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SETTINGS; four captures under evidence/flutter-settings-2026-11-09/ |
 | Store settings grid | ``Get.to(() => StoreSettingScreen()) from the More grid`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Store information | ``GetX /storeInfo`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Store information | ``GetX /storeInfo`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-COPY-DECK; four captures under evidence/flutter-store-settings-2026-11-09/ |
 | Store language & currencies | ``GetX /lang`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-STORE-SETTINGS; four captures under evidence/flutter-store-settings-2026-11-09/ |
 | Store email settings | ``Get.to(() => EmailSettingScreen()) from store settings`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Loyalty programme | ``Get.to(() => LoyaltyProgramScreen()) from store settings`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |

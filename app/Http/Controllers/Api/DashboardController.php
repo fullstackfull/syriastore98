@@ -1590,6 +1590,33 @@ public function OrderList(Request $request)
         }
     }
 
+    /**
+     * The store's currency symbol, resolved the way every other handler here resolves it.
+     *
+     * P2.5-TAX-CURRENCY. Extracted rather than copied a fourth time: `ProductList` (:1317),
+     * `:1484` and `:2630` each carry this block verbatim. Those three are deliberately left alone
+     * -- rewriting working handlers is not part of this bounded change -- but the next site that
+     * needs a symbol should call this instead of growing the duplication.
+     *
+     * The fallback chain is the existing one and is unchanged: the active `currency_rates` row for
+     * the store's configured currency; failing that `$` only when the configured currency really
+     * is USD; failing that the currency CODE, which is a poor symbol but an honest one. There is
+     * no hard-coded `$` default for a store that has not been configured.
+     */
+    private function storeCurrencySymbol($store): string
+    {
+        $currencyCode = \App\Models\Utility::GetValueByName('defult_currancy', $store->id) ?? 'USD';
+
+        $currencyRate = \App\Models\CurrencyRate::where('store_id', $store->id)
+            ->where('currency_code', $currencyCode)
+            ->where('is_active', 1)
+            ->first();
+
+        return $currencyRate
+            ? $currencyRate->symbol
+            : ($currencyCode === 'USD' ? '$' : $currencyCode);
+    }
+
     public function TaxList(Request $request)
     {
         $store = $this->resolveOwnedStore($request->store_id);
@@ -1600,7 +1627,21 @@ public function OrderList(Request $request)
         $tax = Tax::where('store_id', $store->id)->OrderBy('id', 'desc')->paginate(10);
 
         if (!empty($tax)) {
-            return $this->success($tax);
+            // P2.5-TAX-CURRENCY. ADDITIVE: every key the paginator already sent is still sent,
+            // with `currency_symbol` beside them -- the same shape and the same key name
+            // `ProductList` already uses (:1346), so the app parses it the same way.
+            //
+            // WHY IT WAS NEEDED. This endpoint returned the paginator and nothing else, and
+            // nothing in the admin app caches a store currency -- every `currencySymbol` in it is
+            // assigned from the response of that screen's own endpoint. So the tax screen had no
+            // way to know the store's currency and printed a hard-coded `$` on a fixed-amount
+            // tax, which is wrong for every store that does not price in dollars. The `$` was
+            // removed when the defect was found; this is what lets the right symbol take its
+            // place.
+            return $this->success(array_merge(
+                $tax->toArray(),
+                ['currency_symbol' => $this->storeCurrencySymbol($store)]
+            ));
         } else {
             return $this->error(['message' => __('Tax Data not found.')]);
         }

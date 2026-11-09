@@ -215,7 +215,15 @@ VERIFIED = {
 
     # --- P2.5-FLUTTER-STORE-SETTINGS (2026-11-09) -----------------------------------------------
     #
-    # `Store information` is DELIBERATELY ABSENT although its four captures sit beside this one's.
+    # THE COPY DECK IS RESOLVED (owner Decision 3, 2026-11-09): all 68 strings are translated at
+    # 76 call sites, and the Arabic capture now reads معلومات المتجر over اسم المتجر,
+    # البريد الإلكتروني, رابط المتجر, تاريخ الإنشاء, معلومات المالك and اسم المالك, with the email,
+    # URL and date VALUES correctly staying left-to-right. So this row is no longer held.
+    'Store information':          ('REDESIGNED AND VERIFIED', 'flutter-store-settings-2026-11-09',
+                                   'flutter-store-info_', 'P2.5-COPY-DECK', 'GetX /storeInfo'),
+
+    # (historical note) `Store information` was DELIBERATELY ABSENT while its captures sat beside
+    # this one's.
     # Its Arabic build renders the heading معلومات المتجر above field labels reading "Store Name",
     # "Email", "Store URL", "Created At", "Owner Information", "Owner Name" and "Owner Email". That
     # is not a new finding: P2.5-B-12 slice one converted the nine labels whose Arabic existed and
@@ -248,13 +256,15 @@ VERIFIED = {
         ('REDESIGNED AND VERIFIED', 'flutter-auth-2026-11-09',
          'flutter-login_', 'P2.5-FLUTTER-AUTH', 'GetX /login'),
 
-    # `Products list (tab 2)` IS DELIBERATELY ABSENT, though it has four populated captures beside
-    # the others. Its own capture is what found P2.5-FLUTTER-PRICE: the card is handed
-    # `salePrice` alone, and `sale_price` is the optional DISCOUNT (`->default(0)`, validated
-    # `lte:price`), so every product nobody has discounted renders an em dash where the web prints
-    # `$product->price`. A screen that shows no prices is not a verified screen, whatever its
-    # captures look like. It stays PENDING until the owner decides the repair --
-    # StoreSyria_app98/docs/design/PRODUCT-PRICE-PARITY.md.
+    # P2.5-FLUTTER-PRICE IS FIXED (owner Decision 1, 2026-11-09), so this row is no longer held.
+    # Its own capture is what found the defect: the card was handed `salePrice` alone, and
+    # `sale_price` is the optional DISCOUNT (`->default(0)`, validated `lte:price`), so every
+    # product nobody had discounted rendered an em dash where the web printed its price. The card
+    # now reads `final_price`, which `ProductList` already resolved from the product's own price,
+    # so the two surfaces agree by reading the same field and no API or calculation changed. The
+    # re-taken captures show `150 $` and `85 $` where the em dashes were.
+    'Products list (tab 2)':      ('REDESIGNED AND VERIFIED', 'flutter-harness-2026-11-09',
+                                   'flutter-products-list_', 'P2.5-FLUTTER-PRICE', 'tab 2'),
     'Customer list':              ('REDESIGNED AND VERIFIED', 'wave-1', '_customer__', 'P2.5-WAVE-1'),
     'Merchant dashboard (page shell)': ('REDESIGNED AND VERIFIED', 'wave-3b', '_dashboard__', 'P2.5-WAVE-3 + 3b'),
     'Coupon list':                ('REDESIGNED AND VERIFIED', 'wave-2', '_coupon-empty__', 'P2.5-WAVE-2'),
