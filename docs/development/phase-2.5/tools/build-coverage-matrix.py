@@ -246,6 +246,27 @@ VERIFIED = {
     # card that the deck never listed, because the deck was built by reading files. They are fixed
     # in the same change; the premise test asserts the English spelling is ABSENT from the Arabic
     # build, not merely that the Arabic is present.
+    # --- P2.5-FLUTTER-DETAIL (2026-11-09) -------------------------------------------------------
+    #
+    # Two surfaces a merchant reaches by pushing from a list, by
+    # `test/screens/detail_screens_capture_test.dart`.
+    #
+    # `StoreSettingScreen` is a HUB: its value is that every label on it is a translation key, so
+    # the test asserts the raw identifiers (`store_settings`, `store_language_and_currencies`,
+    # `store_information`, `store_design`) are NOT on screen in either language -- a missing key
+    # would render as the identifier itself.
+    #
+    # `CustomerDetailsScreen` needs two controllers and calls `clearCustomerOrders()` SYNCHRONOUSLY
+    # in initState before its post-frame fetch, so a response that fails to parse leaves an empty
+    # list indistinguishable from a customer who has never ordered. A premise drives the
+    # genuinely-empty case and requires the customer still be identified on screen.
+    'Store settings grid':        ('REDESIGNED AND VERIFIED', 'flutter-detail-2026-11-09',
+                                   'flutter-store-settings-hub_', 'P2.5-FLUTTER-DETAIL',
+                                   'StoreSettingScreen'),
+    'Customer detail':            ('REDESIGNED AND VERIFIED', 'flutter-detail-2026-11-09',
+                                   'flutter-customer-detail_', 'P2.5-FLUTTER-DETAIL',
+                                   'CustomerDetailsScreen'),
+
     'Profile / My account':
         ('REDESIGNED AND VERIFIED', 'flutter-account-2026-11-09',
          'flutter-profile_', 'P2.5-FLUTTER-ACCOUNT', 'ProfileScreen'),
@@ -285,6 +306,54 @@ VERIFIED = {
     # re-taken captures show `150 $` and `85 $` where the em dashes were.
     'Products list (tab 2)':      ('REDESIGNED AND VERIFIED', 'flutter-harness-2026-11-09',
                                    'flutter-products-list_', 'P2.5-FLUTTER-PRICE', 'tab 2'),
+    # --- P2.5-WEB-FINAL (2026-11-09) ------------------------------------------------------------
+    #
+    # Thirteen merchant-web routes rendered through `render-matrix.cjs` in all four combinations:
+    # 52 rows, 0 not clean, and 52 DISTINCT images.
+    #
+    # THE FIRST RUN WAS WORTHLESS AND LOOKED FINE, which is why it is recorded here. Nine of these
+    # routes answered HTTP 200 titled "Store Syria - Dashboard" and produced only 11 distinct
+    # images from 17 -- `pages` and `shipping` byte-identical, `blog`+`menus`+`newsletter`
+    # identical, `taxes`+`support_ticket` identical. They were REDIRECTS: the dev fixture merchant
+    # did not hold the permission each screen gates on, and a refused merchant screen in this
+    # application is `redirect()->back()`, not an error. `grant-dev-screen-permissions.php` exists
+    # for exactly this and its own header calls it "the single most dangerous reading this project
+    # can take, because it looks like evidence".
+    #
+    # Thirteen permissions were granted to the DEV FIXTURE ONLY, plus the `taxes` setting the Tax
+    # controller requires. Every route then answered with its OWN title -- DeliveryBoy, Menus,
+    # Pages, Blogs, Blog Category, Contact-us, Newsletters, Shipping Class, Shipping Zone,
+    # Settings, Support Ticket, Tax Class -- and every capture is distinct.
+    'Delivery boys':              ('REDESIGNED AND VERIFIED', 'web-p25-final-2026-11-09',
+                                   '_deliveryboy__', 'P2.5-WEB-FINAL', '/deliveryboy'),
+    'Menus':                      ('REDESIGNED AND VERIFIED', 'web-p25-final-2026-11-09',
+                                   '_menus__', 'P2.5-WEB-FINAL', '/menus'),
+    'Pages / Blog / Blog categories / Contact / Newsletter':
+                                  ('REDESIGNED AND VERIFIED', 'web-p25-final-2026-11-09',
+                                   '_pages__', 'P2.5-WEB-FINAL', '/pages'),
+    'Settings hub (26 AJAX tabs)': ('REDESIGNED AND VERIFIED', 'web-p25-final-2026-11-09',
+                                   '_setting__', 'P2.5-WEB-FINAL', '/setting'),
+    'Support tickets':            ('REDESIGNED AND VERIFIED', 'web-p25-final-2026-11-09',
+                                   '_support_ticket__', 'P2.5-WEB-FINAL', '/support_ticket'),
+    'Attribute options list (DS pilot)':
+                                  ('REDESIGNED AND VERIFIED', 'web-p25-final-2026-11-09',
+                                   '_attribute_option__', 'P2.5-WEB-FINAL', '/attribute-option'),
+
+    # These two rows each name more than one screen, and in each case one of the named things is
+    # NOT a screen. Both are claimed on the screens that exist, with the gap stated in the
+    # package README rather than left for a reader to discover:
+    #   * `Shipping classes / zones / methods` -- /shipping and /shipping-zone both render and are
+    #     captured. `ShippingMethodController::index()` HAS AN EMPTY BODY, literally `//`, so
+    #     /shipping-method renders nothing. A registered-but-unimplemented route must not be
+    #     presented as a working screen.
+    #   * `Taxes and tax methods` -- /taxes renders and is captured; the tax-method routes are
+    #     create/edit MODALS, which are their own inventory rows elsewhere.
+    'Shipping classes / zones / methods':
+                                  ('REDESIGNED AND VERIFIED', 'web-p25-final-2026-11-09',
+                                   '_shipping__', 'P2.5-WEB-FINAL', '/shipping'),
+    'Taxes and tax methods':      ('REDESIGNED AND VERIFIED', 'web-p25-final-2026-11-09',
+                                   '_taxes__', 'P2.5-WEB-FINAL', '/taxes'),
+
     'Customer list':              ('REDESIGNED AND VERIFIED', 'wave-1', '_customer__', 'P2.5-WAVE-1'),
     'Merchant dashboard (page shell)': ('REDESIGNED AND VERIFIED', 'wave-3b', '_dashboard__', 'P2.5-WAVE-3 + 3b'),
     'Coupon list':                ('REDESIGNED AND VERIFIED', 'wave-2', '_coupon-empty__', 'P2.5-WAVE-2'),

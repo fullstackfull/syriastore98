@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 61 | 20.7% |
+| REDESIGNED AND VERIFIED | 71 | 24.1% |
 | BLOCKED | 10 | 3.4% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 199 | 67.5% |
+| PENDING | 189 | 64.1% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -30,15 +30,15 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
-| Flutter merchant admin app | 51 | 0 | 22 | 0 | 0 | 29 |
+| Flutter merchant admin app | 51 | 0 | 24 | 0 | 0 | 27 |
 | CATALOGUE taxonomy | 38 | 13 | 1 | 0 | 0 | 24 |
-| Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 3 | 1 | 0 | 31 |
+| Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 10 | 1 | 0 | 24 |
 | Phase 2.5 Wave A | 30 | 0 | 0 | 0 | 0 | 30 |
 | Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 0 | 1 | 0 | 25 |
 | Flutter merchant/employee admin app | 24 | 0 | 5 | 0 | 0 | 19 |
 | Customers and customer management | 20 | 0 | 11 | 4 | 0 | 5 |
 | ORDERS | 17 | 0 | 5 | 3 | 0 | 9 |
-| PRODUCTS | 16 | 1 | 2 | 1 | 0 | 12 |
+| PRODUCTS | 16 | 1 | 3 | 1 | 0 | 11 |
 | Merchant admin NAVIGATION SHELL | 13 | 4 | 7 | 0 | 0 | 2 |
 | Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 3 | 0 | 0 | 10 |
 | Merchant dashboard and KPI presentation | 9 | 3 | 2 | 0 | 1 | 3 |
@@ -71,7 +71,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Add / edit category (modal) | ``showModalBottomSheet from categories`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | More / Settings grid (tab 4) | ``tab 4 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SETTINGS; four captures under evidence/flutter-settings-2026-11-09/ |
 | App settings | ``GetX /appSettings`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SETTINGS; four captures under evidence/flutter-settings-2026-11-09/ |
-| Store settings grid | ``Get.to(() => StoreSettingScreen()) from the More grid`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Store settings grid | ``Get.to(() => StoreSettingScreen()) from the More grid`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-DETAIL; four captures under evidence/flutter-detail-2026-11-09/ |
 | Store information | ``GetX /storeInfo`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-COPY-DECK; four captures under evidence/flutter-store-settings-2026-11-09/ |
 | Store language & currencies | ``GetX /lang`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-STORE-SETTINGS; four captures under evidence/flutter-store-settings-2026-11-09/ |
 | Store email settings | ``Get.to(() => EmailSettingScreen()) from store settings`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-ACCOUNT; four captures under evidence/flutter-account-2026-11-09/ |
@@ -83,7 +83,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Shipping | ``GetX /shipping`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-OPS; four captures under evidence/flutter-ops-2026-11-09/ |
 | Add / edit shipping (modal) | ``showModalBottomSheet from shipping`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Customers list | ``GetX /customers`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HARNESS; four captures under evidence/flutter-harness-2026-11-09/ |
-| Customer detail | ``Get.to(() => CustomerDetailsScreen()) from customers list`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Customer detail | ``Get.to(() => CustomerDetailsScreen()) from customers list`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-DETAIL; four captures under evidence/flutter-detail-2026-11-09/ |
 | Add / edit customer (modal) | ``showModalBottomSheet from customers list`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Delivery men (staff) list | ``GetX /delivery_boys`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HARNESS; four captures under evidence/flutter-harness-2026-11-09/ |
 | Coupons list | ``GetX /coupon`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HARNESS; four captures under evidence/flutter-harness-2026-11-09/ |
@@ -151,7 +151,7 @@ actually been done to it since. They are different questions and the matrix keep
 
 | surface | route / kind | audit | state | evidence or reason |
 |---|---|---|---|---|
-| Settings hub (26 AJAX tabs) | ``GET /setting`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Settings hub (26 AJAX tabs) | ``GET /setting`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
 | Brand Settings tab | ``partial/component (POST /business-settings)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | System Settings tab | ``partial/component (POST /setting-form)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Storage Settings tab | ``partial/component (POST /storage-settings)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
@@ -175,18 +175,18 @@ actually been done to it since. They are different questions and the matrix keep
 | Roles list | ``GET /roles`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Create role (xl modal, permission matrix) | ``GET /roles/create -> POST /roles`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-12; four captures under evidence/wave-12/ |
 | Edit role (xl modal, permission matrix) | ``GET /roles/{id}/edit -> PUT /roles/{id}`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-12; four captures under evidence/wave-12/ |
-| Shipping classes / zones / methods | ``GET /shipping, /shipping-zone, /shipping-method (+ free-shipp` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Taxes and tax methods | ``GET /taxes, /taxes/{id}, /taxes-method/create/{tax_option_id}` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Shipping classes / zones / methods | ``GET /shipping, /shipping-zone, /shipping-method (+ free-shipp` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
+| Taxes and tax methods | ``GET /taxes, /taxes/{id}, /taxes-method/create/{tax_option_id}` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
 | Webhooks (create/edit modals) | ``GET /webhook/create, /webhook/{id}/edit -> POST\` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Delivery boys | ``GET /deliveryboy, /deliveryboy-list, /deliveryboy/reset-passw` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Delivery boys | ``GET /deliveryboy, /deliveryboy-list, /deliveryboy/reset-passw` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
 | Shopify import screens (product, category, sub_category, coupon, customer) | ``GET /shopify_product, /shopify_category, /shopify_sub_categor` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | WooCommerce import screens (product, category, coupon, customer) | ``GET /woocom_product, /woocom_category, /woocom_coupon, /wooco` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Pixel create/update (modals) | ``GET /pixel-setting/create, /pixel-setting/{id}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Email templates | ``GET /email_template_lang/{lang?} and /email_template_lang/{id` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Languages | ``GET /languages (LanguageController) + GET /create-language`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Menus | ``GET /menus, /menus/{id}/edit`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Support tickets | ``GET /support_ticket, /ticket-view/{id}`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Pages / Blog / Blog categories / Contact / Newsletter | ``GET /pages, /blog, /blog-category, /contacts, /newsletter`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Menus | ``GET /menus, /menus/{id}/edit`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
+| Support tickets | ``GET /support_ticket, /ticket-view/{id}`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
+| Pages / Blog / Blog categories / Contact / Newsletter | ``GET /pages, /blog, /blog-category, /contacts, /newsletter`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
 | Payment gateway checkout pages (plan purchase) | ``various POST /plan-pay-with-*`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Theme customize / storefront visual editor | ``GET /theme-customize (+ /customize-settings)`` | unknown | **BLOCKED** | audit could not determine its state; it needs to be rendered and classified |
 
@@ -350,7 +350,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Variant delete confirmation dialog | ``partial/component — included by edit, show, attribute_combina` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | SKU combination table | ``POST /products/sku_combination → products.sku_combination`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Attribute-option picker fragment | ``POST /products/attrinbute_option → products.attribute_option`` | unknown | **BLOCKED** | audit could not determine its state; it needs to be rendered and classified |
-| Attribute options list (DS pilot) | ``GET /attribute-option/{id?} → product-attribute-option.show`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Attribute options list (DS pilot) | ``GET /attribute-option/{id?} → product-attribute-option.show`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
 | Attribute option create / edit (modal) | ``GET /add-attribute-option/{id?} → product-attribute-option.cr` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 
 ### Merchant admin NAVIGATION SHELL
