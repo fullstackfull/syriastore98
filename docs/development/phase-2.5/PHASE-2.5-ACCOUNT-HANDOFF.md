@@ -24,11 +24,16 @@ it for branch, SHA and status.
 |---|---|---|
 | repository | `fullstackfull/syriastore98` | `fullstackfull/StoreSyria_app98` |
 | **branch** | **`claude/gracious-volta-duiynj`** | **`claude/gracious-volta-duiynj`** |
-| **HEAD (pushed)** | **`77da951b`** | **`e8a26c3`** |
+| **last commit that changed CODE** | **`cb01b7de`** | **`bdb3858`** |
+| HEAD when this was written | `5b42c6bc` | `e8a26c3` |
 | unpushed commits | **0** | **0** |
 | worktree | **clean** | **clean** |
 | pull request | [#132](https://github.com/fullstackfull/syriastore98/pull/132) — **draft**, base `claude/busy-edison-k0pjwa` | [#8](https://github.com/fullstackfull/StoreSyria_app98/pull/8) — **draft**, base `claude/busy-edison-k0pjwa` |
 | parent PR to `main` | [#130](https://github.com/fullstackfull/syriastore98/pull/130) — open | [#7](https://github.com/fullstackfull/StoreSyria_app98/pull/7) — open |
+
+> **Read the branch tip, not the SHA in the row above.** Commits after `5b42c6bc` / `e8a26c3` on
+> these branches are documentation follow-ups to this handoff; `cb01b7de` and `bdb3858` are the
+> last commits that changed code, and every test and CI figure below was measured at those.
 
 **Both #132 and #8 must stay DRAFT.** They exist to run CI, not to merge. No merge to `main`, no
 force push, no history rewrite — standing owner instructions.
@@ -40,7 +45,7 @@ force push, no history rewrite — standing owner instructions.
 
 ## 2. Test and CI status — measured, not assumed
 
-### Laravel, measured at `cb01b7de` (the last commit that changed code; `77da951b` adds only these handoff documents)
+### Laravel, measured at `cb01b7de` (docs-only since)
 
 | | result |
 |---|---|
@@ -86,7 +91,7 @@ php .github/scripts/assert-known-test-outcomes.php \
   instruction is explicit: **an agent must not create, impersonate, sign or auto-insert it.** It
   requires genuine human review.
 
-### Flutter, measured at `4382202` (`e8a26c3` adds only the handoff pointer)
+### Flutter, measured at `4382202` (docs-only since)
 
 | | check |
 |---|---|
