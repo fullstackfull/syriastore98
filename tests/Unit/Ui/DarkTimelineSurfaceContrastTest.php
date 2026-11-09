@@ -478,8 +478,14 @@ class DarkTimelineSurfaceContrastTest extends TestCase
     /**
      * NEGATIVE CONTROL: the repair must take nothing away. The `.end-date` pills carry their own
      * `color: #ffffff` and are immune to inheritance; re-inking them would put dark ink on a pink
-     * pill. Their own (genuine, both-theme) AA failure is a separate row and must not be credited
-     * to this one.
+     * pill, so this block must leave them alone whatever else changes.
+     *
+     * THE SECOND HALF OF THIS DOCBLOCK USED TO SAY their own AA failure was a still-open row.
+     * That is no longer true and the assertion below never depended on it: re-measured
+     * 2026-11-07, all eight grounds those pills can take give 4.53:1 to 6.55:1 against their
+     * white ink, and the label is 10px/600 so 4.5:1 is the bar. The numbers are recorded at
+     * `public/css/custom.css:1972`, beside the colours. The assertion stands unchanged -- what
+     * it guards is that THIS block does not reach those pills, which is true regardless.
      */
     public function test_the_block_does_not_touch_the_end_date_pills(): void
     {

@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 30 | 10.2% |
-| BLOCKED | 9 | 3.1% |
+| REDESIGNED AND VERIFIED | 32 | 10.8% |
+| BLOCKED | 13 | 4.4% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 231 | 78.3% |
+| PENDING | 225 | 76.3% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -36,7 +36,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | Phase 2.5 Wave A | 30 | 0 | 0 | 0 | 0 | 30 |
 | Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 0 | 1 | 0 | 25 |
 | Flutter merchant/employee admin app | 24 | 0 | 0 | 3 | 0 | 21 |
-| Customers and customer management | 20 | 0 | 9 | 0 | 0 | 11 |
+| Customers and customer management | 20 | 0 | 11 | 4 | 0 | 5 |
 | ORDERS | 17 | 0 | 3 | 3 | 0 | 11 |
 | PRODUCTS | 16 | 1 | 2 | 1 | 0 | 12 |
 | Merchant admin NAVIGATION SHELL | 13 | 4 | 7 | 0 | 0 | 2 |
@@ -290,16 +290,16 @@ actually been done to it since. They are different questions and the matrix keep
 | surface | route / kind | audit | state | evidence or reason |
 |---|---|---|---|---|
 | Customer list | ``GET customer (customer.index)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WAVE-1; four captures under evidence/wave-1/ |
-| Customer grid (card view) | ``GET customer-grid (customer.grid)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Customer grid (card view) | ``GET customer-grid (customer.grid)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-R-07; four captures under evidence/r06-customer-filter/ |
 | Customer row actions | ``partial/component (rendered into the DataTable 'action' colum` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Customer status toggle | ``partial/component (DataTable 'status' column) + POST customer` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Customer filter result fragment | ``GET customer-filter-data (customer.filter.data)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Customer filter field metadata | ``GET customer-filter (customer.filter)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Create customer | ``GET customer/create (customer.create) + POST customer (custom` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Customer filter result fragment | ``GET customer-filter-data (customer.filter.data)`` | deficient | **BLOCKED** | GET customer-filter-data answers HTTP 200 and has NO CALLER. Its former parent was the customer grid, which no longer calls it (recorded in customer/grid.blade.php:38-39 during P2.5-R-07). It returns a JSON-encoded HTML string of customer/filter.blade.php, not a page. It cannot be made a screen without inventing a consumer for it. REMEDIATION: either a deliberate decision to retire the route, or a consumer that a merchant-facing feature actually needs. Neither is a design task. |
+| Customer filter field metadata | ``GET customer-filter (customer.filter)`` | needs-polish | **BLOCKED** | GET customer-filter returns application/json and never a view, so it is not a screen and cannot earn a screen state. Its OUTPUT is already rendered -- by the customer filter bar redesigned and captured in P2.5-PKG-G -- so the merchant-visible half of this surface is verified THERE. Claiming it separately would mean reusing that evidence for a second surface, which the owner forbids by name. REMEDIATION: none needed; it is correctly covered as part of the filter bar. |
+| Create customer | ``GET customer/create (customer.create) + POST customer (custom` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-PKG-E; four captures under evidence/pkg-e-customer-write/ |
 | Customer orders (reached by the cart icon) | ``GET customer/{id} (customer.show)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-13; four captures under evidence/wave-13/ |
 | Customer activity timeline | ``GET customer-timeline/{id} (customer.timeline)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-16 + 16c; four captures under evidence/wave-16c/ |
 | Archive customer | ``DELETE customer/{customer} (customer.destroy)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Edit customer (registered, unimplemented) | ``GET customer/{customer}/edit (customer.edit) + PUT/PATCH cust` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Edit customer (registered, unimplemented) | ``GET customer/{customer}/edit (customer.edit) + PUT/PATCH cust` | deficient | **BLOCKED** | NOT a missing screen -- a WEB/FLUTTER PARITY GAP, and the inventory description is stale. The routes are NOT registered: routes/web.php:1191 is Route::resource('customer', ...)->except(['edit','update']), applied by P2.5-PKG-C (F-C-04) because CustomerController has neither method and GET /customer/1/edit answered HTTP 500. But a COMPLETE customer-update backend ships today and the Flutter admin already uses it: routes/api.php:267 POST update-customer -> DashboardController::updateCustomerInfo (:9113), writing first_name/last_name/email/mobile/status at :9193-9197, consumed by StoreSyria_app98 lib/utils/base_api.dart:122 through an edit bottom-sheet. REMEDIATION: an owner decision on whether the WEB screen should exist. Building it is new merchant functionality, which routes/web.php:1187-1189 records as unauthorised in Phase 2.5. |
 | Abandoned carts list | ``GET abandon-carts-handled (abandon.carts.handled)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-PKG-C; four captures under evidence/pkg-c-abandoned/ |
 | Abandoned-cart product cell | ``partial/component (DataTable 'product' column)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-C; four captures under evidence/pkg-c-abandoned/ |
 | Abandoned-cart products modal | ``GET abandon-carts-show/{customerId} (carts.show)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-C; four captures under evidence/pkg-c-abandoned/ |
@@ -308,7 +308,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Abandoned-wishlist product cell | ``partial/component (DataTable 'product' column)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-C; four captures under evidence/pkg-c-abandoned/ |
 | Abandoned-wishlist products modal | ``GET wishlist/{wishlist} (wishlist.show)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-C; four captures under evidence/pkg-c-abandoned/ |
 | Abandoned-wishlist row actions (send mail / send message / delete) | ``partial/component; POST abandon-wish-emailsend (wish.emailsen` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Wishlist create / edit / store / update (registered, unimplemented) | ``GET wishlist/create, GET wishlist/{wishlist}/edit, POST wishl` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Wishlist create / edit / store / update (registered, unimplemented) | ``GET wishlist/create, GET wishlist/{wishlist}/edit, POST wishl` | deficient | **BLOCKED** | All four routes resolve and none renders a byte. WishlistController::create() (:34) and ::store() (:45) have bodies that are literally `//`; ::edit() and ::update() carry P2.5-PKG-B security guards that REFUSE rather than render. No control on any merchant screen targets any of the four. REMEDIATION: owner decision on whether merchant-authored wishlists are a product feature at all. There is nothing to design until there is something to render. |
 
 ### ORDERS
 

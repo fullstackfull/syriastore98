@@ -906,6 +906,29 @@
 }
 .ss-label__required { color: var(--ss-danger); margin-inline-start: 2px; }
 
+/* ---- P2.5-PKG-E: a fieldset legend, because a grouped form needs its groups named ----------
+   MEASURED FIRST. The customer create form's three group headings first carried the host's
+   `.form-label`, and census-low-contrast-text.cjs returned 1.1:1 in dark mode --
+   rgb(41,50,64) on rgb(41,42,51), three failing nodes. The host's class is not theme-aware on a
+   `<legend>`, and a `<legend>` also defaults to the browser's own sizing, which ignores the type
+   scale entirely.
+
+   `.ss-label` supplies the colour from `--ss-fg`; this adds only the size and weight a group
+   heading needs to sit above its fields without competing with the card title. `float: none` and
+   the explicit width are not decoration: a bare `<legend>` inside a `<fieldset>` is laid out by
+   the browser's legend algorithm rather than as a block, which in a Bootstrap grid puts it
+   half-overlapping the fieldset's border edge. */
+.ss-form-legend {
+    display: block;
+    float: none;
+    width: 100%;
+    padding: 0;
+    font-size: var(--ss-text-base);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg);
+    line-height: var(--ss-leading-tight);
+}
+
 /* Optional-marking is better than required-marking when most fields are
    required, but the host's forms mark required, so we match the host. */
 
@@ -1891,6 +1914,96 @@
     color: var(--ss-fg) !important;
 }
 
+/* ---- P2.5-PKG-J: the SAME TWO BUTTONS, on the confirmation dialog's white sheet --------------
+
+   THE RULE DIRECTLY ABOVE IS THE CAUSE OF A 1.04:1 LABEL, and this block is its correction rather
+   than a new feature. Measured in the running admin with the dialog actually open, via
+   `CSS.getMatchedStylesForNode` so the winning declaration is the cascade's own answer and not my
+   reading of four stylesheets:
+
+       .swal2-cancel   is `btn btn-danger`.  `--bs-btn-bg: rgba(255,174,189,.41)` (style-dark.css
+                       :3612) over the sheet composites to rgb(255,222,228) -- a pale pink, not the
+                       "mid mauve" the rule above was measured against -- and the rule above then
+                       puts `--ss-fg` #e8eaed on it.          1.04:1     A LABEL NOBODY CAN READ.
+
+       .swal2-confirm  is `btn btn-success`.  `--bs-btn-color: #5eb839` with
+                       `--bs-btn-bg: var(--third-color)`, and `--third-color` RESOLVES TO THE EMPTY
+                       STRING on this element, so the fill is invalid-at-computed-value and falls
+                       back to transparent. Light green on the white sheet.      2.50:1.
+
+   SO IT IS NOT ONLY THE CANCEL BUTTON. The 1.04:1 figure recorded in `custom.js` named the cancel
+   button alone because that is where the capture was looked at; measuring every part of the open
+   dialog found the CONFIRM button failing too, at 2.50:1, which means the merchant cannot read
+   EITHER answer to a destructive question in the dark theme.
+
+   THE SHAPE IS THE ONE THIS FILE HAS NOW RECORDED THREE TIMES. `data-ss-theme` sits on <html>, so
+   a dark-page rule also reaches every surface that deliberately stays LIGHT in dark mode:
+
+       P2.5-A-02    `.btn-secondary` on the page            -> right
+       P2.5-WAVE-17a the same button inside `.modal-content` -> 1.69:1, corrected by naming it
+       P2.5-PKG-I   `.swal2-title`                           -> 1.00:1, corrected by naming it
+       P2.5-PKG-J   these two buttons on `.swal2-popup`      -> 1.04:1 and 2.50:1
+
+   Each time the page-level rule was correct and incomplete, and each time the SweetAlert sheet was
+   missed because IT IS NOT A `.modal` -- none of the `.modal-content` overrides reach it.
+
+   THE TARGET IS NOT INVENTED: IT IS WHAT LIGHT MODE ALREADY SHOWS ON THIS SAME SHEET. The sheet
+   is `#ffffff` in both themes and the host paints the two fills identically in both sheets
+   (style.css:3555 == style-dark.css:3561), so the light theme's own inks are already measured
+   correct against exactly these grounds -- 7.82:1 and 7.30:1, captured in all three widths. This
+   block therefore makes the dark dialog IDENTICAL to the light dialog rather than giving it a
+   fourth appearance, and the two figures above are a PREDICTION this block must reproduce.
+
+   LAYER-1 PRIMITIVES, NOT `--ss-success-fg` / `--ss-danger-fg`, AND THAT IS THE WHOLE LESSON OF
+   THE THREE ROWS ABOVE. Those semantic tokens re-theme: inside `[data-ss-theme="dark"]` they
+   resolve to #7fd6a0 and #f3a9a4 (:579-581), light inks, which on a pale pink ground is the defect
+   again with a different hex. `--ss-green-800` #165e34 and `--ss-red-800` #8c1d17 are never
+   re-declared in the dark block, and they are byte-identical to the inks light mode already uses
+   here. I got this wrong twice before -- once with `--ss-fg` on the title, once with the modal --
+   so it is stated rather than assumed.
+
+   AND IT WAS NOT LEFT AS AN ASSERTION: the semantic version was applied to this sheet and
+   re-measured in the running admin. #7fd6a0 on the white sheet is 1.75:1 and #f3a9a4 on the pale
+   pink is 1.53:1 -- so the obvious repair leaves the cancel button unreadable and makes the
+   confirm button WORSE than the 2.50:1 defect it replaces. Removing both rules put 2.50:1 and
+   1.04:1 straight back, which is how I know these two declarations are what is carrying the
+   change and not a cache.
+
+   ONLY THE TEXT COLOUR MOVES, same as the block above. The fills stay as the host paints them,
+   which is what keeps this change confined to the dialog's labels. One consequence is inherited
+   and NOT introduced here: the confirm button has no visible fill, because `var(--third-color)`
+   resolves to nothing -- in LIGHT mode too. That is the shape defect the P2.5-A-02 docblock
+   already records as out of scope for a text-colour change, and it is unchanged by this block.
+
+   REACH, MEASURED RATHER THAN ESTIMATED. `btn btn-success` / `btn btn-danger` is the pairing of
+   EVERY first-party and vendored confirmation pathway: the shared `.show_confirm` handler
+   (124 triggers across 107 views, 55 first-party + 52 vendored), `.order_replace` in
+   order/view.blade.php, both terminal refund dialogs in order/refund_details.blade.php, and four
+   vendored modules including BulkDelete. A rule scoped to `.swal2-popup` reaches all of them
+   WITHOUT editing anything under packages/workdo/.
+
+   WHAT THIS DOES NOT FIX, measured and left alone deliberately:
+     - the warning icon ring and its `!` glyph, #ffa21d on white, 2.01:1 -- which fails in LIGHT
+       mode too, so it is not this defect and recolouring it changes every dialog in both themes;
+     - `.swal2-close`, which measures 1.61:1 but is 0x0 px because `showCloseButton` is never set,
+       so it does not render and is not a defect.
+
+   Ratchet: Tests\Unit\Ui\ConfirmDialogButtonContrastTest, which recomputes both ratios from the
+   two colours, forbids the semantic-token simplification by name, and fails if a confirmation
+   pathway starts using a button variant this block does not cover. Measured in situ by
+   docs/development/phase-2.5/tools/audit-dialog-contrast.cjs in all four combinations at 1440,
+   390 and 320. */
+[data-ss-theme="dark"] .swal2-popup .btn-success,
+[data-ss-theme="dark"] .swal2-popup .btn-success:not(:hover):not(:focus):not(:active) {
+    color: var(--ss-green-800, #165e34) !important;
+}
+
+[data-ss-theme="dark"] .swal2-popup .btn-danger,
+[data-ss-theme="dark"] .swal2-popup .btn-danger:not(:hover):not(:focus):not(:active) {
+    color: var(--ss-red-800, #8c1d17) !important;
+}
+/* end P2.5-PKG-J */
+
 /* `.btn-info` IS THE ONLY VARIANT WHOSE CHIP DOES NOT CHANGE WITH THE THEME -- the host paints it
    `#e8f8ff` in BOTH sheets -- so it gets ONE declaration across both, and the token has to be one
    that does not flip. A semantic `--ss-*-fg` would: it is a dark step in light and a light step in
@@ -2031,6 +2144,13 @@
 .ss-stack  { display: flex; flex-direction: column; gap: var(--ss-space-4); }
 .ss-row    { display: flex; flex-wrap: wrap; gap: var(--ss-space-3); }
 .ss-grow   { flex: 1 1 auto; min-width: 0; }
+
+/* P2.5-PKG-G SLICE 2. The customer and order grid cards used `min-w-0` in four places to stop a
+   flex child refusing to shrink below its content -- a Tailwind class, in a codebase with no
+   Tailwind build. Measured: zero occurrences in store-syria-ds.css, custom.css or style.css, so
+   all four were inert and the truncation they were guarding never happened. `.ss-grow` above
+   covers the growing case; this covers the one that must only shrink. */
+.ss-min-w-0 { min-width: 0; }
 .ss-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ==========================================================================
@@ -2168,6 +2288,13 @@
 }
 /* A measure the system genuinely cannot produce. An honest absence, and it
    must not look like a zero. */
+/* P2.5-PKG-G SLICE 2. `--ss-text-2xl` is the DASHBOARD figure size, and on a card it outranks the
+   card's own title: `.ss-card__title` is `--ss-text-lg`, so an order count rendered at 1.56x the
+   customer's NAME on a card whose composition puts identity first. This keeps everything else the
+   stat value carries -- tabular figures, `unicode-bidi: isolate` for a Latin digit run beside
+   Arabic text, the wrapping rule -- and changes only the size. */
+.ss-stat__value--incard { font-size: var(--ss-text-md); }
+
 .ss-stat--unavailable .ss-stat__value {
     font-size: var(--ss-text-base);
     font-weight: var(--ss-weight-normal);
@@ -4462,6 +4589,30 @@ a.ss-setup__item:focus-visible {
    `.ss-col-locked` is included because the same cell carries both classes and `.ss-col-locked`
    is the half that sets `inset-inline-end`. Ratchet: StackedTableRowTest. */
 @media (max-width: 575.98px) {
+    /* P2.5-PKG-I -- A LONG VALUE WAS CLIPPED, AND IN RTL IT LOST ITS START.
+       ======================================================================================
+       MEASURED on the abandoned-carts row at 320px, in the running admin: the e-mail cell held
+       the full `nour.saleh@example.test` in the DOM but rendered `.saleh@example.test`.
+
+           scrollWidth 269   clientWidth 232      -> overflows by 37px
+           white-space nowrap                     -> cannot wrap away the overflow
+           text-overflow clip                     -> no ellipsis, the text is simply cut
+           direction rtl                          -> the cut falls on the LOGICAL START
+
+       So the merchant lost the beginning of the address -- the part that identifies the person --
+       while the domain, which identifies nobody, survived. An ellipsis would be no better here:
+       an e-mail is an identifier a merchant may need to READ, not a label to recognise, so the
+       repair is to let it WRAP rather than to truncate it more politely.
+
+       `anywhere` and not `break-word`: an address has no spaces, so only a rule permitting a
+       break at an arbitrary point can place one. Scoped to the stacked card, where a cell is a
+       full-width row and a second line costs nothing; the wide table is untouched, and nothing
+       here is a physical value. */
+    .ss-dt-card-body table.dataTable > tbody > tr > td {
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
     .ss-dt-card-body table.dataTable > tbody > tr > td.ss-col-locked,
     .ss-dt-card-body table.dataTable > thead > tr > th.ss-col-locked,
     .ss-dt-card-body table.dataTable > tbody > tr > td.ss-col-pinned,
@@ -6620,3 +6771,414 @@ html:not([data-ss-theme="dark"]) [data-ss-admin] .dash-sidebar .dash-item:not(.a
     color: var(--ss-fg);
 }
 /* end P2.5-PKG-B-VARIANT-HEADING */
+
+/* =================================================================================================
+   THE DATATABLE EMPTY CELL.  P2.5-WAVE-6a
+   =================================================================================================
+   `public/js/custom.js` now hands simple-datatables the project's own `.ss-empty` markup as its
+   `noRows` / `noResults` label, and the library injects it into
+   `<td class="dataTables-empty" colspan="N">`. The `.ss-empty` rules above already do all the
+   styling; this block only undoes what a TABLE CELL does to it that a normal block parent does not.
+
+   Three things, each measured rather than assumed:
+
+     * `td` inherits the row's `text-align` -- `start` on a merchant table, and `.ss-empty` is a
+       column flex box with `align-items: center`, which centres its CHILDREN but leaves the title
+       and subtitle paragraphs' own text start-aligned. `text-align: center` here, not on `.ss-empty`,
+       so no other empty state in the product is touched.
+     * the plugin's own cell padding applies here and stacks with `.ss-empty`'s own
+       `--ss-space-12`, giving a cell taller than the state inside it. Zeroing it needs the
+       PLUGIN'S OWN SELECTOR SHAPE, which is the one correction the live pass forced:
+       `assets/css/plugins/style.css` sets `padding: 8px 10px` through
+       `.dataTable-table > tbody > tr > td` -- specificity 0-1-3 -- so a plain
+       `td.dataTables-empty` (0-1-1) LOSES, and the first version of this block did. Measured in
+       the browser, not reasoned about: the cell computed `8px 10px` while this sheet declared
+       `0`. The selector below carries the same prefix plus the class, 0-2-3, and wins without an
+       `!important`.
+     * a `td` is a table cell, so the flex box inside it needs a width to centre within. `display:
+       block` on the cell is NOT used -- it would break the colspan -- and none is needed, because
+       the cell already spans the table.
+
+   NO DARK ARM IS NEEDED and that is deliberate, not an omission: every colour in the state comes
+   from `.ss-empty`/`.ss-empty__icon`/`.ss-empty__title` and the `--ss-*` tokens they read, which
+   are redefined under `data-ss-theme="dark"` once, for every surface that uses them. Adding a
+   second definition here is how a token set stops being one.
+   ================================================================================================= */
+/* EVERY SELECTOR HERE IS CONFINED BY `:has(.ss-empty)`, and that is not a formality to satisfy
+   `DesignSystemStylesheetScopeTest` -- it is the correct rule. This sheet loads on every admin
+   page across all 70 vendored modules, and `.dataTables-empty` is the PLUGIN'S class, not ours:
+   a bare `td.dataTables-empty` would repaint the empty row of any vendored module's DataTable,
+   including ones that never asked for the project's empty state and would get a centred,
+   zero-padded cell containing the library's own bare string. `:has(.ss-empty)` matches only a
+   cell that holds the markup `custom.js` put there.
+
+   `:has()` IS A PROGRESSIVE ENHANCEMENT, the same judgement already recorded for `.ss-filterbar`
+   above: where it is unsupported the cell keeps the plugin's padding and start alignment, and the
+   empty state inside it still renders correctly -- it is a worse-looking cell, not a broken one.
+
+   `text-align` is split from `padding` on purpose: the plugin sets no alignment on a `td`, so
+   0-1-2 is enough for that half, while the padding half needs the plugin's own selector prefix to
+   outrank `.dataTable-table > tbody > tr > td` (0-1-3). See the specificity note above. */
+td.dataTables-empty:has(.ss-empty) {
+    text-align: center;
+}
+
+.dataTable-table > tbody > tr > td.dataTables-empty:has(.ss-empty) {
+    padding: 0;
+}
+
+/* The library also puts `.dataTable-empty` on the WRAPPER while a table is empty. The search box
+   and the per-page select are still useful on a table that a search just emptied, so they are left
+   alone; only the border that would draw a line under nothing is dropped. */
+.dataTable-empty .dataTable-table td.dataTables-empty:has(.ss-empty) {
+    border-bottom-width: 0;
+}
+
+/* ---- The confirmation dialog's TITLE was white on white in dark mode (P2.5-PKG-I) ----
+   ===============================================================================================
+   MEASURED in the running admin, with the dialog actually open:
+
+       .swal2-title   color      rgb(255, 255, 255)
+       .swal2-popup   background rgb(255, 255, 255)      ->  1.00:1
+
+   Not low contrast. INVISIBLE. The merchant sees the warning icon and the body text with a blank
+   band between them where the question should be, on EVERY confirmation in the admin -- 123
+   `.show_confirm` triggers across 107 views -- whenever the dark theme is on.
+
+   THE CAUSE IS THE RULE THIS FILE ALREADY QUOTES TWICE, reached through a surface it did not
+   cover:
+
+       h1, h2, h3, h4, h5, h6 { color: var(--bs-white) !important }        style-dark.css:29442
+
+   `.swal2-title` is an `<h2>`. On the dark page that blanket rule is correct and deliberate; on a
+   panel that stays WHITE in both themes it erases the text. This file records the identical defect
+   for Bootstrap modals -- "every modal title in the admin was invisible" -- and answers it with
+   `[data-ss-theme="dark"] .modal-content ...` overrides. SweetAlert's popup is not a `.modal`, so
+   none of them reached it and the dialog kept the defect after the modal was repaired.
+
+   SAME SHAPE AS THAT FIX, scoped to the always-light surface and `!important` because it is
+   answering an `!important` element selector that a component-level declaration cannot outrank.
+
+   FOUND BY LOOKING AT A CAPTURE. The DOM reported the title present and `display: block`, every
+   test passed, and the string was in the page -- which is why a text-based assertion could never
+   have caught it.
+
+   `--ss-grey-900`, NOT `--ss-fg`, AND I GOT THAT WRONG FIRST. `--ss-fg` is a THEME-SWITCHING
+   token: in dark mode it resolves to the light ink #E8EAED, so the first version of this rule
+   moved the title from #FFFFFF to #E8EAED -- still near-white, still on a white panel, still
+   unreadable. Measured, which is the only reason I noticed. `--ss-grey-900` is the fixed dark ink
+   this file already uses for exactly this situation, on the timeline chip that also keeps a light
+   ground in dark mode. The lesson is the one two comments above state: a theme-switching token on
+   an ALWAYS-LIGHT surface is the defect, not the cure. */
+[data-ss-theme="dark"] .swal2-popup .swal2-title {
+    color: var(--ss-grey-900, #1a1d23) !important;
+}
+
+/* ---- P2.5-PKG-L: the customer timeline reads as one column, not two half-empty ones ----------
+   ===============================================================================================
+   THE OWNER REVIEWED THE SCREEN AND NAMED SIX THINGS. This block answers the layout half of them;
+   the labelling and date half is in the view. MEASURED on the real page before any edit, at 1440
+   and at 320, in all four language/theme combinations:
+
+       en desktop   1807px tall for SEVEN events        ar desktop   1812px
+       en 390/320   2046px                              ar 390       2051px, ar 320 2072px
+
+   WHERE THE HEIGHT WENT. `.tl-container` is `max-width: 50%` and alternates `left`/`right` around
+   a centre rail, so EVERY CARD LEAVES THE OTHER HALF OF THE CANVAS EMPTY -- on a 1440 screen that
+   is roughly 450px of card beside 450px of nothing, repeated seven times, plus ~150px of vertical
+   gap between consecutive cards because a left card and the right card after it do not share a
+   row. Slightly over half the content area is blank.
+
+   AND THE ALTERNATION CARRIES NO MEANING. It is not grouping by anything -- `$ssSide` is
+   `$key % 2`, the row's position in the list. A reader scanning for "what happened next" has to
+   zig-zag across 900px to follow a sequence that is simply chronological.
+
+   SO: ONE COLUMN, ONE RAIL ON THE LEADING EDGE. The cards keep their own markup and their seven
+   branches; only the geometry changes. The rail drops from 6px to 2px because at 6px it competed
+   with the cards it was meant to connect.
+
+   LOGICAL PROPERTIES THROUGHOUT, and that is load-bearing rather than tidy. The vendored mobile
+   block (custom.css:1946-1984) pins `text-align: left` on `.tl-container`, `.tl-container.left`
+   and `.tl-box` -- so at 767px and below the ARABIC cards align their text to the LEFT, against
+   the direction of the page. `text-align: start` is the same declaration in LTR and the correct
+   one in RTL, so one rule set serves both and rtl-custom.css needs no copy.
+
+   WHY NOT IN custom.css. `DesignSystemStylesheetScopeTest` requires every selector in THIS file to
+   be confined by an `.ss-` class or a `data-ss-` attribute, which is why the view now carries
+   `ss-timeline` beside `my-custom-timeline`. Putting the redesign here rather than in custom.css
+   keeps it in the authoritative sheet and under that test.
+
+   NOTHING HERE TOUCHES A TIMESTAMP, AN AMOUNT OR AN ACTIVITY-LOG VALUE. The owner's instruction is
+   explicit on that point and this is a stylesheet; the two date REPRESENTATIONS are relabelled in
+   the view, where the words are, and the values they print are unchanged. */
+
+/* The outer padding was 60px top and bottom plus another 40px inside the inner wrapper: 200px of
+   empty page around seven cards. */
+.ss-timeline.my-custom-timeline {
+    padding: 8px 0 24px;
+}
+
+.ss-timeline .custom-timeline-inner {
+    padding: 0;
+    max-width: 760px;
+    margin-inline: 0;
+}
+
+/* The rail: 2px, on the leading edge, in a token that follows the theme instead of #DBDBDB. */
+/* PHYSICAL EDGES ARE FORBIDDEN IN THIS FILE and are not needed to beat the vendored ones.
+   `DesignSystemStylesheetScopeTest` fails any `left`/`right`/`margin-left` here, and the first
+   draft of this block used all three to neutralise custom.css's `left: 50%` and `margin-left: -3px`.
+   It does not have to: `inset-inline-start` COMPUTES TO `left` in LTR, so being the later sheet it
+   simply wins the same property; and in RTL it computes to `right`, where the vendored `left` is
+   the ignored edge for an absolutely positioned box that has a width. The margin needs both
+   logical sides because `margin-left` is the START margin in LTR and the END margin in RTL. */
+.ss-timeline .timeline::before {
+    inset-inline-start: 11px;
+    width: 2px;
+    margin-inline-start: 0;
+    margin-inline-end: 0;
+    top: 4px;
+    height: calc(100% - 8px);
+    background: var(--ss-border, #DBDBDB);
+}
+
+/* One column. `.left` and `.right` both become the same thing; the classes stay on the elements
+   because the view still computes `$ssSide`, and removing that is a view change with its own
+   output-neutrality question. */
+.ss-timeline .tl-container,
+.ss-timeline .tl-container.left,
+.ss-timeline .tl-container.right {
+    max-width: 100%;
+    width: 100%;
+    inset-inline-start: 0;
+    text-align: start;
+    padding: 0;
+    padding-inline-start: 36px;
+}
+
+.ss-timeline .tl-container + .tl-container {
+    margin-top: 10px;
+}
+
+/* The connector stub pointed from a card to a centre rail. With the rail beside the card there is
+   nothing for it to span, and it read as a stray dash. */
+.ss-timeline .support-time::before,
+.ss-timeline .left .support-time::before {
+    content: none;
+}
+
+/* The marker sits ON the rail, in both directions, and takes the card's own ground so the rail
+   appears to pass behind it. */
+.ss-timeline .support-time::after,
+.ss-timeline .left .support-time::after {
+    inset-inline-start: -31px;
+    top: 22px;
+    width: 10px;
+    height: 10px;
+    border-width: 2px;
+    border-color: var(--ss-border, #DBDBDB);
+    background-color: var(--ss-surface, #ffffff);
+}
+
+/* ---- THE SECOND HALF OF THE WHITESPACE, which the first pass only MOVED -------------------
+   Going to one column took the page from 1807px to 1676px -- 7%, and the empty half of the canvas
+   became an empty right-hand two thirds INSIDE each card. "Signed in" was a 120px-tall card
+   holding one fact. Each card stacked four blocks down the page: chip, then a <ul> of one-per-row
+   `Label value` lines, then the timestamp on its own line.
+   So the card becomes a flex container and the content flows ACROSS it:
+     row 1   the event chip, and the timestamp pushed to the far edge of the same row
+     row 2+  the facts, inline and wrapping, instead of one per line
+   Nothing is hidden and no value changes; the same text occupies two rows instead of six. */
+.ss-timeline .tl-box {
+    margin-top: 0;
+    padding: 12px 16px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 8px;
+}
+
+.ss-timeline .tl-btn {
+    order: 1;
+    margin-bottom: 0;
+}
+
+/* `margin-inline-start: auto` and not `float`/`text-align`: this has to work in both directions,
+   and in RTL the "far edge" is the left one. */
+.ss-timeline .tl-box .time-wrapper,
+.ss-timeline .left .tl-box .time-wrapper {
+    order: 2;
+    margin: 0;
+    margin-inline-start: auto;
+    justify-content: flex-end;
+}
+
+.ss-timeline ul {
+    order: 3;
+    flex-basis: 100%;
+    margin-bottom: 0;
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: 22px;
+    row-gap: 4px;
+    align-items: baseline;
+}
+
+.ss-timeline ul li {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    align-items: baseline;
+    justify-content: flex-start;
+}
+
+/* The rail and its markers were #DBDBDB on an #F7F8FA page -- 1.12:1, so the thing that ties the
+   cards together was the faintest mark on the screen. These are decoration rather than content,
+   so 3:1 is not required of them, but being visible is the whole job. */
+.ss-timeline .timeline::before {
+    background: var(--ss-grey-300, #c7cbd1);
+}
+
+.ss-timeline .support-time::after,
+.ss-timeline .left .support-time::after {
+    border-color: var(--ss-grey-400, #a7abb2);
+}
+
+@media screen and (max-width: 767px) {
+    /* The vendored block's `text-align: left` is the defect this overrides -- see the note above. */
+    .ss-timeline .tl-container,
+    .ss-timeline .tl-container.left,
+    .ss-timeline .tl-container.right,
+    .ss-timeline .tl-box {
+        text-align: start;
+    }
+
+    .ss-timeline .tl-container,
+    .ss-timeline .tl-container.left,
+    .ss-timeline .tl-container.right {
+        padding-inline-start: 28px;
+        margin-bottom: 0;
+    }
+
+    .ss-timeline .tl-container:not(:last-of-type) {
+        margin-bottom: 0;
+    }
+
+    .ss-timeline .tl-container + .tl-container {
+        margin-top: 8px;
+    }
+
+    .ss-timeline .custom-timeline-inner {
+        padding: 0;
+    }
+
+    /* The vendored block hides the rail's marker on phones and drops the rail behind the content
+       (`z-index: -1`). With one column the rail is the only thing tying the cards together, so it
+       and its markers come back. */
+    .ss-timeline .timeline::before {
+        z-index: 1;
+        top: 4px;
+        inset-inline-start: 7px;
+    }
+
+    .ss-timeline .support-time::after,
+    .ss-timeline .left .support-time::after {
+        display: block;
+        inset-inline-start: -25px;
+        top: 20px;
+    }
+
+    .ss-timeline .support-time::before,
+    .ss-timeline .left .support-time::before {
+        display: none;
+    }
+
+    /* AT 320 THE RECORDED TIME WAS FLOATING. `margin-inline-start: auto` is right on a wide card,
+       where it puts the timestamp opposite the event badge on one line. On a phone the badge and
+       the timestamp cannot share a line, so the timestamp wrapped onto its own row and `auto`
+       then pushed it to the far edge of THAT row -- a right-aligned fragment under a left-aligned
+       badge, belonging to neither. Seen in the 320px capture, not predicted. It becomes a plain
+       full-width row instead. */
+    .ss-timeline .tl-box .time-wrapper,
+    .ss-timeline .left .tl-box .time-wrapper {
+        flex-basis: 100%;
+        margin-inline-start: 0;
+        justify-content: flex-start;
+        margin-top: 0;
+    }
+
+    /* And a long value is allowed to wrap UNDER its label rather than being squeezed beside it:
+       "Last Login Date" + a localised datetime does not fit on one 320px line in either language. */
+    .ss-timeline ul li {
+        flex-wrap: wrap;
+    }
+
+    .ss-timeline ul {
+        column-gap: 16px;
+    }
+}
+/* end P2.5-PKG-L */
+
+/* ---- P2.5-PKG-L (continued): a chip's colour has to mean something -------------------------
+   MEASURED BY LOOKING AT THE SCREEN. The SAME product name, "Linen Tea Towel Set", was painted in
+   FIVE DIFFERENT COLOURS down one page -- green on "added to wishlist", grey on "removed from
+   wishlist", crimson on both cart rows and blue on the order -- and the same variant, "S-Natural",
+   was amber on one card and brown on the next. The suffix classes
+   (`wishlist-timeline`, `add-cart-timeline`, `order-timeline`, ...) key on THE EVENT, not on what
+   the chip contains, so a reader who learns "green means wishlist" learns nothing transferable:
+   the product has not changed, only the row it sits on.
+   AND THE EVENT ALREADY HAS A COLOUR -- the `.tl-btn` badge at the top of the card, which is what
+   `ActivityLogLabel::for()` names in words. Painting the value a second colour for the same reason
+   says the same thing twice and makes the value look like a status.
+   SO EVERY VALUE CHIP IS ONE NEUTRAL CHIP. The event stays coloured; the data stops pretending to
+   be. Neither the markup nor any value changes -- the suffix classes are still emitted, they just
+   no longer paint. */
+/* `!important` HERE ANSWERS `!important` THERE, which is the only reason it appears. The seven
+   suffix rules are bare single-class selectors carrying `!important` (custom.css:2009-2035), so a
+   scoped rule of any specificity loses to them without it. The scope is still `.ss-timeline`: the
+   classes keep working anywhere else they are used. */
+.ss-timeline .tl-box .end-date,
+.ss-timeline .tl-box .end-date.register-timeline,
+.ss-timeline .tl-box .end-date.last-login-timeline,
+.ss-timeline .tl-box .end-date.wishlist-timeline,
+.ss-timeline .tl-box .end-date.dlt-wishlist-timeline,
+.ss-timeline .tl-box .end-date.add-cart-timeline,
+.ss-timeline .tl-box .end-date.dlt-cart-timeline,
+.ss-timeline .tl-box .end-date.order-timeline {
+    background: var(--ss-surface-hover, #f1f3f5) !important;
+    color: var(--ss-fg, #1a1d23) !important;
+    border: 1px solid var(--ss-border, #dfe3e8);
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+}
+
+/* THESE TWO TOKENS RE-THEME, AND HERE THAT IS CORRECT -- which is the opposite of the P2.5-PKG-J
+   rule two blocks up, so it is worth saying why. The SweetAlert sheet stays WHITE in dark mode, so
+   a theme-switching ink on it resolves to the wrong value; the timeline CARD does not -- it takes
+   `--ss-surface` and really is dark in dark mode. A chip on a surface that follows the theme must
+   follow it too. The first version used the fixed `--ss-grey-100`/`--ss-grey-900` pair, which gave
+   a near-white pill on a #262b33 card: legible at about 16:1, and LOUDER than the event badge it
+   sits under, which inverts the hierarchy this block exists to establish. Seen in the 390px dark
+   capture. */
+
+/* A DATE IS NOT A CHIP. The register and last-login dates were painted as `.end-date` pills in the
+   event's colour, which made a timestamp look like a status badge and put the page's two dates in
+   two different visual registers. They are values now, in the card's own ink. */
+.ss-timeline .ss-timeline__value {
+    color: var(--ss-fg, #1a1d23);
+    font-variant-numeric: tabular-nums;
+}
+
+/* `Recorded <date>` instead of a bare date. The card used to end in an unlabelled timestamp that
+   was IDENTICAL on all seven cards -- the activity-log row's `created_at` -- next to an in-card
+   date in a different format that was the event's own. Two dates, no labels. The label is in the
+   view; this keeps the pair legible by making the recorded one quieter than the event's own. */
+.ss-timeline .tl-box .time-wrapper .time {
+    display: inline-flex;
+    gap: 5px;
+    align-items: baseline;
+    white-space: nowrap;
+}
+/* end P2.5-PKG-L (continued) */

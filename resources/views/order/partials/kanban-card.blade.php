@@ -26,7 +26,11 @@
 <article class="ss-board__card">
     <a class="ss-board__card-id"
        href="{{ route('order.view', \Illuminate\Support\Facades\Crypt::encrypt($ssOrder->id)) }}">
-        #{{ $ssOrder->product_order_id }}
+        {{-- P2.5-PKG-M (F-M-05). `<bdi>` keeps the `#` ON THE NUMBER. Without it the bidi
+             algorithm moves a leading neutral to the visual end of a Latin run inside an
+             Arabic line, so `#ORD-2043` renders `ORD-2043#`. Seen in the Arabic board capture
+             at 1440 and again in the list at 390, so it is not a width artefact. --}}
+        <bdi>#{{ $ssOrder->product_order_id }}</bdi>
     </a>
 
     <div class="ss-board__card-meta">

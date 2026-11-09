@@ -1890,6 +1890,23 @@ img.refund-image {
     -ms-border-radius: 3px;
     -o-border-radius: 3px;
     font-weight: 600;
+    /* P2.5-PKG-H SLICE 5 -- THE PILL FRAGMENTED WHEN ITS TEXT WRAPPED.
+       `.end-date` declared no `display`, so a <span> took the initial `inline`. An inline box that
+       wraps is painted as ONE RECTANGLE PER LINE, and `padding: 3px` is applied only at the two
+       OUTER ends -- so a product list long enough to wrap (an order with several items, which is
+       what `ActivityLog::products()` returns as a comma-separated run of NAMES) broke the pill into
+       ragged background slabs with no padding where it split. Worst at phone width, where the
+       timeline is already one column.
+       MEASURED, in headless Chromium at 360px with a five-name product run in a 300px container:
+       `display:inline` gives getClientRects() length 2 -- 225x17 and 89x17, two separate slabs --
+       and `inline-block; max-width:100%` gives length 1, a single 300x28 box.
+       `inline-block` makes it one box whose text wraps INSIDE it; `max-width: 100%` keeps that box
+       inside the <li> rather than overflowing the card. The pill stays inline-level, so it still
+       sits beside its own label.
+       IDENTICAL IN BOTH MIRRORED SHEETS, and deliberately so: there is no physical value here, so
+       the LTR and RTL copies must not diverge. */
+    display: inline-block;
+    max-width: 100%;
 }
 
 .my-custom-timeline .timeline-schedule {
@@ -1969,6 +1986,26 @@ img.refund-image {
     font-size: 24px;
 }
 
+/* THE TIMELINE DATE PILLS -- MEASURED 2026-11-07, AND THEY PASS.
+   =================================================================================================
+   These seven `!important` backgrounds override `.my-custom-timeline .tl-box .end-date` (:1882),
+   whose own ground is #DB325F and whose ink is `color: #ffffff` -- declared on the pill, so it is
+   immune to any inheritance a dark arm could give it. That makes eight possible pairings, and the
+   label is 10px/600, so the SMALL-TEXT threshold of 4.5:1 applies to every one of them:
+
+     #DB325F 4.53   #3A853D 4.56   #5E7A88 4.55   #1F8564 4.57
+     #767676 4.54   #947004 4.59   #795548 6.55   #1B79C5 4.58
+
+   ALL EIGHT PASS, in both themes -- the pills declare their own two colours, so the theme cannot
+   change the pairing. Every one but #795548 sits just above the line, which is what a deliberate
+   repair to a threshold looks like rather than a coincidence.
+
+   RECORDED HERE BECAUSE TWO PLACES SAID OTHERWISE. The dark-timeline block at :5286 stated the
+   failure was "real, in BOTH themes", and `PHASE-2.5-REMAINING-AREAS-WORKLIST.md` §3 WAVE-6 lists
+   an `offbrand-colour` row naming seven hues -- `#4CAF50`, `#607D8B`, `#32d7a2`, `#9E9E9E`,
+   `#FFC107`, `#795548`, `#2196F3` -- of which only `#795548` is still in this file. Six were
+   replaced by the repair that produced the numbers above. Both claims were true when written and
+   are stale now; this is the measurement, so neither needs believing. */
 .register-timeline {
     background: #3A853D !important;
 }
@@ -5284,8 +5321,13 @@ html:not([data-ss-theme="dark"]) body .dash-header .text-primary {
    LIGHT MODE IS UNREACHABLE BY CONSTRUCTION: this file is served in BOTH themes
    (layouts/app.blade.php), so every selector carries the `data-ss-theme="dark"` hook the layout
    publishes on <html>. The pink date pills are NOT re-inked -- they declare their own
-   `color: #ffffff` above and are immune to inheritance. Their own contrast failure is real, in
-   BOTH themes, and is a separate row that this change must not be credited with.
+   `color: #ffffff` above and are immune to inheritance.
+
+   This paragraph used to add that their own contrast failure was still open, in both themes.
+   IT IS NOT: re-measured 2026-11-07, all eight grounds those pills can take now pass AA for
+   small text. The measurement is recorded beside the colours themselves, at the `*-timeline`
+   block around :1972, which is where it belongs and where a reader will be standing when the
+   question comes up.
    ============================================================================================= */
 
 html[data-ss-theme="dark"] body .my-custom-timeline .tl-box {

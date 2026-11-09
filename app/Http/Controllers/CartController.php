@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\{ActivityLog, ProductAttributeOption, ProductVariant, Store};
 use App\Models\Utility;
+use App\Services\AbandonedMessageDispatch;
 use App\Models\Cart;
 use App\Models\{Customer, Product, User};
 use App\Models\Coupon;
@@ -1363,7 +1364,30 @@ foreach ($response->data->product_list as $item) {
         }
 
         $customer_id = $cart->customer_id;
-        $mobile = $cart->UserData;
+        /*
+         * P2.5-PKG-K. `UserData` IS THE RELATION, SO `->mobile` IS THE PHONE NUMBER.
+         *
+         * This line used to read `$mobile = $cart->UserData`, handing the whole Customer MODEL to
+         * `Utility::SendMsgs()` where it expects `$mobile_no`. It did not throw:
+         * `Eloquent\Model::__toString()` is `toJson()`, so the WhatsApp recipient became
+         *
+         *     +{"first_name":"Nour","last_name":"Saleh","email":"...","mobile":"963900000001",...}
+         *
+         * WhatsApp cannot deliver to that, and on a store with real credentials it POSTs the
+         * shopper's name, e-mail, mobile, address and postcode to graph.facebook.com in the `to`
+         * field. `password`, `remember_token` and `password_otp` are in `$hidden` (P1-SEC-16), so
+         * this is personal data rather than credentials -- stated precisely because the difference
+         * is the difference between a bug and an incident.
+         *
+         * AND IT MAKES THE NUDGE DELIVERABLE FOR THE FIRST TIME, which is a behaviour change worth
+         * saying out loud rather than filing as a bug fix. WhatsApp rejected a JSON `to` field, so
+         * on a configured store this button previously sent nothing to anybody. After this line a
+         * merchant or staff member holding `Abandon Cart` can really message their own shopper,
+         * and the endpoint has no rate limit of its own. The recipient is a customer of the
+         * CALLER'S OWN store -- the unchanged PKG-C predicate above is what keeps it there -- so
+         * this is the feature working, not a boundary moving. Raised by the tenant-authz review.
+         */
+        $mobile = $cart->UserData?->mobile;
 
         try {
             // See the lookup above: `customer_id` is reused across tenants.
@@ -1377,30 +1401,59 @@ foreach ($response->data->product_list as $item) {
             $product_name = implode(',', $product);
             $store = getStoreById(getCurrentStore());
             $msg = __("We noticed that you recently visited our $store->name site and added some fantastic items to your shopping cart. We are thrilled that you found products you love! However, it seems like you did not finish your purchase.You finish your order process as soon as possible, Added Product name : $product_name");
-            $resp  = Utility::SendMsgs('Abandon Cart', $mobile, $msg);
 
-            if ($resp == false) {
-                return response()->json(
-                    [
-                        'is_success' => false,
-                        'message' => __("Invalid Auth access token - Cannot parse access token"),
-                    ]
-                );
+            /*
+             * THE OUTCOME IS DERIVED FROM THE STATE, NOT FROM THE RETURN VALUE, because there is
+             * no return value. `Utility::SendMsgs()` has no `return` on any path that does not
+             * throw, so `$resp` was ALWAYS `null`, and `null == false` is true in PHP -- this
+             * handler reported failure 100% of the time, with the hardcoded words "Invalid Auth
+             * access token - Cannot parse access token" whatever the real cause was. Measured: the
+             * response was BYTE-IDENTICAL for a store with no WhatsApp configuration at all and
+             * for one fully configured with an active template.
+             *
+             * `SendMsgs()` ITSELF IS NOT CHANGED. It is called from PaymentService,
+             * PaymentController, ApiController, PayU and AuthorizeNet on the order and stock paths,
+             * and the shared contract is reserved to the owner (direction of 2026-11-08, §3). So
+             * this handler asks the three questions `SendMsgs()` asks silently -- is WhatsApp
+             * configured, is the template on, is there a number -- and names the one that fails.
+             *
+             * AND IT DOES NOT CLAIM DELIVERY. `SendMsgs()` discards the gateway's response, so
+             * once the preconditions hold the honest report is that the message was HANDED TO
+             * WhatsApp. "Sent successfully" would be exactly as untrue as the old failure message,
+             * which is the trap this repair exists to avoid rather than re-create.
+             */
+            $dispatch = app(AbandonedMessageDispatch::class);
+            $blocked = $dispatch->blockedReason('Abandon Cart', $mobile, (int) $storeId);
+
+            if ($blocked !== null) {
+                return response()->json(['is_success' => false, 'message' => $blocked]);
             }
+
+            $dispatch->handOver('Abandon Cart', (string) $mobile, $msg);
 
             return response()->json(
                 [
                     'is_success' => true,
-                    'message' => __('Message send successfully'),
+                    'message' => __('Message queued for WhatsApp delivery.'),
                 ]
             );
         } catch (\Exception $e) {
-            $smtp_error = __('Invalid Auth access token - Cannot parse access token');
+            /*
+             * THE REASON IS REPORTED, NOT REPLACED. The old handler threw away `$e` and announced
+             * a token problem; an SQL error, a null store or a missing template all arrived at the
+             * merchant as "Invalid Auth access token". The message is still generic enough not to
+             * leak internals, and the exception is logged so the real cause is recoverable.
+             */
+            \Log::warning('abandoned-cart WhatsApp nudge failed', [
+                'store_id' => $storeId,
+                'cart_id' => $request->cart_id,
+                'exception' => $e->getMessage(),
+            ]);
 
             return response()->json(
                 [
                     'is_success' => false,
-                    'message' => $smtp_error,
+                    'message' => __('The message could not be prepared. Please try again, and check the WhatsApp settings if it keeps failing.'),
                 ]
             );
         }

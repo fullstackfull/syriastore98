@@ -30,6 +30,43 @@ settle it. No secret value appears in this document — only locations, names an
 
 ---
 
+## S2 — `POST api/admin/AddCustomer` has no permission check, and the web form that does the same thing has one
+
+**Added 2026-11-07 (P2.5-PKG-F).** CLAUDE.md sends readers here for open security findings, and this
+one was escalated to the owner in a report and a findings document without a row in the queue —
+so the one place a reader is told to look did not have it. That gap is the reason for this row.
+
+| | |
+|---|---|
+| **Severity** | S2 — exploitable by any principal who can already obtain an admin-API token, within their own tenant |
+| **Where** | `app/Http/Controllers/Api/DashboardController.php::addCustomer()` (~`:8585-8700`), routed at `routes/api.php:275` |
+| **State** | **MEASURED, PINNED, NOT FIXED — awaiting an owner decision** |
+| **Evidence** | `tests/Feature/Security/AdminApiCustomerCreatePermissionTest.php` — 7 tests, all passing, asserting the behaviour **as it is** |
+| **Detail** | `docs/security/P25-SECURITY-FINDINGS-2026-11-07.md` §5.4 |
+
+**The asymmetry.** `CustomerController::store()` tests the operator first and then
+`isAbleTo('Manage Customer')`. `addCustomer()` has **no `isAbleTo` and no operator limb** — only a
+401 for a missing token and the ownership 403. `resolveOwnedStore()` scopes on
+`created_by = $user->creatorId()`, and `creatorId()` returns `created_by` for any type that is not
+`admin`/`super admin`, so **a staff member resolves their owning merchant's store and passes**. The
+admin login places no restriction on `type`.
+
+**The write is a credential**: the create sets `password` from the request and
+`email_verified_at => now()`, so the account signs in to that merchant's storefront immediately.
+Measured: a staff member holding **no permissions** gets **201**, and `Hash::check` confirms the
+password is the one that caller chose.
+
+**`updateCustomerInfo()` is NOT affected** — checked, not assumed: it restricts `type`, so staff
+get 401. A test asserts it.
+
+**Why it is not fixed.** The gate would make a **shipped Flutter endpoint start refusing a principal
+it accepts today**, and the owner's instruction is *"No silent payment behavior or authentication
+policy changes."* The fix, when authorised, is the operator-first shape this codebase already uses
+— Laratrust has no super-admin bypass, so testing the permission alone would refuse the platform
+operator — and it must answer **403, not 401**, because the shipped app force-logs-out on any 401.
+
+---
+
 ## S1 — `BackupRestore` module: unauthenticated route to the whole database and `.env`
 
 **Owner action required before anything else: is `module_is_active('BackupRestore')` true on the
@@ -5441,6 +5478,90 @@ human approval` must not be added to any required-checks list — it runs in `re
 
 ---
 
+## S59 — `Api\DashboardController::store()` was an unrouted customer-creation twin carrying the two defects repaired next door — **CLOSED 2026-11-07, the method is deleted**
+
+> **REMOVED under the owner's instruction of 2026-11-07:** *"You may remove the unconnected
+> `DashboardController::store()` handler only after proving that it has no active routes, dynamic
+> callers, internal dependencies or required functionality. Do not create a route to it."*
+> The proof is below. **No route was created.** `addCustomer()` and its permission gate are
+> untouched.
+>
+> **How it was proven — four independent methods and two adversaries, not a grep:**
+> * **No routes.** All 70 modules force-loaded into a throwaway database (2309 routes, more than
+>   any real tenant loads), then the live router asked directly:
+>   `getByAction('…DashboardController@store')` returns **null**; a linear scan of all 2309
+>   registered routes for `/DashboardController@store$/` returns **0**; 113 routes resolve to this
+>   controller across **111 distinct methods** and `store` is not one. No route cache exists. The
+>   throwaway was deleted and `database/p2dev.sqlite` verified back at its original single row.
+> * **No module can reach it.** The string `DashboardController` appears **zero** times anywhere
+>   under `packages/workdo/` — all 70 modules, 139 route files, every file type. Read, not inferred
+>   from a green suite (which is structurally blind to modules).
+> * **No registration form was missed.** `Route::resource`/`apiResource`/`singleton`/
+>   `apiSingleton`/`fallback`/`match`/`->uses()`/`addRoute()`/`URL::action`/string `Controller@method`
+>   — all zero, on **every one of the five refs in the clone**, which closes the
+>   "a route on an unmerged branch" hazard.
+> * **No dynamic caller, and one could not exist silently.** Laravel's
+>   `Illuminate\Routing\Controller::__call()` **throws** `BadMethodCallException`, so a dynamic
+>   dispatch to a removed method is a hard error, not a quiet fallthrough.
+> * **No contract.** Nothing extends the class, it implements no interface, the parent and the one
+>   trait declare no `store()`, and no test referenced it.
+> * **No lost capability.** The shipped Flutter admin creates customers through `/AddCustomer`
+>   (`base_api.dart:92`). Nothing in either repository could reach `store()`.
+>
+> **The one real dependency, found only by the adversarial pass:**
+> `ApiStoreOwnershipPredicateTest.php:814` asserts a FLOOR of `resolveOwnedStore(` calls in this
+> controller, and the count was exactly **92 with zero headroom**. Three of the four proof agents
+> reported "deleting it breaks nothing"; that was **measurably false**, and shipping it would have
+> turned a blocking gate red.
+>
+> The floor is now **91**, lowered by exactly the one call the deleted method contained, documented
+> in that test's own comment the way its failure message demands and the way the **precedent in the
+> same file** does — it was lowered 94 → 92 by P1-INV-10 for the same reason, with the explicit
+> rationale *"Keeping the floor at 94 would mean keeping two latent cross-tenant holes alive to
+> satisfy a proxy measure."* `store()` had exactly that shape: one call satisfying the counter,
+> and an insert keyed on the raw query-string `store_id` that did not.
+>
+> **The real control is untouched and was proved so.** That test's own docblock says the count "was
+> never the real control" — the sibling `test_every_api_method_that_reads_a_request_store_id_also_proves_ownership`
+> is. An unguarded `store_id` reader was injected into the controller after the removal and that
+> assertion **failed**, then passed again on restore. Tenancy protection is exactly as strong as
+> before.
+
+**ORIGINAL FINDING, kept as the record of what was removed:**
+
+**Severity: low while unrouted; the same as S2/§5.4 the moment it is routed.** Recorded by the
+independent tenant-isolation review of the `AddCustomer` permission repair (2026-11-07).
+
+`app/Http/Controllers/Api/DashboardController.php:6257-6325` is a near-duplicate of
+`addCustomer()` and has **none** of its three repairs:
+
+* **no permission gate** — only the `:6262` 401 and `resolveOwnedStore()` at `:6291`, i.e. exactly
+  the gap closed in `addCustomer()`;
+* **validation before ownership** — `Rule::unique('customers','email')->where('store_id', $storeId)`
+  at `:6276-6289` runs *before* `resolveOwnedStore()` at `:6291`, which is the e-mail enumeration
+  oracle measured in `AddCustomerEmailDisclosureTest`;
+* **query-string `store_id` straight into the insert** at `:6320`, not `$store->id`;
+* and it writes a credential: `password` from the request, `email_verified_at => now()`.
+
+**Not exploitable today.** Measured unrouted: no `Route::…'store'` for this controller in
+`routes/`, no `Route::resource`/`apiResource` on it anywhere in the repository, and no module routes
+it. `routes/api.php` declares 115 `DashboardController` routes and none maps to `store`.
+
+**Why it is still a finding.** `store` is the Laravel resource-convention method name. A single
+future `Route::apiResource('customers', DashboardController::class)` exposes it and silently reverts
+both the S2 permission repair and the §2 e-mail-oracle repair at once — in one line, with no
+diff to either repaired handler for a reviewer to notice.
+
+**Fix: delete the method, or give it the same two repairs (`resolveOwnedStore()` before
+`validate()`, plus the permission gate). DO NOT route it to "fix" it.** Out of scope for the narrow
+`AddCustomer` authorisation of 2026-11-07, so not done there.
+
+The e-mail-oracle half of this was already recorded as
+`docs/security/P25-SECURITY-FINDINGS-2026-11-07.md` §5.1; the permission half and the
+resource-convention hazard are new. Full detail: that document's §6.4.
+
+---
+
 ## Suggested package boundaries
 
 Keeping these apart is the point; each is independently reviewable and independently revertable.
@@ -5468,6 +5589,7 @@ Keeping these apart is the point; each is independently reviewable and independe
 | **P01-SEC-5** | S7 | Owner decision on the swallow |
 | **P01-SEC-6** | S9 + S10 | Cheap; can ride alongside any of the above |
 | *(precondition, not a package)* | S8 | Must be settled before P01-B ships |
+| **P25-SEC-01** | **S59** | Tiny and isolated: delete an unrouted method, or repair it. No contract impact, no client impact. Needs an owner nod only because deleting a handler is a code removal |
 
 Rotation (S2) is an owner operation, not an engineering package, and gates nothing on this list
 except the *severity* of S3.

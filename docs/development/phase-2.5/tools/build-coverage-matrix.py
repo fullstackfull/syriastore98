@@ -125,6 +125,35 @@ VERIFIED = {
     'Users / staff list (card grid)': ('REDESIGNED AND VERIFIED', 'wave-33', '_users__', 'P2.5-WAVE-33'),
 
     'Category list':                ('PREMIUM VERIFIED', 'wave-33', '_category__', 'P2.5-WAVE-33'),
+
+    # P2.5-R-07. THE GRID'S FILTER TOOLBAR WAS REPLACED, so this is REDESIGNED rather than
+    # PREMIUM VERIFIED: the dead AJAX Apply (an <a> whose handler wrote into an element the view
+    # does not contain) became the list's already-approved GET-form pattern, and
+    # customer_grid_view() gained the server-side filter it never had.
+    #
+    # The CARDS themselves were redesigned earlier by P2.5-PKG-C and are not re-claimed here.
+    #
+    # DRIVEN, not just rendered: verify-customer-grid-filter-live.cjs applies four numeric filters
+    # in each of the four combinations and asserts the card count AND which customers remain by
+    # name -- a count alone would not distinguish the right two cards from the wrong two. The
+    # before/after pair is a real revert: the pre-fix files were checked out from 7ba0af90 and
+    # photographed, and in that state EVERY filter returned all three cards because the handler
+    # read no parameters.
+    'Customer grid (card view)':    ('REDESIGNED AND VERIFIED', 'r06-customer-filter', 'grid-unfiltered_', 'P2.5-R-07'),
+
+    # P2.5-PKG-E. The create form was regrouped into the three things it actually asks for
+    # (identity, contact, account access) and five measured corrections applied: dir="ltr" on the
+    # e-mail and mobile inputs (a Latin address reorders as it is typed in the Arabic interface),
+    # autocomplete tokens on all five text fields, the server's `min:8` stated on the control
+    # rather than discovered by being refused, a real <button type="submit"> in place of
+    # Form::submit(), and five Arabic HTML comments that were being shipped to every browser.
+    #
+    # TWO DEFECTS OF MY OWN WERE MEASURED OUT OF IT BEFORE THIS ENTRY WAS ADDED: the three new
+    # <legend> headings carried the host's `.form-label` and census-low-contrast-text.cjs returned
+    # 1.1:1 in dark mode (three failing nodes); and the first draft opened the form inside
+    # .card-body while the submit button sat in .card-footer, which a DOM-parsing test proved left
+    # the button OUTSIDE the form element. Both are fixed and both have their own assertion.
+    'Create customer':              ('REDESIGNED AND VERIFIED', 'pkg-e-customer-write', '_customer_create__', 'P2.5-PKG-E'),
     # 'Delivery boys' WAS HERE AND ITS EVIDENCE WAS FALSE. Removed 2026-11-06, so the surface
     # falls back to PENDING, which is the truth: it has never been rendered.
     # All four wave-33 captures (_deliveryboy__*) are screenshots of the DASHBOARD carrying a
@@ -387,6 +416,57 @@ OUT_OF_SCOPE = {
     'Super Admin dashboard': 'Phase 06 (SaaS & Super Admin), not Phase 2.5 Merchant Experience',
 }
 
+# DECLARED BLOCKERS: a surface that CANNOT become a finished merchant screen, with the reason and
+# the remediation, as the directive's four states require of BLOCKED.
+#
+# THIS DICT EXISTS BECAUSE THERE WAS NO WAY TO SAY THIS. Until now BLOCKED could only ARISE -- from
+# a VERIFIED claim whose captures are missing, or from an audit that returned 'unknown'. A route
+# that is registered but renders nothing, or whose handler body is literally `//`, fell through to
+# PENDING, which reads as "not done yet" and invites the next person to go and do it. The owner's
+# instruction is the opposite: "Registered but unimplemented routes must not be presented as
+# working screens. Do not invent backend commerce functionality merely to increase the verified
+# count. Record blockers accurately."
+#
+# A row here is a claim that WORK IS NOT POSSIBLE, so each carries the evidence for that, and each
+# names what would unblock it. None of these is a defect to fix inside Phase 2.5.
+BLOCKED_SURFACES = {
+    'Edit customer (registered, unimplemented)':
+        'NOT a missing screen -- a WEB/FLUTTER PARITY GAP, and the inventory description is stale. '
+        'The routes are NOT registered: routes/web.php:1191 is '
+        "Route::resource('customer', ...)->except(['edit','update']), applied by P2.5-PKG-C (F-C-04) "
+        'because CustomerController has neither method and GET /customer/1/edit answered HTTP 500. '
+        'But a COMPLETE customer-update backend ships today and the Flutter admin already uses it: '
+        'routes/api.php:267 POST update-customer -> DashboardController::updateCustomerInfo (:9113), '
+        'writing first_name/last_name/email/mobile/status at :9193-9197, consumed by '
+        'StoreSyria_app98 lib/utils/base_api.dart:122 through an edit bottom-sheet. '
+        'REMEDIATION: an owner decision on whether the WEB screen should exist. Building it is new '
+        'merchant functionality, which routes/web.php:1187-1189 records as unauthorised in Phase 2.5.',
+
+    'Wishlist create / edit / store / update (registered, unimplemented)':
+        'All four routes resolve and none renders a byte. WishlistController::create() (:34) and '
+        '::store() (:45) have bodies that are literally `//`; ::edit() and ::update() carry P2.5-PKG-B '
+        'security guards that REFUSE rather than render. No control on any merchant screen targets '
+        'any of the four. '
+        'REMEDIATION: owner decision on whether merchant-authored wishlists are a product feature at '
+        'all. There is nothing to design until there is something to render.',
+
+    'Customer filter result fragment':
+        'GET customer-filter-data answers HTTP 200 and has NO CALLER. Its former parent was the '
+        'customer grid, which no longer calls it (recorded in customer/grid.blade.php:38-39 during '
+        'P2.5-R-07). It returns a JSON-encoded HTML string of customer/filter.blade.php, not a page. '
+        'It cannot be made a screen without inventing a consumer for it. '
+        'REMEDIATION: either a deliberate decision to retire the route, or a consumer that a '
+        'merchant-facing feature actually needs. Neither is a design task.',
+
+    'Customer filter field metadata':
+        'GET customer-filter returns application/json and never a view, so it is not a screen and '
+        'cannot earn a screen state. Its OUTPUT is already rendered -- by the customer filter bar '
+        'redesigned and captured in P2.5-PKG-G -- so the merchant-visible half of this surface is '
+        'verified THERE. Claiming it separately would mean reusing that evidence for a second '
+        'surface, which the owner forbids by name. '
+        'REMEDIATION: none needed; it is correctly covered as part of the filter bar.',
+}
+
 COMBOS = ['en_ltr_light', 'en_ltr_dark', 'ar_rtl_light', 'ar_rtl_dark']
 
 
@@ -409,6 +489,10 @@ def classify(row):
     """Audit state plus work done -> one of the directive's four, or PENDING."""
     if row['screen'] in OUT_OF_SCOPE:
         return 'OUT OF SCOPE', OUT_OF_SCOPE[row['screen']]
+    # A declared blocker outranks a VERIFIED claim deliberately: if someone later adds captures for
+    # a surface that cannot exist, the captures are the thing to doubt, not the blocker.
+    if row['screen'] in BLOCKED_SURFACES:
+        return 'BLOCKED', BLOCKED_SURFACES[row['screen']]
     if row['screen'] in VERIFIED:
         entry = VERIFIED[row['screen']]
         state, wave, prefix, pkg = entry[0], entry[1], entry[2], entry[3]

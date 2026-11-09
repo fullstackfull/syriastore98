@@ -374,13 +374,87 @@ class OrderKanbanTest extends SecurityTestCase
             'a principal who may not move orders was shown the move control');
     }
 
+    /*
+     * COUNTED ON THE BRANCH, NOT ON A SUBSTRING OF THE DOCUMENT.  P2.5-WAVE-6a
+     * ---------------------------------------------------------------------------------------
+     * This test used to read `assertStringNotContainsString('Nothing here', $body)` over the
+     * whole rendered page. That assertion could not do the job its own failure message claims,
+     * and the numbers say so -- measured on this suite:
+     *
+     *                                      healthy empty    healthy LIVE (1 order)
+     *     substring 'Nothing here'               1                   7
+     *     class="ss-board__col"                  0                   7
+     *     class="ss-board__none"                 0                   6
+     *     'No orders match these filters.'       1                   0
+     *
+     * SEVEN is the number the old message calls the defect ("not seven empty columns") and it is
+     * what a HEALTHY live board produces, because `:121` renders once per empty column by design.
+     * The needle was never a measure of the thing it named. On an empty board it read 1 rather
+     * than 0 the moment any page furniture carried the words -- which is how it came to fail: a
+     * `<head>` label added by P2.5-WAVE-6a. Red in both states is zero information.
+     *
+     * IT WAS ALSO VACUOUS IN ARABIC. The needle is an English literal; `ar.json` renders
+     * `'Nothing here'` as 'لا شيء هنا', which the English needle never matches. `setUp()` pins
+     * `default_language => 'en'` (:43), so flip that one fixture value and the absence half went
+     * green no matter how many columns rendered.
+     *
+     * WHAT IS ASSERTED NOW is the invariant at `kanban.blade.php:84`: `$ssTotal === 0` suppresses
+     * the board branch ENTIRELY. So the empty case counts the BRANCH (`ss-board__col`), not only
+     * its symptom (`ss-board__none`) -- because a later refactor that moved `:121` to a shared
+     * class would leave a `ss-board__none == 0` assertion green on a board rendering all seven
+     * columns. Both markers are structural, so neither can be defeated by a locale or by copy
+     * added elsewhere on the page.
+     *
+     * HONEST ABOUT WHAT THE CHANGE BUYS. It does NOT buy more detection on its own -- renaming
+     * the colliding label would also have restored a working guard for the one defect shape the
+     * old form could see. What it buys is a guard that cannot be defeated by page furniture or by
+     * a locale, plus `test_a_live_board_...` below, which is where the new detection really is:
+     * the live half of this invariant had no test at all, so deleting `:121` outright or
+     * rendering it twice both left the suite green.
+     */
     public function test_an_empty_board_says_so_once(): void
     {
         $body = $this->html();
 
-        $this->assertStringContainsString('No orders match these filters.', $body);
-        $this->assertStringNotContainsString('Nothing here', $body,
+        $this->assertSame(1, substr_count($body, 'No orders match these filters.'),
+            'an empty board shows the page-level message exactly ONCE -- the word in this '
+            . "test's own name, which the previous form never asserted");
+
+        $this->assertSame(0, substr_count($body, 'class="ss-board__col"'),
+            'an empty board rendered a column. kanban.blade.php:84 suppresses the whole board '
+            . 'branch when $ssTotal === 0, so any column at all means that guard is gone');
+
+        $this->assertSame(0, substr_count($body, 'class="ss-board__none"'),
             'an empty board shows one message, not seven empty columns');
+    }
+
+    /*
+     * THE OTHER HALF OF THE SAME INVARIANT, WHICH HAD NO TEST.
+     * ---------------------------------------------------------------------------------------
+     * Every assertion above drives the ZERO-order board, so the per-column message at
+     * `kanban.blade.php:121` was never exercised: deleting it, or rendering it twice, left the
+     * whole suite green. Measured with one PENDING order -- seven pipeline columns, six of them
+     * empty, and no page-level message. The aside board at `:145` also emits `ss-board__col`,
+     * but `@continue` skips every status with no orders, so with a single order it contributes
+     * none and the count is exactly the pipeline's seven.
+     */
+    public function test_a_live_board_says_nothing_here_once_per_empty_column(): void
+    {
+        $this->orderAt(HomeController::ORDER_STATUS_PENDING, 'LIVE-1');
+
+        $body = $this->html();
+
+        $this->assertSame(7, substr_count($body, 'class="ss-board__col"'),
+            'premise: the seven pipeline columns rendered. Without this the two counts below '
+            . 'could both be satisfied by a board that did not render');
+
+        $this->assertSame(6, substr_count($body, 'class="ss-board__none"'),
+            'once per EMPTY column -- six empty, one holding the order. Zero means the '
+            . 'per-column message is gone; more than six means it is rendering where there are '
+            . 'cards');
+
+        $this->assertSame(0, substr_count($body, 'No orders match these filters.'),
+            'a board with orders in it must not also claim that nothing matches');
     }
 
     // =======================================================================================

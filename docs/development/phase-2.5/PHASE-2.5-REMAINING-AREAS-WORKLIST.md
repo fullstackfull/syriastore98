@@ -165,6 +165,33 @@ Ordered by distinct render sites changed, weighted by the highest severity prese
 
 **Re-scope, do not drop:** `store/plan.blade.php:35` (`fas fa-circle` + `text-primary` inside a `bg-primary` parent) is a **light-mode-only** invisibility — `public/css/custom.css:5291` and :5339 override `.text-primary` first-party in dark mode, so the "no override outside `.dash-header`" premise is false. Keep the edit, drop the rationale. Also `store/create.blade.php:94` ships `value="Create"` with no `__()`.
 
+**CORRECTIONS TO THIS ROW, measured 2026-11-07 while working it (P2.5-WAVE-6a).** The audit's own
+rule is that every row is a claim to confirm by re-reading; three of these did not survive that.
+
+1. **`missing-states` is wrong about the four tables it names.** `customer/view.blade.php:60`,
+   `store/custom_domain.blade.php:48`, `store/subdomain.blade.php:47` and
+   `store/view-storelinks.blade.php:11` are described as "seven headers over an empty body". They
+   are not bodiless: all four carry `class="dataTable"`, `public/js/custom.js:12-18` initialises
+   every such table with `simple-datatables`, and the library writes its own
+   `<tr><td class="dataTables-empty" colspan="N">` with a correct colspan. The real defects were
+   that the label was the library's hard-coded ENGLISH `"No Data Found"` and that the cell was
+   unstyled — both now fixed for all **17** such tables at the one init site, not four.
+   **`@forelse`/`@empty` would have been an actively wrong fix here**: the library rebuilds the
+   tbody from the rows it parses, so a hand-written empty row becomes a *data* row, counted in
+   "Showing 1 to 1 of 1 entries" and sortable. The `@forelse`-zero census is accurate; the
+   conclusion drawn from it is not.
+2. **`offbrand-colour` row 1 is stale in both halves.** It names seven hues at `custom.css:1973-1997`
+   — `#4CAF50`, `#607D8B`, `#32d7a2`, `#9E9E9E`, `#FFC107`, `#795548`, `#2196F3`. Only `#795548` is
+   still in the file; the other six were replaced by a later repair. And "no dark arm" is false:
+   `custom.css:5291-5341` carries one for `.tl-box`, `.time`, `.tl-btn`, the rail and the
+   `support-time` pseudo-elements, guarded by `DarkTimelineSurfaceContrastTest`.
+3. **The date pills now PASS.** White on each of the eight grounds a pill can take gives 4.53:1 to
+   6.55:1 against a 4.5:1 bar (10px/600 is small text). The claim that their contrast failure was
+   still open appeared in `custom.css`, in `rtl-custom.css` and in that test's docblock; all three
+   were corrected, and the measurement is recorded at `custom.css:1972`.
+
+The `type-scale`, `icon-coherence` and `rtl-physical` rows were NOT re-checked and are untouched.
+
 ### WAVE-7 — Commerce configuration: imports, shipping, tax, payment (23 findings, 9 import screens + 6 modal forms)
 
 Ranked above settings on the strength of nine §2 table rows and five screens with no empty state at all.

@@ -1,0 +1,58 @@
+[
+ {
+  "path": "/customer-timeline/1",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Store Syria - Customer Timeline",
+  "h1": "Customer Timeline",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/customer-timeline/1",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Store Syria - Customer Timeline",
+  "h1": "Customer Timeline",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/customer-timeline/1",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Store Syria - خط الزمن للعميل",
+  "h1": "خط الزمن للعميل",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/customer-timeline/1",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Store Syria - خط الزمن للعميل",
+  "h1": "خط الزمن للعميل",
+  "consoleErrors": [],
+  "premiseFail": []
+ }
+]

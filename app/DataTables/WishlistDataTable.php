@@ -23,11 +23,28 @@ class WishlistDataTable extends DataTable
     {
         return (new EloquentDataTable($query))
         ->addIndexColumn()
+        /*
+         * P2.5-PKG-I. ESCAPED. These two columns are in this table's `rawColumns()` list,
+         * so yajra emits them WITHOUT escaping, and both carry shopper-written
+         * registration data. A shopper whose first name is `<img src=x onerror=...>` got it
+         * EXECUTED in the merchant's admin the moment this report was opened.
+         *
+         * `app/Http/Middleware/XSS.php` is not the control: it strips the literal words
+         * `javascript` and `alert` from `web` input, which a payload simply avoids. That is
+         * why AbandonedListOutputEscapingTest's needle contains neither.
+         *
+         * `e()` IS APPLIED TO EACH VALUE, never to the finished string -- escaping the
+         * whole concatenation would also escape the markup these columns legitimately
+         * render, and the merchant would meet visible tag soup. Same shape as the repair
+         * already made on CustomerDataTable:69-70 and OrderDataTable.
+         */
         ->editColumn('customer_id', function (Wishlist $wishlist) {
-            return isset($wishlist->UserData) ? ($wishlist->UserData->first_name .' '. $wishlist->UserData->last_name) : null;
+            return isset($wishlist->UserData)
+                ? e((string) $wishlist->UserData->first_name) . ' ' . e((string) $wishlist->UserData->last_name)
+                : null;
         })
         ->editColumn('email', function (Wishlist $wishlist) {
-            return isset($wishlist->UserData) ? $wishlist->UserData->email : '';
+            return isset($wishlist->UserData) ? e((string) $wishlist->UserData->email) : '';
         })
         ->addColumn('product', function (Wishlist $wishlist) {
             $wishlist_count = Wishlist::where('customer_id',$wishlist->customer_id)->where('store_id', getCurrentStore())->count();

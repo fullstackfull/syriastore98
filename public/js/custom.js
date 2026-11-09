@@ -6,23 +6,126 @@ $.ajaxSetup({
 
 var site_url = $('meta[name="base-url"]').attr('content');
 
+/* THE DATATABLE EMPTY STATE.  P2.5-WAVE-6a
+   =================================================================================================
+   WHAT THE 19 MERCHANT TABLES USED TO SHOW WHEN THEY HELD NOTHING. simple-datatables renders
+   `<tr><td class="dataTables-empty" colspan="N">{label}</td></tr>` from `setMessage()`, with the
+   colspan taken from the live heading count -- so the row itself was always correct. Two things
+   about it were not:
+
+     * the label was the library's hard-coded ENGLISH `"No Data Found"`. Measured: `noRows` is
+       overridden nowhere in this repository, so an Arabic merchant read English on every empty
+       table in the product.
+     * `td.dataTables-empty` is styled in NEITHER first-party sheet, so it inherited the row
+       treatment -- bare text at body size, start-aligned, in the body colour. A merchant with no
+       orders saw a table head and one line of English.
+
+   WHY THE FIX IS HERE AND NOT `@forelse`/`@empty` IN THE VIEWS. That was the first approach and it
+   is WRONG for these tables: simple-datatables initialises every `.dataTable` and REBUILDS the
+   tbody from the rows it parsed, so a hand-written empty row becomes a DATA row -- counted in
+   "Showing 1 to 1 of 1 entries", sortable, and searchable. The library already has an empty state;
+   it needed words and a treatment, not a second mechanism beside it.
+
+   THE MARKUP IS THE PROJECT'S OWN. `setMessage` injects its label with `html:`, so the label can
+   carry the same structure as `resources/views/components/ss/empty.blade.php` -- icon, title,
+   subtitle -- and the `.ss-empty` rules in store-syria-ds.css then style it in both themes with no
+   new CSS vocabulary. The strings are escaped before they are injected even though they come from
+   first-party translation files: a label is still being used as HTML, and the escape costs nothing.
+
+   THE WORDS COME FROM `<body data-ss-dt-*>`, written by `layouts/app.blade.php:421-428` through
+   `__()`. See the comment beside that body tag for why an attribute there and not a `<head>` meta.
+
+   ONE INIT SITE, 19 TABLES. `partision/footerlink.blade.php:72,80` loads the library and this file,
+   and `layouts/app.blade.php:785` includes it, so this is the only place any `.dataTable` in the
+   merchant admin is constructed -- measured: 17 tables across 14 first-party views, plus two in
+   vendored modules (`SMS/.../notification_templates/index.blade.php`,
+   `RewardClubPoint/.../clubPointTransections.blade.php`) which render inside this same layout and
+   so are served by it too. `new simpleDatatables.DataTable` appears ZERO times anywhere else in
+   `resources/views/` or `packages/workdo/`, so there is no second construction site to keep in
+   step. (`packages/workdo/LandingPage/.../simple-datatables.js` is a second COPY of the library,
+   not a table, and nothing in the merchant admin loads it.) */
+function ssDataTableEscape(text) {
+    return $('<div>').text(text == null ? '' : text).html();
+}
+
+function ssDataTableEmptyMarkup(title, body, icon) {
+    if (!title) {
+        return null;
+    }
+    var html = '<div class="ss-scope ss-empty">'
+        + '<div class="ss-empty__icon" aria-hidden="true"><i class="ti ti-' + icon + '"></i></div>'
+        + '<div class="ss-empty__body">'
+        + '<p class="ss-empty__title">' + ssDataTableEscape(title) + '</p>';
+    if (body) {
+        html += '<p class="ss-page-header__subtitle">' + ssDataTableEscape(body) + '</p>';
+    }
+    return html + '</div></div>';
+}
+
+/* Returns only the labels it can actually source. An absent meta -- a view reached through another
+   layout -- leaves that key out, so the library keeps its own default rather than rendering
+   "undefined" or an empty state with no words in it. */
+/* READ FROM `<body data-ss-dt-*>`, NOT FROM A `<head>` META, and that is a correction.
+   The first version of this reached for `<meta name="dt-*">` reasoning from `base-url` --
+   the wrong precedent, because `base-url` and `csrf-token` are transport facts and these are
+   user-facing copy. This codebase had already answered the localised-copy question twice, both
+   times with a `data-ss-*` attribute on the element that consumes it:
+   `layouts/app.blade.php:420` (`data-ss-label-table-options`, read by store-syria-ds.js:1683)
+   and `partision/command-palette.blade.php:35-38` (four `data-ss-*-text` strings). */
+function ssDataTableLabels() {
+    var body = document.body;
+    var read = function (name) {
+        return (body && body.getAttribute('data-ss-dt-' + name)) || '';
+    };
+    var labels = {};
+    var noRows = ssDataTableEmptyMarkup(read('no-rows'), read('no-rows-body'), 'inbox');
+    // `zoom-cancel`, NOT `search-off`. The first version used `search-off`, which READS correctly
+    // and DOES NOT EXIST in the bundled tabler-icons.min.css -- so the no-results state rendered
+    // an empty circle where its icon should be. The DOM probe beside this said "ok": the <i>
+    // element was there with the right class, and a class that matches no `:before` rule is
+    // invisible, not absent. Found by LOOKING at the capture. A test now asserts every icon name
+    // here resolves in the shipped font.
+    var noResults = ssDataTableEmptyMarkup(read('no-results'), read('no-results-body'), 'zoom-cancel');
+
+    if (noRows) {
+        labels.noRows = noRows;
+    }
+    if (noResults) {
+        labels.noResults = noResults;
+    }
+
+    // The table's own furniture. Plain strings, NOT markup: the library puts `placeholder` in an
+    // input attribute and substitutes `{select}` / `{start}` / `{end}` / `{rows}` inside the other
+    // two, so HTML here would be escaped by the attribute or would break the substitution.
+    $.each({ search: 'placeholder', 'per-page': 'perPage', info: 'info' }, function (attr, key) {
+        var value = read(attr);
+        if (value) {
+            labels[key] = value;
+        }
+    });
+
+    return labels;
+}
+
 $(document).ready(function () {
     comman_function();
     daterange();
     const tables = $(".dataTable");
     if (tables.length > 0) {
         tables.each(function() {
-            new simpleDatatables.DataTable(this);
+            new simpleDatatables.DataTable(this, { labels: ssDataTableLabels() });
         });
       //  const dataTable = new simpleDatatables.DataTable(".dataTable");
     }
     if ($(".dataTable-5").length > 0) {
         const dataTable = new simpleDatatables.DataTable(".dataTable-5", {
+            labels: ssDataTableLabels()
         })
 
     }
     if ($(".dataTable-6").length > 0) {
         const dataTable = new simpleDatatables.DataTable(".dataTable-6", {
+            labels: ssDataTableLabels()
         })
     }
 });
@@ -142,10 +245,54 @@ $(document).on('click', '.show_confirm', function (e) {
     if (no == '' || no == undefined) {
         no = "No";
     }
+    /*
+     * P2.5-PKG-I -- THE COLOURS ARE INVERTED ON A DESTRUCTIVE DIALOG, AND THIS IS OPT-IN REPAIR.
+     *
+     * The default below paints the CONFIRM button -- the one that submits the DELETE form --
+     * `btn-success` (green), and the CANCEL button -- the one that does nothing -- `btn-danger`
+     * (red). So on a delete confirmation the eye is pulled to the safe action and the destructive
+     * one reads as the mild choice. Seen in a capture of the abandoned-cart dialog before anyone
+     * went looking for it.
+     *
+     * IT IS NOT CHANGED GLOBALLY, and that is deliberate rather than timid. Measured: 123
+     * `.show_confirm` triggers across 107 views. 91 are demonstrably inside a DELETE form, and the
+     * other 32 are UNRESOLVED rather than known-safe -- the detector's window simply did not reach
+     * their `Form::open`, which is how `customer/action.blade.php` landed in that bucket despite
+     * being a DELETE form I had just edited. Flipping a colour for 123 dialogs on a measurement I
+     * know to be imprecise is not a repair, it is a guess with wide reach.
+     *
+     * So a trigger OPTS IN with `data-confirm-tone="danger"` and gets the correct pairing; every
+     * trigger that does not is byte-for-byte unaffected. Same shape as the per-trigger
+     * `data-text-yes`/`-no` labels in the same package, and for the same reason: the repo-wide
+     * sweep is a separate slice with its own evidence.
+     */
+    var tone = $(this).attr("data-confirm-tone");
+    /*
+     * THE OPT-IN PATH USES THE DESIGN SYSTEM'S BUTTONS, NOT THE VENDORED `.btn` VARIANTS, and
+     * that is a correction to my own first attempt rather than a preference. The first version of
+     * this opt-in used `btn btn-danger` / `btn btn-secondary`, and the dark-mode capture showed
+     * the confirm button with NO VISIBLE LABEL. Measured in the running page:
+     *
+     *   btn btn-danger       #E8EAED on rgba(255,174,189,.41) over white  ->   1.04:1  FAIL
+     *   btn btn-secondary    #A7ABB2 on rgba(108,117,125,.25) over white  ->   1.68:1  FAIL
+     *   ss-btn ss-btn--danger    #3B0D0A on #F3A9A4                       ->   8.83:1  PASS
+     *   ss-btn ss-btn--secondary #E8EAED on #262B33                       ->  11.81:1  PASS
+     *
+     * The vendored variants pair near-white ink with a translucent pastel, which over the
+     * dialog's white panel is a label you cannot read. The design system's own are built for
+     * both themes and are already ratcheted.
+     *
+     * THE DEFAULT PATH IS LEFT EXACTLY AS IT WAS and is NOT fixed here, which means the other
+     * 120 `.show_confirm` triggers still cancel through a `btn btn-danger` measured at 1.04:1 in
+     * dark mode. That is a real finding and it is recorded rather than swept in: changing it
+     * touches every confirmation in the admin and belongs to the repository-wide slice, with its
+     * own captures. What is NOT acceptable is introducing a new broken pairing while claiming a
+     * repair, which is what the first version of this block did.
+     */
     const swalWithBootstrapButtons = Swal.mixin({
         customClass: {
-            confirmButton: 'btn btn-success',
-            cancelButton: 'btn btn-danger'
+            confirmButton: tone === 'danger' ? 'ss-btn ss-btn--danger' : 'btn btn-success',
+            cancelButton: tone === 'danger' ? 'ss-btn ss-btn--secondary' : 'btn btn-danger'
         },
         buttonsStyling: false
     })

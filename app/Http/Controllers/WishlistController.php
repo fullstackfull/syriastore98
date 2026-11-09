@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\{ActivityLog, Cart, Customer, Store, Wishlist};
+use App\Services\AbandonedMessageDispatch;
 use App\Models\ProductVariant;
 use App\Models\Utility;
 use Illuminate\Http\Request;
@@ -283,7 +284,39 @@ class WishlistController extends Controller
         }
         
         $customer = Customer::find($request->customer_id);
-        if (!$customer) {
+
+        /*
+         * P2.5-PKG-G FOLLOW-UP (2) -- THE CUSTOMER MUST BELONG TO THE STORE BEING ACTED ON.
+         *
+         * The handler picked its tenant from the caller's own URL segment (`getStore($storeSlug)`,
+         * :253) and its principal from the session, and then never compared the two. So a
+         * logged-in customer of store A could POST to store B's slug and write a `Wishlist` row
+         * and an `ActivityLog` row into STORE B under their own store-A customer id.
+         *
+         * THE `Customer` GLOBAL SCOPE DOES NOT STOP IT. `Customer` is allowlisted in
+         * `config/tenancy.php`, but a shopper authenticates on the `customers` guard, which
+         * leaves the DEFAULT guard empty -- `StoreScope::resolveTenant()` then resolves nothing
+         * and `null_tenant => 'open'` adds NO predicate. Relying on the scope here is the mistake
+         * CLAUDE.md names outright: never let the scope be the only tenant check.
+         *
+         * MEASURED, not inferred. Before this check, a store-1 shopper posting store 2's product
+         * to store 2's slug got HTTP 200 and left `wishlists(store_id=2, customer_id=1)` in the
+         * table. That probe is what turned this from a review claim into a fact; an advisory note
+         * had warned the test would instead pass because of the scope, and it did not.
+         *
+         * SAME COMPARISON AS `ApiController::resolveStoreCustomer()` (:7828), null branch
+         * included: a customer row with a NULL `store_id` is tolerated deliberately, because that
+         * helper's docblock records the legacy-row count as a measurement still owed rather than a
+         * closed question. Narrowing it here would be a different decision taken quietly.
+         *
+         * SAME 401 AS THE LINE ABOVE, deliberately. It is the refusal this route already emits and
+         * the one the API twin emits for this exact case, so no new status reaches any client --
+         * and the storefront JS already renders `responseJSON.message`.
+         */
+        if (
+            !$customer
+            || ($customer->store_id !== null && (int) $customer->store_id !== (int) $store->id)
+        ) {
             return response()->json([
                 'status' => false,
                 'message' => __('You must be logged in to add items to your wishlist.'),
@@ -291,7 +324,31 @@ class WishlistController extends Controller
             ], 401);
         }
 
-        $Product = Product::find($request->product_id);
+        /*
+         * P2.5-PKG-G FOLLOW-UP -- THE PRODUCT MUST BE THIS STORE'S.
+         *
+         * This was `Product::find($request->product_id)`. `Product` carries StoreScope but is NOT
+         * in `config/tenancy.php`'s `scoped_models`, so `StoreScope::isActiveFor()` short-circuits
+         * and NO predicate is added for any principal -- the fact behind the S19 stock drain. An
+         * unscoped find() therefore accepted ANY tenant's product id.
+         *
+         * TWO ROWS CARRIED IT ACROSS THE BOUNDARY: a `Wishlist` row (store A, store B's product)
+         * and an `ActivityLog` row whose `remark` holds the foreign id stamped `store_id` = A. The
+         * second is the one that is READ BACK -- `ActivityLog::products()` resolved it to store
+         * B's product NAME on store A's merchant's customer timeline.
+         *
+         * REACHABLE BY A LOGGED-IN CUSTOMER OF THIS STORE, not by an anonymous caller. The route
+         * (`routes/customer.php:178`) sits in the group at `:49` whose middleware is only
+         * `[ActiveTheme, 'themelanguage']`, but the handler takes `customer_id` from
+         * `auth('customers')` and MERGES OVER anything posted (`:262-266`), so a missing session
+         * is refused by the validator. The precondition is an account on the victim store.
+         *
+         * SAME PREDICATE AS ITS API TWIN, which already carried it: `ApiController:2071`. This web
+         * copy did not, and the two handlers write the same two tables.
+         */
+        $Product = Product::where('id', $request->product_id)
+            ->where('store_id', $store->id)
+            ->first();
         if (!$Product) {
             return response()->json([
                 'status' => false,
@@ -392,10 +449,53 @@ class WishlistController extends Controller
                 'message' => __('Wishlist count.'),
             ]);
         } else {
-            $count = Wishlist::with('ProductData')->where('customer_id', $request->customer_id)->count();
-            if(empty($count) && auth('customers')->check()){
-                $count = Wishlist::with('ProductData')->where('customer_id', auth('customers')->id())->count();
+            /*
+             * P2.5-PKG-G FOLLOW-UP (2) -- THE COUNT CAME FROM REQUEST INPUT.
+             *
+             * This was `where('customer_id', $request->customer_id)` with NO store predicate and
+             * `Wishlist` in no allowlist, so any logged-in shopper could post anyone's customer id
+             * and read that person's platform-wide wishlist size. CLAUDE.md names this shape
+             * outright: derive the target from the authenticated principal, never from request
+             * input. It is a count-only oracle rather than a content leak, which is why it is
+             * small -- not why it is acceptable.
+             *
+             * AND IT NEEDED A HAND-CRAFTED REQUEST, which is worth stating rather than leaving the
+             * severity sounding worse than it is: the shipped storefront never posts the field.
+             * `get_wishlist()` (public/assets/js/front-theme.js:1090-1093) sends `_token` and
+             * `wishlist` ONLY, so `$request->customer_id` was null on every real call, the count
+             * came back 0, and the fallback below recounted with the authenticated id. The UI's
+             * effective behaviour is therefore UNCHANGED by deriving the id properly; what changes
+             * is that a crafted request can no longer name someone else.
+             *
+             * THE RIGHT IDENTIFIER WAS ALREADY HERE. The old `if (empty($count) && ...)` fallback
+             * recounted with `auth('customers')->id()`, so the handler half-knew: it reached for
+             * the authenticated id only when the caller-supplied one happened to return nothing.
+             * Deriving it unconditionally makes the fallback redundant, so it goes.
+             *
+             * THE STORE PREDICATE IS A BEHAVIOUR CHANGE, STATED PLAINLY. A customer with rows in
+             * two stores previously saw a PLATFORM-WIDE number in this store's header. Its sibling
+             * already disagreed: `product_wishlist()` returns `customer_id + store_id` counts
+             * (:356-357), so adding one item made the header jump from the platform total to the
+             * store total. They now agree, and the number a merchant's storefront shows is that
+             * storefront's.
+             *
+             * THE SLUG IS NOT BOUND INTO THIS HANDLER -- the route declares `{storeSlug?}` but the
+             * signature is `(Request $request)` -- so it is read from the route and the predicate
+             * is applied only when a store really resolves. No store resolved means the count is
+             * left unscoped rather than silenced: this endpoint feeds a header badge, and blanking
+             * it is the storefront-blanking failure this project has already shipped twice.
+             */
+            $customerId = auth('customers')->id();
+            $slug = $request->route('storeSlug');
+            $countStore = $slug ? getStore($slug) : null;
+
+            $countQuery = Wishlist::where('customer_id', $customerId);
+
+            if (!empty($countStore)) {
+                $countQuery->where('store_id', $countStore->id);
             }
+
+            $count = $countQuery->count();
         }
 
      
@@ -447,7 +547,15 @@ class WishlistController extends Controller
         }
 
         $customer_id = $cart->customer_id;
-        $mobile = $cart->UserData;
+
+        /*
+         * P2.5-PKG-K. `UserData` IS THE RELATION, SO `->mobile` IS THE PHONE NUMBER. This line
+         * used to hand the whole Customer MODEL to `Utility::SendMsgs()`, which does not throw --
+         * `Eloquent\Model::__toString()` is `toJson()` -- so the WhatsApp recipient became the
+         * shopper's record serialised as JSON. See the identical note in
+         * CartController::abandon_carts_messsend() for the measurement.
+         */
+        $mobile = $cart->UserData?->mobile;
         try {
             $dArr = Wishlist::where('customer_id', $customer_id)->where('store_id', $storeId)
                 ->pluck('product_id')->toArray();
@@ -459,31 +567,49 @@ class WishlistController extends Controller
             $product_name = implode(',', $product);
             $store = getStoreById(getCurrentStore());
             $msg = __("We noticed that you have been browsing our site and have added some fantastic items to your wishlist. Hurry, some of these items are selling out fast. With limited stock and high demand, now is the perfect time to make your dream purchases, Added Product name : $product_name");
-            $resp = Utility::SendMsgs('Abandon Cart', $mobile, $msg);
+            /*
+             * THE OUTCOME IS DERIVED FROM THE STATE, NOT FROM THE RETURN VALUE, because there is
+             * no return value: `Utility::SendMsgs()` has no `return` on any path that does not
+             * throw, and `null == false` is true in PHP -- so this handler reported failure 100%
+             * of the time with a hardcoded "Invalid Auth access token" whatever the cause.
+             * Measured byte-identical for an unconfigured store and a fully configured one.
+             *
+             * THE TEMPLATE NAME IS 'Abandon Cart' ON A WISHLIST ACTION, and that is NOT corrected
+             * here. It is the same name `SendMsgs()` was already being given, so changing it would
+             * change which template this action reads and could silence a merchant whose
+             * 'Abandon Cart' template is on and 'Abandon Wishlist' is off. It sits beside the
+             * permission mismatch the block above records for the same reason. Both are reported,
+             * neither is changed, and the test asserts the name actually used.
+             *
+             * `SendMsgs()` itself is unchanged -- the shared contract is reserved to the owner --
+             * so the honest report is that the message was HANDED TO WhatsApp, not delivered.
+             */
+            $dispatch = app(AbandonedMessageDispatch::class);
+            $blocked = $dispatch->blockedReason('Abandon Cart', $mobile, (int) $storeId);
 
-            // $return = 'Mail send successfully';
-            if ($resp == false) {
-                return response()->json(
-                    [
-                        'is_success' => false,
-                        'message' => __("Invalid Auth access token - Cannot parse access token"),
-                    ]
-                );
-            } else {
-                return response()->json(
-                    [
-                        'is_success' => true,
-                        'message' => __('Message send successfully'),
-                    ]
-                );
+            if ($blocked !== null) {
+                return response()->json(['is_success' => false, 'message' => $blocked]);
             }
-        } catch (\Exception $e) {
 
-            $smtp_error = __('Invalid Auth access token - Cannot parse access token');
+            $dispatch->handOver('Abandon Cart', (string) $mobile, $msg);
+
+            return response()->json(
+                [
+                    'is_success' => true,
+                    'message' => __('Message queued for WhatsApp delivery.'),
+                ]
+            );
+        } catch (\Exception $e) {
+            \Log::warning('abandoned-wishlist WhatsApp nudge failed', [
+                'store_id' => $storeId,
+                'wish_id' => $request->wish_id,
+                'exception' => $e->getMessage(),
+            ]);
+
             return response()->json(
                 [
                     'is_success' => false,
-                    'message' => $smtp_error,
+                    'message' => __('The message could not be prepared. Please try again, and check the WhatsApp settings if it keeps failing.'),
                 ]
             );
         }
@@ -504,8 +630,30 @@ class WishlistController extends Controller
             ]);
         }
         if (auth('customers')->user()) {
-            $wishlists = Wishlist::where('customer_id', auth('customers')->user()->id)->get();
-            $count = Wishlist::where('customer_id', auth('customers')->user()->id)->count();
+            /*
+             * P2.5-PKG-G FOLLOW-UP (2) -- THE LIST IS THIS STORE'S, and this had to change WITH
+             * the badge or the two would have started disagreeing.
+             *
+             * Both queries were `where('customer_id', ...)` with no store predicate, while
+             * `$store` was already resolved four lines above and even handed to the view. So a
+             * customer who had shopped at two stores saw store A's products inside store B's
+             * storefront, with a platform-wide count beside them.
+             *
+             * WHY IT IS IN THIS CHANGE AND NOT DEFERRED: scoping `wishlistCount()` (the header
+             * badge) without scoping this would have left the badge reading 2 and this page
+             * reading 3 for the same customer -- an inconsistency introduced by a fix. An advisory
+             * review classed this one as hardening rather than a hole, which is fair on its own
+             * (the disclosure is to the data's own subject); it stops being optional once the
+             * badge beside it is scoped.
+             *
+             * ONE QUERY, NOT TWO: the count is taken from the collection just fetched. It is the
+             * same number by construction, and it removes the possibility of the two predicates
+             * drifting apart -- which is precisely how this surface got here.
+             */
+            $wishlists = Wishlist::where('customer_id', auth('customers')->user()->id)
+                ->where('store_id', $store->id)
+                ->get();
+            $count = $wishlists->count();
     
             $return['html'] = view('front_end.common.wish_list', compact('slug', 'wishlists', 'store'))->render();
             $return['count'] = $count;

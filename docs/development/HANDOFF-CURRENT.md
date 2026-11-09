@@ -133,7 +133,17 @@ Production secrets, server logs, migrations (GATE F), financial policy, vendor/u
 
 ### 6d. Needs PRODUCTION verification (the repository cannot show it)
 P1-OWN-01 (BackupRestore disabled?), -02 (APP_KEY and four tracked secrets are in git history, unrotated), -03 (compromised API log on the server), -04 (tokens never expire; every token is `['*']`), -07 (data residue from the old WooCommerce transfer primitive — read-only),
--08 (`shetabit_visits` rows already hold plaintext passwords/cookies), -09 (every store's gateway secrets were readable by any visitor), -11 (live `settings` indexes/duplicates), P1-PAY-03 (credentials for verification), and every MySQL claim below was measured on **MySQL 8.0.46 only** — confirm production's version, collation and `sql_mode`.
+-08 (`shetabit_visits` rows already hold plaintext passwords/cookies), -09 (every store's gateway secrets were readable by any visitor), -11 (live `settings` indexes/duplicates), P1-PAY-03 (credentials for verification), and every MySQL claim below was measured on **MySQL 8.0.46 only**.
+
+> **THE ENGINE AND COLLATION ARE NOW SETTLED; ONLY `sql_mode` IS NOT.** Production is
+> **MariaDB 11.4.9**, not MySQL — read from the committed dump's own header
+> (`-- Serverversie: 11.4.9-MariaDB`), and corroborated by two records that already said so and
+> that this line contradicted: `docs/GATE-F-VERIFIED-SCHEMA.md:58` (*"MariaDB 11.4.9 — this
+> project's notes assume MySQL"*) and `.github/known-test-outcomes.json`. The `customers` table is
+> `utf8mb4` / `utf8mb4_unicode_ci`. **`sql_mode` is the one property a dump does not record, so
+> that half of this sentence stands.** Production was not accessed. See
+> `docs/security/P25-CUSTOMER-EMAIL-UNIQUENESS-PROPOSAL.md` §2, which carries a 24-check
+> verification run against that exact MariaDB version.
 
 **Do not claim production readiness** while 6c/6d items are open. The acceptance report must keep "code ready for acceptance", "owner approvals", "operational containment / production verification" and "deferred" as four separate lists.
 

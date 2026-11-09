@@ -1,3 +1,47 @@
+{{-- P2.5-PKG-I -- THE ACTION COLUMN WAS A HEADER OVER AN EMPTY CELL.
+
+     FOUND BY LOOKING AT A CAPTURE, not by any review. The table renders a column titled «العمل»
+     / "Action", and for a viewer holding none of the three permissions below every cell under it
+     was LITERALLY EMPTY -- not a dash, not a word:
+
+         HEADERS: ["", "العميل", "البريد الإلكتروني", "المنتجات", "العمل"]
+         ROW 0:   ["", "Nour Saleh", "nour.saleh@example.test", "5", ""]
+
+     `@permission` compiles to Laratrust's `hasPermission()`, which has NO super-admin bypass, so
+     the PLATFORM OPERATOR met the same empty column. This is the defect repaired in
+     customer/status.blade.php during PKG-G, one screen over.
+
+     THE REPAIR DOES NOT GRANT ANYBODY ANYTHING. The three gates are untouched and no operator
+     limb is added -- that would be a new permission model, which is not authorised. What changes
+     is that a viewer who can do nothing here is TOLD so, instead of being shown a blank cell
+     under a header that promises an action. --}}
+@php
+    /*
+     * Read-only. Mirrors the three gates below exactly so the fallback cannot disagree with them;
+     * `isAbleTo` is asked the same question `@permission` asks, and nothing else.
+     */
+    $ssUser = auth()->user();
+    $ssMayAbandonCart = $ssUser && $ssUser->isAbleTo('Abandon Cart');
+    $ssMayDeleteCart = $ssUser && $ssUser->isAbleTo('Delete Cart');
+
+    /*
+     * THE DELETE REMOVES THE WHOLE CART, NOT THIS ROW. `CartController::abandon_carts_destroy()`
+     * takes a CUSTOMER id and loops `Cart::where('customer_id', ...)->where('store_id', ...)`,
+     * deleting every row it finds. The old dialog said only "This action can not be undone",
+     * which understates it: a merchant clicking one trash icon drops that shopper's entire
+     * abandoned cart. The count is named in the message so the blast radius is visible BEFORE
+     * the click.
+     *
+     * One query per rendered row, which is what the `product` column beside it already costs.
+     */
+    $ssCartCount = $ssMayDeleteCart
+        ? \App\Models\Cart::where('customer_id', $cart->customer_id)
+            ->where('store_id', getCurrentStore())->count()
+        : 0;
+    $ssCustomerName = optional($cart->UserData)->first_name
+        ? trim(optional($cart->UserData)->first_name . ' ' . optional($cart->UserData)->last_name)
+        : __('this customer');
+@endphp
 <span class="d-flex gap-1 justify-content-end">
 @permission('Abandon Cart')
 <button aria-label="{{ __('Send Mail :thing', ['thing' => __('Cart')]) }}" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--ghost bandoncart"
@@ -16,11 +60,26 @@
 @endpermission
 @permission('Delete Cart')
 {!! Form::open(['method' => 'DELETE', 'route' => ['carts.destroy', $cart->customer_id], 'class' => 'd-inline']) !!}
-<button aria-label="{{ __('Delete :thing', ['thing' => __('Cart')]) }}" type="button" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm" data-bs-toggle="tooltip" data-confirm="{{ __('Are You Sure?') }}"
-data-text="{{ __('This action can not be undone. Do you want to continue?') }}" data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}" 
+{{-- `data-text-yes`/`-no` carry PURPOSE-SPECIFIC labels rather than the shared `Yes`/`No`
+     keys. Two reasons. First, ar.json renders those two as «نعم ..» and «لا ..» -- a two-dot
+     artefact unique to them (9 of the other 11 values ending in `..` have `...` in their English
+     key; these two have no dots at all), shown verbatim at the moment of deletion. Second, a
+     destructive dialog reads better naming its action than answering a yes/no question. The
+     shared keys are NOT edited here: public/js/custom.js records 65 `.show_confirm` triggers
+     across 55 views depending on them, so that is a repository-wide change needing its own
+     slice. --}}
+<button aria-label="{{ __('Delete :thing', ['thing' => __('Cart')]) }}" type="button" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm" data-bs-toggle="tooltip" data-confirm="{{ __('Delete this abandoned cart?') }}" data-confirm-tone="danger"
+data-text="{{ __('This removes all :count items in :name\'s abandoned cart. It cannot be undone.', ['count' => $ssCartCount, 'name' => $ssCustomerName]) }}" data-text-yes="{{ __('Delete cart') }}" data-text-no="{{ __('Keep it') }}" 
 title="{{ __('Delete') }}">
     <i class="ti ti-trash" aria-hidden="true"></i>
 </button>
 {!! Form::close() !!}
 @endpermission
+@if (! $ssMayAbandonCart && ! $ssMayDeleteCart)
+    {{-- NOT a dash and not a blank: a dash reads as "no data", and the truth is that the data is
+         there and this viewer may not act on it. `ss-visually-hidden` carries the same sentence to
+         assistive technology, which otherwise meets an empty cell with no explanation at all. --}}
+    <span class="ss-scope text-muted" aria-hidden="true">&mdash;</span>
+    <span class="ss-visually-hidden">{{ __('No actions available with your permissions') }}</span>
+@endif
 </span>

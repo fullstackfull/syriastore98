@@ -1,6 +1,8 @@
 @extends('layouts.app')
 
-@section('page-title', __('Order'))
+{{-- P2.5-PKG-M (F-M-01). See order/index.blade.php: this screen shared that one's title. It is
+     the CARD view of the same orders, so it says so. --}}
+@section('page-title', __('Order cards'))
 
 @section('action-button')
 <div class="text-end d-flex flex-wrap gap-2 justify-content-end">
@@ -140,7 +142,7 @@
                          customer card's email address. --}}
                     <a class="ss-card__title text-truncate" dir="ltr"
                        href="{{ route('order.view', \Illuminate\Support\Facades\Crypt::encrypt($order->id)) }}"
-                       data-bs-toggle="tooltip" title="{{ __('Invoice ID') }}">#{{ $order->product_order_id }}</a>
+                       data-bs-toggle="tooltip" title="{{ __('Invoice ID') }}"><bdi>#{{ $order->product_order_id }}</bdi></a>
                     {!! \App\Support\OrderStatusTone::badge((int) $order->delivered_status, $title) !!}
                 </div>
 

@@ -1,0 +1,122 @@
+[
+  {
+    "id": "before__timeline__en-light-desktop",
+    "url": "/customer-timeline/1",
+    "title": "Store Syria - Customer Timeline",
+    "dir": "ltr",
+    "theme": "light",
+    "arms": 16,
+    "docH": 1807,
+    "overflowX": false
+  },
+  {
+    "id": "before__timeline__en-light-w390",
+    "url": "/customer-timeline/1",
+    "title": "Store Syria - Customer Timeline",
+    "dir": "ltr",
+    "theme": "light",
+    "arms": 16,
+    "docH": 2046,
+    "overflowX": false
+  },
+  {
+    "id": "before__timeline__en-light-w320",
+    "url": "/customer-timeline/1",
+    "title": "Store Syria - Customer Timeline",
+    "dir": "ltr",
+    "theme": "light",
+    "arms": 16,
+    "docH": 2046,
+    "overflowX": false
+  },
+  {
+    "id": "before__timeline__en-dark-desktop",
+    "url": "/customer-timeline/1",
+    "title": "Store Syria - Customer Timeline",
+    "dir": "ltr",
+    "theme": "dark",
+    "arms": 16,
+    "docH": 1807,
+    "overflowX": false
+  },
+  {
+    "id": "before__timeline__en-dark-w390",
+    "url": "/customer-timeline/1",
+    "title": "Store Syria - Customer Timeline",
+    "dir": "ltr",
+    "theme": "dark",
+    "arms": 16,
+    "docH": 2046,
+    "overflowX": false
+  },
+  {
+    "id": "before__timeline__en-dark-w320",
+    "url": "/customer-timeline/1",
+    "title": "Store Syria - Customer Timeline",
+    "dir": "ltr",
+    "theme": "dark",
+    "arms": 16,
+    "docH": 2046,
+    "overflowX": false
+  },
+  {
+    "id": "before__timeline__ar-light-desktop",
+    "url": "/customer-timeline/1",
+    "title": "Store Syria - خط الزمن للعميل",
+    "dir": "rtl",
+    "theme": "light",
+    "arms": 16,
+    "docH": 1812,
+    "overflowX": false
+  },
+  {
+    "id": "before__timeline__ar-light-w390",
+    "url": "/customer-timeline/1",
+    "title": "Store Syria - خط الزمن للعميل",
+    "dir": "rtl",
+    "theme": "light",
+    "arms": 16,
+    "docH": 2051,
+    "overflowX": false
+  },
+  {
+    "id": "before__timeline__ar-light-w320",
+    "url": "/customer-timeline/1",
+    "title": "Store Syria - خط الزمن للعميل",
+    "dir": "rtl",
+    "theme": "light",
+    "arms": 16,
+    "docH": 2072,
+    "overflowX": false
+  },
+  {
+    "id": "before__timeline__ar-dark-desktop",
+    "url": "/customer-timeline/1",
+    "title": "Store Syria - خط الزمن للعميل",
+    "dir": "rtl",
+    "theme": "dark",
+    "arms": 16,
+    "docH": 1812,
+    "overflowX": false
+  },
+  {
+    "id": "before__timeline__ar-dark-w390",
+    "url": "/customer-timeline/1",
+    "title": "Store Syria - خط الزمن للعميل",
+    "dir": "rtl",
+    "theme": "dark",
+    "arms": 16,
+    "docH": 2051,
+    "overflowX": false
+  },
+  {
+    "id": "before__timeline__ar-dark-w320",
+    "url": "/customer-timeline/1",
+    "title": "Store Syria - خط الزمن للعميل",
+    "dir": "rtl",
+    "theme": "dark",
+    "arms": 16,
+    "docH": 2072,
+    "overflowX": false
+  }
+]
