@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 111 | 37.6% |
+| REDESIGNED AND VERIFIED | 119 | 40.3% |
 | BLOCKED | 10 | 3.4% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 149 | 50.5% |
+| PENDING | 141 | 47.8% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -30,12 +30,12 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
-| Flutter merchant admin app | 51 | 0 | 29 | 0 | 0 | 22 |
+| Flutter merchant admin app | 51 | 0 | 30 | 0 | 0 | 21 |
 | CATALOGUE taxonomy | 38 | 13 | 1 | 0 | 0 | 24 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 10 | 1 | 0 | 24 |
 | Phase 2.5 Wave A | 30 | 0 | 25 | 0 | 0 | 5 |
 | Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 6 | 1 | 0 | 19 |
-| Flutter merchant/employee admin app | 24 | 0 | 6 | 0 | 0 | 18 |
+| Flutter merchant/employee admin app | 24 | 0 | 13 | 0 | 0 | 11 |
 | Customers and customer management | 20 | 0 | 11 | 4 | 0 | 5 |
 | ORDERS | 17 | 0 | 5 | 3 | 0 | 9 |
 | PRODUCTS | 16 | 1 | 3 | 1 | 0 | 11 |
@@ -94,7 +94,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Wallet | ``GetX /wallet`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-OPS; four captures under evidence/flutter-ops-2026-11-09/ |
 | My plan | ``GetX /myPlan`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Profile / My account | ``Get.to(() => ProfileScreen()) from the dashboard profile row`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-ACCOUNT; four captures under evidence/flutter-account-2026-11-09/ |
-| Shared app bar | ``partial/component`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Shared app bar | ``partial/component`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
 | Shared empty / error / stale states | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
 | Shared skeletons | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
 | Shared text field | ``partial/component`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
@@ -270,16 +270,16 @@ actually been done to it since. They are different questions and the matrix keep
 | Nav destination 3 — Products | ``/dashboard tab 2`` | unknown | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SHELL; four captures under evidence/flutter-shell-2026-11-09/ |
 | Nav destination 4 — Categories | ``/dashboard tab 3`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SHELL; four captures under evidence/flutter-shell-2026-11-09/ |
 | Nav destination 5 — More/Settings | ``/dashboard tab 4`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SHELL; four captures under evidence/flutter-shell-2026-11-09/ |
-| Shared app bar (simpleAppBar) | ``partial/component — 28 live screens`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Shared text field (AppTextField) | ``partial/component — 45 live call sites`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Shared dropdown (commonDropdownButtonWidget) | ``partial/component — 2 call sites (add_shipping, add_tax botto` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Shared buttons (CommonButton family) | ``partial/component — 2 live CommonButton + 11 live CommonIconB` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Shared button (AppButton, inside app_dialog.dart) | ``partial/component — used by AppDialog`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Shared app bar (simpleAppBar) | ``partial/component — 28 live screens`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
+| Shared text field (AppTextField) | ``partial/component — 45 live call sites`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
+| Shared dropdown (commonDropdownButtonWidget) | ``partial/component — 2 call sites (add_shipping, add_tax botto` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
+| Shared buttons (CommonButton family) | ``partial/component — 2 live CommonButton + 11 live CommonIconB` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
+| Shared button (AppButton, inside app_dialog.dart) | ``partial/component — used by AppDialog`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
 | Shared confirmation dialog (AppDialog) | ``partial/component — 12 live call sites`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Shared action feedback (AppSnackBar) | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Shared empty / error / stale states | ``partial/component — EmptyState and ErrorState each adopted in` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
-| Shared skeletons (AppShimmer) | ``partial/component — adopted in 22 files`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Shared status indicators | ``partial/component — statusPill 5 live sites; StatusBadgeHelpe` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Shared skeletons (AppShimmer) | ``partial/component — adopted in 22 files`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
+| Shared status indicators | ``partial/component — statusPill 5 live sites; StatusBadgeHelpe` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
 | Theme switch animation | ``partial/component — wraps the whole app via GetMaterialApp bu` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Loading indicator (Loader / LoadingWidget) | ``partial/component — Loader.showLoader() live at 4 sites`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Routing table | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |

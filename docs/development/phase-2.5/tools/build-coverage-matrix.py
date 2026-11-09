@@ -342,6 +342,50 @@ VERIFIED = {
     # re-taken captures show `150 $` and `85 $` where the em dashes were.
     'Products list (tab 2)':      ('REDESIGNED AND VERIFIED', 'flutter-harness-2026-11-09',
                                    'flutter-products-list_', 'P2.5-FLUTTER-PRICE', 'tab 2'),
+    # --- P2.5-FLUTTER-COMPONENTS, second set (2026-11-09) ---------------------------------------
+    #
+    # Three more shared widgets through the gallery already built, rather than new infrastructure.
+    #
+    # THE SPECIMEN WAS WRONG AGAIN AND THE CAPTURE CAUGHT IT: the Arabic app bar rendered
+    # "New Order" and "Analytics" in English, which reads as a missing translation in the
+    # component. It was not -- every real `simpleAppBar` call site passes snake_case keys
+    # (`all_categories`, `add_category`, `product_details`) and the specimen had invented two that
+    # are not keys at all. Same mistake the StaleDataNotice specimen made, caught the same way.
+    #
+    # `AppDialog` itself is NOT claimed: it opens an overlay, which a static gallery cannot hold.
+    # What ships inside it -- `AppButton` -- is its own row and is captured.
+    #
+    # FIVE ROWS BELOW ARE THE INVENTORY'S OWN DUPLICATES -- `Shared app bar` and
+    # `Shared app bar (simpleAppBar)` are the same widget named twice, as are the text field, the
+    # skeletons, the status indicators and the button family. Claiming both from one picture is
+    # what the owner's constraints forbid by name, so the duplicates are claimed on the TABLET
+    # set: a different surface, a different render and a different file. That also supplies the
+    # responsive half the phase asks for, which the 360pt set alone cannot show.
+    'Shared app bar':
+        ('REDESIGNED AND VERIFIED', 'flutter-components-2026-11-09',
+         'flutter-component-appbar_', 'P2.5-FLUTTER-COMPONENTS', 'partial/component'),
+    'Shared app bar (simpleAppBar)':
+        ('REDESIGNED AND VERIFIED', 'flutter-components-2026-11-09',
+         'flutter-component-appbar-tablet_', 'P2.5-FLUTTER-COMPONENTS', 'partial/component'),
+    'Shared dropdown (commonDropdownButtonWidget)':
+        ('REDESIGNED AND VERIFIED', 'flutter-components-2026-11-09',
+         'flutter-component-dropdown_', 'P2.5-FLUTTER-COMPONENTS', 'partial/component'),
+    'Shared button (AppButton, inside app_dialog.dart)':
+        ('REDESIGNED AND VERIFIED', 'flutter-components-2026-11-09',
+         'flutter-component-dialog-button_', 'P2.5-FLUTTER-COMPONENTS', 'partial/component'),
+    'Shared buttons (CommonButton family)':
+        ('REDESIGNED AND VERIFIED', 'flutter-components-2026-11-09',
+         'flutter-component-buttons-tablet_', 'P2.5-FLUTTER-COMPONENTS', 'partial/component'),
+    'Shared text field (AppTextField)':
+        ('REDESIGNED AND VERIFIED', 'flutter-components-2026-11-09',
+         'flutter-component-textfield-tablet_', 'P2.5-FLUTTER-COMPONENTS', 'partial/component'),
+    'Shared skeletons (AppShimmer)':
+        ('REDESIGNED AND VERIFIED', 'flutter-components-2026-11-09',
+         'flutter-component-skeletons-tablet_', 'P2.5-FLUTTER-COMPONENTS', 'partial/component'),
+    'Shared status indicators':
+        ('REDESIGNED AND VERIFIED', 'flutter-components-2026-11-09',
+         'flutter-component-pill-tablet_', 'P2.5-FLUTTER-COMPONENTS', 'partial/component'),
+
     # --- P2.5-DS-GALLERY (2026-11-09) -----------------------------------------------------------
     #
     # Every `x-ss.*` component rendered ALONE, in all four combinations, by
@@ -1055,7 +1099,46 @@ def build():
     return '\n'.join(L) + '\n', tally, len(rows)
 
 
+def assert_no_shared_capture_sets():
+    """No two surfaces may be claimed on the SAME capture set.
+
+    `check-distinct-surface-captures.py` compares image CONTENT across the evidence tree, so it
+    catches two different files that happen to be pixel-identical. It cannot catch two ROWS
+    pointing at the SAME file -- there is only one file, and nothing collides.
+
+    That gap is not hypothetical. Claiming the Flutter component rows, five surfaces were pointed
+    at needles already used by five others -- `Shared app bar` and `Shared app bar (simpleAppBar)`
+    are the same widget named twice in the inventory, as are the text field, the skeletons, the
+    status indicators and the button family. Every guard passed. The owner's constraints forbid
+    using one screenshot as evidence for two surfaces by name, so this closes the hole: the
+    duplicates were re-pointed at a tablet capture set, and this refuses the next one.
+    """
+    seen = {}
+    clashes = []
+
+    for surface, claim in VERIFIED.items():
+        if not isinstance(claim, tuple) or len(claim) < 3:
+            continue
+        state, wave, needle = claim[0], claim[1], claim[2]
+        if state != 'REDESIGNED AND VERIFIED':
+            continue
+        key = (wave, needle)
+        if key in seen:
+            clashes.append(f'  {wave}/{needle}  claimed by BOTH "{seen[key]}" and "{surface}"')
+        else:
+            seen[key] = surface
+
+    if clashes:
+        sys.exit(
+            'TWO SURFACES SHARE ONE CAPTURE SET:\n' + '\n'.join(clashes)
+            + '\n\nOne picture may not be the evidence for two surfaces. Give the duplicate its '
+              'own render -- a second width is usually the honest one -- or leave it PENDING with '
+              'the duplication recorded.'
+        )
+
+
 if __name__ == '__main__':
+    assert_no_shared_capture_sets()
     text, tally, total = build()
     if '--check' in sys.argv:
         cur = open(OUT, encoding='utf-8').read() if os.path.exists(OUT) else ''
