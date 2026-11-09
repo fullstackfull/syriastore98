@@ -236,6 +236,26 @@ VERIFIED = {
         ('REDESIGNED AND VERIFIED', 'flutter-store-settings-2026-11-09',
          'flutter-language-currency_', 'P2.5-FLUTTER-STORE-SETTINGS', 'GetX /lang'),
 
+    # --- P2.5-FLUTTER-ACCOUNT (2026-11-09) ------------------------------------------------------
+    #
+    # The three screens the resolved copy deck unlocked. All three were held back for the same
+    # reason Store Information was -- hard-coded English labels, so an Arabic merchant read an
+    # English form -- and these are the first captures of them in either language.
+    #
+    # The Arabic capture of the profile screen then found three MORE English strings in its header
+    # card that the deck never listed, because the deck was built by reading files. They are fixed
+    # in the same change; the premise test asserts the English spelling is ABSENT from the Arabic
+    # build, not merely that the Arabic is present.
+    'Profile / My account':
+        ('REDESIGNED AND VERIFIED', 'flutter-account-2026-11-09',
+         'flutter-profile_', 'P2.5-FLUTTER-ACCOUNT', 'ProfileScreen'),
+    'Store email settings':
+        ('REDESIGNED AND VERIFIED', 'flutter-account-2026-11-09',
+         'flutter-email-settings_', 'P2.5-FLUTTER-ACCOUNT', 'EmailSettingScreen'),
+    'Loyalty programme':
+        ('REDESIGNED AND VERIFIED', 'flutter-account-2026-11-09',
+         'flutter-loyalty_', 'P2.5-FLUTTER-ACCOUNT', 'LoyaltyProgramScreen'),
+
     # --- P2.5-FLUTTER-AUTH (2026-11-09) ---------------------------------------------------------
     #
     # The three screens before a merchant is signed in -- the first thing anyone sees of this
