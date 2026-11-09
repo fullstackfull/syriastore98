@@ -150,6 +150,19 @@ VERIFIED = {
     'Home / Overview (tab 0)':    ('REDESIGNED AND VERIFIED', 'flutter-home-2026-11-09',
                                    'flutter-home_', 'P2.5-FLUTTER-HOME', 'tab 0'),
 
+    # --- P2.5-FLUTTER-STATS (2026-11-09) --------------------------------------------------------
+    #
+    # The analytics screen, driven with all five of its sections populated by
+    # `test/screens/statistics_screen_capture_test.dart`. Each section is conditional on its own
+    # list, so a fixture that filled one would have captured a screen with the rest silently
+    # absent; all five carry data and all three breakdowns are asserted.
+    #
+    # Four labels on it had no entry in either translation file and printed as English keys in the
+    # Arabic build -- now translated and removed from the ratchet. A pending `visibility_detector`
+    # timer that failed the first test of every run was fixed in the harness, not in lib/.
+    'Analytics / statistics':     ('REDESIGNED AND VERIFIED', 'flutter-stats-2026-11-09',
+                                   'flutter-statistics_', 'P2.5-FLUTTER-STATS', 'GetX /statistics'),
+
     # `Products list (tab 2)` IS DELIBERATELY ABSENT, though it has four populated captures beside
     # the others. Its own capture is what found P2.5-FLUTTER-PRICE: the card is handed
     # `salePrice` alone, and `sale_price` is the optional DISCOUNT (`->default(0)`, validated

@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 44 | 14.9% |
+| REDESIGNED AND VERIFIED | 45 | 15.3% |
 | BLOCKED | 13 | 4.4% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 213 | 72.2% |
+| PENDING | 212 | 71.9% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -30,7 +30,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
-| Flutter merchant admin app | 51 | 0 | 10 | 0 | 0 | 41 |
+| Flutter merchant admin app | 51 | 0 | 11 | 0 | 0 | 40 |
 | CATALOGUE taxonomy | 38 | 13 | 1 | 0 | 0 | 24 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 3 | 1 | 0 | 31 |
 | Phase 2.5 Wave A | 30 | 0 | 0 | 0 | 0 | 30 |
@@ -89,7 +89,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Coupons list | ``GetX /coupon`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HARNESS; four captures under evidence/flutter-harness-2026-11-09/ |
 | Coupon detail | ``Get.to(() => CouponDetailScreen()) from coupons list`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Notifications | ``GetX /notifications, and Get.to(() => NotificationScreen()) f` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-OPS; four captures under evidence/flutter-ops-2026-11-09/ |
-| Analytics / statistics | ``GetX /statistics`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Analytics / statistics | ``GetX /statistics`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-STATS; four captures under evidence/flutter-stats-2026-11-09/ |
 | Statistics widgets | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Wallet | ``GetX /wallet`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-OPS; four captures under evidence/flutter-ops-2026-11-09/ |
 | My plan | ``GetX /myPlan`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
