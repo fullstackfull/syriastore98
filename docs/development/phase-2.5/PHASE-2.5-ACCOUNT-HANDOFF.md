@@ -24,7 +24,7 @@ it for branch, SHA and status.
 |---|---|---|
 | repository | `fullstackfull/syriastore98` | `fullstackfull/StoreSyria_app98` |
 | **branch** | **`claude/gracious-volta-duiynj`** | **`claude/gracious-volta-duiynj`** |
-| **HEAD (pushed)** | **`cb01b7de`** | **`4382202`** |
+| **HEAD (pushed)** | **`77da951b`** | **`e8a26c3`** |
 | unpushed commits | **0** | **0** |
 | worktree | **clean** | **clean** |
 | pull request | [#132](https://github.com/fullstackfull/syriastore98/pull/132) — **draft**, base `claude/busy-edison-k0pjwa` | [#8](https://github.com/fullstackfull/StoreSyria_app98/pull/8) — **draft**, base `claude/busy-edison-k0pjwa` |
@@ -33,14 +33,14 @@ it for branch, SHA and status.
 **Both #132 and #8 must stay DRAFT.** They exist to run CI, not to merge. No merge to `main`, no
 force push, no history rewrite — standing owner instructions.
 
-`claude/gracious-volta-duiynj` carries **280 commits** beyond `origin/main`
+`claude/gracious-volta-duiynj` carries **281 commits** beyond `origin/main`
 (`git log --oneline origin/main..HEAD | wc -l`), branching at `53971d4e`.
 
 ---
 
 ## 2. Test and CI status — measured, not assumed
 
-### Laravel, at `cb01b7de`
+### Laravel, measured at `cb01b7de` (the last commit that changed code; `77da951b` adds only these handoff documents)
 
 | | result |
 |---|---|
@@ -86,7 +86,7 @@ php .github/scripts/assert-known-test-outcomes.php \
   instruction is explicit: **an agent must not create, impersonate, sign or auto-insert it.** It
   requires genuine human review.
 
-### Flutter, at `4382202`
+### Flutter, measured at `4382202` (`e8a26c3` adds only the handoff pointer)
 
 | | check |
 |---|---|
@@ -176,7 +176,7 @@ proposal, and changing the denominator is the owner's call.
 ## 5. What was completed in Phase 2.5 — not only ORDERS
 
 The branch carries 280 commits. The packages whose evidence is committed under
-`docs/development/phase-2.5/evidence/` (55 directories) include:
+`docs/development/phase-2.5/evidence/` (56 directories) include:
 
 ### Areas taken to a verified state
 
@@ -366,6 +366,7 @@ environment has `flutter` before planning around it.
 
 ## 10. Nothing is in flight
 
-* No background agents, workflows, servers or watchers are running.
+* No background agents, workflows, servers or watchers are running. The ORDERS audit
+  (`wf_cd4c60b8-8cd`) finished before this handoff was written; no new audit cycle was started.
 * Both worktrees are clean; both branches are fully pushed (0 ahead, 0 behind).
 * No secrets, environment values or customer data are in either repository.
