@@ -85,6 +85,18 @@
 # Run the harness in its own shell, or prefix the variables onto the single command that needs
 # them (`DB_DATABASE=... node render-matrix.cjs ...`) rather than exporting them.
 #
+# THE FIXTURE ALSO NEEDS PERMISSIONS, and a server alone is not enough.
+#
+# render-matrix.cjs signs in as merchant@example.test, and a screen that account cannot open
+# answers with `redirect()->back()` -- so the harness records HTTP 200 and photographs the
+# dashboard. P2.5-WEB-FINAL hit this on nine routes at once and produced eleven distinct images
+# from seventeen, every row reporting "ok". Run this once per fresh container, BEFORE capturing:
+#
+#     docs/development/phase-2.5/tools/grant-dev-harness-permissions.sh
+#
+# It grants thirteen named permissions to the dev fixture only, each one its controller's own
+# guard, plus the `taxes` setting TaxController wants on top of its permission. It weakens no gate.
+#
 # usage:  docs/development/phase-2.5/tools/serve-dev.sh   (leave it running; harnesses connect to it)
 #
 set -e

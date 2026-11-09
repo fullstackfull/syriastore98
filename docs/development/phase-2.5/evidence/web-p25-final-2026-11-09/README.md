@@ -77,15 +77,37 @@ exists, with the gap stated here rather than left for a reader to find:
 
 ---
 
-## 4. One bidi observation, recorded not fixed
+## 4. A bidi defect I reported here, and then refuted
 
-The shell header renders `مرحباً, Amina Haddad!` with the exclamation mark at the **left** of the
-Arabic line, because a neutral character after an LTR run takes the paragraph direction. Wrapping
-the name in `<bdi>` is the same repair already applied to order identifiers in P2.5-ORD-7. It is in
-the shell, which is a **PREMIUM VERIFIED** surface from an earlier wave, so changing it is a
-promotion-affecting edit and is recorded here rather than made in a batch about other screens.
+**The claim made in the first version of this file was wrong, and it is corrected rather than
+quietly deleted.**
 
----
+It said the shell header rendered `مرحباً, Amina Haddad!` with the exclamation mark "at the wrong
+end", and proposed `<bdi>` as the repair. The owner authorised that fix. There is nothing to fix.
+
+**`<bdi>` is already there**, applied by P2.5-A-03, whose own comment in
+`resources/views/partision/header.blade.php:62-75` records the pre-fix symptom precisely:
+
+> Measured in the running Arabic admin: this rendered `Amina Haddad!مرحبًا` — the exclamation mark
+> is a bidi-NEUTRAL character, so in an RTL paragraph it resolves against the paragraph direction
+> rather than against the Latin run it belongs to, and lands on the wrong side of the name.
+
+`tests/Unit/Ui/HeaderGreetingBidiTest.php` has four passing tests asserting the name is isolated
+and the `!` is outside the isolate. Those read the blade source, so the rendered order was measured
+separately, in the running Arabic admin, at `dir: rtl`:
+
+| run | painted left | painted right |
+|---|---:|---:|
+| `مرحباً،` | 1088 | 1124 |
+| `Amina Haddad` | 994 | 1088 |
+| `!` | 989 | 994 |
+
+Read right-to-left, as an RTL paragraph is read: greeting, then name, then `!`. The mark is at the
+**end of the phrase**, which in RTL is the left edge of the line. That is correct, and it is what I
+mistook for a defect by reading the screenshot left-to-right.
+
+**No change was made.** The authorisation to fix it does not make a fix correct, and editing this
+would break a working implementation that already carries its own regression tests.
 
 ## 5. Captures
 
