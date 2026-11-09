@@ -342,6 +342,107 @@ VERIFIED = {
     # re-taken captures show `150 $` and `85 $` where the em dashes were.
     'Products list (tab 2)':      ('REDESIGNED AND VERIFIED', 'flutter-harness-2026-11-09',
                                    'flutter-products-list_', 'P2.5-FLUTTER-PRICE', 'tab 2'),
+    # --- P2.5-DS-GALLERY (2026-11-09) -----------------------------------------------------------
+    #
+    # Every `x-ss.*` component rendered ALONE, in all four combinations, by
+    # `tests/Support/DesignSystem/bin/render-ds-gallery.php` + `shoot-ds-gallery.cjs`.
+    # 26 specimens x 4 = 104 captures, all distinct.
+    #
+    # WHY A FILE AND NOT A ROUTE. A gallery route would be production code: a URL that ships, needs
+    # a guard, and can be reached somewhere nobody meant it to be. The renderer goes through
+    # Laravel's own view factory -- the real Blade compiler, the real components, the real
+    # `store-syria-ds.css` -- and writes HTML. `routes/web.php` is untouched.
+    #
+    # THE FIRST RUN PRODUCED 96 CAPTURES AND 48 DISTINCT IMAGES. Every component rendered
+    # identically in light and dark, which reads as twenty-four components ignoring the theme. It
+    # was one harness bug: the design system keys its dark block on `[data-ss-theme="dark"]`
+    # (store-syria-ds.css:560) and the renderer was setting `data-theme`. The only reason it was
+    # caught before anything was claimed is that the distinct count was checked first.
+    #
+    # SPECIMENS CARRY REAL CONTENT, and components whose point is that they have STATES show the
+    # states together -- four tones of status-badge, three states of switch -- because a badge that
+    # looks the same in every tone is the defect and a single-tone capture cannot show it. Prop
+    # shapes were copied from real call sites after guessing failed: `bar-chart` takes parallel
+    # label/value lists and a required title, `error-summary` takes a real MessageBag.
+    #
+    # `stat`/`stats` and `attention`/`attention-item` are SEPARATE inventory rows, so each gets its
+    # own specimen rather than one picture doing duty for two surfaces.
+    'x-ss.page-header':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-page-header_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.card':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-card_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.stat':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-stat_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.stats':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-stats_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.status-badge':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-status-badge_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.empty':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-empty_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.panel (side sheet / drawer)':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-panel-side-sheet-drawer_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.confirm-dialog':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-confirm-dialog_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.actionbar':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-actionbar_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.breadcrumb':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-breadcrumb_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.chip':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-chip_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.switch':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-switch_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.progress':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-progress_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.help':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-help_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.field-help':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-field-help_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.error-summary':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-error-summary_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.filter-summary':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-filter-summary_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.report-filter':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-report-filter_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.secret-field':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-secret-field_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.setup-checklist':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-setup-checklist_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.attention':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-attention_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.attention-item':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-attention-item_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.bar-chart':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-bar-chart_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.advanced-fields':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-advanced-fields_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'x-ss.choice-group':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-choice-group_', 'P2.5-DS-GALLERY', 'partial/component'),
+
     # --- P2.5-WEB-FINAL (2026-11-09) ------------------------------------------------------------
     #
     # Thirteen merchant-web routes rendered through `render-matrix.cjs` in all four combinations:

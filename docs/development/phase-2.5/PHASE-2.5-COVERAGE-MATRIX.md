@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 77 | 26.1% |
+| REDESIGNED AND VERIFIED | 105 | 35.6% |
 | BLOCKED | 10 | 3.4% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 183 | 62.0% |
+| PENDING | 155 | 52.5% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -33,7 +33,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | Flutter merchant admin app | 51 | 0 | 29 | 0 | 0 | 22 |
 | CATALOGUE taxonomy | 38 | 13 | 1 | 0 | 0 | 24 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 10 | 1 | 0 | 24 |
-| Phase 2.5 Wave A | 30 | 0 | 0 | 0 | 0 | 30 |
+| Phase 2.5 Wave A | 30 | 0 | 25 | 0 | 0 | 5 |
 | Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 0 | 1 | 0 | 25 |
 | Flutter merchant/employee admin app | 24 | 0 | 6 | 0 | 0 | 18 |
 | Customers and customer management | 20 | 0 | 11 | 4 | 0 | 5 |
@@ -41,7 +41,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | PRODUCTS | 16 | 1 | 3 | 1 | 0 | 11 |
 | Merchant admin NAVIGATION SHELL | 13 | 4 | 7 | 0 | 0 | 2 |
 | Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 3 | 0 | 0 | 10 |
-| Merchant dashboard and KPI presentation | 9 | 3 | 2 | 0 | 1 | 3 |
+| Merchant dashboard and KPI presentation | 9 | 3 | 5 | 0 | 1 | 0 |
 
 ## Every surface
 
@@ -196,31 +196,31 @@ actually been done to it since. They are different questions and the matrix keep
 |---|---|---|---|---|
 | Store Syria Design System stylesheet | ``partial/component — linked globally at resources/views/layout` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | DS theme hook + opt-in partial | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| x-ss.page-header | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| x-ss.card | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| x-ss.stat | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| x-ss.stats | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| x-ss.status-badge | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| x-ss.empty | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| x-ss.panel (side sheet / drawer) | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| x-ss.confirm-dialog | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| x-ss.actionbar | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| x-ss.breadcrumb | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| x-ss.chip | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| x-ss.switch | ``partial/component`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| x-ss.progress | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| x-ss.help | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| x-ss.field-help | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| x-ss.error-summary | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| x-ss.filter-summary | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| x-ss.report-filter | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| x-ss.secret-field | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| x-ss.setup-checklist | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| x-ss.attention | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| x-ss.attention-item | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| x-ss.bar-chart | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| x-ss.advanced-fields | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| x-ss.choice-group | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| x-ss.page-header | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.card | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.stat | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.stats | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.status-badge | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.empty | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.panel (side sheet / drawer) | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.confirm-dialog | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.actionbar | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.breadcrumb | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.chip | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.switch | ``partial/component`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.progress | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.help | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.field-help | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.error-summary | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.filter-summary | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.report-filter | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.secret-field | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.setup-checklist | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.attention | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.attention-item | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.bar-chart | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.advanced-fields | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.choice-group | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
 | x-datatable | ``partial/component — used by 39 host views; 66 of 68 DataTable` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | custom.css F126 region | ``partial/component — public/css/custom.css, loaded on every ad` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Legacy Breeze/Tailwind component set (co-resident) | ``partial/component`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
@@ -397,9 +397,9 @@ actually been done to it since. They are different questions and the matrix keep
 | Dashboard overview region (KPI surface) | ``partial/component (included by GET /dashboard)`` | premium-already | **PREMIUM VERIFIED** | P2.5-PKG-A-10; four captures under evidence/pkg-a-10/ |
 | Top Category / Top Brand "By Sales" body | ``POST /top-brand-category-chart (routes/web.php:414)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-A-03; four captures under evidence/package-a/ |
 | x-ss.stat / x-ss.stats (KPI cell + grid) | ``partial/component`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-A-10; four captures under evidence/pkg-a-10/ |
-| x-ss.bar-chart | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| x-ss.bar-chart | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
 | x-ss.attention / x-ss.attention-item | ``partial/component`` | premium-already | **PREMIUM VERIFIED** | P2.5-PKG-A-10; four captures under evidence/pkg-a-10/ |
-| x-ss.setup-checklist | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| x-ss.progress | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| x-ss.setup-checklist | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| x-ss.progress | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
 | Super Admin dashboard | ``GET /dashboard (type='super admin' branch)`` | unknown | **OUT OF SCOPE** | Phase 06 (SaaS & Super Admin), not Phase 2.5 Merchant Experience |
 
