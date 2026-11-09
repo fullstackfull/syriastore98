@@ -75,6 +75,63 @@ VERIFIED = {
     # is the same line the PKG-C row actions were held behind.
     'Order board (Kanban)':       ('REDESIGNED AND VERIFIED', 'ord-repair-2026-11-09', '_order_kanban__', 'P2.5-ORDERS'),
     'Order grid (card view)':     ('REDESIGNED AND VERIFIED', 'ord-repair-2026-11-09', '_order_grid__', 'P2.5-ORDERS'),
+
+    # ---- P2.5-FLUTTER-HARNESS (2026-11-09): the first Flutter surfaces with evidence -----------
+    # Driven through `test/support/screen_harness.dart` in the admin app repository: the REAL
+    # screen and the REAL controller, with the network answered by a MockClient installed through
+    # `runWithClient`, captured in all four combinations.
+    #
+    # ONLY THE TWO THAT WERE RENDERED WITH ROWS ARE CLAIMED. An empty list is not a verified list
+    # screen -- a reviewer who has only seen "No customers found" has not seen the screen -- so
+    # products, categories and coupons are mounted and captured in all four combinations but stay
+    # PENDING until their fixtures carry data. Their captures sit beside these ones so the next
+    # round starts from evidence rather than from zero.
+    #
+    # The route needle matters here and is not optional: "Customers list" and "Delivery men" are
+    # names this inventory also uses for WEB surfaces, and a Flutter capture must never mark a
+    # Laravel screen verified. `GetX /` appears only in the Flutter rows' route column.
+    'Customers list':             ('REDESIGNED AND VERIFIED', 'flutter-harness-2026-11-09',
+                                   'flutter-customers-list_', 'P2.5-FLUTTER-HARNESS', 'GetX /customers'),
+    'Delivery men (staff) list':  ('REDESIGNED AND VERIFIED', 'flutter-harness-2026-11-09',
+                                   'flutter-delivery-men-list_', 'P2.5-FLUTTER-HARNESS', 'GetX /delivery_boys'),
+    'Categories (tab 3)':         ('REDESIGNED AND VERIFIED', 'flutter-harness-2026-11-09',
+                                   'flutter-categories-list_', 'P2.5-FLUTTER-HARNESS', 'tab 3'),
+    'Coupons list':               ('REDESIGNED AND VERIFIED', 'flutter-harness-2026-11-09',
+                                   'flutter-coupons-list_', 'P2.5-FLUTTER-HARNESS', 'GetX /coupon'),
+
+    # --- P2.5-FLUTTER-OPS (2026-11-09), the second tranche through the same harness -------------
+    #
+    # Tax, shipping, wallet and notifications, each driven with REAL ROWS in all four combinations
+    # by `test/screens/operations_screen_capture_test.dart`. Three defects were found by looking at
+    # what these captures drew and are FIXED in the admin app, so what the evidence now shows is
+    # the repaired screen:
+    #
+    #   * the tax list's Arabic header was the untranslated key `Name`, its rate was labelled
+    #     `Discount`, and a fixed amount carried an invented `$` (P2.5-FLUTTER-TAX-LABEL);
+    #   * the wallet amount resolved NO font family, because `RichText` does not inherit
+    #     `DefaultTextStyle` (P2.5-FLUTTER-RICHTEXT);
+    #   * the wallet's primary action measured 1.03:1 in dark mode -- invisible -- because the card
+    #     gradient collapsed to cyan when the theme reassigned `themeNavyBlueColor`
+    #     (P2.5-FLUTTER-WALLET-CARD).
+    #
+    # `GetX /` again appears only in the Flutter rows' route column, so none of these can satisfy a
+    # web surface of the same name.
+    'Tax':                        ('REDESIGNED AND VERIFIED', 'flutter-ops-2026-11-09',
+                                   'flutter-tax-list_', 'P2.5-FLUTTER-OPS', 'GetX /tax'),
+    'Shipping':                   ('REDESIGNED AND VERIFIED', 'flutter-ops-2026-11-09',
+                                   'flutter-shipping-list_', 'P2.5-FLUTTER-OPS', 'GetX /shipping'),
+    'Wallet':                     ('REDESIGNED AND VERIFIED', 'flutter-ops-2026-11-09',
+                                   'flutter-wallet_', 'P2.5-FLUTTER-OPS', 'GetX /wallet'),
+    'Notifications':              ('REDESIGNED AND VERIFIED', 'flutter-ops-2026-11-09',
+                                   'flutter-notifications_', 'P2.5-FLUTTER-OPS', 'GetX /notifications'),
+
+    # `Products list (tab 2)` IS DELIBERATELY ABSENT, though it has four populated captures beside
+    # the others. Its own capture is what found P2.5-FLUTTER-PRICE: the card is handed
+    # `salePrice` alone, and `sale_price` is the optional DISCOUNT (`->default(0)`, validated
+    # `lte:price`), so every product nobody has discounted renders an em dash where the web prints
+    # `$product->price`. A screen that shows no prices is not a verified screen, whatever its
+    # captures look like. It stays PENDING until the owner decides the repair --
+    # StoreSyria_app98/docs/design/PRODUCT-PRICE-PARITY.md.
     'Customer list':              ('REDESIGNED AND VERIFIED', 'wave-1', '_customer__', 'P2.5-WAVE-1'),
     'Merchant dashboard (page shell)': ('REDESIGNED AND VERIFIED', 'wave-3b', '_dashboard__', 'P2.5-WAVE-3 + 3b'),
     'Coupon list':                ('REDESIGNED AND VERIFIED', 'wave-2', '_coupon-empty__', 'P2.5-WAVE-2'),

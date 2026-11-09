@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 34 | 11.5% |
+| REDESIGNED AND VERIFIED | 42 | 14.2% |
 | BLOCKED | 13 | 4.4% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 223 | 75.6% |
+| PENDING | 215 | 72.9% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -30,7 +30,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
-| Flutter merchant admin app | 51 | 0 | 0 | 0 | 0 | 51 |
+| Flutter merchant admin app | 51 | 0 | 8 | 0 | 0 | 43 |
 | CATALOGUE taxonomy | 38 | 13 | 1 | 0 | 0 | 24 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 3 | 1 | 0 | 31 |
 | Phase 2.5 Wave A | 30 | 0 | 0 | 0 | 0 | 30 |
@@ -67,7 +67,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Add / edit product | ``Get.to(() => AddNewProductScreen(isUpdate:)) from products li` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Add rating / review | ``Get.to(() => AddRatingScreen()) from product detail`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Product card / field partials | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Categories (tab 3) | ``tab 3 of /dashboard`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Categories (tab 3) | ``tab 3 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HARNESS; four captures under evidence/flutter-harness-2026-11-09/ |
 | Add / edit category (modal) | ``showModalBottomSheet from categories`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | More / Settings grid (tab 4) | ``tab 4 of /dashboard`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | App settings | ``GetX /appSettings`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
@@ -78,20 +78,20 @@ actually been done to it since. They are different questions and the matrix keep
 | Loyalty programme | ``Get.to(() => LoyaltyProgramScreen()) from store settings`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Store payment methods | ``Get.to(() => PaymentSettingScreen()) from store settings`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | COD / Stripe / Bank-transfer gateway editors | ``unreachable — no Get.to, no AppRoutes entry anywhere in lib/`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Tax | ``GetX /tax`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Tax | ``GetX /tax`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-OPS; four captures under evidence/flutter-ops-2026-11-09/ |
 | Add / edit tax (modal) | ``showModalBottomSheet from tax`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Shipping | ``GetX /shipping`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Shipping | ``GetX /shipping`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-OPS; four captures under evidence/flutter-ops-2026-11-09/ |
 | Add / edit shipping (modal) | ``showModalBottomSheet from shipping`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Customers list | ``GetX /customers`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Customers list | ``GetX /customers`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HARNESS; four captures under evidence/flutter-harness-2026-11-09/ |
 | Customer detail | ``Get.to(() => CustomerDetailsScreen()) from customers list`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Add / edit customer (modal) | ``showModalBottomSheet from customers list`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Delivery men (staff) list | ``GetX /delivery_boys`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Coupons list | ``GetX /coupon`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Delivery men (staff) list | ``GetX /delivery_boys`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HARNESS; four captures under evidence/flutter-harness-2026-11-09/ |
+| Coupons list | ``GetX /coupon`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HARNESS; four captures under evidence/flutter-harness-2026-11-09/ |
 | Coupon detail | ``Get.to(() => CouponDetailScreen()) from coupons list`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Notifications | ``GetX /notifications, and Get.to(() => NotificationScreen()) f` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Notifications | ``GetX /notifications, and Get.to(() => NotificationScreen()) f` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-OPS; four captures under evidence/flutter-ops-2026-11-09/ |
 | Analytics / statistics | ``GetX /statistics`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Statistics widgets | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Wallet | ``GetX /wallet`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Wallet | ``GetX /wallet`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-OPS; four captures under evidence/flutter-ops-2026-11-09/ |
 | My plan | ``GetX /myPlan`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Profile / My account | ``Get.to(() => ProfileScreen()) from the dashboard profile row`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Shared app bar | ``partial/component`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |

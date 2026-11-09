@@ -206,3 +206,50 @@ should be budgeted as one.
 draft, no production access, the two red CI checks (composer advisories and the human security
 acknowledgement) stay red until a human acts, and no PREMIUM VERIFIED promotion without the owner's
 visual acceptance.
+
+---
+
+## Later the same day — the screen harness exists, and two tranches have run through it
+
+**The paragraph above is superseded.** It was written before the screen-level harness was built and
+says it does not exist; it does. `StoreSyria_app98/test/support/screen_harness.dart` drives real
+screens with real controllers, with the network answered through `http.runWithClient` and no
+`pumpAndSettle` anywhere. Its own README is
+`evidence/flutter-harness-2026-11-09/README.md`, which also records the two traps found while
+building it (the arrow trap and the GetStorage cache trap) and the four facts that were **measured**
+before a line of it was written — two of which contradicted the recorded explanation of the blocker.
+In particular the hang was never GetX timers: `shimmer.dart:76` is `_controller.repeat(...)`, so the
+tree never reaches quiescence.
+
+### What has run through it
+
+| tranche | surfaces | evidence |
+|---|---|---|
+| `P2.5-FLUTTER-HARNESS` | customers, delivery men, categories, coupons (products captured, **held back**) | `evidence/flutter-harness-2026-11-09/` |
+| `P2.5-FLUTTER-OPS` | tax, shipping, wallet, notifications | `evidence/flutter-ops-2026-11-09/` |
+
+**Coverage matrix: REDESIGNED AND VERIFIED 34 → 42, PENDING 223 → 215**, across 295 surfaces, with
+`PREMIUM VERIFIED` unchanged at 24 — no promotion was made, which stays an owner decision.
+
+### Four findings, three fixed and one recorded
+
+* **P2.5-FLUTTER-PRICE** — the products list is handed `salePrice` alone, and `sale_price` is the
+  optional DISCOUNT, so every undiscounted product shows an em dash where the web prints its price.
+  **Recorded, not fixed**: it changes a number a merchant reads.
+  `StoreSyria_app98/docs/design/PRODUCT-PRICE-PARITY.md`. Products list stays **PENDING**.
+* **P2.5-FLUTTER-TAX-LABEL** — the tax list's Arabic header was the untranslated key `Name`, its
+  rate was labelled `Discount`, and a fixed amount carried an invented `$`. **Fixed.**
+* **P2.5-FLUTTER-RICHTEXT** — `RichText` does not inherit `DefaultTextStyle`, so the wallet amount
+  and the coupon form labels resolved no font family at all. **Fixed.**
+* **P2.5-FLUTTER-WALLET-CARD** — the wallet's primary action measured **1.03:1** in dark mode,
+  invisible, and the merchant's balance 2.09:1, because `AppColor.themeNavyBlueColor` is a mutable
+  static that the dark theme reassigns to cyan. **Fixed**, measured off the rendered widgets.
+
+### Still open, and owed to the owner
+
+The missing currency on a fixed-amount tax needs `TaxList` to send one
+(`StoreSyria_app98/docs/design/TAX-CURRENCY-SYMBOL.md`), which is a public API change.
+
+**Unchanged owner constraints**, restated because nothing here waives them: no merge to `main`, no
+force push, no history rewrite, PRs stay draft, no production access, the two red CI checks stay red
+until a human acts, and no PREMIUM VERIFIED promotion without the owner's visual acceptance.
