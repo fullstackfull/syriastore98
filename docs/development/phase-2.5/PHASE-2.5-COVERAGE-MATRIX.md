@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 105 | 35.6% |
+| REDESIGNED AND VERIFIED | 111 | 37.6% |
 | BLOCKED | 10 | 3.4% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 155 | 52.5% |
+| PENDING | 149 | 50.5% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -34,7 +34,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | CATALOGUE taxonomy | 38 | 13 | 1 | 0 | 0 | 24 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 10 | 1 | 0 | 24 |
 | Phase 2.5 Wave A | 30 | 0 | 25 | 0 | 0 | 5 |
-| Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 0 | 1 | 0 | 25 |
+| Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 6 | 1 | 0 | 19 |
 | Flutter merchant/employee admin app | 24 | 0 | 6 | 0 | 0 | 18 |
 | Customers and customer management | 20 | 0 | 11 | 4 | 0 | 5 |
 | ORDERS | 17 | 0 | 5 | 3 | 0 | 9 |
@@ -249,12 +249,12 @@ actually been done to it since. They are different questions and the matrix keep
 | Notifications (full list) | ``GET merchant-notifications`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Notification bell feed (JSON) | ``GET merchant-notifications/feed`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Mark read / mark all read | ``POST merchant-notifications/{id}/read, POST merchant-notifica` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Report period filter (shared component) | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Chart (shared component) | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Contextual help (shared component) | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Field help (shared component) | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Setup checklist (onboarding component) | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Needs-attention block (components) | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Report period filter (shared component) | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| Chart (shared component) | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| Contextual help (shared component) | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| Field help (shared component) | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| Setup checklist (onboarding component) | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
+| Needs-attention block (components) | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
 
 ### Flutter merchant/employee admin app
 

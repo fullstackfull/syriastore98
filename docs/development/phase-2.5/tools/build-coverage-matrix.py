@@ -443,6 +443,37 @@ VERIFIED = {
         ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
          'ds-choice-group_', 'P2.5-DS-GALLERY', 'partial/component'),
 
+    # --- P2.5-DS-GALLERY, narrow set (2026-11-09) -----------------------------------------------
+    #
+    # SIX ROWS NAME COMPONENTS THE `x-ss.*` ROWS ABOVE ALREADY NAME. They sit in a different
+    # inventory section, carry the same `partial/component` route, and describe the same artefacts:
+    # the report filter, the bar chart, contextual help, field help, the setup checklist and the
+    # needs-attention block. The duplication is the inventory's, not this package's.
+    #
+    # They are NOT claimed on the desktop captures, because that would make one picture the
+    # evidence for two rows. They are claimed on the PHONE-WIDTH set, which is genuinely different
+    # evidence and which Phase 2.5 requires anyway -- a component that reflows is only proven to
+    # reflow by being rendered narrow. `x-ss.stats` is the clearest case: three tiles side by side
+    # at 760px, stacked at 390px.
+    'Report period filter (shared component)':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-report-filter-w390_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'Chart (shared component)':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-bar-chart-w390_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'Contextual help (shared component)':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-help-w390_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'Field help (shared component)':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-field-help-w390_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'Setup checklist (onboarding component)':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-setup-checklist-w390_', 'P2.5-DS-GALLERY', 'partial/component'),
+    'Needs-attention block (components)':
+        ('REDESIGNED AND VERIFIED', 'ds-gallery-2026-11-09',
+         'ds-attention-w390_', 'P2.5-DS-GALLERY', 'partial/component'),
+
     # --- P2.5-WEB-FINAL (2026-11-09) ------------------------------------------------------------
     #
     # Thirteen merchant-web routes rendered through `render-matrix.cjs` in all four combinations:

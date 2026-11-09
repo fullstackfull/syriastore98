@@ -65,6 +65,22 @@ with three tiles showing the grid and its dividers.
 
 ---
 
+## 3b. A phone-width set, and the six duplicate rows
+
+The same galleries are also shot at **390px**, giving 208 captures in all and genuine responsive
+evidence: `x-ss.stats` renders three tiles side by side at 760px and **stacked** at 390px, which
+only a narrow render can show.
+
+Six inventory rows — *Report period filter*, *Chart*, *Contextual help*, *Field help*, *Setup
+checklist*, *Needs-attention block*, each marked "(shared component)" — name the **same artefacts**
+as `x-ss.report-filter`, `x-ss.bar-chart`, `x-ss.help`, `x-ss.field-help`,
+`x-ss.setup-checklist` and `x-ss.attention`. They sit in a different inventory section and carry
+the same `partial/component` route. **The duplication is the inventory's.**
+
+They are deliberately **not** claimed on the desktop captures, because that would make one picture
+the evidence for two rows. They are claimed on the phone-width set instead — different files,
+different renders, and a dimension the phase requires regardless.
+
 ## 4. What is claimed
 
 Twenty-five component rows. The inventory lists `x-ss.bar-chart`, `x-ss.setup-checklist` and

@@ -11,14 +11,21 @@
  *
  * `deviceScaleFactor: 2` because these are read by a person judging spacing, weight and colour.
  *
+ * A WIDTH may be given as the second argument. Phase 2.5 requires responsive coverage, and a
+ * component that reflows is only proven to reflow by being rendered narrow: the desktop set alone
+ * cannot show whether a stat grid stacks or a filter bar wraps. Captures taken at a non-default
+ * width carry the width in their file name, so the two sets never collide.
+ *
  * usage:
- *   node tests/Support/DesignSystem/bin/shoot-ds-gallery.cjs <dir-holding-the-html>
+ *   node tests/Support/DesignSystem/bin/shoot-ds-gallery.cjs <dir-holding-the-html> [width]
  */
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 
 const OUT = process.argv[2];
+const WIDTH = parseInt(process.argv[3] || '760', 10);
+const SUFFIX = WIDTH === 760 ? '' : '-w' + WIDTH;
 
 if (!OUT || !fs.existsSync(OUT)) {
   console.error('usage: shoot-ds-gallery.cjs <dir>   (the dir render-ds-gallery.php wrote into)');
@@ -50,7 +57,7 @@ function slug(name) {
     const combo = file.replace('ds-gallery_', '').replace('.html', '');
 
     const page = await browser.newPage({
-      viewport: { width: 760, height: 900 },
+      viewport: { width: WIDTH, height: 900 },
       deviceScaleFactor: 2,
     });
 
@@ -66,7 +73,9 @@ function slug(name) {
 
     for (const item of items) {
       const name = await item.$eval('.ss-gallery__name', (e) => e.textContent.trim());
-      await item.screenshot({ path: path.join(OUT, 'ds-' + slug(name) + '_' + combo + '.png') });
+      await item.screenshot({
+        path: path.join(OUT, 'ds-' + slug(name) + SUFFIX + '_' + combo + '.png'),
+      });
       wrote++;
     }
 
@@ -74,5 +83,6 @@ function slug(name) {
   }
 
   await browser.close();
-  console.log('wrote ' + wrote + ' component captures from ' + pages.length + ' combinations');
+  console.log('wrote ' + wrote + ' component captures at ' + WIDTH + 'px from '
+    + pages.length + ' combinations');
 })();
