@@ -65,8 +65,25 @@
                      was authorised, written to the order-note log, and then discarded, because
                      `$data['order_status']` was null and the writer matched none of its branches.
                      OrderKanbanMoveTest asserts BOTH ends of this contract. --}}
-                <select class="ss-select ss-select--sm" id="ss-move-{{ $ssOrder->id }}" name="delivered">
-                    <option value="">{{ __('Move to…') }}</option>
+                {{-- P2.5-ORD-12. THE CONTROL CANNOT BE FIRED EMPTY ANY MORE.
+                     `required` on the select plus `disabled selected` on the placeholder is the
+                     pair that works: `disabled` alone still lets the empty option BE the
+                     selection and post; `selected` keeps it the shown default so the control
+                     still reads "Move to…" rather than silently pre-arming a real status; and
+                     `required` is what makes the browser refuse the submit and focus the select.
+                     Removing any one of the three re-opens the defect.
+                     WITHOUT THIS the board was the ONE surface that could post an unset
+                     `delivered` -- no JavaScript anywhere on the screen, submit always enabled,
+                     and three vertically-aligned cards per column whose Move pairs are
+                     pixel-identical, so a click on the button before the select is an ordinary
+                     slip. It cost the BUYER a "Status Change" e-mail and an SMS reading
+                     "Your Order is , !Hi ORD-2043", and put a false line in the order's timeline.
+                     THIS IS NOT THE ONLY GUARD, and it must not be: a request that does not come
+                     from a browser does not run it. OrderController::order_status_change()
+                     refuses an empty `delivered` before the write, and the notification block now
+                     sits inside the success branch. --}}
+                <select class="ss-select ss-select--sm" id="ss-move-{{ $ssOrder->id }}" name="delivered" required>
+                    <option value="" disabled selected>{{ __('Move to…') }}</option>
                     @foreach ($ssOffer as $ssValue => $ssLabel)
                         <option value="{{ $ssValue }}">{{ $ssLabel }}</option>
                     @endforeach

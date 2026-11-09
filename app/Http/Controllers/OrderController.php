@@ -1733,6 +1733,51 @@ public function store(Request $request)
 
         $this->authorize('updateStatus', $order);
 
+        /*
+         * P2.5-ORD-12. NO STATUS CHOSEN IS NOT A STATUS CHANGE, AND IT MUST NOT LOOK LIKE ONE.
+         *
+         * The order BOARD is the only caller that can post an unset value. Its move control is a
+         * `<select name="delivered">` whose first option is `<option value="">Move to…</option>`
+         * (resources/views/order/partials/kanban-card.blade.php), and the board carries no
+         * JavaScript at all -- `grep -c '<script'` is 0 in kanban.blade.php, in the card partial
+         * and in partials/filters.blade.php -- so pressing `Move` before touching the select
+         * posts an empty `delivered`. The detail page cannot reach here with one: it sends a
+         * chosen `data-value`.
+         *
+         * WHAT USED TO HAPPEN, measured. `$data['order_status']` became '' (Laravel's
+         * ConvertEmptyStringsToNull makes it null), `Order::order_status_change()` matched no arm
+         * and returned `status => error` -- AND THE NOTIFICATION BLOCK BELOW RAN ANYWAY, because
+         * it sat above `if ($responce['status'] == 'success')`. A `Status Change` e-mail and a
+         * WhatsApp/SMS reading "Your Order is , !Hi ORD-2043" went to the BUYER, and
+         * `OrderNote::order_note_data()` wrote the order's own timeline a line reading
+         * "Order status changed to ." (app/Models/OrderNote.php:181) -- for a change that did not
+         * happen. The merchant saw only "That order status is not recognised." and had no way to
+         * know a message had left the system.
+         *
+         * THIS IS A GUARD, NOT A BUSINESS-RULE CHANGE. It changes no status vocabulary, no
+         * permission, no transition and no money: every value the writer accepts is still
+         * accepted, and every value it rejects is still rejected. It refuses the ABSENCE of a
+         * value before the write is attempted, and says so in words a merchant can act on --
+         * the old message blamed the data for a control that let them submit nothing.
+         *
+         * THE MODEL IS NOT THE PLACE FOR IT. `Order::order_status_change()` already answers ''
+         * with `error` and writes nothing (F81, OrderStatusUnknownValueTest); what was wrong was
+         * never the write, it was everything this controller did before reading the answer. The
+         * second half of the repair -- moving that block inside the success branch -- is below,
+         * and it is what protects the other error arms (a cancel on a delivered order, a return
+         * before delivery, an unknown status) that this guard does not see.
+         *
+         * THE BOARD ALSO GUARDS ITSELF, in the markup, and that is deliberately not the only
+         * guard: `required` plus a `disabled` placeholder stops the slip in the browser, and a
+         * client-side control is not a control at all for a request that does not come from one.
+         */
+        if (trim((string) $request->input('delivered', '')) === '') {
+            return $this->statusChangeResponse($request, [
+                'status' => false,
+                'message' => __('Choose a status to move this order to.'),
+            ], false);
+        }
+
         $data['order_id'] = $orderId;
         $data['order_status'] = $request->delivered;
         $responce = Order::order_status_change($data);
@@ -1782,46 +1827,78 @@ public function store(Request $request)
          * CodStateMachineTest pins every sentence above, including that a 'delivered' change
          * leaves payment_status alone and fires no OrderPaymentStatus event.
          */
-        $store = getStoreById($d_order->store_id);
-        $dArr = [
-            'order_id' => $data['order_id'],
-            'order_status' => $data['order_status']
-        ];
-        $owner = User::find($store->created_by);
-        try {
-            $order_id = Crypt::encrypt($data['order_id']);
-            $resp = Utility::sendEmailTemplate('Status Change', $order['delivery_informations']['email'], $dArr, $owner, $store, $order_id);
-        } catch (\Exception $e) {
-            $smtp_error = __('E-Mail has been not sent due to SMTP configuration');
-        }
-
-        if (module_is_active('ReviewReminder')) {
-
-            event(new SendOrderReviewMail($data, $order, $dArr, $owner, $store, $order_id));
-        }
-
-        OrderNote::order_note_data([
-            'customer_id' => $d_order->customer_id,
-            // P1-ORD-04: the ROUTE order, not the posted one. `order_notes.order_id` is a
-            // NULLABLE FK, so the body's value attached a note row to ANY order id on the
-            // platform while carrying the attacker's store_id. Litter in another tenant's id
-            // space rather than a disclosure -- order-note reads are store-filtered -- but it is
-            // the same one-token mistake as the webhook sink below.
-            'order_id' => $orderId,
-            'status' => 'Order status change',
-            'changeble_status' => $request->delivered,
-            'store_id' => $d_order->store_id
-        ]);
-        try {
-            $mobile_no = $order['delivery_informations']['phone'];
-            $order_id = $order['order_id'];
-            $msg = __("Hello, Welcome to $store->name .Your Order is $request->delivered, !Hi $order_id, Thank you for Shopping");
-
-            $resp = Utility::SendMsgs('Status Change', $mobile_no, $msg);
-        } catch (\Exception $e) {
-            $smtp_error = __('Invalid OAuth access token - Cannot parse access token');
-        }
         if ($responce['status'] == 'success') {
+            /*
+             * P2.5-ORD-12. THE BUYER IS TOLD ONLY WHAT ACTUALLY HAPPENED.
+             *
+             * Everything from here to the end of the SMS try/catch used to sit ABOVE this `if`,
+             * so it ran for EVERY answer the writer could give -- and three of those answers are
+             * refusals that change nothing:
+             *
+             *   - an unset `delivered` from the board's move control (now refused earlier still),
+             *   - `cancel` on an order already delivered   (app/Models/Order.php:640-644),
+             *   - `return` on an order not yet delivered   (app/Models/Order.php:699-703),
+             *   - any status no arm matches, `pre_order` with the module off among them (F81).
+             *
+             * On each of those the buyer received a `Status Change` e-mail and a WhatsApp/SMS
+             * naming a status the order never took, and `OrderNote::order_note_data()` wrote the
+             * order's timeline a matching false entry -- while the merchant was told the change
+             * had failed. An e-mail and an SMS cannot be recalled; a false line in an order's own
+             * history is the record a dispute is later settled against.
+             *
+             * NOTHING IN THE BLOCK ITSELF CHANGES -- not the template name, not the recipient,
+             * not the payload, not the order-note fields, not the message text, not the two
+             * try/catch arms that swallow transport failure. It is the same code, one level in.
+             * `$store` is still `getStoreById($d_order->store_id)` when the e-mail is composed
+             * and is still re-read as `Store::find(getCurrentStore())` for the webhook below,
+             * exactly as before.
+             *
+             * WHY NOT ALSO SUPPRESS IT WHEN THE STATUS DID NOT MOVE (writer said success but the
+             * column already held that value)? Because that is a different question -- the writer
+             * reports success for an idempotent re-send -- and answering it here would be a
+             * business-rule change. This commit only stops notifications for writes the writer
+             * itself reports as FAILED.
+             */
+            $store = getStoreById($d_order->store_id);
+            $dArr = [
+                'order_id' => $data['order_id'],
+                'order_status' => $data['order_status']
+            ];
+            $owner = User::find($store->created_by);
+            try {
+                $order_id = Crypt::encrypt($data['order_id']);
+                $resp = Utility::sendEmailTemplate('Status Change', $order['delivery_informations']['email'], $dArr, $owner, $store, $order_id);
+            } catch (\Exception $e) {
+                $smtp_error = __('E-Mail has been not sent due to SMTP configuration');
+            }
+
+            if (module_is_active('ReviewReminder')) {
+
+                event(new SendOrderReviewMail($data, $order, $dArr, $owner, $store, $order_id));
+            }
+
+            OrderNote::order_note_data([
+                'customer_id' => $d_order->customer_id,
+                // P1-ORD-04: the ROUTE order, not the posted one. `order_notes.order_id` is a
+                // NULLABLE FK, so the body's value attached a note row to ANY order id on the
+                // platform while carrying the attacker's store_id. Litter in another tenant's id
+                // space rather than a disclosure -- order-note reads are store-filtered -- but it
+                // is the same one-token mistake as the webhook sink below.
+                'order_id' => $orderId,
+                'status' => 'Order status change',
+                'changeble_status' => $request->delivered,
+                'store_id' => $d_order->store_id
+            ]);
+            try {
+                $mobile_no = $order['delivery_informations']['phone'];
+                $order_id = $order['order_id'];
+                $msg = __("Hello, Welcome to $store->name .Your Order is $request->delivered, !Hi $order_id, Thank you for Shopping");
+
+                $resp = Utility::SendMsgs('Status Change', $mobile_no, $msg);
+            } catch (\Exception $e) {
+                $smtp_error = __('Invalid OAuth access token - Cannot parse access token');
+            }
+
             $module = 'Status Change';
             $store = Store::find(getCurrentStore());
             $webhook = Utility::webhook($module, $store->id);
