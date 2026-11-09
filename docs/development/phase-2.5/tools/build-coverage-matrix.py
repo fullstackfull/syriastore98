@@ -260,6 +260,42 @@ VERIFIED = {
     # in initState before its post-frame fetch, so a response that fails to parse leaves an empty
     # list indistinguishable from a customer who has never ordered. A premise drives the
     # genuinely-empty case and requires the customer still be identified on screen.
+    # --- P2.5-FLUTTER-COMPONENTS (2026-11-09) ---------------------------------------------------
+    #
+    # Six shared components rendered ALONE in all four combinations, with the states that differ
+    # side by side in one frame, by `test/screens/component_gallery_capture_test.dart`. A capture
+    # taken inside a host screen is evidence for that screen, not for the component: it shows one
+    # instance, in one state, at one size.
+    #
+    # Rendering them found a real defect. `CommonButton` with no handler was indistinguishable
+    # from one that works, AND the control carried no button semantics at all -- a GestureDetector
+    # around a Container, announced as plain text in both states. Both fixed; latent rather than
+    # live, since all six call sites pass a handler today.
+    #
+    # These rows claim the EVIDENCE, not new assertions: the contrast and layout claims already
+    # live in settings_card_contrast_test, card_intrinsic_height_test, toast_overlay_test,
+    # order_status_label_test and image_placeholder_contrast_test, and those are stronger than a
+    # picture. What was missing was something a reviewer can look at, in both languages and both
+    # themes.
+    'Shared empty / error / stale states':
+        ('REDESIGNED AND VERIFIED', 'flutter-components-2026-11-09',
+         'flutter-component-states_', 'P2.5-FLUTTER-COMPONENTS', 'partial/component'),
+    'Shared skeletons':
+        ('REDESIGNED AND VERIFIED', 'flutter-components-2026-11-09',
+         'flutter-component-skeletons_', 'P2.5-FLUTTER-COMPONENTS', 'partial/component'),
+    'Shared text field':
+        ('REDESIGNED AND VERIFIED', 'flutter-components-2026-11-09',
+         'flutter-component-textfield_', 'P2.5-FLUTTER-COMPONENTS', 'partial/component'),
+    'Shared status badge / pill':
+        ('REDESIGNED AND VERIFIED', 'flutter-components-2026-11-09',
+         'flutter-component-pill_', 'P2.5-FLUTTER-COMPONENTS', 'partial/component'),
+    # This row names FIVE things, so it is claimed on a gallery that shows all five: buttons and
+    # loader in one specimen set, search / filter tabs / popup menu in the other. Both capture
+    # sets are listed in the package README.
+    'Shared buttons / loader / search / filter / popup menu':
+        ('REDESIGNED AND VERIFIED', 'flutter-components-2026-11-09',
+         'flutter-component-buttons_', 'P2.5-FLUTTER-COMPONENTS', 'partial/component'),
+
     'Store settings grid':        ('REDESIGNED AND VERIFIED', 'flutter-detail-2026-11-09',
                                    'flutter-store-settings-hub_', 'P2.5-FLUTTER-DETAIL',
                                    'StoreSettingScreen'),
