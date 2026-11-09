@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 42 | 14.2% |
+| REDESIGNED AND VERIFIED | 43 | 14.6% |
 | BLOCKED | 13 | 4.4% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 215 | 72.9% |
+| PENDING | 214 | 72.5% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -30,7 +30,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
-| Flutter merchant admin app | 51 | 0 | 8 | 0 | 0 | 43 |
+| Flutter merchant admin app | 51 | 0 | 9 | 0 | 0 | 42 |
 | CATALOGUE taxonomy | 38 | 13 | 1 | 0 | 0 | 24 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 3 | 1 | 0 | 31 |
 | Phase 2.5 Wave A | 30 | 0 | 0 | 0 | 0 | 30 |
@@ -58,7 +58,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Dashboard shell (bottom navigation) | ``GetX /dashboard`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Home / Overview (tab 0) | ``tab 0 of /dashboard`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Home widgets (stat tiles, QR, profile row) | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Orders list (tab 1) | ``tab 1 of /dashboard`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Orders list (tab 1) | ``tab 1 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-ORDERS; four captures under evidence/flutter-orders-2026-11-09/ |
 | Order detail | ``Get.to(() => OrderDetailScreen()) from orders, notifications,` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Create order | ``GetX /addOrder, and Get.to(() => CreateOrderScreen()) from or` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Invoice (PDF build) / Invoice viewer | ``Get.to(() => InvoicePdfViewScreen()) from order detail`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |

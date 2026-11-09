@@ -125,6 +125,18 @@ VERIFIED = {
     'Notifications':              ('REDESIGNED AND VERIFIED', 'flutter-ops-2026-11-09',
                                    'flutter-notifications_', 'P2.5-FLUTTER-OPS', 'GetX /notifications'),
 
+    # --- P2.5-FLUTTER-ORDERS (2026-11-09) -------------------------------------------------------
+    #
+    # The Flutter half of the surface this phase opened on. The ORDERS audit was done against the
+    # WEB merchant list; this one had no captures at all until now. Driven with two real orders in
+    # all four combinations by `test/screens/order_screen_capture_test.dart`, with the status
+    # numbering checked against the server's own
+    # `Order::getDeliveredStatusStringAttribute()` -- they agree.
+    #
+    # The needle is `tab 1`, which is how this inventory addresses the bottom-nav destinations.
+    'Orders list (tab 1)':        ('REDESIGNED AND VERIFIED', 'flutter-orders-2026-11-09',
+                                   'flutter-orders-list_', 'P2.5-FLUTTER-ORDERS', 'tab 1'),
+
     # `Products list (tab 2)` IS DELIBERATELY ABSENT, though it has four populated captures beside
     # the others. Its own capture is what found P2.5-FLUTTER-PRICE: the card is handed
     # `salePrice` alone, and `sale_price` is the optional DISCOUNT (`->default(0)`, validated
