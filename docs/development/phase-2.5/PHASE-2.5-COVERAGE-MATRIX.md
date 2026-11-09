@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 45 | 15.3% |
-| BLOCKED | 13 | 4.4% |
+| REDESIGNED AND VERIFIED | 52 | 17.6% |
+| BLOCKED | 10 | 3.4% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 212 | 71.9% |
+| PENDING | 208 | 70.5% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -30,12 +30,12 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
-| Flutter merchant admin app | 51 | 0 | 11 | 0 | 0 | 40 |
+| Flutter merchant admin app | 51 | 0 | 13 | 0 | 0 | 38 |
 | CATALOGUE taxonomy | 38 | 13 | 1 | 0 | 0 | 24 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 3 | 1 | 0 | 31 |
 | Phase 2.5 Wave A | 30 | 0 | 0 | 0 | 0 | 30 |
 | Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 0 | 1 | 0 | 25 |
-| Flutter merchant/employee admin app | 24 | 0 | 0 | 3 | 0 | 21 |
+| Flutter merchant/employee admin app | 24 | 0 | 5 | 0 | 0 | 19 |
 | Customers and customer management | 20 | 0 | 11 | 4 | 0 | 5 |
 | ORDERS | 17 | 0 | 5 | 3 | 0 | 9 |
 | PRODUCTS | 16 | 1 | 2 | 1 | 0 | 12 |
@@ -69,8 +69,8 @@ actually been done to it since. They are different questions and the matrix keep
 | Product card / field partials | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Categories (tab 3) | ``tab 3 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HARNESS; four captures under evidence/flutter-harness-2026-11-09/ |
 | Add / edit category (modal) | ``showModalBottomSheet from categories`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| More / Settings grid (tab 4) | ``tab 4 of /dashboard`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| App settings | ``GetX /appSettings`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| More / Settings grid (tab 4) | ``tab 4 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SETTINGS; four captures under evidence/flutter-settings-2026-11-09/ |
+| App settings | ``GetX /appSettings`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SETTINGS; four captures under evidence/flutter-settings-2026-11-09/ |
 | Store settings grid | ``Get.to(() => StoreSettingScreen()) from the More grid`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Store information | ``GetX /storeInfo`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Store language & currencies | ``GetX /lang`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
@@ -265,11 +265,11 @@ actually been done to it since. They are different questions and the matrix keep
 | Design tokens (colour) | ``partial/component`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Design tokens (typography) | ``partial/component`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Bottom-nav shell (DashBoardManagerScreen) | ``/dashboard (GetX named route)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Nav destination 1 — Home/dashboard | ``/dashboard tab 0`` | unknown | **BLOCKED** | audit could not determine its state; it needs to be rendered and classified |
-| Nav destination 2 — Orders | ``/dashboard tab 1`` | unknown | **BLOCKED** | audit could not determine its state; it needs to be rendered and classified |
-| Nav destination 3 — Products | ``/dashboard tab 2`` | unknown | **BLOCKED** | audit could not determine its state; it needs to be rendered and classified |
-| Nav destination 4 — Categories | ``/dashboard tab 3`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Nav destination 5 — More/Settings | ``/dashboard tab 4`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Nav destination 1 — Home/dashboard | ``/dashboard tab 0`` | unknown | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SHELL; four captures under evidence/flutter-shell-2026-11-09/ |
+| Nav destination 2 — Orders | ``/dashboard tab 1`` | unknown | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SHELL; four captures under evidence/flutter-shell-2026-11-09/ |
+| Nav destination 3 — Products | ``/dashboard tab 2`` | unknown | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SHELL; four captures under evidence/flutter-shell-2026-11-09/ |
+| Nav destination 4 — Categories | ``/dashboard tab 3`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SHELL; four captures under evidence/flutter-shell-2026-11-09/ |
+| Nav destination 5 — More/Settings | ``/dashboard tab 4`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SHELL; four captures under evidence/flutter-shell-2026-11-09/ |
 | Shared app bar (simpleAppBar) | ``partial/component — 28 live screens`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Shared text field (AppTextField) | ``partial/component — 45 live call sites`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Shared dropdown (commonDropdownButtonWidget) | ``partial/component — 2 call sites (add_shipping, add_tax botto` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |

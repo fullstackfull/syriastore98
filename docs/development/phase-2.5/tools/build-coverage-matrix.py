@@ -163,6 +163,56 @@ VERIFIED = {
     'Analytics / statistics':     ('REDESIGNED AND VERIFIED', 'flutter-stats-2026-11-09',
                                    'flutter-statistics_', 'P2.5-FLUTTER-STATS', 'GetX /statistics'),
 
+    # --- P2.5-FLUTTER-SHELL (2026-11-09) --------------------------------------------------------
+    #
+    # The bottom-navigation shell with each destination selected, by
+    # `test/screens/dashboard_shell_capture_test.dart`. THREE OF THESE WERE `BLOCKED`, all three
+    # with "audit could not determine its state; it needs to be rendered and classified" -- blocked
+    # on RENDERING, which is exactly what the screen harness does. Nothing about them was
+    # undecidable; there was no way to look.
+    #
+    # EACH DESTINATION HAS ITS OWN CAPTURE SET, and they are distinct from the standalone screen
+    # captures claimed above: `flutter-home_*` is the dashboard ALONE, `flutter-shell-home_*` is
+    # the dashboard inside the shell with the navigation bar drawn over it. Different tree,
+    # different picture, and the only place the navigation bar itself can be reviewed -- which is
+    # where its light-mode inactive label was measured at 3.14:1 and repaired.
+    'Nav destination 1 — Home/dashboard':
+        ('REDESIGNED AND VERIFIED', 'flutter-shell-2026-11-09',
+         'flutter-shell-home_', 'P2.5-FLUTTER-SHELL', 'tab 0'),
+    'Nav destination 2 — Orders':
+        ('REDESIGNED AND VERIFIED', 'flutter-shell-2026-11-09',
+         'flutter-shell-orders_', 'P2.5-FLUTTER-SHELL', 'tab 1'),
+    'Nav destination 3 — Products':
+        ('REDESIGNED AND VERIFIED', 'flutter-shell-2026-11-09',
+         'flutter-shell-products_', 'P2.5-FLUTTER-SHELL', 'tab 2'),
+    'Nav destination 4 — Categories':
+        ('REDESIGNED AND VERIFIED', 'flutter-shell-2026-11-09',
+         'flutter-shell-categories_', 'P2.5-FLUTTER-SHELL', 'tab 3'),
+    'Nav destination 5 — More/Settings':
+        ('REDESIGNED AND VERIFIED', 'flutter-shell-2026-11-09',
+         'flutter-shell-more_', 'P2.5-FLUTTER-SHELL', 'tab 4'),
+
+    # The two SHELL rows -- `Dashboard shell (bottom navigation)` and
+    # `Bottom-nav shell (DashBoardManagerScreen)` -- are deliberately NOT claimed here, and they
+    # are the same surface listed twice in two inventory sections. The shell is never on screen
+    # without a destination, so it has no picture that is not already one of the five above, and
+    # claiming it would mean using one capture as evidence for two surfaces. Its navigation bar
+    # WAS measured and repaired in this package; what it needs is an inventory decision about
+    # whether a frame with no content of its own is a surface at all.
+
+    # --- P2.5-FLUTTER-SETTINGS (2026-11-09) -----------------------------------------------------
+    #
+    # Both captured STANDALONE by `test/screens/settings_screen_capture_test.dart`, not taken from
+    # the shell batch above, so each row has evidence that is its own. The More grid's cards were
+    # repaired here: subtitle 2.15:1 in light and 3.30:1 in dark, chevron 1.99:1 and 2.38:1, dark
+    # icon 1.89:1 -- all from an alpha laid over a colour that already cleared the threshold.
+    'More / Settings grid (tab 4)':
+        ('REDESIGNED AND VERIFIED', 'flutter-settings-2026-11-09',
+         'flutter-more-grid_', 'P2.5-FLUTTER-SETTINGS', 'tab 4'),
+    'App settings':
+        ('REDESIGNED AND VERIFIED', 'flutter-settings-2026-11-09',
+         'flutter-app-settings_', 'P2.5-FLUTTER-SETTINGS', 'GetX /appSettings'),
+
     # `Products list (tab 2)` IS DELIBERATELY ABSENT, though it has four populated captures beside
     # the others. Its own capture is what found P2.5-FLUTTER-PRICE: the card is handed
     # `salePrice` alone, and `sale_price` is the optional DISCOUNT (`->default(0)`, validated
