@@ -1,3 +1,11 @@
+> ## SUPERSEDED FOR CURRENT STATE — see `PHASE-2.5-RESUME-2026-11-09.md`
+>
+> This file remains the record of the account handover it was written for. The **current** pause
+> point, commit SHAs, matrix counts, the classification of all 141 remaining PENDING items and the
+> first task to execute on resume are in `PHASE-2.5-RESUME-2026-11-09.md`.
+>
+> The standing owner constraints in §9 below are **still in force** and are restated there.
+
 # Phase 2.5 — account handoff
 
 **Written:** 2026-11-09 · **Reason:** the owner is moving execution to a new Claude Code account
