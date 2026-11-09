@@ -3486,5 +3486,6 @@
     "Invoice ID :id": "Invoice ID :id",
     "Order :id will be permanently deleted. This action can not be undone.": "Order :id will be permanently deleted. This action can not be undone.",
     "Select all rows": "Select all rows",
-    "Select row": "Select row"
+    "Select row": "Select row",
+    "No menu item matches": "No menu item matches"
 }

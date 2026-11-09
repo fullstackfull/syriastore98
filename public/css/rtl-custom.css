@@ -6132,3 +6132,40 @@ html[data-ss-theme="dark"] body p:not(.text-muted):not([class^="ss-"]):not([clas
     /* end P2.5-WAVE-28 */
 }
 /* end P2.5-WAVE-22 */
+
+
+/* ---- P2.5-WAVE-4a: five keyboard-focusable controls in the merchant shell had no focus ring --
+   ===============================================================================================
+
+   MEASURED, not taken from a work-list. A census of every visible focusable element on
+   /dashboard and /order -- focus each one, keep the ones that really match `:focus-visible`, read
+   the computed `outline` and `box-shadow` -- found the admin in good shape and a precise gap:
+
+       /dashboard   23 class patterns WITH an indicator, 3 WITHOUT, totalling 5 controls
+       /order       28 WITH, 0 WITHOUT
+
+   The five are all vendored Bootstrap `.btn` variants in the dashboard's profile/theme card:
+   `btn btn-primary btn-sm btn-q-add` (Quick add), `socialShareButton btn btn-outline-primary`
+   (Share store link) and `btn btn-outline-primary cp_link` (Copy theme link), plus a second
+   instance of two of them. A keyboard user tabbing the dashboard loses the cursor on them
+   entirely -- WCAG 2.4.7.
+
+   WHY THE RULE IS HERE AND NOT IN store-syria-ds.css. None of the five is inside `.ss-workspace`
+   or any `.ss-scope` (measured: `closest('.ss-workspace')` is null for all five), and
+   `DesignSystemStylesheetScopeTest` requires every selector in the design-system sheet to be
+   confined by an `.ss-` class or a `data-ss-` attribute. This pair of sheets is where Phase 2.5's
+   other shell-reaching rules already live.
+
+   BOTH SHEETS, BYTE-IDENTICAL. `rtl-custom.css` is loaded INSTEAD of `custom.css` on the Arabic
+   layout, never alongside it, so a fix written to one gives half the merchants nothing. That is
+   the P2.5-WAVE-16b lesson and `TableControlDisclosureTest` asserts the pair byte-for-byte.
+
+   THE RING IS THE DESIGN SYSTEM'S OWN TOKENS, so it follows the theme and matches the 23 patterns
+   that already had one. `:focus-visible` and not `:focus`, so a mouse click does not draw it.
+   `.ss-btn` carries no `.btn` class, so the design system's own buttons are untouched.           */
+
+.btn:focus-visible {
+    outline: var(--ss-focus-width, 2px) solid var(--ss-focus-ring, #2f6feb);
+    outline-offset: var(--ss-focus-offset, 2px);
+}
+/* end P2.5-WAVE-4a */

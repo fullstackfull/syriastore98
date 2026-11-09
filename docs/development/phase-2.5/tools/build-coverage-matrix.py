@@ -58,6 +58,23 @@ VERIFIED = {
         ('REDESIGNED AND VERIFIED', 'pkg-c-abandoned', 'abandoned-wishlist-modal_', 'P2.5-PKG-C'),
     'Product list (table view)':  ('REDESIGNED AND VERIFIED', 'wave-1', '_product__',  'P2.5-WAVE-1'),
     'Order list':                 ('REDESIGNED AND VERIFIED', 'wave-1', '_order__',    'P2.5-WAVE-1'),
+
+    # ---- P2.5-ORDERS (2026-11-09): the twelve confirmed findings of the 363-agent audit --------
+    # The board and the card view were driven and captured in all four combinations twice over --
+    # once with the repair and once with the ten touched files reverted, same server, same fixture,
+    # same minute -- so the `after` set here has a matching `before` beside it and all twelve pairs
+    # differ by content hash.
+    #
+    # `Order list` already sits above from P2.5-WAVE-1 and is NOT re-claimed here: the same screen
+    # cannot be verified twice, and its wave-1 captures are still the ones the matrix cites.
+    #
+    # THE ROW-ACTION AND FILTER-BAR COMPONENTS ARE DELIBERATELY NOT HERE. The filter bar now
+    # renders on the card view as well, and the bulk-select checkboxes gained accessible names, but
+    # neither has four captures OF ITS OWN -- they were photographed as part of the screens that
+    # host them. Promoting a component on its host's evidence is the overclaim §6 forbids, and it
+    # is the same line the PKG-C row actions were held behind.
+    'Order board (Kanban)':       ('REDESIGNED AND VERIFIED', 'ord-repair-2026-11-09', '_order_kanban__', 'P2.5-ORDERS'),
+    'Order grid (card view)':     ('REDESIGNED AND VERIFIED', 'ord-repair-2026-11-09', '_order_grid__', 'P2.5-ORDERS'),
     'Customer list':              ('REDESIGNED AND VERIFIED', 'wave-1', '_customer__', 'P2.5-WAVE-1'),
     'Merchant dashboard (page shell)': ('REDESIGNED AND VERIFIED', 'wave-3b', '_dashboard__', 'P2.5-WAVE-3 + 3b'),
     'Coupon list':                ('REDESIGNED AND VERIFIED', 'wave-2', '_coupon-empty__', 'P2.5-WAVE-2'),

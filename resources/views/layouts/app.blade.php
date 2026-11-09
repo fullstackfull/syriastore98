@@ -903,12 +903,36 @@
     $('#sideBarsearch').on('keyup', function () {
         let value = $(this).val().toLowerCase().trim();
 
+        /* P2.5-WAVE-4a. A SEARCH THAT MATCHES NOTHING MUST SAY SO.
+           Measured before this: a non-matching term took `.dash-navbar > .dash-item` from 13
+           visible to 0 and the five zone headings from 5 to 0, leaving the sidebar blank with no
+           message -- indistinguishable from a broken page. The element is rendered server-side in
+           partision/sidebar.blade.php (this script cannot call `__()`), carries
+           role="status" aria-live="polite", and is revealed only when the count really is zero. */
+        let $empty = $('#ss-sidebar-search-empty');
+
+        function announce(matches, term) {
+            if (!$empty.length) { return; }
+
+            if (matches === 0 && term !== "") {
+                /* `.text()`, NOT `.html()`: this is merchant-typed input going back onto the
+                   merchant's own page. */
+                $empty.find('.dash-search-empty__term').text('"' + $('#sideBarsearch').val().trim() + '"');
+                $empty.removeClass('ss-visually-hidden').prop('hidden', false);
+            } else {
+                $empty.addClass('ss-visually-hidden').prop('hidden', true);
+            }
+        }
+
         if (value === "") {
             // If input is empty, show all
             $('.dash-navbar > .dash-item').show();
             $('.dash-submenu').hide();
+            announce(-1, "");
             return;
         }
+
+        let ssMatches = 0;
 
         $('.dash-navbar > .dash-item').each(function () {
             let $item = $(this);
@@ -934,12 +958,15 @@
             });
 
             if (isMatch) {
+                ssMatches++;
                 $item.show();
                 $item.find('.dash-submenu').show();
             } else {
                 $item.hide();
             }
         });
+
+        announce(ssMatches, value);
     });
 </script>
     @if (Session::has('success'))

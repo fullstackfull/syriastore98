@@ -155,6 +155,34 @@ if (! empty($company_logo)) {
                     {!! getMenu() !!}
                     @endif
                 </ul>
+
+                {{-- P2.5-WAVE-4a. THE SIDEBAR SEARCH EMPTIED THE WHOLE NAVIGATION AND SAID NOTHING.
+
+                     MEASURED in the running admin: type a term that matches nothing and
+                     `.dash-navbar > .dash-item` goes from 13 visible to 0, and the five zone
+                     headings from 5 to 0. The sidebar is then blank below the store switcher,
+                     with no message and no way to tell a failed search from a broken page --
+                     `partision/menu-zones.blade.php:31-38` already recorded that the headings hide
+                     too, which is what makes it total rather than partial.
+
+                     `role="status"` with `aria-live="polite"`, because the hiding happens in
+                     JavaScript with no page change: a screen-reader user would otherwise hear
+                     nothing at all and arrow into an empty list. Polite and not assertive -- it
+                     must not interrupt the character the merchant is still typing.
+
+                     THE TERM IS ECHOED BACK through `.dash-search-empty__term`, written with
+                     `.text()` rather than `.html()` in the handler. It is merchant-typed input
+                     going back onto the merchant's own page, which is the one shape that has to
+                     be escaped on the way in.
+
+                     RENDERED SERVER-SIDE AND HIDDEN, not built in JavaScript, because the script
+                     in `layouts/app.blade.php` cannot call `__()` -- the same reason the
+                     collapse-rail labels are published as attributes above. --}}
+                <p class="dash-search-empty ss-visually-hidden" id="ss-sidebar-search-empty"
+                   role="status" aria-live="polite" hidden>
+                    {{ __('No menu item matches') }}
+                    <span class="dash-search-empty__term"></span>
+                </p>
             </div>
         </div>
     </nav>

@@ -3517,5 +3517,6 @@
     "Invoice ID :id": "رقم الفاتورة :id",
     "Order :id will be permanently deleted. This action can not be undone.": "سيُحذف الطلب :id نهائياً. لا يمكن التراجع عن هذا الإجراء.",
     "Select all rows": "تحديد كل الصفوف",
-    "Select row": "تحديد الصف"
+    "Select row": "تحديد الصف",
+    "No menu item matches": "لا يوجد عنصر قائمة يطابق"
 }
