@@ -30,6 +30,26 @@ settle it. No secret value appears in this document — only locations, names an
 
 ---
 
+## S3 — the order-status webhook fires the CALLER's store's URL with the ORDER's data, so a platform operator can post another store's order detail to a merchant's endpoint
+
+**Added 2026-11-09 (P2.5-ORD-12).** Found by the tenant/authz review of the ORD-12 repair, which
+asked whether the webhook limb still re-reads `getCurrentStore()`. It does. Recorded here rather
+than repaired in that slice, because closing it changes WHICH store's webhook fires — a behaviour
+decision, not a guard.
+
+| | |
+|---|---|
+| **where** | `app/Http/Controllers/OrderController.php` — `$store = getStoreById($d_order->store_id)` (the ORDER's store, used for the e-mail and SMS) and, ~40 lines later in the same success branch, `$store = Store::find(getCurrentStore()); $webhook = Utility::webhook($module, $store->id);` (the CALLER's store), whose URL then receives `json_encode(Order::order_detail($orderId))` |
+| **who can reach it** | the platform operator ONLY. `OrderPolicy::allow()` returns true for `isPlatformAdmin` *before* `sameStore()`, so for an operator the two stores can differ. For every merchant and staff principal they are the same store by construction, so there is no merchant-reachable path. |
+| **what leaks** | the victim order's full detail — customer name, street, city, country, postcode, e-mail, phone, every line item and total — to a URL the owner of the operator's *current* store configured (`WebhookController::store` forces `store_id` to the caller's own, so a merchant owns that URL) |
+| **severity** | S3: real, but it needs a deliberate operator action and a `Status Change` webhook already configured on the operator's current store. Latent, not live. |
+| **not introduced by ORD-12** | both lines predate it. Moving the notification block inside the success branch strictly REDUCES how often this sink fires — it no longer runs for a refused cancel, a refused return, an unrecognised status or an empty one. |
+| **the shape of a fix** | `Utility::webhook($module, $d_order->store_id)` and drop the `$store` reassignment, so the webhook that fires belongs to the store the order belongs to. That is the same reasoning P1-ORD-04 applied to the payload when it pinned the read to the route order; this is the remaining half, on the SELECTION of the sink rather than its contents. |
+| **what would settle it** | a test driving an operator whose `current_store` is store A through `order-status-change/<a store-B order>` with a `Status Change` webhook on store A, asserting the payload is not sent, or is sent to store B's URL. `Utility::WebhookCall` would need a seam. |
+| **secondary, same line** | `Store::find(getCurrentStore())` can be null (an operator whose `current_store` points at a deleted store); `$store->id` then warns and `Utility::webhook($module, null)` becomes `where('store_id', null)` → `IS NULL`, selecting a webhook row with a NULL store. Also pre-existing. |
+
+---
+
 ## S2 — `POST api/admin/AddCustomer` has no permission check, and the web form that does the same thing has one
 
 **Added 2026-11-07 (P2.5-PKG-F).** CLAUDE.md sends readers here for open security findings, and this

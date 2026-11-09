@@ -2380,14 +2380,72 @@ if (!function_exists('bulkDeleteCloneCheckboxColumn')) {
              * The empty `title` is left as it is: the blank HEADER CELL predates this and
              * changing what that cell renders is a different change with different callers.
              */
+            /*
+             * P2.5-ORD-3. BOTH CHECKBOXES HAVE A NAME NOW, AND NEITHER HAD ONE BEFORE.
+             *
+             * The heading was the bare markup `<input type="checkbox" id="select-all">` and each
+             * row cell the bare `<input type="checkbox" class="select-row" value="...">`: no
+             * `<label>`, no `aria-label`, no `title`. And there is no header text to fall back on,
+             * because the heading cell contains nothing but the input -- `store-syria-ds.js`
+             * records that as a known fact ("An empty heading -- the select-all column -- gets an
+             * empty label rather than none"). So a screen-reader user moving down an order list
+             * heard "checkbox, not checked" once per row with nothing saying which order each one
+             * selected, and the select-all was announced with no name at all.
+             *
+             * THE CONTROL THESE FEED IS BULK DELETE, which destroys records irreversibly. At
+             * 390px the row checkbox is also the only field in the stacked mobile card with no
+             * visible caption, so it is unlabelled for a sighted merchant too.
+             *
+             * THIS COLUMN IS ON EVERY ADMIN TABLE, so the two strings below are 67 tables wide.
+             * They are `__()` because the admin is bilingual: a hard-coded English name is the
+             * same defect in Arabic.
+             *
+             * THE ROW NAME USES `this.id` AND NOTHING ELSE, deliberately. The name is built by
+             * concatenating into an HTML attribute inside a JS string, so any row field that a
+             * SHOPPER writes -- a customer's name, an order reference -- would be an attribute
+             * injection on the merchant's own origin. `id` is the integer primary key, written by
+             * the database.
+             *
+             * TWO LAYERS, FOR TWO DIFFERENT CONTEXTS, AND THE FIRST DRAFT HAD ONLY ONE.
+             * `json_encode` protects the JS SOURCE: `JSON_HEX_APOS` stops the string ending the
+             * PHP single-quoted JS literal. It does NOT protect the HTML ATTRIBUTE the value is
+             * then concatenated into, and an earlier version of this comment claimed it did --
+             * `JSON_HEX_QUOT` emits the JS escape `\u0022`, so at RUNTIME the string holds a
+             * literal `"`, which closes `aria-label="`. A `Select row` translation of
+             * `x" onfocus="alert(1)" tabindex="0` would have rendered an event handler on an
+             * input, on the merchant admin origin, on all 67 tables that carry this column.
+             * Found by the tenant/authz review of this change.
+             *
+             * `e()` is therefore applied FIRST, for the attribute, and the JSON flags after, for
+             * the JS literal. The browser decodes `&quot;` back when it reads the accessible
+             * name, so the announced text is unchanged.
+             *
+             * REACHABILITY, measured rather than assumed: only a writer of
+             * `resources/lang/<locale>.json` can put that string there, which is
+             * `LanguageController::storeLanguageData()` (`file_put_contents`, no escaping) behind
+             * `isAbleTo('Create Language')`. That permission is in `$superadminNewPermission`
+             * (Utility.php:3318) and NOT in `$companyNewPermission`, and it is denylisted in
+             * `config/superadminaccess.php:9`, which `RolePolicy::isGrantableBy()` enforces on the
+             * WRITE path. So no merchant or staff principal can reach it; it takes a deliberate
+             * operator action. Hardening, not a live hole -- but a comment asserting a control
+             * that does not exist is the thing this project refuses.
+             */
+            $ssSelectAllLabel = __('Select all rows');
+            $ssSelectRowLabel = json_encode(
+                e(__('Select row')),
+                JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP
+            );
+
             return Column::computed('checkbox')
-                ->title('<input type="checkbox" id="select-all">')
+                ->title('<input type="checkbox" id="select-all" aria-label="'
+                    . e($ssSelectAllLabel) . '">')
                 ->orderable(false)
                 ->exportable(false)
                 ->printable(false)
                 ->addClass('text-left ss-col-locked')
                 ->render('function() {
-                    return \'<input type="checkbox" class="select-row" value="\' + this.id + \'">\';
+                    return \'<input type="checkbox" class="select-row" aria-label="\' + '
+                    . $ssSelectRowLabel . ' + \' \' + this.id + \'" value="\' + this.id + \'">\';
                 }');
         }
 

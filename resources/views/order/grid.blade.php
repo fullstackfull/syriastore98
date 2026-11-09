@@ -9,7 +9,10 @@
     <a class="ss-btn ss-btn--sm ss-btn--icon ss-btn--secondary export-btn" href="{{ route('order.export') }}" aria-label="{{ __('Export') }}" data-bs-toggle="tooltip" data-bs-placement="top" title="{{ __('Export') }}" filename="{{ __('Order') }}">
         <i class="ti ti-file-export" aria-hidden="true"></i>
     </a>
-    <a href="{{ route('order.index') }}" aria-label="{{ __('List View') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('List View') }}" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--secondary">
+    {{-- P2.5-ORD-10. `request()->query()`, like the board's link beside it. The two sibling links
+         were written differently -- the board's carried the active filters and the cards' did not
+         -- which is how list -> cards -> list came back filtered while the cards never were. --}}
+    <a href="{{ route('order.index', request()->query()) }}" aria-label="{{ __('List View') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('List View') }}" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--secondary">
         <i class="ti ti-list" aria-hidden="true"></i>
     </a>
     {{-- P2-04-12: the board's entry point. The route existed from P2-04-7 with nothing linking
@@ -30,6 +33,17 @@
 @endsection
 
 @section('content')
+
+{{-- P2.5-ORD-10. THE SAME FILTER BAR AS THE LIST, posting back to THIS screen.
+     The card view had no filter, no search and no sort in all 302 lines, so the one thing a
+     merchant comes to an order screen to do -- find an order -- was impossible here, on the view
+     you would reach for to triage. The bar is the list's own partial rather than a copy: a second
+     set of controls over the same `ss_*` vocabulary is how two screens come to disagree about what
+     "returns, last 7 days" means. `x-ss.filter-summary` inside it states the active scope, which
+     is also the audit's minimum remedy ("state the scope on the page so the merchant knows their
+     filter was dropped") -- except nothing is dropped now. --}}
+@include('order.partials.filters', ['ssFilterRoute' => 'order.grid'])
+
 <div class="row mb-4 d-flex order-card-wrp">
     @foreach ($orders as $order)
     @php
@@ -129,32 +143,65 @@
                 presentation change and nothing else.
             --}}
             <div class="card-header p-3 border-bottom h-100">
-                <div class="d-flex align-items-start justify-content-between gap-2">
-                    {{-- `dir="ltr"` IS LOAD-BEARING, AND THE ARABIC CAPTURE IS WHAT CAUGHT IT.
-                         Rendered RTL, this read `P25PROBE-41#` -- the `#` reordered to the far
-                         end of the run. A `#` is a BIDI-NEUTRAL character, so in a right-to-left
-                         paragraph a leading neutral before a Latin identifier is resolved to the
-                         other side of it. An order reference is a Latin identifier and must read
-                         the same in both directions.
-                         The price beside it was already correct for exactly this reason: `.ss-num`
-                         carries `unicode-bidi: isolate`, which is why `$10.00` kept its symbol on
-                         the left. Same hazard, same remedy, and the same one applied to the
-                         customer card's email address. --}}
-                    <a class="ss-card__title text-truncate" dir="ltr"
-                       href="{{ route('order.view', \Illuminate\Support\Facades\Crypt::encrypt($order->id)) }}"
-                       data-bs-toggle="tooltip" title="{{ __('Invoice ID') }}"><bdi>#{{ $order->product_order_id }}</bdi></a>
+                {{-- P2.5-ORD-7 / ORD-9 / ORD-11 -- THE CARD COULD NOT SAY WHICH ORDER IT WAS.
+
+                     The reference used to share a `justify-content-between` row with the status
+                     badge and carry `text-truncate`. MEASURED in the committed captures: cards 1
+                     and 2 of `_order_grid__en_ltr_light.png` both read `#P25CUSTFILTE…`, both
+                     `Omar Khalil`, both `$150.00`. The list view of those same two orders shows
+                     `#P25CUSTFILTER-2-2` and `#P25CUSTFILTER-2-1` -- they differ in the LAST
+                     character, which is exactly what the ellipsis removed. Two cards that were
+                     one order to the eye were two orders with different money attached, and the
+                     delete button sat on both.
+
+                     SO THE REFERENCE GETS THE FULL CONTENT WIDTH and `.ss-order-card__ref` lets a
+                     long one WRAP. Shrinking the badge is not a fix and the audit says so: any
+                     truncation reintroduces the collision for ids that differ in their final
+                     character.
+
+                     THE BADGE MOVES DOWN BESIDE THE CUSTOMER, and it stays inside `card-header`
+                     because `OrderGridStatusLabelTest` finds the header by its opening class
+                     attribute and asserts the badge is rendered within it.
+
+                     `dir="ltr"` IS LOAD-BEARING, AND THE ARABIC CAPTURE IS WHAT CAUGHT IT.
+                     Rendered RTL, this read `P25PROBE-41#` -- the `#` reordered to the far
+                     end of the run. A `#` is a BIDI-NEUTRAL character, so in a right-to-left
+                     paragraph a leading neutral before a Latin identifier is resolved to the
+                     other side of it. An order reference is a Latin identifier and must read
+                     the same in both directions.
+                     The price beside it was already correct for exactly this reason: `.ss-num`
+                     carries `unicode-bidi: isolate`, which is why `$10.00` kept its symbol on
+                     the left. Same hazard, same remedy, and the same one applied to the
+                     customer card's email address.
+
+                     THE TOOLTIP CARRIES THE REFERENCE, NOT THE WORDS "Invoice ID". Bootstrap
+                     5.1.3's `_fixTitle` moves `title` into `data-bs-original-title` and
+                     `getTitle()` reads that first, so hover AND focus showed a constant label and
+                     never the elided characters -- the one affordance that could have revealed
+                     them was spent restating what the layout already makes obvious. The words
+                     survive in `aria-label`, because a bare `#P25CUSTFILTER-2-2` is announced as
+                     an identifier of nothing.
+
+                     `aria-label` IS LAST ON THIS LINK FOR THE REASON DOCUMENTED FURTHER DOWN THIS
+                     FILE: it contains `['id' => ...]`, i.e. a `>`, and a `[^>]*` scanner that
+                     meets it stops mid-attribute. --}}
+                <a class="ss-card__title ss-order-card__ref" dir="ltr"
+                   href="{{ route('order.view', \Illuminate\Support\Facades\Crypt::encrypt($order->id)) }}"
+                   data-bs-toggle="tooltip" title="{{ $order->product_order_id }}"
+                   aria-label="{{ __('Invoice ID :id', ['id' => $order->product_order_id]) }}"><bdi>#{{ $order->product_order_id }}</bdi></a>
+
+                <div class="d-flex align-items-center justify-content-between gap-2 mt-1">
+                    <span class="ss-card__meta text-truncate">
+                        @if ($order->is_guest == 1)
+                            {{ __('Guest') }}
+                        @elseif ($order->customer_id != 0)
+                            {{ (!empty($order->CustomerData->name) ? $order->CustomerData->name : '') }}@if (!empty($order->CustomerData->mobile)) <span dir="ltr">{{ $order->CustomerData->mobile }}</span>@endif
+                        @else
+                            {{ __('Walk-in-customer') }}
+                        @endif
+                    </span>
                     {!! \App\Support\OrderStatusTone::badge((int) $order->delivered_status, $title) !!}
                 </div>
-
-                <span class="ss-card__meta d-block text-truncate mt-1">
-                    @if ($order->is_guest == 1)
-                        {{ __('Guest') }}
-                    @elseif ($order->customer_id != 0)
-                        {{ (!empty($order->CustomerData->name) ? $order->CustomerData->name : '') }}@if (!empty($order->CustomerData->mobile)) <span dir="ltr">{{ $order->CustomerData->mobile }}</span>@endif
-                    @else
-                        {{ __('Walk-in-customer') }}
-                    @endif
-                </span>
 
                 <div class="d-flex align-items-end justify-content-between gap-3 mt-3">
                     <div class="min-w-0">
@@ -218,8 +265,20 @@
                          Tests\Unit\Ui\SettingsCredentialExposureTest). Pinned directly by
                          Tests\Unit\Ui\OrderGridRowActionNamesTest, which fails at this cause
                          instead of letting it surface as a false i18n failure. --}}
+                    {{-- P2.5-ORD-11. `data-text` NAMES THE ORDER. It used to be the generic
+                         "This action can not be undone", and the reference lived only in the
+                         invisible `aria-label` while the visible tooltip said `Delete`. So a
+                         merchant looking at two cards that read the same clicked the trash on one,
+                         was asked a question that named no order, confirmed, and
+                         `OrderController::destroy` removed it permanently. The truncation that
+                         made the two cards identical is fixed above; this is the second half,
+                         because a confirmation that cannot be checked against the thing it is
+                         about is not a confirmation.
+                         IT SITS AFTER `data-confirm`, which is the ordering the comment below
+                         requires: it carries `['id' => ...]`, so a `[^>]*` scanner that met it
+                         first would stop before reaching `data-confirm`. --}}
                     <button type="button" class="btn btn-sm border show_confirm" data-bs-toggle="tooltip" data-confirm="{{ __('Are You Sure?') }}"
-                        data-text="{{ __('This action can not be undone. Do you want to continue?') }}" data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}"
+                        data-text="{{ __('Order :id will be permanently deleted. This action can not be undone.', ['id' => $order->product_order_id]) }}" data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}"
                         title="{{ __('Delete') }}"
                         aria-label="{{ __('Delete order :id', ['id' => $order->product_order_id]) }}">
                         <i class="ti ti-trash text-danger" aria-hidden="true"></i>

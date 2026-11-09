@@ -20,7 +20,9 @@
             <i class="ti ti-file-export" aria-hidden="true"></i>
         </a>
 
-    <a href="{{ route('order.grid') }}" aria-label="{{ __('Grid View') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('Grid View') }}" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--secondary">
+    {{-- P2.5-ORD-10. `request()->query()`, which the board's link ten lines down already carried.
+         Without it the cards screen silently showed every order in the store. --}}
+    <a href="{{ route('order.grid', request()->query()) }}" aria-label="{{ __('Grid View') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('Grid View') }}" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--secondary">
         <i class="ti ti-layout-grid" aria-hidden="true"></i>
     </a>
     {{-- P2-04-12: the board's entry point. The route existed from P2-04-7 with nothing linking

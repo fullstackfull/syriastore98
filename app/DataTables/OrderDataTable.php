@@ -53,12 +53,52 @@ class OrderDataTable extends DataTable
                  * reserve for escalation. Escaping the cell closes the rendering vector whatever
                  * is decided there.
                  */
-                return '<div class="d-flex align-items-center">
-                            <a href="' . route('order.view', \Illuminate\Support\Facades\Crypt::encrypt($item->id)) . '" class="btn btn-primary btn-sm text-sm" data-bs-toggle="tooltip" title="' . __('Invoice ID') . '">
-                                <span class="btn-inner--icon"></span>
-                                <span class="btn-inner--text">#' . e($item->product_order_id) . '</span>
-                            </a>
-                        </div>';
+                /*
+                 * P2.5-ORD-6. THE VENDORED BUTTON IS GONE, AND THE DESIGN SYSTEM PAINTS THIS CELL.
+                 *
+                 * This was `<a class="btn btn-primary btn-sm text-sm">` wrapping a leftover empty
+                 * `<span class="btn-inner--icon"></span>` -- WorkDo/Argon markup that paints
+                 * nothing -- while `getColumns()` declares the same column
+                 * `'addClass' => 'ss-dt-ident'` and `store-syria-ds.css` says
+                 * `td.ss-dt-ident a { color: var(--ss-dt-ident-fg) !important }`. The two rules
+                 * collided and the `!important` won: MEASURED off the live captures, interior of
+                 * the first-row pill only, `#1A1D23` ink on a `#335DA8` fill with ZERO white
+                 * pixels -- 2.63:1, below even the 3:1 floor, on the merchant's primary scanning
+                 * column. Bootstrap's own `.btn-primary { color: #fff }` carries no `!important`
+                 * and never applied.
+                 *
+                 * AND THE FILL DID NOT FOLLOW THE THEME. On the dark list the same region stayed
+                 * `#335DA8` while the real design-system primaries measured `#2AC3E5`, so ten
+                 * light-theme navy pills were the only light brand blue on a dark page -- two
+                 * different "primary blues" on one screen.
+                 *
+                 * THE CONTRADICTION WAS INSIDE THIS FILE. The status column below carries a
+                 * 20-line comment headed "THE DESIGN SYSTEM'S BADGE, NOT THE VENDORED THEME'S
+                 * BUTTONS" and the source column already emits `<span class="ss-badge">`. The
+                 * decision had been applied to two columns and not to the first one. The customer
+                 * area had already settled this exact column on a quiet text link
+                 * (`CustomerDataTable:66-70`), which is what the `td.ss-dt-ident a` rule was
+                 * written for.
+                 *
+                 * ALSO: THE SAME DESTINATION WAS OFFERED TWICE PER ROW IN TWO VISUAL LANGUAGES.
+                 * This href is byte-identical to the pencil's in `order/action.blade.php`. It
+                 * stays a link -- a merchant clicks the reference to open the order -- but it
+                 * stops shouting louder than `Create Order`, the page's one real primary action.
+                 *
+                 * UNCHANGED, BECAUSE THEY ARE THE CONTRACT AND NOT THE STYLING: the route, the
+                 * `Crypt::encrypt($item->id)`, the `#` prefix and the `e()` on the stored value --
+                 * `product_order_id` is in this table's `rawColumns()` list, so the escape is the
+                 * only thing between a string column and the page. The tooltip keeps the words
+                 * `Invoice ID`, which is what names this link for a screen reader.
+                 *
+                 * `<bdi>` ON THE REFERENCE, which the board card already carries (P2.5-PKG-M
+                 * F-M-05): a `#` is bidi-neutral, so in an Arabic line a leading neutral before a
+                 * Latin run is resolved to the far end of it and `#ORD-2043` renders `ORD-2043#`.
+                 */
+                return '<a class="ss-dt-ident__link" href="'
+                    . route('order.view', \Illuminate\Support\Facades\Crypt::encrypt($item->id))
+                    . '" data-bs-toggle="tooltip" title="' . __('Invoice ID') . '">'
+                    . '<bdi>#' . e($item->product_order_id) . '</bdi></a>';
             })
             ->editColumn('order_date', function ($item) {
                 // F19. `Utility::dateFormat(null)` is `date($fmt, strtotime(null))`, and
@@ -250,17 +290,35 @@ class OrderDataTable extends DataTable
                  * Picked Up `info` there and `secondary` here -- so one order changed colour
                  * between two screens a merchant reads one after the other.
                  */
-                $labels = [
-                    HomeController::ORDER_STATUS_PENDING        => __('Pending') . self::statusDate($item->order_date),
-                    HomeController::ORDER_STATUS_DELIVERED      => __('Delivered') . self::statusDate($item->delivery_date),
-                    HomeController::ORDER_STATUS_CANCEL         => __('Cancel') . self::statusDate($item->cancel_date),
-                    HomeController::ORDER_STATUS_RETURN         => __('Return') . self::statusDate($item->return_date),
-                    HomeController::ORDER_STATUS_CONFIRMED      => __('Confirmed') . self::statusDate($item->confirmed_date),
-                    HomeController::ORDER_STATUS_PICKED_UP      => __('Picked Up') . self::statusDate($item->picked_date),
-                    HomeController::ORDER_STATUS_SHIPPED        => __('Shipped') . self::statusDate($item->shipped_date),
-                    HomeController::ORDER_STATUS_PARTIALLY_PAID => __('Partially Paid') . self::statusDate($item->order_date),
-                    HomeController::ORDER_STATUS_PRE_ORDER      => __('Pre Order') . self::statusDate($item->order_date),
+                /*
+                 * P2.5-ORD-5. THE LABELS COME FROM `statusSearchLabels()`, which the new
+                 * `filterColumn('delivered_status')` also reads. They were two literal lists one
+                 * method apart: the badge's and the search's. A tenth status, or one relabelled,
+                 * would have become visible on the badge and unfindable in the search, and
+                 * nothing would have noticed -- the search would simply have returned no rows for
+                 * a word the merchant could see on the page, which is the whole defect ORD-5 is.
+                 *
+                 * THE OUTPUT IS BYTE-IDENTICAL. Each code keeps the same date it had, and
+                 * `statusDate()` is applied in the same place; only the source of the nine
+                 * `__()` calls moved.
+                 */
+                $dates = [
+                    HomeController::ORDER_STATUS_PENDING        => $item->order_date,
+                    HomeController::ORDER_STATUS_DELIVERED      => $item->delivery_date,
+                    HomeController::ORDER_STATUS_CANCEL         => $item->cancel_date,
+                    HomeController::ORDER_STATUS_RETURN         => $item->return_date,
+                    HomeController::ORDER_STATUS_CONFIRMED      => $item->confirmed_date,
+                    HomeController::ORDER_STATUS_PICKED_UP      => $item->picked_date,
+                    HomeController::ORDER_STATUS_SHIPPED        => $item->shipped_date,
+                    HomeController::ORDER_STATUS_PARTIALLY_PAID => $item->order_date,
+                    HomeController::ORDER_STATUS_PRE_ORDER      => $item->order_date,
                 ];
+
+                $labels = [];
+
+                foreach (self::statusSearchLabels() as $code => $label) {
+                    $labels[$code] = $label . self::statusDate($dates[$code] ?? null);
+                }
 
                 /*
                  * NULL IS NOT PENDING. `(int) null` is `0`, so casting first would print
@@ -281,6 +339,200 @@ class OrderDataTable extends DataTable
                 $label = $labels[$status] ?? __('Status :code', ['code' => $status]);
 
                 return OrderStatusTone::badge($status, $label);
+            })
+            /*
+             * ===========================================================================
+             *  P2.5-ORD-5. THE SEARCH BOX USED TO LIE, ON FOUR OF THE EIGHT COLUMNS.
+             * ===========================================================================
+             *
+             * `grep -c filterColumn` on this file was ZERO, while five columns are
+             * `editColumn`'d onto a display value that is not the stored value. With no
+             * `filterColumn`, yajra compiles the global search straight onto the raw column:
+             * `orders.customer_id LIKE '%Omar%'`, `orders.delivered_status LIKE '%Shipped%'`,
+             * `orders.payment_type LIKE '%Cash On Delivery%'`. None of those matches anything.
+             * The merchant typed the name printed on the row in front of them and the screen
+             * answered that there is no such order -- and the filter bar has no customer field,
+             * so Search was the only free-text way in.
+             *
+             * IT WAS WORSE IN ARABIC, where four of the eight columns are translated and
+             * therefore all four were unsearchable.
+             *
+             * THE AUTHOR KNEW THE RULE AND APPLIED IT TWICE. `getColumns()` marks
+             * `shipping_method` and `order_source` `'searchable' => false` with a comment naming
+             * exactly this hazard. The other four were left searchable, which is the lying half:
+             * a disabled search tells the truth, a search that silently matches nothing does not.
+             * The sibling lists already carry the fix -- `OrderRefundDataTable:104-130`,
+             * `AbandonCartDataTable:56-61`.
+             *
+             * `final_price` NEEDS NO FILTER and is deliberately left alone: the raw decimal is
+             * what the cell shows, modulo the currency symbol and separators, so the default
+             * `LIKE` already finds `150`.
+             *
+             * EVERY CLOSURE BELOW ONLY NARROWS. yajra calls these inside its own
+             * `orWhere(function ($q) { ... })` group for the global search, and that group sits
+             * inside a query already confined to the caller's store by `query()`. Each closure
+             * therefore wraps its own limbs in ONE nested `where(function ...)`, which is what
+             * keeps an `orWhere` from escaping to the top level -- the mistake that turns a
+             * search into a tenant-boundary widening. `OrderFindabilityTest` drives another
+             * tenant's order past all of them.
+             */
+            ->filterColumn('customer_id', function ($query, $keyword): void {
+                /*
+                 * THE CELL PRINTS `first_name . ' ' . last_name` AND THE MOBILE UNDER IT, so all
+                 * three are what a merchant reads and therefore what they type.
+                 *
+                 * THE KEYWORD IS SPLIT ON WHITESPACE AND EVERY TOKEN MUST LAND. A single
+                 * `LIKE '%Omar Khalil%'` against either name column alone can never match, since
+                 * the space exists only in the rendered cell. Requiring each token to hit some
+                 * field of the SAME customer makes "Omar Khalil" find Omar Khalil and not Omar
+                 * Haddad -- asserted both ways.
+                 *
+                 * NO `whereRaw`/`CONCAT`. A raw expression here would be the obvious way to match
+                 * the rendered string, and this repository inventories every raw query in
+                 * `RawQueryTenancyInventoryTest` and `OwnedPathRawQueryInventoryTest` precisely
+                 * because a raw predicate is where a tenant check goes missing. Tokenising in PHP
+                 * needs none.
+                 *
+                 * `whereHas` ON A STORE-SCOPED MODEL. `Customer` IS in `config/tenancy.php`'s
+                 * `scoped_models` (unlike `Order` and `Product`), so the subquery carries the
+                 * tenant predicate itself -- it can only ever narrow further.
+                 *
+                 * THE TWO LABEL BRANCHES. `Guest` and the walk-in label are rendered words with
+                 * no customer row behind them at all, so neither `whereHas` nor a raw `LIKE`
+                 * could find them. They are matched against the TRANSLATED label, which is what
+                 * the Arabic merchant sees.
+                 */
+                $keyword = trim((string) $keyword);
+
+                if ($keyword === '') {
+                    return;
+                }
+
+                $tokens = array_values(array_filter(preg_split('/\s+/', $keyword) ?: []));
+
+                $query->where(function ($outer) use ($keyword, $tokens): void {
+                    $outer->whereHas('CustomerData', function ($customer) use ($tokens): void {
+                        foreach ($tokens as $token) {
+                            $customer->where(function ($field) use ($token): void {
+                                $field->where('first_name', 'like', '%' . $token . '%')
+                                    ->orWhere('last_name', 'like', '%' . $token . '%')
+                                    ->orWhere('mobile', 'like', '%' . $token . '%');
+                            });
+                        }
+                    });
+
+                    if (stripos(__('Guest'), $keyword) !== false) {
+                        $outer->orWhere('is_guest', 1);
+                    }
+
+                    if (stripos(__('Walk-in-customer'), $keyword) !== false) {
+                        $outer->orWhere(function ($walkIn): void {
+                            $walkIn->where('customer_id', 0)->where('is_guest', '!=', 1);
+                        });
+                    }
+                });
+            })
+            ->filterColumn('delivered_status', function ($query, $keyword): void {
+                /*
+                 * THE LABELS MAP BACK TO CODES, and the codes come from the same
+                 * `HomeController::ORDER_STATUS_*` constants the badge is built from, through
+                 * `statusSearchLabels()` -- so a tenth status becomes searchable with the badge
+                 * rather than one release later.
+                 *
+                 * `whereIn` AND NOT A `LIKE`: the column holds an int. A match on nothing yields
+                 * `whereIn('delivered_status', [])`, which is `0 = 1` -- deliberately no rows.
+                 * "No matching records" is the honest answer when the term matches no status, and
+                 * adding no predicate instead would make the search silently return EVERYTHING,
+                 * which is the failure that looks like success.
+                 *
+                 * MULTIPLE CODES ARE ALLOWED ON PURPOSE. Typing `Return` is a reasonable way to
+                 * ask for the return states, and in Arabic several labels share a stem.
+                 */
+                $keyword = trim((string) $keyword);
+
+                if ($keyword === '') {
+                    return;
+                }
+
+                $codes = [];
+
+                foreach (self::statusSearchLabels() as $code => $label) {
+                    if ($label !== '' && stripos($label, $keyword) !== false) {
+                        $codes[] = $code;
+                    }
+                }
+
+                $query->whereIn('delivered_status', $codes);
+            })
+            ->filterColumn('payment_type', function ($query, $keyword): void {
+                /*
+                 * THE RESOLVED LABEL MAPS BACK TO THE STORED IDS THROUGH THE RESOLVER ITSELF.
+                 * `PaymentTypeLabel::known()` lists every identifier it understands and
+                 * `::for()` gives each one's label, so the inverse is derived rather than
+                 * duplicated -- a 53rd gateway becomes searchable the moment the resolver knows
+                 * it, and the two cannot drift.
+                 *
+                 * THE RAW `LIKE` STAYS AS THE FIRST LIMB. A merchant who knows the gateway id,
+                 * and every bookmark or saved search that used one, keeps working; and a stored
+                 * value the resolver cannot attribute (F146 found historical rows like `'没有'`)
+                 * is still reachable by the only name it has.
+                 */
+                $keyword = trim((string) $keyword);
+
+                if ($keyword === '') {
+                    return;
+                }
+
+                $ids = [];
+
+                foreach (\App\Payments\PaymentTypeLabel::known() as $id) {
+                    $label = \App\Payments\PaymentTypeLabel::for($id);
+
+                    if ($label !== null && stripos($label, $keyword) !== false) {
+                        $ids[] = $id;
+                    }
+                }
+
+                $query->where(function ($outer) use ($keyword, $ids): void {
+                    $outer->where('payment_type', 'like', '%' . $keyword . '%');
+
+                    if ($ids !== []) {
+                        $outer->orWhereIn('payment_type', $ids);
+                    }
+                });
+            })
+            ->filterColumn('order_date', function ($query, $keyword): void {
+                /*
+                 * THE COLUMN IS A DATETIME AND THE CELL SHOWS A LOCALISED DATE, so a `LIKE` on
+                 * the raw value matches only by accident -- and after P2.5-PKG-M made
+                 * `Utility::dateFormat()` locale-aware, the Arabic cell reads
+                 * `تشرين الثاني 6, 2026`, which shares not one character with the stored
+                 * `2026-11-06 00:00:00`.
+                 *
+                 * A WHOLE-DAY RANGE, NOT `LIKE '%2026-03-17%'`. `order_date` is a datetime, so a
+                 * naive equality compares against midnight and drops every order placed on the
+                 * day the merchant typed -- the same edge `ss_to` documents, and the test fixture
+                 * puts an order at 23:45 for exactly that reason.
+                 *
+                 * `parseDate()` IS REUSED AND IS STRICT: `createFromFormat` with an explicit
+                 * format plus a round-trip comparison, so `2026-13-45` is rejected rather than
+                 * rolled over into 2027, and `'now'`/`'+1 day'` are not accepted at all.
+                 *
+                 * A NON-DATE KEYWORD ADDS NO PREDICATE. This closure runs for every global
+                 * search, including "Omar" -- refusing all rows here would fight the other
+                 * columns' limbs inside the same OR group and empty every search that is not a
+                 * date.
+                 */
+                $date = self::parseDate(trim((string) $keyword));
+
+                if ($date === null) {
+                    return;
+                }
+
+                $query->whereBetween('order_date', [
+                    $date->copy()->startOfDay(),
+                    $date->copy()->endOfDay(),
+                ]);
             })
             ->rawColumns(['action', 'product_order_id', 'order_date', 'customer_id', 'final_price', 'payment_type', 'order_source', 'delivered_status']);
         return $dataTable;
@@ -349,6 +601,33 @@ class OrderDataTable extends DataTable
         return self::hasDate($value)
             ? ' : ' . \App\Models\Utility::dateFormat($value)
             : '';
+    }
+
+    /**
+     * P2.5-ORD-5 -- the status label a merchant can SEE, per code, with no date suffix.
+     *
+     * The badge is `<label><statusDate>`; the search has to match the label half, so the two read
+     * the same source. Built from `HomeController::ORDER_STATUS_*` for the reason the filter bar
+     * gives: `delivered_status` holds NINE values and two of them are not fulfilment states (7 is
+     * Partially Paid, a payment state; 8 is Pre Order, an order type), so a list typed out by hand
+     * ends up covering 0-6 and making exactly those orders unfindable on the screen a merchant
+     * uses to find them.
+     *
+     * @return array<int, string>
+     */
+    public static function statusSearchLabels(): array
+    {
+        return [
+            HomeController::ORDER_STATUS_PENDING        => __('Pending'),
+            HomeController::ORDER_STATUS_DELIVERED      => __('Delivered'),
+            HomeController::ORDER_STATUS_CANCEL         => __('Cancel'),
+            HomeController::ORDER_STATUS_RETURN         => __('Return'),
+            HomeController::ORDER_STATUS_CONFIRMED      => __('Confirmed'),
+            HomeController::ORDER_STATUS_PICKED_UP      => __('Picked Up'),
+            HomeController::ORDER_STATUS_SHIPPED        => __('Shipped'),
+            HomeController::ORDER_STATUS_PARTIALLY_PAID => __('Partially Paid'),
+            HomeController::ORDER_STATUS_PRE_ORDER      => __('Pre Order'),
+        ];
     }
 
     /**

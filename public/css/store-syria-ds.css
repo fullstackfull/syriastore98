@@ -372,6 +372,18 @@
     --ss-fg-subtle: var(--ss-grey-500);
     --ss-fg-onfill: var(--ss-grey-0);
 
+    /* P2.5-ORD-4 -- THE SELECT CHEVRON IS A TOKEN, BECAUSE A `url()` CANNOT HOLD A `var()`.
+       The chevron was a hex baked into a `data:` URI inside the `.ss-select` rule, so no theme
+       could move it: `#5b6665` measured 2.39:1 on the dark surface #262b33, below the 3:1
+       non-text minimum, and composited off the live captures at 2.25:1 at all four order
+       filters. `appearance: none` removes the native arrow, so in dark mode the filter bar read
+       as four flat text boxes with nothing saying they open.
+       A `mask-image` with `currentColor` was the obvious fix and is wrong here: a mask applies
+       to the WHOLE element, and `.ss-select` IS the field, so it would clip away the field's own
+       background. CSS cannot interpolate a custom property inside `url()`, so the URI itself is
+       the token and each theme redefines it. */
+    --ss-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1.5 6 6.5l5-5' stroke='%235b6665' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
     /* Brand */
     --ss-brand:        var(--ss-blue-600);
     --ss-brand-hover:  var(--ss-blue-700);
@@ -559,6 +571,10 @@
     --ss-fg-subtle: #9599a0;
     --ss-fg-onfill: var(--ss-grey-950);
 
+    /* P2.5-ORD-4. #a7abb2 is --ss-fg-muted in this theme: 6.17:1 on #262b33, 5.52:1 on the
+       hover surface #2d323b. */
+    --ss-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1.5 6 6.5l5-5' stroke='%23a7abb2' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
     /* DARK BRAND IS THE CYAN END, DERIVED NOT COPIED. #335da8 on this card
        measures 2.11:1 — the light-mode brand is unreadable here, which is the
        whole reason a dark variant exists. The cyan steps were solved against
@@ -609,6 +625,11 @@
         --ss-fg-muted: #a7abb2;
         --ss-fg-subtle: #9599a0;
         --ss-fg-onfill: var(--ss-grey-950);
+
+        /* P2.5-ORD-4. Byte-identical to the explicit dark theme above: the toggle and the OS
+           preference are the same theme reached two ways, and a merchant switching between them
+           must not see the chevron change. */
+        --ss-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1.5 6 6.5l5-5' stroke='%23a7abb2' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
         --ss-brand: var(--ss-cyan-500);
         --ss-brand-hover: var(--ss-cyan-400);
         --ss-brand-active: var(--ss-cyan-300);
@@ -1019,12 +1040,24 @@
    flips side automatically in RTL. */
 .ss-select {
     padding-inline-end: var(--ss-space-8);
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1.5 6 6.5l5-5' stroke='%235b6665' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-image: var(--ss-select-chevron);
     background-repeat: no-repeat;
     background-position: right var(--ss-space-3) center;
     background-size: 12px 8px;
 }
 [dir="rtl"] .ss-select { background-position: left var(--ss-space-3) center; }
+
+/* P2.5-ORD-7 -- THE ORDER REFERENCE IS THE CARD'S IDENTITY AND MAY NEVER BE ELIDED.
+   The order card gave its title `text-truncate`. Two orders in the shipped fixture differ only in
+   their FINAL character, so the ellipsis removed exactly the character that told them apart and
+   two different orders rendered as the same card -- with a delete button on each. Dropping
+   `text-truncate` alone would let a long unbroken Latin reference overflow the card instead, which
+   trades an invisible character for a broken layout, so the reference wraps. `anywhere` and not
+   `break-word`: an order reference has no spaces to break at. */
+.ss-order-card__ref {
+    display: block;
+    overflow-wrap: anywhere;
+}
 
 /* ---- Card ---- */
 
@@ -5394,6 +5427,24 @@ a.ss-setup__item:focus-visible {
 .ss-dt-card-body table.dataTable > tbody > tr > td.ss-dt-ident a {
     color: var(--ss-dt-ident-fg) !important;
     font-weight: var(--ss-dt-ident-weight) !important;
+}
+
+/* P2.5-ORD-6 -- THE IDENT LINK HAS AN AFFORDANCE INSTEAD OF A FILL.
+   The order list rendered this cell as a vendored `btn btn-primary btn-sm` pill. The rule above
+   carries `!important`, so the ident ink won over Bootstrap's un-flagged `.btn-primary{color:#fff}`
+   and the cell measured #1A1D23 on #335DA8 = 2.63:1 -- with no white pixels in the measured
+   region -- while the fill itself ignored the theme entirely. The fill is gone; what a filled
+   button was doing for discoverability is done here by the underline on hover and on keyboard
+   focus, which costs no contrast and does not outrank the page's one primary action.
+   NO COLOUR IS DECLARED: the rule above owns that, in both themes, and a second colour here would
+   be the same collision again one selector further down. */
+.ss-dt-card-body table.dataTable > tbody > tr > td.ss-dt-ident a.ss-dt-ident__link {
+    text-decoration: none;
+}
+
+.ss-dt-card-body table.dataTable > tbody > tr > td.ss-dt-ident a.ss-dt-ident__link:hover,
+.ss-dt-card-body table.dataTable > tbody > tr > td.ss-dt-ident a.ss-dt-ident__link:focus-visible {
+    text-decoration: underline;
 }
 
 /* Money. `end` so it mirrors; `right` would strand it in Arabic. */

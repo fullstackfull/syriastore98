@@ -39,7 +39,14 @@
     $ssStatus = request()->query('ss_status');
 @endphp
 
-<form method="GET" action="{{ route('order.index') }}" data-ss-order-filters
+{{-- P2.5-ORD-10. THE ACTION IS THE SCREEN THE BAR IS ON, not always the list.
+     The card view renders this same partial, and a bar that posted to `order.index` would move the
+     merchant to the list every time they pressed `Apply filters` -- which is how a shared control
+     becomes two controls. `$ssFilterRoute` defaults to the list, so the list's own include is
+     unchanged. --}}
+@php($ssFilterRoute = $ssFilterRoute ?? 'order.index')
+
+<form method="GET" action="{{ route($ssFilterRoute) }}" data-ss-order-filters
       class="ss-scope ss-filterbar" role="search" aria-label="{{ __('Filter orders') }}">
 
     {{-- P2-06-5. The receipt renders whenever filters are in force, not only after a restore:

@@ -72,6 +72,50 @@ is further along than it looked.
 
 ---
 
+## 1b. CLOSURE — all twelve are fixed (2026-11-09)
+
+Every one of the twelve carries a `RESOLVED` paragraph and a `Proved by` line in §2 below. Summary:
+
+| # | screen | what changed | proved by |
+|---|---|---|---|
+| **12** | board | the empty-status guard, the notification block moved inside the success branch, `required` + `disabled selected` on the move control | `OrderStatusChangeFalseNotificationTest` — 17 tests, 11 fail on the old code |
+| 5 | list | four `filterColumn()` definitions; one shared status vocabulary | `OrderFindabilityTest` — 26 tests, 14 fail on the old code |
+| 10 | grid | the card view reuses the list's own query, renders its filter bar, and every view link carries the filters | `OrderFindabilityTest` |
+| 7 / 9 / 11 | grid | the reference gets the full width and wraps; the tooltip carries the id; the delete dialog names the order | `OrderGridCardIdentityTest` — 10 tests, 7 fail on the old markup |
+| 1 / 8 / 2 | list + grid | `زبون عابر` for BOTH walk-in keys; `الإجراءات` for `Action` | `OrderArabicTerminologyTest` — 6 tests, 4 fail on the old strings |
+| 3 / 4 / 6 | list | both bulk-select checkboxes named; the chevron is a per-theme token at 6.17:1; the order-id cell leaves vendored Bootstrap | `OrderListControlNamesAndContrastTest` + a driven subprocess script + a headless-Chromium probe |
+
+**Three things the repair found that the audit had not.**
+
+1. **`Walk-in Customer` (spaced) was also wrong.** The audit named only the hyphenated key. The
+   spaced one — rendered by the BOARD card and by `Order::order_detail()`, which is what the order
+   detail page and the API answer with — read `عميل متجول`, "an itinerant customer". Repairing one
+   key would have left three order screens disagreeing about who the buyer is.
+
+2. **Two of this repair's own tests were measuring the wrong thing, and the revert check is what
+   caught it.** Four fixture references contained the term being searched (`FIND-ST-SHIPPED`
+   searched for "Shipped"), so they were satisfied through `product_order_id` — the one column that
+   was never broken — and they passed against the unfixed code. The references are neutral now and
+   `assertSearchFinds()` asserts that property rather than trusting the next person to remember.
+   Renaming them took the findability bite proof from 11 red to 14.
+
+3. **Two container-pollution traps in the test harness, both of which produced a confident false
+   reading before being understood.** Resolving `OrderDataTable` in the test process before issuing
+   the request leaves yajra's `datatables.request` singleton bound to a stale empty request, so the
+   route answers the HTML page instead of the table's JSON — measured both ways in one run. And two
+   searches inside one test method are both answered with the FIRST keyword, which looked exactly
+   like a status filter matching the wrong status. `forgetInstance('datatables.request')` and a
+   premise test for each now cover it. This is the "memoised container bindings" pollution
+   `CLAUDE.md` and the `systematic-debugging` skill both name.
+
+**One thing deliberately NOT done.** `packages/workdo/AuctionProduct` and
+`packages/workdo/LotteryPrizes` each carry their own copy of the `Status Change` notification block
+in the same shape #12 describes (`sendEmailTemplate('Status Change', ...)` ahead of the success
+check). They are vendored, which the owner's constraints forbid editing, so they are recorded here
+rather than repaired. Neither is reachable from the three order screens this audit covered.
+
+---
+
 ## 2. The twelve confirmed findings
 
 Numbering matches the order they were reported to the owner. **Status is verified, not assumed.**
@@ -80,7 +124,11 @@ Numbering matches the order they were reported to the owner. **Status is verifie
 
 ### #1 — `Walk-in-customer` is translated as `المشي في العميل` — "the walking inside the customer", word-by-word machine output that is not Arabic.
 
-**Screen:** `list` · **Lens:** `rtl` · **Finder confidence:** `certain` · **STATUS: NOT STARTED**
+**Screen:** `list` · **Lens:** `rtl` · **Finder confidence:** `certain` · **STATUS: FIXED (2026-11-09)**
+
+**RESOLVED.** `resources/lang/ar.json` -- `Walk-in-customer` is now `زبون عابر`. **And the audit named only half of it:** there are TWO keys for one idea, and `Walk-in Customer` (spaced), which the BOARD card and `Order::order_detail()` render, was `عميل متجول` -- "an itinerant customer", a pedlar. Both keys now carry the same phrase, so the three order screens, the detail page and the API agree. `عميل مباشر` was rejected on this finding's own advice (it reads as a direct-sales channel) and `زبون` is the register P2.5-PKG-L settled the customer area on.
+
+**Proved by:** `Tests\Unit\Localisation\OrderArabicTerminologyTest` (6 tests) -- 4 fail on the old strings.
 
 **Evidence**
 
@@ -110,7 +158,11 @@ python3 -c "import json;print(json.load(open('resources/lang/ar.json',encoding='
 
 ### #2 — The actions column is headed `العمل` ("the work / the labour"), not `الإجراءات` ("actions").
 
-**Screen:** `list` · **Lens:** `rtl` · **Finder confidence:** `certain` · **STATUS: NOT STARTED**
+**Screen:** `list` · **Lens:** `rtl` · **Finder confidence:** `certain` · **STATUS: FIXED (2026-11-09)**
+
+**RESOLVED.** `resources/lang/ar.json` -- `Action` is now `الإجراءات`, which is also what the neighbouring `Actions` key already said. One key, all 67 admin tables.
+
+**Proved by:** `Tests\Unit\Localisation\OrderArabicTerminologyTest`.
 
 **Evidence**
 
@@ -140,7 +192,11 @@ python3 -c "import json;print(json.load(open('resources/lang/ar.json',encoding='
 
 ### #3 — Every bulk-select checkbox on the order list — the header select-all and the one on each row — has no accessible name at all.
 
-**Screen:** `list` · **Lens:** `a11y` · **Finder confidence:** `certain` · **STATUS: NOT STARTED**
+**Screen:** `list` · **Lens:** `a11y` · **Finder confidence:** `certain` · **STATUS: FIXED (2026-11-09)**
+
+**RESOLVED.** `app/Helper/helper.php` -- the select-all heading carries `aria-label="{{ __('Select all rows') }}"` and the per-row renderer `aria-label="Select row <id>"`. The row name is built from `this.id` ONLY -- the integer primary key -- because the name is concatenated into an HTML attribute inside a JS string and a shopper-written field there is an attribute injection on the merchant's own origin; the translated label goes through `json_encode` with `JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_TAG|JSON_HEX_AMP`.
+
+**Proved by:** `Tests\Unit\Ui\OrderListControlNamesAndContrastTest`, plus `tests/Support/Security/bin/verify-bulk-select-checkbox-names.php` -- a DRIVEN proof, because the column lives behind `module_is_active('BulkDelete')` and no WorkDo module is registered in a test run: measured, `/order` in the suite renders neither `select-all` nor `select-row`, so a Feature assertion there would have proved nothing. The script boots a subprocess with an `add_on_managers` row seeded by raw PDO before bootstrap (7 checks, 0 failed). `docs/development/phase-2.5/tools/probe-datatables-row-renderer.{html,cjs}` additionally measures, in headless Chromium with the repository's own jQuery and DataTables, that yajra's wrapped renderer really runs and `this.id` really is the row id -- so the name is unique per row and bulk delete's `value` was never broken.
 
 **Evidence**
 
@@ -170,7 +226,11 @@ sed -n '2384p;2390p' app/Helper/helper.php   ->  two <input type="checkbox"> wit
 
 ### #4 — The `.ss-select` dropdown chevron is a hard-coded `#5b6665` inside a background-image data URI, so in dark mode all four order filters' chevrons sit at 2.39:1 — below the 3:1 non-text minimum.
 
-**Screen:** `list` · **Lens:** `a11y` · **Finder confidence:** `certain` · **STATUS: NOT STARTED**
+**Screen:** `list` · **Lens:** `a11y` · **Finder confidence:** `certain` · **STATUS: FIXED (2026-11-09)**
+
+**RESOLVED.** `public/css/store-syria-ds.css` -- the chevron is now the token `--ss-select-chevron`, defined once per theme block (light, explicit dark, and the `prefers-color-scheme` arm of `auto`). Dark is `#a7abb2`, which is `--ss-fg-muted` in that theme: **6.17:1** on `#262b33` and 5.52:1 on the hover surface, computed. The audit's `mask-image` suggestion was rejected with a reason: a mask applies to the whole element and `.ss-select` IS the field, so it would clip away the field's own background. CSS cannot put a `var()` inside a `url()`, so the URI is the token.
+
+**Proved by:** `Tests\Unit\Ui\OrderListControlNamesAndContrastTest` -- the contrast is COMPUTED from the stylesheet (WCAG relative luminance), with a premise test that the arithmetic reproduces the audit's own 2.39:1 figure and another that the dark `--ss-surface` is still `#262b33`.
 
 **Evidence**
 
@@ -200,7 +260,11 @@ grep -c 5b6665 public/css/store-syria-ds.css   ->  1   (the hex is inside the da
 
 ### #5 — The order list's free-text search silently returns nothing for the customer name, payment type, status and date the table itself prints — the list has zero `filterColumn()` definitions.
 
-**Screen:** `list` · **Lens:** `workflow` · **Finder confidence:** `certain` · **STATUS: NOT STARTED**
+**Screen:** `list` · **Lens:** `workflow` · **Finder confidence:** `certain` · **STATUS: FIXED (2026-11-09)**
+
+**RESOLVED.** `app/DataTables/OrderDataTable.php` -- four `filterColumn()` definitions: `customer_id` (whitespace-tokenised `whereHas('CustomerData')` over first/last name and mobile, plus the `Guest` and walk-in LABEL branches, which have no customer row behind them at all), `delivered_status` (the badge labels mapped back to codes through a new shared `statusSearchLabels()`, which the badge now reads too so the two cannot drift), `payment_type` (the label inverted through `PaymentTypeLabel::known()`/`::for()`, with the raw `LIKE` kept as the first limb) and `order_date` (a whole-day range through the existing strict `parseDate()`). No `whereRaw` anywhere: the raw-query inventories exist because a raw predicate is where a tenant check goes missing, and tokenising in PHP needs none. `final_price` was left alone -- the raw decimal is what the cell shows.
+
+**Proved by:** `Tests\Feature\Merchant\OrderFindabilityTest` (26 tests, 162 assertions) -- 14 fail on the old code.
 
 **Evidence**
 
@@ -236,7 +300,11 @@ grep -c filterColumn app/DataTables/OrderDataTable.php   ->  0
 
 ### #6 — The Order Id cell is still vendored Bootstrap `btn btn-primary btn-sm` sitting inside the one column the design system marks as the row identifier, and the two rules collide: the ident colour wins and paints near-black ink on brand blue at 2.63:1 in light, while the pill itself ignores the theme entirely.
 
-**Screen:** `list` · **Lens:** `consistency` · **Finder confidence:** `certain` · **STATUS: NOT STARTED**
+**Screen:** `list` · **Lens:** `consistency` · **Finder confidence:** `certain` · **STATUS: FIXED (2026-11-09)**
+
+**RESOLVED.** `app/DataTables/OrderDataTable.php` -- the cell is now `<a class="ss-dt-ident__link">` with `<bdi>#...`, and `store-syria-ds.css` gives that class an underline on hover and on keyboard focus and **declares no colour**, so `td.ss-dt-ident a` keeps painting it in both themes. The route, the `Crypt::encrypt()`, the `#` prefix and the `e()` are unchanged. `<bdi>` was added while the markup was open, the same P2.5-PKG-M F-M-05 repair the board card already carried.
+
+**Proved by:** `Tests\Unit\Ui\OrderListControlNamesAndContrastTest`.
 
 **Evidence**
 
@@ -266,7 +334,11 @@ sed -n '56,61p' app/DataTables/OrderDataTable.php   ->  class="btn btn-primary b
 
 ### #7 — The order reference — the card's own title and its only identifying fact — is truncated to the point where two different orders render identical cards.
 
-**Screen:** `grid` · **Lens:** `layout` · **Finder confidence:** `certain` · **STATUS: NOT STARTED**
+**Screen:** `grid` · **Lens:** `layout` · **Finder confidence:** `certain` · **STATUS: FIXED (2026-11-09)**
+
+**RESOLVED.** `resources/views/order/grid.blade.php` -- the reference has the card's full content width on its own line, carries `.ss-order-card__ref` (`overflow-wrap: anywhere`) and no longer carries `text-truncate`, so a long reference WRAPS and no character is removed. The status badge moved down beside the customer and stays inside `card-header`, which is what `OrderGridStatusLabelTest` asserts.
+
+**Proved by:** `Tests\Unit\Ui\OrderGridCardIdentityTest` (10 tests) -- 7 fail on the old markup.
 
 **Evidence**
 
@@ -296,7 +368,11 @@ sed -n '143,146p' resources/views/order/grid.blade.php   ->  ss-card__title text
 
 ### #8 — `Walk-in-customer` is machine-translated into nonsense Arabic: `المشي في العميل` ("the walking in the customer")
 
-**Screen:** `grid` · **Lens:** `rtl` · **Finder confidence:** `certain` · **STATUS: NOT STARTED**
+**Screen:** `grid` · **Lens:** `rtl` · **Finder confidence:** `certain` · **STATUS: FIXED (2026-11-09)**
+
+**RESOLVED.** Same key as #1, and both spellings of it -- see #1.
+
+**Proved by:** `Tests\Unit\Localisation\OrderArabicTerminologyTest`.
 
 **Evidence**
 
@@ -326,7 +402,11 @@ same key as #1; rendered at resources/views/order/grid.blade.php:155
 
 ### #9 — The truncated order reference cannot be read, because the one tooltip the control can show is hardcoded to the constant word "Invoice ID"
 
-**Screen:** `grid` · **Lens:** `a11y` · **Finder confidence:** `certain` · **STATUS: NOT STARTED**
+**Screen:** `grid` · **Lens:** `a11y` · **Finder confidence:** `certain` · **STATUS: FIXED (2026-11-09)**
+
+**RESOLVED.** `resources/views/order/grid.blade.php` -- `title="{{ $order->product_order_id }}"`. The words "Invoice ID" are not deleted: they move into `aria-label` via the new `Invoice ID :id` key, so the link still has a name for a screen reader.
+
+**Proved by:** `Tests\Unit\Ui\OrderGridCardIdentityTest`.
 
 **Evidence**
 
@@ -356,7 +436,11 @@ sed -n '145p' resources/views/order/grid.blade.php   ->  title="{{ __('Invoice I
 
 ### #10 — The card view has no filter, no search and no sort, and it silently discards the filter the merchant arrived with — so the one thing a merchant comes to an order screen to do, find an order, is impossible here.
 
-**Screen:** `grid` · **Lens:** `workflow` · **Finder confidence:** `certain` · **STATUS: NOT STARTED**
+**Screen:** `grid` · **Lens:** `workflow` · **Finder confidence:** `certain` · **STATUS: FIXED (2026-11-09)**
+
+**RESOLVED.** `app/Http/Controllers/OrderController::order_grid_view()` now builds its rows from `(new OrderDataTable())->query(new Order())`, which is exactly what `order_kanban()` already does -- so the three order screens share ONE filter implementation rather than agreeing by coincidence. It carries the store predicate, F149's `1 = 0` refusal and every `ss_*` filter including ones added later. `withQueryString()` keeps the filter on page 2. The list's own filter partial renders on the card view (`$ssFilterRoute`), and `index.blade.php`'s link to the cards and `grid.blade.php`'s link back now carry `request()->query()` like the board's link always did.
+
+**Proved by:** `Tests\Feature\Merchant\OrderFindabilityTest`.
 
 **Evidence**
 
@@ -386,7 +470,11 @@ sed -n '2615p;2627p' app/Http/Controllers/OrderController.php   ->  $request is 
 
 ### #11 — Two different orders render with the identical truncated title, and the delete confirmation does not name the order — so a destructive action is confirmed against a target the merchant cannot distinguish.
 
-**Screen:** `grid` · **Lens:** `workflow` · **Finder confidence:** `certain` · **STATUS: NOT STARTED**
+**Screen:** `grid` · **Lens:** `workflow` · **Finder confidence:** `certain` · **STATUS: FIXED (2026-11-09)**
+
+**RESOLVED.** `resources/views/order/grid.blade.php` -- `data-text` is now `Order :id will be permanently deleted. This action can not be undone.`, and it sits AFTER `data-confirm` because it contains a `>` from `['id' => ...]`. The ambiguity that made the confirmation dangerous is removed by #7 in the same change.
+
+**Proved by:** `Tests\Unit\Ui\OrderGridCardIdentityTest`.
 
 **Evidence**
 
@@ -416,7 +504,11 @@ sed -n '143p;221,224p' resources/views/order/grid.blade.php   ->  truncated titl
 
 ### #12 — Pressing a card's Move button without choosing a status emails and SMSes the customer a status-change notification, and writes an order note reading "Order status changed to .", for a change that did not happen
 
-**Screen:** `board` · **Lens:** `workflow` · **Finder confidence:** `certain` · **STATUS: NOT STARTED**
+**Screen:** `board` · **Lens:** `workflow` · **Finder confidence:** `certain` · **STATUS: FIXED (2026-11-09)**
+
+**RESOLVED.** `OrderController::order_status_change()` refuses an empty `delivered` before the write, with "Choose a status to move this order to."; the whole notification block moved INSIDE `if ($responce['status'] == 'success')` unchanged line for line, which also covers the three other refusals the writer can return (`cancel` on a delivered order, `return` before delivery, any unrecognised status); and the board's select carries `required` with a `disabled selected` placeholder. **No business rule changed.** Commit `087481de`.
+
+**Proved by:** `Tests\Feature\Merchant\OrderStatusChangeFalseNotificationTest` (17 tests, 52 assertions) -- 11 fail on the old code; the 6 that pass are the 3 premises, the 2 success controls and the untouched-row assertion.
 
 **Evidence**
 

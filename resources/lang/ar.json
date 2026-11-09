@@ -91,7 +91,7 @@
     "Account Information": "معلومات الحساب",
     "Account Page": "صفحة الحساب",
     "Account status for :name": "حالة حساب :name",
-    "Action": "العمل",
+    "Action": "الإجراءات",
     "Actions": "الإجراءات",
     "Actions for :name": "إجراءات :name",
     "Active": "نشط",
@@ -3247,8 +3247,8 @@
     "Visit Link": "زيارة الرابط",
     "Visit Our Store": "زيارة متجرنا",
     "Visitor": "الزائر",
-    "Walk-in Customer": "عميل متجول",
-    "Walk-in-customer": "المشي في العميل",
+    "Walk-in Customer": "زبون عابر",
+    "Walk-in-customer": "زبون عابر",
     "Wasabi": "الوسابي",
     "Wasabi Bucket": "دلو الوسابي",
     "Wasabi Key": "مفتاح الوسابي",
@@ -3513,5 +3513,9 @@
     "Recorded": "سُجِّل في",
     "cod": "الدفع عند الاستلام",
     "Order cards": "بطاقات الطلبات",
-    "pending": "معلق"
+    "pending": "معلق",
+    "Invoice ID :id": "رقم الفاتورة :id",
+    "Order :id will be permanently deleted. This action can not be undone.": "سيُحذف الطلب :id نهائياً. لا يمكن التراجع عن هذا الإجراء.",
+    "Select all rows": "تحديد كل الصفوف",
+    "Select row": "تحديد الصف"
 }

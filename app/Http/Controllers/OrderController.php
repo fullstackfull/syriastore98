@@ -2701,7 +2701,47 @@ public function store(Request $request)
                 return redirect()->back()->with('error', __('No store is selected.'));
             }
 
-            $orders = Order::where('store_id', $storeId)->orderBy('created_at', 'desc')->paginate(16);
+            /*
+             * P2.5-ORD-10. THE CARD VIEW NOW HONOURS THE FILTERS IT ARRIVES WITH.
+             *
+             * This method took a `Request` and never read it. The whole query was
+             * `Order::where('store_id', $storeId)->orderBy('created_at','desc')->paginate(16)`,
+             * and `resources/views/order/grid.blade.php` carried no filter, search or sort control
+             * at all -- grep count 0 for `ss-select`/`ss-input` in all 302 lines. So a merchant
+             * who filtered the list to "returns, last 7 days" and clicked the cards icon got EVERY
+             * order in the store, with no warning and no way to re-filter, and no way to reach a
+             * specific order from this screen.
+             *
+             * THE AGGRAVATOR MADE IT LOOK LIKE THE LIST'S FAULT. `index()` restores a remembered
+             * filter from `TableFilterMemory` even on a bare `/order`, so list -> cards -> list
+             * came back filtered while the cards never were -- and nothing on the card screen
+             * stated its scope.
+             *
+             * ONE IMPLEMENTATION, NOT A SECOND ONE. The ORDER BOARD already solved this the right
+             * way: `order_kanban()` builds its rows from `(new OrderDataTable())->query(new
+             * Order())` with the comment "calling it rather than re-reading the `ss_*` parameters
+             * here is what makes 'the board and the list agree' a property of one implementation
+             * instead of a coincidence between two". This is the same call. It carries the store
+             * predicate, F149's `1 = 0` refusal for a principal with no store, and every `ss_*`
+             * filter -- including any added later -- without this handler knowing one of their
+             * names. `applyFilters()` adds only `where` limbs, so it can only narrow.
+             *
+             * THE GUARD ABOVE STAYS. `resolvedCurrentStoreId()` refuses before the query, which is
+             * where the owner's requirement is met; the DataTable's own predicate is the second
+             * layer, exactly as on the list and the board.
+             *
+             * `withQueryString()` IS NOT COSMETIC. 16 cards a page: without it page 2 of a
+             * filtered set is unfiltered, which is worse than no filter at all because the first
+             * page looked right.
+             *
+             * `CustomerData` IS EAGER-LOADED for the same reason the board does it: each card
+             * reads the buyer's name, and lazy loading it is one query per card.
+             */
+            $orders = (new \App\DataTables\OrderDataTable())
+                ->query(new Order())
+                ->with(['CustomerData'])
+                ->paginate(16)
+                ->withQueryString();
 
             return view('order.grid', compact('orders'));
         } else {

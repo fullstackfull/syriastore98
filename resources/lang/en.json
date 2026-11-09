@@ -3482,5 +3482,9 @@
     "Recorded": "Recorded",
     "cod": "Cash on delivery",
     "Order cards": "Order cards",
-    "pending": "Pending"
+    "pending": "Pending",
+    "Invoice ID :id": "Invoice ID :id",
+    "Order :id will be permanently deleted. This action can not be undone.": "Order :id will be permanently deleted. This action can not be undone.",
+    "Select all rows": "Select all rows",
+    "Select row": "Select row"
 }
