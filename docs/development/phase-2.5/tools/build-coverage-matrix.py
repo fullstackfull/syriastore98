@@ -213,6 +213,41 @@ VERIFIED = {
         ('REDESIGNED AND VERIFIED', 'flutter-settings-2026-11-09',
          'flutter-app-settings_', 'P2.5-FLUTTER-SETTINGS', 'GetX /appSettings'),
 
+    # --- P2.5-FLUTTER-STORE-SETTINGS (2026-11-09) -----------------------------------------------
+    #
+    # `Store information` is DELIBERATELY ABSENT although its four captures sit beside this one's.
+    # Its Arabic build renders the heading معلومات المتجر above field labels reading "Store Name",
+    # "Email", "Store URL", "Created At", "Owner Information", "Owner Name" and "Owner Email". That
+    # is not a new finding: P2.5-B-12 slice one converted the nine labels whose Arabic existed and
+    # recorded the remainder in StoreSyria_app98/docs/development/phase-2.5/
+    # COPY-DECK-UNTRANSLATED-SCREENS.md, because `.tr` on a key with no copy renders the raw
+    # identifier. The deck is a request for OWNER COPY, not engineering, and the screen stays
+    # PENDING until the Arabic column is filled. The captures were added to the deck so the copy
+    # can be written against the real layout.
+    'Store language & currencies':
+        ('REDESIGNED AND VERIFIED', 'flutter-store-settings-2026-11-09',
+         'flutter-language-currency_', 'P2.5-FLUTTER-STORE-SETTINGS', 'GetX /lang'),
+
+    # --- P2.5-FLUTTER-AUTH (2026-11-09) ---------------------------------------------------------
+    #
+    # The three screens before a merchant is signed in -- the first thing anyone sees of this
+    # product, and none of them had a capture. By `test/screens/auth_flow_capture_test.dart`.
+    #
+    # The welcome screen is the one that could not simply be pumped and photographed: it calls
+    # `Get.offAllNamed` 1500 ms after mount, so its test pumps a window INSIDE that delay and
+    # asserts it is still on screen before capturing -- otherwise the picture would be of whatever
+    # it redirected to, filed under this name. A companion premise drives past the delay and
+    # asserts it really does leave, so the bounded window is guarding something real.
+    'Splash / Welcome':
+        ('REDESIGNED AND VERIFIED', 'flutter-auth-2026-11-09',
+         'flutter-welcome_', 'P2.5-FLUTTER-AUTH', 'GetX /splash'),
+    'Onboarding':
+        ('REDESIGNED AND VERIFIED', 'flutter-auth-2026-11-09',
+         'flutter-onboarding_', 'P2.5-FLUTTER-AUTH', 'GetX /onboarding'),
+    'Login':
+        ('REDESIGNED AND VERIFIED', 'flutter-auth-2026-11-09',
+         'flutter-login_', 'P2.5-FLUTTER-AUTH', 'GetX /login'),
+
     # `Products list (tab 2)` IS DELIBERATELY ABSENT, though it has four populated captures beside
     # the others. Its own capture is what found P2.5-FLUTTER-PRICE: the card is handed
     # `salePrice` alone, and `sale_price` is the optional DISCOUNT (`->default(0)`, validated

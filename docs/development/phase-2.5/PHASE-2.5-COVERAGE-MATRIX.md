@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 52 | 17.6% |
+| REDESIGNED AND VERIFIED | 56 | 19.0% |
 | BLOCKED | 10 | 3.4% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 208 | 70.5% |
+| PENDING | 204 | 69.2% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -30,7 +30,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
-| Flutter merchant admin app | 51 | 0 | 13 | 0 | 0 | 38 |
+| Flutter merchant admin app | 51 | 0 | 17 | 0 | 0 | 34 |
 | CATALOGUE taxonomy | 38 | 13 | 1 | 0 | 0 | 24 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 3 | 1 | 0 | 31 |
 | Phase 2.5 Wave A | 30 | 0 | 0 | 0 | 0 | 30 |
@@ -52,9 +52,9 @@ actually been done to it since. They are different questions and the matrix keep
 
 | surface | route / kind | audit | state | evidence or reason |
 |---|---|---|---|---|
-| Splash / Welcome | ``GetX /splash (initialRoute)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Onboarding | ``GetX /onboarding`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Login | ``GetX /login`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Splash / Welcome | ``GetX /splash (initialRoute)`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-AUTH; four captures under evidence/flutter-auth-2026-11-09/ |
+| Onboarding | ``GetX /onboarding`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-AUTH; four captures under evidence/flutter-auth-2026-11-09/ |
+| Login | ``GetX /login`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-AUTH; four captures under evidence/flutter-auth-2026-11-09/ |
 | Dashboard shell (bottom navigation) | ``GetX /dashboard`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Home / Overview (tab 0) | ``tab 0 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HOME; four captures under evidence/flutter-home-2026-11-09/ |
 | Home widgets (stat tiles, QR, profile row) | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
@@ -73,7 +73,7 @@ actually been done to it since. They are different questions and the matrix keep
 | App settings | ``GetX /appSettings`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SETTINGS; four captures under evidence/flutter-settings-2026-11-09/ |
 | Store settings grid | ``Get.to(() => StoreSettingScreen()) from the More grid`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Store information | ``GetX /storeInfo`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Store language & currencies | ``GetX /lang`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Store language & currencies | ``GetX /lang`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-STORE-SETTINGS; four captures under evidence/flutter-store-settings-2026-11-09/ |
 | Store email settings | ``Get.to(() => EmailSettingScreen()) from store settings`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Loyalty programme | ``Get.to(() => LoyaltyProgramScreen()) from store settings`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Store payment methods | ``Get.to(() => PaymentSettingScreen()) from store settings`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
