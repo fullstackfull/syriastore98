@@ -137,6 +137,19 @@ VERIFIED = {
     'Orders list (tab 1)':        ('REDESIGNED AND VERIFIED', 'flutter-orders-2026-11-09',
                                    'flutter-orders-list_', 'P2.5-FLUTTER-ORDERS', 'tab 1'),
 
+    # --- P2.5-FLUTTER-HOME (2026-11-09) ---------------------------------------------------------
+    #
+    # The merchant dashboard, driven with real data in all four combinations by
+    # `test/screens/home_screen_capture_test.dart`. Two defects fixed from these captures -- every
+    # Overview tile label clipped to an ellipsis (3 of 3 in Arabic, measured with
+    # `RenderParagraph.didExceedMaxLines`), and `'Overview'.tr` untranslated so the Arabic build
+    # printed the English key -- plus a HARNESS bug the captures exposed: `pumpScreen` set the
+    # MaterialApp theme but not the app's own `ThemeController`, so this screen rendered half dark.
+    # Of the four files in lib/view that branch on that controller, only this one is a captured
+    # surface, so the dark captures claimed above are unaffected.
+    'Home / Overview (tab 0)':    ('REDESIGNED AND VERIFIED', 'flutter-home-2026-11-09',
+                                   'flutter-home_', 'P2.5-FLUTTER-HOME', 'tab 0'),
+
     # `Products list (tab 2)` IS DELIBERATELY ABSENT, though it has four populated captures beside
     # the others. Its own capture is what found P2.5-FLUTTER-PRICE: the card is handed
     # `salePrice` alone, and `sale_price` is the optional DISCOUNT (`->default(0)`, validated

@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 43 | 14.6% |
+| REDESIGNED AND VERIFIED | 44 | 14.9% |
 | BLOCKED | 13 | 4.4% |
 | OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 214 | 72.5% |
+| PENDING | 213 | 72.2% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -30,7 +30,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
-| Flutter merchant admin app | 51 | 0 | 9 | 0 | 0 | 42 |
+| Flutter merchant admin app | 51 | 0 | 10 | 0 | 0 | 41 |
 | CATALOGUE taxonomy | 38 | 13 | 1 | 0 | 0 | 24 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 3 | 1 | 0 | 31 |
 | Phase 2.5 Wave A | 30 | 0 | 0 | 0 | 0 | 30 |
@@ -56,7 +56,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Onboarding | ``GetX /onboarding`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Login | ``GetX /login`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Dashboard shell (bottom navigation) | ``GetX /dashboard`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Home / Overview (tab 0) | ``tab 0 of /dashboard`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Home / Overview (tab 0) | ``tab 0 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HOME; four captures under evidence/flutter-home-2026-11-09/ |
 | Home widgets (stat tiles, QR, profile row) | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Orders list (tab 1) | ``tab 1 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-ORDERS; four captures under evidence/flutter-orders-2026-11-09/ |
 | Order detail | ``Get.to(() => OrderDetailScreen()) from orders, notifications,` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
