@@ -1277,6 +1277,29 @@ VERIFIED = {
         ('REDESIGNED AND VERIFIED', 'web-modals2-2026-11-10',
          '_manage_language_en__', 'P2.5-WEB-MODALS-2'),
 
+    # ---- P2.5-P2 (2026-11-10): the loader, which was never on screen until this wave --------
+    #
+    # Was BLOCKED, and the block was honest at the time: there was no surface to photograph,
+    # because `Loader.showLoader()` constructed `const LoadingWidget()` as an expression and
+    # discarded it. Four live call sites showed nothing. Its sibling `hideLoader()` was an
+    # unguarded `Get.back(closeOverlays: true)` that popped whatever was on top -- at
+    # category_controller.dart:280 that ran BEFORE the status branches, with the category sheet
+    # open, so a 403 or a 429 tore the sheet down and took the merchant's half-filled form with
+    # it.
+    #
+    # The owner authorised the repair (Priority 2: "Fix confirmed UI/navigation defects with
+    # tests proving that unrelated routes and dialogs cannot be popped"). `showLoader()` now
+    # opens a real dialog -- which is what three of the four call sites were already written for,
+    # each following it with an `if (Get.isDialogOpen) Get.back()` guard that had been correctly
+    # doing nothing -- and `hideLoader()` closes ONLY what `showLoader()` opened. The sheet now
+    # closes itself, on success only.
+    #
+    # Pinned by test/a11y/loader_does_not_pop_unrelated_routes_test.dart, which opens somebody
+    # else's dialog and requires it to survive `hideLoader()`.
+    'Loading indicator (Loader / LoadingWidget)':
+        ('REDESIGNED AND VERIFIED', 'flutter-components2-2026-11-10',
+         'flutter-component-loader_', 'P2.5-P2'),
+
     # ---- P2.5-P1-FLUTTER (2026-11-10): component galleries ----------------------------------
     #
     # Added to the existing component gallery, which renders each component ALONE in all four
@@ -1611,42 +1634,6 @@ OUT_OF_SCOPE = {
 # A row here is a claim that WORK IS NOT POSSIBLE, so each carries the evidence for that, and each
 # names what would unblock it. None of these is a defect to fix inside Phase 2.5.
 BLOCKED_SURFACES = {
-    # ---- THE LOADING INDICATOR NEVER APPEARS, AND ITS SIBLING POPS A ROUTE -------------------
-    #
-    # lib/view/widget/loading_widget.dart, in full:
-    #
-    #     static showLoader() { const LoadingWidget(); }      <- constructs and DISCARDS it
-    #     static hideLoader() { Get.back(closeOverlays: true); }
-    #
-    # `showLoader()` builds a widget expression and throws it away. Nothing is inserted into any
-    # overlay, route or builder, so NO LOADER IS EVER SHOWN -- at three live call sites:
-    # category_controller.dart:116 (fetch), :173 (search) and :225 (add/update category), plus
-    # my_plan_controller.dart:22. Three further call sites are commented out.
-    #
-    # `hideLoader()` is the dangerous half: it is an unguarded `Get.back(closeOverlays: true)`,
-    # which pops whatever is on top of the navigation stack -- not "the loader", because there is
-    # no loader. At category_controller.dart:280 it runs after the add/update request returns,
-    # with the category bottom sheet open. Whether that pop is load-bearing (closing the sheet by
-    # accident) or harmful (closing the screen underneath when the sheet has already gone) is a
-    # NAVIGATION question, and the fix either introduces a loader that was never on screen or
-    # changes what `Get.back()` closes. Both are behaviour changes on a shipped flow.
-    #
-    # So this is NOT classified as a design pass that nobody did. There is no surface to
-    # photograph -- the indicator does not render -- and the repair is a behaviour change on
-    # merchant navigation.
-    #
-    # REMEDIATION: an owner decision on whether `showLoader()` should begin showing a loader and
-    # what `hideLoader()` should dismiss. `LoadingWidget` itself is a correct one-line
-    # `Center(child: CircularProgressIndicator(...))` and needs no design work.
-    'Loading indicator (Loader / LoadingWidget)':
-        'the indicator never renders: Loader.showLoader() (loading_widget.dart:6-8) constructs '
-        '`const LoadingWidget()` and discards it, so nothing is inserted into any overlay or '
-        'route -- at three live call sites in category_controller plus my_plan_controller:22. '
-        'Loader.hideLoader() is meanwhile an unguarded Get.back(closeOverlays: true) that pops '
-        'whatever is on top, with no loader to dismiss. There is no surface to photograph, and '
-        'the repair is a navigation behaviour change on a shipped flow. REMEDIATION: an owner '
-        'decision on whether to show a loader and on what hideLoader() should close.',
-
     # ---- BLOCKED ON A PLATFORM CHANNEL, measured rather than assumed --------------------------
     # `InvoicePdfViewScreen` builds a `PdfPreview` (invoice_pdf_view.dart:98) and the preview
     # rasterises through the `printing` plugin. Driven in all four combinations the screen throws

@@ -215,3 +215,27 @@ One related note worth keeping visible: `update()` is safe *only* because
 `ProfileUpdateRequest::rules()` returns just `name` and `email`. `type`, `plan_id` and `created_by`
 are all in `User::$fillable`, so that rule list is the single thing between `PATCH /profile` and a
 `type => 'super admin'` escalation. Widening those rules escalates immediately.
+
+---
+
+## 6. An intermittent Flutter test, observed and not attributed
+
+`test/a11y/balance_card_contrast_test.dart` — *"light: every button label clears 4.5:1 against
+its own fill"* — **failed once in four consecutive full-suite runs** on 2026-11-10, during the
+P2.5-P2 loader work.
+
+Recorded rather than waved away, and deliberately **not** attributed to that change:
+
+* It passes **in isolation**, 7 of 7.
+* It passed in the three other full runs of the same tree (1945, 1953, 1953).
+* It has **no coupling** to the code that changed: a grep of the file for `Loader`,
+  `showLoader` or `hideLoader` returns nothing.
+
+**One push went out on the run that failed.** The commit (`b86299b`, Flutter repo) was made in the
+same shell chain as the suite, and the chain continued past the failure. The tree is green on
+re-run, but the honest statement is that the push was not gated on that particular run.
+
+What is *not* claimed: that the loader change caused it, or that it is fixed. What would settle
+it is running that file repeatedly against a fixed tree and bisecting the file order; that has not
+been done, and until it is, this is an open intermittent on a test nobody has shown to be
+deterministic.

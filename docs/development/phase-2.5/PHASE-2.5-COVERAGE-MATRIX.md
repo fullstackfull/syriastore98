@@ -10,8 +10,8 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 192 | 65.1% |
-| BLOCKED | 19 | 6.4% |
+| REDESIGNED AND VERIFIED | 193 | 65.4% |
+| BLOCKED | 18 | 6.1% |
 | OUT OF SCOPE | 15 | 5.1% |
 | DUPLICATE | 5 | 1.7% |
 | PENDING | 40 | 13.6% |
@@ -36,7 +36,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 22 | 3 | 3 | 7 |
 | Phase 2.5 Wave A | 30 | 0 | 26 | 0 | 3 | 1 |
 | Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 16 | 5 | 1 | 2 |
-| Flutter merchant/employee admin app | 24 | 0 | 13 | 1 | 6 | 4 |
+| Flutter merchant/employee admin app | 24 | 0 | 14 | 0 | 6 | 4 |
 | Customers and customer management | 20 | 0 | 13 | 4 | 0 | 3 |
 | ORDERS | 17 | 0 | 10 | 3 | 0 | 4 |
 | PRODUCTS | 16 | 1 | 9 | 1 | 0 | 5 |
@@ -282,7 +282,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Shared skeletons (AppShimmer) | ``partial/component — adopted in 22 files`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
 | Shared status indicators | ``partial/component — statusPill 5 live sites; StatusBadgeHelpe` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
 | Theme switch animation | ``partial/component — wraps the whole app via GetMaterialApp bu` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Loading indicator (Loader / LoadingWidget) | ``partial/component — Loader.showLoader() live at 4 sites`` | deficient | **BLOCKED** | the indicator never renders: Loader.showLoader() (loading_widget.dart:6-8) constructs `const LoadingWidget()` and discards it, so nothing is inserted into any overlay or route -- at three live call sites in category_controller plus my_plan_controller:22. Loader.hideLoader() is meanwhile an unguarded Get.back(closeOverlays: true) that pops whatever is on top, with no loader to dismiss. There is no surface to photograph, and the repair is a navigation behaviour change on a shipped flow. REMEDIATION: an owner decision on whether to show a loader and on what hideLoader() should close. |
+| Loading indicator (Loader / LoadingWidget) | ``partial/component — Loader.showLoader() live at 4 sites`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-P2; four captures under evidence/flutter-components2-2026-11-10/ |
 | Routing table | ``partial/component`` | needs-polish | **OUT OF SCOPE** | not a screen: routes/routes.dart is 29 path constants and a List<GetPage> of 17 entries, consumed as data at store_go.dart:37-39. It declares nothing visual at all -- no transition, transitionDuration, curve or custom page builder appears in the file, and GetMaterialApp sets no defaultTransition -- so it contributes neither chrome nor animation. Every screen it names is its own inventory row. |
 | Bindings / DI | ``partial/component`` | needs-polish | **OUT OF SCOPE** | not a screen: lib/bindings/ is 11 Bindings subclasses whose dependencies() bodies are only Get.put / Get.lazyPut calls. A grep for Widget or transition across the directory returns zero hits -- no file there builds or configures a widget. Live (AppBinding is the initialBinding) but with nothing to render. |
 
