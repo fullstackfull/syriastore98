@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 140 | 47.5% |
+| REDESIGNED AND VERIFIED | 143 | 48.5% |
 | BLOCKED | 10 | 3.4% |
 | OUT OF SCOPE | 3 | 1.0% |
-| PENDING | 118 | 40.0% |
+| PENDING | 115 | 39.0% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -30,7 +30,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
-| Flutter merchant admin app | 51 | 0 | 30 | 0 | 0 | 21 |
+| Flutter merchant admin app | 51 | 0 | 33 | 0 | 0 | 18 |
 | CATALOGUE taxonomy | 38 | 13 | 9 | 0 | 0 | 16 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 20 | 1 | 2 | 12 |
 | Phase 2.5 Wave A | 30 | 0 | 25 | 0 | 0 | 5 |
@@ -59,7 +59,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Home / Overview (tab 0) | ``tab 0 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HOME; four captures under evidence/flutter-home-2026-11-09/ |
 | Home widgets (stat tiles, QR, profile row) | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Orders list (tab 1) | ``tab 1 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-ORDERS; four captures under evidence/flutter-orders-2026-11-09/ |
-| Order detail | ``Get.to(() => OrderDetailScreen()) from orders, notifications,` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Order detail | ``Get.to(() => OrderDetailScreen()) from orders, notifications,` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-DETAIL2; four captures under evidence/flutter-order-detail-2026-11-10/ |
 | Create order | ``GetX /addOrder, and Get.to(() => CreateOrderScreen()) from or` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Invoice (PDF build) / Invoice viewer | ``Get.to(() => InvoicePdfViewScreen()) from order detail`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Products list (tab 2) | ``tab 2 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-PRICE; four captures under evidence/flutter-harness-2026-11-09/ |
@@ -87,12 +87,12 @@ actually been done to it since. They are different questions and the matrix keep
 | Add / edit customer (modal) | ``showModalBottomSheet from customers list`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Delivery men (staff) list | ``GetX /delivery_boys`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HARNESS; four captures under evidence/flutter-harness-2026-11-09/ |
 | Coupons list | ``GetX /coupon`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HARNESS; four captures under evidence/flutter-harness-2026-11-09/ |
-| Coupon detail | ``Get.to(() => CouponDetailScreen()) from coupons list`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Coupon detail | ``Get.to(() => CouponDetailScreen()) from coupons list`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-DETAIL2; four captures under evidence/flutter-coupon-detail-2026-11-10/ |
 | Notifications | ``GetX /notifications, and Get.to(() => NotificationScreen()) f` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-OPS; four captures under evidence/flutter-ops-2026-11-09/ |
 | Analytics / statistics | ``GetX /statistics`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-STATS; four captures under evidence/flutter-stats-2026-11-09/ |
 | Statistics widgets | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Wallet | ``GetX /wallet`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-OPS; four captures under evidence/flutter-ops-2026-11-09/ |
-| My plan | ``GetX /myPlan`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| My plan | ``GetX /myPlan`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-DETAIL2; four captures under evidence/flutter-my-plan-2026-11-10/ |
 | Profile / My account | ``Get.to(() => ProfileScreen()) from the dashboard profile row`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-ACCOUNT; four captures under evidence/flutter-account-2026-11-09/ |
 | Shared app bar | ``partial/component`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
 | Shared empty / error / stale states | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |

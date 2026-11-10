@@ -580,7 +580,13 @@ VERIFIED = {
     # browser by probe-wave11-order-tables.cjs (order detail + refund detail via encrypted-id
     # URLs; the quick-view modal by clicking the grid eye action). The quick-view modal is not
     # a separate inventory surface, so it earns no row here though it is in evidence/wave-11.
-    'Order detail':               ('REDESIGNED AND VERIFIED', 'wave-11', 'order-view__', 'P2.5-WAVE-11', 'order-view'),
+    # TWO SURFACES, ONE NAME -- the Laravel web screen and the Flutter screen. Each entry carries
+    # its own route needle, so neither can claim the other's row. (P2.5-FLUTTER-DETAIL2)
+    'Order detail': [
+        ('REDESIGNED AND VERIFIED', 'wave-11', 'order-view__', 'P2.5-WAVE-11', 'order-view'),
+        ('REDESIGNED AND VERIFIED', 'flutter-order-detail-2026-11-10', 'flutter-order-detail_',
+         'P2.5-FLUTTER-DETAIL2', 'OrderDetailScreen'),
+    ],
     'Refund detail / decision screen': ('REDESIGNED AND VERIFIED', 'wave-11', 'refund-detail__', 'P2.5-WAVE-11'),
     # P2.5-WAVE-12 wrapped the two role-permission matrix modals onto .ss-table, verified by
     # probe-wave12-roles.cjs (create via the static /roles button, edit via the roles DataTable
@@ -695,8 +701,13 @@ VERIFIED = {
     # Each was unreachable until the fixture gaps closed: five needed a `Manage *` permission,
     # coupon-detail needed a coupon row to exist, and attribute-option needed the probe to stop
     # asking for a URL with no id. 448 checks / 0 failed across all four combinations.
-    'Coupon detail':                ('PREMIUM VERIFIED', 'pkg-b-pages', 'coupon-detail__',
-                                     'P2.5-PKG-B', '/coupon/{coupon}'),
+    # The web coupon detail stays PREMIUM VERIFIED; the Flutter redemption-history screen is a
+    # separate surface and is claimed separately. (P2.5-FLUTTER-DETAIL2)
+    'Coupon detail': [
+        ('PREMIUM VERIFIED', 'pkg-b-pages', 'coupon-detail__', 'P2.5-PKG-B', '/coupon/{coupon}'),
+        ('REDESIGNED AND VERIFIED', 'flutter-coupon-detail-2026-11-10', 'flutter-coupon-detail_',
+         'P2.5-FLUTTER-DETAIL2', 'CouponDetailScreen'),
+    ],
     'Attribute options (DS pilot screen)': ('PREMIUM VERIFIED', 'pkg-b-pages', 'attribute-option__',
                                      'P2.5-PKG-B'),
     'Category create (modal)':      ('PREMIUM VERIFIED', 'pkg-b-modals', 'category-create__',
@@ -1030,6 +1041,38 @@ VERIFIED = {
         ('REDESIGNED AND VERIFIED', 'web-row-actions-2026-11-10', 'order-row-actions__', 'P2.5-ROW'),
     'Product row actions (list cell fragment)':
         ('REDESIGNED AND VERIFIED', 'web-row-actions-2026-11-10', 'product-row-actions__', 'P2.5-ROW'),
+    # ----------------------------------------------------------------------------------------
+    # P2.5-FLUTTER-DETAIL2. The two heavier Flutter detail screens, driven with real controllers
+    # against `test/support/nested_fixtures.dart` -- one fixture file for the payloads too deep
+    # to inline (OrderDetailModel.fromJson alone reads SIXTY-FOUR keys).
+    #
+    # 2 surfaces x 4 combinations, 8 captures, plus two empty-payload premise tests.
+    #
+    # THREE DEFECTS FOUND IN THE ARABIC UI, all of them visible only once the screen was really
+    # rendered in Arabic:
+    #   the order's status printed the SERVER's English string. `order_status_text` is
+    #       localised server-side, but the admin API never runs `SetLocate`
+    #       (bootstrap/app.php:36 appends it to the `web` group only), so it arrives in the
+    #       application default rather than the merchant's language. Both sites now translate
+    #       the INTEGER through `StatusBadgeHelper.getOrderLabel`, which is locale-independent
+    #       and sidesteps the server's own misspelling (`__('Comfirmed')`, Order.php:440) that
+    #       `tests/Feature/ApiContract/OrderStatusTextTest` pins and which therefore must NOT be
+    #       corrected on one surface alone.
+    #   `"payment".tr` had NO KEY in either translation file, so the order-detail header
+    #       printed the literal lowercase word `payment` in both languages.
+    #   every DATE in the app rendered its month in English. `formatDateTime` built
+    #       `DateFormat(format)` with no locale, so `MMM` always resolved en_US -- and a Latin
+    #       date inside an RTL line reorders, which is how the coupon history read
+    #       `Nov 2026 01`. Now `DateFormat(format, activeLocale)`, with
+    #       `initializeDateFormatting()` added to `main()` and to the test harness because intl
+    #       throws LocaleDataException for an unloaded locale. Arabic now reads `٠١ نوفمبر ٢٠٢٦`.
+    #       This reaches EVERY date in the app, not only these two screens.
+    # ----------------------------------------------------------------------------------------
+
+    'My plan':
+        ('REDESIGNED AND VERIFIED', 'flutter-my-plan-2026-11-10', 'flutter-my-plan_',
+         'P2.5-FLUTTER-DETAIL2'),
+
     # 'Attribute row actions' is DELIBERATELY NOT HERE. /product-attribute renders zero rows in
     # this fixture, so there is no cell to capture. Seeding one needs an attribute AND its
     # parent product's variant wiring, which is a fixture job of its own rather than a line in
@@ -1139,14 +1182,27 @@ def classify(row):
     if row['screen'] in BLOCKED_SURFACES:
         return 'BLOCKED', BLOCKED_SURFACES[row['screen']]
     if row['screen'] in VERIFIED:
-        entry = VERIFIED[row['screen']]
-        state, wave, prefix, pkg = entry[0], entry[1], entry[2], entry[3]
-        route_needle = entry[4] if len(entry) > 4 else None
         # A screen NAME can repeat across areas -- "Order detail" is BOTH the Laravel web screen
-        # (route order-view/{id}) and the Flutter screen (OrderDetailScreen). A verified entry that
-        # carries a route needle claims only the row whose route contains it; the other falls
-        # through to PENDING, so a web capture can never mark a Flutter surface verified.
-        if route_needle is None or route_needle in row['route']:
+        # (route order-view/{id}) and the Flutter screen (OrderDetailScreen). A verified entry
+        # that carries a route needle claims only the row whose route contains it; the other
+        # falls through to PENDING, so a web capture can never mark a Flutter surface verified.
+        #
+        # A LIST CLAIMS BOTH, each element with its own route needle. Before this, the only way
+        # to claim the second row was to add a second dict entry under the same name -- and
+        # Python silently KEEPS THE LAST ONE. That is not a hypothetical: adding the Flutter
+        # `Order detail` and `Coupon detail` claims that way overwrote the web entries, which
+        # demoted the web coupon detail from PREMIUM VERIFIED to REDESIGNED AND VERIFIED and
+        # pointed both names at Flutter captures. The matrix counts moved by exactly one in each
+        # direction and nothing failed. A list makes the two claims coexist instead of racing.
+        entries = VERIFIED[row['screen']]
+        if isinstance(entries, tuple):
+            entries = [entries]
+
+        for entry in entries:
+            state, wave, prefix, pkg = entry[0], entry[1], entry[2], entry[3]
+            route_needle = entry[4] if len(entry) > 4 else None
+            if route_needle is not None and route_needle not in row['route']:
+                continue
             base = os.path.join(ROOT, 'docs/development/phase-2.5/evidence', wave, 'after')
             missing = [c for c in COMBOS if not os.path.exists(os.path.join(base, f'{prefix}{c}.png'))]
             if missing:
