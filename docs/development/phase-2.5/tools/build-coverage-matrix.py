@@ -1190,6 +1190,29 @@ VERIFIED = {
     'Product quick-preview panel body':
         ('REDESIGNED AND VERIFIED', 'web-fragments-2026-11-10', 'product-preview-panel__', 'P2.5-FRAG'),
 
+    # P2.5-FLUTTER-PRODUCTDETAIL. The screen takes the product as a constructor argument and
+    # fetches only its gallery, so the fixture is a ProductData map plus an images response.
+    # Driving it found that `average_rating` -- a double(8,2) in the host schema -- was cast
+    # `as int?`, which THROWS for any fractional rating and takes the product LIST down with it.
+    'Product detail': [
+        ('REDESIGNED AND VERIFIED', 'flutter-product-detail-2026-11-10',
+         'flutter-product-detail_', 'P2.5-FLUTTER-PRODUCTDETAIL', 'ProductDetailScreen'),
+    ],
+
+    # P2.5-FLUTTER-EDITORS. The two screens a merchant types into. Driving them raised a
+    # framework error that is SILENT at runtime: a SwitchListTile wrapped in a DecoratedBox
+    # paints over its own ink splash, so the visibility toggle had no tap feedback.
+    'Add rating / review':
+        ('REDESIGNED AND VERIFIED', 'flutter-editors-2026-11-10',
+         'flutter-add-rating_', 'P2.5-FLUTTER-EDITORS'),
+    'Add / edit product':
+        ('REDESIGNED AND VERIFIED', 'flutter-editors-2026-11-10',
+         'flutter-product-editor_', 'P2.5-FLUTTER-EDITORS'),
+
+    'Create order':
+        ('REDESIGNED AND VERIFIED', 'flutter-create-order-2026-11-10',
+         'flutter-create-order_', 'P2.5-FLUTTER-CREATEORDER', 'CreateOrderScreen'),
+
     'Store payment methods':
         ('REDESIGNED AND VERIFIED', 'flutter-payment-methods-2026-11-10',
          'flutter-payment-methods_', 'P2.5-FLUTTER-DETAIL2'),

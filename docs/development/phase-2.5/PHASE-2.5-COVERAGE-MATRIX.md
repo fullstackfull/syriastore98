@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 160 | 54.2% |
+| REDESIGNED AND VERIFIED | 164 | 55.6% |
 | BLOCKED | 10 | 3.4% |
 | OUT OF SCOPE | 3 | 1.0% |
-| PENDING | 98 | 33.2% |
+| PENDING | 94 | 31.9% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -30,7 +30,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
-| Flutter merchant admin app | 51 | 0 | 34 | 0 | 0 | 17 |
+| Flutter merchant admin app | 51 | 0 | 38 | 0 | 0 | 13 |
 | CATALOGUE taxonomy | 38 | 13 | 19 | 0 | 0 | 6 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 21 | 1 | 2 | 11 |
 | Phase 2.5 Wave A | 30 | 0 | 25 | 0 | 0 | 5 |
@@ -60,12 +60,12 @@ actually been done to it since. They are different questions and the matrix keep
 | Home widgets (stat tiles, QR, profile row) | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Orders list (tab 1) | ``tab 1 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-ORDERS; four captures under evidence/flutter-orders-2026-11-09/ |
 | Order detail | ``Get.to(() => OrderDetailScreen()) from orders, notifications,` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-DETAIL2; four captures under evidence/flutter-order-detail-2026-11-10/ |
-| Create order | ``GetX /addOrder, and Get.to(() => CreateOrderScreen()) from or` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Create order | ``GetX /addOrder, and Get.to(() => CreateOrderScreen()) from or` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-CREATEORDER; four captures under evidence/flutter-create-order-2026-11-10/ |
 | Invoice (PDF build) / Invoice viewer | ``Get.to(() => InvoicePdfViewScreen()) from order detail`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Products list (tab 2) | ``tab 2 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-PRICE; four captures under evidence/flutter-harness-2026-11-09/ |
-| Product detail | ``Get.to(() => ProductDetailScreen()) from products list`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Add / edit product | ``Get.to(() => AddNewProductScreen(isUpdate:)) from products li` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Add rating / review | ``Get.to(() => AddRatingScreen()) from product detail`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Product detail | ``Get.to(() => ProductDetailScreen()) from products list`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-PRODUCTDETAIL; four captures under evidence/flutter-product-detail-2026-11-10/ |
+| Add / edit product | ``Get.to(() => AddNewProductScreen(isUpdate:)) from products li` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-EDITORS; four captures under evidence/flutter-editors-2026-11-10/ |
+| Add rating / review | ``Get.to(() => AddRatingScreen()) from product detail`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-EDITORS; four captures under evidence/flutter-editors-2026-11-10/ |
 | Product card / field partials | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Categories (tab 3) | ``tab 3 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HARNESS; four captures under evidence/flutter-harness-2026-11-09/ |
 | Add / edit category (modal) | ``showModalBottomSheet from categories`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
