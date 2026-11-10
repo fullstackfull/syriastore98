@@ -223,8 +223,20 @@ class UserPolicy
             return true;
         }
 
+        /* P2.5-SEC-VERIFY (2026-11-10) -- THROUGH THE SHARED HELPER, NOT THE LITERAL.
+           This read `$target->type === self::PLATFORM_ADMIN`. MySQL's utf8mb4_unicode_ci treats
+           `'Super Admin'` and `'super admin '` as EQUAL to that literal while PHP's `===` does
+           not, so a row typed either way was the operator to the database and a stranger to this
+           method. `delete()` was already using `isOperator()`; these three were not, and the
+           asymmetry was an oversight rather than a decision.
+
+           A TIGHTENING, NOT A REORDER. Normalising the TARGET test can only refuse more than it
+           did; it admits nobody it previously refused, and it does not move the operator check
+           past the permission check on any path -- which the owner's closure instruction
+           explicitly forbids. Measured in both directions by
+           `CrossTenantPolicyGridTest::test_no_path_may_act_on_a_platform_operator_however_the_row_is_spelled`. */
         // Nobody below platform-admin may edit a platform admin.
-        if ($target->type === self::PLATFORM_ADMIN) {
+        if (self::isOperator($target)) {
             return false;
         }
 
@@ -299,7 +311,19 @@ class UserPolicy
             return false;
         }
 
-        if ($target->type === self::PLATFORM_ADMIN) {
+        /* P2.5-SEC-VERIFY (2026-11-10) -- THROUGH THE SHARED HELPER, NOT THE LITERAL.
+           This read `$target->type === self::PLATFORM_ADMIN`. MySQL's utf8mb4_unicode_ci treats
+           `'Super Admin'` and `'super admin '` as EQUAL to that literal while PHP's `===` does
+           not, so a row typed either way was the operator to the database and a stranger to this
+           method. `delete()` was already using `isOperator()`; these three were not, and the
+           asymmetry was an oversight rather than a decision.
+
+           A TIGHTENING, NOT A REORDER. Normalising the TARGET test can only refuse more than it
+           did; it admits nobody it previously refused, and it does not move the operator check
+           past the permission check on any path -- which the owner's closure instruction
+           explicitly forbids. Measured in both directions by
+           `CrossTenantPolicyGridTest::test_no_path_may_act_on_a_platform_operator_however_the_row_is_spelled`. */
+        if (self::isOperator($target)) {
             return false;
         }
 
@@ -334,6 +358,9 @@ class UserPolicy
             return false;
         }
 
-        return $target->type !== self::PLATFORM_ADMIN;
+        /* Same normalisation as the three above, and it matters most here: SEC-F6 is platform
+           takeover, and one operator account becoming another leaves no trace of which one
+           acted. A `'Super Admin'` row was impersonable. */
+        return ! self::isOperator($target);
     }
 }

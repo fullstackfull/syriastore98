@@ -479,3 +479,103 @@ repair reverted.
 
 It is a lockout rather than a hole, and reordering it would hand every operator edit rights they
 do not hold today. **That is a product decision and is left to the owner.**
+
+---
+
+## 8. Owner decisions of 2026-11-10 (closure instruction), and what they changed
+
+### 8.1 Operator user-editing stays behind an explicit permission — DECIDED, not a defect
+
+§7 reported that `UserPolicy::update()` tests `Edit User` **before** operator status, unlike its
+three siblings, so an operator holding no Laratrust role cannot edit any user. The owner's
+decision:
+
+> *"Do not grant operators unrestricted user-editing privileges. Preserve least-privilege
+> authorization. Use existing explicit roles and permissions. Do not reorder the policy merely to
+> bypass a permission denial."*
+
+So the asymmetry is a **control**, and it is now pinned as one:
+`CrossTenantPolicyGridTest::test_an_operator_without_edit_user_may_not_update_anyone` fails if
+anybody reorders it, and its pair
+`test_an_operator_holding_edit_user_may_still_do_the_work` fails if least privilege ever becomes
+no privilege. The reported-defect framing in §7 is superseded by this.
+
+**THE SCOPED CHANGE, written out for approval rather than made.** If a real operator workflow
+needs user editing without hand-granting a role to each operator account, the smallest change that
+does it — and the only one this document recommends — is:
+
+```
+  Create ONE Laratrust role, `platform-operator`, carrying exactly:
+      Edit User          (so UserPolicy::update admits the operator)
+  and nothing else. Assign it to accounts whose `users.type` is already `super admin`.
+```
+
+Why this and not a code change: it adds no bypass, it is visible in the roles UI, it is revocable
+per account, and it leaves `update()`'s ordering — and therefore the control above — untouched.
+What it does NOT do is grant `Delete User`, `Reset Password` or anything else; those three paths
+already admit the operator first and need no grant, which is the asymmetry working as intended.
+
+**Not implemented. It needs the owner's word, and it changes who can edit accounts.**
+
+### 8.2 The target-is-operator test is now normalised on all four paths
+
+The closure instruction asks to *"preserve cross-tenant protection across update, delete, password
+reset and impersonation paths."* Measuring all four as one grid found that only `delete()` used
+`UserPolicy::isOperator()`; the other three compared `$target->type` against the literal
+`'super admin'`.
+
+MySQL's `utf8mb4_unicode_ci` treats `'Super Admin'` and `'super admin '` as **equal** to that
+literal while PHP's `===` does not — so a row typed either way was the operator to the database
+and a stranger to `update()`, `resetPassword()` and `impersonate()`. Measured: a merchant could
+update, reset the password of, and (as an operator) impersonate a `'Super Admin'` row.
+
+All three now use the shared helper. **This is a tightening, not a reorder**: it can only refuse
+more than it did, it admits nobody it previously refused, and it moves no operator check past a
+permission check. `CrossTenantPolicyGridTest` drives all three spellings on all four paths, with a
+premise asserting the target really is inside the attacker's tenant — without that premise the
+first version of the case passed against the unrepaired policy, because `sameTenant()` refused it
+on a limb the case was not testing.
+
+### 8.3 Store deletion is a FUNCTIONAL LIMITATION, not a feature
+
+> *"Document the current inability to delete stores as a functional limitation requiring a
+> separate safe account/store lifecycle design. Do not treat permanent disabling as completed
+> functionality."*
+
+Recorded plainly:
+
+**`DELETE stores/{store}` is disabled, and disabling it is not the same as solving it.** The route
+deleted a store by deleting its **owner**, and a store owner always owns a store, so
+`UserDeletionSafety::blockers()` always fires. Nothing links to the route and the merchant's own
+store removal is a different route under decision D14 — so no shipped workflow is lost today — but
+**the platform currently has no safe way for an operator to retire a store or an account.**
+
+What that needs, and what this repair deliberately did not attempt:
+
+| | |
+|---|---|
+| a store lifecycle | retire / suspend / archive as states on `stores`, distinct from deleting the owning `users` row |
+| an account lifecycle | what happens to a tenant owner's row when the tenant is retired — the 15 cascade and 8 orphan dependencies decide this, not a flag |
+| a data decision | which of orders, customers, products, wallet transactions, withdrawals and plan orders are retained, anonymised or exported, and for how long |
+| an actor and an audit trail | who may retire a tenant, and what the record of it is |
+
+None of that is a rendering or a guard change; it is a product design. **It is open, and it is not
+Phase 2.5 work.** The guard is what stops silent destruction in the meantime, and the owner's
+instruction is explicit that the guard must not be read as the feature.
+
+### 8.4 What was re-verified for closure
+
+The seven checks the closure instruction names, and where each is measured:
+
+| check | where |
+|---|---|
+| cross-tenant user updates and deletions are rejected | `CrossTenantPolicyGridTest` (policy and routes), `UserDeletionAuthorizationTest` |
+| password resets cannot target another tenant | `CrossTenantPolicyGridTest`, `CredentialBoundaryTest` |
+| operator privileges remain explicitly controlled | `CrossTenantPolicyGridTest` §3, both directions |
+| the tenant-root identity cannot be manipulated through role changes | `TenantRootIsNotThePlatformTest`, driven through the routes |
+| store ownership and financial dependencies survive a rejected deletion | `UserDeletionAuthorizationTest::test_nothing_is_lost_when_a_deletion_is_refused` |
+| plan-activation replay protection remains effective | `PlanActivationReplayGuardTest` |
+| the fixes do not block legitimate staff management | `CrossTenantPolicyGridTest` §4, `UserDeletionAuthorizationTest`, `TenantRootIsNotThePlatformTest` |
+
+92 cases across those six classes, all passing, on SQLite `:memory:` — a disposable database per
+case through `RefreshDatabase`. No production or fixture database is touched by any of them.

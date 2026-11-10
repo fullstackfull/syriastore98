@@ -2937,3 +2937,73 @@ DUPLICATE 8, BLOCKED 10, PREMIUM VERIFIED 24 — of 295.** PENDING entered this 
 
 Every one of the 24 that remain needs either the AJAX-modal harness or a fixture this container
 does not have; none of them is waiting on a decision.
+
+---
+
+## 4.29 P2.5-SEC-VERIFY — the four user-management paths, checked as one grid [2026-11-10]
+
+The owner's closure instruction asks for cross-tenant protection to be verified across **update,
+delete, password reset and impersonation** together. They are four methods on one policy, they
+share one tenancy predicate, and checking them as a grid found something four separate files had
+not.
+
+### What the grid found
+
+`UserPolicy` had four different answers to *"is the target a platform operator?"*:
+
+| method | operator admitted | permission | target-is-operator test |
+|---|---|---|---|
+| `update()` | **after** the permission | `Edit User` | `$target->type === 'super admin'` |
+| `delete()` | first | `Delete User` | `self::isOperator($target)` |
+| `resetPassword()` | first | `Reset Password` | `$target->type === 'super admin'` |
+| `impersonate()` | operator-only | — | `$target->type !== 'super admin'` |
+
+**Three of the four compared against the literal.** MySQL's `utf8mb4_unicode_ci` treats
+`'Super Admin'` and `'super admin '` as *equal* to that literal while PHP's `===` does not — so a
+row typed either way was the operator to the database and a stranger to `update()`,
+`resetPassword()` and `impersonate()`. `UserPolicy::isOperator()` exists to normalise exactly
+this, and only `delete()` was using it.
+
+Measured: a merchant could update and reset the password of a `'Super Admin'` row, and an operator
+could **impersonate** one — which is SEC-F6, platform takeover, where one operator account
+becoming another leaves no trace of which one acted.
+
+All three now use the shared helper. **A tightening, not a reorder**: it can only refuse more than
+it did, it admits nobody it previously refused, and it moves no operator check past a permission
+check — which the closure instruction explicitly forbids.
+
+### The case that first passed on a limb it was not testing
+
+The operator-spelling case originally made the target a separate merchant, and it **passed against
+the unrepaired policy**, because `sameTenant()` refused it anyway and the target-is-operator limb
+was never reached. The target is now a staff row the attacker created, with a premise asserting
+`sameTenant()` really does admit it — so the operator limb is the only thing that can refuse.
+Third time this shape has bitten in this phase; it is recorded in the file's own header.
+
+### Pinned as controls, not left as accidents
+
+Two asymmetries are now deliberate and tested in both directions:
+
+* **`update()` tests `Edit User` before operator status.** Owner decision of 2026-11-10: *"Do not
+  grant operators unrestricted user-editing privileges… Do not reorder the policy merely to bypass
+  a permission denial."* `test_an_operator_without_edit_user_may_not_update_anyone` fails on a
+  reorder; `test_an_operator_holding_edit_user_may_still_do_the_work` fails if least privilege
+  becomes no privilege. The §7 "reported defect" framing is superseded.
+* **`impersonate()` is operator-only** (SEC-F6), and an operator may impersonate neither
+  themselves nor another operator.
+
+The scoped authorization change for operator user-editing — one `platform-operator` Laratrust role
+carrying `Edit User` and nothing else — is **written out for approval and not made**, in
+`docs/security/P0-USER-DELETION-CASCADE.md` §8.1.
+
+### Store deletion recorded as a limitation, not a feature
+
+§8.3 of the same document, per the instruction: `DELETE stores/{store}` is disabled, and disabling
+is not solving. The platform has **no safe way for an operator to retire a store or an account**,
+and what that needs — a store lifecycle, an account lifecycle, a data-retention decision, an actor
+and an audit trail — is a product design and not Phase 2.5 work.
+
+### The seven closure checks
+
+All seven map onto 92 passing cases across six classes, each on a disposable `:memory:` database
+through `RefreshDatabase`; the table is in §8.4. Unit 1588, Contract 38.
