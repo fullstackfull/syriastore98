@@ -445,7 +445,28 @@
                                                     <form method="POST" action="{{ route('finance.order-financial.status', $financial->id) }}">
                                                         @csrf
                                                         <div class="d-flex gap-2 align-items-center">
-                                                            <select name="payment_status" class="form-control form-control-sm" style="min-width: 130px;">
+                                                            {{-- P2.5 -- AN UNNAMED SELECT, AND THE FALSE EVIDENCE IS WHY IT SURVIVED.
+                                                                 This control had no `<label>`, no `aria-label` and no text, so its
+                                                                 accessible name was the empty string -- a combobox announced as
+                                                                 "combobox" and nothing else, once per row, in a table where every
+                                                                 row looks the same and the control CHANGES WHETHER MONEY IS
+                                                                 RECORDED AS RECEIVED.
+
+                                                                 It went unfound through a whole capture wave because this surface's
+                                                                 four captures were 16x16 blank tiles: the form lives in the
+                                                                 `#orders` tab-pane (:402), which was never opened, so the harness
+                                                                 measured a 0x0 rect, wrote valid-but-empty PNGs, and reported
+                                                                 `combos=4`. The screenshot SUCCEEDED, so no premise fired. Opening
+                                                                 the tab found this on the first real run.
+
+                                                                 The name identifies the ORDER, because a screen-reader user moving
+                                                                 by column meets this select with no row context. It does NOT carry
+                                                                 the current status: the selected option already announces that, and
+                                                                 a name repeating it would disagree with itself the moment the
+                                                                 merchant changes the selection. --}}
+                                                            <select name="payment_status"
+                                                                aria-label="{{ __('Payment status for order :order', ['order' => '#' . $financial->order_id]) }}"
+                                                                class="form-control form-control-sm" style="min-width: 130px;">
                                                                 <option value="unpaid" {{ $financial->payment_status === 'unpaid' ? 'selected' : '' }}>{{ __('Not Received') }}</option>
                                                                 <option value="paid" {{ $financial->payment_status === 'paid' ? 'selected' : '' }}>{{ __('Received') }}</option>
                                                             </select>

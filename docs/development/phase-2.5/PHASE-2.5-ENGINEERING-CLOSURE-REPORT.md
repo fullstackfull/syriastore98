@@ -12,12 +12,22 @@ engineering judgement and only the first of them is being claimed here.
 
 | | state | who decides | evidence |
 |---|---|---|---|
-| **Engineering completion** | **REACHED** for the executable Phase 2.5 scope | engineering | §2–§5 below |
-| **Owner visual acceptance** | **NOT GIVEN** | the owner, by looking | 249 verified surfaces × 4 combinations of captures, in `docs/development/phase-2.5/evidence/` |
-| **Security approval** | **NOT GIVEN** | the owner, informed by §6 | §6, honestly reported, including what is still open |
-| **Production release readiness** | **NOT REACHED** | the owner | §6 and §7; the Phase 01 release gates are separately outstanding |
+| **Phase 2.5 scope completion** | **REACHED** — PENDING 0, every surface captured or classified | engineering | §2–§5 below |
+| **A green CI run** | **NOT REACHED** — two blocking steps are red | engineering | §5.1, which names both and says whose they are |
+| **Owner visual acceptance** | **NOT GIVEN** | the owner, by looking | the captures in `docs/development/phase-2.5/evidence/`, with §8's caveats read first |
+| **Security approval** | **NOT GIVEN** | the owner, informed by §6 | §6, including what is still open |
+| **Production release readiness** | **NOT REACHED** | the owner | §5.1, §6 and §7; the Phase 01 release gates are separately outstanding |
 
-A green CI run is **necessary evidence and not proof**, which is this project's own standing rule.
+**The first two rows were one row in the version of this report committed as `78e14d03`, and it said
+only "Engineering completion: REACHED".** That was wrong in a way worth stating rather than quietly
+editing: an audit of this document found two blocking CI steps failing on this branch while it led
+with a completion claim and listed four green gates with no hint of anything else. The scope work IS
+complete; CI is NOT green. Those are different facts and they now get different rows.
+
+A green CI run is **necessary evidence and not proof**, which is this project's own standing rule —
+and the converse holds too: a red one is not automatically a scope failure. §5.1 says which of the
+two it is for each step.
+
 Everything below is a measurement, not an assurance.
 
 ---
@@ -40,17 +50,29 @@ count moves and refuses any verified claim whose four captures are not on disk.
 **PENDING was 24 at the start of this wave and is now 0.** That is the directive's §3 requirement,
 and it is the only number in this report that represents a change of state rather than a count.
 
-`DUPLICATE` is eight inventory rows that name a screen already counted under another row — two URIs
-on one controller action, mostly. `OUT OF SCOPE` is 28 rows whose reason is recorded individually in
-the matrix; each is a measurement (an operator-only surface, a non-screen, a route with no caller),
-never an opinion.
+`DUPLICATE` is eight inventory rows that name a screen already counted under another row. The eight
+are duplicates for six *different* reasons, and the earlier claim that they were "two URIs on one
+controller action, mostly" was wrong: only **Stock Reports** is that (arguably two rows, with the
+attribute-option modals). The others are the same GetX route and widget, the same pixels, the same
+route, the same method, the same class, and the same file.
+
+`OUT OF SCOPE` is 28 rows whose reason is recorded individually in the matrix. **Most are
+measurements** — an operator-only surface, a non-screen, a route with no caller — but **three are
+phase-scope assignments carrying no measurement of the surface at all**: the complete recorded
+reason for *Super Admin dashboard* is "Phase 06 (SaaS & Super Admin), not Phase 2.5 Merchant
+Experience", and *Plan-order bank-transfer review modal* and *Top brand/category chart fragment*
+likewise rest on the inventory row title. Those three are judgements about scope, defensible ones,
+but not measurements, and an earlier version of this report said "never an opinion" of all 28.
 
 ---
 
 ## 3. Exact outstanding blockers — all ten
 
-None is a capture gap, and none can be closed by more engineering effort on this branch alone.
-Grouped by what actually blocks them:
+None can be closed by more engineering effort on this branch alone. **One of the ten IS a capture
+gap**, and an earlier version of this report said none was: the Invoice row's own remediation reads
+"capture on a device or emulator; behaviour is pinned by tests meanwhile", and §3.3 below says the
+viewer chrome is captured while the PDF body is not. That is a capture gap by any reading — it simply
+is not one this branch can close. Grouped by what actually blocks them:
 
 ### 3.1 Four surfaces need a MySQL fixture (4 rows)
 
@@ -66,9 +88,14 @@ survive, and `CLAUDE.md` already records SQLite's type affinity as a known hazar
 
 ### 3.2 Two need a connected external store (2 rows)
 
-`Shopify import screens` and `WooCommerce import screens`. Measured HTTP 200 with an **empty body
-and no `<html>` element** in all four combinations: the controllers require a connected store's
-settings before rendering anything. Neither can be driven without live third-party credentials.
+`Shopify import screens` and `WooCommerce import screens`. Both require a connected store before
+rendering, and neither can be driven without live third-party credentials — but **their measurements
+are different**, and an earlier version of this report gave WooCommerce's reading for both:
+
+| row | measured |
+|---|---|
+| Shopify | **HTTP 500** in all four combinations — `ShopifyProductController::index` calls the Shopify Admin API before returning a view, and every failure arm is `redirect()->back()->with('error', …)`; there is no blank-200 path |
+| WooCommerce | **HTTP 200 with an empty body and no `<html>` element** in all four combinations |
 
 ### 3.3 One cannot be rendered under `flutter_test` (1 row)
 
@@ -84,7 +111,7 @@ not.
 ### 3.5 Two are registered but unimplemented, and need an owner decision (2 rows)
 
 * **`Edit customer (registered, unimplemented)`** — not a missing screen but a **web/Flutter parity
-  gap**. The web routes are deliberately not registered (`routes/web.php:1191` excludes
+  gap**. The web routes are deliberately not registered (`routes/web.php:1200` excludes
   `edit`/`update`, applied after `GET /customer/1/edit` answered HTTP 500), while a complete
   customer-update backend ships and the Flutter admin already uses it (`routes/api.php:267`
   → `DashboardController::updateCustomerInfo`). Building the web screen is **new merchant
@@ -105,13 +132,14 @@ not.
 | `POST /store-language-data` → **HTTP 500**, and now fails closed rather than writing `resources/lang/.json` | same cause, worse consequence |
 | `GET /store-get-Powertranz-status` → **HTTP 500** on a payment-return URL | same cause |
 | `GET /faqs/{id}/edit` → **HTTP 500** on a row with one JSON key missing | fail-safe; production ships 0 `faqs` rows |
-| `GET /email_template_lang` → **HTTP 500** on an empty database | now an empty state |
-| the flash-sale status cell offered a **live switch to viewers the handler answers 403** — including the platform operator, whom that gate refuses by name | a control that reverts |
+| `GET /email_template_lang` → **HTTP 500** on an empty database | now a redirect carrying a message, **not** an empty state: the screen cannot render without a template, so `EmailTemplateEmptyStateTest` asserts it *fails as a redirect* rather than asserting it renders |
+| the flash-sale status cell offered a **live switch to viewers `updateStatus` answers 403** | a control that flips, fires, takes a 403 and reverts. Observed for permissionless staff. The operator limb is **defensive, not observed**: `FlashSaleController::index():135` gates the list on `Manage Flash Sale` with no operator limb, so an operator reaches the cell only if granted it — the blade says so in terms |
 | the withdrawal reject button measured **1.04:1 in dark** | invisible text on a destructive control |
-| `.alert-info` **4.41:1** and `.alert-warning` **4.46:1** | sub-AA, app-wide |
+| `.alert-info` **4.413:1** and `.alert-warning` **4.464:1** | sub-AA on **5 usages across 4 views** — measured, and the repair is scoped `[data-ss-admin]` rather than global because `DesignSystemStylesheetScopeTest` rejected the global form |
 | the variant heading measured **4.03:1** on the create arm — a dark-mode fix whose selector had never matched that page | sub-AA |
 | **six icon-only delete anchors** and **four modal close buttons** with no accessible name | announced as "link" / "button" |
 | four label-association defects, two unlabelled selects, one Arabic mistranslation (`"Url": "الرمز"` → `"الرابط"`) | from the earlier part of this wave |
+| the inline **payment-status select had no accessible name** — a combobox announced as "combobox" and nothing else, once per row, on the control that records whether money was received | found only AFTER §5.2's blank-tile capture was repaired; the false evidence was hiding it |
 
 ### 4.2 Three readings corrected rather than reported as findings
 
@@ -127,8 +155,19 @@ Recorded because each would otherwise have reached this report as a defect:
 
 `page.screenshot({ clip }).catch(() => {})` with the tally running regardless: three surfaces
 reported `combos=4` while zero files existed. Fixed in three harnesses. **No coverage claim was
-falsified by it** — the matrix's gate is the filesystem, and it refused three of this wave's own
-claims until their filenames were right.
+falsified by *that* failure** — the matrix's gate is the filesystem, and it refused three of this
+wave's own claims until their filenames were right.
+
+**But the fix was incomplete, and §5.2 is what that cost.** Catching a screenshot Playwright
+*refuses* does nothing about one it *accepts*: a 16×16 clip of a zero-size container is a perfectly
+valid PNG, so the tally counted four and the filesystem gate was satisfied by four blank tiles. The
+measurement step now refuses any box under **24×24** and reports the measured rect, which is what
+points at the hidden-ancestor cause instead of leaving a reader wondering why an image is blank.
+
+The general lesson, and the reason both halves are written out: **every guard here was built to
+catch the failure that had just happened, and each time the next one arrived through the gap beside
+it.** A file existing, a screenshot succeeding and a surface being photographed are three different
+claims.
 
 ---
 
@@ -175,11 +214,115 @@ Evidence added this wave:
 | directory | contents |
 |---|---|
 | `evidence/web-closure-2026-11-10/` | 28 modal surfaces × 4 = 112 captures, **0 findings** |
-| `evidence/web-closure-frag-2026-11-10/` | 26 fragment/cell/finance surfaces × 4, **0 contrast and 0 nameless findings** |
+| `evidence/web-closure-frag-2026-11-10/` | **29** surfaces × 4 = 116 captures (an earlier version of this report said 26) |
 | `evidence/web-closure-receipt-2026-11-10/` | the printable receipt; 4 files, **2 distinct documents**, and the README says why |
-| `evidence/web-closure-email-2026-11-10/` | the email template screens, 8 runs, 0 not clean |
+| `evidence/web-closure-email-2026-11-10/` | the template list and one template's language editor, 8 runs, 0 not clean — **re-captured**, see §5.2 |
 
 Each directory's README states its own preconditions and how to reproduce it.
+
+**On "0 findings" for the fragment directory, which is the weakest evidence claim in this report.**
+The final per-surface run reported 0 contrast and 0 nameless findings for every surface, and I
+watched each one. But `after/measurements.json` is written per run and the last runs were filtered
+(`--only finance`, `--only variant-panels`), so **the file on disk records 6 surfaces, not 29** — the
+earlier surfaces' findings were overwritten and are not preserved anywhere in the directory. The
+pictures are all there; the machine-readable record of their measurement is not. Treat "0 findings"
+as evidenced for the 6 recorded surfaces and attested-but-not-preserved for the other 23. A full
+unfiltered re-run would fix that and has not been done.
+
+### 5.1 Two blocking CI steps are red, and neither is green-washed here
+
+Both were found by an audit of this report, not by me, and both are **pre-existing** — but one of
+them this wave made worse before restoring it.
+
+#### `check-distinct-surface-captures.py` — 2 collisions
+
+`.github/workflows/ci.yml:345`, in the `static` job, with no `continue-on-error`. It fails when two
+surfaces claimed as distinct have byte-identical pixels. Measured:
+
+| commit | collisions |
+|---|---|
+| `c3b82304` (before this wave) | **2** |
+| `78e14d03` (as committed) | **6** |
+| now | **2** |
+
+**This wave took it from 2 to 6 and has put it back to 2.** The four it added were its own email
+captures, and the cause is in §5.2. The remaining two are another wave's:
+`_webhook_create__` and `_woocom_product__` in `evidence/web-sweep-2026-11-10/`, four files,
+identical 1440×900 captures of a blank page.
+
+**Neither of those two backs a verified claim** — checked: the WooCommerce import row is BLOCKED
+(and its own recorded measurement is "HTTP 200 with an empty body", so a blank capture is *correct*
+evidence of the blocked state), and the Webhooks row is claimed from this wave's
+`web-closure-2026-11-10/`, not from that sweep. So the check is red on captures that mislead a
+reader while vouching for nothing.
+
+**Not resolved here, deliberately.** Deleting another wave's evidence to turn a light green is what
+the directive forbids, and the real fix — re-drive or retire that stale sweep capture — belongs to
+whoever owns it. Named here so it is a decision rather than a surprise.
+
+#### `composer audit must not grow` — 66 against a ceiling of 58
+
+`ci.yml:754` sets `AUDIT_CEILING: '58'`; `ci.yml:829` is `if [ "$found" -gt "$AUDIT_CEILING" ]` →
+`exit 1`. No `continue-on-error`. Measured: **66 advisories affecting 22 packages**, so the step
+fails by 8.
+
+`composer.lock` is **byte-identical between `c3b82304` and HEAD** (`git diff` empty), so no
+dependency entered the lock in this wave. This is the case the step's own comments describe as the
+common one on a lock this old: the **advisory database** grew against dependencies nobody touched.
+The step's error text says what to do, and it is not mine to do:
+
+> record the measurement and raise AUDIT_CEILING deliberately, never silently.
+
+**Raising a security ratchet is an owner decision, so the ceiling is untouched and the measurement
+is recorded in §6.1.** It also means this step was already red before this wave and is red for a
+reason this wave neither caused nor can clear.
+
+### 5.2 Two of this wave's own capture claims were false, and the audit found them
+
+Both are corrected on disk. They are recorded here rather than silently fixed, because the pattern
+matters more than either instance: **a capture that succeeds is not a capture that shows anything.**
+
+#### The email templates photographed one screen twice and the README named the wrong handler
+
+`/email_template_lang/12` does **not** reach `manageEmailLang`. Measured through the real router:
+
+```
+/email_template_lang        -> EmailTemplateController@emailTemplate   params=[]
+/email_template_lang/12     -> EmailTemplateController@emailTemplate   params={"lang":"12"}
+/email_template_lang/12/en  -> EmailTemplateController@manageEmailLang params={"id":"12","lang":"en"}
+```
+
+`email_template_lang/{lang?}` is declared first and swallows the single segment, so `12` arrived as a
+LANGUAGE. Both paths rendered the list's default template and the eight PNGs were four byte-identical
+pairs — which is what put four collisions into the check in §5.1. The directory README called the
+second path "one template's per-language editor (`manageEmailLang`)"; it never reached it.
+
+Re-captured as `/email_template_lang/13/ar` — a different template *and* a different language, since
+`/email_template_lang/12/en` reaches the right handler but still renders the screen
+`emailTemplate()` picks by default (`EmailTemplate::first()`), so it was *also* identical. Verified
+distinct by md5 in all four combinations.
+
+#### The inline payment-status control was verified on four blank 16×16 tiles
+
+`form[action*="order-financial"]` lives in the `#orders` tab-pane of `/finance`
+(`finance/index.blade.php:402`), which is `.fade` and was never opened. So the element existed with a
+**0×0 bounding rect and `offsetParent === false`** while the same run measured `chars: 206` from
+`textContent`. The harness clipped it, Playwright accepted a 16×16 clip, and four 109–112-byte white
+tiles went to disk. The matrix accepted the row on them, because its gate is file existence.
+
+Large text, zero rendered size — **the identical signature this wave repaired in the variant panel,
+reproduced in the harness's own output.** The §4.3 premise finding did not fire because the
+screenshot *succeeded*.
+
+Fixed three ways: the surface now opens `#orders-tab` first; `MEASURE` refuses any box under **24×24**
+with a premise message carrying the measured rect; and the re-capture is 210×57–219×57 at ~2.5 KB.
+
+**And the real captures immediately found a defect the blank tiles had hidden:**
+`select[name="payment_status"]` had no accessible name — a combobox announced as "combobox" and
+nothing else, once per row, on the control that records whether money was received. Now labelled with
+the order it governs, and the surface re-runs at **0 findings**.
+
+
 
 ---
 
@@ -194,6 +337,17 @@ composer audit  →  22 packages, 66 advisories
 
 **The figure in the CI comment (70 / 3 critical / 22 high / 34 medium / 10 low / 1 unscored) is
 stale.** This is the current count.
+
+**AND 66 IS ABOVE THE RATCHET, SO A BLOCKING CI STEP FAILS.** `ci.yml:754` sets
+`AUDIT_CEILING: '58'` and `ci.yml:829` exits 1 when the count exceeds it, with no
+`continue-on-error` — so the step fails by 8. `composer.lock` is byte-identical between `c3b82304`
+and HEAD, so nothing entered the lock here: the advisory **database** grew against dependencies
+nobody touched, which the step's own comments record as the common case on a lock this old. Its
+error text says what is needed —
+
+> record the measurement and raise AUDIT_CEILING deliberately, never silently.
+
+— and **raising a security ratchet is an owner decision, so the ceiling is untouched.** See §5.1.
 
 The four **critical**:
 
@@ -247,6 +401,17 @@ upgrades on a vendored 70-module platform are their own package with their own r
     PHP. A named warning sits at the exact line instead, saying that the dangerous change here is
     the helpful-looking one.
 
+* **Four captures claimed as a verified surface photograph a permission-denial toast.** Not this
+  wave's, and present identically at `c3b82304` — but inside the set this report vouches for, so it
+  belongs here. The project's own `detect-refusal-toast-captures.py` (the thorough check `ci.yml`
+  names as a documented manual run, because it needs Pillow) exits 1 with *"4 CAPTURE(S)
+  PHOTOGRAPH A PERMISSION REFUSAL, not the surface claimed"* — all four combinations of
+  `_attribute_option__`, backing **"Attribute options list (DS pilot)"** as REDESIGNED AND
+  VERIFIED. The images show the Settings / Email Settings page with a red *"Error — Permission
+  denied."* toast. **Remediation:** grant the fixture the permission that surface needs and
+  re-drive it, then re-run that detector. Not done here because it is another wave's claim and
+  re-driving it is a capture package, not a correction.
+
 * **Twelve controller view literals do not resolve**, found while chasing one of them. One
   (`product.sku_combinations`) is settled and classified; **the other eleven are not** — the census
   ran with 0 add-ons active, so each needs a per-view reachability check before it is called a
@@ -285,5 +450,20 @@ the owner wants it taken. Nothing a merchant can reach is affected either way.
 * **Phase 01's outstanding release gates are not waived** by anything here; they are tracked in
   `docs/development/phase-1/PHASE-01-CLOSURE-EXECUTION.md`.
 * **Phase 03 has not been started.**
-* **249 verified surfaces means 249 surfaces driven and captured in four combinations.** It does not
-  mean a designer has approved them, and §1 keeps that distinction deliberately.
+* **"249 verified surfaces" means 249 rows whose four capture files exist and whose evidence was
+  reviewed when it was taken.** It does not mean a designer has approved them, and §1 keeps that
+  distinction deliberately.
+
+  It also does not mean all 996 files are good pictures of what they claim, and an earlier version
+  of this report said "249 surfaces driven and captured in four combinations" as though it did.
+  **Two counterexamples are known, both found by audit rather than by any gate:** this wave's own
+  payment-status tiles (§5.2, now repaired) and the pre-existing `_attribute_option__` refusal-toast
+  captures (§6.2, not repaired). Both satisfied the matrix generator, because its gate is file
+  existence.
+
+  The honest statement is therefore narrower: **the matrix proves a claimed capture EXISTS; it does
+  not prove the capture shows the surface.** Two detectors close part of that gap —
+  `check-distinct-surface-captures.py` for identical pixels and `detect-refusal-toast-captures.py`
+  for refusal screens — and §5.1 records that the first is red and the second is a manual run. A
+  third gap has no detector at all: a capture that is neither a duplicate nor a refusal but simply
+  the wrong screen.

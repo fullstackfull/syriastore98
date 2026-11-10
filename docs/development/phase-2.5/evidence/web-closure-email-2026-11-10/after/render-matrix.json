@@ -14,7 +14,7 @@
   "premiseFail": []
  },
  {
-  "path": "/email_template_lang/12",
+  "path": "/email_template_lang/13/ar",
   "lang": "en",
   "theme": "light",
   "status": 200,
@@ -22,8 +22,8 @@
   "dir": "ltr",
   "ssTheme": null,
   "sheet": "style.css",
-  "title": "Store Syria - Order Created",
-  "h1": "Order Created",
+  "title": "Store Syria - Status Change",
+  "h1": "Status Change",
   "consoleErrors": [],
   "premiseFail": []
  },
@@ -42,7 +42,7 @@
   "premiseFail": []
  },
  {
-  "path": "/email_template_lang/12",
+  "path": "/email_template_lang/13/ar",
   "lang": "en",
   "theme": "dark",
   "status": 200,
@@ -50,8 +50,8 @@
   "dir": "ltr",
   "ssTheme": "dark",
   "sheet": "style-dark.css",
-  "title": "Store Syria - Order Created",
-  "h1": "Order Created",
+  "title": "Store Syria - Status Change",
+  "h1": "Status Change",
   "consoleErrors": [],
   "premiseFail": []
  },
@@ -70,7 +70,7 @@
   "premiseFail": []
  },
  {
-  "path": "/email_template_lang/12",
+  "path": "/email_template_lang/13/ar",
   "lang": "ar",
   "theme": "light",
   "status": 200,
@@ -78,8 +78,8 @@
   "dir": "rtl",
   "ssTheme": null,
   "sheet": "style-rtl.css",
-  "title": "Store Syria - Order Created",
-  "h1": "Order Created",
+  "title": "Store Syria - Status Change",
+  "h1": "Status Change",
   "consoleErrors": [],
   "premiseFail": []
  },
@@ -98,7 +98,7 @@
   "premiseFail": []
  },
  {
-  "path": "/email_template_lang/12",
+  "path": "/email_template_lang/13/ar",
   "lang": "ar",
   "theme": "dark",
   "status": 200,
@@ -106,8 +106,8 @@
   "dir": "rtl",
   "ssTheme": "dark",
   "sheet": "rtl-style-dark.css",
-  "title": "Store Syria - Order Created",
-  "h1": "Order Created",
+  "title": "Store Syria - Status Change",
+  "h1": "Status Change",
   "consoleErrors": [],
   "premiseFail": []
  }

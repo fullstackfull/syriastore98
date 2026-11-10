@@ -3524,5 +3524,6 @@
     "this combination": "this combination",
     "Please choose a language first.": "Please choose a language first.",
     "No email template has been set up yet.": "No email template has been set up yet.",
-    "This email template has no content in any language yet.": "This email template has no content in any language yet."
+    "This email template has no content in any language yet.": "This email template has no content in any language yet.",
+    "Payment status for order :order": "Payment status for order :order"
 }

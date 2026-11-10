@@ -3520,5 +3520,6 @@
     "this combination": "هذا التركيب",
     "Please choose a language first.": "يرجى اختيار لغة أولاً.",
     "No email template has been set up yet.": "لم يتم إعداد أي قالب بريد إلكتروني بعد.",
-    "This email template has no content in any language yet.": "لا يحتوي قالب البريد الإلكتروني هذا على محتوى بأي لغة بعد."
+    "This email template has no content in any language yet.": "لا يحتوي قالب البريد الإلكتروني هذا على محتوى بأي لغة بعد.",
+    "Payment status for order :order": "حالة الدفع للطلب :order"
 }

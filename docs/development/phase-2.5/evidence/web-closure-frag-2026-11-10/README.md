@@ -1,12 +1,23 @@
 # P2.5-CLOSURE — AJAX fragments, row cells and the finance modals
 
-`tools/shoot-fragments.cjs`, **26 surfaces × 4 combinations**. Eleven of them are new in this wave
-and each closes a coverage-matrix row that had been PENDING.
+`tools/shoot-fragments.cjs`, **29 surfaces × 4 combinations = 116 captures**. Eleven of them are new
+in this wave and each closes a coverage-matrix row that had been PENDING.
 
 Final state: every surface captured in all four combinations, **0 contrast findings and 0 nameless
 findings**. The only remaining findings are `latin` on the Arabic runs, and they are the fixture's
 own product data — variant names `S-Natural`, `M-Indigo` and the option `Indigo` are genuinely
 Latin because that is what the fixture's attributes are called. Those are not defects.
+
+**Two honest limits on the paragraph above.**
+
+1. **It said 26 surfaces.** The directory holds 116 PNGs = 29 distinct prefixes, and the harness
+   declares 29 slugs. 26 matched nothing; the number is 29.
+2. **`after/measurements.json` records 6 surfaces, not 29.** It is written per run, and the last
+   runs here were filtered (`--only finance`, `--only variant-panels`), so the earlier surfaces'
+   findings were overwritten. The pictures are all present and each surface's run was read when it
+   was taken, but the machine-readable record is not preserved for 23 of them. Treat "0 findings" as
+   **evidenced** for the 6 in that file and **attested but not preserved** for the rest. A single
+   unfiltered re-run would fix it and has not been done.
 
 ---
 

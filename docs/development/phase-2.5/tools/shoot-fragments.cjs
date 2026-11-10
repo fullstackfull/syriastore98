@@ -382,9 +382,22 @@ const SURFACES = [
    * no distinguishing class, so it needed naming by its ACTION
    * (finance/index.blade.php:445, gated on `Edit Finance Payment Status` at :444).
    */
+  /*
+   * `#orders-tab` MUST BE OPENED FIRST, and not opening it is how this surface produced four
+   * blank 16x16 tiles that the matrix accepted as evidence.
+   *
+   * /finance has TWO tables. The transactions one is in `#transactions`, shown by default; the
+   * order-financials one -- the only place this form renders -- is in the `#orders` tab-pane
+   * (finance/index.blade.php:402), reached by the pill at :203. Unopened, the pane is `.fade` with
+   * no `show`, so the form exists in the DOM with a 0x0 rect and `offsetParent === false`.
+   *
+   * A `steps` entry rather than a `trigger` because the pill is a Bootstrap pill, driven by a
+   * click, and `steps` re-queries after it settles.
+   */
   {
     slug: 'finance-payment-status-inline',
     route: '/finance',
+    steps: ['#orders-tab'],
     container: 'form[action*="order-financial"]',
     waitForRows: false,
   },
@@ -697,15 +710,57 @@ const MEASURE = (args) => {
     }
   }
 
+  /*
+   * A CONTAINER WITH NO SIZE IS NOT EVIDENCE, EVEN WHEN THE SCREENSHOT SUCCEEDS.
+   *
+   * This is the hole left by the earlier repair one layer up. That one caught a screenshot
+   * Playwright REFUSES -- a clip outside the viewport -- and it works. It does nothing about a clip
+   * that is merely tiny, because a 16x16 clip is perfectly valid and `page.screenshot` returns
+   * happily.
+   *
+   * MEASURED, and found by an audit of this wave's own report rather than by this harness:
+   * `finance-payment-status-inline` wrote four PNGs of 16x16 pixels and 109-112 bytes -- blank
+   * white tiles -- and the matrix accepted the row as REDESIGNED AND VERIFIED on them. The cause:
+   * `form[action*="order-financial"]` lives in the `#orders` tab-pane of /finance, which is
+   * `.fade` and not shown, so `getBoundingClientRect()` was `0x0` with `offsetParent === false`
+   * while the same run measured `chars: 206` from `textContent`. Large text, zero rendered size --
+   * exactly the signature this wave repaired in the variant panel, reproduced in the harness's own
+   * output.
+   *
+   * 24x24 is the floor. It is below any real fragment on these screens (the smallest legitimately
+   * claimed container, the flash-sale status cell, measures far more) and above the degenerate
+   * case, so it separates "rendered small" from "did not render" without a judgement call. The
+   * `+ 16` padding above means a genuinely zero-size rect arrives here as exactly 16.
+   *
+   * It fails LOUDLY rather than writing a smaller picture: the premise message carries the measured
+   * rect, which is what points at the hidden-ancestor cause instead of leaving someone to wonder
+   * why the image is blank.
+   */
+  const FLOOR = 24;
+
+  const box = {
+    x: Math.max(0, rr.x - 8), y: Math.max(0, rr.y - 8),
+    width: Math.min(rr.width + 16, window.innerWidth),
+    height: Math.min(rr.height + 16, window.innerHeight),
+  };
+
+  if (box.width < FLOOR || box.height < FLOOR) {
+    return {
+      ok: false,
+      why: 'the container has no rendered size, so a capture of it would be a blank tile: '
+        + 'rect ' + Math.round(rr.width) + 'x' + Math.round(rr.height)
+        + ', box ' + Math.round(box.width) + 'x' + Math.round(box.height)
+        + ' (floor ' + FLOOR + '), offsetParent=' + !!root.offsetParent
+        + ', text=' + text.length + ' chars'
+        + ' -- a hidden ancestor (an unopened tab or collapse) is the usual cause',
+    };
+  }
+
   return {
     ok: true,
     chars: text.length,
     findings,
-    box: {
-      x: Math.max(0, rr.x - 8), y: Math.max(0, rr.y - 8),
-      width: Math.min(rr.width + 16, window.innerWidth),
-      height: Math.min(rr.height + 16, window.innerHeight),
-    },
+    box,
   };
 };
 

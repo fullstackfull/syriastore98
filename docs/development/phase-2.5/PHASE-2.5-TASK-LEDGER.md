@@ -3141,3 +3141,94 @@ untyped parameter and so could never fire for the exact signature it was written
 simulates Laravel's own positional resolver and **self-tests that simulation** against fabricated
 signatures, so it cannot quietly stop detecting. Each of the three argument-default repairs was
 reverted individually and the test reddened naming the right route each time.
+
+---
+
+## 4.31 P2.5-CLOSURE-AUDIT — the closure report was audited and two of its capture claims were false [2026-11-10]
+
+§4.30's report was put through an independent audit against the repository, with the brief *assume at
+least one claim is wrong*. It found four factual errors, six overstatements, one stale file:line, and
+**two blocking CI steps failing on a branch whose report led with "Engineering completion: REACHED"**.
+Everything below is corrected in `PHASE-2.5-ENGINEERING-CLOSURE-REPORT.md`; this records what the
+audit was for.
+
+### The two capture claims that were false, and both were this wave's own
+
+**The inline payment-status control was VERIFIED on four blank 16×16 tiles.**
+`form[action*="order-financial"]` lives in the `#orders` tab-pane of `/finance`
+(`finance/index.blade.php:402`), which is `.fade` and was never opened — so the element existed with
+a **0×0 bounding rect and `offsetParent === false`** while the same run measured `chars: 206` from
+`textContent`. The harness clipped it, Playwright accepted a 16×16 clip, 109–112-byte white tiles
+went to disk, the tally said `combos=4`, and the matrix accepted the row because its gate is file
+existence.
+
+Large text, zero rendered size. **That is the identical signature this wave repaired in the variant
+panel, reproduced in the harness's own output** — and §4.30's own screenshot fix did not catch it,
+because that fix catches a screenshot Playwright *refuses*, and this one *succeeded*.
+`MEASURE` now refuses any box under 24×24 and reports the measured rect.
+
+**And the repaired capture immediately found a defect the tiles had hidden:**
+`select[name="payment_status"]` had no accessible name — a combobox announced as "combobox" and
+nothing else, once per row, on the control that records whether money was received. Labelled; the
+surface re-runs at 0 findings.
+
+**The email templates photographed one screen twice.** `/email_template_lang/12` does not reach
+`manageEmailLang`: `routes/web.php:861` declares `email_template_lang/{lang?}` before `:862`'s
+two-segment sibling, so `12` arrived as a LANGUAGE. Every premise passed — HTTP 200, correct `dir`,
+correct theme, a real title — and the eight PNGs were four byte-identical pairs. Re-captured as
+`/email_template_lang/13/ar`, because the corrected `/email_template_lang/12/en` reaches the right
+handler but still renders the screen `emailTemplate()` picks by default (`EmailTemplate::first()` is
+template 12).
+
+### Two blocking CI steps are red, and the report now says so in its own section
+
+| step | state | whose |
+|---|---|---|
+| `check-distinct-surface-captures.py` (`ci.yml:345`) | **2 collisions** — was 2 before this wave, **6 as committed in `78e14d03`**, 2 again now | the four it added were the email captures above; the remaining two are `web-sweep-2026-11-10`'s `_webhook_create__` / `_woocom_product__`, identical blank pages that back **no** verified claim |
+| `composer audit must not grow` (`ci.yml:754`, ceiling 58) | **66 advisories** — fails by 8 | pre-existing; `composer.lock` is byte-identical to `c3b82304`, so this is advisory-database growth, and the step's own text says raising the ceiling is a deliberate decision. **Not raised.** |
+
+Neither is resolved by deleting evidence or raising a ratchet. Both are named with their remediation
+and left to the owner, which is what "do not manufacture green results or weaken checks" means when
+the light is already red.
+
+### The claim that needed the most narrowing
+
+"249 verified surfaces means 249 surfaces driven and captured in four combinations" is **not
+supportable**, and two counterexamples are now known: the payment-status tiles above, and a
+pre-existing set the audit also surfaced — all four combinations of `_attribute_option__`, backing
+*"Attribute options list (DS pilot)"*, photograph the Settings page with a red *"Error — Permission
+denied."* toast. The project's own `detect-refusal-toast-captures.py` says so and exits 1; it is a
+documented manual run because it needs Pillow.
+
+The honest statement is narrower: **the matrix proves a claimed capture EXISTS; it does not prove the
+capture shows the surface.** Two detectors close part of that gap and one of them is red; a third gap
+— a capture that is neither a duplicate nor a refusal but simply the wrong screen — has no detector
+at all. The email captures were exactly that third kind, and only became detectable because they
+happened *also* to be duplicates.
+
+### The rest
+
+Four factual errors: the email handler (above); `/email_template_lang`'s fix described as "now an
+empty state" when both guards `redirect()->back()` and the project's own test asserts precisely that
+it *fails as a redirect*; the fragment directory's surface count (26 → **29**, with 116 PNGs); and
+the Shopify row given WooCommerce's measurement (Shopify is **HTTP 500**; WooCommerce is the blank
+200). Six overstatements narrowed, including "none is a capture gap" (the Invoice row is one),
+"never an opinion" of all 28 OUT OF SCOPE rows (three are phase assignments with no measurement),
+"two URIs on one controller action, mostly" of the eight DUPLICATE rows (that describes one), and
+`.alert-*` "app-wide" (measured: 5 usages across 4 views). One stale file:line
+(`routes/web.php:1191` → `:1200`).
+
+Also recorded honestly rather than quietly: `after/measurements.json` in the fragment directory
+holds **6** surfaces, not 29, because the last runs were filtered and overwrote it. The pictures are
+all there; the machine-readable record of their measurement is not, so "0 findings" is evidenced for
+6 and attested-but-not-preserved for 23.
+
+### What the audit confirmed
+
+Worth recording so the corrections are not read as the whole picture: the matrix distribution and
+`--check`, the ten BLOCKED rows being the same ten as at `c3b82304`, every §4.1 code fix on disk,
+all three new test files and their contents, **each of the three argument-default reverts reddening
+`OptionalRouteParametersTest` naming the right route** (executed), an empty
+`git diff c3b82304..HEAD -- .github/known-test-outcomes.json`, every §6.1 composer figure, §6.2's
+`buildArray` absence and 38 PHP translation files and twelve non-resolving view literals (re-measured
+12 of 12), and §7 in full.
