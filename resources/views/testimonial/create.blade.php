@@ -12,7 +12,7 @@
     <div class="form-group  col-md-6">
         {{-- P2.5-WAVE-25: the label sat BESIDE the select without a `for`, so it named nothing.
              The select already carried `id="category_id"`. --}}
-        <label class="form-label" for="category_id">{{ __('Category') }}</label><span class="text-danger">*</span>
+        <label class="form-label" for="category_id">{{ __('Category') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
         <select name="category_id" class="form-control" data-role="tagsinput" id="category_id">
             <option value="">{{ __('Select Category') }}</option>
             @foreach ($categoryTree as $category)

@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 143 | 48.5% |
+| REDESIGNED AND VERIFIED | 144 | 48.8% |
 | BLOCKED | 10 | 3.4% |
 | OUT OF SCOPE | 3 | 1.0% |
-| PENDING | 115 | 39.0% |
+| PENDING | 114 | 38.6% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -30,7 +30,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
-| Flutter merchant admin app | 51 | 0 | 33 | 0 | 0 | 18 |
+| Flutter merchant admin app | 51 | 0 | 34 | 0 | 0 | 17 |
 | CATALOGUE taxonomy | 38 | 13 | 9 | 0 | 0 | 16 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 20 | 1 | 2 | 12 |
 | Phase 2.5 Wave A | 30 | 0 | 25 | 0 | 0 | 5 |
@@ -76,7 +76,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Store language & currencies | ``GetX /lang`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-STORE-SETTINGS; four captures under evidence/flutter-store-settings-2026-11-09/ |
 | Store email settings | ``Get.to(() => EmailSettingScreen()) from store settings`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-ACCOUNT; four captures under evidence/flutter-account-2026-11-09/ |
 | Loyalty programme | ``Get.to(() => LoyaltyProgramScreen()) from store settings`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-ACCOUNT; four captures under evidence/flutter-account-2026-11-09/ |
-| Store payment methods | ``Get.to(() => PaymentSettingScreen()) from store settings`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Store payment methods | ``Get.to(() => PaymentSettingScreen()) from store settings`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-DETAIL2; four captures under evidence/flutter-payment-methods-2026-11-10/ |
 | COD / Stripe / Bank-transfer gateway editors | ``unreachable — no Get.to, no AppRoutes entry anywhere in lib/`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Tax | ``GetX /tax`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-OPS; four captures under evidence/flutter-ops-2026-11-09/ |
 | Add / edit tax (modal) | ``showModalBottomSheet from tax`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |

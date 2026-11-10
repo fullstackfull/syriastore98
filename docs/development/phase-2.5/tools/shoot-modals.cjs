@@ -55,7 +55,19 @@ const STATE_TOOL = path.join(REPO, 'docs/development/phase-2/tools/set-admin-pre
 
 const MODAL = '#commanModel';
 const CREATE_TRIGGER = 'a[data-ajax-popup="true"]';
-const EDIT_TRIGGER = 'table tbody button[data-ajax-popup="true"]';
+/**
+ * AN EDIT TRIGGER IS A BUTTON, WHEREVER THE LIST PUTS IT.
+ *
+ * This was `table tbody button[data-ajax-popup="true"]`, which assumed every list is a table.
+ * `/users` is a CARD GRID -- the matrix even records it as "Users / staff list (card grid)" --
+ * so its edit button sits in a card, the selector matched nothing, and the run reported
+ * "no visible edit trigger" as though the surface were missing.
+ *
+ * The create/edit distinction does not need the table: a create trigger is an `<a>` in the page
+ * header and an edit trigger is a `<button>` on a record. Both are then filtered to the visible
+ * one outside a menu, which is what actually separates them from the shell's Quick Add items.
+ */
+const EDIT_TRIGGER = 'button[data-ajax-popup="true"]';
 
 /** Each entry is one matrix row. `kind` picks the trigger. */
 const SURFACES = [
@@ -77,8 +89,14 @@ const SURFACES = [
   { slug: 'users-edit', route: '/users', kind: 'edit' },
   { slug: 'flash-sale-create', route: '/flash-sale', kind: 'create' },
   { slug: 'flash-sale-edit', route: '/flash-sale', kind: 'edit' },
-  { slug: 'pixel-create', route: '/pixel-setting', kind: 'create' },
-  { slug: 'webhook-create', route: '/webhook-setting', kind: 'create' },
+  // INSIDE A SETTINGS TAB, not on a list page. `/pixel-setting` and `/webhook-setting` are not
+  // pages a merchant navigates to -- they are panels of the settings hub, loaded over XHR when
+  // their pill is clicked (see measure-settings-tabs.cjs). So the route is `/setting` and `tab`
+  // names the pill to click first; the create trigger is then found inside the loaded panel.
+  // Driven as standalone routes they reported "no visible create trigger", which was true and
+  // which said nothing about the modal.
+  { slug: 'pixel-create', route: '/setting', tab: 'pixel_field_setting', kind: 'create' },
+  { slug: 'webhook-create', route: '/setting', tab: 'webhook_setting', kind: 'create' },
   { slug: 'product-question-edit', route: '/product-question', kind: 'edit' },
 ];
 
@@ -112,7 +130,33 @@ const MEASURE = (args) => {
   const dialog = modal.querySelector('.modal-dialog') || modal;
   const body = modal.querySelector('.modal-body');
   const text = ((body || modal).innerText || '').trim();
-  if (text.length < 20) return { ok: false, why: 'modal body holds ' + text.length + ' chars (never loaded)' };
+
+  /*
+   * "LOADED" IS A FORM WITH FIELDS, NOT A CHARACTER COUNT.
+   *
+   * The first version required 20 characters of innerText and rejected every small modal as
+   * "never loaded". The tag create modal is one labelled field and two buttons -- NINE characters
+   * of innerText -- and it was fully present: a `<form>` posting to /tag with a CSRF token. The
+   * threshold was measuring the modal's SIZE and calling it loading.
+   *
+   * A form with at least one visible field is what "the panel arrived" actually means here, and
+   * it is true of the smallest modal in this group and of the thirty-field coupon one alike.
+   */
+  const scope = body || modal;
+  const form = scope.querySelector('form');
+  const fieldCount = form
+    ? [...form.querySelectorAll('input, select, textarea')].filter((el) => {
+        const t = (el.getAttribute('type') || '').toLowerCase();
+        return t !== 'hidden';
+      }).length
+    : 0;
+
+  if (!form) {
+    return { ok: false, why: 'modal holds no <form> (' + text.length + ' chars of text) — it never loaded' };
+  }
+  if (fieldCount === 0) {
+    return { ok: false, why: 'modal form has no visible field — it loaded an error or an empty body' };
+  }
 
   const parse = s => (s.match(/[\d.]+/g) || []).map(Number);
   const paintedBg = (el) => {
@@ -236,7 +280,7 @@ const MEASURE = (args) => {
   return {
     ok: true,
     chars: text.length,
-    fields: modal.querySelectorAll('input, select, textarea').length,
+    fields: fieldCount,
     findings,
     box: {
       x: Math.max(0, dr.x - 10), y: Math.max(0, dr.y - 10),
@@ -285,10 +329,61 @@ const MEASURE = (args) => {
 
       await page.waitForTimeout(1500);
 
+      // A SETTINGS-TAB SURFACE needs its panel loaded first. Same wait as
+      // measure-settings-tabs.cjs: real text with no `.ss-skeleton` left, because the panel
+      // arrives over XHR and `networkidle` plus a settle was measured to be a race.
+      if (s.tab) {
+        const pill = (await page.$$('button[data-tab="' + s.tab + '"]'))[0];
+        if (!pill) {
+          note('premise', 'no settings pill named ' + s.tab);
+          continue;
+        }
+        await pill.click({ timeout: 5000 }).catch(() => {});
+        await page.waitForFunction(
+          (a) => {
+            const pane = document.querySelector(a.sel);
+            if (!pane) return false;
+            if (pane.querySelector('.ss-skeleton')) return false;
+            return (pane.innerText || '').trim().length >= a.min;
+          },
+          { sel: '#pills-tabContent', min: 20 },
+          { timeout: 15000 },
+        ).catch(() => {});
+      }
+
       const sel = s.kind === 'create' ? CREATE_TRIGGER : EDIT_TRIGGER;
-      const trigger = (await page.$$(sel))[0];
+
+      /*
+       * THE PAGE'S OWN CREATE BUTTON, not the shell's Quick Add menu.
+       *
+       * `a[data-ajax-popup="true"]` matches FOUR elements on /tag, and the first three are the
+       * header's Quick Add dropdown -- `/taxes/create`, `/category/create`, `/coupon/create` --
+       * which sit in the DOM on every page and stay hidden until the menu opens. Clicking the
+       * first match therefore timed out after 30s against an invisible element, and the run
+       * recorded "modal body holds 0 chars (never loaded)" for every create surface. Measured
+       * on /tag:
+       *
+       *     /taxes/create     visible=false  inMenu=true
+       *     /category/create  visible=false  inMenu=true
+       *     /coupon/create    visible=false  inMenu=true
+       *     /tag/create       visible=true   inMenu=false   <- the page's own
+       *
+       * Visible AND outside a menu identifies it on every page in this group, and both halves
+       * earn their place: the page button is the only visible one today, and the menu check
+       * stops an opened dropdown from stealing the match later.
+       */
+      const handles = await page.$$(sel);
+      let trigger = null;
+      for (const h of handles) {
+        const usable = await h.evaluate(
+          (e) => !!e.offsetParent && !e.closest('.dropdown-menu, nav, header, .ss-topbar'),
+        ).catch(() => false);
+        if (usable) { trigger = h; break; }
+      }
+
       if (!trigger) {
-        note('premise', 'no ' + s.kind + ' trigger matching ' + sel);
+        note('premise', 'no visible ' + s.kind + ' trigger outside a menu matching ' + sel
+          + ' (' + handles.length + ' matched, all hidden or in the Quick Add menu)');
         continue;
       }
 
@@ -314,7 +409,9 @@ const MEASURE = (args) => {
         const el = document.querySelector(m);
         if (!el || !el.classList.contains('show')) return false;
         const b = el.querySelector('.modal-body');
-        if (!b || (b.innerText || '').trim().length < 20) return false;
+        // Same definition as the premise below: a form with a visible field. Waiting on a
+        // character count made every small modal wait the full 15s and then be rejected.
+        if (!b || !b.querySelector('form')) return false;
         const dialog = el.querySelector('.modal-dialog') || el;
         const cs = getComputedStyle(el);
         const ds = getComputedStyle(dialog);

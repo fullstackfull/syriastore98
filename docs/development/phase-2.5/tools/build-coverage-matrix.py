@@ -1069,6 +1069,9 @@ VERIFIED = {
     #       This reaches EVERY date in the app, not only these two screens.
     # ----------------------------------------------------------------------------------------
 
+    'Store payment methods':
+        ('REDESIGNED AND VERIFIED', 'flutter-payment-methods-2026-11-10',
+         'flutter-payment-methods_', 'P2.5-FLUTTER-DETAIL2'),
     'My plan':
         ('REDESIGNED AND VERIFIED', 'flutter-my-plan-2026-11-10', 'flutter-my-plan_',
          'P2.5-FLUTTER-DETAIL2'),

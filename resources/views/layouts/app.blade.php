@@ -818,6 +818,32 @@
             document.documentElement.style.setProperty('--active-theme-border', `var(--bs-${themeColor}-border)`);
         }
         setActiveTheme("{{$themeColor}}");
+
+        /*
+         * SELECT2'S OWN STRINGS, IN THE MERCHANT'S LANGUAGE.
+         *
+         * Measured on the Arabic testimonial modal: the remove-X on a multi-select carried the
+         * title `Remove item` -- Select2's built-in English default, injected into the DOM by
+         * `public/assets/js/plugins/select2.min.js`, not by any view in this repository. Nothing
+         * in the application said it, which is why no translation pass had ever found it.
+         *
+         * Set as DEFAULTS rather than per-init on purpose: eight files call `.select2(...)`, and
+         * patching each would leave the ninth caller English. `defaults.set` applies to every
+         * init on the page, including ones added later.
+         *
+         * The strings come from `__()` so they follow the page's locale rather than being
+         * hardcoded Arabic -- the reverse mistake (Arabic literals with no `.tr`) is one this
+         * project has already had to undo in the Flutter status sheet.
+         */
+        if ($.fn.select2 && $.fn.select2.defaults) {
+            $.fn.select2.defaults.set('language', {
+                removeItem: function () { return @json(__('Remove item')); },
+                noResults: function () { return @json(__('No results found')); },
+                searching: function () { return @json(__('Searching...')); },
+                inputTooShort: function () { return @json(__('Please enter more characters')); },
+            });
+        }
+
         $(document).ready(function(){
             if ($('.select2').length > 0) {
                 $('.select2').select2({

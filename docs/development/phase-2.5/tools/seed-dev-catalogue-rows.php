@@ -87,11 +87,23 @@ $tables = [
             'store_id' => STORE_ID,
         ],
     ],
+    /*
+     * `description` IS A JSON ARRAY, NOT PROSE, and that is not obvious from the column.
+     *
+     * `faq/edit.blade.php:12` does `foreach (json_decode($faq->description, true) as $item)` and
+     * reads `$item['question']` -- the FAQ form is a REPEATER, so one row holds a topic and a
+     * list of questions under it. Seeded with a plain sentence, `json_decode` returns null, the
+     * foreach fails, and the edit modal renders with NO FORM AT ALL. The create modal was
+     * unaffected, which is what made it look like an application defect in the edit path rather
+     * than a wrong fixture: measured as "modal holds no <form>" on faq-edit in all four
+     * combinations while faq-create captured cleanly.
+     */
     'faqs' => [
         'tag_column' => 'topic',
         'row' => [
             'topic' => TAG . ' How do refunds work?',
-            'description' => 'Refunds are issued to the original payment method within 14 days.',
+            'description' => '[{"question":"How long does a refund take?"},'
+                . '{"question":"Can I return an item after 14 days?"}]',
             'store_id' => STORE_ID,
         ],
     ],

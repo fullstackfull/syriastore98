@@ -66,6 +66,7 @@
                                 [
                                     'class' => 'form-control condition_option',
                                     'id' => 'condition_option_' . $i,
+                                    'aria-label' => __('Condition Option'),
                                     'placeholder' => 'Select option',
                                 ],
                             ) !!}
@@ -79,6 +80,7 @@
                                 old('fields.' . $i . '.condition'),
                                 [
                                     'class' => 'form-control',
+                                    'aria-label' => __('Condition'),
                                     'placeholder' => 'Select option',
                                 ],
                             ) !!}

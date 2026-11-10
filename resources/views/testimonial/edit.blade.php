@@ -10,7 +10,7 @@
         {!! Form::textarea('description', null, ['class' => 'form-control autogrow', 'rows' => '3']) !!}
     </div>
     <div class="form-group  col-md-6">
-        <label for="category_id" class="form-label">{{ __('Category') }}</label><span class="text-danger">*</span>
+        <label for="category_id" class="form-label">{{ __('Category') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
         <select name="category_id" class="form-control" data-role="tagsinput" id="category_id">
             <option value="">{{ __('Select Category') }}</option>
             @foreach ($categoryTree as $cat)
