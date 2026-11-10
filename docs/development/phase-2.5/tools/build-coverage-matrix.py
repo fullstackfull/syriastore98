@@ -1277,6 +1277,43 @@ VERIFIED = {
         ('REDESIGNED AND VERIFIED', 'web-modals2-2026-11-10',
          '_manage_language_en__', 'P2.5-WEB-MODALS-2'),
 
+    # ---- P2.5-P1-FLUTTER (2026-11-10): component galleries ----------------------------------
+    #
+    # Added to the existing component gallery, which renders each component ALONE in all four
+    # combinations rather than inside a host screen. Tablet variants captured alongside.
+    #
+    # THE STAT TILE IS CAPTURED TWICE because `permitted: false` is not a styling variant: it
+    # swaps the figure for an em dash, and the widget's own comment says why ("an empty tile
+    # reads as a rendering failure"). A tile showing a number and a tile showing a dash are two
+    # pictures and only one had ever been looked at.
+    #
+    # A FALSE POSITIVE WAS CAUGHT HERE AND IS WORTH RECORDING. The first capture showed
+    # `this_month` and `store_qr` rendering as literal keys -- the signature of a missed GetX
+    # lookup, and exactly the defect class the `final_price` repair closed earlier in this phase.
+    # It was MY FIXTURE, not the product: the real dashboard passes
+    # `stat_period_in_this_store` / `stat_period_all_time` (home_screen.dart:384, :416, :427) and
+    # takes the QR title from `dashboardData.qrcode.name`, server data rather than a key. Both
+    # real keys ARE defined -- in single quotes, which a double-quoted grep missed, the third
+    # quoting/case false negative of this phase. The specimens now pass what the screen passes.
+    'Home widgets (stat tiles, QR, profile row)':
+        ('REDESIGNED AND VERIFIED', 'flutter-components2-2026-11-10',
+         'flutter-component-home-widgets_', 'P2.5-P1-FLUTTER'),
+
+    # THE PRODUCT CARD in the four states that take different code paths -- in stock, hidden
+    # (status 0, which draws an overlay chip), out of stock, and on sale. One state proves only
+    # that state. Given the exact box its real grid provides (220x290,
+    # products_screen.dart:782-786); dropped into the gallery unbounded, its inner `Expanded`
+    # threw, which was a harness mismatch rather than a defect in the card.
+    #
+    # The row also covers the FIELD partial, captured as `flutter-component-add-product-field_`
+    # beside it: `AddProductTextField` is a separate class from the `AppTextField` the gallery
+    # already held, and it is the one whose caret and focus ring were left at 1.09:1 on their own
+    # dark fill until P2.5-FLUTTER-FOCUS. The two now sit in the same gallery, which is what
+    # would have caught the divergence.
+    'Product card / field partials':
+        ('REDESIGNED AND VERIFIED', 'flutter-components2-2026-11-10',
+         'flutter-component-product-card_', 'P2.5-P1-FLUTTER'),
+
     # ---- P2.5-P1-WEB (2026-11-10): the component rows the classification sweep called ------
     # ---- capturable, each clipped to its own box so the capture is evidence for the ---------
     # ---- component rather than for the page hosting it. -------------------------------------

@@ -10,11 +10,11 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 190 | 64.4% |
+| REDESIGNED AND VERIFIED | 192 | 65.1% |
 | BLOCKED | 19 | 6.4% |
 | OUT OF SCOPE | 15 | 5.1% |
 | DUPLICATE | 5 | 1.7% |
-| PENDING | 42 | 14.2% |
+| PENDING | 40 | 13.6% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -31,7 +31,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
-| Flutter merchant admin app | 51 | 0 | 42 | 2 | 0 | 6 |
+| Flutter merchant admin app | 51 | 0 | 44 | 2 | 0 | 4 |
 | CATALOGUE taxonomy | 38 | 13 | 21 | 0 | 0 | 4 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 22 | 3 | 3 | 7 |
 | Phase 2.5 Wave A | 30 | 0 | 26 | 0 | 3 | 1 |
@@ -58,7 +58,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Login | ``GetX /login`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-AUTH; four captures under evidence/flutter-auth-2026-11-09/ |
 | Dashboard shell (bottom navigation) | ``GetX /dashboard`` | needs-polish | **DUPLICATE** | the same surface as **Bottom-nav shell (DashBoardManagerScreen)** — the same GetX route `/dashboard` and the same widget. Two audit passes recorded the bottom-navigation shell under two names; claiming both would count one screen twice. |
 | Home / Overview (tab 0) | ``tab 0 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HOME; four captures under evidence/flutter-home-2026-11-09/ |
-| Home widgets (stat tiles, QR, profile row) | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Home widgets (stat tiles, QR, profile row) | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-P1-FLUTTER; four captures under evidence/flutter-components2-2026-11-10/ |
 | Orders list (tab 1) | ``tab 1 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-ORDERS; four captures under evidence/flutter-orders-2026-11-09/ |
 | Order detail | ``Get.to(() => OrderDetailScreen()) from orders, notifications,` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-DETAIL2; four captures under evidence/flutter-order-detail-2026-11-10/ |
 | Create order | ``GetX /addOrder, and Get.to(() => CreateOrderScreen()) from or` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-CREATEORDER; four captures under evidence/flutter-create-order-2026-11-10/ |
@@ -67,7 +67,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Product detail | ``Get.to(() => ProductDetailScreen()) from products list`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-PRODUCTDETAIL; four captures under evidence/flutter-product-detail-2026-11-10/ |
 | Add / edit product | ``Get.to(() => AddNewProductScreen(isUpdate:)) from products li` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-EDITORS; four captures under evidence/flutter-editors-2026-11-10/ |
 | Add rating / review | ``Get.to(() => AddRatingScreen()) from product detail`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-EDITORS; four captures under evidence/flutter-editors-2026-11-10/ |
-| Product card / field partials | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Product card / field partials | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-P1-FLUTTER; four captures under evidence/flutter-components2-2026-11-10/ |
 | Categories (tab 3) | ``tab 3 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HARNESS; four captures under evidence/flutter-harness-2026-11-09/ |
 | Add / edit category (modal) | ``showModalBottomSheet from categories`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SHEETS; four captures under evidence/flutter-sheets-2026-11-10/ |
 | More / Settings grid (tab 4) | ``tab 4 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SETTINGS; four captures under evidence/flutter-settings-2026-11-09/ |
