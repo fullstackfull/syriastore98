@@ -152,7 +152,7 @@
                         '.condition');
                     $(slect_divs).empty();
 
-                    var emp_selcts = `<select class="form-control" id="` + slect_ids + `"  required="required" name="fields[${index}][condition]">
+                    var emp_selcts = `<select class="form-control" aria-label="{{ __('Condition') }}" id="` + slect_ids + `"  required="required" name="fields[${index}][condition]">
                         </select>`;
                     $(slect_divs).html(emp_selcts);
 
@@ -189,7 +189,7 @@
                     $(slect_divs).empty();
 
                     var emp_selcts =
-                        `<select class="form-control" required="required" name="fields[${index}][condition]"></select>`;
+                        `<select class="form-control" aria-label="{{ __('Condition') }}" required="required" name="fields[${index}][condition]"></select>`;
 
                     $(slect_divs).html(emp_selcts);
 
