@@ -21,7 +21,7 @@ use Tests\Feature\Security\SecurityTestCase;
  *     -  return redirect()->back()->with('error', $messages->first());
  *     +  return redirect()->back()->with('error', implode(' ', $messages->all()));
  *
- * SIX sites are repaired, at StoreController:116, :478, :551, UserController:96 and
+ * SIX sites are repaired, at StoreController:116, :478, :620, UserController:97 and
  * RoleController:146, :277. FOUR MORE SITES EXIST IN THESE SAME THREE FILES AND ARE DELIBERATELY
  * LEFT ALONE; section 5 pins them as untouched and says why for each.
  *
@@ -66,7 +66,7 @@ use Tests\Feature\Security\SecurityTestCase;
  * ------------------------------------------------------------------------------------------------
  * RESPONSE SHAPE. Still a 302, still the `error` flash key. `StoreController` and `RoleController`
  * carry no `withErrors()` / `withInput()` / `expectsJson()` at all. `UserController` carries TWO of
- * each ALREADY, at :429 and :493, and those are the two sites section 5 leaves alone -- so this
+ * each ALREADY, at :503 and :567, and those are the two sites section 5 leaves alone -- so this
  * file pins those counts at their measured values rather than at zero.
  * ------------------------------------------------------------------------------------------------
  */
@@ -596,7 +596,7 @@ class StoreAndStaffRefusalNamesEveryFieldTest extends SecurityTestCase
     /** The response shape is untouched on every owned file. */
     public function test_the_refusal_shape_did_not_change_on_any_owned_controller(): void
     {
-        /* NOT zero for UserController: :429 and :493 ALREADY return withErrors()+withInput(), and
+        /* NOT zero for UserController: :503 and :567 ALREADY return withErrors()+withInput(), and
            they are two of the four sites section 5 leaves alone. Pinned at their measured values
            so neither a removal nor a copy-paste onto a repaired site goes unnoticed. */
         foreach ([
@@ -636,8 +636,8 @@ class StoreAndStaffRefusalNamesEveryFieldTest extends SecurityTestCase
      * "finishes the job" without reading why, and asserted so the exclusion is a fact about the
      * source rather than a note in a report.
      *
-     * TWO ARE PASSWORD SCREENS WHOSE TWO MESSAGES RESTATE EACH OTHER. `StoreController:750`
-     * (`storeResetPasswordUpdate`) and `UserController:386` (`updatePassword`) both validate
+     * TWO ARE PASSWORD SCREENS WHOSE TWO MESSAGES RESTATE EACH OTHER. `StoreController:819`
+     * (`storeResetPasswordUpdate`) and `UserController:460` (`updatePassword`) both validate
      * `'password' => 'required|confirmed|same:password_confirmation'`, and `confirmed` and
      * `same:password_confirmation` are the SAME CHECK WRITTEN TWICE. Measured: a mismatch bag is
      * ['The password confirmation does not match.', 'The password and password confirmation must
@@ -653,24 +653,39 @@ class StoreAndStaffRefusalNamesEveryFieldTest extends SecurityTestCase
      * makes the join worth doing at the other six sites and leaves no reading-time argument for
      * these two.
      *
-     * TWO ALREADY DELIVER THE WHOLE BAG BY A BETTER ROUTE. `UserController:429` (`editprofile`)
-     * and `:493` (`password_update`) return `->withErrors($validator)->withInput(...)` beside the
+     * TWO ALREADY DELIVER THE WHOLE BAG BY A BETTER ROUTE. `UserController:503` (`editprofile`)
+     * and `:567` (`password_update`) return `->withErrors($validator)->withInput(...)` beside the
      * toast, so every message reaches the `@error` blocks in `users/profile.blade.php` field by
      * field -- the Class A shape pinned by `ProfileValidationFeedbackTest`. The WCAG 3.3.1 failure
      * the join closes elsewhere is already closed there, and the one-line toast is deliberate.
      */
     public function test_the_four_excluded_sites_are_untouched(): void
     {
+        // RE-MEASURED TWICE on 2026-11-10, and the numbers are the only thing that changed.
+        //
+        // The second time was this file's own fault for pinning a line at all: the P0 work
+        // touched `StoreController::destroy` twice -- once to add the deletion guard, and again
+        // to put it in a transaction with the row locked after independent review found the other
+        // two doors had one and this one did not -- and both edits sit ABOVE this site. 750 ->
+        // 786 -> 819, same method, same validator, three times.
+        //
+        // The P0 user-deletion guard inserted its check into `StoreController::destroy` (:501) and
+        // `UserController::destroy` (:344), both of which sit ABOVE every line pinned here, so all
+        // four moved down together: StoreController by 36 and then a further 33, UserController by 49 and then a further 25. Each site was
+        // re-identified by its enclosing method and its validator before the number was changed --
+        // `updatePassword` still carries `required|confirmed|same:password_confirmation`,
+        // `editprofile` still returns `withErrors()`, `password_update` is still the password
+        // screen -- so this is the same four sites at new offsets and not a different four.
         $excluded = [
             'app/Http/Controllers/StoreController.php' => [
-                750 => 'password reset: `confirmed` and `same:password_confirmation` are one check '
+                819 => 'password reset: `confirmed` and `same:password_confirmation` are one check '
                     . 'written twice, so the bag says the same thing twice',
             ],
             'app/Http/Controllers/UserController.php' => [
-                386 => 'the same duplicate rule pair as StoreController:750',
-                429 => 'editprofile already returns withErrors()+withInput(), so the bag reaches '
+                460 => 'updatePassword: the same duplicate rule pair as StoreController:819',
+                503 => 'editprofile already returns withErrors()+withInput(), so the bag reaches '
                     . 'the per-field @error blocks; the toast is a deliberate summary',
-                493 => 'password_update: the same Class A shape, and a password screen',
+                567 => 'password_update: the same Class A shape, and a password screen',
             ],
         ];
 

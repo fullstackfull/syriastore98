@@ -45,10 +45,12 @@ use Tests\TestCase;
  * (verified by grep across resources/, app/ and packages/).
  *
  * Rendering the Breeze markup instead would have added a SECOND profile editor beside the
- * product's own, and it would have put a **Delete Account** control into the merchant UI --
- * ProfileController@destroy is a bare `$user->delete()` with no store, order or subscription
- * cleanup. Exposing self-service tenant deletion is a product and data-integrity decision, not a
- * rendering repair, so this fix deliberately does not make it. It is recorded for the owner in
+ * product's own, and it would have put a **Delete Account** control into the merchant UI.
+ * ProfileController@destroy WAS a bare `$user->delete()` with no cleanup when this was written;
+ * the P0 repair now puts `UserDeletionSafety::blockers()` in front of it, so it refuses instead of
+ * cascading. Exposing a self-service account-deletion control is still a product decision rather
+ * than a rendering repair -- and with the guard in place the control would refuse every tenant
+ * owner who pressed it -- so this fix deliberately does not make it. It is recorded for the owner in
  * docs/development/phase-2.5/PHASE-2.5-WEB-SWEEP-FINDINGS.md.
  *
  * The redirect keeps every pinned assertion true -- `Route::has('profile.edit')`, the

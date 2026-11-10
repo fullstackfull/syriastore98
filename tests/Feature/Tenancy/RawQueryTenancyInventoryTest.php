@@ -366,8 +366,28 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
          * Only three of the four reach the per-table census below, because `DB::table($table)` has
          * no literal name for `LITERAL_TABLE_PATTERN` to capture. That is why `app` moves by 4 while
          * the per-table rows move by 3.
+         *
+         * 174 -> 176 on 2026-11-10 [P0, the user-deletion safety guard]. `app/Services/
+         * UserDeletionSafety.php` adds TWO raw entry points, and the same split as above applies:
+         * only ONE of them reaches the per-table census, because the other is `DB::table($table)`
+         * over the pinned cascade and orphan lists and has no literal name to capture.
+         *
+         *   - `DB::table('stores')->where('created_by', $user->id)->count()` — the store-ownership
+         *     half. Literal, so `stores` moves by 1 below.
+         *   - `DB::table($table)->where($column, $userId)->count()` — the dependency half, over
+         *     the 15 cascade tables and 5 orphan tables. `$table` comes from two `const` arrays on
+         *     the service and never from request input, so the variable table name is not a
+         *     caller-controlled identifier — the same reasoning `TopSellersByRevenue` records.
+         *
+         * **NEITHER CARRIES A `store_id` PREDICATE, DELIBERATELY**, and the direction of failure is
+         * why: this guard exists to find dependants before a `users` row is hard-deleted, so a
+         * predicate that hid one would turn a refusal into a destroyed store or wallet. Both are
+         * counts keyed on the target user id, both can only produce a refusal, and
+         * `UserPolicy::delete()` has already refused a cross-tenant target before either runs.
+         * They are declared with that reason in `ServiceLayerRawQueryInventoryTest`'s
+         * STORE_LESS_BY_DESIGN.
          */
-        $this->assertSame(['app' => 174, 'packages' => 45], $perDir,
+        $this->assertSame(['app' => 176, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -437,7 +457,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // is per-purchaser. See the note on the per-directory assertion above.
         // 215 -> 219 [2026-11-01]: the same four sites as the per-directory assertion above
         // (174 + 45). Stated here as well because this sum is what a reader quotes.
-        $this->assertSame(219, array_sum($perDir));
+        // 219 -> 221 [2026-11-10, P0]: the two UserDeletionSafety entry points (176 + 45). The
+        // UNSCOPED sum moves again, and for the second time it is deliberate: a `store_id`
+        // predicate on a guard that counts a user's dependants before a hard delete would hide
+        // dependants rather than hide rows, and the thing it would hide is a store or a wallet
+        // the delete then destroys. Declared with that reason in
+        // ServiceLayerRawQueryInventoryTest::STORE_LESS_BY_DESIGN; see the per-directory note.
+        $this->assertSame(221, array_sum($perDir));
     }
 
     /**
@@ -607,7 +633,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // Note the shape of this row generally: 18 of 19 `stores` sites are 'unscoped' for the
             // same structural reason, which is why a rising count on THIS table is not by itself a
             // finding -- the per-site classification is.
-            'stores' => [23, 22],    // P1-SEC-10 (DeliverySyriaCredential: stores created by a matched owner) and P1-SEC-04 (Duo setting rule); the Zid controller's own stores read is gone.
+            // [23, 22] -> [24, 23] on 2026-11-10 (P0): UserDeletionSafety's store-ownership count,
+            // `DB::table('stores')->where('created_by', $user->id)->count()`. It is the ONE of the
+            // guard's two entry points with a literal table name, which is why `app` moved by 2
+            // above and this row by 1. Unscoped on purpose -- it must see every store the user
+            // owns, because one it misses is one the delete destroys.
+            'stores' => [24, 23],    // P1-SEC-10 (DeliverySyriaCredential: stores created by a matched owner), P1-SEC-04 (Duo setting rule) and the P0 deletion guard; the Zid controller's own stores read is gone.
                                      // 20 -> 23 and 20 -> 22 with ModuleStorefrontInputGuard: two slug resolutions (no store_id to predicate on yet) and the thread read's by-id lookup, whose statement names `store_id` because the id comes from the body and is compared, not trusted
             'theme_customizes' => [2, 0],
             'user_email_templates' => [1, 1], // P1-SEC-04: ModuleAdministrativeRouteGuard::ownsEmailTemplate (the row named in the body)
@@ -691,7 +722,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // LIMIT 2 in this class's docblock rather than a new weakness. What covers them instead is
         // direct: GatewayReferenceIdempotencyTest drives tenant isolation on the service, and the
         // per-directory assertion above counts all six.
-        $this->assertSame(170, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        // 170 -> 171 on 2026-11-10 [P0]: the user-deletion guard's store-ownership count,
+        // `DB::table('stores')->where('created_by', $user->id)`. One of the guard's two entry
+        // points; the other names its table through a loop variable over two const arrays and so
+        // joins the unattributable remainder (49 -> 50), for the same reason F217's exposure
+        // census does. 171 literal-table sites of the 221 entry points.
+        $this->assertSame(171, array_sum(array_map(fn ($r) => $r[0], $actual)),
             '[2026-11-02] 167 -> 170 AND the remainder 52 -> 49, with NOTHING IN app/ CHANGED. '
             . 'Three entry points were counted by RAW_ENTRY_POINT_PATTERN and NOT attributed to '
             . 'their table, because they write `DB::table(` on one line and the name on the next: '
@@ -736,7 +772,14 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // scanner see three previously invisible sites, two of which carry no `store_id`
         // (OrderFinancialService.php:289 and :402 -- the F219 money reads). The third,
         // StoreFinanceController.php:545, does carry it and so is counted as aware.
-        $this->assertSame(80, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        // 80 -> 81 on 2026-11-10 [P0]: the same single site. It is store-less DELIBERATELY and in
+        // the direction opposite to every other row here -- a `store_id` predicate would hide
+        // stores the user owns, and a store this guard fails to see is a store the delete
+        // destroys. So this +1 is in the numerator of "statements with no store_id" and is NOT a
+        // cross-tenant read: it is a count keyed on the target user id that can only produce a
+        // refusal, behind a UserPolicy::delete() check that has already refused a foreign target.
+        // Declared with that reason in ServiceLayerRawQueryInventoryTest::STORE_LESS_BY_DESIGN.
+        $this->assertSame(81, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**

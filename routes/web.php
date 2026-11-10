@@ -448,7 +448,16 @@ Route::middleware(['web'])->group(function () {
     // and tests/Feature/Security/RouteShadowingTest.
     Route::get('/profile/edit', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('auth.profile.update');
-    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+    // P0-PROFILE. THROTTLED, because this route verifies a password.
+    //
+    // `ProfileController::destroy` validates `current_password`, and the resolved middleware
+    // stack carried no ThrottleRequests -- so it was an unlimited password-confirmation oracle
+    // for anyone holding a session. `throttle:6,1` is the same bound routes/auth.php:45,49
+    // already use, and Laravel keys it on the authenticated user for a signed-in request, so one
+    // merchant cannot exhaust another's budget.
+    Route::delete('/profile', [ProfileController::class, 'destroy'])
+        ->middleware('throttle:6,1')
+        ->name('profile.destroy');
     Route::resource('roles', RoleController::class);
     Route::resource('users', UserController::class);
     Route::get('user-info/{id}', [UserController::class, 'userInfo'])->name('user.info');

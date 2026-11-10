@@ -29,6 +29,56 @@ class UserPolicy
      *
      * A merchant admin owns the staff rows they created; a staff member
      * resolves to the same owning admin. The actor's own row always matches.
+     *
+     * ═════════════════════════════════════════════════════════════════════════════════════════
+     * P0-TENANT-ROOT (2026-11-10) — "CREATED BY THE PLATFORM" IS NOT A TENANT.
+     * ═════════════════════════════════════════════════════════════════════════════════════════
+     *
+     * Found by the project's `tenant-authz-reviewer` on the P0 deletion change, and then MEASURED
+     * end to end through the real routes rather than reasoned about. It is a PRE-EXISTING defect;
+     * nothing in the deletion change introduced it, and the deletion change is what made somebody
+     * read this method.
+     *
+     * `User::creatorId()` returns `$this->id` only for type `admin` / `super admin`, and
+     * `created_by` for everything else. Self-registration writes
+     * `['type' => 'admin', 'created_by' => 1]` (RegisteredUserController :124/:133, :261/:269), so
+     * EVERY merchant on the platform has `created_by = 1`. A principal whose type is anything else
+     * therefore resolves `creatorId()` to 1 — and both limbs below then match every merchant on
+     * the platform, plus user 1 itself.
+     *
+     * AND A MERCHANT CAN PUT THEMSELVES IN THAT STATE WITH TWO ORDINARY REQUESTS. Measured, each
+     * line driven through the HTTP route and the real controller:
+     *
+     *     attacker id=2 type=admin created_by=1          creatorId() = 2
+     *     POST a role named "Manager" in their own store (an ordinary merchant capability)
+     *     PUT /users/{self} with role=<it>  -> 302       type now "Manager"
+     *                                                    creatorId() = 1      <- collapsed
+     *     sameTenant(attacker, OTHER MERCHANT) = true
+     *     UserPolicy::update(attacker, that merchant) = true
+     *     PUT /users/{that merchant} -> their email is now the attacker's
+     *
+     * `UserController::update` derives `type` server-side from a tenant-SCOPED role (:299-306),
+     * which is the right shape, and `RolePolicy::RESERVED_NAMES` blocks only the two `admin`
+     * spellings — so "Manager" is accepted and the demotion is a supported action, not a bypass.
+     * Owning another merchant's email address owns every recovery flow, so this is cross-tenant
+     * account takeover, reachable by any merchant.
+     *
+     * THE FIX IS ONE QUESTION: is the row this actor's tenant resolves to actually a tenant, or
+     * is it the platform? A tenant root that is the platform operator is not a tenant, and an
+     * actor rooted there is in NO tenant rather than in everybody's. Fail-closed, and it cannot
+     * refuse the operator: `update()`, `resetPassword()` and `delete()` all admit
+     * `isPlatformAdmin($actor)` BEFORE they reach this method, and an actor acting on their own
+     * row returns true above.
+     *
+     * WHO LOSES AUTHORITY, stated so the blast radius is not a guess: only a non-operator whose
+     * `creatorId()` is the operator — a self-demoted merchant (the attack) and a staff row the
+     * OPERATOR created. The second is not a merchant's staff member; it belongs to no merchant
+     * tenant, and treating it as a member of every tenant was the defect, not a feature.
+     * A merchant (type `admin`) resolves to their own id and is unaffected; their staff resolve
+     * to the merchant and are unaffected.
+     *
+     * Pinned by `tests/Feature/Security/TenantRootIsNotThePlatformTest`, which drives the whole
+     * chain above through the routes and fails if any link in it reopens.
      */
     protected function sameTenant(User $actor, User $target): bool
     {
@@ -42,10 +92,48 @@ class UserPolicy
             return false;
         }
 
+        if (! self::tenantRootIsAMerchant($actorTenant)) {
+            return false;
+        }
+
         // The target is either a row the tenant owner created, or the tenant
         // owner themselves.
         return (int) $target->created_by === (int) $actorTenant
             || (int) $target->id === (int) $actorTenant;
+    }
+
+    /**
+     * Does this tenant root resolve to an actual merchant?
+     *
+     * A TENANT IS ROOTED AT A TYPE-`admin` USER, and `User::creatorId()` says so from the other
+     * side: it returns `$this->id` for `admin`/`super admin` and `created_by` for everything else.
+     * So a legitimate root is one of those two types, and `super admin` is the platform rather
+     * than a tenant — every caller admits the operator before reaching `sameTenant()`.
+     *
+     * THE FIRST VERSION OF THIS ASKED THE NARROWER QUESTION "is the root the operator", and the
+     * regression suite caught it being incomplete within the hour. In a fixture where the
+     * collapsed actor's own id happens to equal their `created_by`, the root resolved to the
+     * ACTOR — not the operator, so the narrow check passed it — and the two limbs below then
+     * matched every row carrying that same `created_by`. Asking whether the root is a MERCHANT
+     * closes that and the operator case together, because neither a demoted user nor the platform
+     * is type `admin`.
+     *
+     * `withoutGlobalScopes()` deliberately: `User` is not in `config/tenancy.php`'s
+     * `scoped_models`, so there is no scope to drop today — but a future scope must not be able to
+     * turn this read into `null` and hand back "yes". A root that cannot be read at all is NOT a
+     * merchant, which is the refusing direction.
+     */
+    protected static function tenantRootIsAMerchant(int|string $actorTenant): bool
+    {
+        $root = User::withoutGlobalScopes()->whereKey($actorTenant)->first();
+
+        if ($root === null || self::isOperator($root)) {
+            return false;
+        }
+
+        // Normalised the same way `isOperator()` normalises, for the same reason: MySQL's
+        // utf8mb4_unicode_ci ignores a trailing space but not a leading one or a tab.
+        return strtolower(rtrim((string) $root->type, ' ')) === 'admin';
     }
 
     protected function isPlatformAdmin(?User $actor): bool

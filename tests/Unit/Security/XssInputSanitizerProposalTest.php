@@ -208,8 +208,24 @@ class XssInputSanitizerProposalTest extends TestCase
             'the candidate has been wired into the middleware. That is a change to a Phase 01 '
             . 'control and needs the owner\'s approval, which this file does not constitute');
 
-        $this->assertStringContainsString("str_replace(['&lt;', '&gt;', 'javascript', 'alert']", $middleware,
-            'the current rule is no longer in XSS.php, so either it was repaired elsewhere or the '
-            . 'proposal was applied — either way this test file needs rewriting');
+        // RE-POINTED 2026-11-10. The sweep's four substrings moved out of the `str_replace(...)`
+        // call and into `XSS::STRIPPED_SUBSTRINGS`, so that `CredentialSanitisationTest` could
+        // measure the REAL list instead of a copy of it. The behaviour did not change, and this
+        // ratchet's job did not either: it asserts the live rule is still the same four
+        // substrings, applied by the middleware, and that the candidate is still uncalled.
+        //
+        // Asserted against the CONSTANT and not a quoted copy of it, for the same reason the
+        // constant exists: a ratchet that quotes the thing it guards stops guarding it the moment
+        // the thing moves.
+        $this->assertSame(
+            ['&lt;', '&gt;', 'javascript', 'alert'],
+            \App\Http\Middleware\XSS::STRIPPED_SUBSTRINGS,
+            'the live sweep no longer strips the same four substrings, so either it was repaired '
+            . 'elsewhere or the proposal was applied — either way this test file needs rewriting'
+        );
+
+        $this->assertStringContainsString('str_replace(self::STRIPPED_SUBSTRINGS', $middleware,
+            'the middleware no longer applies the sweep through its own constant, so the list '
+            . 'above may no longer be what runs');
     }
 }

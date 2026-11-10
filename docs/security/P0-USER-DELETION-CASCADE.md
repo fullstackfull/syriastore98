@@ -1,7 +1,19 @@
 # P0 — account deletion: a cross-tenant destructive authorization defect, and a cascade behind it
 
-**Status: the authorization half is FIXED and pinned. The cascade half is an OPEN RELEASE
-BLOCKER awaiting an owner decision. Nothing is merged to `main` and nothing is deployed.**
+**Status: BOTH halves are now implemented and pinned — authorization and fail-closed data
+safety — under the owner's decision of 2026-11-10. Nothing is merged to `main` and nothing is
+deployed.**
+
+> **Owner decision, 2026-11-10:** *"I approve a bounded, fail-closed mitigation … Under no
+> circumstances may deleting a user silently destroy a store, subscription, financial ledger,
+> wallet, transaction history, or other business-critical data."*
+
+**One limitation is carried deliberately and is reported in §6.**
+
+> **§7 is a SECOND and worse finding, turned up by the review of this one and fixed here:** any
+> merchant could take over any other merchant's account in two ordinary requests, because
+> `created_by = 1` was being read as a tenant. Pre-existing; measured end to end through the real
+> routes before a line of it was changed.
 
 Raised under the owner's Priority 0 of 2026-11-10. No destructive test was run against production
 or real merchant data; everything below is read from source, from the committed schema dump's
@@ -182,3 +194,288 @@ A guard on one door is not a mitigation. All three reach `users.delete()`:
 If the owner approves a cascade guard, it belongs in **one shared service** called by all three —
 the pattern `App\Services\VariantRemovalPolicy` already sets, and whose own docblock records that
 a per-door copy was caught once in review.
+
+
+---
+
+## 6. The implemented mitigation (owner decision, 2026-11-10)
+
+### `App\Services\UserDeletionSafety`
+
+One shared service, called by every door, answering a question `authorize()` does not:
+**is deleting this row safe at all?** It is *not* an authorization control and refuses the
+platform operator exactly as it refuses a merchant — an operator deleting a store owner destroys
+the same wallet.
+
+`blockers(User $user)` returns the reasons a hard delete is refused, or `[]`. It checks:
+
+| | |
+|---|---|
+| **store ownership** | first, because it is the single edge that turns a row-delete into a tenant wipe, and refusing on it short-circuits the whole second hop |
+| **15 CASCADE dependencies** | every foreign key to `users(id)` in the production schema — subscriptions, plan requests, plan coupons, delivery boys, email templates, brands, labels, questions, enquiries, notifications, refund settings, contact verifications, sidemenu order |
+| **5 orphan dependencies** | `orders`, `customers`, `products`, `order_notes`, `settings` — tables with **no** foreign key, which survive pointing at a row that is gone |
+
+**The list is pinned, not discovered at runtime.** A guard that reflects over the live schema
+silently narrows itself on any database missing a table, and in this project *the migrations are
+not the schema*. `UserDeletionSafetyCoverageTest` reads the production dump's schema section and
+asserts the list in **both** directions — every production cascade is covered, and every pinned
+entry is a real production foreign key. A new cascade added to production and not added here
+**fails that test** rather than quietly escaping the guard.
+
+A table absent from the live schema is skipped, because a row cannot be lost from a table that is
+not there; the coverage ratchet is what keeps the *list* complete. The alternative — refusing
+every deletion wherever any listed table is missing — would disable staff management on every
+fresh environment (`product_enquiries` and `sidemenu_order` are in production and in no migration)
+to guard against a row that cannot exist.
+
+### Race safety
+
+The check and the delete are **one transaction with the row locked**:
+
+```php
+DB::transaction(function () use ($user, &$blockers) {
+    $locked = User::whereKey($user->getKey())->lockForUpdate()->first();
+    if ($locked === null) return;
+    $blockers = UserDeletionSafety::blockers($locked);
+    if ($blockers !== []) return;
+    $locked->delete();
+});
+```
+
+A check-then-delete is a race: a store created between the count and the `DELETE` would be
+destroyed by a guard that had just proved there was none. On MySQL `lockForUpdate()` takes a row
+lock for the transaction's duration; on SQLite it compiles to nothing, but SQLite serialises
+writers, so the window is closed on both.
+
+### The three doors
+
+| door | authorization | data safety |
+|---|---|---|
+| `UserController::destroy` — `DELETE users/{user}`, live button | `UserPolicy::delete()` | `UserDeletionSafety` |
+| `ProfileController::destroy` — `DELETE /profile`, no UI | self-target only + password + CSRF | `UserDeletionSafety` |
+| `StoreController::destroy` — `DELETE stores/{store}`, **no UI** | operator only | `UserDeletionSafety` |
+
+`Api\DashboardController` was checked and is **not** a fourth door: it deletes a `DeliveryBoy`,
+not a `User`, and is already guarded by `resolveManageableDeliveryBoy()`.
+
+**`ProfileController::destroy` had a second defect fixed here:** `Auth::logout()` ran *before*
+`$user->delete()`, so a refusal would have signed the merchant out of an account that still
+exists. The logout now runs after the delete.
+
+### What independent review changed, 2026-11-10
+
+The project's `tenant-authz-reviewer` was run on the finished change before it was committed, as
+CLAUDE.md §6 requires. It confirmed the census — **exactly three doors**, verified by its own
+greps rather than by taking this document's word, with no fourth in `packages/workdo/`, no raw
+`DB::table('users')->delete()`, no model hook, and **no inbound foreign key to `users` at all** in
+the production schema, so no delete of any other row can take a user with it. It also confirmed
+`CASCADE_DEPENDENCIES` against three sources rather than one: the dump, `database/migrations`
+(12 CASCADE FKs, all 12 listed) and `packages/workdo/` (3 more, all 3 listed).
+
+Six things it found that this document or the code claimed wrongly, all now fixed:
+
+| | |
+|---|---|
+| **a dead constant naming a real gap** | `STORE_MONEY_TABLES` was declared with a docblock saying it covered "a user who owns no store but is named on a store's money rows" — and `blockers()` never read it. Each of the four tables was then measured: two have no user-bearing column, and **two do**. `store_wallet_transactions.created_by` and `store_withdrawals.requested_by` are both `bigint` with **no foreign key**, both written from `auth()->id()`, both carrying live rows in production. They are now `ORPHAN_DEPENDENCIES` entries, along with `lynomia_platform_notices.requested_by`, found by the same sweep. A constant nothing calls is not a check; it is a paragraph that tells an auditor a control exists when it does not. |
+| **the third door had no transaction** | `StoreController::destroy` was a plain check-then-delete while the other two doors locked the row. Same transaction and lock now. |
+| **the race claim was too broad** | See below. |
+| **an exemption ratchet that could not fail** | `CREDENTIAL_KEYS` was pinned by `str_contains($key, 'password') \|\| str_contains($key, 'token')`, which a future `api_token` or `password_hint` would pass. Pinned exactly now. |
+| **a premise measuring its own copy** | `CredentialSanitisationTest` re-declared the sweep's four substrings instead of reading them. `XSS::STRIPPED_SUBSTRINGS` exists so it reads the real list. |
+| **an operator-protection case with two limbs** | `test_merchant_cannot_delete_a_platform_admin` passes with `UserPolicy.php:187` deleted, because the attacker and the operator are in different tenants anyway. `test_operator_created_staff_cannot_delete_the_operator` removes that second limb — an attacker the operator created is rooted at the operator, so `sameTenant()` admits them — and it is now the only case that fails when the limb is removed. Measured in both directions. |
+
+### Race safety: what the lock closes, and what it does not
+
+The first version of this document said the window was "closed on both". It is not, and the line
+runs along the same split the two dependency lists are built on:
+
+* **Closed for the 15 `CASCADE_DEPENDENCIES`** — InnoDB takes a *shared record lock on the parent
+  row* while checking a foreign key, so `INSERT INTO stores (created_by = X)` blocks behind our
+  exclusive lock on user X. That, and not `lockForUpdate()` reaching into the child table, is the
+  mechanism; it works only because all 15 have a real FK.
+* **Open for the `ORPHAN_DEPENDENCIES`** — those tables are in that list *precisely because they
+  carry no foreign key*, so an insert into one takes no lock on `users`. T1 locks user X and
+  counts zero orders; T2 inserts `orders.created_by = X` and commits; T1 deletes. The order is
+  orphaned.
+
+The window needs the target user to be writing during their own deletion, which is narrow, and it
+is real. There is no cheap lock that covers an FK-less table, so it is **reported rather than
+closed**.
+
+### A behavioural consequence that should be said out loud
+
+`settings` is an `ORPHAN_DEPENDENCIES` entry, and `settings.created_by` is written with the tenant
+root's id. **So every tenant admin is now permanently undeletable through all three doors**, and
+the only accounts any of them can remove are staff rows with nothing attached.
+
+That is exactly what the owner's fail-closed decision asks for, and it is still a shipped change
+in behaviour. It is written here rather than left for a merchant to discover. The two
+`Setting::where('created_by', …)->delete()` calls inside the transactions are consequently
+unreachable; they are kept, annotated, as the correct cleanup if `settings` ever leaves that list.
+
+### A gap in the ratchet's own coverage
+
+`UserDeletionSafetyCoverageTest` skips when `storesyria_ecommercego.sql` is absent — deliberate,
+and better than passing. But **removing that dump is the planned remediation for P1-SEC-40 (#120)**,
+and a skip in the *Unit* suite is covered by no outcome gate: `.github/known-test-outcomes.json`
+asserts the outcome set for the Feature log only. On the day the dump goes, the only thing keeping
+`CASCADE_DEPENDENCIES` honest stops running with no CI signal. Recorded against #120.
+
+### THE LIMITATION, reported as the owner asked
+
+**`DELETE stores/{store}` now always refuses.** It deleted a store by deleting its *owner*, and a
+store owner always owns a store, so the guard always fires. Per the instruction — *"If
+implementing a safe guard requires a breaking business decision, keep deletion disabled for the
+affected cases and report the limitation. Never proceed with destructive behavior."*
+
+This costs **no shipped workflow**: a repo-wide grep finds no view linking to `stores.destroy`; it
+is reachable only by a crafted request. The merchant's own store removal is a different route with
+a real UI — `ownerstore-remove` (`AppSetting/index.blade.php:285`) — and that one deletes the
+**store**, preserving orders and plan orders under decision **D14**.
+
+If the operator needs to remove a store, that capability now needs a path that deletes the store
+rather than its owner. **That is a product decision and is not taken here.**
+
+### The childless-user test no longer stands as evidence
+
+`ProfileTest::test_user_can_delete_their_account` was green only because `User::factory()` creates
+a user with no store, no subscription and no orders — the blast radius was empty, so the cascade
+was invisible rather than absent. It is renamed
+`test_a_dependency_free_user_can_delete_their_account` and now **asserts its own scope**: that the
+user owns no store and that `UserDeletionSafety::blockers()` is empty. If the factory ever changes,
+the premise fails loudly instead of the case quietly becoming a test of something else.
+
+### Credential sanitisation and throttling
+
+Both reported in §3 and both fixed:
+
+* **`XSS` no longer rewrites credentials.** It ran
+  `str_replace(['&lt;','&gt;','javascript','alert'], '', $value)` over every string in every
+  request. Verifying, `current_password` compared a mangled string; **setting**, a registration or
+  reset *stored* one — a credential the user has never seen. A pinned `CREDENTIAL_KEYS` list is
+  now exempt, and a test asserts a **non**-credential field is still swept, so the fix cannot
+  become "the sweep is off".
+* **`DELETE /profile` is throttled** at `throttle:6,1`, the bound `routes/auth.php:45,49` already
+  use. Laravel keys it on the authenticated user, so one merchant cannot exhaust another's budget.
+
+### The two raw statements, and why they are not scoped
+
+`blockers()` counts with the query builder — `DB::table('stores')->where('created_by', $user->id)`
+and `DB::table($table)->where($column, $userId)` — and neither carries a `store_id` predicate. Four
+tenancy ratchets failed on that, correctly, and the resolution was to **declare both with the
+argument** rather than to scope them:
+
+> Everywhere else in those censuses a missing `store_id` predicate means a statement can see too
+> much. Here a predicate would mean it sees too **little**. A dependant the guard fails to count is
+> a dependant the delete destroys, so a scoped count turns a refusal into a silent cascade — the
+> failure direction is inverted.
+
+Both are counts keyed on the target user id, both can produce only a refusal naming a number, and
+`UserPolicy::delete()` has already refused a cross-tenant target before either runs. `users` is not
+in `config/tenancy.php`'s `scoped_models` either, and `stores` keys on `created_by` — a user id —
+not on a `store_id` of its own.
+
+The declarations live in `ServiceLayerRawQueryInventoryTest::STORE_LESS_BY_DESIGN`; the moved
+counts are recorded in both census files with the date and the reason, and **nothing was added to
+`.github/known-test-outcomes.json`**.
+
+### Tests
+
+`tests/Feature/Security/UserDeletionAuthorizationTest` — **15 cases**, covering every class the
+owner listed: cross-tenant attempts (owner and staff shapes), missing permission, operator
+protection, store-owner deletion, financial dependencies, orphan dependencies, dependency-free
+staff deletion, self-deletion through `/profile`, the third door, and one case asserting stores,
+orders and subscription records are all **still there** after a refused deletion.
+
+`tests/Feature/Security/CredentialSanitisationTest` — **6 cases**, including a premise that the
+sweep really would have mangled the chosen password.
+
+`tests/Unit/Security/UserDeletionSafetyCoverageTest` — **4 cases**, the pinned-list ratchet.
+
+**Proved in both directions.** With the guard reverted, 5 of the 15 deletion cases fail — exactly
+the data-safety ones — and 3 of the 6 credential cases fail. The authorization, premise and
+legitimate-path cases correctly pass either way.
+
+---
+
+## 7. P0-TENANT-ROOT — a separate, worse finding the review turned up
+
+**Status: CONFIRMED by measurement, and FIXED here. Pre-existing — nothing in the deletion change
+introduced it; the deletion change is what made somebody read `UserPolicy::sameTenant()`.**
+
+### Any merchant could take over any other merchant's account, in two requests
+
+`User::creatorId()` returns `$this->id` for type `admin` / `super admin`, and `created_by` for
+everything else. Self-registration writes `['type' => 'admin', 'created_by' => 1]`
+(`RegisteredUserController` :124/:133, :261/:269), so **every merchant on the platform carries
+`created_by = 1`**. A principal whose type is anything else therefore resolves `creatorId()` to 1,
+and `sameTenant()`'s two limbs then matched every merchant on the platform plus user 1 itself.
+
+A merchant could put themselves in that state **using the product as designed**. Each line below
+was driven through the real HTTP route and the real controller, not reasoned about:
+
+```
+attacker id=2 type=admin created_by=1              creatorId() = 2
+POST a role named "Manager" in their own store     (an ordinary merchant capability)
+PUT /users/{self} with role=<it>   -> 302          type now "Manager"
+                                                   creatorId() = 1      <- collapsed
+sameTenant(attacker, ANOTHER MERCHANT)  = true
+UserPolicy::update(attacker, that merchant) = true
+PUT /users/{that merchant}                         their email is now the attacker's
+```
+
+`UserController::update` derives `type` server-side from a tenant-**scoped** role (:299-306),
+which is the right shape, and `RolePolicy::RESERVED_NAMES` blocks only the two `admin` spellings —
+so `Manager` is accepted and the demotion is a supported action rather than a bypass. Owning
+another merchant's email address owns every password-recovery flow. The same predicate also gated
+`resetPassword()`.
+
+### The fix, and its blast radius
+
+`sameTenant()` now asks whether the row the actor's tenant resolves to is **a merchant** — a
+type-`admin` user. `User::creatorId()` says the same thing from the other side: a legitimate
+tenant root is `admin` or `super admin`, and `super admin` is the platform rather than a tenant.
+An actor rooted at the platform is in **no** tenant rather than in everybody's.
+
+It cannot refuse the operator: `update()`, `resetPassword()` and `delete()` all admit
+`isPlatformAdmin($actor)` before reaching `sameTenant()`, and an actor acting on their own row
+returns true first.
+
+Who loses authority, stated so the radius is not a guess: **only a non-operator whose `creatorId()`
+is not a merchant** — a self-demoted merchant (the attack) and a staff row the *operator* created.
+The second belongs to no merchant tenant; treating it as a member of every tenant was the defect.
+A merchant resolves to their own id and is unaffected; their staff resolve to the merchant and are
+unaffected.
+
+### The first version of the fix was too narrow, and the suite caught it within the hour
+
+It asked "is the root the **operator**". In a fixture where the collapsed actor's own id equalled
+their `created_by`, the root resolved to the **actor** — not the operator, so the narrow check
+passed it — and the limbs matched every row carrying that `created_by`. Asking whether the root is
+a *merchant* closes that and the operator case together. Recorded because the narrow version
+looked right and had a green test beside it.
+
+### Proved in both directions
+
+`tests/Feature/Security/TenantRootIsNotThePlatformTest` — 8 cases. Every one drives an HTTP route
+and asserts a **row**, not a predicate return, because the question is "can one merchant change
+another merchant's email", not "what does the function say". With the repair reverted, three
+redden; the three legitimate-path cases (a merchant editing own staff, staff editing a sibling,
+the operator editing a merchant) pass either way, which is what stops the fix being "refuse
+everything".
+
+The delete case passes either way too, and the file says so: the victim is a merchant, a merchant
+owns a store, and `UserDeletionSafety` refuses a store owner whatever the policy decided — the
+right outcome reached by the wrong layer. It is kept as the case that notices if the data-safety
+guard is ever narrowed, and labelled so it is not read as evidence the policy was correct.
+
+### Reported, not fixed: `UserPolicy::update()` has the wrong ordering
+
+`update()` tests `isAbleTo('Edit User')` **before** `isPlatformAdmin($actor)` (`:130` then `:134`).
+Its two siblings do the opposite. CLAUDE.md records why operator-first is the right order here —
+Laratrust's `permissions_as_gates` is false and operator status is a string on `users.type`, so
+**`isAbleTo()` alone refuses the platform operator**. Measured: an operator holding no Laratrust
+role cannot edit any user through this route, and it behaves identically with the tenant-root
+repair reverted.
+
+It is a lockout rather than a hole, and reordering it would hand every operator edit rights they
+do not hold today. **That is a product decision and is left to the owner.**

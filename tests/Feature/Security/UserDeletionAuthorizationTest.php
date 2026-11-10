@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use App\Services\UserDeletionSafety;
 
 /**
  * P0-DELETE — SEC-F4's defect, still open on the one operation that destroys a tenant.
@@ -190,6 +191,55 @@ class UserDeletionAuthorizationTest extends SecurityTestCase
     }
 
     /**
+     * THE SAME PROTECTION, DRIVEN SO THAT ONLY ONE LIMB CAN SAVE IT.
+     *
+     * Independent review found that `test_merchant_cannot_delete_a_platform_admin` above is
+     * satisfied by TWO independent limbs: the attacker and the operator are in different tenants,
+     * so `UserPolicy::sameTenant()` already returns false and the case still passes with
+     * `self::isOperator($target)` (UserPolicy.php:187) deleted. That limb is not belt-and-braces
+     * -- it is load-bearing, and nothing was pinning it.
+     *
+     * This case removes the other limb. The attacker is a staff row the OPERATOR created, so its
+     * `created_by` is the operator's id; `User::creatorId()` returns `created_by` for any type
+     * that is not `admin`/`super admin`, so the attacker's tenant root IS the operator, and
+     * `sameTenant()`'s `$target->id === $actorTenant` limb returns TRUE. The only thing left
+     * between a staff member holding `Delete User` and the deletion of the platform operator is
+     * the target-is-operator check.
+     *
+     * THE PREMISE IS ASSERTED, because a test that proves a limb matters only proves it if the
+     * other limb really is out of the way.
+     */
+    public function test_operator_created_staff_cannot_delete_the_operator(): void
+    {
+        $operator = $this->makeMerchant(['email' => 'operator-target@example.test']);
+        $operator->type = 'super admin';
+        $operator->save();
+
+        $attacker = $this->makeStaff($operator, ['email' => 'operator-staff@example.test']);
+        $this->grantPermission($attacker, 'Delete User');
+
+        // THE PREMISE: the attacker's tenant root really is the operator, so the tenancy limb
+        // cannot be what refuses this. If this ever stops holding, the case below is measuring
+        // the same thing the sibling above already measures.
+        $this->assertSame(
+            (int) $operator->id,
+            (int) $attacker->fresh()->creatorId(),
+            'the attacker is no longer rooted at the operator, so `sameTenant()` would refuse '
+            . 'this on its own and the case cannot isolate the target-is-operator limb'
+        );
+
+        $this->actingAs($attacker)->delete("/users/{$operator->id}");
+
+        $this->assertTrue(
+            User::withoutGlobalScopes()->whereKey($operator->id)->exists(),
+            'A staff member the operator created, holding `Delete User`, deleted the platform '
+            . 'operator. `sameTenant()` admits them -- creatorId() returns `created_by` for a '
+            . 'non-admin type -- so `UserPolicy::delete()`\'s target-is-operator check is the '
+            . 'only thing that refuses this, and it is gone.'
+        );
+    }
+
+    /**
      * THE LEGITIMATE CASE, so the repair cannot be "refuse everything". A merchant managing their
      * own staff is what the `Delete User` permission is for.
      */
@@ -226,6 +276,280 @@ class UserDeletionAuthorizationTest extends SecurityTestCase
         $this->assertFalse(
             User::withoutGlobalScopes()->whereKey($staff->id)->exists(),
             'the platform operator can no longer remove a user, which breaks support'
+        );
+    }
+
+    // =============================================================================================
+    // DATA SAFETY -- the owner-approved fail-closed half. These are not authorization tests:
+    // every actor below is allowed to delete the target, and the refusal is about what the
+    // deletion would destroy.
+    // =============================================================================================
+
+    /**
+     * THE CASE THE OLD SUITE COULD NOT SEE. A store owner is the tenant root, and
+     * `stores.created_by` is ON DELETE CASCADE, so deleting them takes the store and everything
+     * hanging off it.
+     */
+    public function test_a_store_owner_cannot_be_hard_deleted_even_by_the_operator(): void
+    {
+        $operator = $this->makeMerchant(['email' => 'operator-store@example.test']);
+        $operator->type = 'super admin';
+        $operator->save();
+
+        [$owner, $store] = $this->makeTenant();
+
+        $this->actingAs($operator)->delete("/users/{$owner->id}");
+
+        $this->assertTrue(
+            User::withoutGlobalScopes()->whereKey($owner->id)->exists(),
+            'A store owner was hard-deleted. stores.created_by is ON DELETE CASCADE, so the '
+            . 'store and its wallet, transactions, withdrawals and per-order financials went '
+            . 'with them.'
+        );
+
+        $this->assertTrue(
+            Store::withoutGlobalScopes()->whereKey($store->id)->exists(),
+            'the store was destroyed by the cascade'
+        );
+    }
+
+    /**
+     * The guard is NOT an authorization control, so it must refuse the operator too. Asserted on
+     * the service directly as well as through the route, because the route could refuse for the
+     * wrong reason.
+     */
+    public function test_the_safety_service_names_store_ownership_as_a_blocker(): void
+    {
+        [$owner] = $this->makeTenant();
+
+        $blockers = UserDeletionSafety::blockers($owner->fresh());
+
+        $this->assertNotEmpty($blockers, 'a store owner produced no blockers');
+
+        $this->assertTrue(
+            collect($blockers)->contains(fn ($b) => str_contains($b, 'store')),
+            'the blockers do not mention the store: ' . implode(' | ', $blockers)
+        );
+    }
+
+    /**
+     * FINANCIAL DEPENDENCIES. A user with a subscription order is not dependency-free even if
+     * they own no store: `plan_orders.user_id` is ON DELETE CASCADE, so their billing history
+     * would be destroyed.
+     */
+    public function test_a_user_with_a_subscription_record_cannot_be_hard_deleted(): void
+    {
+        $this->requireTable('plan_orders');
+
+        [$owner] = $this->makeTenant();
+        $this->grantPermission($owner, 'Delete User');
+
+        $staff = $this->makeStaff($owner);
+
+        DB::table('plan_orders')->insert([
+            'order_id' => 'PO-SAFETY-' . $staff->id,
+            'user_id' => $staff->id,
+            'plan_id' => 1,
+            'plan_name' => 'Growth',
+            'price' => 100,
+            'price_currency' => 'USD',
+            'txn_id' => 'TXN-SAFETY',
+            'payment_type' => 'Manually',
+            'payment_status' => 'succeeded',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->actingAs($owner)->delete("/users/{$staff->id}");
+
+        $this->assertTrue(
+            User::withoutGlobalScopes()->whereKey($staff->id)->exists(),
+            'a user carrying a subscription record was hard-deleted, destroying their billing '
+            . 'history with them'
+        );
+
+        $this->assertSame(
+            1,
+            DB::table('plan_orders')->where('user_id', $staff->id)->count(),
+            'the subscription row was destroyed by the cascade'
+        );
+    }
+
+    /**
+     * ORPHAN DEPENDENCIES. `orders` carries no foreign key to `users`, so an order created by the
+     * deleted user SURVIVES pointing at a row that is gone -- the half a single-table restore
+     * cannot repair.
+     */
+    public function test_a_user_who_created_orders_cannot_be_hard_deleted(): void
+    {
+        $this->requireTable('orders');
+
+        [$owner, $store] = $this->makeTenant();
+        $this->grantPermission($owner, 'Delete User');
+
+        $staff = $this->makeStaff($owner);
+
+        $order = $this->makeOrder($store, ['created_by' => $staff->id]);
+
+        $this->actingAs($owner)->delete("/users/{$staff->id}");
+
+        $this->assertTrue(
+            User::withoutGlobalScopes()->whereKey($staff->id)->exists(),
+            'a user who created orders was hard-deleted, orphaning them'
+        );
+
+        $this->assertSame(
+            1,
+            DB::table('orders')->where('id', $order->id)->count(),
+            'the order itself should still exist either way -- it has no foreign key'
+        );
+    }
+
+    /**
+     * MISSING PERMISSION, with everything else in order. The authorization half must still refuse
+     * a same-tenant delete when the actor holds no `Delete User`.
+     */
+    public function test_a_merchant_without_the_permission_cannot_delete_their_own_staff(): void
+    {
+        [$owner] = $this->makeTenant();
+        // deliberately NOT granted 'Delete User'
+        $staff = $this->makeStaff($owner);
+
+        $this->actingAs($owner)->delete("/users/{$staff->id}");
+
+        $this->assertTrue(
+            User::withoutGlobalScopes()->whereKey($staff->id)->exists(),
+            'a merchant with no Delete User permission deleted a staff account'
+        );
+    }
+
+    // =============================================================================================
+    // SELF-DELETION THROUGH /profile -- the same safety question, the other door.
+    // =============================================================================================
+
+    public function test_a_store_owner_cannot_delete_themselves_through_profile(): void
+    {
+        [$owner, $store] = $this->makeTenant();
+        $owner->forceFill(['password' => 'password'])->save();
+
+        $this->actingAs($owner)->delete('/profile', ['password' => 'password']);
+
+        $this->assertTrue(
+            User::withoutGlobalScopes()->whereKey($owner->id)->exists(),
+            'a store owner deleted themselves through /profile, taking the tenant with them'
+        );
+
+        $this->assertTrue(
+            Store::withoutGlobalScopes()->whereKey($store->id)->exists(),
+            'the store was destroyed'
+        );
+
+        // AND THEY ARE STILL SIGNED IN. The logout used to run BEFORE the delete, so a refusal
+        // would have signed the merchant out of an account that still exists.
+        $this->assertAuthenticatedAs($owner->fresh());
+    }
+
+    public function test_a_dependency_free_user_can_still_delete_themselves_through_profile(): void
+    {
+        $user = $this->makeStaff($this->makeMerchant(['email' => 'owner-sd@example.test']));
+        $user->forceFill(['password' => 'password'])->save();
+
+        $this->actingAs($user)->delete('/profile', ['password' => 'password']);
+
+        $this->assertFalse(
+            User::withoutGlobalScopes()->whereKey($user->id)->exists(),
+            'a genuinely dependency-free account could not delete itself, so the guard is too wide'
+        );
+    }
+
+    /**
+     * THE WHOLE POINT, asserted as one picture: after a REFUSED deletion, every class of record
+     * the owner named is still there.
+     */
+    public function test_nothing_is_lost_when_a_deletion_is_refused(): void
+    {
+        $this->requireTable('orders');
+
+        $operator = $this->makeMerchant(['email' => 'operator-intact@example.test']);
+        $operator->type = 'super admin';
+        $operator->save();
+
+        [$owner, $store] = $this->makeTenant();
+        $order = $this->makeOrder($store);
+
+        $hasPlanOrders = Schema::hasTable('plan_orders');
+
+        if ($hasPlanOrders) {
+            DB::table('plan_orders')->insert([
+                'order_id' => 'PO-INTACT',
+                'user_id' => $owner->id,
+                'plan_id' => 1,
+                'plan_name' => 'Growth',
+                'price' => 100,
+                'price_currency' => 'USD',
+                'txn_id' => 'TXN-INTACT',
+                'payment_type' => 'Manually',
+                'payment_status' => 'succeeded',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        $this->actingAs($operator)->delete("/users/{$owner->id}");
+
+        $this->assertTrue(
+            User::withoutGlobalScopes()->whereKey($owner->id)->exists(),
+            'the user was deleted'
+        );
+        $this->assertTrue(
+            Store::withoutGlobalScopes()->whereKey($store->id)->exists(),
+            'the STORE was destroyed by the cascade'
+        );
+        $this->assertSame(
+            1,
+            DB::table('orders')->where('id', $order->id)->count(),
+            'the ORDER is gone'
+        );
+
+        if ($hasPlanOrders) {
+            $this->assertSame(
+                1,
+                DB::table('plan_orders')->where('user_id', $owner->id)->count(),
+                'the SUBSCRIPTION record was destroyed by the cascade'
+            );
+        }
+    }
+
+    /**
+     * THE THIRD DOOR. `StoreController::destroy` (DELETE stores/{store}) deletes a STORE by
+     * deleting its OWNER -- the unsafe pattern this whole repair is about. It is operator-only
+     * and has NO view linking to it anywhere in the repository, so it is reachable only by a
+     * crafted request; the merchant's own store removal is `ownerstore-remove`, which deletes the
+     * STORE and preserves orders under decision D14.
+     *
+     * It now refuses, and because a store owner always owns a store it refuses ALWAYS. That is
+     * the limitation, chosen on the owner's instruction to keep deletion disabled rather than
+     * proceed with destructive behaviour.
+     */
+    public function test_the_store_route_cannot_delete_an_owner_either(): void
+    {
+        $operator = $this->makeMerchant(['email' => 'operator-third@example.test']);
+        $operator->type = 'super admin';
+        $operator->save();
+
+        [$owner, $store] = $this->makeTenant();
+
+        $this->actingAs($operator)->delete("/stores/{$owner->id}");
+
+        $this->assertTrue(
+            User::withoutGlobalScopes()->whereKey($owner->id)->exists(),
+            'StoreController::destroy hard-deleted a store owner, taking the wallet and ledgers '
+            . 'with them'
+        );
+
+        $this->assertTrue(
+            Store::withoutGlobalScopes()->whereKey($store->id)->exists(),
+            'the store was destroyed by the cascade'
         );
     }
 }

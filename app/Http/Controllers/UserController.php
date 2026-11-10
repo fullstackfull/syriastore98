@@ -7,6 +7,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
 use App\Models\User;
+use App\Services\UserDeletionSafety;
 use App\Models\Plan;
 use App\Models\Store;
 use App\Models\Utility;
@@ -344,14 +345,78 @@ AuditLog::record('user_created', $user, [], [
     {
         $this->authorize('delete', $user);
 
-        Setting::where('created_by', $user->id)->delete();
-        $user->delete();
+        /*
+         * DATA SAFETY, SEPARATE FROM AUTHORIZATION, and owner-approved as fail-closed.
+         *
+         * `authorize()` above answers "may this principal delete this row". It does NOT answer
+         * "is deleting this row safe at all", and the two are different questions: an operator
+         * deleting a store owner destroys the same wallet a merchant would.
+         *
+         * THE CHECK AND THE DELETE ARE ONE TRANSACTION, with the row locked, because a
+         * check-then-delete is a race: a store created between the count and the DELETE would be
+         * destroyed by a guard that had just proved there was none.
+         *
+         * WHAT THE LOCK ACTUALLY CLOSES, corrected 2026-11-10 after independent review found this
+         * paragraph claiming more than the code does. It said "the window is closed on both". It
+         * is not, and the distinction is the same one the two dependency lists are built on:
+         *
+         *   CLOSED for the 15 CASCADE_DEPENDENCIES. InnoDB takes a SHARED record lock on the
+         *   parent row while checking a foreign key, so an `INSERT INTO stores (created_by = X)`
+         *   blocks behind our exclusive lock on user X. That -- not `lockForUpdate()` reaching
+         *   into the child table -- is the mechanism, and it works only because all 15 of those
+         *   tables have a real FK to `users(id)`.
+         *
+         *   OPEN for the ORPHAN_DEPENDENCIES. Those tables are in that list PRECISELY BECAUSE
+         *   they carry no foreign key, so an insert into one takes no lock on `users` and is not
+         *   serialised by anything here. T1 locks user X and counts zero orders; T2 inserts
+         *   `orders.created_by = X` and commits; T1 deletes. The order is orphaned. The window
+         *   needs the target user to be writing during their own deletion, which is narrow, and
+         *   it is real. There is no cheap lock that covers an FK-less table, so this is REPORTED
+         *   rather than closed -- see docs/security/P0-USER-DELETION-CASCADE.md.
+         *
+         * The SQLite half of the old claim was also loose: the guard's COUNT is a reader and the
+         * write lock is not taken until the DELETE. Immaterial in the suite (one connection) and
+         * in production (MySQL), but it was not the argument it was written as.
+         *
+         * If the row has gone between the route-model binding and the lock, there is nothing to
+         * delete and nothing to report.
+         */
+        $blockers = [];
 
-        AuditLog::record('user_deleted', $user, [
-            'name' => $user->name,
-            'email' => $user->email,
-            'type' => $user->type,
-        ], []);
+        DB::transaction(function () use ($user, &$blockers) {
+            $locked = User::whereKey($user->getKey())->lockForUpdate()->first();
+
+            if ($locked === null) {
+                return;
+            }
+
+            $blockers = UserDeletionSafety::blockers($locked);
+
+            if ($blockers !== []) {
+                return;
+            }
+
+            // UNREACHABLE BY DESIGN, and kept rather than deleted. `settings` is an entry in
+            // ORPHAN_DEPENDENCIES, so a user with any `settings` row is refused above and this
+            // line only ever runs when there is nothing to delete. It stays because it is the
+            // correct cleanup if `settings` is ever moved out of that list.
+            Setting::where('created_by', $locked->id)->delete();
+            $locked->delete();
+
+            AuditLog::record('user_deleted', $locked, [
+                'name' => $locked->name,
+                'email' => $locked->email,
+                'type' => $locked->type,
+            ], []);
+        });
+
+        if ($blockers !== []) {
+            return redirect()->back()->with(
+                'error',
+                __('This account cannot be deleted because it still owns data.') . ' '
+                . implode('; ', $blockers)
+            );
+        }
 
         return redirect()->back()->with('success', 'User successfully deleted.');
     }

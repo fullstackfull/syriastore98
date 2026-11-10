@@ -501,14 +501,83 @@ foreach ($defaultCurrencies as $currency) {
     public function destroy($id)
     {
 
-        if (auth()->user() && auth()->user()->type == 'super admin') {
-            $user = User::find($id);
-            Setting::where('created_by', $user->id)->delete();
-            $user->delete();
-            return redirect()->back()->with('success', __('Store Successfully Deleted!'));
-        } else {
+        // THROUGH THE SHARED HELPER, not a literal comparison. `type !== 'super admin'` disagrees
+        // with `UserPolicy::isOperator()` for `'Super Admin'` and for `'super admin '` -- values
+        // MySQL's utf8mb4_unicode_ci treats as EQUAL to the literal, so a row typed either way is
+        // the operator to the database and a stranger to this line. Found by independent review.
+        if (! auth()->user() || ! \App\Policies\UserPolicy::isOperator(auth()->user())) {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
+
+        /*
+         * P0-DELETE, THE THIRD DOOR. This route deletes a STORE by deleting its OWNER, which is
+         * the unsafe pattern the whole P0 repair is about: `users` has no soft delete and
+         * `stores.created_by` is ON DELETE CASCADE, so the row-delete takes the store AND the
+         * wallet, the wallet transactions, the withdrawals and the per-order financials with it,
+         * while `orders`, `customers` and `products` survive pointing at a store that is gone.
+         *
+         * IT IS GUARDED RATHER THAN REWRITTEN, on the owner's instruction: *"If implementing a
+         * safe guard requires a breaking business decision, keep deletion disabled for the
+         * affected cases and report the limitation. Never proceed with destructive behavior."*
+         *
+         * THE LIMITATION, STATED PLAINLY: a store owner always owns a store, so this route now
+         * always refuses. That costs no shipped workflow -- a repo-wide grep finds NO view
+         * linking to `stores.destroy`; it is reachable only by a crafted request. The merchant's
+         * own store removal is a different route with a UI (`ownerstore-remove`,
+         * AppSetting/index.blade.php:285), and that one deletes the STORE, preserving orders and
+         * plan orders under owner decision D14.
+         *
+         * `User::find()` was also unchecked: a non-existent id reached `$user->id` and fatalled.
+         */
+        $user = User::find($id);
+
+        if ($user === null) {
+            return redirect()->back()->with('error', __('User not found.'));
+        }
+
+        /*
+         * THE SAME TRANSACTION AND THE SAME LOCK AS THE OTHER TWO DOORS. This one was written as a
+         * plain check-then-delete and independent review caught it: the reasoning recorded on
+         * `UserController::destroy` -- that a store created between the count and the DELETE would
+         * be destroyed by a guard that had just proved there was none -- applies here verbatim and
+         * had not been applied. Operator-only, so it needs the operator plus a concurrent write;
+         * that makes it a consistency hole rather than a live attack, and it is still the kind of
+         * hole this whole repair exists to close.
+         */
+        $blockers = [];
+
+        DB::transaction(function () use ($user, &$blockers) {
+            $locked = User::whereKey($user->getKey())->lockForUpdate()->first();
+
+            if ($locked === null) {
+                return;
+            }
+
+            $blockers = \App\Services\UserDeletionSafety::blockers($locked);
+
+            if ($blockers !== []) {
+                return;
+            }
+
+            // UNREACHABLE BY DESIGN, and kept rather than deleted. `settings` is an entry in
+            // ORPHAN_DEPENDENCIES, so a user with any `settings` row is already refused above and
+            // this line only ever runs when there is nothing to delete. It stays because it is the
+            // correct cleanup if `settings` is ever moved out of that list, and a silent gap would
+            // be worse than a no-op. Same at UserController::destroy.
+            Setting::where('created_by', $locked->id)->delete();
+
+            $locked->delete();
+        });
+
+        if ($blockers !== []) {
+            return redirect()->back()->with(
+                'error',
+                __('This account cannot be deleted because it still owns data.') . ' '
+                . implode('; ', $blockers)
+            );
+        }
+
+        return redirect()->back()->with('success', __('Store Successfully Deleted!'));
     }
 
 
