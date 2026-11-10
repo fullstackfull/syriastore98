@@ -1665,36 +1665,55 @@ BLOCKED_SURFACES = {
         'by test/screens/invoice_viewer_capture_test.dart. REMEDIATION: capture on a device or '
         'emulator; behaviour is pinned by tests meanwhile.',
 
-    # ---- BUILT, BUT NO MERCHANT CAN REACH IT -------------------------------------------------
-    # MEASURED 2026-11-10 in StoreSyria_app98, after a first check using the WRONG CLASS NAME
-    # (`CodScreen`) returned a confident empty result -- the class is `CODScreen`.
+    # ---- DISABLED WHOLESALE, AND IT IS A WEB/FLUTTER PARITY GAP ------------------------------
     #
-    #   lib/view/screen/setting_screen/payment_setting_screen/cod_screen.dart            159 lines
-    #   .../stripe_screen.dart                                                           169 lines
-    #   .../bank_transfer_screen.dart                                                    152 lines
+    # CORRECTED 2026-11-10, having first been recorded here as "built but unreachable". That was
+    # understated, and the way it was wrong is the family this phase keeps meeting: a grep found
+    # `class CODScreen` and I read it as a declaration. It is INSIDE A COMMENT.
     #
-    # All three are complete screens with their own controllers. `CODScreen`, `StripeScreen` and
-    # `BankTransferScreen` are referenced by NOTHING outside their own directory, and
-    # `payment_setting_screen.dart` -- the one payment screen a merchant can actually open
-    # (`store_setting_screen.dart:102` does `Get.to(() => PaymentSettingScreen())`) -- does not
-    # mention any of them either. There is no `Get.to`, no named route and no AppRoutes entry.
+    # Measured by counting lines that are not comments and not blank:
     #
-    # So a merchant cannot configure COD, Stripe or bank transfer from the admin app at all. That
-    # is a real gap in merchant functionality, but closing it means WIRING UP NEW NAVIGATION,
-    # which is new functionality rather than a design pass, and payment configuration is one of
-    # the areas CLAUDE.md reserves for an owner decision.
+    #   cod_screen.dart               159 lines,   0 live
+    #   stripe_screen.dart            169 lines,   0 live
+    #   bank_transfer_screen.dart     152 lines,   0 live
+    #   cod_controller.dart           129 lines,   0 live
+    #   stripe_controller.dart        112 lines,   0 live
+    #   bank_transfer_controller.dart  94 lines,   0 live
     #
-    # REMEDIATION: an owner decision on whether these three screens should be reachable. If they
-    # should, they then need capturing like any other screen; until then there is no surface to
-    # photograph, because the application never shows one.
+    # 815 lines, none of it live. The first line of cod_screen.dart reads
+    # `// // ignore_for_file: ...` -- a comment prefix applied over an existing comment, the
+    # signature of a mechanical whole-file disabling rather than a considered removal. No reason
+    # is recorded, and the only commit touching the file carries an unrelated message.
+    #
+    # SO THE ANSWER TO "intended, inactive, or deliberately restricted" IS: INACTIVE. Nothing
+    # restricts these by permission; the code was written and then switched off.
+    #
+    # AND THE GAP IS REAL, because the web does offer this. `payment_setting` is a tab of the
+    # merchant settings hub (resources/views/setting/index.blade.php:55) with
+    # setting/payment_partials/payment_gateway.blade.php behind it, and it was captured in the
+    # settings-tabs wave. The Flutter app's own live `PaymentSettingScreen` (245 lines, reachable
+    # from store_setting_screen.dart:102) LISTS the configured methods read-only -- no switch, no
+    # editor, no navigation out of it. So a merchant can configure COD, Stripe and bank transfer
+    # on the web and only look at them in the app.
+    #
+    # NOT ACTIONED, and deliberately. Reviving 815 lines would expose financial configuration in
+    # the app, which the owner's Priority 2 reserves: "Do not expose new financial functionality
+    # without confirming existing permissions and approved product behavior." There is also no
+    # design work owed until that decision is made -- there is nothing on screen to review.
+    #
+    # REMEDIATION: an owner decision on whether the app should edit payment gateways at all. If
+    # yes, that is a feature revival with its own permission and contract review, not a Phase 2.5
+    # design pass.
     'COD / Stripe / Bank-transfer gateway editors':
-        'built but unreachable: cod_screen.dart (159 lines), stripe_screen.dart (169) and '
-        'bank_transfer_screen.dart (152) all define complete screens, and CODScreen / '
-        'StripeScreen / BankTransferScreen are referenced nowhere in lib/ outside their own '
-        'directory -- not even by payment_setting_screen.dart, the one payment screen a merchant '
-        'can open. No Get.to, no named route, no AppRoutes entry. A merchant cannot configure '
-        'these gateways from the app. REMEDIATION: an owner decision on whether to wire them up; '
-        'that is new navigation, not a design pass.',
+        'inactive, not merely unreachable: all six files are 100%% commented out -- 815 lines, 0 '
+        'live (cod/stripe/bank_transfer screen and controller). The classes an earlier note '
+        'cited were matched INSIDE comments. No reason is recorded and the only commit touching '
+        'them carries an unrelated message. This is a WEB/FLUTTER PARITY GAP: the web offers '
+        'gateway configuration as a merchant settings tab (setting/index.blade.php:55), while '
+        "the app's live PaymentSettingScreen lists methods read-only. REMEDIATION: an owner "
+        'decision on whether the app should edit payment gateways; reviving them would expose '
+        'financial configuration, which Priority 2 reserves. No design work is owed meanwhile -- '
+        'there is nothing on screen to review.',
 
     # ---- BLOCKED ON THE DEV FIXTURE'S DATABASE ENGINE, not on design ------------------------
     # These four answered HTTP 500 in ALL FOUR combinations in the 2026-11-10 sweep, and the
