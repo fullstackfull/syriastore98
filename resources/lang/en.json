@@ -3487,5 +3487,19 @@
     "Order :id will be permanently deleted. This action can not be undone.": "Order :id will be permanently deleted. This action can not be undone.",
     "Select all rows": "Select all rows",
     "Select row": "Select row",
-    "No menu item matches": "No menu item matches"
+    "No menu item matches": "No menu item matches",
+    "US Dollar": "US Dollar",
+    "Euro": "Euro",
+    "Syrian Pound": "Syrian Pound",
+    "Lebanese Pound": "Lebanese Pound",
+    "Iraqi Dinar": "Iraqi Dinar",
+    "Egyptian Pound": "Egyptian Pound",
+    "Jordanian Dinar": "Jordanian Dinar",
+    "Saudi Riyal": "Saudi Riyal",
+    "UAE Dirham": "UAE Dirham",
+    "Kuwaiti Dinar": "Kuwaiti Dinar",
+    "Qatari Riyal": "Qatari Riyal",
+    "Bahraini Dinar": "Bahraini Dinar",
+    "Omani Rial": "Omani Rial",
+    "retired - no longer available": "retired - no longer available"
 }

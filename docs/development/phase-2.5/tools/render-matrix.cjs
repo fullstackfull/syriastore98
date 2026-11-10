@@ -36,6 +36,31 @@ const WIDTH = parseInt(arg('width', '1440'), 10);
 const HEIGHT = parseInt(arg('height', '900'), 10);
 const SHOT = arg('shot', '1') !== '0';
 
+/**
+ * TAB INTERACTION, for panels that are not reachable by URL.
+ *
+ * `--click-each '<selector>'` turns one path into one capture PER MATCHING ELEMENT: the harness
+ * clicks each in turn, waits for the panel it loads, and names the capture after the element's
+ * `data-tab` (falling back to its index).
+ *
+ * The settings hub is why this exists. Its panels are Bootstrap pills that POST to `setting.form`
+ * and swap the panel over XHR, and the active one is remembered in the SESSION
+ * (`setting/index.blade.php:29`), not in the URL -- so no amount of navigating reaches tab two,
+ * and a plain capture of `/setting` is the same picture eleven times.
+ */
+const CLICK_EACH = arg('click-each', '');
+
+/**
+ * Where the clicked panel's content lands, so "did this tab load anything?" can be measured.
+ *
+ * The default covers the two shapes in this application: a Bootstrap pane that gains `.active`,
+ * and a single container the XHR result is written straight into. The settings hub is the second
+ * kind -- `getSettingForm()` does `$('#pills-tabContent').html(result.data.content)`
+ * (`setting/index.blade.php:398`) -- so there is no `.tab-pane.active` to find, which is why the
+ * first run of this flag reported all twenty-one panels empty while the screenshots were fine.
+ */
+const PANEL = arg('panel', '.tab-pane.active, .tab-content .active, #pills-tabContent');
+
 const STATE_TOOL = path.join(REPO, 'docs/development/phase-2/tools/set-admin-preview-state.php');
 
 const COMBOS = [
@@ -98,15 +123,105 @@ function setState(theme, dir, lang) {
 
       // PREMISES — a row that fails one of these is not a reading.
       const premise = [];
+      const premiseLate = [];
       if (!signedIn) premise.push('not signed in');
+
+      /*
+       * DID WE LAND ON THE PAGE WE ASKED FOR?
+       *
+       * This premise exists because the one that was supposed to catch a refusal does not catch
+       * the common case. The documented rule was "a capture titled `Store Syria - Dashboard` is a
+       * refusal redirect" -- true, but only for handlers that redirect to the dashboard. The
+       * WorkDo controllers refuse with `redirect()->back()`, which lands on the REFERRER, so the
+       * browser stays on whatever page the harness visited last and the capture carries that
+       * page's perfectly legitimate title.
+       *
+       * MEASURED: driving /coupon, /tag, /faqs in that order produced three pages all titled
+       * `Store Syria - Coupon`, because the merchant fixture holds `Manage Coupon` but not
+       * `Manage Tag` or `Manage Faqs`. Every existing premise passed -- signed in, direction
+       * right, theme sheet right, HTTP 200 -- and the title rule saw nothing wrong. Three
+       * screenshots of the coupon page would have become evidence for three different surfaces,
+       * and the distinct-capture guard could not have caught it either, since a `back()` refusal
+       * from a different referrer yields a different image each time.
+       *
+       * Comparing the landed path with the requested one catches every redirect-based refusal
+       * regardless of where it points, which is why it is phrased as an equality rather than as a
+       * list of known-bad destinations.
+       */
+      const landed = (() => { try { return new URL(page.url()).pathname; } catch (e) { return page.url(); } })();
+      const wantPath = p.split('?')[0].replace(/\/+$/, '') || '/';
+      const gotPath = landed.replace(/\/+$/, '') || '/';
+      if (status === 200 && gotPath !== wantPath) {
+        premise.push(`landed on ${gotPath}, asked for ${wantPath} (redirect — likely a permission refusal)`);
+      }
+
       const wantRtl = combo.dir === 'rtl';
       if (status === 200 && (state.htmlDir === 'rtl') !== wantRtl) premise.push(`dir=${state.htmlDir} wanted ${combo.dir}`);
       const darkSheet = /style-dark\.css/.test(state.mainStyle || '');
       if (status === 200 && darkSheet !== (combo.theme === 'dark')) premise.push(`sheet=${(state.mainStyle||'').split('/').pop()} wanted ${combo.theme}`);
 
       const key = `${p.replace(/[^a-z0-9]+/gi, '_')}__${combo.lang}_${combo.dir}_${combo.theme}`;
-      if (SHOT && status === 200) {
+      if (SHOT && status === 200 && !CLICK_EACH) {
         await page.screenshot({ path: path.join(OUT, key + '.png'), fullPage: false }).catch(() => {});
+      }
+
+      // ONE CAPTURE PER TAB, each one clicked and waited for.
+      const tabsSeen = [];
+      if (CLICK_EACH && status === 200) {
+        const found = await page.$$(CLICK_EACH);
+
+        for (let i = 0; i < found.length; i++) {
+          // Re-query each time: clicking swaps the panel, and a handle taken before a DOM change
+          // goes stale. Re-querying is what makes each click land on a live element.
+          const fresh = await page.$$(CLICK_EACH);
+          const el = fresh[i];
+          if (!el) continue;
+
+          const name = (await el.getAttribute('data-tab')) || ('tab' + i);
+
+          await el.click({ timeout: 5000 }).catch(() => {});
+
+          // WAIT FOR THE PANEL TO HAVE CONTENT, do not wait a fixed time and hope.
+          //
+          // `networkidle` plus a 400ms settle was not enough and, worse, it failed
+          // INCONSISTENTLY: six panels reported empty in one combination and three in the next,
+          // with a different set each run. A varying result is the signature of a race, and a
+          // race here produces a screenshot of a skeleton that photographs as a clean screen.
+          //
+          // `beforeSend` fills the panel with three `.ss-skeleton` lines, so "has content" is not
+          // simply "is not empty": the wait is for real text with no skeleton left in the panel.
+          await page.waitForFunction(
+            (args) => {
+              const pane = document.querySelector(args.sel);
+              if (!pane) return false;
+              if (pane.querySelector('.ss-skeleton')) return false;
+              return (pane.innerText || '').trim().length >= args.min;
+            },
+            { sel: PANEL, min: 20 },
+            { timeout: 15000 },
+          ).catch(() => {});
+
+          const panelChars = await page.evaluate((sel) => {
+            const pane = document.querySelector(sel);
+            return pane ? (pane.innerText || '').trim().length : 0;
+          }, PANEL).catch(() => 0);
+
+          tabsSeen.push({ name: name, chars: panelChars });
+
+          if (SHOT) {
+            const safePath = p.replace(/[^a-z0-9]+/gi, '_');
+            const tabKey = safePath + '_' + name + '__' + combo.lang + '_' + combo.dir + '_' + combo.theme;
+            await page.screenshot({ path: path.join(OUT, tabKey + '.png'), fullPage: false })
+              .catch(() => {});
+          }
+        }
+
+        // A TAB THAT LOADED NOTHING IS NOT A CAPTURED TAB. An empty panel photographs as a clean
+        // screen, which is the failure mode this whole harness exists to refuse.
+        const empty = tabsSeen.filter(function (t) { return t.chars < 20; })
+                              .map(function (t) { return t.name; });
+        if (empty.length) premiseLate.push('empty panel: ' + empty.join(', '));
+        if (tabsSeen.length === 0) premiseLate.push('no elements matched ' + CLICK_EACH);
       }
 
       // REQUESTED AND OBSERVED ARE SEPARATE FIELDS. This read `{...combo, dir: state.htmlDir}`,
@@ -123,7 +238,10 @@ function setState(theme, dir, lang) {
         title: (state.title || '').trim().slice(0, 48),
         h1: (state.h1 || '').trim().replace(/\s+/g, ' ').slice(0, 48),
         consoleErrors: consoleErrors.slice(0, 3),
-        premiseFail: premise,
+        premiseFail: premise.concat(premiseLate),
+        tabs: tabsSeen.length
+          ? tabsSeen.map(function (t) { return t.name + ':' + t.chars; }).join(' ')
+          : undefined,
       });
     }
     await ctx.close();

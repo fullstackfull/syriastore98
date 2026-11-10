@@ -1169,6 +1169,39 @@
 }
 .ss-vars__term { color: var(--ss-fg-muted); }
 .ss-vars__def { margin: 0; text-align: end; }
+/* ---- Code chip: a literal the merchant copies, not prose ----
+   `{order_no}`, a webhook path, a capture reference. `unicode-bidi: isolate` is not decoration:
+   a token in braces inside an Arabic sentence otherwise reorders, and `{order_no}` has been
+   measured rendering as `order_no}{`.
+
+   P2.5-SET-01. The chip treatment was scoped to the definition list alone, so the `<code>` inside
+   the `<label>` of the WhatsApp item-variable field (`setting/whatsapp_msg_setting.blade.php:89`)
+   fell through to Bootstrap's own `$pink` `#e83e8c` and measured 3.82:1 light / 3.73:1 dark
+   against a 4.5 floor. It was invisible in review because it reads as a deliberate accent; only
+   the pixels said otherwise.
+
+   EVERY ANCESTOR HERE IS A `.ss-` CLASS, and that is not stylistic. A bare `code` selector was
+   written first and `DesignSystemStylesheetScopeTest` rejected it, correctly: this sheet loads on
+   every admin page across all 70 vendored modules, so an unconfined element selector restyles
+   WorkDo markup the design system does not own. The guard is right and the selector was wrong --
+   the fix is to confine it, never to add `code` to that test's UNCONFINED_ALLOWED.
+
+   The three ancestors are the three places this application actually puts a `<code>`:
+   `.ss-label` (the field label above), `.ss-vars__def` (the template-variable list) and
+   `.ss-table` (`finance/unreconciled-captures.blade.php:84`, a capture reference in a cell).
+
+   The token pair is the one the definition list already used, re-measured before being widened:
+   `--ss-brand` on `--ss-brand-subtle` is 5.89:1 light (#335da8 on #f4f5f8) and 7.18:1 dark
+   (#2ac3e5 on #0e2a33). */
+.ss-label code,
+.ss-table code {
+    font-size: var(--ss-text-xs);
+    color: var(--ss-brand);
+    background: var(--ss-brand-subtle);
+    padding-inline: var(--ss-space-1);
+    border-radius: var(--ss-radius-sm);
+    unicode-bidi: isolate;
+}
 .ss-vars__def code {
     font-size: var(--ss-text-xs);
     color: var(--ss-brand);

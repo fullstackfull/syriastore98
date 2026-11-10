@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 119 | 40.3% |
+| REDESIGNED AND VERIFIED | 129 | 43.7% |
 | BLOCKED | 10 | 3.4% |
-| OUT OF SCOPE | 1 | 0.3% |
-| PENDING | 141 | 47.8% |
+| OUT OF SCOPE | 3 | 1.0% |
+| PENDING | 129 | 43.7% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -32,7 +32,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 |---|---:|---:|---:|---:|---:|---:|
 | Flutter merchant admin app | 51 | 0 | 30 | 0 | 0 | 21 |
 | CATALOGUE taxonomy | 38 | 13 | 1 | 0 | 0 | 24 |
-| Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 10 | 1 | 0 | 24 |
+| Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 20 | 1 | 2 | 12 |
 | Phase 2.5 Wave A | 30 | 0 | 25 | 0 | 0 | 5 |
 | Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 6 | 1 | 0 | 19 |
 | Flutter merchant/employee admin app | 24 | 0 | 13 | 0 | 0 | 11 |
@@ -152,18 +152,18 @@ actually been done to it since. They are different questions and the matrix keep
 | surface | route / kind | audit | state | evidence or reason |
 |---|---|---|---|---|
 | Settings hub (26 AJAX tabs) | ``GET /setting`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
-| Brand Settings tab | ``partial/component (POST /business-settings)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| System Settings tab | ``partial/component (POST /setting-form)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Storage Settings tab | ``partial/component (POST /storage-settings)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Currency Settings tab | ``partial/component (POST /setting-form)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Cache Settings tab | ``partial/component (GET /config-cache to clear)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| LYNOMIA OTP Settings tab | ``partial/component (POST otp.integration.save)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Shopify Settings tab | ``partial/component (POST /shopify-settings)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| WooCommerce Settings tab | ``partial/component (POST /woocommerce-settings)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Webhook Settings tab | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Pixel Settings tab | ``partial/component (resource pixel-setting)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Tax Option / Payment / reCAPTCHA / Cookie / SEO / Stock / Refund / PWA / Style / ChatGPT / Twilio / WhatsApp x3 / Email x3 / Loyalty tabs | ``partial/component (POST /setting-form + per-panel save routes` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Delivery Syria (wallet + parcels) | ``GET /setting (tab) and POST /delivery-syria/update`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Brand Settings tab | ``partial/component (POST /business-settings)`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-SET; four captures under evidence/web-settings-tabs-2026-11-09/ |
+| System Settings tab | ``partial/component (POST /setting-form)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-SET; four captures under evidence/web-settings-tabs-2026-11-09/ |
+| Storage Settings tab | ``partial/component (POST /storage-settings)`` | premium-already | **OUT OF SCOPE** | super-admin only (setting/index.blade.php:75 gates it on users.type == 'super admin'); a merchant never sees this tab, so it is Phase 06 operator scope, not Phase 2.5 |
+| Currency Settings tab | ``partial/component (POST /setting-form)`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-SET; four captures under evidence/web-settings-tabs-2026-11-09/ |
+| Cache Settings tab | ``partial/component (GET /config-cache to clear)`` | needs-polish | **OUT OF SCOPE** | super-admin only (setting/index.blade.php:75 gates it on users.type == 'super admin'); a merchant never sees this tab, so it is Phase 06 operator scope, not Phase 2.5 |
+| LYNOMIA OTP Settings tab | ``partial/component (POST otp.integration.save)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-SET; four captures under evidence/web-settings-tabs-2026-11-09/ |
+| Shopify Settings tab | ``partial/component (POST /shopify-settings)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-SET; four captures under evidence/web-settings-tabs-2026-11-09/ |
+| WooCommerce Settings tab | ``partial/component (POST /woocommerce-settings)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-SET; four captures under evidence/web-settings-tabs-2026-11-09/ |
+| Webhook Settings tab | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-SET; four captures under evidence/web-settings-tabs-2026-11-09/ |
+| Pixel Settings tab | ``partial/component (resource pixel-setting)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-SET; four captures under evidence/web-settings-tabs-2026-11-09/ |
+| Tax Option / Payment / reCAPTCHA / Cookie / SEO / Stock / Refund / PWA / Style / ChatGPT / Twilio / WhatsApp x3 / Email x3 / Loyalty tabs | ``partial/component (POST /setting-form + per-panel save routes` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-SET; four captures under evidence/web-settings-tabs-2026-11-09/ |
+| Delivery Syria (wallet + parcels) | ``GET /setting (tab) and POST /delivery-syria/update`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-SET; four captures under evidence/web-settings-tabs-2026-11-09/ |
 | Users / staff list (card grid) | ``GET /users`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Users / staff list (table view) | ``GET /user-list`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Create staff user (modal) | ``GET /users/create -> POST /users`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |

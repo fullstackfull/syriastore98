@@ -917,11 +917,90 @@ VERIFIED = {
     'Dashboard overview region (KPI surface)': ('PREMIUM VERIFIED', 'pkg-a-10', 'kpi__', 'P2.5-PKG-A-10'),
     'x-ss.stat / x-ss.stats (KPI cell + grid)': ('PREMIUM VERIFIED', 'pkg-a-10', 'stat__', 'P2.5-PKG-A-10'),
     'x-ss.attention / x-ss.attention-item': ('PREMIUM VERIFIED', 'pkg-a-10', 'attention__', 'P2.5-PKG-A-10'),
+
+    # ----------------------------------------------------------------------------------------
+    # P2.5-SET. The settings hub's AJAX tabs -- the largest PENDING group, and the one a plain
+    # page capture could never reach: the active tab lives in the SESSION, not the URL
+    # (`setting/index.blade.php:29`), so navigating to /setting eleven times photographs one tab
+    # eleven times. `render-matrix.cjs --click-each` now clicks each pill and waits for its panel.
+    #
+    # 21 merchant-visible tabs x 4 combinations = 84 captures, 84 distinct.
+    #
+    # EVERY PANEL WAS MEASURED, NOT ONLY PHOTOGRAPHED. `measure-settings-tabs.cjs` reads each
+    # loaded panel for text contrast against its composited background, overflow past the panel's
+    # own box, Latin-script leakage in the Arabic UI, and form controls with no accessible name.
+    # Final run: 21 tabs, 4 combinations, 0 findings. The tool was proved non-vacuous first --
+    # with the Arabic currency keys stashed it reports 26 findings, with them 0.
+    #
+    # THREE DEFECTS FOUND AND FIXED, all of them invisible in the screenshots:
+    #   P2.5-SET-01  `<code>` inside a `.ss-label` fell through to Bootstrap's `$pink` and
+    #       measured 3.82:1 light / 3.73:1 dark. The DS chip treatment was scoped to the
+    #       definition list only. Now `.ss-label code, .ss-table code, .ss-vars__def code`,
+    #       confined because `DesignSystemStylesheetScopeTest` rejected the bare element selector
+    #       -- correctly, since this sheet loads across all 70 vendored modules.
+    #   P2.5-SET-02  thirteen currency names and the retired-gateway suffix printed in English on
+    #       the Arabic page. Both call sites were ALREADY wrapped in `__()`, which is why nobody
+    #       caught it: a missing key and a correct translation look identical at the call site.
+    #       Same shape as the dashboard chart's `__(date('d-M'))`.
+    #   P2.5-SET-03  payment BRAND NAMES were translated as words: Stripe read `الشريط` ("the
+    #       ribbon"), Paystack `كومة الدفع` ("payment pile"), DPO `مدير حماية البيانات` ("Data
+    #       Protection Officer"). A merchant could not find Stripe. `PaymentTypeLabel::BRANDS`
+    #       already held the opposite rule and the order list already followed it, so the two
+    #       surfaces disagreed about one gateway. 32 keys removed; faithful renderings
+    #       (`بايبال`, `سكريل`, `واتساب`) deliberately kept.
+    #
+    # WHAT IS DELIBERATELY NOT CLAIMED: the Storage and Cache tabs, which are not merchant
+    # surfaces at all -- see OUT_OF_SCOPE below.
+    # ----------------------------------------------------------------------------------------
+    'Brand Settings tab':
+        ('REDESIGNED AND VERIFIED', 'web-settings-tabs-2026-11-09', '_setting_brand_setting__', 'P2.5-SET'),
+    'System Settings tab':
+        ('REDESIGNED AND VERIFIED', 'web-settings-tabs-2026-11-09', '_setting_system_setting__', 'P2.5-SET'),
+    'Currency Settings tab':
+        ('REDESIGNED AND VERIFIED', 'web-settings-tabs-2026-11-09', '_setting_currency_setting__', 'P2.5-SET'),
+    'LYNOMIA OTP Settings tab':
+        ('REDESIGNED AND VERIFIED', 'web-settings-tabs-2026-11-09', '_setting_otp_setting__', 'P2.5-SET'),
+    'Shopify Settings tab':
+        ('REDESIGNED AND VERIFIED', 'web-settings-tabs-2026-11-09', '_setting_shopify_setting__', 'P2.5-SET'),
+    'WooCommerce Settings tab':
+        ('REDESIGNED AND VERIFIED', 'web-settings-tabs-2026-11-09', '_setting_woocom_setting__', 'P2.5-SET'),
+    'Webhook Settings tab':
+        ('REDESIGNED AND VERIFIED', 'web-settings-tabs-2026-11-09', '_setting_webhook_setting__', 'P2.5-SET'),
+    'Pixel Settings tab':
+        ('REDESIGNED AND VERIFIED', 'web-settings-tabs-2026-11-09', '_setting_pixel_field_setting__', 'P2.5-SET'),
+    # The 17-tab combined row. TWELVE of the seventeen it names are merchant-visible and each was
+    # clicked, measured and captured in its own right (tax_opt, payment, stock, refund, pwa,
+    # twilio, whatsapp x3, email x2, loyalty); the other five -- reCAPTCHA, Cookie, SEO, Style,
+    # ChatGPT -- are inside the same `type == 'super admin'` block as Storage and Cache and are
+    # not merchant surfaces. The needle is the row's own first-named tab.
+    'Tax Option / Payment / reCAPTCHA / Cookie / SEO / Stock / Refund / PWA / Style / ChatGPT / Twilio / WhatsApp x3 / Email x3 / Loyalty tabs':
+        ('REDESIGNED AND VERIFIED', 'web-settings-tabs-2026-11-09', '_setting_tax_opt_setting__', 'P2.5-SET'),
+    'Delivery Syria (wallet + parcels)':
+        ('REDESIGNED AND VERIFIED', 'web-settings-tabs-2026-11-09', '_setting_delivery_syria_setting__', 'P2.5-SET'),
 }
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.
 OUT_OF_SCOPE = {
     'Super Admin dashboard': 'Phase 06 (SaaS & Super Admin), not Phase 2.5 Merchant Experience',
+
+    # THESE TWO ARE NOT MERCHANT SURFACES, which is a different thing from "not done yet".
+    #
+    # `setting/index.blade.php:75` opens `@if (auth()->user() && auth()->user()->type == 'super
+    # admin')` and closes at :116. Seven tabs sit inside it -- Cookie, Cache, Storage, reCAPTCHA,
+    # ChatGPT, Style and SEO -- so a merchant (`users.type == 'admin'`, which is the root of their
+    # own tenant) never sees any of them. The settings hub renders 21 tabs for a merchant and all
+    # 21 were captured; these are not among them because the application does not offer them.
+    #
+    # THE FIXTURE WAS NOT ELEVATED TO REACH THEM. Making the dev merchant a `super admin` would
+    # have produced four screenshots per tab and they would have been evidence of nothing: a
+    # platform-operator surface photographed while pretending to be a merchant. Operator UX is
+    # Phase 06's scope by the approved six-phase plan, and that is where these belong.
+    'Storage Settings tab':
+        "super-admin only (setting/index.blade.php:75 gates it on users.type == 'super admin'); "
+        'a merchant never sees this tab, so it is Phase 06 operator scope, not Phase 2.5',
+    'Cache Settings tab':
+        "super-admin only (setting/index.blade.php:75 gates it on users.type == 'super admin'); "
+        'a merchant never sees this tab, so it is Phase 06 operator scope, not Phase 2.5',
 }
 
 # DECLARED BLOCKERS: a surface that CANNOT become a finished merchant screen, with the reason and
