@@ -1,0 +1,58 @@
+[
+ {
+  "path": "/manage-language/en",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Store Syria - Language",
+  "h1": "Language",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/manage-language/en",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Store Syria - Language",
+  "h1": "Language",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/manage-language/en",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Store Syria - اللغة",
+  "h1": "اللغة",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/manage-language/en",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Store Syria - اللغة",
+  "h1": "اللغة",
+  "consoleErrors": [],
+  "premiseFail": []
+ }
+]

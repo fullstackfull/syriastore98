@@ -716,9 +716,12 @@ VERIFIED = {
                                      'P2.5-PKG-B'),
     'Brand create (modal)':         ('PREMIUM VERIFIED', 'pkg-b-modals', 'brand-create__',
                                      'P2.5-PKG-B'),
-    # NOT added, deliberately: 'Attribute create / edit (modals)' and
-    # 'Product label create / edit (modals)'. Those rows cover BOTH the create and the edit modal
-    # and only the create half was captured, so claiming them would overclaim the row.
+    # STILL NOT added, deliberately: 'Product label create / edit (modals)'. That row covers BOTH
+    # the create and the edit modal and only the create half was captured, so claiming it would
+    # overclaim the row.
+    #
+    # 'Attribute create / edit (modals)' WAS in that sentence until 2026-11-10 and is now claimed
+    # below on P2.5-WEB-MODALS-2, which captured the missing edit half.
     # --------------------------------------------------------------------------------------------
     # Repointed 2026-11-06: the wave-33 captures for this surface photograph a
     # PERMISSION REFUSAL, not the screen (1.13-1.80% toast-red, confirmed by eye).
@@ -1234,6 +1237,45 @@ VERIFIED = {
     # parent product's variant wiring, which is a fixture job of its own rather than a line in
     # seed-dev-catalogue-rows.php. It stays PENDING with that reason rather than being claimed
     # on a sibling's capture.
+
+    # ---- P2.5-WEB-MODALS-2 (2026-11-10): the modals the route sweep left PENDING -------------
+    #
+    # `/product-attributes/create` answered 200 with no <html> in the sweep -- the 1/4
+    # fingerprint of a modal fragment -- so it is driven from its list page. BOTH halves of the
+    # row are captured this time: `attribute-create__` and `attribute-edit__`, four combinations
+    # each, which is what the earlier wave was missing when it declined to claim this row.
+    #
+    # The edit capture is also what found the required-marker defect: inside `.ss-field`
+    # (display:flex; flex-direction:column) a marker span written BESIDE its label is a second
+    # flex item and gets a row of its own. Fixed by wrapping both in `.ss-label-line`; 15 sites.
+    'Attribute create / edit (modals)':
+        ('REDESIGNED AND VERIFIED', 'web-modals2-2026-11-10',
+         'attribute-edit__', 'P2.5-WEB-MODALS-2'),
+
+    # THE LANGUAGE SCREEN, with two corrections to its row.
+    #
+    # The inventory names `GET /languages`, which is NOT A REGISTERED ROUTE -- it answers 404.
+    # The merchant's language screen is `GET manage-language/{lang?}/{module?}`
+    # (routes/web.php:1382), and it is claimed here on four clean captures of
+    # `/manage-language/en` (titles "Language" / "اللغة" in the two languages).
+    #
+    # TWO THINGS MEASURED WHILE GETTING THERE, neither of them a design issue:
+    #
+    #   * `GET /manage-language` with NO language segment answers HTTP 500 --
+    #     `file_get_contents(resources/lang/General.json): No such file or directory`. Nothing
+    #     links to it that way (every caller passes a language; header.blade.php:410 passes
+    #     `auth()->user()->language`, and that column is NOT NULL defaulting to 'en'), so it is
+    #     reachable only by typing the URL. Recorded, not fixed.
+    #
+    #   * The Create Language control is SUPER ADMIN ONLY. `language/index.blade.php:6` opens
+    #     `@if (auth()->user()->type == 'super admin')` around the whole `action-button` section,
+    #     so a merchant never sees it -- even though merchants DO hold `Manage Language`
+    #     (Utility::addNewData() puts it in the `admin` role's list at :2908). The create modal at
+    #     `/create-language` is therefore a Phase 06 surface, not a Phase 2.5 one, and the harness
+    #     correctly reported "no visible create trigger" rather than a broken selector.
+    'Languages':
+        ('REDESIGNED AND VERIFIED', 'web-modals2-2026-11-10',
+         '_manage_language_en__', 'P2.5-WEB-MODALS-2'),
 
     # ---- P2.5-FLUTTER-SHEETS (2026-11-10): the four bottom-sheet editors --------------------
     # Category, customer, tax and shipping are edited in a `showModalBottomSheet`, so none of

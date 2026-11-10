@@ -40,6 +40,19 @@ const MODALS = [
   { route: '/tag', needle: '/tag/create', label: 'tag create' },
   { route: '/roles', needle: 'roles/create', label: 'role create' },
   { route: '/coupon', needle: '/coupon/create', label: 'coupon create' },
+
+  // ADDED 2026-11-10, and the reason is the whole point of this file.
+  //
+  // The three above all wrap their field in `<div class="form-group">` -- a plain block, where a
+  // marker span written beside the label flows inline correctly. So this tool asserted the right
+  // property on a sample that could not fail it, and reported 0 problems while the asterisk sat
+  // on a line of its own in every `.ss-field` form in the admin.
+  //
+  // `.ss-field` is `display: flex; flex-direction: column`, which makes the label and the
+  // sibling span two flex items, one row each. These two surfaces use it, so the sample now
+  // contains the shape that actually breaks.
+  { route: '/product-attributes', needle: 'product-attributes/create', label: 'attribute create' },
+  { route: '/users', needle: 'users/create', label: 'staff create' },
 ];
 
 function lum([r, g, b]) {

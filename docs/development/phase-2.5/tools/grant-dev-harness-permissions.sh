@@ -77,6 +77,16 @@ $wanted = [
     "Manage Deliveryboy", "Manage Menu", "Manage Page", "Manage Blog", "Manage Blog Category",
     "Manage Contact Us", "Manage Newsletter", "Manage Shipping Class", "Manage Shipping Zone",
     "Manage Shipping", "Manage Tax", "Manage Support Ticket", "Manage Stock Report",
+    // Added 2026-11-10. `/manage-language` answered with a `redirect()->back()` in all four
+    // combinations, which the harness correctly reported as landing on the previous page.
+    // `LanguageController::manageLanguage` (:245) gates on `Manage Language`.
+    //
+    // CHECKED BEFORE GRANTING, because granting a permission a merchant does not really have
+    // would verify a screen no merchant can open. `Utility::addNewData()` builds the permission
+    // list for the `admin` role -- the merchant -- at :2814-3076, and `Manage Language` is in
+    // it (:2908). The super-admin set is a separate list further down (:3295-3317). So this is
+    // a merchant surface and the fixture was simply missing its own guard.
+    "Manage Language",
 ];
 
 $u = App\Models\User::where("email", "merchant@example.test")->first();

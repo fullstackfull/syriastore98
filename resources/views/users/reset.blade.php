@@ -16,7 +16,7 @@
 
 <div class="row">
     <div class="ss-field col-12">
-        {{ Form::label('password', __('Password'), ['class' => 'ss-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
+        <span class="ss-label-line">{{ Form::label('password', __('Password'), ['class' => 'ss-label']) }}<span class="ss-label__required" aria-hidden="true">*</span></span>
         <div class="form-icon-user">
             <input id="password" type="password" class="ss-input @error('password') is-invalid @enderror"
                 name="password" required autocomplete="new-password" placeholder="Enter Password">
@@ -28,7 +28,7 @@
         @enderror
     </div>
     <div class="ss-field col-12">
-        {{ Form::label('password_confirmation', __('Confirm Password'), ['class' => 'ss-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
+        <span class="ss-label-line">{{ Form::label('password_confirmation', __('Confirm Password'), ['class' => 'ss-label']) }}<span class="ss-label__required" aria-hidden="true">*</span></span>
         <div class="form-icon-user">
             <input id="password_confirmation" type="password" class="ss-input" name="password_confirmation" required
                 autocomplete="new-password" placeholder="Enter Confirm Password">

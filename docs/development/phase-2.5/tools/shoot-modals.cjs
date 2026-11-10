@@ -98,6 +98,14 @@ const SURFACES = [
   { slug: 'pixel-create', route: '/setting', tab: 'pixel_field_setting', kind: 'create' },
   { slug: 'webhook-create', route: '/setting', tab: 'webhook_setting', kind: 'create' },
   { slug: 'product-question-edit', route: '/product-question', kind: 'edit' },
+
+  // ---- P2.5-WEB-MODALS-2 (2026-11-10): the modals the route sweep left PENDING -------------
+  // `/product-attributes/create` and `/create-language` both answered 200 with no <html> in the
+  // sweep -- the 1/4 fingerprint of a modal fragment -- so they are driven from their list page
+  // here rather than navigated to.
+  { slug: 'attribute-create', route: '/product-attributes', kind: 'create' },
+  { slug: 'attribute-edit', route: '/product-attributes', kind: 'edit' },
+  { slug: 'language-create', route: '/manage-language', kind: 'create' },
 ];
 
 const COMBOS = [

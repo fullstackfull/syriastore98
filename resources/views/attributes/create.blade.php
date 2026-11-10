@@ -21,7 +21,7 @@
 
 <div class="row">
     <div class="ss-field col-md-12">
-        {{ Form::label('name', __('Name'), ['class' => 'ss-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
+        <span class="ss-label-line">{{ Form::label('name', __('Name'), ['class' => 'ss-label']) }}<span class="ss-label__required" aria-hidden="true">*</span></span>
         {{ Form::text('name', old('name'), ['class' => 'ss-input font-style', 'required' => 'required']) }}
     </div>
     <div class="ss-dialog__footer modal-footer pb-0">

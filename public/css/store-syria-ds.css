@@ -927,6 +927,29 @@
 }
 .ss-label__required { color: var(--ss-danger); margin-inline-start: 2px; }
 
+/*
+ * THE REQUIRED MARKER HAS TO SHARE A LINE WITH ITS LABEL, and inside `.ss-field` it did not.
+ *
+ * `.ss-field` is `display: flex; flex-direction: column`, so a `<label>` and the
+ * `<span class="ss-label__required">` written beside it are TWO FLEX ITEMS -- each gets its own
+ * row, with the field's `gap` between them. Measured on the attribute edit modal in all four
+ * combinations: the asterisk sat on a line of its own, below "Name" / "الاسم", in light and
+ * dark and in both directions. `margin-inline-start: 2px` above was written for an inline
+ * sibling and never applied.
+ *
+ * `.ss-label-line` is a single flex item wrapping both, so its children are laid out inline
+ * again and the marker sits where it was always meant to. It is used only where the marker was
+ * a SIBLING of the label -- the many forms that already write the span INSIDE the `<label>`
+ * (customer/create, components/ss/secret-field) were correct and are untouched.
+ *
+ * Why this was missed: `measure-required-marker-live.cjs` already asserts "the marker must sit
+ * beside its own label, not wrap to a line of its own" and reported 0 problems -- it samples the
+ * tag, role and coupon modals, and all three use `<div class="form-group">`, a plain block where
+ * the sibling span flows inline correctly. The assertion was right; the sample had no `.ss-field`
+ * in it. The tool now drives one.
+ */
+.ss-label-line { display: block; }
+
 /* ---- P2.5-PKG-E: a fieldset legend, because a grouped form needs its groups named ----------
    MEASURED FIRST. The customer create form's three group headings first carried the host's
    `.form-label`, and census-low-contrast-text.cjs returned 1.1:1 in dark mode --

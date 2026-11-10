@@ -10,11 +10,11 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 182 | 61.7% |
+| REDESIGNED AND VERIFIED | 184 | 62.4% |
 | BLOCKED | 18 | 6.1% |
 | OUT OF SCOPE | 5 | 1.7% |
 | DUPLICATE | 3 | 1.0% |
-| PENDING | 63 | 21.4% |
+| PENDING | 61 | 20.7% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -32,8 +32,8 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
 | Flutter merchant admin app | 51 | 0 | 42 | 2 | 0 | 6 |
-| CATALOGUE taxonomy | 38 | 13 | 19 | 0 | 0 | 6 |
-| Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 21 | 3 | 3 | 8 |
+| CATALOGUE taxonomy | 38 | 13 | 20 | 0 | 0 | 5 |
+| Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 22 | 3 | 3 | 7 |
 | Phase 2.5 Wave A | 30 | 0 | 25 | 0 | 0 | 5 |
 | Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 16 | 5 | 1 | 3 |
 | Flutter merchant/employee admin app | 24 | 0 | 13 | 0 | 0 | 11 |
@@ -118,7 +118,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Brand edit (modal) | ``GET /product-brand/{productBrand}/edit`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-MODAL; four captures under evidence/web-modals-2026-11-10/ |
 | Brand row actions | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Attributes list | ``GET /product-attributes`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
-| Attribute create / edit (modals) | ``GET /product-attributes/create, GET /product-attributes/{id}/` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Attribute create / edit (modals) | ``GET /product-attributes/create, GET /product-attributes/{id}/` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WEB-MODALS-2; four captures under evidence/web-modals2-2026-11-10/ |
 | Attribute row actions | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Attribute options (DS pilot screen) | ``GET /attribute-option/{id?}`` | premium-already | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
 | Attribute option create / edit (modals) | ``GET /add-attribute-option/{id?}, GET /edit-attribute-option/{` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
@@ -184,7 +184,7 @@ actually been done to it since. They are different questions and the matrix keep
 | WooCommerce import screens (product, category, coupon, customer) | ``GET /woocom_product, /woocom_category, /woocom_coupon, /wooco` | deficient | **BLOCKED** | cannot be rendered without a connected WooCommerce store: measured HTTP 200 with an empty body and no <html> element in all four combinations. REMEDIATION: an owner-provided WooCommerce sandbox credential, or an explicit decision to leave these screens unverified in Phase 2.5. |
 | Pixel create/update (modals) | ``GET /pixel-setting/create, /pixel-setting/{id}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Email templates | ``GET /email_template_lang/{lang?} and /email_template_lang/{id` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Languages | ``GET /languages (LanguageController) + GET /create-language`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Languages | ``GET /languages (LanguageController) + GET /create-language`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-MODALS-2; four captures under evidence/web-modals2-2026-11-10/ |
 | Menus | ``GET /menus, /menus/{id}/edit`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
 | Support tickets | ``GET /support_ticket, /ticket-view/{id}`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
 | Pages / Blog / Blog categories / Contact / Newsletter | ``GET /pages, /blog, /blog-category, /contacts, /newsletter`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |

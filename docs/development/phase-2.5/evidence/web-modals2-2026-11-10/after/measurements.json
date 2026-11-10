@@ -1,0 +1,19 @@
+{
+  "findings": [],
+  "surfaces": [
+    [
+      "attribute-create",
+      {
+        "combos": 4,
+        "fields": 3
+      }
+    ],
+    [
+      "attribute-edit",
+      {
+        "combos": 4,
+        "fields": 3
+      }
+    ]
+  ]
+}
