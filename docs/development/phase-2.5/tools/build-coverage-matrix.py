@@ -1113,6 +1113,34 @@ VERIFIED = {
     'Product question reply (modal)':
         ('REDESIGNED AND VERIFIED', 'web-modals-2026-11-10', 'product-question-edit__', 'P2.5-MODAL'),
 
+    # ----------------------------------------------------------------------------------------
+    # P2.5-PARAM. The parameterised web routes, driven against real ids from the dev fixture.
+    #
+    # TWO of the eighteen are full PAGES and are claimed here. The rest split into two kinds,
+    # neither of which a page capture can reach, and both recorded rather than claimed:
+    #
+    #   HTML FRAGMENTS, not pages: /user-info/{id}, /order-preview/{id},
+    #       /orders/order_view/{id}, /order-receipt/{id}, /product-preview/{id}. Each answers
+    #       200 with a body that has no `<html dir>` and no theme stylesheet, because it is
+    #       injected into a panel or a modal by the parent page's JavaScript. render-matrix.cjs
+    #       correctly fails its direction and theme premises on them -- they have neither. They
+    #       need the parent page driven, the way shoot-modals.cjs drives a modal.
+    #
+    #   POST-ONLY ACTIONS: mark-read, archive customer, withdrawal approve/pay/reject, inline
+    #       payment-status update. These are not screens at all.
+    #
+    # `/user-info/{id}` IS NOT A PERMISSION GAP, which is worth recording because it looks like
+    # one. `UserController::userInfo` refuses unless the actor is the platform operator or is
+    # the target themselves (`:626`), and its docblock records that an earlier version admitting
+    # anyone whose `creatorId()` matched was a defect that was deliberately tightened. The
+    # merchant refusing /user-info/1 (the super admin) and /user-info/3 (their own staff) is the
+    # tenant check working; /user-info/2, their own record, answers 200.
+    # ----------------------------------------------------------------------------------------
+    'Product detail (read-only)':
+        ('REDESIGNED AND VERIFIED', 'web-param-routes-2026-11-10', '_product_1__', 'P2.5-PARAM'),
+    'Product editor — edit':
+        ('REDESIGNED AND VERIFIED', 'web-param-routes-2026-11-10', '_product_1_edit__', 'P2.5-PARAM'),
+
     'Store payment methods':
         ('REDESIGNED AND VERIFIED', 'flutter-payment-methods-2026-11-10',
          'flutter-payment-methods_', 'P2.5-FLUTTER-DETAIL2'),

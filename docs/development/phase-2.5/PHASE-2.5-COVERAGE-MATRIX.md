@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 155 | 52.5% |
+| REDESIGNED AND VERIFIED | 157 | 53.2% |
 | BLOCKED | 10 | 3.4% |
 | OUT OF SCOPE | 3 | 1.0% |
-| PENDING | 103 | 34.9% |
+| PENDING | 101 | 34.2% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -38,7 +38,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | Flutter merchant/employee admin app | 24 | 0 | 13 | 0 | 0 | 11 |
 | Customers and customer management | 20 | 0 | 12 | 4 | 0 | 4 |
 | ORDERS | 17 | 0 | 6 | 3 | 0 | 8 |
-| PRODUCTS | 16 | 1 | 4 | 1 | 0 | 10 |
+| PRODUCTS | 16 | 1 | 6 | 1 | 0 | 8 |
 | Merchant admin NAVIGATION SHELL | 13 | 4 | 7 | 0 | 0 | 2 |
 | Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 3 | 0 | 0 | 10 |
 | Merchant dashboard and KPI presentation | 9 | 3 | 5 | 0 | 1 | 0 |
@@ -339,8 +339,8 @@ actually been done to it since. They are different questions and the matrix keep
 | Product list (table view) | ``GET /product → product.index`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WAVE-1; four captures under evidence/wave-1/ |
 | Product list (grid view) | ``GET /product-list → product.list`` | deficient | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Product editor — create | ``GET /product/create → product.create`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
-| Product editor — edit | ``GET /product/{product}/edit → product.edit`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Product detail (read-only) | ``GET /product/{product} → product.show`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Product editor — edit | ``GET /product/{product}/edit → product.edit`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-PARAM; four captures under evidence/web-param-routes-2026-11-10/ |
+| Product detail (read-only) | ``GET /product/{product} → product.show`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PARAM; four captures under evidence/web-param-routes-2026-11-10/ |
 | Product row actions (list cell fragment) | ``partial/component — rendered by ProductDataTable::dataTable()` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Product list filter bar | ``partial/component — included by product/index.blade.php:51`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Product quick-preview panel body | ``GET /product-preview/{id} → product.preview`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
