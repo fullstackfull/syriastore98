@@ -10,10 +10,11 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 164 | 55.6% |
-| BLOCKED | 10 | 3.4% |
-| OUT OF SCOPE | 3 | 1.0% |
-| PENDING | 94 | 31.9% |
+| REDESIGNED AND VERIFIED | 174 | 59.0% |
+| BLOCKED | 16 | 5.4% |
+| OUT OF SCOPE | 4 | 1.4% |
+| DUPLICATE | 2 | 0.7% |
+| PENDING | 75 | 25.4% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -32,15 +33,15 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 |---|---:|---:|---:|---:|---:|---:|
 | Flutter merchant admin app | 51 | 0 | 38 | 0 | 0 | 13 |
 | CATALOGUE taxonomy | 38 | 13 | 19 | 0 | 0 | 6 |
-| Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 21 | 1 | 2 | 11 |
+| Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 21 | 3 | 3 | 8 |
 | Phase 2.5 Wave A | 30 | 0 | 25 | 0 | 0 | 5 |
-| Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 6 | 1 | 0 | 19 |
+| Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 15 | 5 | 0 | 5 |
 | Flutter merchant/employee admin app | 24 | 0 | 13 | 0 | 0 | 11 |
 | Customers and customer management | 20 | 0 | 12 | 4 | 0 | 4 |
-| ORDERS | 17 | 0 | 8 | 3 | 0 | 6 |
+| ORDERS | 17 | 0 | 9 | 3 | 0 | 5 |
 | PRODUCTS | 16 | 1 | 7 | 1 | 0 | 7 |
 | Merchant admin NAVIGATION SHELL | 13 | 4 | 7 | 0 | 0 | 2 |
-| Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 3 | 0 | 0 | 10 |
+| Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 3 | 0 | 0 | 9 |
 | Merchant dashboard and KPI presentation | 9 | 3 | 5 | 0 | 1 | 0 |
 
 ## Every surface
@@ -171,7 +172,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Reset staff password (modal) | ``POST users.resetpassword`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Staff detail / user info | ``GET /user-info/{id}`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Own profile (WorkDo) | ``GET /profile`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
-| Breeze profile (orphan) | ``GET /profile/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Breeze profile (orphan) | ``GET /profile/edit`` | deficient | **OUT OF SCOPE** | not a screen: GET /profile/edit used to render an empty page (the Breeze `$slot` was dropped by the WorkDo `@yield('content')` layout) and now redirects to GET /profile, the profile screen the product actually ships. Fixed and pinned on this branch. |
 | Roles list | ``GET /roles`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Create role (xl modal, permission matrix) | ``GET /roles/create -> POST /roles`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-12; four captures under evidence/wave-12/ |
 | Edit role (xl modal, permission matrix) | ``GET /roles/{id}/edit -> PUT /roles/{id}`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-12; four captures under evidence/wave-12/ |
@@ -179,8 +180,8 @@ actually been done to it since. They are different questions and the matrix keep
 | Taxes and tax methods | ``GET /taxes, /taxes/{id}, /taxes-method/create/{tax_option_id}` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
 | Webhooks (create/edit modals) | ``GET /webhook/create, /webhook/{id}/edit -> POST\` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Delivery boys | ``GET /deliveryboy, /deliveryboy-list, /deliveryboy/reset-passw` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
-| Shopify import screens (product, category, sub_category, coupon, customer) | ``GET /shopify_product, /shopify_category, /shopify_sub_categor` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| WooCommerce import screens (product, category, coupon, customer) | ``GET /woocom_product, /woocom_category, /woocom_coupon, /wooco` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Shopify import screens (product, category, sub_category, coupon, customer) | ``GET /shopify_product, /shopify_category, /shopify_sub_categor` | deficient | **BLOCKED** | cannot be rendered without a connected Shopify store: ShopifyProductController::index requires the `shopify_setting_enabled` setting plus a store URL and access token, then calls the Shopify Admin API before returning a view. Measured HTTP 500 in all four combinations on the dev fixture. REMEDIATION: an owner-provided Shopify sandbox credential, or an explicit decision to leave these screens unverified in Phase 2.5. |
+| WooCommerce import screens (product, category, coupon, customer) | ``GET /woocom_product, /woocom_category, /woocom_coupon, /wooco` | deficient | **BLOCKED** | cannot be rendered without a connected WooCommerce store: measured HTTP 200 with an empty body and no <html> element in all four combinations. REMEDIATION: an owner-provided WooCommerce sandbox credential, or an explicit decision to leave these screens unverified in Phase 2.5. |
 | Pixel create/update (modals) | ``GET /pixel-setting/create, /pixel-setting/{id}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Email templates | ``GET /email_template_lang/{lang?} and /email_template_lang/{id` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Languages | ``GET /languages (LanguageController) + GET /create-language`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
@@ -229,24 +230,24 @@ actually been done to it since. They are different questions and the matrix keep
 
 | surface | route / kind | audit | state | evidence or reason |
 |---|---|---|---|---|
-| Customer Reports (reports hub) | ``GET reports`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Customer report body (AJAX fragment) | ``GET reports-chart`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Sales Report (line) | ``GET order-reports`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Sales report body (AJAX fragment) | ``GET order-reports-chart`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Sales Report (radial/bar variant) | ``GET order-reports-data`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Sales report bar body (AJAX fragment) | ``GET order-reports-chart-data`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Stock Reports | ``GET stock-reports (also registered as GET /stock-report, same` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Customer Reports (reports hub) | ``GET reports`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
+| Customer report body (AJAX fragment) | ``GET reports-chart`` | premium-already | **BLOCKED** | HTTP 500 on the SQLite dev fixture in all four combinations: ReportController::reports_chart builds raw SQL with MONTH(), which SQLite does not implement. Production is MySQL and the screen is expected to work there. REMEDIATION: a MySQL dev fixture; no design work is owed until it can be rendered. |
+| Sales Report (line) | ``GET order-reports`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
+| Sales report body (AJAX fragment) | ``GET order-reports-chart`` | premium-already | **BLOCKED** | HTTP 500 on the SQLite dev fixture in all four combinations: ReportController::order_reports_chart (:720) uses MONTH(). Production is MySQL. REMEDIATION: a MySQL dev fixture. |
+| Sales Report (radial/bar variant) | ``GET order-reports-data`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
+| Sales report bar body (AJAX fragment) | ``GET order-reports-chart-data`` | premium-already | **BLOCKED** | HTTP 500 on the SQLite dev fixture in all four combinations: ReportController::order_reports_chart_data (:985-1205) uses MONTH() and YEAR(). Production is MySQL. REMEDIATION: a MySQL dev fixture. |
+| Stock Reports | ``GET stock-reports (also registered as GET /stock-report, same` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
 | Stock report row cells (status + action) | ``partial/component — rendered into GET stockReport.lowStock / ` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Sales by Product | ``GET product-order-sale-reports`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Sales by Category | ``GET category-order-sale-reports`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Sales Brand Report | ``GET Brand-order-sale-reports`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Sales by Product | ``GET product-order-sale-reports`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
+| Sales by Category | ``GET category-order-sale-reports`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
+| Sales Brand Report | ``GET Brand-order-sale-reports`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
 | Brand sales body (AJAX fragment) | ``GET brand-order-reports`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Category / Product sales bodies (AJAX fragments) | ``GET category-order-reports, GET product-order-reports`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Sales Downloadable Product | ``GET order-downloadable-reports`` | unknown | **BLOCKED** | audit could not determine its state; it needs to be rendered and classified |
-| Top Sales Report | ``GET top-all-reports`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Order Status Report | ``GET Status-reports`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Top Selling By Country Report | ``GET order-country-reports`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Notifications (full list) | ``GET merchant-notifications`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Top Sales Report | ``GET top-all-reports`` | premium-already | **BLOCKED** | HTTP 500 on the SQLite dev fixture in all four combinations: ReportController::top_product joins on SUBSTRING_INDEX (:2814, :2826), which SQLite does not implement -- the controller's own comment at :2883 records this. Production is MySQL. REMEDIATION: a MySQL dev fixture. |
+| Order Status Report | ``GET Status-reports`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
+| Top Selling By Country Report | ``GET order-country-reports`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
+| Notifications (full list) | ``GET merchant-notifications`` | premium-already | **DUPLICATE** | the same surface as **Notifications (the bell's destination)** — the same route, GET merchant-notifications. The owning row is already PREMIUM VERIFIED (P2.5-WAVE-33, `_merchant_notifications__`), so claiming this one from the 2026-11-10 sweep would count one screen twice. |
 | Notification bell feed (JSON) | ``GET merchant-notifications/feed`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Mark read / mark all read | ``POST merchant-notifications/{id}/read, POST merchant-notifica` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Report period filter (shared component) | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
@@ -322,7 +323,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Order grid (card view) | ``GET order-grid (order.grid)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-ORDERS; four captures under evidence/ord-repair-2026-11-09/ |
 | Order row actions (DataTable partial) | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Order filter bar + saved views | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Create order | ``GET order/create (order.create); POST order (order.store)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Create order | ``GET order/create (order.create); POST order (order.store)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
 | Refund request list | ``GET refund-request (refund-request.index)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Refund detail / decision screen | ``GET refund-request/{id} (refund-request.show)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-11; four captures under evidence/wave-11/ |
 | Printable receipt | ``GET order-receipt/{id} (order.receipt)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
@@ -375,7 +376,7 @@ actually been done to it since. They are different questions and the matrix keep
 
 | surface | route / kind | audit | state | evidence or reason |
 |---|---|---|---|---|
-| Stock Reports (3-tab shell) | ``GET stock-reports (reports.stock_report) and the duplicate GE` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Stock Reports (3-tab shell) | ``GET stock-reports (reports.stock_report) and the duplicate GE` | needs-polish | **DUPLICATE** | the same surface as **Stock Reports** — the same controller action. routes/web.php:1108-1109 register it as BOTH GET stock-reports (reports.stock_report) and GET /stock-report (stock.report); the inventory's own route column says so. Claimed once, on `_stock_reports__`. |
 | Low in Stock — row payload | ``GET /stock-report/low-stock (stockReport.lowStock) — routes/w` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Out Of Stock — row payload | ``GET /stock-report/out-stock (stockReport.outOfStock) — routes` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Most Stocked — row payload | ``GET /stock-report/most-stocked (stockReport.mostStocked) — ro` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |

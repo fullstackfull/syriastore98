@@ -1,0 +1,2004 @@
+[
+ {
+  "path": "/Brand-order-sale-reports",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Store Syria - Sales Brand Report",
+  "h1": "Sales Brand Report",
+  "consoleErrors": [
+   "pageerror: Error: Element not found"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/Status-reports",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Store Syria - Order Status Report",
+  "h1": "Order Status Report",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/brand-order-reports",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/category-order-reports",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/category-order-sale-reports",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Store Syria - Sales Category Report",
+  "h1": "Sales Category Report",
+  "consoleErrors": [
+   "pageerror: Error: Element not found"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/create-language",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/languages",
+  "lang": "en",
+  "theme": "light",
+  "status": 404,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Not Found",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/merchant-notifications",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Store Syria - Notifications",
+  "h1": "Notifications",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/merchant-notifications/feed",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/order-country-reports",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Store Syria - Top Selling By Country Report",
+  "h1": "Top Selling By Country Report",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/order-reports",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Store Syria - Sales Report",
+  "h1": "Sales Report",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/order-reports-chart",
+  "lang": "en",
+  "theme": "light",
+  "status": 500,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/order-reports-chart-data",
+  "lang": "en",
+  "theme": "light",
+  "status": 500,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/order-reports-data",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Store Syria - Sales Report",
+  "h1": "Sales Report",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/order/create",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Store Syria - Create Order",
+  "h1": "Create Order",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/pixel-setting/create",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/product-attributes/create",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/product-order-reports",
+  "lang": "en",
+  "theme": "light",
+  "status": 500,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/product-order-sale-reports",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Store Syria - Sales Product Report",
+  "h1": "Sales Product Report",
+  "consoleErrors": [
+   "pageerror: Error: Element not found"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/profile/edit",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Store Syria -",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/refund-request",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Store Syria -",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "landed on /profile/edit, asked for /refund-request (redirect — likely a permission refusal)"
+  ]
+ },
+ {
+  "path": "/reports",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Store Syria - Customer Reports",
+  "h1": "Customer Reports",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/reports-chart",
+  "lang": "en",
+  "theme": "light",
+  "status": 500,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/shopify_product",
+  "lang": "en",
+  "theme": "light",
+  "status": 500,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/stock-report",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Store Syria - Stock Reports",
+  "h1": "Stock Reports",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/stock-report/low-stock",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/stock-report/most-stocked",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/stock-report/out-stock",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/stock-reports",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Store Syria - Stock Reports",
+  "h1": "Stock Reports",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/top-all-reports",
+  "lang": "en",
+  "theme": "light",
+  "status": 500,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/webhook/create",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [
+   "pageerror: ReferenceError: $ is not defined"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/woocom_product",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [
+   "pageerror: ReferenceError: $ is not defined"
+  ],
+  "premiseFail": [
+   "landed on /webhook/create, asked for /woocom_product (redirect — likely a permission refusal)"
+  ]
+ },
+ {
+  "path": "/Brand-order-sale-reports",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Store Syria - Sales Brand Report",
+  "h1": "Sales Brand Report",
+  "consoleErrors": [
+   "pageerror: Error: Element not found"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/Status-reports",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Store Syria - Order Status Report",
+  "h1": "Order Status Report",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/brand-order-reports",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/category-order-reports",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/category-order-sale-reports",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Store Syria - Sales Category Report",
+  "h1": "Sales Category Report",
+  "consoleErrors": [
+   "pageerror: Error: Element not found"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/create-language",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/languages",
+  "lang": "en",
+  "theme": "dark",
+  "status": 404,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Not Found",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/merchant-notifications",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Store Syria - Notifications",
+  "h1": "Notifications",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/merchant-notifications/feed",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/order-country-reports",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Store Syria - Top Selling By Country Report",
+  "h1": "Top Selling By Country Report",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/order-reports",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Store Syria - Sales Report",
+  "h1": "Sales Report",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/order-reports-chart",
+  "lang": "en",
+  "theme": "dark",
+  "status": 500,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/order-reports-chart-data",
+  "lang": "en",
+  "theme": "dark",
+  "status": 500,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/order-reports-data",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Store Syria - Sales Report",
+  "h1": "Sales Report",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/order/create",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Store Syria - Create Order",
+  "h1": "Create Order",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/pixel-setting/create",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/product-attributes/create",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/product-order-reports",
+  "lang": "en",
+  "theme": "dark",
+  "status": 500,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/product-order-sale-reports",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Store Syria - Sales Product Report",
+  "h1": "Sales Product Report",
+  "consoleErrors": [
+   "pageerror: Error: Element not found"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/profile/edit",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Store Syria -",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/refund-request",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Store Syria -",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "landed on /profile/edit, asked for /refund-request (redirect — likely a permission refusal)"
+  ]
+ },
+ {
+  "path": "/reports",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Store Syria - Customer Reports",
+  "h1": "Customer Reports",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/reports-chart",
+  "lang": "en",
+  "theme": "dark",
+  "status": 500,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/shopify_product",
+  "lang": "en",
+  "theme": "dark",
+  "status": 500,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/stock-report",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Store Syria - Stock Reports",
+  "h1": "Stock Reports",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/stock-report/low-stock",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/stock-report/most-stocked",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/stock-report/out-stock",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/stock-reports",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Store Syria - Stock Reports",
+  "h1": "Stock Reports",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/top-all-reports",
+  "lang": "en",
+  "theme": "dark",
+  "status": 500,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/webhook/create",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [
+   "pageerror: ReferenceError: $ is not defined"
+  ],
+  "premiseFail": [
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/woocom_product",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [
+   "pageerror: ReferenceError: $ is not defined"
+  ],
+  "premiseFail": [
+   "landed on /webhook/create, asked for /woocom_product (redirect — likely a permission refusal)",
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/Brand-order-sale-reports",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Store Syria - تقرير مبيعات العلامة التجارية",
+  "h1": "تقرير مبيعات العلامة التجارية",
+  "consoleErrors": [
+   "pageerror: Error: Element not found"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/Status-reports",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Store Syria - تقرير حالة الطلب",
+  "h1": "تقرير حالة الطلب",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/brand-order-reports",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "dir=null wanted rtl"
+  ]
+ },
+ {
+  "path": "/category-order-reports",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "dir=null wanted rtl"
+  ]
+ },
+ {
+  "path": "/category-order-sale-reports",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Store Syria - تقرير فئة المبيعات",
+  "h1": "تقرير فئة المبيعات",
+  "consoleErrors": [
+   "pageerror: Error: Element not found"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/create-language",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "dir=null wanted rtl"
+  ]
+ },
+ {
+  "path": "/languages",
+  "lang": "ar",
+  "theme": "light",
+  "status": 404,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Not Found",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/merchant-notifications",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Store Syria - الإخطارات",
+  "h1": "الإخطارات",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/merchant-notifications/feed",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "dir=null wanted rtl"
+  ]
+ },
+ {
+  "path": "/order-country-reports",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Store Syria - أفضل مبيعات حسب تقرير البلد",
+  "h1": "أفضل مبيعات حسب تقرير البلد",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/order-reports",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Store Syria - تقرير المبيعات",
+  "h1": "تقرير المبيعات",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/order-reports-chart",
+  "lang": "ar",
+  "theme": "light",
+  "status": 500,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/order-reports-chart-data",
+  "lang": "ar",
+  "theme": "light",
+  "status": 500,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/order-reports-data",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Store Syria - تقرير المبيعات",
+  "h1": "تقرير المبيعات",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/order/create",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Store Syria - إنشاء طلب",
+  "h1": "إنشاء طلب",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/pixel-setting/create",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "dir=null wanted rtl"
+  ]
+ },
+ {
+  "path": "/product-attributes/create",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "dir=null wanted rtl"
+  ]
+ },
+ {
+  "path": "/product-order-reports",
+  "lang": "ar",
+  "theme": "light",
+  "status": 500,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/product-order-sale-reports",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Store Syria - تقرير منتج المبيعات",
+  "h1": "تقرير منتج المبيعات",
+  "consoleErrors": [
+   "pageerror: Error: Element not found"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/profile/edit",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Store Syria -",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/refund-request",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Store Syria -",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "landed on /profile/edit, asked for /refund-request (redirect — likely a permission refusal)"
+  ]
+ },
+ {
+  "path": "/reports",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Store Syria - تقارير العملاء",
+  "h1": "تقارير العملاء",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/reports-chart",
+  "lang": "ar",
+  "theme": "light",
+  "status": 500,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/shopify_product",
+  "lang": "ar",
+  "theme": "light",
+  "status": 500,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/stock-report",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Store Syria - تقارير المخزون",
+  "h1": "تقارير المخزون",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/stock-report/low-stock",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "dir=null wanted rtl"
+  ]
+ },
+ {
+  "path": "/stock-report/most-stocked",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "dir=null wanted rtl"
+  ]
+ },
+ {
+  "path": "/stock-report/out-stock",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "dir=null wanted rtl"
+  ]
+ },
+ {
+  "path": "/stock-reports",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Store Syria - تقارير المخزون",
+  "h1": "تقارير المخزون",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/top-all-reports",
+  "lang": "ar",
+  "theme": "light",
+  "status": 500,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/webhook/create",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [
+   "pageerror: ReferenceError: $ is not defined"
+  ],
+  "premiseFail": [
+   "dir=null wanted rtl"
+  ]
+ },
+ {
+  "path": "/woocom_product",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [
+   "pageerror: ReferenceError: $ is not defined"
+  ],
+  "premiseFail": [
+   "landed on /webhook/create, asked for /woocom_product (redirect — likely a permission refusal)",
+   "dir=null wanted rtl"
+  ]
+ },
+ {
+  "path": "/Brand-order-sale-reports",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Store Syria - تقرير مبيعات العلامة التجارية",
+  "h1": "تقرير مبيعات العلامة التجارية",
+  "consoleErrors": [
+   "pageerror: Error: Element not found"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/Status-reports",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Store Syria - تقرير حالة الطلب",
+  "h1": "تقرير حالة الطلب",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/brand-order-reports",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "dir=null wanted rtl",
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/category-order-reports",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "dir=null wanted rtl",
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/category-order-sale-reports",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Store Syria - تقرير فئة المبيعات",
+  "h1": "تقرير فئة المبيعات",
+  "consoleErrors": [
+   "pageerror: Error: Element not found"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/create-language",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "dir=null wanted rtl",
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/languages",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 404,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Not Found",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/merchant-notifications",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Store Syria - الإخطارات",
+  "h1": "الإخطارات",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/merchant-notifications/feed",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "dir=null wanted rtl",
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/order-country-reports",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Store Syria - أفضل مبيعات حسب تقرير البلد",
+  "h1": "أفضل مبيعات حسب تقرير البلد",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/order-reports",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Store Syria - تقرير المبيعات",
+  "h1": "تقرير المبيعات",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/order-reports-chart",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 500,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/order-reports-chart-data",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 500,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/order-reports-data",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Store Syria - تقرير المبيعات",
+  "h1": "تقرير المبيعات",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/order/create",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Store Syria - إنشاء طلب",
+  "h1": "إنشاء طلب",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/pixel-setting/create",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "dir=null wanted rtl",
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/product-attributes/create",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "dir=null wanted rtl",
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/product-order-reports",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 500,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/product-order-sale-reports",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Store Syria - تقرير منتج المبيعات",
+  "h1": "تقرير منتج المبيعات",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/profile/edit",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Store Syria -",
+  "h1": "",
+  "consoleErrors": [
+   "pageerror: Error: Element not found"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/refund-request",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Store Syria -",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "landed on /profile/edit, asked for /refund-request (redirect — likely a permission refusal)"
+  ]
+ },
+ {
+  "path": "/reports",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Store Syria - تقارير العملاء",
+  "h1": "تقارير العملاء",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/reports-chart",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 500,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/shopify_product",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 500,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/stock-report",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Store Syria - تقارير المخزون",
+  "h1": "تقارير المخزون",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/stock-report/low-stock",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "dir=null wanted rtl",
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/stock-report/most-stocked",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "dir=null wanted rtl",
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/stock-report/out-stock",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": [
+   "dir=null wanted rtl",
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/stock-reports",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Store Syria - تقارير المخزون",
+  "h1": "تقارير المخزون",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/top-all-reports",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 500,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Server Error",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/webhook/create",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [
+   "pageerror: ReferenceError: $ is not defined"
+  ],
+  "premiseFail": [
+   "dir=null wanted rtl",
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/woocom_product",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "",
+  "h1": "",
+  "consoleErrors": [
+   "pageerror: ReferenceError: $ is not defined"
+  ],
+  "premiseFail": [
+   "landed on /webhook/create, asked for /woocom_product (redirect — likely a permission refusal)",
+   "dir=null wanted rtl",
+   "sheet= wanted dark"
+  ]
+ }
+]

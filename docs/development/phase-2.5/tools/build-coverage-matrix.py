@@ -631,9 +631,11 @@ VERIFIED = {
     #       entry would claim both and the route-needle cannot separate them.
     #   'Shopify import screens (product, ...)'    the row names FIVE screens, one was captured,
     #       and all five are BLOCKED on a sandbox credential anyway.
-    #   'Breeze profile (orphan)'                  it renders unstyled Tailwind markup on a
-    #       registered route (CLAUDE.md). It was captured, but nothing redesigned it, so it
-    #       stays PENDING rather than be dressed up as verified.
+    #   'Breeze profile (orphan)'                  CORRECTED 2026-11-10. This said "renders
+    #       unstyled Tailwind markup", repeating CLAUDE.md. MEASURED, it rendered NOTHING: the
+    #       WorkDo chrome drew correctly around a completely empty content area, in all four
+    #       combinations. It is now declared OUT_OF_SCOPE below, because the route no longer
+    #       renders a screen at all -- it redirects to the product's own profile.
     # ----------------------------------------------------------------------------------------
     'Product editor — create':      ('REDESIGNED AND VERIFIED', 'wave-33', '_product_create__', 'P2.5-WAVE-33'),
     'Users / staff list (card grid)': ('REDESIGNED AND VERIFIED', 'wave-33', '_users__', 'P2.5-WAVE-33'),
@@ -1209,9 +1211,16 @@ VERIFIED = {
         ('REDESIGNED AND VERIFIED', 'flutter-editors-2026-11-10',
          'flutter-product-editor_', 'P2.5-FLUTTER-EDITORS'),
 
-    'Create order':
+    # TWO SURFACES SHARE THIS NAME -- the Flutter counter-sale screen (inventory :663,
+    # `GetX /addOrder`) and the Laravel web screen (inventory :187, `GET order/create`). Each
+    # entry carries its own route needle so one capture set can never mark the other verified;
+    # a bare second dict entry under this name would silently replace the first.
+    'Create order': [
         ('REDESIGNED AND VERIFIED', 'flutter-create-order-2026-11-10',
          'flutter-create-order_', 'P2.5-FLUTTER-CREATEORDER', 'CreateOrderScreen'),
+        ('REDESIGNED AND VERIFIED', 'web-sweep-2026-11-10',
+         '_order_create__', 'P2.5-WEB-SWEEP', 'order/create'),
+    ],
 
     'Store payment methods':
         ('REDESIGNED AND VERIFIED', 'flutter-payment-methods-2026-11-10',
@@ -1225,10 +1234,64 @@ VERIFIED = {
     # parent product's variant wiring, which is a fixture job of its own rather than a line in
     # seed-dev-catalogue-rows.php. It stays PENDING with that reason rather than being claimed
     # on a sibling's capture.
+
+    # ---- P2.5-WEB-SWEEP (2026-11-10): the reports family, driven and photographed ------------
+    # `render-matrix.cjs` drove 32 PENDING routes x 4 combinations against the dev fixture signed
+    # in as a real merchant with a real store. These NINE answered 200 in all four, carried the
+    # right `dir`, loaded the right theme sheet and printed their OWN page title in both
+    # languages -- the last of those is what separates them from a `redirect()->back()` refusal,
+    # which keeps the referrer's title and so passes a status check while photographing the
+    # wrong screen. Raw table: evidence/web-sweep-2026-11-10/README.md.
+    'Sales Brand Report':
+        ('REDESIGNED AND VERIFIED', 'web-sweep-2026-11-10', '_Brand_order_sale_reports__', 'P2.5-WEB-SWEEP'),
+    'Order Status Report':
+        ('REDESIGNED AND VERIFIED', 'web-sweep-2026-11-10', '_Status_reports__', 'P2.5-WEB-SWEEP'),
+    'Sales by Category':
+        ('REDESIGNED AND VERIFIED', 'web-sweep-2026-11-10', '_category_order_sale_reports__', 'P2.5-WEB-SWEEP'),
+    'Top Selling By Country Report':
+        ('REDESIGNED AND VERIFIED', 'web-sweep-2026-11-10', '_order_country_reports__', 'P2.5-WEB-SWEEP'),
+    'Sales Report (line)':
+        ('REDESIGNED AND VERIFIED', 'web-sweep-2026-11-10', '_order_reports__', 'P2.5-WEB-SWEEP'),
+    'Sales Report (radial/bar variant)':
+        ('REDESIGNED AND VERIFIED', 'web-sweep-2026-11-10', '_order_reports_data__', 'P2.5-WEB-SWEEP'),
+    'Sales by Product':
+        ('REDESIGNED AND VERIFIED', 'web-sweep-2026-11-10', '_product_order_sale_reports__', 'P2.5-WEB-SWEEP'),
+    'Customer Reports (reports hub)':
+        ('REDESIGNED AND VERIFIED', 'web-sweep-2026-11-10', '_reports__', 'P2.5-WEB-SWEEP'),
+    # `stock-reports` and `stock-report` are the SAME controller action registered on two URIs
+    # (routes/web.php:1108-1109). Both were captured; this claims the screen ONCE, and the
+    # inventory's second row for it is declared a duplicate in DUPLICATE_OF below rather than
+    # claimed again from the other URI's photographs of the same page.
+    'Stock Reports':
+        ('REDESIGNED AND VERIFIED', 'web-sweep-2026-11-10', '_stock_reports__', 'P2.5-WEB-SWEEP'),
+
 }
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.
 OUT_OF_SCOPE = {
+    # NOT A SCREEN ANY MORE, as of this branch. GET /profile/edit answered HTTP 200 with the
+    # sidebar, header, breadcrumb and footer drawn correctly around an ENTIRELY EMPTY content
+    # area, in all four combinations -- captures under evidence/web-sweep-2026-11-10/after/
+    # _profile_edit__*.png, and the inventory already carried the diagnosis as the blocker
+    # finding `profile-edit-renders-empty`.
+    #
+    # The cause: resources/views/profile/edit.blade.php is Breeze markup, so its body is a
+    # `$slot`; App\View\Components\AppLayout::render() returns view('layouts.app'); and that
+    # file is the WorkDo layout, which contains no `$slot` and emits content with
+    # `@yield('content')` (:708). A layout that yields never prints the slot it was handed.
+    #
+    # ProfileController@edit now redirects to the product's own profile screen (GET /profile,
+    # UserController@profile), so this URI renders no view of its own and cannot earn a screen
+    # state. The Breeze form was deliberately NOT revived: it would have added a second profile
+    # editor beside the shipped one and surfaced a Delete Account control for a bare
+    # `$user->delete()` with no store, order or subscription cleanup -- a product and
+    # data-integrity decision for the owner, recorded in PHASE-2.5-WEB-SWEEP-FINDINGS.md.
+    # Pinned by tests/Feature/ProfileEditRendersSomethingTest.
+    'Breeze profile (orphan)':
+        'not a screen: GET /profile/edit used to render an empty page (the Breeze `$slot` was '
+        'dropped by the WorkDo `@yield(\'content\')` layout) and now redirects to GET /profile, '
+        'the profile screen the product actually ships. Fixed and pinned on this branch.',
+
     'Super Admin dashboard': 'Phase 06 (SaaS & Super Admin), not Phase 2.5 Merchant Experience',
 
     # THESE TWO ARE NOT MERCHANT SURFACES, which is a different thing from "not done yet".
@@ -1265,6 +1328,60 @@ OUT_OF_SCOPE = {
 # A row here is a claim that WORK IS NOT POSSIBLE, so each carries the evidence for that, and each
 # names what would unblock it. None of these is a defect to fix inside Phase 2.5.
 BLOCKED_SURFACES = {
+    # ---- BLOCKED ON THE DEV FIXTURE'S DATABASE ENGINE, not on design ------------------------
+    # These four answered HTTP 500 in ALL FOUR combinations in the 2026-11-10 sweep, and the
+    # cause is the same every time: the controller builds raw SQL out of MySQL-only functions,
+    # and the Phase 2.5 dev fixture is SQLite (database/p2dev.sqlite).
+    #
+    #   no such function: MONTH            ReportController::reports_chart (:202-216),
+    #                                      order_reports_chart (:720),
+    #                                      order_reports_chart_data (:985-1205)
+    #   no such function: SUBSTRING_INDEX  ReportController::top_product (:2814, :2826) --
+    #                                      the file's OWN comment at :2883 already says SQLite
+    #                                      cannot run that join.
+    #
+    # THIS IS NOT A PRODUCT DEFECT AND MUST NOT BE REPORTED AS ONE: production is MySQL, where
+    # these functions exist. It is also not a design verdict -- nobody has seen these screens.
+    # REMEDIATION: a MySQL dev fixture. tests/Support/Security/bin/verify-sec13-migration-on-
+    # mysql.php is the established pattern for standing one up (it creates and drops its own
+    # throwaway database); the sweep harness would then drive these four unchanged.
+    'Customer report body (AJAX fragment)':
+        'HTTP 500 on the SQLite dev fixture in all four combinations: ReportController::'
+        'reports_chart builds raw SQL with MONTH(), which SQLite does not implement. Production '
+        'is MySQL and the screen is expected to work there. REMEDIATION: a MySQL dev fixture; '
+        'no design work is owed until it can be rendered.',
+    'Sales report body (AJAX fragment)':
+        'HTTP 500 on the SQLite dev fixture in all four combinations: ReportController::'
+        'order_reports_chart (:720) uses MONTH(). Production is MySQL. REMEDIATION: a MySQL dev '
+        'fixture.',
+    'Sales report bar body (AJAX fragment)':
+        'HTTP 500 on the SQLite dev fixture in all four combinations: ReportController::'
+        'order_reports_chart_data (:985-1205) uses MONTH() and YEAR(). Production is MySQL. '
+        'REMEDIATION: a MySQL dev fixture.',
+    'Top Sales Report':
+        'HTTP 500 on the SQLite dev fixture in all four combinations: ReportController::'
+        'top_product joins on SUBSTRING_INDEX (:2814, :2826), which SQLite does not implement -- '
+        "the controller's own comment at :2883 records this. Production is MySQL. REMEDIATION: "
+        'a MySQL dev fixture.',
+
+    # ---- BLOCKED ON A THIRD-PARTY ACCOUNT ----------------------------------------------------
+    # Both controllers gate on a live integration before they render anything:
+    # ShopifyProductController::index requires `Manage Shopify Product`, the setting
+    # `shopify_setting_enabled == 'on'`, a store URL and an access token, and then calls the
+    # Shopify Admin API. The sweep got HTTP 500 for Shopify and an empty 200 for WooCommerce.
+    # No merchant-visible layout exists to photograph without a connected store.
+    'Shopify import screens (product, category, sub_category, coupon, customer)':
+        'cannot be rendered without a connected Shopify store: ShopifyProductController::index '
+        "requires the `shopify_setting_enabled` setting plus a store URL and access token, then "
+        'calls the Shopify Admin API before returning a view. Measured HTTP 500 in all four '
+        'combinations on the dev fixture. REMEDIATION: an owner-provided Shopify sandbox '
+        'credential, or an explicit decision to leave these screens unverified in Phase 2.5.',
+    'WooCommerce import screens (product, category, coupon, customer)':
+        'cannot be rendered without a connected WooCommerce store: measured HTTP 200 with an '
+        'empty body and no <html> element in all four combinations. REMEDIATION: an '
+        'owner-provided WooCommerce sandbox credential, or an explicit decision to leave these '
+        'screens unverified in Phase 2.5.',
+
     'Edit customer (registered, unimplemented)':
         'NOT a missing screen -- a WEB/FLUTTER PARITY GAP, and the inventory description is stale. '
         'The routes are NOT registered: routes/web.php:1191 is '
@@ -1302,6 +1419,44 @@ BLOCKED_SURFACES = {
         'REMEDIATION: none needed; it is correctly covered as part of the filter bar.',
 }
 
+# ---------------------------------------------------------------------------------------------
+# THE SAME SCREEN, INVENTORIED TWICE. A sixth state, and the reason the denominator moves.
+#
+# The directive says a screen must not silently disappear from the inventory, so a duplicate row
+# is NOT deleted -- it stays visible, named, and pointed at the row that owns it. What it must
+# not do is be CLAIMED twice: two verified rows for one screen would inflate the completion
+# figure using one set of photographs, which is the overclaim the VERIFIED block exists to stop.
+#
+# Each pair below was confirmed to be one screen by route AND by controller action, not by a
+# similar name:
+#
+#   'Notifications (full list)'      GET merchant-notifications   -- the SAME route as
+#   "Notifications (the bell's ...)" GET /merchant-notifications     the row already claimed
+#                                    PREMIUM VERIFIED by P2.5-WAVE-33 from `_merchant_
+#                                    notifications__`. Two auditors reached the same screen from
+#                                    different entry points and each wrote it down; their audit
+#                                    columns even disagree (premium-already vs needs-polish).
+#
+#   'Stock Reports (3-tab shell)'    GET stock-reports  }  routes/web.php:1108-1109 register ONE
+#   'Stock Reports'                  GET /stock-report  }  controller action on two URIs. Both
+#                                    were photographed in the 2026-11-10 sweep and both sets show
+#                                    the same page with the same title.
+#
+# SO THE INVENTORY HOLDS 295 ROWS DESCRIBING 293 DISTINCT SURFACES. Both numbers are reported.
+# ---------------------------------------------------------------------------------------------
+DUPLICATE_OF = {
+    'Notifications (full list)': (
+        "Notifications (the bell's destination)",
+        'the same route, GET merchant-notifications. The owning row is already PREMIUM VERIFIED '
+        '(P2.5-WAVE-33, `_merchant_notifications__`), so claiming this one from the 2026-11-10 '
+        'sweep would count one screen twice.'),
+    'Stock Reports (3-tab shell)': (
+        'Stock Reports',
+        'the same controller action. routes/web.php:1108-1109 register it as BOTH GET '
+        'stock-reports (reports.stock_report) and GET /stock-report (stock.report); the '
+        "inventory's own route column says so. Claimed once, on `_stock_reports__`."),
+}
+
 COMBOS = ['en_ltr_light', 'en_ltr_dark', 'ar_rtl_light', 'ar_rtl_dark']
 
 
@@ -1321,7 +1476,14 @@ def parse_inventory():
 
 
 def classify(row):
-    """Audit state plus work done -> one of the directive's four, or PENDING."""
+    """Audit state plus work done -> one of the directive's four, PENDING, or DUPLICATE."""
+    # FIRST, ahead of everything including a VERIFIED claim. If a duplicate row ever acquires
+    # captures, the captures are evidence for the screen its owner already holds -- not grounds
+    # for a second verified row. Ordering this last would let a well-meaning claim re-inflate the
+    # count, which is the whole failure this state exists to prevent.
+    if row['screen'] in DUPLICATE_OF:
+        owner, why = DUPLICATE_OF[row['screen']]
+        return 'DUPLICATE', f'the same surface as **{owner}** — {why}'
     if row['screen'] in OUT_OF_SCOPE:
         return 'OUT OF SCOPE', OUT_OF_SCOPE[row['screen']]
     # A declared blocker outranks a VERIFIED claim deliberately: if someone later adds captures for
@@ -1372,7 +1534,13 @@ def build():
     # should not be by hand. A screen RENAMED in the inventory would otherwise quietly un-verify
     # itself, which is the failure mode this file's own header says it exists to prevent.
     names = {r['screen'] for r in rows}
-    orphans = sorted(k for k in list(VERIFIED) + list(OUT_OF_SCOPE) if k not in names)
+    orphans = sorted(k for k in list(VERIFIED) + list(OUT_OF_SCOPE) + list(DUPLICATE_OF)
+                     if k not in names)
+    # A duplicate that points at a row which does not exist is the same silent no-op.
+    lost = sorted(o for o, _ in DUPLICATE_OF.values() if o not in names)
+    if lost:
+        sys.exit('REFUSING: these DUPLICATE_OF owners match no inventory row:\n  '
+                 + '\n  '.join(repr(o) for o in lost))
     if orphans:
         sys.exit('REFUSING: these VERIFIED/OUT_OF_SCOPE keys match no inventory row, so they claim '
                  'nothing and move no count:\n  ' + '\n  '.join(repr(o) for o in orphans))
@@ -1397,7 +1565,7 @@ def build():
     L.append('')
     L.append('| state | count | of 295 |')
     L.append('|---|---:|---:|')
-    for s in ['PREMIUM VERIFIED', 'REDESIGNED AND VERIFIED', 'BLOCKED', 'OUT OF SCOPE', 'PENDING']:
+    for s in ['PREMIUM VERIFIED', 'REDESIGNED AND VERIFIED', 'BLOCKED', 'OUT OF SCOPE', 'DUPLICATE', 'PENDING']:
         L.append(f'| {s} | {tally.get(s,0)} | {100*tally.get(s,0)/len(rows):.1f}% |')
     L.append(f'| **total** | **{len(rows)}** | |')
     L.append('')
