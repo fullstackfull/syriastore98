@@ -1277,6 +1277,58 @@ VERIFIED = {
         ('REDESIGNED AND VERIFIED', 'web-modals2-2026-11-10',
          '_manage_language_en__', 'P2.5-WEB-MODALS-2'),
 
+    # ---- P2.5-P1-WEB (2026-11-10): the component rows the classification sweep called ------
+    # ---- capturable, each clipped to its own box so the capture is evidence for the ---------
+    # ---- component rather than for the page hosting it. -------------------------------------
+    #
+    # THE SWITCH CELL CARRIED A REAL DEFECT, in one state per theme. Measured off the running
+    # page, because a 1px border is a few hundredths of a control's pixels and a sampler that
+    # reports the dominant colour never sees it:
+    #
+    #   light, unchecked   white fill on a white cell = 1.00:1, leaving only the border,
+    #                      rgba(0,0,0,.25) flattened to #BFBFBF = 1.84:1   -> below 3:1
+    #   dark,  checked     #335DA8 on cell #292A33 = 2.22:1                -> below 3:1
+    #
+    # Repaired by giving the control a border that carries the boundary while the fill keeps
+    # carrying the state -- 5.05:1 and 7.61:1 after, with the two states still 6.42:1 apart. The
+    # obvious fix (re-colour the checked fill to the dark brand) was measured and REJECTED: it
+    # would have dropped the state difference to 2.09:1, worse than before.
+    # Ratchet: tools/measure-switch-boundary-live.cjs, 4 problems before and 0 after.
+    'Customer status toggle':
+        ('REDESIGNED AND VERIFIED', 'web-components-2026-11-10',
+         'customer-status-toggle__', 'P2.5-P1-WEB'),
+
+    # The DataTable component on its richest host (11 columns): toolbar, column chooser, density
+    # control, search, sortable headers, status badges, the pinned trailing action column and the
+    # info/pagination line. All of that is the component; the page around it is not.
+    'x-datatable':
+        ('REDESIGNED AND VERIFIED', 'web-components-2026-11-10', 'x-datatable__', 'P2.5-P1-WEB'),
+
+    # Both filter bars, each captured with filters APPLIED as well as empty -- the applied state
+    # renders a filter-summary receipt, carries the selected values and shows the Clear control,
+    # so one state proves only that state. `product-filter-bar-applied__` and
+    # `order-saved-views__` sit beside these in the same directory.
+    'Product list filter bar':
+        ('REDESIGNED AND VERIFIED', 'web-components-2026-11-10',
+         'product-filter-bar__', 'P2.5-P1-WEB'),
+    'Order filter bar + saved views':
+        ('REDESIGNED AND VERIFIED', 'web-components-2026-11-10',
+         'order-filter-bar__', 'P2.5-P1-WEB'),
+
+    # The variant delete confirmation, captured OPEN and never confirmed -- confirming would
+    # really delete the variant. The panel that owns the trigger fetches itself on
+    # document-ready, which is why the harness now waits for an injected trigger instead of
+    # reporting "0 matched" against a page that had simply not finished.
+    'Variant delete confirmation dialog':
+        ('REDESIGNED AND VERIFIED', 'web-components-2026-11-10',
+         'variant-delete-dialog__', 'P2.5-P1-WEB'),
+
+    # The attribute list's action cell. The harness clips the whole row, so the attribute name
+    # identifies the image and it cannot collide with the sibling two-icon cells.
+    'Attribute row actions':
+        ('REDESIGNED AND VERIFIED', 'web-components-2026-11-10',
+         'attribute-row-actions__', 'P2.5-P1-WEB'),
+
     # ---- P2.5-FLUTTER-SHEETS (2026-11-10): the four bottom-sheet editors --------------------
     # Category, customer, tax and shipping are edited in a `showModalBottomSheet`, so none of
     # them is in a route table and no capture wave that navigates could reach them. Driven as the

@@ -10,11 +10,11 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 184 | 62.4% |
+| REDESIGNED AND VERIFIED | 190 | 64.4% |
 | BLOCKED | 19 | 6.4% |
 | OUT OF SCOPE | 15 | 5.1% |
 | DUPLICATE | 5 | 1.7% |
-| PENDING | 48 | 16.3% |
+| PENDING | 42 | 14.2% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -32,14 +32,14 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
 | Flutter merchant admin app | 51 | 0 | 42 | 2 | 0 | 6 |
-| CATALOGUE taxonomy | 38 | 13 | 20 | 0 | 0 | 5 |
+| CATALOGUE taxonomy | 38 | 13 | 21 | 0 | 0 | 4 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 22 | 3 | 3 | 7 |
-| Phase 2.5 Wave A | 30 | 0 | 25 | 0 | 3 | 2 |
+| Phase 2.5 Wave A | 30 | 0 | 26 | 0 | 3 | 1 |
 | Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 16 | 5 | 1 | 2 |
 | Flutter merchant/employee admin app | 24 | 0 | 13 | 1 | 6 | 4 |
-| Customers and customer management | 20 | 0 | 12 | 4 | 0 | 4 |
-| ORDERS | 17 | 0 | 9 | 3 | 0 | 5 |
-| PRODUCTS | 16 | 1 | 7 | 1 | 0 | 7 |
+| Customers and customer management | 20 | 0 | 13 | 4 | 0 | 3 |
+| ORDERS | 17 | 0 | 10 | 3 | 0 | 4 |
+| PRODUCTS | 16 | 1 | 9 | 1 | 0 | 5 |
 | Merchant admin NAVIGATION SHELL | 13 | 4 | 7 | 0 | 1 | 0 |
 | Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 6 | 0 | 0 | 6 |
 | Merchant dashboard and KPI presentation | 9 | 3 | 5 | 0 | 1 | 0 |
@@ -119,7 +119,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Brand row actions | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Attributes list | ``GET /product-attributes`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Attribute create / edit (modals) | ``GET /product-attributes/create, GET /product-attributes/{id}/` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WEB-MODALS-2; four captures under evidence/web-modals2-2026-11-10/ |
-| Attribute row actions | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Attribute row actions | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-P1-WEB; four captures under evidence/web-components-2026-11-10/ |
 | Attribute options (DS pilot screen) | ``GET /attribute-option/{id?}`` | premium-already | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
 | Attribute option create / edit (modals) | ``GET /add-attribute-option/{id?}, GET /edit-attribute-option/{` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Tag list | ``GET /tag`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
@@ -222,7 +222,7 @@ actually been done to it since. They are different questions and the matrix keep
 | x-ss.bar-chart | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
 | x-ss.advanced-fields | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
 | x-ss.choice-group | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
-| x-datatable | ``partial/component — used by 39 host views; 66 of 68 DataTable` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| x-datatable | ``partial/component — used by 39 host views; 66 of 68 DataTable` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-P1-WEB; four captures under evidence/web-components-2026-11-10/ |
 | custom.css F126 region | ``partial/component — public/css/custom.css, loaded on every ad` | premium-already | **OUT OF SCOPE** | not a screen: a ~100-line region of public/css/custom.css (and its mirror in rtl-custom.css) that re-colours text inside `html[data-ss-theme="dark"] .modal-content`. Pure CSS -- there is no markup and no element the region owns. Its effect is visible in every dark modal capture already taken, which is where it was measured and accepted. |
 | Legacy Breeze/Tailwind component set (co-resident) | ``partial/component`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 
@@ -293,7 +293,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Customer list | ``GET customer (customer.index)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WAVE-1; four captures under evidence/wave-1/ |
 | Customer grid (card view) | ``GET customer-grid (customer.grid)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-R-07; four captures under evidence/r06-customer-filter/ |
 | Customer row actions | ``partial/component (rendered into the DataTable 'action' colum` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
-| Customer status toggle | ``partial/component (DataTable 'status' column) + POST customer` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Customer status toggle | ``partial/component (DataTable 'status' column) + POST customer` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-P1-WEB; four captures under evidence/web-components-2026-11-10/ |
 | Customer filter result fragment | ``GET customer-filter-data (customer.filter.data)`` | deficient | **BLOCKED** | GET customer-filter-data answers HTTP 200 and has NO CALLER. Its former parent was the customer grid, which no longer calls it (recorded in customer/grid.blade.php:38-39 during P2.5-R-07). It returns a JSON-encoded HTML string of customer/filter.blade.php, not a page. It cannot be made a screen without inventing a consumer for it. REMEDIATION: either a deliberate decision to retire the route, or a consumer that a merchant-facing feature actually needs. Neither is a design task. |
 | Customer filter field metadata | ``GET customer-filter (customer.filter)`` | needs-polish | **BLOCKED** | GET customer-filter returns application/json and never a view, so it is not a screen and cannot earn a screen state. Its OUTPUT is already rendered -- by the customer filter bar redesigned and captured in P2.5-PKG-G -- so the merchant-visible half of this surface is verified THERE. Claiming it separately would mean reusing that evidence for a second surface, which the owner forbids by name. REMEDIATION: none needed; it is correctly covered as part of the filter bar. |
 | Create customer | ``GET customer/create (customer.create) + POST customer (custom` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-PKG-E; four captures under evidence/pkg-e-customer-write/ |
@@ -322,7 +322,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Order AJAX modal (the eye / Show button) | ``GET orders/order_view/{id} (order.order_view)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FRAG; four captures under evidence/web-fragments-2026-11-10/ |
 | Order grid (card view) | ``GET order-grid (order.grid)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-ORDERS; four captures under evidence/ord-repair-2026-11-09/ |
 | Order row actions (DataTable partial) | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
-| Order filter bar + saved views | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Order filter bar + saved views | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-P1-WEB; four captures under evidence/web-components-2026-11-10/ |
 | Create order | ``GET order/create (order.create); POST order (order.store)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
 | Refund request list | ``GET refund-request (refund-request.index)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Refund detail / decision screen | ``GET refund-request/{id} (refund-request.show)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-11; four captures under evidence/wave-11/ |
@@ -343,12 +343,12 @@ actually been done to it since. They are different questions and the matrix keep
 | Product editor — edit | ``GET /product/{product}/edit → product.edit`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-PARAM; four captures under evidence/web-param-routes-2026-11-10/ |
 | Product detail (read-only) | ``GET /product/{product} → product.show`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PARAM; four captures under evidence/web-param-routes-2026-11-10/ |
 | Product row actions (list cell fragment) | ``partial/component — rendered by ProductDataTable::dataTable()` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
-| Product list filter bar | ``partial/component — included by product/index.blade.php:51`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Product list filter bar | ``partial/component — included by product/index.blade.php:51`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-P1-WEB; four captures under evidence/web-components-2026-11-10/ |
 | Product quick-preview panel body | ``GET /product-preview/{id} → product.preview`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FRAG; four captures under evidence/web-fragments-2026-11-10/ |
 | Variant panels — create side | ``POST /products/attribute_combination → products.attribute_com` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Variant panels — edit/show side (saved variants) | ``ANY /products/attribute_combination_data/edit → products.attr` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Variant panels — rebuild after attribute change | ``PUT /products/attribute_combination/edit → products.attribute` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Variant delete confirmation dialog | ``partial/component — included by edit, show, attribute_combina` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Variant delete confirmation dialog | ``partial/component — included by edit, show, attribute_combina` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-P1-WEB; four captures under evidence/web-components-2026-11-10/ |
 | SKU combination table | ``POST /products/sku_combination → products.sku_combination`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Attribute-option picker fragment | ``POST /products/attrinbute_option → products.attribute_option`` | unknown | **BLOCKED** | audit could not determine its state; it needs to be rendered and classified |
 | Attribute options list (DS pilot) | ``GET /attribute-option/{id?} → product-attribute-option.show`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |

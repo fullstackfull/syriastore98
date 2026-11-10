@@ -124,6 +124,96 @@ const SURFACES = [
     trigger: 'a[data-bs-target="#pills-most-stocked"]',
     container: '#most-stocked-table',
   },
+
+  // ---- P2.5-P1 (2026-11-10): components that render on load, clipped to their own box -------
+  //
+  // Each of these is a COMPONENT row in the inventory, not a page, so a capture of the host
+  // screen would be evidence for the host and not for the component. The harness clips the
+  // container's own bounding box, which is what makes these claimable separately.
+
+  // The DataTable component itself. `/product` is the richest host (11 columns) and carries the
+  // toolbar, the column chooser, the density control, the sticky trailing action column and the
+  // info/pagination line -- all of which are the component, not the page.
+  { slug: 'x-datatable', route: '/product', container: '.card.ss-dt-card' },
+
+  // The product list's filter bar, server-rendered on load.
+  {
+    slug: 'product-filter-bar',
+    route: '/product',
+    container: 'form[data-ss-product-filters]',
+    waitForRows: false,
+  },
+  // ...and the same bar with filters APPLIED, which is a materially different picture: the
+  // filter-summary receipt renders at the top, the selects carry their values, and the Clear
+  // control appears. One state proves only that state.
+  {
+    slug: 'product-filter-bar-applied',
+    route: '/product?ss_status=1&ss_stock=low&ss_apply=1',
+    container: 'form[data-ss-product-filters]',
+    waitForRows: false,
+  },
+
+  // The order filter bar, and its saved-views strip. The query string is load-bearing twice:
+  // it makes the current-filter set non-empty, so the save box and Clear link render, and it
+  // makes the filter-summary receipt render inside the bar.
+  {
+    slug: 'order-filter-bar',
+    route: '/order?ss_status=1&ss_apply=1',
+    container: 'form[data-ss-order-filters]',
+    waitForRows: false,
+  },
+  {
+    slug: 'order-saved-views',
+    route: '/order?ss_status=1&ss_apply=1',
+    container: '.ss-filterbar__saved',
+    waitForRows: false,
+  },
+
+  // The customer list's status cell -- a switch plus a badge. Dark-mode switch contrast is the
+  // known risk on this shape (the bottom-sheet switches measured 1.09:1 for exactly this reason),
+  // so it is clipped as its own surface rather than read off the row capture.
+  {
+    slug: 'customer-status-toggle',
+    route: '/customer',
+    // Resolved by what the cell CONTAINS AND ITS STATE, not by its position.
+    //
+    // Two earlier selectors failed for two different reasons and both were informative.
+    // `td:nth-last-child(2)` picked a neighbouring column -- 5 characters of text and no
+    // control. Adding `tr:first-child` then found nothing at all, because the first row in this
+    // fixture is a GUEST: customer/status.blade.php renders the switch only when the viewer has
+    // `Status Customer` AND `regiester_date` is not null, and a guest gets a read-only badge
+    // instead. The fixture holds 4 customers, 3 registered (one of them status=0) and 1 guest.
+    //
+    // So the three arms are selected by state, which is also the only way to be sure which
+    // picture is which: a switch has no text, so ON and OFF are the same string.
+    container: '#customer-table td:has(.page-checkbox:checked)',
+  },
+  {
+    slug: 'customer-status-toggle-off',
+    route: '/customer',
+    container: '#customer-table td:has(.page-checkbox:not(:checked))',
+  },
+  {
+    slug: 'customer-status-guest',
+    route: '/customer',
+    container: '#customer-table td:has(.ss-badge__dot)',
+    // "Guest" is five characters and a badge is a <span>, not a control, so this arm meets
+    // neither the 20-character floor nor the control test. The floor is declared here rather
+    // than widened globally: a surface that knows it is a word-long badge can say so, and every
+    // other surface keeps the stricter default.
+    minText: 3,
+  },
+
+  // The variant delete confirmation. The saved-variant panel fetches itself on document-ready
+  // (product/edit.blade.php:857), so the trigger exists without any fixture work. The dialog is
+  // captured OPEN and never confirmed -- confirming would really delete the variant.
+  {
+    slug: 'variant-delete-dialog',
+    route: '/product/1/edit',
+    trigger: 'a.delete-option-comment',
+    container: '#ss-variant-delete-dialog',
+    waitForRows: false,
+  },
 ];
 
 const COMBOS = [
@@ -164,8 +254,27 @@ const MEASURE = (args) => {
   if (root.querySelector('.ss-panel__loading, .ss-skeleton')) {
     return { ok: false, why: 'container still shows its loading placeholder' };
   }
-  if (text.length < 20) {
-    return { ok: false, why: 'container holds ' + text.length + ' chars of text (fragment never arrived)' };
+  // ARRIVED = 20 characters of text OR a visible control. The same widening as the arrival wait
+  // above, and for the same reason: a status cell is a switch and a badge, so counting its
+  // characters measures nothing about whether it rendered. A container that is genuinely empty
+  // still has neither, and still fails here.
+  const minText = typeof args.minText === 'number' ? args.minText : 20;
+
+  if (text.length < minText) {
+    const controls = [...root.querySelectorAll(
+      'input, button, select, textarea, a[href], [role="switch"]',
+    )].filter((c) => {
+      const ccs = getComputedStyle(c);
+      return ccs.display !== 'none' && ccs.visibility !== 'hidden' && !!c.offsetParent;
+    });
+
+    if (controls.length === 0) {
+      return {
+        ok: false,
+        why: 'container holds ' + text.length + ' chars of text (floor ' + minText
+          + ') and no visible control (fragment never arrived)',
+      };
+    }
   }
 
   const parse = s => (s.match(/[\d.]+/g) || []).map(Number);
@@ -228,7 +337,31 @@ const MEASURE = (args) => {
     const r = el.getBoundingClientRect();
     if (r.width < 2) continue;
     const over = Math.round(Math.max(r.right - rr.right, rr.left - r.left));
-    if (over > 4) {
+
+    // CONTENT THAT SCROLLS IS NOT CONTENT THAT IS LOST, and this check must tell them apart.
+    //
+    // The DataTable component is a horizontally scrollable card with a pinned trailing Action
+    // column: the rows are deliberately wider than the viewport and slide UNDER the pinned
+    // column, which is the design, not a defect. Measured on `/product` (11 columns): every
+    // `tr` reported 43px past the container in LTR and 38px in RTL, 56 findings from one
+    // surface, all of them correct arithmetic about an intended layout.
+    //
+    // This is a NARROWING of what counts as a finding, not a relaxation of the floor: the
+    // question the check exists to answer is "is this off-frame and unreachable", and in a
+    // scrollable box it is reachable. A container that does NOT scroll in that axis still
+    // reports at 4px exactly as before. Left unfixed, 56 false findings per run is how a real
+    // one stops being read.
+    const scrolls = (() => {
+      for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
+        const cs = getComputedStyle(n);
+        const ox = cs.overflowX;
+        if ((ox === 'auto' || ox === 'scroll') && n.scrollWidth > n.clientWidth + 4) return true;
+        if (n === root) break;
+      }
+      return false;
+    })();
+
+    if (over > 4 && !scrolls) {
       findings.push({
         kind: 'overflow',
         detail: over + 'px past the container  ' + el.tagName.toLowerCase()
@@ -330,8 +463,18 @@ const MEASURE = (args) => {
       await page.goto(BASE + s.route, { waitUntil: 'domcontentloaded' }).catch(() => {});
 
       const landed = (() => { try { return new URL(page.url()).pathname; } catch (e) { return page.url(); } })();
-      if (landed.replace(/\/+$/, '') !== s.route.replace(/\/+$/, '')) {
-        note('premise', 'landed on ' + landed + ', asked for ' + s.route);
+
+      // COMPARE PATHS, NOT THE WHOLE ROUTE STRING. Several surfaces need a query string to exist
+      // at all -- the order and product filter bars only render their summary receipt, their
+      // Clear control and their save box when a filter is actually applied. `page.url()` gives a
+      // pathname with no query, so comparing it against a route that carries one reported
+      // "landed on /order, asked for /order?ss_status=1&ss_apply=1" for a page that had loaded
+      // perfectly. The premise this check exists for is "did a redirect take us somewhere else",
+      // and that is a question about the path.
+      const wantPath = s.route.split('?')[0].split('#')[0];
+
+      if (landed.replace(/\/+$/, '') !== wantPath.replace(/\/+$/, '')) {
+        note('premise', 'landed on ' + landed + ', asked for ' + wantPath);
         continue;
       }
 
@@ -354,6 +497,17 @@ const MEASURE = (args) => {
       // two as "no visible trigger", which is true and says nothing about the fragment. A surface
       // with no `trigger` goes straight to the container wait.
       if (s.trigger) {
+        // WAIT FOR THE TRIGGER, because some of them are injected rather than served.
+        //
+        // The saved-variant panel fetches itself on document-ready
+        // (product/edit.blade.php:857) and injects attribute_combinations_data into
+        // `.attribute_combination`, so `a.delete-option-comment` does not exist in the served
+        // HTML. Searching immediately reported "0 matched", which reads as "this page has no
+        // such control" when the truth was "not yet". A surface with `waitForRows: false` skips
+        // the row wait, so there was nothing else slowing the harness down either.
+        await page.waitForSelector(s.trigger, { timeout: 15000, state: 'attached' })
+          .catch(() => {});
+
         const handles = await page.$$(s.trigger);
         let trigger = null;
         for (const h of handles) {
@@ -379,13 +533,37 @@ const MEASURE = (args) => {
         if (cs.display === 'none' || cs.visibility === 'hidden') return false;
         if (el.querySelector('.ss-panel__loading, .ss-skeleton')) return false;
         if (parseFloat(cs.opacity) < 0.99) return false;
-        return (el.innerText || '').trim().length >= 20;
-      }, { container: s.container }, { timeout: 15000 }).catch(() => {});
+
+        // ARRIVED = 20 characters of text OR a visible control.
+        //
+        // The customer list's status cell is a switch and a badge: it reported "container holds
+        // 5 chars of text (fragment never arrived)" while being fully rendered, because a toggle
+        // has no text to count. Judging a control-only container by its character count is the
+        // same mistake the modal harness made when it defined "loaded" as 20 characters and so
+        // rejected every small form.
+        //
+        // This is a widening of what counts as ARRIVED, not of what counts as correct: a
+        // container that is empty still has neither text nor a control and still fails.
+        const floor = typeof a.minText === 'number' ? a.minText : 20;
+
+        if ((el.innerText || '').trim().length >= floor) return true;
+
+        return [...el.querySelectorAll('input, button, select, textarea, a[href], [role="switch"]')]
+          .some((c) => {
+            const ccs = getComputedStyle(c);
+            return ccs.display !== 'none' && ccs.visibility !== 'hidden' && !!c.offsetParent;
+          });
+      }, { container: s.container, minText: s.minText }, { timeout: 15000 }).catch(() => {});
 
       // One frame after any transition, so the measured box is the painted box.
       await page.waitForTimeout(200);
 
-      const m = await page.evaluate(MEASURE, { container: s.container, lang: combo.lang, latinOk: LATIN_OK })
+      const m = await page.evaluate(MEASURE, {
+        container: s.container,
+        lang: combo.lang,
+        latinOk: LATIN_OK,
+        minText: s.minText,
+      })
         .catch(e => ({ ok: false, why: String(e).slice(0, 120) }));
 
       if (!m.ok) { note('premise', m.why); continue; }

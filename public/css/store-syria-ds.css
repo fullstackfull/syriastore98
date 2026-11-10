@@ -2187,6 +2187,43 @@
     height: 1.5625rem;
 }
 
+/* THE SWITCH'S BOUNDARY, which failed WCAG 1.4.11 in one state per theme.
+   =================================================================================================
+
+   MEASURED on the customer list's status cell, reading computed styles off the running page and
+   then sampling the painted pixels of the captures:
+
+     unchecked   background #FFFFFF, border rgba(0,0,0,.25)      (both themes)
+     checked     background #335DA8, border #335DA8              (both themes)
+
+   So the FILL carries the state correctly -- white versus brand blue, 6.42:1 apart, which is the
+   property that matters most and which must not be disturbed. What failed is the component's own
+   BOUNDARY against the surface it sits on:
+
+     light, unchecked   white track on a white cell   = 1.00:1, leaving only the border,
+                        which flattens to #BFBFBF     = 1.84:1   <- fails 3:1
+     dark,  checked     #335DA8 on cell #292A33       = 2.22:1   <- fails 3:1
+
+   THE OBVIOUS FIX IS A TRAP, and it was measured before being rejected. Re-colouring the checked
+   fill to the dark brand (--ss-cyan-500, 6.81:1 on the cell) fixes the boundary and WRECKS the
+   state difference: cyan against the white unchecked track is 2.09:1, so the two states become
+   harder to tell apart than they are today. Fill carries state; border carries boundary. Only the
+   border is touched here.
+
+     light, unchecked   border --ss-grey-500 #6B6F76  = 5.05:1 on white
+     dark,  checked     border --ss-cyan-400 #68CBE1  = 7.61:1 on the cell
+
+   Scoped to `.ss-dt-card-body` to match the sizing rule above -- that is where this control was
+   measured. Switches on other hosts (the settings panels) have not been measured and are
+   deliberately not changed from here. */
+.ss-dt-card-body .form-switch .form-check-input {
+    border-color: var(--ss-grey-500);
+}
+
+html[data-ss-theme="dark"] .ss-dt-card-body .form-switch .form-check-input:checked {
+    border-color: var(--ss-cyan-400);
+}
+
 /* ---- Utilities ---- */
 
 /* Visually hidden but available to screen readers — used for table captions,

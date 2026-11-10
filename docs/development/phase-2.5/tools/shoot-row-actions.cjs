@@ -72,6 +72,13 @@ const SURFACES = [
   { slug: 'customer-row-actions', route: '/customer' },
   { slug: 'order-row-actions', route: '/order' },
   { slug: 'product-row-actions', route: '/product' },
+
+  // ---- P2.5-P1 (2026-11-10) ----------------------------------------------------------------
+  // The attribute list's Action column. No fixture or permission work: product_attributes
+  // already holds rows in this fixture, and the cell is in the first row on load. The harness
+  // clips the whole row, so the attribute name ('Size' / 'Colour') identifies the image and it
+  // cannot collide with the sibling two-icon cells.
+  { slug: 'attribute-row-actions', route: '/product-attributes' },
 ];
 
 const COMBOS = [
