@@ -134,12 +134,20 @@ claims until their filenames were right.
 
 ## 5. Tests and evidence
 
+All four run against the committed tree at `78e14d03`, not against an earlier state:
+
 | gate | result |
 |---|---|
 | `php artisan test --testsuite=Unit` | **1588 passed** (12,144 assertions) |
 | `php artisan test --testsuite=Contract` | **38 passed** (149 assertions) — the Flutter API contract |
-| `php artisan test --testsuite=Feature` | **8,400 testcases**; the declared set is 2 accepted failures + 1 accepted skip |
-| `assert-known-test-outcomes.php` | asserts that set **in both directions** |
+| `php artisan test --testsuite=Feature` | **8,404 testcases** — 8,401 passed, 2 failed, 1 skipped (43,411 assertions) |
+| `assert-known-test-outcomes.php` | **OK** — 2 declared failures, 1 declared skip, 0 errors, nothing undeclared; asserts the set **in both directions** |
+
+The gate's own words are worth keeping: *"This is NOT a statement that the suite is green. It is a
+statement that the suite is failing and skipping exactly the tests the project has recorded, for the
+reasons it has recorded."* The two declared failures are
+`Tests\Feature\Auth\RegistrationTest::test_new_users_can_register` and
+`Tests\Feature\ProfileTest::test_profile_page_is_displayed`.
 
 The Feature gate caught a regression introduced by this wave and is worth naming: adding one
 `Log::warning` to `OrderController` shifted twelve documented log-line numbers, and
