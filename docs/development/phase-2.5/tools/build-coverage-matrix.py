@@ -1405,6 +1405,37 @@ OUT_OF_SCOPE = {
 # A row here is a claim that WORK IS NOT POSSIBLE, so each carries the evidence for that, and each
 # names what would unblock it. None of these is a defect to fix inside Phase 2.5.
 BLOCKED_SURFACES = {
+    # ---- BLOCKED ON A PLATFORM CHANNEL, measured rather than assumed --------------------------
+    # `InvoicePdfViewScreen` builds a `PdfPreview` (invoice_pdf_view.dart:98) and the preview
+    # rasterises through the `printing` plugin. Driven in all four combinations the screen throws
+    # nothing and lays out its chrome, but the body is the `loadingWidget` shimmer and the whole
+    # screen holds TWO Text widgets. Capturing it raises
+    #
+    #   MissingPluginException(No implementation found for method rasterPdf
+    #                          on channel net.nfet.printing)
+    #
+    # so a capture is a picture of a placeholder. Four documenting captures are kept at
+    # evidence/flutter-invoice-2026-11-10/after/flutter-invoice-chrome_*.png -- they are evidence
+    # of the LIMITATION, not of the screen, and are deliberately not claimed as verification.
+    #
+    # THE TRIP WAS STILL WORTH IT. The chrome showed the page-format control reading "Letter" --
+    # the US paper size -- to an Arabic merchant, while the screen's own loading placeholder is
+    # built at `aspectRatio: 1 / 1.414` under the comment `// A4` twelve lines away. `PdfPreview`
+    # had no `initialPageFormat`, so it took the package default. Fixed to A4 and pinned by
+    # test/screens/invoice_viewer_capture_test.dart; an invoice printed at Letter is cropped or
+    # wrongly margined on every A4 sheet a Syrian merchant feeds it.
+    #
+    # REMEDIATION: a device or emulator run. The layout, the format and the chrome are pinned by
+    # tests meanwhile, so what is missing is the picture, not the behaviour.
+    'Invoice (PDF build) / Invoice viewer':
+        'the PDF body cannot be rendered under flutter_test: PdfPreview rasterises through the '
+        'printing plugin and the capture raises MissingPluginException for `rasterPdf` on '
+        'channel net.nfet.printing, leaving the loadingWidget shimmer. Measured in all four '
+        'combinations; documenting captures at evidence/flutter-invoice-2026-11-10/. The page '
+        'format was wrong while we were there -- it opened at US Letter and is now pinned to A4 '
+        'by test/screens/invoice_viewer_capture_test.dart. REMEDIATION: capture on a device or '
+        'emulator; behaviour is pinned by tests meanwhile.',
+
     # ---- BUILT, BUT NO MERCHANT CAN REACH IT -------------------------------------------------
     # MEASURED 2026-11-10 in StoreSyria_app98, after a first check using the WRONG CLASS NAME
     # (`CodScreen`) returned a confident empty result -- the class is `CODScreen`.

@@ -11,10 +11,10 @@ hand-maintained matrix is precisely how that happens.
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
 | REDESIGNED AND VERIFIED | 182 | 61.7% |
-| BLOCKED | 17 | 5.8% |
+| BLOCKED | 18 | 6.1% |
 | OUT OF SCOPE | 5 | 1.7% |
 | DUPLICATE | 3 | 1.0% |
-| PENDING | 64 | 21.7% |
+| PENDING | 63 | 21.4% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -31,7 +31,7 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
-| Flutter merchant admin app | 51 | 0 | 42 | 1 | 0 | 7 |
+| Flutter merchant admin app | 51 | 0 | 42 | 2 | 0 | 6 |
 | CATALOGUE taxonomy | 38 | 13 | 19 | 0 | 0 | 6 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 21 | 3 | 3 | 8 |
 | Phase 2.5 Wave A | 30 | 0 | 25 | 0 | 0 | 5 |
@@ -62,7 +62,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Orders list (tab 1) | ``tab 1 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-ORDERS; four captures under evidence/flutter-orders-2026-11-09/ |
 | Order detail | ``Get.to(() => OrderDetailScreen()) from orders, notifications,` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-DETAIL2; four captures under evidence/flutter-order-detail-2026-11-10/ |
 | Create order | ``GetX /addOrder, and Get.to(() => CreateOrderScreen()) from or` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-CREATEORDER; four captures under evidence/flutter-create-order-2026-11-10/ |
-| Invoice (PDF build) / Invoice viewer | ``Get.to(() => InvoicePdfViewScreen()) from order detail`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Invoice (PDF build) / Invoice viewer | ``Get.to(() => InvoicePdfViewScreen()) from order detail`` | premium-already | **BLOCKED** | the PDF body cannot be rendered under flutter_test: PdfPreview rasterises through the printing plugin and the capture raises MissingPluginException for `rasterPdf` on channel net.nfet.printing, leaving the loadingWidget shimmer. Measured in all four combinations; documenting captures at evidence/flutter-invoice-2026-11-10/. The page format was wrong while we were there -- it opened at US Letter and is now pinned to A4 by test/screens/invoice_viewer_capture_test.dart. REMEDIATION: capture on a device or emulator; behaviour is pinned by tests meanwhile. |
 | Products list (tab 2) | ``tab 2 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-PRICE; four captures under evidence/flutter-harness-2026-11-09/ |
 | Product detail | ``Get.to(() => ProductDetailScreen()) from products list`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-PRODUCTDETAIL; four captures under evidence/flutter-product-detail-2026-11-10/ |
 | Add / edit product | ``Get.to(() => AddNewProductScreen(isUpdate:)) from products li` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-EDITORS; four captures under evidence/flutter-editors-2026-11-10/ |
