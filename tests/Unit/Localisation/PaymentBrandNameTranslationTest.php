@@ -19,10 +19,20 @@ use Tests\TestCase;
  * two surfaces together rather than restating the rule a second time: it reads the canonical map
  * and asserts the language file does not contradict it.
  *
- * IT MATTERS BEYOND THE LABEL. `TapPaymnetController:132` and `BenefitPaymentController:244` write
- * `__('Tap')` / `__('Benefit')` straight into `orders.payment_type`, so an order placed in an
- * Arabic session used to STORE `اضغط` -- a value `PaymentTypeLabel` cannot resolve, because it
- * matches on a lowercase ASCII slug. Future orders now store `Tap`.
+ * IT MATTERS BEYOND THE LABEL, BUT NOT WHERE THIS DOCBLOCK FIRST CLAIMED. The first version said
+ * `TapPaymnetController:132` and `BenefitPaymentController:244` write `__('Tap')` / `__('Benefit')`
+ * into `orders.payment_type`. That is wrong, and independent review caught it: both instantiate
+ * `new PlanOrder()` a few lines above, as does every other `payment_type = __(...)` site in
+ * `app/`. `orders.payment_type` is written from the checkout slug and is NOT affected by this
+ * change -- `PaymentTypeLabel`'s own census is correct for the table it names.
+ *
+ * The table that does store translated brand names is `plan_orders`, and the consequence there is
+ * real: `GuardsPlanActivation` searches it for an existing row before activating a plan, and
+ * `plans/receipt.blade.php:2` and `plans/action.blade.php:2` compare the column against Latin
+ * literals. Removing these keys means future plan orders store the canonical spelling, which those
+ * comparisons match; rows ALREADY written under an Arabic spelling are covered by
+ * `GuardsPlanActivation::HISTORICAL_SPELLINGS`, which pins them so the replay guard still finds
+ * them. That constant exists because of this change.
  *
  * WHAT IS DELIBERATELY STILL TRANSLATED: a faithful Arabic rendering of the brand (`بايبال`,
  * `سكريل`, `واتساب`). Those are the brand in Arabic script -- a merchant still finds the gateway --

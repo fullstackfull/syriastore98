@@ -174,7 +174,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1091` | Gateway return refused: the gateway request could not be built. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1108` | Gateway return refused: basket holds a non-positive quantity. |
 | `app/Http/Controllers/Concerns/GuardsPlanActivation.php:85` | Plan activation refused: provider is disabled pending verification. |
-| `app/Http/Controllers/Concerns/GuardsPlanActivation.php:505` | Plan activation refused: this provider reference has already activated a plan. |
+| `app/Http/Controllers/Concerns/GuardsPlanActivation.php:576` | Plan activation refused: this provider reference has already activated a plan. |
 | `app/Http/Controllers/ShippingMethodController.php:120` | shipping method write refused: the platform operator has read rights only |
 | `app/Http/Controllers/Concerns/RefusesDeferredGateway.php:130` | Paid plan checkout refused before any charge: this gateway is deferred from Phase 02. |
 | `app/Http/Controllers/Concerns/RefusesDeferredGateway.php:180` | Paid plan activation refused: this gateway is deferred from Phase 02 and its payment evidence cannot be verified. |

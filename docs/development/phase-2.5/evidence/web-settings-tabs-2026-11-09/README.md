@@ -121,11 +121,45 @@ orders, `الشريط` in settings. This change makes the settings tab agree wit
 already existed, and the existing test `a brand name is never passed through the translator` still
 passes.
 
-**It also reaches stored data.** `TapPaymnetController.php:132` and
-`BenefitPaymentController.php:244` write `__('Tap')` / `__('Benefit')` straight into
-`orders.payment_type`, so an order placed in an Arabic session stored `اضغط` — a value
-`PaymentTypeLabel` cannot resolve, because it matches on a lowercase ASCII slug. Future orders
-store `Tap`. **No existing row was touched; this edits a language file only.**
+**It also reaches stored data — but not the table this README first named.** The original text
+said `TapPaymnetController.php:132` writes into `orders.payment_type`. **That was wrong**, and
+independent review caught it: that line and every other `payment_type = __(...)` site in `app/`
+instantiates `new PlanOrder()`, not `new Order()`. `orders.payment_type` is written from the
+checkout slug and is untouched by this change.
+
+The table that really stores translated brand names is **`plan_orders`**, and the consequence
+there was serious enough to need its own fix:
+
+`GuardsPlanActivation::planProviderTypeSpellings()` built its replay-lookup set by globbing
+`resources/lang/*.json` and calling `trans($canonicalType, [], $locale)`. Removing the Arabic
+brand keys therefore **silently shrank the set of spellings the plan-activation replay guard
+searches** — a buyer who paid in an Arabic session had a `plan_orders` row holding `كومة الدفع`
+that the guard could no longer see, so re-opening the gateway return URL could have written a
+second plan order and activated the plan twice. Affected: Paystack, Cashfree, Mollie, Benefit.
+
+**Fixed by pinning, not by reverting.** `GuardsPlanActivation::HISTORICAL_SPELLINGS` now records
+the spellings this application has ever written, recovered verbatim from
+`git show 598cccdd:resources/lang/ar.json`. A row in `plan_orders` is a historical fact; the set
+of spellings the guard must search is the set the application has *ever* produced, not the set it
+produces now. Deriving a money control's lookup from a presentation file was the underlying defect,
+and this change is what demonstrated it. The locale sweep is kept for the other fifteen locales.
+
+Three Feature tests went red on this and were right to —
+`PaystackPlanActivationTest::test_the_replay_key_is_not_locale_dependent` and two rows of
+`PlanActivationReplayGuardTest`. They are retargeted onto the pinned literals rather than
+`trans(…, 'ar')`. One of them,
+`test_the_replay_guard_covers_every_locale_spelling`, had additionally become **vacuous** —
+`assertContains(__('Paystack'), $spellings)` passes trivially once that key resolves to
+`Paystack`, which is already the first element — the exact failure its own comment warned about.
+
+Three further brand keys were removed in the same pass, each the exact string its controller
+stores: `STRIPE` (`الشريط`, and `plans/receipt.blade.php:2` compares `== 'STRIPE'`, so an Arabic
+plan order's receipt link never rendered), `Cybersource` (`المصدر الإلكتروني`, "the electronic
+source") and lowercase `yookassa`. `Feature` → `الميزة` and `Pay`/`Payment` → `الدفع` were
+**kept**: those are correct translations of ordinary words that merely collided with a brand in
+the machine translation.
+
+**No existing row was touched; this edits language files, one guard constant and tests only.**
 
 32 keys removed (20 word-translated, 12 wrapped in stray quotes or parentheses — `" برينتري "`
 carried its own padding *inside* the quotes). **Faithful Arabic renderings were deliberately

@@ -977,6 +977,64 @@ VERIFIED = {
         ('REDESIGNED AND VERIFIED', 'web-settings-tabs-2026-11-09', '_setting_tax_opt_setting__', 'P2.5-SET'),
     'Delivery Syria (wallet + parcels)':
         ('REDESIGNED AND VERIFIED', 'web-settings-tabs-2026-11-09', '_setting_delivery_syria_setting__', 'P2.5-SET'),
+
+    # ----------------------------------------------------------------------------------------
+    # P2.5-ROW. The DataTable row-action cells -- the edit/delete/show controls a merchant
+    # clicks. Driven by `shoot-row-actions.cjs`, one reusable harness for the whole family.
+    #
+    # 11 surfaces x 4 combinations = 44 captures, 44 distinct. FINDINGS: 0.
+    #
+    # MEASURED CLEAN: every control carries an accessible name in both languages, every control
+    # clears WCAG 2.5.8's 24x24 target, and every icon clears 1.4.11's 3:1 against the row it
+    # sits on. These cells are the densest concentration of icon-only controls in the
+    # application, so that is a real result rather than an absent one -- the partials build
+    # names as `__('Edit :thing', ['thing' => $record->name])` and they really do render.
+    #
+    # THREE HARNESS CORRECTIONS, each of which would otherwise have produced a false reading:
+    #   - CROPPED TO THE CELL, four surfaces were byte-identical. Brand, category, product-label
+    #     and tag each render two anonymous ghost icons, so one image stood for all of them
+    #     (44 captures, 30 distinct). check-distinct-surface-captures.py would have refused them
+    #     and would have been right. The capture is now the whole ROW, which carries the record
+    #     that identifies the surface.
+    #   - the Latin-leakage check reported `تعديل التصنيف Scarves & Shawls` as untranslated.
+    #     The record's own name inside the label IS the feature -- it tells a screen-reader user
+    #     which row they are on -- so the check now ignores words that appear in the row itself.
+    #   - ...case-insensitively, because the customer fixture reads `Walk-In Guest` in the cell
+    #     and `Walk-in Guest` in the label, which a case-sensitive compare called three defects.
+    #
+    # THE PREMISE THAT MATTERED: an action cell renders `<span class="d-flex gap-1"> </span>` --
+    # empty, HTTP 200, no error -- when the fixture lacks `Edit X`/`Delete X`, because every
+    # button in these partials is wrapped in `@permission`. Measured empty on /coupon, /faqs and
+    # /tag before the 36 action permissions were granted. The harness refuses a cell with no
+    # controls rather than photographing it.
+    # ----------------------------------------------------------------------------------------
+    'Category row actions':
+        ('REDESIGNED AND VERIFIED', 'web-row-actions-2026-11-10', 'category-row-actions__', 'P2.5-ROW'),
+    'Brand row actions':
+        ('REDESIGNED AND VERIFIED', 'web-row-actions-2026-11-10', 'brand-row-actions__', 'P2.5-ROW'),
+    'Tag row actions':
+        ('REDESIGNED AND VERIFIED', 'web-row-actions-2026-11-10', 'tag-row-actions__', 'P2.5-ROW'),
+    'Product label row actions':
+        ('REDESIGNED AND VERIFIED', 'web-row-actions-2026-11-10', 'product-label-row-actions__', 'P2.5-ROW'),
+    'Coupon row actions':
+        ('REDESIGNED AND VERIFIED', 'web-row-actions-2026-11-10', 'coupon-row-actions__', 'P2.5-ROW'),
+    'Product question row actions':
+        ('REDESIGNED AND VERIFIED', 'web-row-actions-2026-11-10', 'product-question-row-actions__', 'P2.5-ROW'),
+    'Testimonial row actions':
+        ('REDESIGNED AND VERIFIED', 'web-row-actions-2026-11-10', 'testimonial-row-actions__', 'P2.5-ROW'),
+    'FAQ row actions':
+        ('REDESIGNED AND VERIFIED', 'web-row-actions-2026-11-10', 'faq-row-actions__', 'P2.5-ROW'),
+    'Customer row actions':
+        ('REDESIGNED AND VERIFIED', 'web-row-actions-2026-11-10', 'customer-row-actions__', 'P2.5-ROW'),
+    'Order row actions (DataTable partial)':
+        ('REDESIGNED AND VERIFIED', 'web-row-actions-2026-11-10', 'order-row-actions__', 'P2.5-ROW'),
+    'Product row actions (list cell fragment)':
+        ('REDESIGNED AND VERIFIED', 'web-row-actions-2026-11-10', 'product-row-actions__', 'P2.5-ROW'),
+    # 'Attribute row actions' is DELIBERATELY NOT HERE. /product-attribute renders zero rows in
+    # this fixture, so there is no cell to capture. Seeding one needs an attribute AND its
+    # parent product's variant wiring, which is a fixture job of its own rather than a line in
+    # seed-dev-catalogue-rows.php. It stays PENDING with that reason rather than being claimed
+    # on a sibling's capture.
 }
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.

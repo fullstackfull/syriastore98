@@ -1,0 +1,158 @@
+{
+  "findings": [],
+  "surfaces": [
+    [
+      "coupon-row-actions",
+      {
+        "combos": 4,
+        "controls": 3,
+        "names": [
+          "Show Coupon",
+          "Edit Coupon",
+          "Delete Coupon",
+          "عرض كوبون",
+          "تحرير القسيمة",
+          "حذف كوبون"
+        ]
+      }
+    ],
+    [
+      "faq-row-actions",
+      {
+        "combos": 4,
+        "controls": 2,
+        "names": [
+          "Edit FAQs",
+          "Delete FAQs",
+          "تحرير الأسئلة الشائعة",
+          "حذف الأسئلة الشائعة"
+        ]
+      }
+    ],
+    [
+      "tag-row-actions",
+      {
+        "combos": 4,
+        "controls": 2,
+        "names": [
+          "Edit Tag",
+          "Delete Tag",
+          "تحرير العلامة",
+          "حذف علامة"
+        ]
+      }
+    ],
+    [
+      "testimonial-row-actions",
+      {
+        "combos": 4,
+        "controls": 2,
+        "names": [
+          "Edit Testimonial",
+          "Delete Testimonial",
+          "تحرير شهادة",
+          "حذف شهادة"
+        ]
+      }
+    ],
+    [
+      "product-question-row-actions",
+      {
+        "combos": 4,
+        "controls": 2,
+        "names": [
+          "Reply Product Question",
+          "Delete Product Question",
+          "الإجابة على سؤال عن المنتج",
+          "حذف السؤال عن المنتج"
+        ]
+      }
+    ],
+    [
+      "category-row-actions",
+      {
+        "combos": 4,
+        "controls": 2,
+        "names": [
+          "Edit category Scarves & Shawls",
+          "Delete category Scarves & Shawls",
+          "تعديل التصنيف Scarves & Shawls",
+          "حذف التصنيف Scarves & Shawls"
+        ]
+      }
+    ],
+    [
+      "product-label-row-actions",
+      {
+        "combos": 4,
+        "controls": 2,
+        "names": [
+          "Edit Label",
+          "Delete Label",
+          "تحرير العلامة",
+          "حذف العلامة"
+        ]
+      }
+    ],
+    [
+      "brand-row-actions",
+      {
+        "combos": 4,
+        "controls": 2,
+        "names": [
+          "Edit Brand",
+          "Delete Brand",
+          "تحرير العلامة التجارية",
+          "حذف العلامة التجارية"
+        ]
+      }
+    ],
+    [
+      "customer-row-actions",
+      {
+        "combos": 4,
+        "controls": 3,
+        "names": [
+          "Activity timeline for Walk-in Guest",
+          "Cart of Walk-in Guest",
+          "Delete customer Walk-in Guest",
+          "سجل نشاط Walk-in Guest",
+          "سلة Walk-in Guest",
+          "حذف الزبون Walk-in Guest"
+        ]
+      }
+    ],
+    [
+      "order-row-actions",
+      {
+        "combos": 4,
+        "controls": 4,
+        "names": [
+          "Quick preview of order P25CUSTFILTER-2-2",
+          "Show order P25CUSTFILTER-2-2",
+          "Edit order P25CUSTFILTER-2-2",
+          "Delete order P25CUSTFILTER-2-2",
+          "معاينة سريعة للطلب P25CUSTFILTER-2-2",
+          "عرض الطلب P25CUSTFILTER-2-2",
+          "تعديل الطلب P25CUSTFILTER-2-2",
+          "حذف الطلب P25CUSTFILTER-2-2"
+        ]
+      }
+    ],
+    [
+      "product-row-actions",
+      {
+        "combos": 4,
+        "controls": 3,
+        "names": [
+          "Quick preview of Woven Panel No. 27",
+          "Edit Woven Panel No. 27",
+          "Delete Woven Panel No. 27",
+          "معاينة سريعة لـ Woven Panel No. 27",
+          "تعديل Woven Panel No. 27",
+          "حذف Woven Panel No. 27"
+        ]
+      }
+    ]
+  ]
+}

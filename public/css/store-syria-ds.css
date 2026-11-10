@@ -1194,14 +1194,7 @@
    `--ss-brand` on `--ss-brand-subtle` is 5.89:1 light (#335da8 on #f4f5f8) and 7.18:1 dark
    (#2ac3e5 on #0e2a33). */
 .ss-label code,
-.ss-table code {
-    font-size: var(--ss-text-xs);
-    color: var(--ss-brand);
-    background: var(--ss-brand-subtle);
-    padding-inline: var(--ss-space-1);
-    border-radius: var(--ss-radius-sm);
-    unicode-bidi: isolate;
-}
+.ss-table code,
 .ss-vars__def code {
     font-size: var(--ss-text-xs);
     color: var(--ss-brand);

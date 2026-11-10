@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 129 | 43.7% |
+| REDESIGNED AND VERIFIED | 140 | 47.5% |
 | BLOCKED | 10 | 3.4% |
 | OUT OF SCOPE | 3 | 1.0% |
-| PENDING | 129 | 43.7% |
+| PENDING | 118 | 40.0% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -31,14 +31,14 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
 | Flutter merchant admin app | 51 | 0 | 30 | 0 | 0 | 21 |
-| CATALOGUE taxonomy | 38 | 13 | 1 | 0 | 0 | 24 |
+| CATALOGUE taxonomy | 38 | 13 | 9 | 0 | 0 | 16 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 20 | 1 | 2 | 12 |
 | Phase 2.5 Wave A | 30 | 0 | 25 | 0 | 0 | 5 |
 | Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 6 | 1 | 0 | 19 |
 | Flutter merchant/employee admin app | 24 | 0 | 13 | 0 | 0 | 11 |
-| Customers and customer management | 20 | 0 | 11 | 4 | 0 | 5 |
-| ORDERS | 17 | 0 | 5 | 3 | 0 | 9 |
-| PRODUCTS | 16 | 1 | 3 | 1 | 0 | 11 |
+| Customers and customer management | 20 | 0 | 12 | 4 | 0 | 4 |
+| ORDERS | 17 | 0 | 6 | 3 | 0 | 8 |
+| PRODUCTS | 16 | 1 | 4 | 1 | 0 | 10 |
 | Merchant admin NAVIGATION SHELL | 13 | 4 | 7 | 0 | 0 | 2 |
 | Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 3 | 0 | 0 | 10 |
 | Merchant dashboard and KPI presentation | 9 | 3 | 5 | 0 | 1 | 0 |
@@ -111,11 +111,11 @@ actually been done to it since. They are different questions and the matrix keep
 | Category list | ``GET /category`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Category create (modal) | ``GET /category/create`` | premium-already | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-modals/ |
 | Category edit (modal) | ``GET /category/{category}/edit`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Category row actions | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Category row actions | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Brand list | ``GET /product-brand`` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Brand create (modal) | ``GET /product-brand/create`` | deficient | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-modals/ |
 | Brand edit (modal) | ``GET /product-brand/{productBrand}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Brand row actions | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Brand row actions | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Attributes list | ``GET /product-attributes`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Attribute create / edit (modals) | ``GET /product-attributes/create, GET /product-attributes/{id}/` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Attribute row actions | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
@@ -123,29 +123,29 @@ actually been done to it since. They are different questions and the matrix keep
 | Attribute option create / edit (modals) | ``GET /add-attribute-option/{id?}, GET /edit-attribute-option/{` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Tag list | ``GET /tag`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
 | Tag create / edit (modals) | ``GET /tag/create, GET /tag/{tag}/edit`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Tag row actions | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Tag row actions | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Product label list | ``GET /product-label`` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Product label create / edit (modals) | ``GET /product-label/create, GET /product-label/{id}/edit`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Product label row actions | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Product label row actions | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Coupon list | ``GET /coupon`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-2; four captures under evidence/wave-2/ |
 | Coupon detail | ``GET /coupon/{coupon}`` | deficient | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
 | Coupon create (modal) | ``GET /coupon/create`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Coupon edit (modal) | ``GET /coupon/{coupon}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Coupon row actions | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Coupon row actions | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Flash sale list | ``GET /flash-sale`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
 | Flash sale status cell | ``partial/component`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Flash sale create (modal) | ``GET /flash-sale/create`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Flash sale edit (modal) | ``GET /flash-sale/{id}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Product question list | ``GET /product-question`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
 | Product question reply (modal) | ``GET /product-question/{id}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Product question row actions | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Product question row actions | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Testimonial list | ``GET /testimonial`` | deficient | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
 | Testimonial create / edit (modals) | ``GET /testimonial/create, GET /testimonial/{Testimonial}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Testimonial row actions | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Testimonial row actions | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | FAQ list | ``GET /faqs`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
 | FAQ create (modal) | ``GET /faqs/create`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | FAQ edit (modal, repeater) | ``GET /faqs/{faq}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| FAQ row actions | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| FAQ row actions | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 
 ### Staff/Roles/Permissions + Merchant Settings & Integrations
 
@@ -291,7 +291,7 @@ actually been done to it since. They are different questions and the matrix keep
 |---|---|---|---|---|
 | Customer list | ``GET customer (customer.index)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WAVE-1; four captures under evidence/wave-1/ |
 | Customer grid (card view) | ``GET customer-grid (customer.grid)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-R-07; four captures under evidence/r06-customer-filter/ |
-| Customer row actions | ``partial/component (rendered into the DataTable 'action' colum` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Customer row actions | ``partial/component (rendered into the DataTable 'action' colum` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Customer status toggle | ``partial/component (DataTable 'status' column) + POST customer` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Customer filter result fragment | ``GET customer-filter-data (customer.filter.data)`` | deficient | **BLOCKED** | GET customer-filter-data answers HTTP 200 and has NO CALLER. Its former parent was the customer grid, which no longer calls it (recorded in customer/grid.blade.php:38-39 during P2.5-R-07). It returns a JSON-encoded HTML string of customer/filter.blade.php, not a page. It cannot be made a screen without inventing a consumer for it. REMEDIATION: either a deliberate decision to retire the route, or a consumer that a merchant-facing feature actually needs. Neither is a design task. |
 | Customer filter field metadata | ``GET customer-filter (customer.filter)`` | needs-polish | **BLOCKED** | GET customer-filter returns application/json and never a view, so it is not a screen and cannot earn a screen state. Its OUTPUT is already rendered -- by the customer filter bar redesigned and captured in P2.5-PKG-G -- so the merchant-visible half of this surface is verified THERE. Claiming it separately would mean reusing that evidence for a second surface, which the owner forbids by name. REMEDIATION: none needed; it is correctly covered as part of the filter bar. |
@@ -320,7 +320,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Order quick preview (side panel fragment) | ``GET order-preview/{id} (order.preview)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Order AJAX modal (the eye / Show button) | ``GET orders/order_view/{id} (order.order_view)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Order grid (card view) | ``GET order-grid (order.grid)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-ORDERS; four captures under evidence/ord-repair-2026-11-09/ |
-| Order row actions (DataTable partial) | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Order row actions (DataTable partial) | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Order filter bar + saved views | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Create order | ``GET order/create (order.create); POST order (order.store)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Refund request list | ``GET refund-request (refund-request.index)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
@@ -341,7 +341,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Product editor — create | ``GET /product/create → product.create`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Product editor — edit | ``GET /product/{product}/edit → product.edit`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Product detail (read-only) | ``GET /product/{product} → product.show`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Product row actions (list cell fragment) | ``partial/component — rendered by ProductDataTable::dataTable()` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Product row actions (list cell fragment) | ``partial/component — rendered by ProductDataTable::dataTable()` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Product list filter bar | ``partial/component — included by product/index.blade.php:51`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Product quick-preview panel body | ``GET /product-preview/{id} → product.preview`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Variant panels — create side | ``POST /products/attribute_combination → products.attribute_com` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |

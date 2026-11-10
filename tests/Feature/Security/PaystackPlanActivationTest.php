@@ -334,15 +334,18 @@ class PaystackPlanActivationTest extends TestCase
      */
     public function test_the_replay_key_is_not_locale_dependent(): void
     {
-        app()->setLocale('en');
-        $english = __('Paystack');
-        app()->setLocale('ar');
-        $arabic = __('Paystack');
-        app()->setLocale('en');
+        /*
+         * THE HAZARD IS A HISTORICAL FACT, so the premise is pinned rather than read from
+         * `ar.json`. It used to assert that `__('Paystack')` really differs between locales; that
+         * stopped being true when P2.5-SET-03 removed `"Paystack": "كومة الدفع"` ("payment
+         * pile") so a merchant could find the gateway. The hazard did NOT go away with the key:
+         * rows written while that translation was live still hold it, which is precisely why
+         * `GuardsPlanActivation::HISTORICAL_SPELLINGS` now pins it.
+         */
+        $arabic = 'كومة الدفع';
 
-        $this->assertNotSame($english, $arabic,
-            'premise: `Paystack` really is translated in ar.json. If this ever stops being true '
-            . 'the hazard is dormant, not gone — the next translation re-opens it.');
+        $this->assertNotSame('Paystack', $arabic,
+            'premise: the pinned historical spelling really differs from the canonical one.');
 
         $this->assertSame('Paystack', PaystackPaymentController::PAYMENT_TYPE,
             'the stored payment_type and the replay key must be one locale-independent literal');
@@ -405,9 +408,14 @@ class PaystackPlanActivationTest extends TestCase
 
         $this->assertContains('Paystack', $spellings, 'the canonical spelling must be covered');
 
-        app()->setLocale('ar');
-        $arabic = __('Paystack');
-        app()->setLocale('en');
+        /*
+         * PINNED, because reading it back from `ar.json` made this case VACUOUS the moment that
+         * key was removed: `__('Paystack')` then returned `Paystack`, which is already the first
+         * element, so `assertContains` passed while proving nothing about locale coverage — the
+         * exact failure mode the comment above was written to prevent. Found by independent
+         * review of the P2.5-SET-03 change.
+         */
+        $arabic = 'كومة الدفع';
 
         $this->assertContains($arabic, $spellings,
             'the Arabic spelling of `payment_type` is not covered, so a row written while the UI '
