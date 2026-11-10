@@ -2,7 +2,9 @@
 
 **Authority:** `D-39` in [`PHASE-2.5-DECISION-REGISTER.md`](PHASE-2.5-DECISION-REGISTER.md).
 **Baselines:** Laravel `53971d4e`, Flutter `94cdcdb0` — both re-read from the remote, not assumed.
-**Branch:** `claude/busy-edison-k0pjwa` in both repositories. **No merge to `main`.**
+**Branch:** `claude/vibrant-bell-12tquy` in both repositories, since the owner's Phase 2.5
+continuation directive; the earlier `claude/busy-edison-k0pjwa` still exists on both remotes and
+carries this ledger's rows up to §4.23. **No merge to `main`.**
 
 This ledger follows the Phase 02 conventions: one row per slice, status is what was *executed*, and
 a claim without a command behind it is not a status. It does not introduce a second planning tree —
@@ -2613,3 +2615,325 @@ bound. **It throws.** Two of five tests failed immediately. The test now extends
 case and the docblock records the correction.
 
 `evidence/pkg-g-slice5/` — 8 rows, 0 not clean. **No surface changes state:** 24 / 32 / 229 / 9 / 1.
+
+---
+
+## 4.24 P0 — user deletion, and the five ratchets the fix tripped [2026-11-10]
+
+**Branch note.** The header of this ledger still names `claude/busy-edison-k0pjwa`. Work has been
+on **`claude/vibrant-bell-12tquy`** in both repositories since the owner's Phase 2.5 continuation
+directive; the older branch still exists on the remote and nothing has been merged to `main`.
+
+**Per-wave detail for 2026-11-09 and 2026-11-10 lives in the evidence READMEs** under
+`evidence/<wave>/README.md` and in `PHASE-2.5-COVERAGE-MATRIX.md`, which is generated and refuses
+to run if the surface count moves. This section records the two slices that changed code outside
+the matrix.
+
+### The mitigation
+
+Under the owner's decision of 2026-11-10 — *"a bounded, fail-closed mitigation … under no
+circumstances may deleting a user silently destroy a store, subscription, financial ledger,
+wallet, transaction history, or other business-critical data"* — `App\Services\UserDeletionSafety`
+now answers, before any hard delete of a `users` row, the question `authorize()` does not: **is
+this delete safe at all?** Store ownership first, then 15 pinned cascade dependencies, then 5
+orphan tables that carry no foreign key and would be left pointing at a row that is gone.
+
+Three doors go through it: `UserController::destroy` (the one with a live button),
+`ProfileController::destroy`, `StoreController::destroy`. `Api\DashboardController` was checked
+and is not a fourth — it deletes a `DeliveryBoy`.
+
+The full finding, the race-safety argument, the pinned-list ratchet and **the one limitation
+carried deliberately** are in [`docs/security/P0-USER-DELETION-CASCADE.md`](../../security/P0-USER-DELETION-CASCADE.md) §6.
+
+### What the Feature gate caught, which is the part worth recording
+
+The change was green on Unit (1583), Contract (38) and every targeted security test, and the
+**known-outcome gate failed with five new failures** — every one of them a census this project
+keeps precisely so that a change like this cannot pass quietly:
+
+| ratchet | what moved | resolution |
+|---|---|---|
+| `StoreAndStaffRefusalNamesEveryFieldTest` | four pinned `file:line` sites shifted (StoreController +36, UserController +49) | **re-measured**, each site re-identified by its enclosing method and its validator before its number was changed |
+| `RawQueryTenancyInventoryTest` (entry points) | `app` 174 → 176 | the guard's two raw statements, declared |
+| `RawQueryTenancyInventoryTest` (per-table) | `stores` [23, 22] → [24, 23]; attributed 170 → 171; store-less 80 → 81 | one of the two names its table literally; the other is a loop over two const arrays |
+| `ServiceLayerRawQueryInventoryTest` (census) | 42 → 44, store-less 16 → 18 | same two statements |
+| `ServiceLayerRawQueryInventoryTest` (declaration) | both undeclared | declared in `STORE_LESS_BY_DESIGN` **with the argument** |
+
+**The argument matters more than the numbers.** Everywhere else in those files a missing
+`store_id` predicate means a statement can see too much. Here a predicate would mean it sees too
+**little**: a dependant the guard fails to count is a dependant the delete destroys, so a scoped
+count turns a refusal into a silent cascade. Both statements are counts keyed on the target user
+id, both can produce only a refusal naming a number, and `UserPolicy::delete()` has already
+refused a cross-tenant target before either runs.
+
+Nothing was added to `.github/known-test-outcomes.json`. That file records failures the owner has
+accepted with a named root cause, not a list of things currently broken.
+
+### Also in this slice
+
+* **`XSS` no longer rewrites credentials.** It ran
+  `str_replace(['&lt;','&gt;','javascript','alert'], '', $value)` over every string in every
+  request. Verifying, `current_password` compared a mangled string; setting, a registration or
+  reset **stored** one. A pinned `CREDENTIAL_KEYS` list is exempt, and a test asserts a
+  non-credential field is still swept, so the fix cannot become "the sweep is off".
+* **`DELETE /profile` is throttled** at `throttle:6,1` — the bound `routes/auth.php` already uses.
+* **`ProfileController::destroy` had a second defect**: `Auth::logout()` ran *before* the delete,
+  so a refusal signed the merchant out of an account that still exists. It now runs after.
+* **The childless-user test no longer stands as evidence.** `ProfileTest::test_user_can_delete_
+  their_account` was green only because `User::factory()` makes a user with no store, no
+  subscription and no orders — the blast radius was empty, so the cascade was invisible rather
+  than absent. Renamed and now asserting its own scope.
+
+---
+
+## 4.25 P2.5-FLUTTER-COMP — the shared overlays, and a harness that could not photograph them [2026-11-10]
+
+Eight inventory rows, all of them `partial/component`: the shared toast under two names, the
+shared confirmation dialog under two names, the theme-switch animation, the statistics widgets,
+the bottom-nav shell, and the duplicate toast class.
+
+**PENDING 40 → 32, REDESIGNED AND VERIFIED 194 → 199**, with two of the eight resolved as
+`DUPLICATE` (the same widget recorded twice by two audit passes) and one as `OUT OF SCOPE` (dead
+code). `evidence/flutter-feedback-2026-11-10/`, `evidence/flutter-stats-charts-2026-11-10/`,
+`evidence/flutter-shell-tablet-2026-11-10/`.
+
+### Five defects, every one found by looking at a capture rather than at source
+
+1. **Every capture of an overlay was blank, and had been all along.** `captureScreen` photographed
+   the first `RenderRepaintBoundary` below the root — which is the one `_ModalScopeState` wraps the
+   first route's *page* in, so every `OverlayEntry` above that page fell outside the image.
+   Measured: 20 captures, each a single flat colour across all 288,000 pixels, while `find.text`
+   in the same test found the toast every time. The boundary is now pinned by key and
+   `screen_harness_test.dart` carries the regression test. **No committed capture is affected** —
+   every other capture file pumps its subject as the first route, which is what the old search
+   found; checked rather than assumed.
+2. **The toast's close control was 2.54:1** (`#9CA3AF` on white), under the 3:1 SC 1.4.11 asks of
+   the only control that dismisses a toast. Now `#6B7280` = 4.83:1.
+3. **The destructive confirm label was 3.76:1**, measured from the rendered pixels, at twelve call
+   sites across four reds. `AppButton` now picks the better-contrasting ink, so **only labels that
+   were failing change** — white still wins on the navy primary at 14.43:1. Re-measured from the
+   pixels: 4.81:1.
+4. **The app bar title vanished after a theme switch.** `simpleAppBar` read
+   `Theme.of(Get.context!)` — a foreign context, so no dependency was registered — and kept the
+   dark branch's `AppColor.cWhite` on a white bar. 1.00:1, on 28 screens.
+5. **The bottom nav overflowed on a tablet**, five times per frame, because its contents were
+   width-scaled inside a slot the package fixes at 50pt. The five committed phone captures are
+   **byte-identical** after the fix, checked with `cmp`.
+
+### Two tests that passed for the wrong reason, and were re-pointed
+
+* The first close-control contrast case declared its colours as constants and pinned them with the
+  same `source.contains('0xFF…')` check the palette uses. It passed **instantly against the broken
+  widget**, because the value it pinned was already in the file as the message colour. It now
+  parses the control's own ternary out of the source.
+* The first app-bar case asserted only that the title colour had *changed*. That catches
+  white-on-white and misses navy-on-navy, which is the other direction of the same defect. It now
+  measures contrast.
+
+### And a harness guard for the mistake that caused the tofu
+
+The new capture file was written without `setUpAll(initScreenHarness)`, whose last line is
+`loadAppFonts()`. The twenty captures it produced were valid PNGs in which every glyph was the
+test font's filled box — layout, direction and colour all still correct, so the images looked like
+evidence. `pumpScreen` now fails by name if the harness was not initialised.
+
+---
+
+## 4.26 P2.5-WEB-BREEZE — the legacy component set, counted; and a second blank page [2026-11-10]
+
+The `Legacy Breeze/Tailwind component set (co-resident)` row was audited **deficient** and had sat
+PENDING as a set. Counted one component at a time, it is **four different things**, and the count
+is what resolved it:
+
+| | |
+|---|---|
+| **not Breeze at all** (2) | `datatable` and `dashboard-card` are Bootstrap + the Store Syria DS. `datatable` carries the P2-03-1 pinned action column and serves **66 of the 68** DataTables in the application. They are in `components/` because that is where Laravel looks for a Blade component. |
+| **dead** (8) | `application-logo`, `dropdown`, `dropdown-link`, `nav-link`, `responsive-nav-link` are used **only** by `layouts/navigation.blade.php`, which a grep across `resources/`, `app/` and `packages/` finds **nothing** including. `danger-button`, `modal`, `secondary-button` are used only by `profile/partials/*`, reached only from `profile/edit.blade.php`, whose controller now redirects. |
+| **Phase 03** (5) | `blog-card`, `product-card`, `product-card-button`, `search-popup`, `header-button` — storefront, used by `front_end/` and five WorkDo storefront modules. |
+| **live** (7) | `auth-session-status`, `auth-validation-errors`, `input`, `input-label`, `input-error`, `primary-button`, `text-input`, on the **web auth screens**. |
+
+**So the "deficient" Tailwind markup was almost entirely unreachable** — and the count turned up
+the one page where it was not.
+
+### The second blank page
+
+`auth/confirm-password.blade.php` was the last view still written as
+`<x-guest-layout> … </x-guest-layout>`. `resources/views/layouts/guest.blade.php` has **zero**
+references to `$slot`; it is the WorkDo layout and emits page content with `@yield('content')`. A
+layout that yields never prints the slot it was handed, so **`GET confirm-password` answered HTTP
+200 with correct chrome and an empty body** — the same defect as `/profile/edit`, on a registered
+route (`routes/auth.php:52`, `password.confirm`, inside the `auth` group) that Laravel's own
+`password.confirm` middleware sends a signed-in merchant to.
+
+Its five siblings — `login`, `register`, `forgot-password`, `reset-password`, `verify-email` —
+were already `@extends('layouts.guest')` + `@section('content')`, which is why they render. The
+repair makes it the sixth, in the theme's Bootstrap classes rather than the Tailwind ones it
+carried.
+
+**Two guards, because the per-route fix does not stop the next one.**
+
+* `tests/Unit/Ui/SlotLayoutViewsRenderTest` — static, over every Blade view: a view may not pass a
+  slot to a layout that cannot print one, unless it is declared with the reason it never renders.
+  It carries its own premise (that these two layouts really do lack `$slot`), so it cannot pass
+  vacuously if a layout is ever fixed.
+* `tests/Feature/ConfirmPasswordRendersSomethingTest` — drives the route and asserts the **form**
+  is in the body, not that the status is 200. 200 was never the problem.
+
+Both proved in both directions: with the old view restored, both fail.
+
+**A weakness in my own first guard, found immediately.** The static check matched the string
+`<x-guest-layout>` inside the repaired view's own `{{-- … --}}` docblock, which explains what the
+defect was. A check that cannot tell prose from code would have pushed the next person to delete
+the explanation rather than keep it, so it now strips Blade comments first.
+
+### One thing recorded rather than acted on
+
+**The web auth screens are not rows in this inventory.** The 295 surfaces are the merchant admin
+set; `login`, `register`, `forgot-password`, `reset-password`, `verify-email` and
+`confirm-password` are not among them, which is why the seven live components above have no row to
+be claimed against. The matrix generator refuses to run if the surface count moves, so this is
+reported to the owner rather than fixed by adding rows.
+
+`PENDING 32 → 31`, `OUT OF SCOPE 23 → 24`.
+
+---
+
+## 4.27 P0-TENANT-ROOT — the review found something worse than what it was reviewing [2026-11-10]
+
+The `tenant-authz-reviewer` was run on the finished P0 deletion change, as CLAUDE.md §6 requires.
+It confirmed that change's census independently — three doors, no fourth anywhere, `users` has no
+inbound foreign key at all — and then reported a **HIGH** finding in the predicate the change had
+merely *used*.
+
+### Any merchant could take over any other merchant's account, in two requests
+
+Every merchant carries `created_by = 1`, because that is what self-registration writes. A
+principal whose `type` is not `admin`/`super admin` resolves `creatorId()` to `created_by` — so a
+merchant who changes their own type to a role name lands on tenant root **1**, and
+`UserPolicy::sameTenant()` then matched every merchant on the platform.
+
+And the demotion is a supported action. Measured through the real routes, every line:
+
+```
+attacker id=2 type=admin created_by=1              creatorId() = 2
+POST a role named "Manager" in their own store
+PUT /users/{self} with role=<it>   -> 302          type "Manager", creatorId() = 1
+sameTenant(attacker, ANOTHER MERCHANT)  = true
+PUT /users/{that merchant}                         their email is now the attacker's
+```
+
+Fixed, and documented in full in
+[`docs/security/P0-USER-DELETION-CASCADE.md`](../../security/P0-USER-DELETION-CASCADE.md) §7:
+`sameTenant()` now requires the tenant root to be a **merchant**. Eight regression cases, each
+driving an HTTP route and asserting a row; three redden with the repair reverted and the three
+legitimate-path cases pass either way.
+
+**The first version of the fix was too narrow and the suite caught it within the hour** — it asked
+"is the root the operator", and a fixture where the collapsed actor's own id equalled their
+`created_by` slipped through. Recorded because the narrow version looked right and had a green
+test beside it.
+
+### Eight more findings from the same review, all applied
+
+| | |
+|---|---|
+| a **dead constant naming a real gap** | `STORE_MONEY_TABLES` was declared and never read. Each of its four tables was then measured: two have no user column, and **two do** — `store_wallet_transactions.created_by` and `store_withdrawals.requested_by`, both `bigint`, both with no FK, both written from `auth()->id()`, both carrying live production rows. Now `ORPHAN_DEPENDENCIES` entries, with `lynomia_platform_notices.requested_by` found by the same sweep. |
+| the **third door had no transaction** | `StoreController::destroy` was a plain check-then-delete while the other two locked the row. Fixed. |
+| the **race claim was too broad** | "the window is closed on both" was wrong: closed for the 15 FK-backed tables (via InnoDB's parent-row lock during the FK check), **open** for the 5 FK-less orphan tables. Comment corrected; the residual window is reported, not papered over. |
+| an **exemption ratchet that could not fail** | `CREDENTIAL_KEYS` was pinned by `str_contains(…, 'password') \|\| str_contains(…, 'token')`. Pinned exactly now. |
+| a **premise measuring its own copy** | `CredentialSanitisationTest` re-declared the sweep's four substrings. `XSS::STRIPPED_SUBSTRINGS` exists so it reads the real list — and re-pointing it tripped a second ratchet in `XssInputSanitizerProposalTest` that quoted the same literal, which was re-pointed at the constant for the same reason. |
+| an **operator case with two limbs** | `test_merchant_cannot_delete_a_platform_admin` passes with `UserPolicy.php:187` deleted. A new case removes the other limb and is now the only one that fails when it goes. |
+| a **non-normalised operator check** | `StoreController:504` compared `type !== 'super admin'` as a literal. Through `UserPolicy::isOperator()` now. |
+| **four stale citations** | two wrong test paths, and two paragraphs describing `ProfileController::destroy` as a bare `$user->delete()` eighty lines above the guard that had just replaced it. |
+
+### Reported and deliberately not fixed
+
+`UserPolicy::update()` tests the permission **before** operator status, the opposite of its two
+siblings — so an operator holding no Laratrust role cannot edit any user. It is a lockout rather
+than a hole, reordering it would grant every operator rights they do not hold today, and that is
+the owner's call.
+
+---
+
+## 4.28 P2.5-WEB-DOCS — two surfaces driven, and eight Arabic strings that said a word twice [2026-11-10]
+
+`PENDING 28 → 26`, `REDESIGNED AND VERIFIED 200 → 202`, on
+`evidence/web-refund-label-2026-11-10/`.
+
+### `GET /refund-request` and `GET shippinglabel/pdf/{id}`
+
+Both driven on the dev fixture in all four combinations.
+
+The refund list **needed a permission the fixture did not hold**. Without
+`Manage Order Refund Request`, `OrderRefundController::index` answers `redirect()->back()`, the
+harness records HTTP 200 and photographs the **dashboard**, and every row reports `ok` — because
+the premise checks the chrome and the chrome is perfect. That is the trap `serve-dev.sh` documents
+in its own header, and it caught this wave too. Granted to the fixture account only, through the
+existing `grant-dev-screen-permissions.php`, and recaptured: 4 rows, 0 not clean.
+
+The shipping label mirrors correctly — `FROM`/`To` become `من`/`إلى` on the opposite edge, the
+barcode moves with them, the item table mirrors. **Its two dark captures are byte-identical to the
+light ones**, which is right rather than a miss: a print document is white paper and carries no
+theme sheet. Measured — the two directions differ by 924 pixels and the two themes by none.
+
+Two things recorded rather than claimed:
+
+* **`GET order-receipt/{id}`** answered 200 and the image is of the previous page, so it stays
+  **PENDING**. The product is not at fault and that was measured: `Order::order_detail(1)` returns
+  a real order and `view('order.receipt', …)->render()` with the controller's own variables
+  produces 8,314 bytes. The capture failed, not the receipt — so the row is owed a photograph
+  rather than a defect report.
+* **The broken invoice logo is this container, not the product.** `storage/app/public/uploads/`
+  is empty and `public/storage` is a 62-byte regular file rather than a working link, so every
+  uploaded asset 404s here — the same gap behind the three `404` console lines the harness reports
+  on `/dashboard`. Nothing was changed for it.
+
+### The Arabic stutter
+
+The refund list's Arabic page title came back **"طلب طلب استرداد"** — *"request request refund"*.
+`Order Refund Request` had been machine-translated by gluing "Order" → "طلب" onto "Refund Request"
+→ "طلب استرداد", and `Refund Request` on its own is already "طلب استرداد" in the same file.
+
+A census over all 3,509 values found **8** with an immediately repeated word, and **every one was
+a defect**, not a false positive:
+
+| key | was | reads as |
+|---|---|---|
+| `Add Addon` | إضافة إضافة | "add add" |
+| `Add New Addon` | إضافة إضافة جديدة | "add add new" |
+| `Enter SVG icon code or class name` | رمز رمز الرمز | "code code the-code" |
+| `Order Refund Request` | طلب طلب استرداد | "request request refund" |
+| `OTP has been not matched.` | لم يتم مطابقة طلب طلب التسجيل | wrong outright — never mentions a code |
+| `View Demo` | عرض عرض | "view view" |
+| `View Live Demo` | عرض عرض مباشر | "view view live" |
+| `…attribute option of attribute…` | سمة سمة | "attribute attribute" |
+
+All eight corrected, each reusing vocabulary the file had already settled on where one existed
+(`Refund Request` is "طلب استرداد" at :2331, so `Order Refund Request` is now the same).
+
+`tests/Unit/Merchant/ArabicDoesNotStutterTest` makes it a ratchet — the eight are repaired, the
+ninth arrives the next time somebody machine-translates a key. It carries its own premise (the
+file still holds more than 3,000 keys, so it cannot pass over an empty array), skips repeated
+placeholders and single characters, and was measured in both directions by restoring one stutter
+and watching it redden.
+
+### Two more rows settled by reading, in the same slice
+
+* **`Staff detail / user info` → OUT OF SCOPE, Phase 06.** `GET user-info/{id}` is an AJAX modal,
+  not a page — an unstyled fragment with no `<title>` and no `dir`, opened through
+  `data-ajax-popup="true"`. Its only two callers are `store/index.blade.php:159` and
+  `store/action.blade.php:29`, and both live on the **store list**, whose controller opens with
+  `if (auth()->user()->type == 'super admin')` and redirects everyone else. A merchant cannot
+  reach it from anywhere in the product. (`action.blade.php` also passes `encrypt($user->id)`,
+  which is why driving it with a raw id renders the wrong branch — that was the first thing the
+  capture showed.)
+* **`Attribute option create / edit (modals)` → DUPLICATE.** Both inventory rows name the same two
+  routes; `PHASE-2.5-SURFACE-INVENTORY.md:147` spells out the route names and `:301` does not.
+  Neither is claimed yet, so the owner stays PENDING — what this removes is a second row that
+  would have been claimed on the same captures later.
+
+**Running totals after this slice: PENDING 24, REDESIGNED AND VERIFIED 202, OUT OF SCOPE 27,
+DUPLICATE 8, BLOCKED 10, PREMIUM VERIFIED 24 — of 295.** PENDING entered this session at 40.
+
+Every one of the 24 that remain needs either the AJAX-modal harness or a fixture this container
+does not have; none of them is waiting on a decision.

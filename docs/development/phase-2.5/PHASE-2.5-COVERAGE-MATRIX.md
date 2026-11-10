@@ -10,11 +10,11 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 193 | 65.4% |
-| BLOCKED | 18 | 6.1% |
-| OUT OF SCOPE | 15 | 5.1% |
-| DUPLICATE | 5 | 1.7% |
-| PENDING | 40 | 13.6% |
+| REDESIGNED AND VERIFIED | 202 | 68.5% |
+| BLOCKED | 10 | 3.4% |
+| OUT OF SCOPE | 27 | 9.2% |
+| DUPLICATE | 8 | 2.7% |
+| PENDING | 24 | 8.1% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -31,17 +31,17 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
-| Flutter merchant admin app | 51 | 0 | 44 | 2 | 0 | 4 |
-| CATALOGUE taxonomy | 38 | 13 | 21 | 0 | 0 | 4 |
-| Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 22 | 3 | 3 | 7 |
-| Phase 2.5 Wave A | 30 | 0 | 26 | 0 | 3 | 1 |
-| Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 16 | 5 | 1 | 2 |
-| Flutter merchant/employee admin app | 24 | 0 | 14 | 0 | 6 | 4 |
-| Customers and customer management | 20 | 0 | 13 | 4 | 0 | 3 |
-| ORDERS | 17 | 0 | 10 | 3 | 0 | 4 |
-| PRODUCTS | 16 | 1 | 9 | 1 | 0 | 5 |
+| Flutter merchant admin app | 51 | 0 | 47 | 2 | 1 | 0 |
+| CATALOGUE taxonomy | 38 | 13 | 21 | 0 | 0 | 3 |
+| Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 22 | 2 | 6 | 5 |
+| Phase 2.5 Wave A | 30 | 0 | 26 | 0 | 4 | 0 |
+| Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 17 | 4 | 2 | 1 |
+| Flutter merchant/employee admin app | 24 | 0 | 16 | 0 | 6 | 0 |
+| Customers and customer management | 20 | 0 | 13 | 2 | 2 | 3 |
+| ORDERS | 17 | 0 | 12 | 0 | 3 | 2 |
+| PRODUCTS | 16 | 1 | 9 | 0 | 1 | 5 |
 | Merchant admin NAVIGATION SHELL | 13 | 4 | 7 | 0 | 1 | 0 |
-| Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 6 | 0 | 0 | 6 |
+| Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 7 | 0 | 0 | 5 |
 | Merchant dashboard and KPI presentation | 9 | 3 | 5 | 0 | 1 | 0 |
 
 ## Every surface
@@ -91,7 +91,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Coupon detail | ``Get.to(() => CouponDetailScreen()) from coupons list`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-DETAIL2; four captures under evidence/flutter-coupon-detail-2026-11-10/ |
 | Notifications | ``GetX /notifications, and Get.to(() => NotificationScreen()) f` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-OPS; four captures under evidence/flutter-ops-2026-11-09/ |
 | Analytics / statistics | ``GetX /statistics`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-STATS; four captures under evidence/flutter-stats-2026-11-09/ |
-| Statistics widgets | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Statistics widgets | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMP; four captures under evidence/flutter-stats-charts-2026-11-10/ |
 | Wallet | ``GetX /wallet`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-OPS; four captures under evidence/flutter-ops-2026-11-09/ |
 | My plan | ``GetX /myPlan`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-DETAIL2; four captures under evidence/flutter-my-plan-2026-11-10/ |
 | Profile / My account | ``Get.to(() => ProfileScreen()) from the dashboard profile row`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-ACCOUNT; four captures under evidence/flutter-account-2026-11-09/ |
@@ -99,9 +99,9 @@ actually been done to it since. They are different questions and the matrix keep
 | Shared empty / error / stale states | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
 | Shared skeletons | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
 | Shared text field | ``partial/component`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
-| Shared toast (live) | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Shared toast (duplicate class) | ``partial/component`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Shared confirmation dialog | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Shared toast (live) | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMP; four captures under evidence/flutter-feedback-2026-11-10/ |
+| Shared toast (duplicate class) | ``partial/component`` | deficient | **OUT OF SCOPE** | dead code: `lib/view/new_widgets/app_snackbar.dart` has ZERO importers in lib/ or test/ -- nothing renders it, so there is no surface to photograph and no design work is owed. It is a second class named `AppSnackBar`, built on `Get.snackbar` with four hardcoded hex colours, beside the live one in `lib/view/widget/common_snak_bar_widget.dart` that all ~271 `commonToast` call sites reach. REPORTED AS A HAZARD RATHER THAN REDESIGNED: the two share a name AND a compatible signature -- `AppSnackBar.success(title:, message:)` compiles against either -- so an auto-import would silently swap a themed overlay toast for a GetX snackbar at the top of the screen, with no per-theme palette and none of the live-region semantics. Deleting the file is the right fix and is a tidy-up rather than a Phase 2.5 surface, so it is recorded here and left for the owner. |
+| Shared confirmation dialog | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMP; four captures under evidence/flutter-feedback-2026-11-10/ |
 | Shared status badge / pill | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
 | Shared buttons / loader / search / filter / popup menu | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
 
@@ -121,7 +121,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Attribute create / edit (modals) | ``GET /product-attributes/create, GET /product-attributes/{id}/` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WEB-MODALS-2; four captures under evidence/web-modals2-2026-11-10/ |
 | Attribute row actions | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-P1-WEB; four captures under evidence/web-components-2026-11-10/ |
 | Attribute options (DS pilot screen) | ``GET /attribute-option/{id?}`` | premium-already | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
-| Attribute option create / edit (modals) | ``GET /add-attribute-option/{id?}, GET /edit-attribute-option/{` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Attribute option create / edit (modals) | ``GET /add-attribute-option/{id?}, GET /edit-attribute-option/{` | premium-already | **DUPLICATE** | the same surface as **Attribute option create / edit (modal)** — the same two routes. PHASE-2.5-SURFACE-INVENTORY.md:301 lists `GET /add-attribute-option/{id?}, GET /edit-attribute-option/{id?}` and :147 lists the same pair with their route names attached. The owner row carries the pair. |
 | Tag list | ``GET /tag`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
 | Tag create / edit (modals) | ``GET /tag/create, GET /tag/{tag}/edit`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-MODAL; four captures under evidence/web-modals-2026-11-10/ |
 | Tag row actions | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
@@ -170,7 +170,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Create staff user (modal) | ``GET /users/create -> POST /users`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-MODAL; four captures under evidence/web-modals-2026-11-10/ |
 | Edit staff user (modal) | ``GET /users/{id}/edit -> PUT /users/{id}`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Reset staff password (modal) | ``POST users.resetpassword`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Staff detail / user info | ``GET /user-info/{id}`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Staff detail / user info | ``GET /user-info/{id}`` | needs-polish | **OUT OF SCOPE** | Phase 06 (SaaS & Super Admin), measured rather than assumed. `GET user-info/{id}` is an AJAX MODAL, not a page -- it returns an unstyled fragment with no <title> and no `dir`, opened through `data-ajax-popup="true"`. Its only two callers are store/index.blade.php:159 and store/action.blade.php:29, and both live on the STORE LIST, whose controller is operator-only: StoreController::index opens with `if (auth()->user()->type == 'super admin')` and redirects everyone else. A merchant cannot reach this fragment from anywhere in the product, so it is not a Phase 2.5 merchant-experience surface. (action.blade.php also passes `encrypt($user->id)`, which is why driving it with a raw id renders the wrong branch.) |
 | Own profile (WorkDo) | ``GET /profile`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Breeze profile (orphan) | ``GET /profile/edit`` | deficient | **OUT OF SCOPE** | not a screen: GET /profile/edit used to render an empty page (the Breeze `$slot` was dropped by the WorkDo `@yield('content')` layout) and now redirects to GET /profile, the profile screen the product actually ships. Fixed and pinned on this branch. |
 | Roles list | ``GET /roles`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
@@ -188,8 +188,8 @@ actually been done to it since. They are different questions and the matrix keep
 | Menus | ``GET /menus, /menus/{id}/edit`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
 | Support tickets | ``GET /support_ticket, /ticket-view/{id}`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
 | Pages / Blog / Blog categories / Contact / Newsletter | ``GET /pages, /blog, /blog-category, /contacts, /newsletter`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
-| Payment gateway checkout pages (plan purchase) | ``various POST /plan-pay-with-*`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Theme customize / storefront visual editor | ``GET /theme-customize (+ /customize-settings)`` | unknown | **BLOCKED** | audit could not determine its state; it needs to be rendered and classified |
+| Payment gateway checkout pages (plan purchase) | ``various POST /plan-pay-with-*`` | deficient | **OUT OF SCOPE** | third-party hosted pages: each POST /plan-pay-with-* handler either refuses with redirect()->back()->with('error', ...) -- which lands on the plan screen this inventory already covers, as its own toast -- or hands the browser to the GATEWAY's checkout page with redirect($payment_link) (CinetPayController:160 and the same shape in the others). The page a merchant then sees is served by Cinetpay, Paystack, Razorpay and the rest on their own domains: there is no Store Syria markup on it to redesign, and reaching one at all would need live merchant credentials for each gateway. |
+| Theme customize / storefront visual editor | ``GET /theme-customize (+ /customize-settings)`` | unknown | **OUT OF SCOPE** | Phase 03 (Storefront), not Phase 2.5. CLAUDE.md section 4 assigns "themes, visual editor" to Phase 03 by the approved six-phase plan. Driven anyway for the record: GET /theme-customize answers 200 in all four combinations but lands on the DASHBOARD -- a redirect()->back() refusal, because ThemeCustomizeController::index gates on `Manage Themes` which the dev fixture does not hold. Granting it would have photographed a Phase 03 surface. |
 
 ### Phase 2.5 Wave A
 
@@ -224,7 +224,7 @@ actually been done to it since. They are different questions and the matrix keep
 | x-ss.choice-group | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
 | x-datatable | ``partial/component — used by 39 host views; 66 of 68 DataTable` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-P1-WEB; four captures under evidence/web-components-2026-11-10/ |
 | custom.css F126 region | ``partial/component — public/css/custom.css, loaded on every ad` | premium-already | **OUT OF SCOPE** | not a screen: a ~100-line region of public/css/custom.css (and its mirror in rtl-custom.css) that re-colours text inside `html[data-ss-theme="dark"] .modal-content`. Pure CSS -- there is no markup and no element the region owns. Its effect is visible in every dark modal capture already taken, which is where it was measured and accepted. |
-| Legacy Breeze/Tailwind component set (co-resident) | ``partial/component`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Legacy Breeze/Tailwind component set (co-resident) | ``partial/component`` | deficient | **OUT OF SCOPE** | measured one component at a time rather than as a set, because it is four different things. 2 of the 22 are not Breeze at all (datatable and dashboard-card are Bootstrap + the Store Syria DS; datatable carries the P2-03-1 pinned action column and serves 66 of 68 tables). 8 are DEAD -- five are used only by layouts/navigation.blade.php, which nothing includes, and three only by profile/partials/*, which only profile/edit.blade.php includes and whose controller now redirects. 5 are Phase 03 storefront. The remaining 7 are live on the WEB AUTH screens (login, register, forgot/reset password, verify-email, confirm-password), and those six screens are not rows in this 295-surface merchant-admin inventory, so there is nothing here to claim them against. The audit's "deficient" Tailwind markup was therefore almost entirely unreachable -- and the ONE reachable Tailwind page it did have, auth/confirm-password.blade.php, was rendering BLANK and has been repaired. |
 
 ### Reports/Analytics presentation, Notifications, and the con
 
@@ -243,13 +243,13 @@ actually been done to it since. They are different questions and the matrix keep
 | Sales Brand Report | ``GET Brand-order-sale-reports`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
 | Brand sales body (AJAX fragment) | ``GET brand-order-reports`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FRAGMENTS; four captures under evidence/web-fragments-2026-11-10/ |
 | Category / Product sales bodies (AJAX fragments) | ``GET category-order-reports, GET product-order-reports`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Sales Downloadable Product | ``GET order-downloadable-reports`` | unknown | **BLOCKED** | audit could not determine its state; it needs to be rendered and classified |
+| Sales Downloadable Product | ``GET order-downloadable-reports`` | unknown | **REDESIGNED AND VERIFIED** | P2.5-P3; four captures under evidence/web-blocked-2026-11-10/ |
 | Top Sales Report | ``GET top-all-reports`` | premium-already | **BLOCKED** | HTTP 500 on the SQLite dev fixture in all four combinations: ReportController::top_product joins on SUBSTRING_INDEX (:2814, :2826), which SQLite does not implement -- the controller's own comment at :2883 records this. Production is MySQL. REMEDIATION: a MySQL dev fixture. |
 | Order Status Report | ``GET Status-reports`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
 | Top Selling By Country Report | ``GET order-country-reports`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
 | Notifications (full list) | ``GET merchant-notifications`` | premium-already | **DUPLICATE** | the same surface as **Notifications (the bell's destination)** — the same route, GET merchant-notifications. The owning row is already PREMIUM VERIFIED (P2.5-WAVE-33, `_merchant_notifications__`), so claiming this one from the 2026-11-10 sweep would count one screen twice. |
 | Notification bell feed (JSON) | ``GET merchant-notifications/feed`` | premium-already | **OUT OF SCOPE** | not a screen: MerchantNotificationController::feed() returns JsonResponse in every branch. The data it serves is rendered and captured as the notification bell dropdown, so a separate capture would reuse that evidence for a second surface. |
-| Mark read / mark all read | ``POST merchant-notifications/{id}/read, POST merchant-notifica` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Mark read / mark all read | ``POST merchant-notifications/{id}/read, POST merchant-notifica` | needs-polish | **OUT OF SCOPE** | not a screen: both handlers return response()->json(...) and never a view (MerchantNotificationController::markRead :179, markAllRead :224 -- every exit is a JSON body, including the 403 and 404 refusals). They are POST-only routes (routes/web.php:1325, :1327) driven by the notification list over XHR, and their only visible effect -- the unread count on the bell and the read state of a row -- is already inside the notifications screen captures. |
 | Report period filter (shared component) | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
 | Chart (shared component) | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
 | Contextual help (shared component) | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
@@ -265,7 +265,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Theme definition (the only ThemeData in the app) | ``partial/component`` | needs-polish | **OUT OF SCOPE** | not a screen: theme_controller.dart builds one ThemeData (confirmed the only one -- 17 ThemeData hits in lib/, all in that file bar the pdf package's unrelated class in invoice.dart:149 and a doc comment). A ThemeData is a value object with no build method; each component theme it declares appears only inside another row's capture. golden_harness.dart:146 builds exactly this object in order to render other surfaces. |
 | Design tokens (colour) | ``partial/component`` | deficient | **OUT OF SCOPE** | not a screen: utils/colors.dart is 95 lines of bare `static Color` fields (62 across AppColor, DarkThemeColor, LightThemeColor) plus the anchors in store_syria_brand.dart. No widget, no build method. Live rather than inert -- 612 `AppColor.` references across 72 files -- so every token's effect is already inside the captures of the widgets that read it. No palette or style-guide screen exists in lib/ to photograph. |
 | Design tokens (typography) | ``partial/component`` | deficient | **OUT OF SCOPE** | not a screen: utils/text_style.dart is `appFontFamily = Tajawal` and 32 top-level getters returning TextStyle only. A TextStyle paints nothing until a Text consumes it. Live -- 36 files import it -- so every step of the scale is already visible inside other rows' captures, and no type specimen is rendered anywhere in the app. |
-| Bottom-nav shell (DashBoardManagerScreen) | ``/dashboard (GetX named route)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Bottom-nav shell (DashBoardManagerScreen) | ``/dashboard (GetX named route)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMP; four captures under evidence/flutter-shell-tablet-2026-11-10/ |
 | Nav destination 1 — Home/dashboard | ``/dashboard tab 0`` | unknown | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SHELL; four captures under evidence/flutter-shell-2026-11-09/ |
 | Nav destination 2 — Orders | ``/dashboard tab 1`` | unknown | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SHELL; four captures under evidence/flutter-shell-2026-11-09/ |
 | Nav destination 3 — Products | ``/dashboard tab 2`` | unknown | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SHELL; four captures under evidence/flutter-shell-2026-11-09/ |
@@ -276,12 +276,12 @@ actually been done to it since. They are different questions and the matrix keep
 | Shared dropdown (commonDropdownButtonWidget) | ``partial/component — 2 call sites (add_shipping, add_tax botto` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
 | Shared buttons (CommonButton family) | ``partial/component — 2 live CommonButton + 11 live CommonIconB` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
 | Shared button (AppButton, inside app_dialog.dart) | ``partial/component — used by AppDialog`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
-| Shared confirmation dialog (AppDialog) | ``partial/component — 12 live call sites`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Shared action feedback (AppSnackBar) | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Shared confirmation dialog (AppDialog) | ``partial/component — 12 live call sites`` | needs-polish | **DUPLICATE** | the same surface as **Shared confirmation dialog** — the same method. Both rows are `AppDialog.showCustomDialog` in lib/view/widget/app_dialog.dart -- the "12 live call sites" in this row's own title are the twelve callers of the method the other row names. The other row carries the capture set. |
+| Shared action feedback (AppSnackBar) | ``partial/component`` | needs-polish | **DUPLICATE** | the same surface as **Shared toast (live)** — the same class. Both rows are `AppSnackBar` in lib/view/widget/common_snak_bar_widget.dart, reached by the single `commonToast` function that all ~271 call sites use. The other row carries the four-type capture set. |
 | Shared empty / error / stale states | ``partial/component — EmptyState and ErrorState each adopted in` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
 | Shared skeletons (AppShimmer) | ``partial/component — adopted in 22 files`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
 | Shared status indicators | ``partial/component — statusPill 5 live sites; StatusBadgeHelpe` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
-| Theme switch animation | ``partial/component — wraps the whole app via GetMaterialApp bu` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Theme switch animation | ``partial/component — wraps the whole app via GetMaterialApp bu` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMP; four captures under evidence/flutter-feedback-2026-11-10/ |
 | Loading indicator (Loader / LoadingWidget) | ``partial/component — Loader.showLoader() live at 4 sites`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-P2; four captures under evidence/flutter-components2-2026-11-10/ |
 | Routing table | ``partial/component`` | needs-polish | **OUT OF SCOPE** | not a screen: routes/routes.dart is 29 path constants and a List<GetPage> of 17 entries, consumed as data at store_go.dart:37-39. It declares nothing visual at all -- no transition, transitionDuration, curve or custom page builder appears in the file, and GetMaterialApp sets no defaultTransition -- so it contributes neither chrome nor animation. Every screen it names is its own inventory row. |
 | Bindings / DI | ``partial/component`` | needs-polish | **OUT OF SCOPE** | not a screen: lib/bindings/ is 11 Bindings subclasses whose dependencies() bodies are only Get.put / Get.lazyPut calls. A grep for Widget or transition across the directory returns zero hits -- no file there builds or configures a widget. Live (AppBinding is the initialBinding) but with nothing to render. |
@@ -294,8 +294,8 @@ actually been done to it since. They are different questions and the matrix keep
 | Customer grid (card view) | ``GET customer-grid (customer.grid)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-R-07; four captures under evidence/r06-customer-filter/ |
 | Customer row actions | ``partial/component (rendered into the DataTable 'action' colum` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Customer status toggle | ``partial/component (DataTable 'status' column) + POST customer` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-P1-WEB; four captures under evidence/web-components-2026-11-10/ |
-| Customer filter result fragment | ``GET customer-filter-data (customer.filter.data)`` | deficient | **BLOCKED** | GET customer-filter-data answers HTTP 200 and has NO CALLER. Its former parent was the customer grid, which no longer calls it (recorded in customer/grid.blade.php:38-39 during P2.5-R-07). It returns a JSON-encoded HTML string of customer/filter.blade.php, not a page. It cannot be made a screen without inventing a consumer for it. REMEDIATION: either a deliberate decision to retire the route, or a consumer that a merchant-facing feature actually needs. Neither is a design task. |
-| Customer filter field metadata | ``GET customer-filter (customer.filter)`` | needs-polish | **BLOCKED** | GET customer-filter returns application/json and never a view, so it is not a screen and cannot earn a screen state. Its OUTPUT is already rendered -- by the customer filter bar redesigned and captured in P2.5-PKG-G -- so the merchant-visible half of this surface is verified THERE. Claiming it separately would mean reusing that evidence for a second surface, which the owner forbids by name. REMEDIATION: none needed; it is correctly covered as part of the filter bar. |
+| Customer filter result fragment | ``GET customer-filter-data (customer.filter.data)`` | deficient | **OUT OF SCOPE** | not a screen: GET customer-filter-data answers HTTP 200 with a JSON-encoded HTML string and HAS NO CALLER -- the customer grid stopped calling it in P2.5-R-07. Nothing renders it, so there is nothing to photograph and no design work is owed. |
+| Customer filter field metadata | ``GET customer-filter (customer.filter)`` | needs-polish | **OUT OF SCOPE** | not a screen: GET customer-filter returns application/json and never a view. Its output is already rendered and captured as part of the filter bar (P2.5-PKG-G), so claiming it separately would mean reusing that evidence for a second surface. |
 | Create customer | ``GET customer/create (customer.create) + POST customer (custom` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-PKG-E; four captures under evidence/pkg-e-customer-write/ |
 | Customer orders (reached by the cart icon) | ``GET customer/{id} (customer.show)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-13; four captures under evidence/wave-13/ |
 | Customer activity timeline | ``GET customer-timeline/{id} (customer.timeline)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-16 + 16c; four captures under evidence/wave-16c/ |
@@ -324,14 +324,14 @@ actually been done to it since. They are different questions and the matrix keep
 | Order row actions (DataTable partial) | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Order filter bar + saved views | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-P1-WEB; four captures under evidence/web-components-2026-11-10/ |
 | Create order | ``GET order/create (order.create); POST order (order.store)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
-| Refund request list | ``GET refund-request (refund-request.index)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Refund request list | ``GET refund-request (refund-request.index)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WEB-DOCS; four captures under evidence/web-refund-label-2026-11-10/ |
 | Refund detail / decision screen | ``GET refund-request/{id} (refund-request.show)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-11; four captures under evidence/wave-11/ |
 | Printable receipt | ``GET order-receipt/{id} (order.receipt)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Printable shipping label | ``GET shippinglabel/pdf/{id} (shippinglabel.pdf)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Printable shipping label | ``GET shippinglabel/pdf/{id} (shippinglabel.pdf)`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WEB-DOCS; four captures under evidence/web-refund-label-2026-11-10/ |
 | Order note author (metadata partial) | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Plan-order bank-transfer review modal (OUT OF SCOPE — Phase 06) | ``GET plan/orders/show/{id} (plan.order.show)`` | unknown | **BLOCKED** | audit could not determine its state; it needs to be rendered and classified |
-| Top brand/category chart fragment (OUT OF SCOPE — Phase 05) | ``partial/component`` | unknown | **BLOCKED** | audit could not determine its state; it needs to be rendered and classified |
-| order/create.blade.php and order/edit.blade.php (DEAD) | ``partial/component`` | unknown | **BLOCKED** | audit could not determine its state; it needs to be rendered and classified |
+| Plan-order bank-transfer review modal (OUT OF SCOPE — Phase 06) | ``GET plan/orders/show/{id} (plan.order.show)`` | unknown | **OUT OF SCOPE** | Phase 06 (SaaS & Super Admin), as the inventory row title itself states. It was reported as BLOCKED only because its audit column says `unknown`, which the generator treats as "needs rendering and classifying" -- the classification was in the row name all along. |
+| Top brand/category chart fragment (OUT OF SCOPE — Phase 05) | ``partial/component`` | unknown | **OUT OF SCOPE** | Phase 05 (Marketing & Analytics), as the inventory row title itself states. BLOCKED for the same reason as the row above: an `unknown` audit column, not a technical obstacle. |
+| order/create.blade.php and order/edit.blade.php (DEAD) | ``partial/component`` | unknown | **OUT OF SCOPE** | dead views: nothing renders them. OrderController::create returns view('order.createOrder') (:556), a different file, and a repo-wide grep for view('order.create') / view('order.edit') across app/ and packages/ returns nothing. The `'order.create'` that does appear (MerchantQuickActions.php:77) is a ROUTE name, not a view name. |
 
 ### PRODUCTS
 
@@ -350,7 +350,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Variant panels — rebuild after attribute change | ``PUT /products/attribute_combination/edit → products.attribute` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Variant delete confirmation dialog | ``partial/component — included by edit, show, attribute_combina` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-P1-WEB; four captures under evidence/web-components-2026-11-10/ |
 | SKU combination table | ``POST /products/sku_combination → products.sku_combination`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Attribute-option picker fragment | ``POST /products/attrinbute_option → products.attribute_option`` | unknown | **BLOCKED** | audit could not determine its state; it needs to be rendered and classified |
+| Attribute-option picker fragment | ``POST /products/attrinbute_option → products.attribute_option`` | unknown | **OUT OF SCOPE** | not a screen: ProductController::attribute_option returns response()->json(...) and never a view. It is called over XHR from product/create.blade.php:848 and product/edit.blade.php:1128 to fill a picker, so its OUTPUT is already rendered and captured inside those screens; photographing it separately would reuse their evidence. |
 | Attribute options list (DS pilot) | ``GET /attribute-option/{id?} → product-attribute-option.show`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
 | Attribute option create / edit (modal) | ``GET /add-attribute-option/{id?} → product-attribute-option.cr` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 
@@ -380,7 +380,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Low in Stock — row payload | ``GET /stock-report/low-stock (stockReport.lowStock) — routes/w` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WEB-FRAGMENTS; four captures under evidence/web-fragments-2026-11-10/ |
 | Out Of Stock — row payload | ``GET /stock-report/out-stock (stockReport.outOfStock) — routes` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WEB-FRAGMENTS; four captures under evidence/web-fragments-2026-11-10/ |
 | Most Stocked — row payload | ``GET /stock-report/most-stocked (stockReport.mostStocked) — ro` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WEB-FRAGMENTS; four captures under evidence/web-fragments-2026-11-10/ |
-| Stock Settings panel | ``POST stock-settings (stock.settings) — routes/web.php:842 (re` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Stock Settings panel | ``POST stock-settings (stock.settings) — routes/web.php:842 (re` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-SET; four captures under evidence/web-settings-tabs-2026-11-09/ |
 | Finance dashboard | ``GET /finance (finance.index) — routes/web.php:208`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-10 + #12; four captures under evidence/wave-10/ |
 | Add Balance modal | ``POST /finance/add-balance (finance.add.balance) — routes/web.` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Deduct Balance modal | ``POST /finance/deduct-balance (finance.deduct.balance) — route` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |

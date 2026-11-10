@@ -1300,6 +1300,143 @@ VERIFIED = {
         ('REDESIGNED AND VERIFIED', 'flutter-components2-2026-11-10',
          'flutter-component-loader_', 'P2.5-P2'),
 
+    # ---- P2.5-WEB-DOCS (2026-11-10): two merchant surfaces driven on the dev fixture ---------
+    #
+    # `Refund request list` needed the `Manage Order Refund Request` permission the fixture did
+    # not hold: without it OrderRefundController::index answers redirect()->back(), the harness
+    # records HTTP 200 and photographs the DASHBOARD, and every row reports `ok` on the chrome.
+    # That is the trap serve-dev.sh documents in its own header; the permission was granted to the
+    # fixture account only and the capture rerun. 4 rows, 0 not clean, with its own page title in
+    # both languages.
+    #
+    # The Arabic title is what exposed the stutter census: it read "طلب طلب استرداد" --
+    # "request request refund" -- and 8 of the file's 3,509 values turned out to repeat a word.
+    'Refund request list':
+        ('REDESIGNED AND VERIFIED', 'web-refund-label-2026-11-10',
+         '_refund_request__', 'P2.5-WEB-DOCS'),
+
+    # `Printable shipping label` renders correctly in both directions -- FROM/To become من/إلى on
+    # the opposite edge, the barcode moves with them, the item table mirrors. Its two DARK
+    # captures are byte-identical to the light ones, which is right rather than a miss: a print
+    # document is white paper and carries no theme sheet. MEASURED: the two directions differ by
+    # 924 pixels and the two themes by none. The premise column reports PREMISE-FAIL on the dark
+    # pair for exactly that reason, so this is claimed on what the pixels show.
+    #
+    # The invoice logo renders broken in all four and that is an ENVIRONMENT gap, not a defect:
+    # storage/app/public/uploads/ is empty in this container and public/storage is a 62-byte file
+    # rather than a working link, so every uploaded asset 404s here.
+    'Printable shipping label':
+        ('REDESIGNED AND VERIFIED', 'web-refund-label-2026-11-10',
+         '_shippinglabel_pdf__', 'P2.5-WEB-DOCS'),
+
+    # ---- P2.5-WEB-BREEZE (2026-11-10): a row that was captured and never claimed -------------
+    #
+    # `Stock Settings panel` carries a POST route in its inventory column, which is why it read as
+    # unphotographable -- but the POST is only the panel's SUBMIT. `SettingController::StockSettings`
+    # returns `redirect()->back()` on every exit and never a view. The PANEL is a tab of the
+    # settings hub, and P2.5-SET captured all 21 tabs including this one:
+    # evidence/web-settings-tabs-2026-11-09/after/_setting_stock_setting__*.png, four combinations.
+    # Nobody pointed a claim at them.
+    'Stock Settings panel':
+        ('REDESIGNED AND VERIFIED', 'web-settings-tabs-2026-11-09',
+         '_setting_stock_setting__', 'P2.5-SET'),
+
+    # ---- P2.5-FLUTTER-COMP (2026-11-10): the shared feedback overlays ----------------------
+    #
+    # FIVE ROWS, TWO WIDGETS. Two audit passes recorded the same two components under two sets of
+    # names: `Shared toast (live)` and `Shared action feedback (AppSnackBar)` are both
+    # `AppSnackBar`; `Shared confirmation dialog` and `Shared confirmation dialog (AppDialog)` are
+    # both `AppDialog.showCustomDialog`. They are claimed on the same captures BECAUSE THEY ARE
+    # THE SAME WIDGET, which is the opposite of claiming one piece of evidence for two surfaces.
+    #
+    # ALL THREE ARE OVERLAYS, AND THAT IS WHY NONE HAD BEEN PHOTOGRAPHED.
+    # `component_gallery_capture_test.dart:187` says it outright -- "`AppDialog` opens an overlay,
+    # which a static gallery cannot hold; its BUTTON is the part that ships inside the dialog" --
+    # so the gallery captured `AppButton` and left the dialog itself alone.
+    #
+    # PHOTOGRAPHING THEM FOUND THAT THE HARNESS COULD NOT. `captureScreen` took the FIRST
+    # RenderRepaintBoundary below the root, which is the one `_ModalScopeState` wraps the first
+    # route's page in -- so every OverlayEntry above that page fell outside the image. Measured:
+    # 20 captures, each a single flat colour across all 288,000 pixels, while `find.text` in the
+    # same test found the toast every time. The boundary is now pinned by key and
+    # `screen_harness_test.dart` carries the regression test. No committed capture is affected:
+    # every other capture file pumps its subject as the first route, which is what the old search
+    # found.
+    #
+    # AND TWO CONTRAST DEFECTS, both measured and both repaired:
+    #   * the toast's close control was #9CA3AF on white = 2.54:1, under the 3:1 SC 1.4.11 asks of
+    #     the only control that dismisses a toast. Now #6B7280 = 4.83:1 -- the shade this widget
+    #     already uses for its secondary text, which is the relationship dark mode already had.
+    #   * the destructive confirm button's label was white on red = 3.76:1 MEASURED FROM THE
+    #     PIXELS, at twelve call sites across four different reds, three of which failed. AppButton
+    #     now picks the better-contrasting ink, so only labels that were failing change. Re-measured
+    #     from the pixels afterwards: 4.81:1.
+    # The needle names the SUCCESS set because this generator checks that one complete
+    # four-combination set exists under the prefix it is given. All four types are in the same
+    # directory -- 16 captures -- and the row is one surface, not four.
+    'Shared toast (live)':
+        ('REDESIGNED AND VERIFIED', 'flutter-feedback-2026-11-10',
+         'flutter-component-toast-success_', 'P2.5-FLUTTER-COMP'),
+    'Shared confirmation dialog':
+        ('REDESIGNED AND VERIFIED', 'flutter-feedback-2026-11-10',
+         'flutter-component-confirm-dialog_', 'P2.5-FLUTTER-COMP'),
+
+    # ---- P2.5-FLUTTER-COMP (2026-11-10): the theme-switch reveal ----------------------------
+    #
+    # Driven through the real toggle, `ThemeController.changeTheme`, over a root rebuilt line for
+    # line from `store_go.dart:28-77` -- `pumpScreen` hands GetMaterialApp a FIXED theme, which is
+    # right everywhere else and useless for a component whose whole job is to show one theme
+    # replacing another.
+    #
+    # THE CAPTURES FOUND A FOURTH DEFECT, on a different widget. In both frames whose destination
+    # is the LIGHT theme the app bar's title band came back as 7,770 pixels of pure #FFFFFF while
+    # the back control beside it rendered normally: `simpleAppBar` resolved
+    # `Theme.of(Get.context!)` -- a foreign context, so no dependency was registered and the title
+    # kept the dark branch's `AppColor.cWhite` on a white bar. 1.00:1, on the 28 screens that app
+    # bar serves. Repaired with a Builder so the subtree reads and subscribes to its own Theme.
+    'Theme switch animation':
+        ('REDESIGNED AND VERIFIED', 'flutter-feedback-2026-11-10',
+         'flutter-component-theme-switch_', 'P2.5-FLUTTER-COMP'),
+
+    # ---- P2.5-FLUTTER-COMP (2026-11-10): the analytics charts below the fold ----------------
+    #
+    # `statistics_screen_capture_test.dart` ALREADY asserted PlatformBarChart, two BrowsersGraphs
+    # and TopUrlChart were mounted. Those assertions are true and are not evidence that anybody has
+    # SEEN them: the capture is 360x800 and three of the four sit below it. A second capture is now
+    # taken after scrolling, with the scroll position asserted rather than assumed.
+    'Statistics widgets':
+        ('REDESIGNED AND VERIFIED', 'flutter-stats-charts-2026-11-10',
+         'flutter-statistics-charts_', 'P2.5-FLUTTER-COMP'),
+
+    # ---- P2.5-FLUTTER-COMP (2026-11-10): the shell itself ------------------------------------
+    #
+    # `dashboard_shell_capture_test.dart:181` pumps `DashBoardManagerScreen` -- the shell -- and
+    # captures it at each of its five destinations. The five "Nav destination" rows were claimed on
+    # those captures and the SHELL row was left PENDING, which had it backwards: the captures are
+    # of the shell, and the destinations are its five states. The bottom navigation bar is in all
+    # five images.
+    #
+    # IT GETS ITS OWN RENDER RATHER THAN THE HOME TAB'S. The first attempt claimed this row on
+    # `flutter-shell-home_`, and this generator's one-picture-one-surface check refused it --
+    # correctly, because the shell and its first destination are different surfaces even though
+    # one image contains both. A TABLET capture is the honest second render, and it answers a
+    # question the 360pt set cannot: whether a five-destination bar laid out for a phone still
+    # works at 768pt. See `dashboard_shell_capture_test.dart`'s tablet case.
+    'Bottom-nav shell (DashBoardManagerScreen)':
+        ('REDESIGNED AND VERIFIED', 'flutter-shell-tablet-2026-11-10',
+         'flutter-shell-tablet_', 'P2.5-FLUTTER-COMP'),
+
+    # ---- P2.5-P3 (2026-11-10): a BLOCKED row that was only ever UNCLASSIFIED ----------------
+    #
+    # `Sales Downloadable Product` carried `audit: unknown`, so the generator marked it BLOCKED
+    # under the catch-all "nobody has rendered it and nobody has decided anything". Driven, it
+    # answers 200 in all four combinations with the right direction, the right theme sheet and
+    # its OWN page title -- "Sales Downloadable Product" / "مبيعات منتج قابل للتنزيل". There was
+    # never a blocker; there was an unopened route.
+    'Sales Downloadable Product':
+        ('REDESIGNED AND VERIFIED', 'web-blocked-2026-11-10',
+         '_order_downloadable_reports__', 'P2.5-P3'),
+
     # ---- P2.5-P1-FLUTTER (2026-11-10): component galleries ----------------------------------
     #
     # Added to the existing component gallery, which renders each component ALONE in all four
@@ -1486,6 +1623,147 @@ VERIFIED = {
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.
 OUT_OF_SCOPE = {
+    # ---- P2.5-WEB-DOCS (2026-11-10): an operator surface, measured ---------------------------
+    'Staff detail / user info':
+        'Phase 06 (SaaS & Super Admin), measured rather than assumed. `GET user-info/{id}` is an '
+        'AJAX MODAL, not a page -- it returns an unstyled fragment with no <title> and no `dir`, '
+        'opened through `data-ajax-popup="true"`. Its only two callers are '
+        'store/index.blade.php:159 and store/action.blade.php:29, and both live on the STORE '
+        'LIST, whose controller is operator-only: StoreController::index opens with '
+        "`if (auth()->user()->type == 'super admin')` and redirects everyone else. A merchant "
+        'cannot reach this fragment from anywhere in the product, so it is not a Phase 2.5 '
+        'merchant-experience surface. (action.blade.php also passes `encrypt($user->id)`, which '
+        'is why driving it with a raw id renders the wrong branch.)',
+
+    # ---- P2.5-WEB-BREEZE (2026-11-10): two more rows that are not screens --------------------
+    'Mark read / mark all read':
+        'not a screen: both handlers return response()->json(...) and never a view '
+        '(MerchantNotificationController::markRead :179, markAllRead :224 -- every exit is a '
+        'JSON body, including the 403 and 404 refusals). They are POST-only routes '
+        '(routes/web.php:1325, :1327) driven by the notification list over XHR, and their only '
+        'visible effect -- the unread count on the bell and the read state of a row -- is '
+        'already inside the notifications screen captures.',
+
+    'Payment gateway checkout pages (plan purchase)':
+        'third-party hosted pages: each POST /plan-pay-with-* handler either refuses with '
+        'redirect()->back()->with(\'error\', ...) -- which lands on the plan screen this '
+        'inventory already covers, as its own toast -- or hands the browser to the GATEWAY\'s '
+        'checkout page with redirect($payment_link) (CinetPayController:160 and the same shape in '
+        'the others). The page a merchant then sees is served by Cinetpay, Paystack, Razorpay and '
+        'the rest on their own domains: there is no Store Syria markup on it to redesign, and '
+        'reaching one at all would need live merchant credentials for each gateway.',
+
+    # ---- P2.5-WEB-BREEZE (2026-11-10): the legacy component set, counted one component at a
+    # ---- time instead of described. 22 files in resources/views/components/, and they are four
+    # ---- different things. --------------------------------------------------------------------
+    #
+    # TWO OF THE 22 ARE NOT BREEZE AT ALL, and they are the two that matter most:
+    #   datatable.blade.php      Bootstrap + the Store Syria DS, and it carries the P2-03-1
+    #                            pinned-action-column work. 66 of the 68 DataTables in the
+    #                            application render through it.
+    #   dashboard-card.blade.php Bootstrap (`col-xxl-3`, `d-flex`, `h5 f-w-500`), live on
+    #                            superadmin/dashboard.blade.php (HomeController:215).
+    # They sit in components/ because that is where Laravel looks for a Blade component, not
+    # because they are Breeze.
+    #
+    # EIGHT ARE DEAD, measured by their only caller:
+    #   application-logo, dropdown, dropdown-link, nav-link, responsive-nav-link
+    #       -> used ONLY by resources/views/layouts/navigation.blade.php, and a grep across
+    #          resources/, app/ and packages/ finds NOTHING that includes that partial.
+    #   danger-button, modal, secondary-button
+    #       -> used ONLY by resources/views/profile/partials/*, which only profile/edit.blade.php
+    #          includes -- and ProfileController@edit now returns a redirect, so it never renders.
+    #
+    # FIVE BELONG TO PHASE 03: blog-card, product-card, product-card-button, search-popup and
+    # header-button are storefront, used by resources/views/front_end/ and five WorkDo storefront
+    # modules.
+    #
+    # SEVEN ARE LIVE, on the WEB AUTH SCREENS: auth-session-status, auth-validation-errors, input,
+    # input-label, input-error, primary-button and text-input, used by login, register,
+    # forgot-password, reset-password, verify-email and confirm-password. Those six screens are
+    # NOT ROWS IN THIS INVENTORY -- the 295 are the merchant admin surface set -- so there is no
+    # row here to claim them against, and the generator refuses to move the surface count.
+    #
+    # AND ONE REAL DEFECT CAME OUT OF THE COUNT. `auth/confirm-password.blade.php` was the last
+    # view still written as `<x-guest-layout> ... </x-guest-layout>`, and
+    # layouts/guest.blade.php has ZERO references to `$slot` -- so GET confirm-password
+    # (routes/auth.php:52, a registered route inside the `auth` group) answered HTTP 200 with
+    # correct chrome and an EMPTY BODY, exactly as /profile/edit did. Repaired into the
+    # @extends/@section shape its five siblings already use, and guarded in both directions by
+    # tests/Unit/Ui/SlotLayoutViewsRenderTest (static, catches the next one) and
+    # tests/Feature/ConfirmPasswordRendersSomethingTest (drives the route).
+    'Legacy Breeze/Tailwind component set (co-resident)':
+        'measured one component at a time rather than as a set, because it is four different '
+        'things. 2 of the 22 are not Breeze at all (datatable and dashboard-card are Bootstrap + '
+        'the Store Syria DS; datatable carries the P2-03-1 pinned action column and serves 66 of '
+        '68 tables). 8 are DEAD -- five are used only by layouts/navigation.blade.php, which '
+        'nothing includes, and three only by profile/partials/*, which only profile/edit.blade.php '
+        'includes and whose controller now redirects. 5 are Phase 03 storefront. The remaining 7 '
+        'are live on the WEB AUTH screens (login, register, forgot/reset password, verify-email, '
+        'confirm-password), and those six screens are not rows in this 295-surface merchant-admin '
+        'inventory, so there is nothing here to claim them against. The audit\'s "deficient" '
+        'Tailwind markup was therefore almost entirely unreachable -- and the ONE reachable '
+        'Tailwind page it did have, auth/confirm-password.blade.php, was rendering BLANK and has '
+        'been repaired.',
+
+    # ---- P2.5-FLUTTER-COMP (2026-11-10): the SECOND class called AppSnackBar -----------------
+    'Shared toast (duplicate class)':
+        'dead code: `lib/view/new_widgets/app_snackbar.dart` has ZERO importers in lib/ or test/ '
+        '-- nothing renders it, so there is no surface to photograph and no design work is owed. '
+        'It is a second class named `AppSnackBar`, built on `Get.snackbar` with four hardcoded '
+        'hex colours, beside the live one in `lib/view/widget/common_snak_bar_widget.dart` that '
+        'all ~271 `commonToast` call sites reach. REPORTED AS A HAZARD RATHER THAN REDESIGNED: '
+        'the two share a name AND a compatible signature -- `AppSnackBar.success(title:, '
+        'message:)` compiles against either -- so an auto-import would silently swap a themed '
+        'overlay toast for a GetX snackbar at the top of the screen, with no per-theme palette '
+        'and none of the live-region semantics. Deleting the file is the right fix and is a '
+        'tidy-up rather than a Phase 2.5 surface, so it is recorded here and left for the owner.',
+
+    # ---- P2.5-P3 (2026-11-10): six rows the generator called BLOCKED because their audit said
+    # ---- `unknown`, reviewed one at a time. Not one of them was a technical blocker. ---------
+    #
+    # THE PHASE-PLAN ONES. Two say so in their own inventory titles and the third is named by
+    # CLAUDE.md section 4, which assigns "themes, visual editor" to Phase 03 -- the phase the
+    # owner has said not to start.
+    'Theme customize / storefront visual editor':
+        'Phase 03 (Storefront), not Phase 2.5. CLAUDE.md section 4 assigns "themes, visual '
+        'editor" to Phase 03 by the approved six-phase plan. Driven anyway for the record: '
+        'GET /theme-customize answers 200 in all four combinations but lands on the DASHBOARD -- '
+        'a redirect()->back() refusal, because ThemeCustomizeController::index gates on '
+        '`Manage Themes` which the dev fixture does not hold. Granting it would have photographed '
+        'a Phase 03 surface.',
+    'Plan-order bank-transfer review modal (OUT OF SCOPE — Phase 06)':
+        'Phase 06 (SaaS & Super Admin), as the inventory row title itself states. It was reported '
+        'as BLOCKED only because its audit column says `unknown`, which the generator treats as '
+        '"needs rendering and classifying" -- the classification was in the row name all along.',
+    'Top brand/category chart fragment (OUT OF SCOPE — Phase 05)':
+        'Phase 05 (Marketing & Analytics), as the inventory row title itself states. BLOCKED for '
+        'the same reason as the row above: an `unknown` audit column, not a technical obstacle.',
+
+    # THE ONES THAT ARE NOT SCREENS.
+    'Attribute-option picker fragment':
+        'not a screen: ProductController::attribute_option returns response()->json(...) and '
+        'never a view. It is called over XHR from product/create.blade.php:848 and '
+        'product/edit.blade.php:1128 to fill a picker, so its OUTPUT is already rendered and '
+        'captured inside those screens; photographing it separately would reuse their evidence.',
+    'order/create.blade.php and order/edit.blade.php (DEAD)':
+        'dead views: nothing renders them. OrderController::create returns '
+        "view('order.createOrder') (:556), a different file, and a repo-wide grep for "
+        "view('order.create') / view('order.edit') across app/ and packages/ returns nothing. "
+        "The `'order.create'` that does appear (MerchantQuickActions.php:77) is a ROUTE name, not "
+        'a view name.',
+
+    # THE TWO THAT ALREADY SAID "not a screen" IN THEIR BLOCKED REASON. They were classified
+    # correctly and filed under the wrong state: BLOCKED means work is owed, and none is.
+    'Customer filter result fragment':
+        'not a screen: GET customer-filter-data answers HTTP 200 with a JSON-encoded HTML string '
+        'and HAS NO CALLER -- the customer grid stopped calling it in P2.5-R-07. Nothing renders '
+        'it, so there is nothing to photograph and no design work is owed.',
+    'Customer filter field metadata':
+        'not a screen: GET customer-filter returns application/json and never a view. Its output '
+        'is already rendered and captured as part of the filter bar (P2.5-PKG-G), so claiming it '
+        'separately would mean reusing that evidence for a second surface.',
+
     # ---- NOT A SCREEN: no picture of its own, in any combination ------------------------------
     #
     # Classified 2026-11-10 by a read-only sweep whose every "closes a row" verdict was then put
@@ -1789,21 +2067,7 @@ BLOCKED_SURFACES = {
         'REMEDIATION: owner decision on whether merchant-authored wishlists are a product feature at '
         'all. There is nothing to design until there is something to render.',
 
-    'Customer filter result fragment':
-        'GET customer-filter-data answers HTTP 200 and has NO CALLER. Its former parent was the '
-        'customer grid, which no longer calls it (recorded in customer/grid.blade.php:38-39 during '
-        'P2.5-R-07). It returns a JSON-encoded HTML string of customer/filter.blade.php, not a page. '
-        'It cannot be made a screen without inventing a consumer for it. '
-        'REMEDIATION: either a deliberate decision to retire the route, or a consumer that a '
-        'merchant-facing feature actually needs. Neither is a design task.',
 
-    'Customer filter field metadata':
-        'GET customer-filter returns application/json and never a view, so it is not a screen and '
-        'cannot earn a screen state. Its OUTPUT is already rendered -- by the customer filter bar '
-        'redesigned and captured in P2.5-PKG-G -- so the merchant-visible half of this surface is '
-        'verified THERE. Claiming it separately would mean reusing that evidence for a second '
-        'surface, which the owner forbids by name. '
-        'REMEDIATION: none needed; it is correctly covered as part of the filter bar.',
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -1832,6 +2096,40 @@ BLOCKED_SURFACES = {
 # SO THE INVENTORY HOLDS 295 ROWS DESCRIBING 293 DISTINCT SURFACES. Both numbers are reported.
 # ---------------------------------------------------------------------------------------------
 DUPLICATE_OF = {
+    # ---- P2.5-WEB-DOCS (2026-11-10): the same two routes, written down twice ------------------
+    #
+    # Both inventory rows name `GET /add-attribute-option/{id?}` AND `GET /edit-attribute-option/
+    # {id?}`; one spells out the route NAMES (product-attribute-option.create / .edit) and the
+    # other does not. Read side by side at PHASE-2.5-SURFACE-INVENTORY.md:147 and :301 -- two
+    # audit passes, one surface. Neither is claimed yet, so the owner stays PENDING; what this
+    # removes is a second row that would be claimed on the same captures when it is.
+    'Attribute option create / edit (modals)': (
+        'Attribute option create / edit (modal)',
+        'the same two routes. PHASE-2.5-SURFACE-INVENTORY.md:301 lists '
+        '`GET /add-attribute-option/{id?}, GET /edit-attribute-option/{id?}` and :147 lists the '
+        'same pair with their route names attached. The owner row carries the pair.'),
+
+    # ---- P2.5-FLUTTER-COMP (2026-11-10): the inventory names each shared overlay twice --------
+    #
+    # Two Flutter audit passes walked the component layer and wrote their findings into two
+    # sections, so `AppSnackBar` and `AppDialog` each have two rows under two names. They are not
+    # two surfaces that happen to look alike: they are the same class, in the same file, reached
+    # by the same call. Claiming both on one capture set was refused by this generator's own
+    # one-picture-one-surface check -- correctly -- so the second name of each pair is recorded
+    # here instead, which is what the Dashboard-shell pair already does.
+    'Shared action feedback (AppSnackBar)': (
+        'Shared toast (live)',
+        'the same class. Both rows are `AppSnackBar` in '
+        'lib/view/widget/common_snak_bar_widget.dart, reached by the single `commonToast` '
+        'function that all ~271 call sites use. The other row carries the four-type capture set.'),
+
+    'Shared confirmation dialog (AppDialog)': (
+        'Shared confirmation dialog',
+        'the same method. Both rows are `AppDialog.showCustomDialog` in '
+        'lib/view/widget/app_dialog.dart -- the "12 live call sites" in this row\'s own title are '
+        'the twelve callers of the method the other row names. The other row carries the capture '
+        'set.'),
+
     # The inventory carries this artefact TWICE -- once in the Wave A component section
     # (PHASE-2.5-SURFACE-INVENTORY.md:540) and once in the navigation-shell section (:99), both
     # with route `partial/component`. Both name the same file,
