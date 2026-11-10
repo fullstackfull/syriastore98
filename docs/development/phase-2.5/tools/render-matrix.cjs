@@ -61,6 +61,34 @@ const CLICK_EACH = arg('click-each', '');
  */
 const PANEL = arg('panel', '.tab-pane.active, .tab-content .active, #pills-tabContent');
 
+/*
+ * `--stub-print`: FOR A DOCUMENT THAT PRINTS ITSELF AND THEN LEAVES.
+ *
+ * `order/receipt.blade.php:293-300` ends with
+ *
+ *     window.print();
+ *     window.onafterprint = back;
+ *     function back() { window.close(); window.history.back(); }
+ *
+ * In a headless browser `window.print()` returns immediately, `onafterprint` fires, and the page
+ * navigates BACK before anything can be measured or photographed. Every run of this harness
+ * against the receipt reported `HTTP 200 ... landed on /dashboard` and the premise check read it
+ * as "redirect -- likely a permission refusal".
+ *
+ * THAT READING WAS WRONG, and it took proving four separate things to establish it: the token
+ * decrypts, the order is found (`raw_count` 1), `order_detail` returns no `message`, and the
+ * handler is entered and throws nothing -- all logged from inside the running request. The
+ * handler returns the view correctly. The navigation is the DOCUMENT'S OWN, on the client, after
+ * the response.
+ *
+ * So `window.print` is replaced with a no-op BEFORE the page's scripts run. `onafterprint` then
+ * never fires and the receipt stays on screen, which is what a person sees behind their browser's
+ * print dialog. Nothing about the document is altered -- only the automation's inability to put a
+ * print dialog in front of it. The flag is opt-in, because a page that does NOT print itself
+ * should not have its print path quietly stubbed.
+ */
+const STUB_PRINT = argv.includes('--stub-print');
+
 const STATE_TOOL = path.join(REPO, 'docs/development/phase-2/tools/set-admin-preview-state.php');
 
 const COMBOS = [
@@ -95,6 +123,15 @@ function setState(theme, dir, lang) {
 
     const ctx = await browser.newContext({ viewport: { width: WIDTH, height: HEIGHT }, deviceScaleFactor: 1 });
     const page = await ctx.newPage();
+
+    if (STUB_PRINT) {
+      // BEFORE the document's own scripts, which is the whole point: an init script runs on every
+      // navigation in this context ahead of page JavaScript.
+      await page.addInitScript(() => {
+        window.print = () => {};
+      });
+    }
+
     const consoleErrors = [];
     page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text().slice(0, 160)); });
     page.on('pageerror', (e) => consoleErrors.push('pageerror: ' + String(e).slice(0, 160)));

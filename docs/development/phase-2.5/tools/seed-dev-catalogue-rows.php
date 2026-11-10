@@ -102,8 +102,11 @@ $tables = [
         'tag_column' => 'topic',
         'row' => [
             'topic' => TAG . ' How do refunds work?',
-            'description' => '[{"question":"How long does a refund take?"},'
-                . '{"question":"Can I return an item after 14 days?"}]',
+            // BOTH KEYS. The first version of this row wrote only `question`, and
+            // `faq/edit.blade.php` reads `$item['answer']` -- so the edit modal answered HTTP 500
+            // against this very fixture. The view is now guarded too, but a fixture that is half
+            // a record photographs a screen nobody has.
+            'description' => '[{"question":"How long does a refund take?","answer":"Refunds are returned to the original payment method within 5 to 7 working days."},{"question":"Can I return an item after 14 days?","answer":"Returns are accepted within 14 days of delivery; after that we can only exchange a faulty item."}]',
             'store_id' => STORE_ID,
         ],
     ],

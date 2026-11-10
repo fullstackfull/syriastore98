@@ -3511,5 +3511,18 @@
     "Please Select": "Please Select",
     "No choices to choose from": "No choices to choose from",
     "Press to select": "Press to select",
-    "Message :thing on WhatsApp": "Message :thing on WhatsApp"
+    "Message :thing on WhatsApp": "Message :thing on WhatsApp",
+    "Condition Value": "Condition Value",
+    "Flash sale status for :name": "Flash sale status for :name",
+    "No variant combinations yet": "No variant combinations yet",
+    "Choose the option values you want to sell, such as sizes, colours or materials, and each combination will appear here with its own price, stock and SKU.": "Choose the option values you want to sell, such as sizes, colours or materials, and each combination will appear here with its own price, stock and SKU.",
+    "Choose at least one option value for every attribute you are varying by, and each combination will appear here.": "Choose at least one option value for every attribute you are varying by, and each combination will appear here.",
+    "This product has no saved variant combinations yet. Pick the option values you sell and save the product to create them.": "This product has no saved variant combinations yet. Pick the option values you sell and save the product to create them.",
+    "You have chosen an attribute to vary by. Now pick the option values you actually sell, and each combination will appear here.": "You have chosen an attribute to vary by. Now pick the option values you actually sell, and each combination will appear here.",
+    "Delete variant :name": "Delete variant :name",
+    "Remove variant image": "Remove variant image",
+    "this combination": "this combination",
+    "Please choose a language first.": "Please choose a language first.",
+    "No email template has been set up yet.": "No email template has been set up yet.",
+    "This email template has no content in any language yet.": "This email template has no content in any language yet."
 }

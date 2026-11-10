@@ -7,7 +7,7 @@
 <div class="row">
     <div class="col-12">
         <div class="form-group">
-            {{ Form::label('Module', __('Module'), ['class' => 'col-form-label']) }}
+            {{ Form::label('module', __('Module'), ['class' => 'col-form-label']) }}
             <select name="module" class="form-control select2 multi-select" id="module">
                 @foreach ($modules as $key => $value)
                     <option value="{{ $key }}"> {{ __($value) }}</option>
@@ -17,7 +17,7 @@
     </div>
     <div class="col-12">
         <div class="form-group">
-            {{ Form::label('Method', __('Method'), ['class' => 'col-form-label']) }}
+            {{ Form::label('method', __('Method'), ['class' => 'col-form-label']) }}
             <select name="method" class="form-control select2 multi-select" id="method">
                 @foreach ($methods as $key => $value)
                     <option value="{{ $key }}"> {{ __($value) }}</option>
@@ -27,7 +27,7 @@
     </div>
     <div class="col-12">
         <div class="form-group">
-            {{ Form::label('Url', __('Url'), ['class' => 'col-form-label']) }}
+            {{ Form::label('webbbook_url', __('Url'), ['class' => 'col-form-label']) }}
             {{ Form::text('webbbook_url', !empty($setting['webbbook_url']) ? $setting['webbbook_url'] : '', ['class' => 'form-control ', 'placeholder' => 'WebBook Url']) }}
         </div>
     </div>

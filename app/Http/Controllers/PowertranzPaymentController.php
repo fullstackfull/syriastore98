@@ -397,7 +397,20 @@ class PowertranzPaymentController extends Controller
 
     }
 
-    public function storeGetPowertranzStatus(Request $request,$slug)
+    /*
+     * P2.5 -- `$slug = null` SO THE HANDLER'S OWN else BRANCH CAN BE REACHED.
+     *
+     * `routes/customer.php:401` declares `store-get-Powertranz-status{storeSlug?}` -- optional,
+     * and with no `/` before it, so the bare URL is `/store-get-Powertranz-status`. Laravel's
+     * resolver is positional over `parametersWithoutNulls()`, so with the slug omitted nothing
+     * reaches `$slug`, and a required parameter with no value is an ArgumentCountError BEFORE the
+     * body runs: HTTP 500 on a payment-return URL.
+     *
+     * The body already ends `} else { return redirect()->back()->with('error', ...); }` -- the
+     * author wrote the falsy-slug answer and the signature made it unreachable. A default is all
+     * that was missing; the guard that was always there now handles it.
+     */
+    public function storeGetPowertranzStatus(Request $request, $slug = null)
     {
         if ($slug) {
             $PowerTranzmode = \App\Models\Utility::GetValueByName('powertranz_mode', $request->store_id) ? \App\Models\Utility::GetValueByName('powertranz_mode', $request->store_id) : '';

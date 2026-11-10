@@ -1273,6 +1273,48 @@ public function store(Request $request)
         } catch (DecryptException $e) {
             return redirect()->back()->with('error', __('Something was wrong.'));
         } catch (\Exception $e) {
+            /*
+             * P2.5 -- THE CATCH-ALL NOW SAYS WHAT IT CAUGHT, and finding that out is the whole
+             * reason for this change.
+             *
+             * `catch (\Exception)` returning a generic "Something was wrong." is indistinguishable
+             * from a forged id, a missing order and a broken view. Driving this route in the
+             * capture harness produced a redirect to /dashboard in all four combinations, and it
+             * cost a long diagnosis to establish what was NOT wrong: the token decrypts
+             * (measured, `Crypt::decrypt` -> '1'), the order resolves (`order_detail` returns no
+             * `message`), the view renders (8,314 bytes, rendered directly with the same four
+             * variables), and a browser navigating to the same URL with the same session gets
+             * HTTP 200. Every one of those checks was needed only because the handler threw the
+             * reason away.
+             *
+             * `redirect()->back()` is NOT changed -- the merchant still gets the same page and the
+             * same message, and a stack trace is never shown to them. Only the log gains the
+             * class, message and location. A caught exception that leaves no trace is a defect in
+             * its own right, and this one is on a document a merchant prints for a customer.
+             *
+             * WHERE THIS LINE CAN TRAVEL, because the default channel is not only a local file.
+             * `config/logging.php:55` makes `stack` = `['single', 'larabug']`, and larabug has an
+             * off-site leg. It is closed by a CONTROL rather than being absent:
+             * `AppServiceProvider:30` rebinds the singleton to `App\Services\ScrubbedLaraBug`,
+             * whose `mayReportOutbound()` requires both a configured account and
+             * `larabug.outbound_enabled`, which defaults to false (owner decision P1-SEC-14). So
+             * there is no egress today, and whoever one day sets `LARABUG_OUTBOUND_ENABLED=true`
+             * changes the destination of this line too.
+             *
+             * WHAT THE MESSAGE CAN CARRY, checked rather than assumed: every query inside the
+             * `try` binds ids only (`Order::find`, `Order::where('id', ...)`, and inside
+             * `order_detail()` reads keyed on id / order_id / customer_id / store_id), so a
+             * QueryException's interpolated bindings are at worst an order id and a store id --
+             * both already known to a caller whom `OrderDocumentAccessGuard` has authorised for
+             * this order. No credential or email column is bound on this path, and the view is
+             * rendered after the `return`, outside the `try`, so template data cannot reach here.
+             */
+            \Illuminate\Support\Facades\Log::warning('order receipt could not be rendered', [
+                'exception' => get_class($e),
+                'message' => $e->getMessage(),
+                'at' => $e->getFile() . ':' . $e->getLine(),
+            ]);
+
             return redirect()->back()->with('error', __('Something was wrong.'));
         }
     }

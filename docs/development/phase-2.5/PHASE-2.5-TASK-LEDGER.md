@@ -3007,3 +3007,137 @@ and an audit trail — is a product design and not Phase 2.5 work.
 
 All seven map onto 92 passing cases across six classes, each on a disposable `:memory:` database
 through `RefreshDatabase`; the table is in §8.4. Unit 1588, Contract 38.
+
+---
+
+## 4.30 P2.5-CLOSURE — the last 24 PENDING rows, and why none of them was a design problem [2026-11-10]
+
+**PENDING is 0.** 295 surfaces: 225 REDESIGNED AND VERIFIED, 24 PREMIUM VERIFIED, 28 OUT OF SCOPE,
+8 DUPLICATE, 10 BLOCKED. The ten BLOCKED rows are unchanged from before this wave and each carries
+its own reason and remediation; none of them is a capture gap.
+
+### "Audited deficient, not yet verified" was one label over five different situations
+
+Naming them is most of the value of this wave, because the label had stopped carrying information:
+
+| why it was PENDING | rows | what was missing |
+|---|---|---|
+| no selector | 1 | the flash-sale status cell had no distinguishing class, so a component capture had nothing to clip to |
+| no data | 7 | all 56 fixture `order_notes` had `created_by = NULL`; `store_order_financials` and `store_withdrawals` were empty; two surfaces had no rows and one had no form in the DOM at all |
+| no journey | 3 | the variant panels need a 2–4 step sequence, and the last control does not exist until the previous step's response renders it |
+| not reachable as driven | 7 | wrong URL, wrong host page, a trigger inside a row menu, or a document that navigates away from itself |
+| already verified, never claimed | 3 | P2.5-PKG-I had 12 after-captures each for Archive customer and the two abandoned row-action rows |
+| wrongly classified | 1 | the report bodies were nearly filed OUT OF SCOPE on a false premise |
+| genuinely out of scope | 1 | the SKU combination table has no caller **and** no view |
+
+### Eight real defects, every one found by driving rather than reading
+
+1. **The variant panel rendered nothing when empty — in all three views.** Measured on
+   `/product/1/edit`: tick "use for variation" and the container becomes `display: block` with
+   `height: 0`, holding only `META`, `SCRIPT`, `TEMPLATE`, `SCRIPT`, `SCRIPT` — **17,186 characters
+   of `textContent` and an `innerText` of zero**. A merchant with a variant table on screen ticks a
+   box and the table is replaced by blank space. One defect in three places: a top-level `@if` with
+   no `@else` in `attribute_combinations.blade.php:1`, `attribute_combinations_data.blade.php:1` and
+   `attribute_combinations_edit.blade.php:2`. A shared empty state now renders for all three.
+2. **`/manage-language` answered HTTP 500**, and so did `POST /store-language-data`. Both routes
+   declare `{lang?}` optional while their controllers did not — an `ArgumentCountError` before a
+   line of the body runs. `storeLanguageData` **fails closed** rather than merely defaulting,
+   because an empty language there composes filesystem paths: `resources/lang/.json` and writes a
+   directory higher than any language.
+3. **`GET /store-get-Powertranz-status` answered HTTP 500** for the same reason — on a payment-return
+   URL. Its body already ended `} else { redirect()->back()->with('error', ...) }`; the author wrote
+   the falsy-slug answer and the signature made it unreachable.
+4. **The flash-sale status cell rendered a live switch for viewers the handler refuses 403** —
+   anyone without `Edit Flash Sale`, **and the platform operator**, whom `updateStatus` refuses by
+   name. It also had no accessible name. Both repaired; the gate mirrors the controller's, including
+   the operator limb, and grants nobody anything.
+5. **Six icon-only delete anchors in the variant panels had no accessible name** — 8 per combination
+   on the saved panel, announced as "link" for the control that destroys a variant.
+6. **Three contrast failures, measured in the running application:** `.alert-info` at **4.41:1** and
+   `.alert-warning` at **4.46:1** on the finance modals, and the withdrawal reject submit at
+   **1.04:1 in dark** — near-white text on pale pink, because that modal is nested in a `<td>` and
+   the dark table cascade beat its own `--bs-btn-color`. The alerts measured **identical in dark**,
+   because `.modal-content` stays white there (the F126 condition), so one value repairs both.
+7. **A dark-mode rule that had never matched the page it was written for.** The P2.5-PKG-B variant
+   heading fix was scoped to `.attribute_option_data`, which on `/product/create` is a class on the
+   attribute `<select>` — and a `<select>` has no accordion inside it. The closure capture measured
+   the untouched 4.03:1 on the create arm.
+8. **FAQ edit answered HTTP 500** on a row whose JSON carried only one of `question` / `answer`.
+   Production ships zero `faqs` rows, so a fail-safe rather than a live repair.
+
+### Two harness defects, and the one that matters
+
+`page.screenshot({ clip }).catch(() => {})` with the tally running regardless. The three
+variant-panel surfaces reported `combos=4` across several runs while
+`find evidence -name '*variant-panels*'` returned **zero files** — the clip sat at `y: 2025` against
+a 900px viewport and Playwright refused it. **A harness that reports evidence it did not produce is
+the worst shape this tooling can fail in**, because the report is what a reviewer reads. A refused
+screenshot is now a premise finding and the combination is not counted; the same swallow was fixed
+in `shoot-modals.cjs` and `shoot-row-actions.cjs`, and containers are scrolled into view before
+measuring.
+
+**No coverage claim was ever falsified by it.** `build-coverage-matrix.py`'s gate is the filesystem,
+not the harness summary: it refuses any claim whose four captures are absent, and it refused three
+of this wave's own claims until their filenames were right. The harness could lie to a reader; it
+could not lie to the matrix. The generator gained one precise extension — a prefix may carry
+`{combo}` when the combination is not the last token in the filename — which keeps all four files
+required rather than relaxing the check.
+
+### Three readings corrected rather than reported
+
+* **The report bodies are NOT out of scope.** Both handlers `return response()->json($return)` and
+  never a view, which is true and is not the question: `$return['html']` is assigned from
+  `view(...)->render()` (`ReportController:1822`, `:2294`), so the JSON carries the fragment and
+  `.chart_data` puts it on screen.
+* **The printable receipt was never a permission refusal.** Every run reported
+  `HTTP 200 ... landed on /dashboard`. The token decrypts, the order is found, `order_detail`
+  reports no `message`, and the handler is entered and throws nothing — all proved from inside the
+  running request. `order/receipt.blade.php:293` calls `window.print()` and `onafterprint` calls
+  `window.history.back()`, so the document navigates away from itself. `render-matrix.cjs` gained
+  `--stub-print`; the handler's catch-all now logs what it caught, because every one of those checks
+  was needed only because it threw the reason away.
+* **There is no defect in the edit-page variant rebuild.** A hypothesis that its `change` handler was
+  never bound (the binding chain reads `.attribute_option_data`, absent from that page's attribute
+  select) was measured and is **wrong**: the handler is bound, the PUT fires, and the panel fills to
+  17,186 characters. Recorded because it is the kind of plausible reading that would otherwise reach
+  a report.
+
+### One thing deliberately not done
+
+`POST products/sku_combination` has **no caller anywhere** (0 hits across `resources/`, `public/`
+and `packages/`) **and its view does not exist** — `View::exists('product.sku_combinations')` is
+false, and only `sku_combinations_edit.blade.php` is in the repository. So it would answer HTTP 500,
+not a fragment, if anything called it. This **corrects the record at `routes/web.php:1016-1029`**,
+which kept the route on the stated grounds that "its method exists, so it does not 500": the method
+does exist, its view does not, and it 500s for the other reason. Removing a route is a contract
+change this phase is not authorised to make, so it stays, is classified OUT OF SCOPE with both
+measurements, and is named in the closure report as a one-line owner decision.
+
+### Scope kept
+
+Nothing here is Phase 2.5 polish on a Phase 03 or Phase 06 surface. `language-create` was taken
+**out** of the modal harness for exactly that reason: `manageLanguage` is gated on `Manage Language`,
+which `config/superadminaccess.php:8` denylists and `RolePolicy::isGrantableBy()` enforces, so no
+production merchant role can hold it — an operator screen, Phase 06. The dev fixture grants it
+anyway, and the overlap between that fixture's 101 permissions and the denylist was measured at
+exactly **one** name, so no other captured surface is mis-scoped by it. The `/manage-language` 500 is
+still fixed, and `OptionalRouteParametersTest` keeps it fixed; an out-of-scope screen is not a reason
+to leave a 500 on a registered route.
+
+### Evidence and tests
+
+| | |
+|---|---|
+| modals | `evidence/web-closure-2026-11-10/` — 28 surfaces × 4, **0 findings** |
+| fragments, cells, finance | `evidence/web-closure-frag-2026-11-10/` — 26 surfaces × 4, **0 contrast and 0 nameless findings** |
+| printable receipt | `evidence/web-closure-receipt-2026-11-10/` — 4 runs, 2 distinct documents, and the README says why |
+| email templates | `evidence/web-closure-email-2026-11-10/` — 8 runs, 0 not clean |
+| new tests | `tests/Feature/Merchant/OptionalRouteParametersTest.php`, `tests/Feature/Merchant/EmailTemplateEmptyStateTest.php` |
+
+`OptionalRouteParametersTest` is worth reading for its own sake: it records **three ways it passed
+for the wrong reason** before it worked — it drove the routes and measured the login redirect; it
+skipped the one route it was written for; and it asked `allowsNull()`, which is always true for an
+untyped parameter and so could never fire for the exact signature it was written against. It now
+simulates Laravel's own positional resolver and **self-tests that simulation** against fabricated
+signatures, so it cannot quietly stop detecting. Each of the three argument-default repairs was
+reverted individually and the test reddened naming the right route each time.

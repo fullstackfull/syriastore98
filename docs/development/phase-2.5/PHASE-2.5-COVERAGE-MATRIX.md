@@ -10,11 +10,11 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 202 | 68.5% |
+| REDESIGNED AND VERIFIED | 225 | 76.3% |
 | BLOCKED | 10 | 3.4% |
-| OUT OF SCOPE | 27 | 9.2% |
+| OUT OF SCOPE | 28 | 9.5% |
 | DUPLICATE | 8 | 2.7% |
-| PENDING | 24 | 8.1% |
+| PENDING | 0 | 0.0% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -32,16 +32,16 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
 | Flutter merchant admin app | 51 | 0 | 47 | 2 | 1 | 0 |
-| CATALOGUE taxonomy | 38 | 13 | 21 | 0 | 0 | 3 |
-| Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 22 | 2 | 6 | 5 |
+| CATALOGUE taxonomy | 38 | 13 | 24 | 0 | 0 | 0 |
+| Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 27 | 2 | 6 | 0 |
 | Phase 2.5 Wave A | 30 | 0 | 26 | 0 | 4 | 0 |
-| Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 17 | 4 | 2 | 1 |
+| Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 18 | 4 | 2 | 0 |
 | Flutter merchant/employee admin app | 24 | 0 | 16 | 0 | 6 | 0 |
-| Customers and customer management | 20 | 0 | 13 | 2 | 2 | 3 |
-| ORDERS | 17 | 0 | 12 | 0 | 3 | 2 |
-| PRODUCTS | 16 | 1 | 9 | 0 | 1 | 5 |
+| Customers and customer management | 20 | 0 | 16 | 2 | 2 | 0 |
+| ORDERS | 17 | 0 | 14 | 0 | 3 | 0 |
+| PRODUCTS | 16 | 1 | 13 | 0 | 2 | 0 |
 | Merchant admin NAVIGATION SHELL | 13 | 4 | 7 | 0 | 1 | 0 |
-| Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 7 | 0 | 0 | 5 |
+| Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 12 | 0 | 0 | 0 |
 | Merchant dashboard and KPI presentation | 9 | 3 | 5 | 0 | 1 | 0 |
 
 ## Every surface
@@ -134,9 +134,9 @@ actually been done to it since. They are different questions and the matrix keep
 | Coupon edit (modal) | ``GET /coupon/{coupon}/edit`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-MODAL; four captures under evidence/web-modals-2026-11-10/ |
 | Coupon row actions | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Flash sale list | ``GET /flash-sale`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
-| Flash sale status cell | ``partial/component`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Flash sale status cell | ``partial/component`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-CLOSURE; four captures under evidence/web-closure-frag-2026-11-10/ |
 | Flash sale create (modal) | ``GET /flash-sale/create`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-MODAL; four captures under evidence/web-modals-2026-11-10/ |
-| Flash sale edit (modal) | ``GET /flash-sale/{id}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Flash sale edit (modal) | ``GET /flash-sale/{id}/edit`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-CLOSURE; four captures under evidence/web-closure-2026-11-10/ |
 | Product question list | ``GET /product-question`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
 | Product question reply (modal) | ``GET /product-question/{id}/edit`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-MODAL; four captures under evidence/web-modals-2026-11-10/ |
 | Product question row actions | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
@@ -145,7 +145,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Testimonial row actions | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | FAQ list | ``GET /faqs`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
 | FAQ create (modal) | ``GET /faqs/create`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-MODAL; four captures under evidence/web-modals-2026-11-10/ |
-| FAQ edit (modal, repeater) | ``GET /faqs/{faq}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| FAQ edit (modal, repeater) | ``GET /faqs/{faq}/edit`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-CLOSURE; four captures under evidence/web-closure-2026-11-10/ |
 | FAQ row actions | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 
 ### Staff/Roles/Permissions + Merchant Settings & Integrations
@@ -168,8 +168,8 @@ actually been done to it since. They are different questions and the matrix keep
 | Users / staff list (card grid) | ``GET /users`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Users / staff list (table view) | ``GET /user-list`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Create staff user (modal) | ``GET /users/create -> POST /users`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-MODAL; four captures under evidence/web-modals-2026-11-10/ |
-| Edit staff user (modal) | ``GET /users/{id}/edit -> PUT /users/{id}`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Reset staff password (modal) | ``POST users.resetpassword`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Edit staff user (modal) | ``GET /users/{id}/edit -> PUT /users/{id}`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-CLOSURE; four captures under evidence/web-closure-2026-11-10/ |
+| Reset staff password (modal) | ``POST users.resetpassword`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-CLOSURE; four captures under evidence/web-closure-2026-11-10/ |
 | Staff detail / user info | ``GET /user-info/{id}`` | needs-polish | **OUT OF SCOPE** | Phase 06 (SaaS & Super Admin), measured rather than assumed. `GET user-info/{id}` is an AJAX MODAL, not a page -- it returns an unstyled fragment with no <title> and no `dir`, opened through `data-ajax-popup="true"`. Its only two callers are store/index.blade.php:159 and store/action.blade.php:29, and both live on the STORE LIST, whose controller is operator-only: StoreController::index opens with `if (auth()->user()->type == 'super admin')` and redirects everyone else. A merchant cannot reach this fragment from anywhere in the product, so it is not a Phase 2.5 merchant-experience surface. (action.blade.php also passes `encrypt($user->id)`, which is why driving it with a raw id renders the wrong branch.) |
 | Own profile (WorkDo) | ``GET /profile`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Breeze profile (orphan) | ``GET /profile/edit`` | deficient | **OUT OF SCOPE** | not a screen: GET /profile/edit used to render an empty page (the Breeze `$slot` was dropped by the WorkDo `@yield('content')` layout) and now redirects to GET /profile, the profile screen the product actually ships. Fixed and pinned on this branch. |
@@ -178,12 +178,12 @@ actually been done to it since. They are different questions and the matrix keep
 | Edit role (xl modal, permission matrix) | ``GET /roles/{id}/edit -> PUT /roles/{id}`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-12; four captures under evidence/wave-12/ |
 | Shipping classes / zones / methods | ``GET /shipping, /shipping-zone, /shipping-method (+ free-shipp` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
 | Taxes and tax methods | ``GET /taxes, /taxes/{id}, /taxes-method/create/{tax_option_id}` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
-| Webhooks (create/edit modals) | ``GET /webhook/create, /webhook/{id}/edit -> POST\` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Webhooks (create/edit modals) | ``GET /webhook/create, /webhook/{id}/edit -> POST\` | deficient | **REDESIGNED AND VERIFIED** | P2.5-CLOSURE; four captures under evidence/web-closure-2026-11-10/ |
 | Delivery boys | ``GET /deliveryboy, /deliveryboy-list, /deliveryboy/reset-passw` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
 | Shopify import screens (product, category, sub_category, coupon, customer) | ``GET /shopify_product, /shopify_category, /shopify_sub_categor` | deficient | **BLOCKED** | cannot be rendered without a connected Shopify store: ShopifyProductController::index requires the `shopify_setting_enabled` setting plus a store URL and access token, then calls the Shopify Admin API before returning a view. Measured HTTP 500 in all four combinations on the dev fixture. REMEDIATION: an owner-provided Shopify sandbox credential, or an explicit decision to leave these screens unverified in Phase 2.5. |
 | WooCommerce import screens (product, category, coupon, customer) | ``GET /woocom_product, /woocom_category, /woocom_coupon, /wooco` | deficient | **BLOCKED** | cannot be rendered without a connected WooCommerce store: measured HTTP 200 with an empty body and no <html> element in all four combinations. REMEDIATION: an owner-provided WooCommerce sandbox credential, or an explicit decision to leave these screens unverified in Phase 2.5. |
-| Pixel create/update (modals) | ``GET /pixel-setting/create, /pixel-setting/{id}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Email templates | ``GET /email_template_lang/{lang?} and /email_template_lang/{id` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Pixel create/update (modals) | ``GET /pixel-setting/create, /pixel-setting/{id}/edit`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-CLOSURE; four captures under evidence/web-closure-2026-11-10/ |
+| Email templates | ``GET /email_template_lang/{lang?} and /email_template_lang/{id` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-CLOSURE; four captures under evidence/web-closure-email-2026-11-10/ |
 | Languages | ``GET /languages (LanguageController) + GET /create-language`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-MODALS-2; four captures under evidence/web-modals2-2026-11-10/ |
 | Menus | ``GET /menus, /menus/{id}/edit`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
 | Support tickets | ``GET /support_ticket, /ticket-view/{id}`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
@@ -242,7 +242,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Sales by Category | ``GET category-order-sale-reports`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
 | Sales Brand Report | ``GET Brand-order-sale-reports`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
 | Brand sales body (AJAX fragment) | ``GET brand-order-reports`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FRAGMENTS; four captures under evidence/web-fragments-2026-11-10/ |
-| Category / Product sales bodies (AJAX fragments) | ``GET category-order-reports, GET product-order-reports`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Category / Product sales bodies (AJAX fragments) | ``GET category-order-reports, GET product-order-reports`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-CLOSURE; four captures under evidence/web-closure-frag-2026-11-10/ |
 | Sales Downloadable Product | ``GET order-downloadable-reports`` | unknown | **REDESIGNED AND VERIFIED** | P2.5-P3; four captures under evidence/web-blocked-2026-11-10/ |
 | Top Sales Report | ``GET top-all-reports`` | premium-already | **BLOCKED** | HTTP 500 on the SQLite dev fixture in all four combinations: ReportController::top_product joins on SUBSTRING_INDEX (:2814, :2826), which SQLite does not implement -- the controller's own comment at :2883 records this. Production is MySQL. REMEDIATION: a MySQL dev fixture. |
 | Order Status Report | ``GET Status-reports`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
@@ -299,16 +299,16 @@ actually been done to it since. They are different questions and the matrix keep
 | Create customer | ``GET customer/create (customer.create) + POST customer (custom` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-PKG-E; four captures under evidence/pkg-e-customer-write/ |
 | Customer orders (reached by the cart icon) | ``GET customer/{id} (customer.show)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-13; four captures under evidence/wave-13/ |
 | Customer activity timeline | ``GET customer-timeline/{id} (customer.timeline)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-16 + 16c; four captures under evidence/wave-16c/ |
-| Archive customer | ``DELETE customer/{customer} (customer.destroy)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Archive customer | ``DELETE customer/{customer} (customer.destroy)`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-PKG-I; four captures under evidence/pkg-i-customer-area/ |
 | Edit customer (registered, unimplemented) | ``GET customer/{customer}/edit (customer.edit) + PUT/PATCH cust` | deficient | **BLOCKED** | NOT a missing screen -- a WEB/FLUTTER PARITY GAP, and the inventory description is stale. The routes are NOT registered: routes/web.php:1191 is Route::resource('customer', ...)->except(['edit','update']), applied by P2.5-PKG-C (F-C-04) because CustomerController has neither method and GET /customer/1/edit answered HTTP 500. But a COMPLETE customer-update backend ships today and the Flutter admin already uses it: routes/api.php:267 POST update-customer -> DashboardController::updateCustomerInfo (:9113), writing first_name/last_name/email/mobile/status at :9193-9197, consumed by StoreSyria_app98 lib/utils/base_api.dart:122 through an edit bottom-sheet. REMEDIATION: an owner decision on whether the WEB screen should exist. Building it is new merchant functionality, which routes/web.php:1187-1189 records as unauthorised in Phase 2.5. |
 | Abandoned carts list | ``GET abandon-carts-handled (abandon.carts.handled)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-PKG-C; four captures under evidence/pkg-c-abandoned/ |
 | Abandoned-cart product cell | ``partial/component (DataTable 'product' column)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-C; four captures under evidence/pkg-c-abandoned/ |
 | Abandoned-cart products modal | ``GET abandon-carts-show/{customerId} (carts.show)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-C; four captures under evidence/pkg-c-abandoned/ |
-| Abandoned-cart row actions (send mail / send message / delete) | ``partial/component; POST abandon-carts-emailsend (carts.emails` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Abandoned-cart row actions (send mail / send message / delete) | ``partial/component; POST abandon-carts-emailsend (carts.emails` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-I; four captures under evidence/pkg-i-customer-area/ |
 | Abandoned wishlists list | ``GET wishlist (wishlist.index)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-PKG-C; four captures under evidence/pkg-c-abandoned/ |
 | Abandoned-wishlist product cell | ``partial/component (DataTable 'product' column)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-C; four captures under evidence/pkg-c-abandoned/ |
 | Abandoned-wishlist products modal | ``GET wishlist/{wishlist} (wishlist.show)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-C; four captures under evidence/pkg-c-abandoned/ |
-| Abandoned-wishlist row actions (send mail / send message / delete) | ``partial/component; POST abandon-wish-emailsend (wish.emailsen` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Abandoned-wishlist row actions (send mail / send message / delete) | ``partial/component; POST abandon-wish-emailsend (wish.emailsen` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PKG-I; four captures under evidence/pkg-i-customer-area/ |
 | Wishlist create / edit / store / update (registered, unimplemented) | ``GET wishlist/create, GET wishlist/{wishlist}/edit, POST wishl` | deficient | **BLOCKED** | All four routes resolve and none renders a byte. WishlistController::create() (:34) and ::store() (:45) have bodies that are literally `//`; ::edit() and ::update() carry P2.5-PKG-B security guards that REFUSE rather than render. No control on any merchant screen targets any of the four. REMEDIATION: owner decision on whether merchant-authored wishlists are a product feature at all. There is nothing to design until there is something to render. |
 
 ### ORDERS
@@ -326,9 +326,9 @@ actually been done to it since. They are different questions and the matrix keep
 | Create order | ``GET order/create (order.create); POST order (order.store)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
 | Refund request list | ``GET refund-request (refund-request.index)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WEB-DOCS; four captures under evidence/web-refund-label-2026-11-10/ |
 | Refund detail / decision screen | ``GET refund-request/{id} (refund-request.show)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-11; four captures under evidence/wave-11/ |
-| Printable receipt | ``GET order-receipt/{id} (order.receipt)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Printable receipt | ``GET order-receipt/{id} (order.receipt)`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-CLOSURE; four captures under evidence/web-closure-receipt-2026-11-10/ |
 | Printable shipping label | ``GET shippinglabel/pdf/{id} (shippinglabel.pdf)`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WEB-DOCS; four captures under evidence/web-refund-label-2026-11-10/ |
-| Order note author (metadata partial) | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Order note author (metadata partial) | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-CLOSURE; four captures under evidence/web-closure-frag-2026-11-10/ |
 | Plan-order bank-transfer review modal (OUT OF SCOPE — Phase 06) | ``GET plan/orders/show/{id} (plan.order.show)`` | unknown | **OUT OF SCOPE** | Phase 06 (SaaS & Super Admin), as the inventory row title itself states. It was reported as BLOCKED only because its audit column says `unknown`, which the generator treats as "needs rendering and classifying" -- the classification was in the row name all along. |
 | Top brand/category chart fragment (OUT OF SCOPE — Phase 05) | ``partial/component`` | unknown | **OUT OF SCOPE** | Phase 05 (Marketing & Analytics), as the inventory row title itself states. BLOCKED for the same reason as the row above: an `unknown` audit column, not a technical obstacle. |
 | order/create.blade.php and order/edit.blade.php (DEAD) | ``partial/component`` | unknown | **OUT OF SCOPE** | dead views: nothing renders them. OrderController::create returns view('order.createOrder') (:556), a different file, and a repo-wide grep for view('order.create') / view('order.edit') across app/ and packages/ returns nothing. The `'order.create'` that does appear (MerchantQuickActions.php:77) is a ROUTE name, not a view name. |
@@ -345,14 +345,14 @@ actually been done to it since. They are different questions and the matrix keep
 | Product row actions (list cell fragment) | ``partial/component — rendered by ProductDataTable::dataTable()` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Product list filter bar | ``partial/component — included by product/index.blade.php:51`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-P1-WEB; four captures under evidence/web-components-2026-11-10/ |
 | Product quick-preview panel body | ``GET /product-preview/{id} → product.preview`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FRAG; four captures under evidence/web-fragments-2026-11-10/ |
-| Variant panels — create side | ``POST /products/attribute_combination → products.attribute_com` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Variant panels — edit/show side (saved variants) | ``ANY /products/attribute_combination_data/edit → products.attr` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Variant panels — rebuild after attribute change | ``PUT /products/attribute_combination/edit → products.attribute` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Variant panels — create side | ``POST /products/attribute_combination → products.attribute_com` | deficient | **REDESIGNED AND VERIFIED** | P2.5-CLOSURE; four captures under evidence/web-closure-frag-2026-11-10/ |
+| Variant panels — edit/show side (saved variants) | ``ANY /products/attribute_combination_data/edit → products.attr` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-CLOSURE; four captures under evidence/web-closure-frag-2026-11-10/ |
+| Variant panels — rebuild after attribute change | ``PUT /products/attribute_combination/edit → products.attribute` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-CLOSURE; four captures under evidence/web-closure-frag-2026-11-10/ |
 | Variant delete confirmation dialog | ``partial/component — included by edit, show, attribute_combina` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-P1-WEB; four captures under evidence/web-components-2026-11-10/ |
-| SKU combination table | ``POST /products/sku_combination → products.sku_combination`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| SKU combination table | ``POST /products/sku_combination → products.sku_combination`` | deficient | **OUT OF SCOPE** | NOT A SCREEN, AND NOT A JUDGEMENT CALL -- two independent measurements. (1) NOTHING CALLS IT: `grep -rn "sku_combination"` over resources/, public/ and packages/ returns ZERO hits, so no view and no JavaScript in the product reaches `POST products/sku_combination`. (2) ITS VIEW DOES NOT EXIST: `sku_combination()` ends `return view('product.sku_combinations')`, and `View::exists('product.sku_combinations')` is FALSE -- `find . -name "sku_combination*"` finds only `sku_combinations_edit.blade.php`. So the route would answer HTTP 500, not a fragment, if anything did call it. THE RECORD AT routes/web.php:1016-1029 IS CORRECTED BY THIS: it kept the route on the stated grounds that "its method exists, so it does not 500". The method does exist; its VIEW does not, so it 500s for the other reason. That note was written while removing the PUT sibling, whose method was missing and whose view is the one that survives -- a crossed pair. Removing the route is a contract change this phase is not authorised to make, so it stays and is named in the closure report as a one-line owner decision. Nothing a merchant can reach is affected either way. |
 | Attribute-option picker fragment | ``POST /products/attrinbute_option → products.attribute_option`` | unknown | **OUT OF SCOPE** | not a screen: ProductController::attribute_option returns response()->json(...) and never a view. It is called over XHR from product/create.blade.php:848 and product/edit.blade.php:1128 to fill a picker, so its OUTPUT is already rendered and captured inside those screens; photographing it separately would reuse their evidence. |
 | Attribute options list (DS pilot) | ``GET /attribute-option/{id?} → product-attribute-option.show`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WEB-FINAL; four captures under evidence/web-p25-final-2026-11-09/ |
-| Attribute option create / edit (modal) | ``GET /add-attribute-option/{id?} → product-attribute-option.cr` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Attribute option create / edit (modal) | ``GET /add-attribute-option/{id?} → product-attribute-option.cr` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-CLOSURE; four captures under evidence/web-closure-2026-11-10/ |
 
 ### Merchant admin NAVIGATION SHELL
 
@@ -382,12 +382,12 @@ actually been done to it since. They are different questions and the matrix keep
 | Most Stocked — row payload | ``GET /stock-report/most-stocked (stockReport.mostStocked) — ro` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WEB-FRAGMENTS; four captures under evidence/web-fragments-2026-11-10/ |
 | Stock Settings panel | ``POST stock-settings (stock.settings) — routes/web.php:842 (re` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-SET; four captures under evidence/web-settings-tabs-2026-11-09/ |
 | Finance dashboard | ``GET /finance (finance.index) — routes/web.php:208`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-10 + #12; four captures under evidence/wave-10/ |
-| Add Balance modal | ``POST /finance/add-balance (finance.add.balance) — routes/web.` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Deduct Balance modal | ``POST /finance/deduct-balance (finance.deduct.balance) — route` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Request Withdrawal modal | ``POST /finance/withdrawal/request (finance.withdrawal.request)` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Add Balance modal | ``POST /finance/add-balance (finance.add.balance) — routes/web.` | deficient | **REDESIGNED AND VERIFIED** | P2.5-CLOSURE; four captures under evidence/web-closure-frag-2026-11-10/ |
+| Deduct Balance modal | ``POST /finance/deduct-balance (finance.deduct.balance) — route` | deficient | **REDESIGNED AND VERIFIED** | P2.5-CLOSURE; four captures under evidence/web-closure-frag-2026-11-10/ |
+| Request Withdrawal modal | ``POST /finance/withdrawal/request (finance.withdrawal.request)` | deficient | **REDESIGNED AND VERIFIED** | P2.5-CLOSURE; four captures under evidence/web-closure-frag-2026-11-10/ |
 | Withdrawal queue | ``GET /finance/withdrawals (finance.withdrawals) — routes/web.p` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-10 + #12; four captures under evidence/wave-10/ |
-| Withdrawal approve / pay / reject | ``POST /finance/withdrawals/{id}/approve\` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Order payment-status update (inline) | ``POST /finance/order-financials/{id}/payment-status (finance.o` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Withdrawal approve / pay / reject | ``POST /finance/withdrawals/{id}/approve\` | deficient | **REDESIGNED AND VERIFIED** | P2.5-CLOSURE; four captures under evidence/web-closure-frag-2026-11-10/ |
+| Order payment-status update (inline) | ``POST /finance/order-financials/{id}/payment-status (finance.o` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-CLOSURE; four captures under evidence/web-closure-frag-2026-11-10/ |
 | Payments Awaiting Review (unreconciled captures) | ``GET /finance/unreconciled-captures (finance.unreconciled.capt` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WAVE-10; four captures under evidence/wave-10/ |
 
 ### Merchant dashboard and KPI presentation

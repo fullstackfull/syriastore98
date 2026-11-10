@@ -262,6 +262,7 @@
                                                         </h5>
 
                                                         <button type="button"
+                                                                aria-label="{{ __('Close') }}"
                                                                 class="btn-close"
                                                                 data-bs-dismiss="modal">
                                                         </button>
@@ -308,8 +309,24 @@
                                                         </button>
 
 
+                                                        {{-- P2.5 -- 1.04:1 IN DARK MODE, MEASURED, which is text you cannot see.
+                                                             `.btn-danger` here computed `color: rgb(232, 234, 237)` --
+                                                             near-white -- over `background: rgba(255, 174, 189, 0.41)`,
+                                                             a pale pink. Its own `--bs-btn-color` is `#d80027`, so the
+                                                             red never reached the text: THIS MODAL IS NESTED INSIDE A
+                                                             `<td>` (:244), and the dark-mode table cascade
+                                                             (`rgb(157, 163, 180)` down the whole ancestor chain) wins
+                                                             over it. The sibling `.btn-danger` in `/finance`'s deduct
+                                                             modal, outside any table, measured `rgb(26, 29, 35)` on the
+                                                             same pink and passes -- same class, same theme, different
+                                                             answer, which is what made this worth measuring rather than
+                                                             reasoning about.
+                                                             `.ss-btn--danger` pairs `--ss-danger` with `--ss-on-danger`
+                                                             (store-syria-ds.css:867), so its foreground and background
+                                                             flip TOGETHER and no cascade can separate them. Same repair,
+                                                             same reason, as faq/edit.blade.php's delete control. --}}
                                                         <button type="submit"
-                                                                class="btn btn-danger">
+                                                                class="ss-btn ss-btn--danger">
 
                                                             {{ __('Reject Withdrawal') }}
 

@@ -6943,11 +6943,34 @@ html:not([data-ss-theme="dark"]) [data-ss-admin] .dash-sidebar .dash-item:not(.a
    label, and `--ss-brand` resolves to cyan in dark mode, which is open owner
    decision #35. Naming the foreground keeps this rule out of that question.
    ========================================================================= */
-[data-ss-theme="dark"] [data-ss-admin] .attribute_option_data .accordion-button.collapsed {
+/* -------------------------------------------------------------------------------------------
+   P2.5 CLOSURE (2026-11-10) -- THE SAME RULE NOW REACHES THE CREATE SIDE.
+
+   The two selectors below originally named `.attribute_option_data` ONLY, and that spelling is
+   not the accordion's wrapper -- it is a class on the attribute `<select>` itself
+   (`#attribute_id` on /product/create carries `form-control attribute_option
+   attribute_option_data choices__input`). It happened to match on /product/1/edit because an
+   ancestor there carries it, and matched NOTHING on /product/create, where a `<select>` has no
+   accordion inside it.
+
+   So the fix was live on the saved panel and absent on the create panel, and the closure capture
+   measured the untouched value on the create arm: `rgb(128, 129, 145)` on `rgb(34, 36, 44)`,
+   16px/700 -- 4.03:1, the identical reading this block was written for.
+
+   `.attribute_options_datas` (plural, trailing s) is the class the accordion ITEM carries, and
+   all three variant views spell it that way: attribute_combinations.blade.php:52,
+   attribute_combinations_data.blade.php:55 and attribute_combinations_edit.blade.php:55. Adding
+   it covers create, saved and rebuild from one rule. The original spelling is kept rather than
+   replaced, because it is the one measured to work on the edit page and removing it would be an
+   untested narrowing.
+   ------------------------------------------------------------------------------------------- */
+[data-ss-theme="dark"] [data-ss-admin] .attribute_option_data .accordion-button.collapsed,
+[data-ss-theme="dark"] [data-ss-admin] .attribute_options_datas .accordion-button.collapsed {
     color: var(--ss-fg) !important;
 }
 
-[data-ss-theme="dark"] [data-ss-admin] .attribute_option_data .accordion-button:not(.collapsed) {
+[data-ss-theme="dark"] [data-ss-admin] .attribute_option_data .accordion-button:not(.collapsed),
+[data-ss-theme="dark"] [data-ss-admin] .attribute_options_datas .accordion-button:not(.collapsed) {
     background-color: var(--ss-surface-hover);
     color: var(--ss-fg);
 }
@@ -7363,3 +7386,49 @@ td.dataTables-empty:has(.ss-empty) {
     white-space: nowrap;
 }
 /* end P2.5-PKG-L (continued) */
+
+/* ===========================================================================================
+   P2.5 CLOSURE (2026-11-10) -- THE TWO BOOTSTRAP ALERTS THE FINANCE MODALS USE, AT AA.
+   ===========================================================================================
+
+   MEASURED on the running application, `/finance` with the withdrawal and deduct modals open,
+   in all four language/direction/theme combinations:
+
+     .alert-info     #257980 on #d8f4f7   4.413:1   needs 4.5   "Available Balance: 18,450.00"
+     .alert-warning  #996111 on #ffecd2   4.464:1   needs 4.5   "Available balance: 18,450.00"
+                                                                "The amount will be returned..."
+
+   Both come from the VENDORED WorkDo theme (public/assets/css/style.css:5584 and :5594 set
+   `--bs-alert-color` / `--bs-alert-bg`), which this project does not edit; the Store Syria sheet
+   loads after it and is the layer where such a repair belongs.
+
+   DARK MODE MEASURED IDENTICAL TO LIGHT, which is the point worth recording: the composited
+   background was `rgb(216, 244, 247)` under `data-ss-theme="dark"` too, because `.modal-content`
+   stays white in dark on these screens -- the F126 condition the design notes already carry. So
+   there is nothing theme-specific to fix here; one value repairs both, and a dark-mode-only
+   override would have been dead code.
+
+   THE SMALLEST CHANGE THAT CLEARS AA WITH MARGIN. Each foreground is scaled toward black by a
+   couple of percent, keeping its hue exactly:
+
+     .alert-info     #24757c on #d8f4f7   4.655:1
+     .alert-warning  #965f11 on #ffecd2   4.612:1
+
+   The backgrounds and borders are untouched, so the banners look the same; only the text is a
+   shade deeper. `--bs-alert-color` is the variable Bootstrap 5 reads for `.alert`'s own `color`,
+   so setting it here reaches the `<strong>` inside as well -- which is the node the harness
+   flagged, since it inherits rather than setting its own colour.
+
+   Blast radius measured: 5 usages across 4 views. Every one of them was below AA before this.
+
+   SCOPED TO `[data-ss-admin]`, AND NOT GLOBAL, because `DesignSystemStylesheetScopeTest` caught the
+   first version of this and was right to. A bare `.alert-info` in this sheet carries no `.ss-`
+   class and no `data-ss-` hook, so nothing stops it repainting an alert in any of the 70 vendored
+   WorkDo modules -- the sheet loads on every admin page. The allowlist in that test would have
+   taken the rule with a justification; narrowing it is the better answer, because the gate stays
+   meaningful for the next person.
+   `data-ss-admin` is on `<body>` (layouts/app.blade.php:420) and MEASURED to contain both alerts on
+   `/finance` and `/finance/withdrawals`, so the repair reaches every element it was written for. */
+[data-ss-admin] .alert-info { --bs-alert-color: #24757c; }
+[data-ss-admin] .alert-warning { --bs-alert-color: #965f11; }
+/* end P2.5 CLOSURE alert contrast */

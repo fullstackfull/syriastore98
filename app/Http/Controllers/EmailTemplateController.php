@@ -24,11 +24,41 @@ class EmailTemplateController extends Controller
         $languages         = Utility::languages();
         $emailTemplate     = EmailTemplate::first();
 
+        /* P2.5 -- AN EMPTY TABLE WAS A 500, NOT AN EMPTY STATE.
+           =========================================================================================
+
+           `EmailTemplate::first()` returns null when `email_templates` holds no rows, and the next
+           line read `$emailTemplate->id`. MEASURED on a migrated database with the table empty:
+           HTTP 500 in all four language/direction/theme combinations, with no page at all.
+
+           PRODUCTION IS NOT CURRENTLY AFFECTED -- the dump ships six platform templates and five
+           language rows -- so this is a fail-safe rather than a live repair. The reachable states
+           it covers are a freshly migrated environment before the addon seeder has run, and a
+           tenant whose templates have been removed. Neither should be a white error page.
+
+           The SECOND dereference below is the same defect one line further on: when a template
+           exists but has no `en` language row, `$currEmailTempLang->lang = $language` wrote to
+           null. Both are guarded here, and the screen now says what is missing instead. */
+        if ($emailTemplate === null) {
+            return redirect()->back()->with(
+                'error',
+                __('No email template has been set up yet.')
+            );
+        }
+
         $currEmailTempLang = EmailTemplateLang::where('parent_id', '=', $emailTemplate->id)->where('language', $language)->first();
 
         if(!isset($currEmailTempLang) || empty($currEmailTempLang))
         {
             $currEmailTempLang       = EmailTemplateLang::where('parent_id', '=', $emailTemplate->id)->where('language', 'en')->first();
+
+            if ($currEmailTempLang === null) {
+                return redirect()->back()->with(
+                    'error',
+                    __('This email template has no content in any language yet.')
+                );
+            }
+
             $currEmailTempLang->lang = $language;
 
         }

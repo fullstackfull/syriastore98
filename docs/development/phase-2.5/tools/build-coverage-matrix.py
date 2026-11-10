@@ -1619,10 +1619,146 @@ VERIFIED = {
     'Stock Reports':
         ('REDESIGNED AND VERIFIED', 'web-sweep-2026-11-10', '_stock_reports__', 'P2.5-WEB-SWEEP'),
 
+    # =============================================================================================
+    # P2.5-CLOSURE (2026-11-10). The last 24 PENDING rows.
+    # =============================================================================================
+    #
+    # EVERY ONE OF THESE WAS PENDING FOR A MECHANICAL REASON, not a design one, and naming the
+    # reason is the point -- "audited deficient, not yet verified" had become a single label over
+    # five quite different situations:
+    #
+    #   no selector    the flash-sale status cell had no distinguishing class, so there was nothing
+    #                  to clip a component capture to
+    #   no data        all 56 fixture `order_notes` carried `created_by = NULL`, so the note-author
+    #                  partial rendered NOTHING; `store_order_financials` and `store_withdrawals`
+    #                  were both empty, so three finance surfaces had no rows and two had no form
+    #   no journey     the variant panels are reached by a 2- to 4-step sequence, not a click, and
+    #                  the step-3 control does not exist until step 2's response renders it
+    #   no reachable   the receipt PRINTS ITSELF and `onafterprint` calls `window.history.back()`,
+    #                  so every run photographed the page it navigated back to
+    #   already there  three rows had 12 after-captures each from P2.5-PKG-I and were simply never
+    #                  claimed
+    #
+    # Four real defects were fixed on the way and are recorded against their rows below.
+
+    # ---- AJAX create/edit modals. 28 surfaces driven, 0 findings under the strict accessible-name
+    #      rule. The eight new ones are the PENDING rows; the other twenty re-verified unchanged.
+    'Flash sale edit (modal)':
+        ('REDESIGNED AND VERIFIED', 'web-closure-2026-11-10', 'flash-sale-edit__', 'P2.5-CLOSURE'),
+    'FAQ edit (modal, repeater)':
+        ('REDESIGNED AND VERIFIED', 'web-closure-2026-11-10', 'faq-edit__', 'P2.5-CLOSURE'),
+    'Edit staff user (modal)':
+        ('REDESIGNED AND VERIFIED', 'web-closure-2026-11-10', 'users-edit__', 'P2.5-CLOSURE'),
+    'Reset staff password (modal)':
+        ('REDESIGNED AND VERIFIED', 'web-closure-2026-11-10', 'users-resetpassword__', 'P2.5-CLOSURE'),
+    # BOTH halves captured; the row names both, so the edit half is what it was missing.
+    'Webhooks (create/edit modals)':
+        ('REDESIGNED AND VERIFIED', 'web-closure-2026-11-10', 'webhook-edit__', 'P2.5-CLOSURE'),
+    'Pixel create/update (modals)':
+        ('REDESIGNED AND VERIFIED', 'web-closure-2026-11-10', 'pixel-edit__', 'P2.5-CLOSURE'),
+    'Attribute option create / edit (modal)':
+        ('REDESIGNED AND VERIFIED', 'web-closure-2026-11-10', 'attribute-option-create__', 'P2.5-CLOSURE'),
+
+    # ---- the status cell. REPAIRED in this wave: the switch had no accessible name, and it
+    #      rendered a LIVE switch for viewers `FlashSaleController::updateStatus` answers 403 --
+    #      anyone without `Edit Flash Sale`, AND the platform operator, whom that gate refuses by
+    #      name. FlashSaleDataTable gained a styling-free class so the cell could be clipped at all.
+    'Flash sale status cell':
+        ('REDESIGNED AND VERIFIED', 'web-closure-frag-2026-11-10', 'flash-sale-status-cell__', 'P2.5-CLOSURE'),
+
+    # ---- the note author. The gap was DATA: three notes seeded covering the partial's three
+    #      non-empty outcomes -- a named tenant author, a WITHHELD operator author, and an author
+    #      no user row holds -- beside the unauthored system notes already there.
+    'Order note author (metadata partial)':
+        ('REDESIGNED AND VERIFIED', 'web-closure-frag-2026-11-10', 'order-note-author__', 'P2.5-CLOSURE'),
+
+    # ---- the report bodies. NEARLY CLASSIFIED OUT OF SCOPE on the grounds that both handlers
+    #      `return response()->json($return)` and never a view. That reading was wrong:
+    #      `$return['html']` is assigned from `view(...)->render()` (ReportController:1822, :2294),
+    #      so the JSON CARRIES the fragment and `.chart_data` puts it on screen. The category half
+    #      was already covered by `category-sales-body`; the product half had no host surface.
+    'Category / Product sales bodies (AJAX fragments)':
+        ('REDESIGNED AND VERIFIED', 'web-closure-frag-2026-11-10', 'product-sales-body__', 'P2.5-CLOSURE'),
+
+    # ---- the variant panels, all three arms, one container (`.attribute_combination`). REPAIRED:
+    #      all three views had a top-level `@if` with NO `@else` and rendered nothing visible when
+    #      empty -- measured at 17,186 characters of textContent with an innerText of ZERO and a
+    #      root height of 0, so a merchant who ticked "use for variation" watched the variant table
+    #      be replaced by blank space. Six icon-only delete anchors also had no accessible name.
+    'Variant panels — create side':
+        ('REDESIGNED AND VERIFIED', 'web-closure-frag-2026-11-10', 'variant-panels-create__', 'P2.5-CLOSURE'),
+    'Variant panels — edit/show side (saved variants)':
+        ('REDESIGNED AND VERIFIED', 'web-closure-frag-2026-11-10', 'variant-panels-saved__', 'P2.5-CLOSURE'),
+    'Variant panels — rebuild after attribute change':
+        ('REDESIGNED AND VERIFIED', 'web-closure-frag-2026-11-10', 'variant-panels-rebuild__', 'P2.5-CLOSURE'),
+
+    # ---- finance. The three modals are plain Bootstrap dialogs on /finance, not the POST routes
+    #      the inventory names, which is why they read as uncapturable. REPAIRED: four unnamed
+    #      close buttons; `.alert-info` 4.41:1 and `.alert-warning` 4.46:1 (both sub-AA app-wide,
+    #      repaired in the DS sheet); and the reject submit measured 1.04:1 IN DARK -- near-white
+    #      text on pale pink, because that modal is nested in a `<td>` and the dark table cascade
+    #      beat its own `--bs-btn-color`.
+    'Add Balance modal':
+        ('REDESIGNED AND VERIFIED', 'web-closure-frag-2026-11-10', 'finance-add-balance-modal__', 'P2.5-CLOSURE'),
+    'Deduct Balance modal':
+        ('REDESIGNED AND VERIFIED', 'web-closure-frag-2026-11-10', 'finance-deduct-balance-modal__', 'P2.5-CLOSURE'),
+    'Request Withdrawal modal':
+        ('REDESIGNED AND VERIFIED', 'web-closure-frag-2026-11-10', 'finance-withdrawal-request-modal__', 'P2.5-CLOSURE'),
+    'Withdrawal approve / pay / reject':
+        ('REDESIGNED AND VERIFIED', 'web-closure-frag-2026-11-10', 'finance-withdrawal-actions__', 'P2.5-CLOSURE'),
+    'Order payment-status update (inline)':
+        ('REDESIGNED AND VERIFIED', 'web-closure-frag-2026-11-10', 'finance-payment-status-inline__', 'P2.5-CLOSURE'),
+
+    # ---- email templates. The list and one template's language editor, 8 runs, 0 not clean.
+    'Email templates':
+        ('REDESIGNED AND VERIFIED', 'web-closure-email-2026-11-10', '_email_template_lang__', 'P2.5-CLOSURE'),
+
+    # ---- the printable receipt. NOT a permission problem, which is what every previous run
+    #      reported: the document calls `window.print()` and `onafterprint` calls
+    #      `window.history.back()`, so it navigated away before any screenshot. Proved from inside
+    #      the running request -- token decrypts, order found, no `message`, handler entered, throws
+    #      nothing. render-matrix.cjs gained `--stub-print`.
+    #
+    #      ONLY TWO OF THE FOUR RUNS ARE DISTINCT SURFACES, and that is deliberate rather than a
+    #      shortfall: the receipt carries NO `data-ss-theme` and takes its direction from the
+    #      ORDER'S STORE, not the viewer (P1-SEC-11). All four files exist, two of them are the
+    #      same document, and the evidence README says so.
+    'Printable receipt':
+        ('REDESIGNED AND VERIFIED', 'web-closure-receipt-2026-11-10', 'order-receipt__', 'P2.5-CLOSURE'),
+
+    # ---- three rows that were ALREADY verified and never claimed. P2.5-PKG-I drove each of them
+    #      in 4 combinations x 3 viewports (12 captures, premise ok, 0 errors, `acted: yes`) and
+    #      `cart/action.blade.php` / `wishlist/action.blade.php` were redesigned in the same
+    #      package. The `..._desktop` suffix is that harness's own naming, so these name the
+    #      desktop combination explicitly.
+    'Archive customer':
+        ('REDESIGNED AND VERIFIED', 'pkg-i-customer-area', 'customer-archive-confirm__{combo}__desktop', 'P2.5-PKG-I'),
+    'Abandoned-cart row actions (send mail / send message / delete)':
+        ('REDESIGNED AND VERIFIED', 'pkg-i-customer-area', 'abandoned-cart-row-actions__{combo}__desktop', 'P2.5-PKG-I'),
+    'Abandoned-wishlist row actions (send mail / send message / delete)':
+        ('REDESIGNED AND VERIFIED', 'pkg-i-customer-area', 'abandoned-wishlist-row-actions__{combo}__desktop', 'P2.5-PKG-I'),
+
 }
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.
 OUT_OF_SCOPE = {
+    # ---- P2.5-CLOSURE (2026-11-10): a surface that cannot render, measured twice --------------
+    'SKU combination table':
+        'NOT A SCREEN, AND NOT A JUDGEMENT CALL -- two independent measurements. (1) NOTHING CALLS '
+        'IT: `grep -rn "sku_combination"` over resources/, public/ and packages/ returns ZERO '
+        'hits, so no view and no JavaScript in the product reaches '
+        '`POST products/sku_combination`. (2) ITS VIEW DOES NOT EXIST: `sku_combination()` ends '
+        "`return view('product.sku_combinations')`, and `View::exists('product.sku_combinations')` "
+        'is FALSE -- `find . -name "sku_combination*"` finds only `sku_combinations_edit.blade.php`. '
+        'So the route would answer HTTP 500, not a fragment, if anything did call it. '
+        'THE RECORD AT routes/web.php:1016-1029 IS CORRECTED BY THIS: it kept the route on the '
+        'stated grounds that "its method exists, so it does not 500". The method does exist; its '
+        'VIEW does not, so it 500s for the other reason. That note was written while removing the '
+        'PUT sibling, whose method was missing and whose view is the one that survives -- a crossed '
+        'pair. Removing the route is a contract change this phase is not authorised to make, so it '
+        'stays and is named in the closure report as a one-line owner decision. Nothing a merchant '
+        'can reach is affected either way.',
+
     # ---- P2.5-WEB-DOCS (2026-11-10): an operator surface, measured ---------------------------
     'Staff detail / user info':
         'Phase 06 (SaaS & Super Admin), measured rather than assumed. `GET user-info/{id}` is an '
@@ -2228,7 +2364,21 @@ def classify(row):
             if route_needle is not None and route_needle not in row['route']:
                 continue
             base = os.path.join(ROOT, 'docs/development/phase-2.5/evidence', wave, 'after')
-            missing = [c for c in COMBOS if not os.path.exists(os.path.join(base, f'{prefix}{c}.png'))]
+
+            # A PREFIX MAY CARRY `{combo}` WHEN THE COMBINATION IS NOT LAST IN THE FILENAME.
+            #
+            # `capture-interactions.cjs` names its files `<slug>__<combo>__<viewport>.png`, because
+            # it drives three viewports per combination. `f'{prefix}{c}.png'` cannot express that,
+            # so three rows with TWELVE captures each on disk were refused for "absent" files.
+            #
+            # This is NOT a weakening of the gate: all four combinations must still exist, and the
+            # entry must still name the exact filename shape. It only stops the gate assuming the
+            # combination is always the last token. A prefix with no placeholder behaves as before.
+            def shot(combo):
+                return (prefix.replace('{combo}', combo) if '{combo}' in prefix
+                        else f'{prefix}{combo}') + '.png'
+
+            missing = [c for c in COMBOS if not os.path.exists(os.path.join(base, shot(c)))]
             if missing:
                 return 'BLOCKED', f'claimed {state} by {pkg} but these captures are absent: {", ".join(missing)}'
             return state, f'{pkg}; four captures under evidence/{wave}/'

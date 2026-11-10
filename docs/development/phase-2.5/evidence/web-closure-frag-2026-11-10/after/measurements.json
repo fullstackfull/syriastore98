@@ -1,0 +1,47 @@
+{
+  "findings": [],
+  "surfaces": [
+    [
+      "finance-add-balance-modal",
+      {
+        "combos": 4,
+        "chars": 49
+      }
+    ],
+    [
+      "finance-deduct-balance-modal",
+      {
+        "combos": 4,
+        "chars": 69
+      }
+    ],
+    [
+      "finance-withdrawal-request-modal",
+      {
+        "combos": 4,
+        "chars": 124
+      }
+    ],
+    [
+      "finance-payment-status-inline",
+      {
+        "combos": 4,
+        "chars": 206
+      }
+    ],
+    [
+      "finance-withdrawal-actions",
+      {
+        "combos": 4,
+        "chars": 210
+      }
+    ],
+    [
+      "finance-withdrawal-reject-modal",
+      {
+        "combos": 4,
+        "chars": 90
+      }
+    ]
+  ]
+}

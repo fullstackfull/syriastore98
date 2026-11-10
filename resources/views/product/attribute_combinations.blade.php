@@ -58,7 +58,12 @@
                                                     aria-expanded="false" aria-controls="collapseone_{{ $safe_str }}">
                                                     <span class="d-flex align-items-center">
                                                         <i class="ti ti-credit-card me-2"></i>{{ $str }}
-                                                            <a href="#" class="btn btn-sm btn-danger delete_option" data-id="{{ $safe_str }}">
+                                                            {{-- Icon-only with no name -- see
+                                                                 attribute_combinations_data.blade.php:54 for the
+                                                                 measurement. Nothing is saved on the create side, so the
+                                                                 name comes from `$str`, the combination's own option
+                                                                 values, with a generic fallback. --}}
+                                                            <a href="#" aria-label="{{ __('Delete variant :name', ['name' => trim((string) $str) !== '' ? $str : __('this combination')]) }}" class="btn btn-sm btn-danger delete_option" data-id="{{ $safe_str }}">
                                                                 <i class="ti ti-trash"></i>
                                                             </a>
                                                     </span>
@@ -285,6 +290,14 @@
         </div>
     </div>
 
+@else
+    {{-- THE ARM THAT RENDERED NOTHING. See product/partials/_variant-empty-state.blade.php
+         for the measurement: 17,186 characters of textContent and an innerText of zero, so
+         the merchant's variant table was replaced by a blank area with no explanation. The
+         `@if` above had no `@else`, in this view and in both of its siblings. --}}
+    @include('product.partials._variant-empty-state', [
+        'ssVariantHint' => __('Choose at least one option value for every attribute you are varying by, and each combination will appear here.'),
+    ])
 @endif
 <script>
 

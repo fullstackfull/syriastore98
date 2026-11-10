@@ -51,7 +51,17 @@
                                                          attribute rather than scraping the card, so nothing builds a
                                                          selector out of merchant free text -- `M/L-Natural` is a legal
                                                          variant name and an illegal selector (F72). --}}
+                                                    {{-- P2.5 -- AN ICON-ONLY CONTROL WITH NO NAME. Measured by the
+                                                         fragment harness, 8 per combination on this panel: the anchor's
+                                                         only content is `<i class="ti ti-trash">`, so its accessible name
+                                                         was the empty string and a screen reader announced "link" for the
+                                                         control that DESTROYS a variant. It names WHICH variant, because
+                                                         these sit one per row in an accordion where every row looks the
+                                                         same -- through `consentToken()`, the same value the dialog and
+                                                         the request already carry, so a nameless variant still gets its
+                                                         `#<id>` instead of an empty label. --}}
                                                     <a href="#"
+                                                        aria-label="{{ __('Delete variant :name', ['name' => \App\Services\VariantRemovalPolicy::consentToken($combination)]) }}"
                                                         class="action-btn btn-danger btn btn-sm d-inline-flex align-items-center delete-option-comment"
                                                         data-url="{{ route('product.attribute.delete', $combination->id) }}"
                                                         {{-- THE CONSENT TOKEN, NOT THE RAW COLUMN. `VariantRemovalPolicy::consentToken()` is
@@ -339,7 +349,8 @@
                                                             @if ($ssVariantImage)
                                                                 <img src="{{ get_file($ssVariantImage->image_path) }}"
                                                                     alt="{{ __('Variant Image') }}" width="80" class="rounded" />
-                                                                <a href="#" class="btn btn-sm btn-danger ms-2 ss-variant-image-remove">
+                                                                {{-- Icon-only, same defect as the variant delete above. --}}
+                                                                <a href="#" aria-label="{{ __('Remove variant image') }}" class="btn btn-sm btn-danger ms-2 ss-variant-image-remove">
                                                                     <i class="ti ti-trash text-white py-1"></i>
                                                                 </a>
                                                             @endif
@@ -393,6 +404,14 @@
         </div>
     </div>
 
+@else
+    {{-- THE ARM THAT RENDERED NOTHING. See product/partials/_variant-empty-state.blade.php
+         for the measurement: 17,186 characters of textContent and an innerText of zero, so
+         the merchant's variant table was replaced by a blank area with no explanation. The
+         `@if` above had no `@else`, in this view and in both of its siblings. --}}
+    @include('product.partials._variant-empty-state', [
+        'ssVariantHint' => __('This product has no saved variant combinations yet. Pick the option values you sell and save the product to create them.'),
+    ])
 @endif
 {{-- THE CONFIRMATION BRIDGE TRAVELS WITH THE PANEL.
      This partial is injected by `$('.attribute_combination').html(data)` from THREE

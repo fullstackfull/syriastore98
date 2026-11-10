@@ -287,8 +287,25 @@ const MEASURE = (args) => {
         continue;
       }
 
-      await page.screenshot({ path: path.join(OUT, s.slug + '__' + combo.lang + '_' + combo.dir + '_' + combo.theme + '.png'), clip: m.box })
-        .catch(() => {});
+      /*
+       * A FAILED SCREENSHOT IS REPORTED, NOT SWALLOWED. This was `.catch(() => {})` with the tally
+       * running regardless, so a clip Playwright refuses left the summary claiming a capture that
+       * is not on disk. MEASURED in shoot-fragments.cjs, whose variant-panel surfaces reported
+       * `combos=4` across several runs while `find` returned zero files: the container sat ~2,025px
+       * down a long form and a viewport clip cannot reach it. The matrix generator never believed
+       * those claims -- its gate is the filesystem -- but the console summary is what a person
+       * reads, and it was wrong.
+       */
+      const shotError = await page.screenshot({
+        path: path.join(OUT, s.slug + '__' + combo.lang + '_' + combo.dir + '_' + combo.theme + '.png'),
+        clip: m.box,
+      }).then(() => null).catch((e) => String(e.message || e).split('\n')[0].slice(0, 140));
+
+      if (shotError) {
+        all.push({ slug: s.slug, combo: label, kind: 'premise',
+          detail: 'the screenshot was refused, so there is no evidence for this combination: ' + shotError });
+        continue;
+      }
 
       for (const f of m.findings) all.push({ slug: s.slug, combo: label, kind: f.kind, detail: f.detail });
 

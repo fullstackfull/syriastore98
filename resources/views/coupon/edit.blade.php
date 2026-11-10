@@ -79,6 +79,16 @@
         </div>
     </div>
     <div class="form-group col-md-12">
+        {{-- P2.5 a11y -- THE CREATE VIEW HAS THIS LABEL AND THE EDIT VIEW DID NOT.
+             `coupon/create.blade.php:121` carries `Form::label('auto-code', __('Coupon Code'))`,
+             added by an earlier sweep whose own comment calls it "the single real one" -- and the
+             sweep only looked at create. The edit form carried a PLACEHOLDER and nothing else.
+
+             A placeholder is not an accessible name: it disappears the moment a merchant types,
+             and neither WCAG nor the ARIA practices accept it as a label. The modal harness used
+             to count one, which is why this stayed invisible; it no longer does, and this was the
+             ONLY field in the whole modal set that depended on it. --}}
+        {{ Form::label('auto-code', __('Coupon Code'), ['class' => 'form-label']) }}
         <div class="row">
             <div class="col-md-10" id="code_text">
                 {{ Form::text('coupon_code', null, ['class' => 'form-control', 'required' => 'required', 'id' => 'auto-code', 'placeholder' => __('Generate Code')]) }}

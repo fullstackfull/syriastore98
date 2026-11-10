@@ -240,10 +240,29 @@ class LanguageController extends Controller
         return redirect()->back()->with('success', __('Language change successfully.'));
     }
 
-    public function manageLanguage($currantLang,$module='General')
+    /**
+     * P2.5 -- THE ROUTE SAYS THIS PARAMETER IS OPTIONAL AND THE SIGNATURE SAID IT WAS NOT.
+     *
+     * `routes/web.php:1391` declares `manage-language/{lang?}/{module?}`, so Laravel will route a
+     * bare `/manage-language` here with no argument -- and this method required one, which is an
+     * ArgumentCountError before a line of the body runs. MEASURED: HTTP 500 in all four
+     * language/direction/theme combinations, while `/manage-language/en` answers 200.
+     *
+     * No shipped link reaches it that way: `partision/header.blade.php:410` passes
+     * `auth()->user()->language` and `language/index.blade.php:48,55` pass `$currantLang`. So this
+     * is a trimmed URL or a stale bookmark rather than a journey -- and a white error page is
+     * still the wrong answer to one.
+     *
+     * The default is what every caller already passes: the signed-in user's language, falling
+     * back to the application locale. Nothing about the populated path changes.
+     */
+    public function manageLanguage($currantLang = null, $module = 'General')
     {
         if(auth()->user() && auth()->user()->isAbleTo('Manage Language'))
         {
+            $currantLang = $currantLang
+                ?: (auth()->user()->language ?: app()->getLocale());
+
             $languages = Utility::languages();
             $settings = Setting::pluck('value', 'name')->toArray();
             if (!empty($settings['disable_lang'])) {
@@ -300,8 +319,31 @@ class LanguageController extends Controller
         }
     }
 
-    public function storeLanguageData(Request $request, $currantLang, $module = 'General')
+    /*
+     * P2.5 -- THE SIBLING OF THE `manage-language` DEFECT, AND IT FAILS CLOSED RATHER THAN OPEN.
+     *
+     * `routes/web.php:1392` declares `store-language-data/{lang?}/{module?}`, so a bare
+     * `POST /store-language-data` routes here with nothing bound and `$currantLang` has no value:
+     * ArgumentCountError, HTTP 500. Both shipped callers pass it
+     * (`language/index.blade.php:100,123`), so only a hand-made request arrives bare.
+     *
+     * A DEFAULT ALONE WOULD BE WORSE THAN THE 500. This method composes filesystem paths out of
+     * `$currantLang`: with it empty, `$jsonFile` becomes `resources/lang/.json` -- a hidden file
+     * at the lang root -- and `$langFolder` collapses from `resources/lang/<lang>` to
+     * `resources/lang`, which already exists, so the per-file writes below land a directory higher
+     * than any language. Writing files with no language segment is not a degraded version of this
+     * feature; it is a different and worse one.
+     *
+     * So the default exists to make the parameter ABSENT-ABLE, and the body refuses immediately.
+     * That keeps every legitimate call identical and turns the crafted one into a message instead
+     * of either a stack trace or a stray write.
+     */
+    public function storeLanguageData(Request $request, $currantLang = null, $module = 'General')
     {
+        if ($currantLang === null || trim((string) $currantLang) === '') {
+            return redirect()->back()->with('error', __('Please choose a language first.'));
+        }
+
         if(auth()->user() && auth()->user()->isAbleTo('Create Language'))
         {
             $Filesystem = new Filesystem();
@@ -352,6 +394,44 @@ class LanguageController extends Controller
             }
             if(isset($request->message) && !empty($request->message))
             {
+                /*
+                 * ==========================================================================
+                 * DO NOT IMPLEMENT `buildArray()` WITHOUT READING THIS FIRST. P2.5-CLOSURE.
+                 * ==========================================================================
+                 *
+                 * `$fileName` IS AN ARRAY KEY FROM THE REQUEST BODY, unsanitised, concatenated
+                 * straight into a path that ends `.php`. `message[../../../../public/x]` would
+                 * write an attacker-chosen PHP file outside the lang tree -- arbitrary code
+                 * execution for any principal holding `Create Language`.
+                 *
+                 * THE WRITE IS LATENT, NOT LIVE, AND ONLY BY ACCIDENT -- BUT THE 500 IS LIVE. `buildArray()` IS DEFINED
+                 * NOWHERE IN THIS REPOSITORY -- the call below is its only occurrence in any PHP
+                 * file. `LanguageController` inherits `Illuminate\Routing\Controller::__call`,
+                 * which THROWS `BadMethodCallException`, so every request carrying a non-empty
+                 * `message` dies on the line below BEFORE the `file_put_contents` under it ever
+                 * runs. Measured by an independent review of the P2.5 closure changes; also
+                 * recorded at docs/discovery/06-UI-UX-ASSESSMENT.md:528.
+                 *
+                 * THAT EXCEPTION IS REACHED THROUGH THE PRODUCT'S OWN FORM.
+                 * language/index.blade.php:142-159 emits `name="message[<file>][<key>]..."` inputs
+                 * for every PHP translation file a locale has, and 38 such files ship across
+                 * resources/lang/<locale>/ (pt-br, pl and others). So an operator who opens one of
+                 * those locales and saves gets HTTP 500, every time: the save path for PHP
+                 * translation files is simply broken. Operator-only -- `Create Language` is
+                 * denylisted in config/superadminaccess.php:9 -- but not theoretical.
+                 *
+                 * SO THE DANGEROUS CHANGE HERE IS THE HELPFUL-LOOKING ONE. Someone who notices
+                 * the missing method and writes it -- a perfectly reasonable thing to do with a
+                 * handler that 500s -- turns a dead branch into an arbitrary-`.php`-write
+                 * primitive in the same commit. If that method is ever added, `basename($fileName)`
+                 * and an allowlist of expected file names must land in the SAME change, along
+                 * with escaping inside `buildArray()` itself for the values it serialises.
+                 *
+                 * NOT FIXED HERE on purpose: a guard on a branch that cannot execute is dead code
+                 * too, and it would make the next reader believe the branch is live and reviewed.
+                 * A named warning at the exact line where the damage would be done is worth more.
+                 * `docs/security/P01-SECURITY-WORK-QUEUE.md` carries the queue entry.
+                 */
                 foreach($request->message as $fileName => $fileData)
                 {
                     $content = "<?php return [";

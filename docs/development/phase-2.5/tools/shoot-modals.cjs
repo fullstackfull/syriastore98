@@ -54,20 +54,50 @@ const ONLY = arg('only', '').split(',').map(s => s.trim()).filter(Boolean);
 const STATE_TOOL = path.join(REPO, 'docs/development/phase-2/tools/set-admin-preview-state.php');
 
 const MODAL = '#commanModel';
-const CREATE_TRIGGER = 'a[data-ajax-popup="true"]';
+
 /**
- * AN EDIT TRIGGER IS A BUTTON, WHEREVER THE LIST PUTS IT.
+ * A PLACEHOLDER IS NOT AN ACCESSIBLE NAME, and this harness used to accept one.
  *
- * This was `table tbody button[data-ajax-popup="true"]`, which assumed every list is a table.
- * `/users` is a CARD GRID -- the matrix even records it as "Users / staff list (card grid)" --
- * so its edit button sits in a card, the selector matched nothing, and the run reported
- * "no visible edit trigger" as though the surface were missing.
+ * It sat in the name chain from the day the file was written, so every surface this project has
+ * claimed was checked against a rule that is too lenient -- a placeholder disappears the moment a
+ * merchant types, assistive technology treats it inconsistently, and neither WCAG nor the ARIA
+ * practices accept it as a label.
  *
- * The create/edit distinction does not need the table: a create trigger is an `<a>` in the page
- * header and an edit trigger is a `<button>` on a record. Both are then filtered to the visible
- * one outside a menu, which is what actually separates them from the shell's Quick Add items.
+ * TIGHTENING IT WAS MEASURED BEFORE IT WAS DEFAULTED. Run across all 24 modals the harness knows,
+ * the strict rule found exactly ONE field relying on a placeholder:
+ * `input[name=coupon_code]` on coupon-edit, in all four combinations -- the same create-was-fixed,
+ * edit-was-not shape as the flash-sale selects. With that one labelled the strict rule reports
+ * zero, so it is now the DEFAULT rather than an opt-in, and `SS_STRICT_NAMES=0` restores the old
+ * leniency for anyone who needs to compare against an older run.
  */
-const EDIT_TRIGGER = 'button[data-ajax-popup="true"]';
+const STRICT_NAMES = process.env.SS_STRICT_NAMES !== '0';
+/**
+ * A TRIGGER IS IDENTIFIED BY WHERE IT POINTS, NOT BY ITS TAG.
+ *
+ * The selectors here were `a[data-ajax-popup="true"]` for create and
+ * `button[data-ajax-popup="true"]` for edit, on the reasoning that "a create trigger is an `<a>`
+ * in the page header and an edit trigger is a `<button>` on a record". That held for the surfaces
+ * it was written against and is NOT a property of this application:
+ *
+ *     users/action.blade.php:43    edit   <a href="#!" data-url=".../users/{id}/edit">
+ *     users/action.blade.php:68    reset  <a href="#"  data-url=".../reset-password/{enc}">
+ *     faq/action.blade.php:3       edit   <button      data-url=".../faqs/{id}/edit">
+ *
+ * So `/users` reported "no visible edit trigger (0 matched)" while its edit control was sitting
+ * in the DOM as an anchor -- the surface read as missing when only the selector was.
+ *
+ * `data-url` is the honest discriminator: it is what the AJAX handler fetches, so it says what
+ * the modal will BE regardless of which element the markup chose. Both kinds are then filtered to
+ * the visible one outside a menu, which is what separates a page's own control from the shell's
+ * Quick Add items.
+ */
+const ANY_TRIGGER = '[data-ajax-popup="true"]';
+
+/** A create trigger's URL ends at `/create`; an edit trigger's carries a record and ends at `/edit`. */
+const TRIGGER_URL = {
+  create: '/create(\\?|$)',
+  edit: '/edit(\\?|$)',
+};
 
 /** Each entry is one matrix row. `kind` picks the trigger. */
 const SURFACES = [
@@ -87,6 +117,23 @@ const SURFACES = [
   { slug: 'product-label-edit', route: '/product-label', kind: 'edit' },
   { slug: 'users-create', route: '/users', kind: 'create' },
   { slug: 'users-edit', route: '/users', kind: 'edit' },
+  /* ---- P2.5 closure wave (2026-11-10). Each of these is a PENDING inventory row, and each
+     needed something the harness could not do before: a trigger identified by its URL rather than
+     its tag, a row menu opened, or a URL pattern of its own -- the reset-password control points
+     at /reset-password/{encrypted id} and the attribute-option controls at
+     /add-attribute-option/{id} and /edit-attribute-option/{id}, none of which the create/edit
+     default reaches. Naming the pattern per surface is honest; widening the default would start
+     matching other pages' controls. ---- */
+  { slug: 'users-resetpassword', route: '/users', kind: 'edit', urlPattern: '/store-reset-password/' },
+  { slug: 'webhook-edit', route: '/setting', tab: 'webhook_setting', kind: 'edit' },
+  { slug: 'pixel-edit', route: '/setting', tab: 'pixel_field_setting', kind: 'edit' },
+  // The attribute-option controls are NOT on /product-attributes -- measured, the only triggers
+  // there are the attribute's own create and edit. They live on the OPTION screen for one
+  // attribute, `attribute-option/{id}` (ProductAttributeOptionController::show), which the
+  // matrix records as its own pilot screen.
+  { slug: 'attribute-option-create', route: '/attribute-option/1', kind: 'create', urlPattern: '/add-attribute-option' },
+  { slug: 'attribute-option-edit', route: '/attribute-option/1', kind: 'edit', urlPattern: '/edit-attribute-option' },
+
   { slug: 'flash-sale-create', route: '/flash-sale', kind: 'create' },
   { slug: 'flash-sale-edit', route: '/flash-sale', kind: 'edit' },
   // INSIDE A SETTINGS TAB, not on a list page. `/pixel-setting` and `/webhook-setting` are not
@@ -105,7 +152,27 @@ const SURFACES = [
   // here rather than navigated to.
   { slug: 'attribute-create', route: '/product-attributes', kind: 'create' },
   { slug: 'attribute-edit', route: '/product-attributes', kind: 'edit' },
-  { slug: 'language-create', route: '/manage-language', kind: 'create' },
+  /* The list is `/languages`, not `/manage-language` -- the latter is the TRANSLATION editor
+     (LanguageController::manageLanguage, routes/web.php:1391) and carries no create control at
+     all, which is why this surface reported "0 candidates" every run while its matrix row was
+     already claimed. Its trigger also points at `create-language`, not `/create`, so it names its
+     own pattern. */
+  /* `language-create` IS DELIBERATELY NOT HERE. It was in this list, and taking it out is a
+     scope correction, not a capture that was skipped.
+       - The language list is `manage-language/{lang?}/{module?}` (routes/web.php:1391); the
+         surface was pointed at '/languages', which is not a route, so the run reported no
+         trigger. Finding that is what prompted reading the permission.
+       - `manageLanguage()` is gated on `isAbleTo('Manage Language')`, and 'Manage Language' is in
+         `config/superadminaccess.php:8` -- the operator denylist that `RolePolicy::isGrantableBy()`
+         enforces on the WRITE path. So no merchant role in production can hold it, and the screen
+         is an OPERATOR surface: Phase 06, not Phase 02 Merchant Experience.
+       - The dev fixture's merchant holds it anyway. MEASURED across all 101 permissions that
+         fixture user carries, the overlap with the denylist is exactly ONE name, this one, so no
+         other captured surface is mis-scoped by it. Recorded in
+         PHASE-2.5-DEV-FIXTURE-PERMISSIONS.md.
+     The `/manage-language` HTTP 500 found on the way is still fixed, and
+     tests/Feature/Merchant/OptionalRouteParametersTest.php keeps it fixed -- an out-of-scope
+     screen is not a reason to leave a 500 on a registered route. */
 ];
 
 const COMBOS = [
@@ -207,6 +274,27 @@ const MEASURE = (args) => {
     if (r.width < 2 || r.height < 2) continue;
     const cs = getComputedStyle(el);
     if (hidden(el) || clippedAway(cs)) continue;
+
+    /* TEXT PUSHED OFF-SCREEN IS NOT TEXT, and measuring its colour is measuring nothing.
+       ---------------------------------------------------------------------------------------
+       MEASURED: `button.choices__button "Remove item"` was reported at 1.37:1 in both dark
+       combinations of the flash-sale edit modal, every run. It is not a defect. Choices.js
+       renders that control as a background-image SVG and hides its label with
+       `.choices__button { text-indent: -9999px }` (public/assets/css/style.css:21960) -- so
+       `color` belongs to a string no one can see, and the real control is an image this
+       measurement cannot reach at all.
+
+       The older `.visually-hidden` / `.sr-only` filter above does not catch it, because the
+       library hides the text with an indent rather than with a utility class. A library that
+       does the same thing with `font-size: 0` is caught here too.
+
+       WHAT THIS DELIBERATELY DOES NOT DO: claim the control is fine. An icon-only control is
+       still SC 1.4.11 at 3:1, and that is a question about the IMAGE. It is answered from the
+       captured pixels instead -- see evidence/web-closure-2026-11-10/README.md -- because a
+       computed-style reader cannot answer it and should not pretend to. */
+    const indent = parseFloat(cs.textIndent);
+    if ((Number.isFinite(indent) && indent <= -999) || parseFloat(cs.fontSize) < 1) continue;
+
     const fg = parse(cs.color).slice(0, 3); if (fg.length < 3) continue;
     const size = parseFloat(cs.fontSize);
     const floor = (size >= 24 || (parseInt(cs.fontWeight, 10) >= 700 && size >= 18.66)) ? 3 : 4.5;
@@ -231,15 +319,39 @@ const MEASURE = (args) => {
     const type = (el.getAttribute('type') || '').toLowerCase();
     const valueIsName = ['submit', 'button', 'reset'].includes(type);
 
-    const named = (el.getAttribute('aria-label') || '').trim()
+    /* A PLACEHOLDER IS COUNTED, AND IT SHOULD NOT BE -- MEASURED SEPARATELY RATHER THAN
+       SILENTLY CHANGED.
+       -------------------------------------------------------------------------------------
+       A placeholder disappears the moment a merchant types, assistive technology treats it
+       inconsistently, and neither WCAG nor the ARIA practices accept it as a label. It has
+       been in this chain since the harness was written, so every surface this project has
+       already claimed was checked against a rule that is too lenient.
+
+       Tightening it silently would redden previously-claimed rows with no record of why, so
+       the strict answer is computed ALONGSIDE the lenient one and reported as its own kind.
+       `SS_STRICT_NAMES=1` promotes it to a failure; by default it is a count, which is what
+       the closure report quotes. */
+    const realName = (el.getAttribute('aria-label') || '').trim()
       || (el.getAttribute('aria-labelledby') || '').trim()
       || (el.getAttribute('title') || '').trim()
-      || (el.getAttribute('placeholder') || '').trim()
       || (valueIsName ? (el.getAttribute('value') || '').trim() : '')
       || (id ? ((modal.querySelector('label[for="' + CSS.escape(id) + '"]')
         || document.querySelector('label[for="' + CSS.escape(id) + '"]') || {}).textContent || '').trim() : '')
       || ((el.closest('label') || {}).textContent || '').trim();
-    if (named) continue;
+
+    const placeholder = (el.getAttribute('placeholder') || '').trim();
+
+    if (!realName && placeholder) {
+      findings.push({
+        kind: args.strictNames ? "unlabelled" : "placeholder-only",
+        detail: el.tagName.toLowerCase()
+          + (el.getAttribute('name') ? '[name=' + el.getAttribute('name') + ']' : '[no name]')
+          + '  placeholder="' + placeholder.slice(0, 24) + '"',
+      });
+      continue;
+    }
+
+    if (realName) continue;
     findings.push({
       kind: 'unlabelled',
       detail: el.tagName.toLowerCase() + (el.getAttribute('name') ? '[name=' + el.getAttribute('name') + ']' : '[no name]'),
@@ -373,7 +485,8 @@ const MEASURE = (args) => {
         ).catch(() => {});
       }
 
-      const sel = s.kind === 'create' ? CREATE_TRIGGER : EDIT_TRIGGER;
+      const sel = ANY_TRIGGER;
+      const wantUrl = s.urlPattern || TRIGGER_URL[s.kind];
 
       /*
        * THE PAGE'S OWN CREATE BUTTON, not the shell's Quick Add menu.
@@ -394,18 +507,71 @@ const MEASURE = (args) => {
        * earn their place: the page button is the only visible one today, and the menu check
        * stops an opened dropdown from stealing the match later.
        */
-      const handles = await page.$$(sel);
-      let trigger = null;
-      for (const h of handles) {
-        const usable = await h.evaluate(
-          (e) => !!e.offsetParent && !e.closest('.dropdown-menu, nav, header, .ss-topbar'),
-        ).catch(() => false);
-        if (usable) { trigger = h; break; }
+      const findTrigger = async () => {
+        const handles = await page.$$(sel);
+        for (const h of handles) {
+          const usable = await h.evaluate(
+            (e, pattern) => {
+              if (!e.offsetParent) return false;
+              if (e.closest('nav, header, .ss-topbar')) return false;
+              // The URL is what decides create vs edit. A trigger with no data-url cannot be
+              // either, and is skipped rather than guessed at.
+              const url = e.getAttribute('data-url') || '';
+              return new RegExp(pattern).test(url);
+            },
+            wantUrl,
+          ).catch(() => false);
+          if (usable) return h;
+        }
+        return null;
+      };
+
+      let trigger = await findTrigger();
+
+      /*
+       * A ROW MENU IS NOT THE SHELL'S MENU, and refusing both lost a real surface.
+       *
+       * The filter above used to exclude `.dropdown-menu` outright, to skip the header's Quick Add
+       * items. But `/users` is a CARD GRID whose per-card actions live in their own kebab menu
+       * (`users/index.blade.php:106-122`), so its edit and reset-password controls sit inside a
+       * `.dropdown-menu` too -- and the run reported "no visible edit trigger" for a control that
+       * was there all along. Measured on /users: 11 triggers matched, every one rejected.
+       *
+       * The shell's menus are excluded by LOCATION (`nav, header, .ss-topbar`), which is what
+       * actually distinguishes them. A row menu is then OPENED, which is what a merchant does, and
+       * only its contents become clickable -- so this reproduces the journey rather than reaching
+       * past it into hidden markup.
+       */
+      if (!trigger) {
+        const toggles = await page.$$('[data-bs-toggle="dropdown"], [data-toggle="dropdown"]');
+
+        for (const t of toggles) {
+          const outsideShell = await t.evaluate(
+            (e) => !!e.offsetParent && !e.closest('nav, header, .ss-topbar'),
+          ).catch(() => false);
+
+          if (!outsideShell) continue;
+
+          await t.click({ timeout: 4000 }).catch(() => {});
+          await page.waitForTimeout(400);
+
+          trigger = await findTrigger();
+          if (trigger) break;
+
+          // Leave no menu open behind us: an open menu would shadow the next page's own control.
+          await page.keyboard.press('Escape').catch(() => {});
+        }
       }
 
       if (!trigger) {
-        note('premise', 'no visible ' + s.kind + ' trigger outside a menu matching ' + sel
-          + ' (' + handles.length + ' matched, all hidden or in the Quick Add menu)');
+        // What the page DID offer, so the finding names the gap instead of only asserting one.
+        const offered = await page.$$eval(sel, (nodes) => nodes.map(
+          (e) => (e.getAttribute('data-url') || '(no data-url)').replace(location.origin, '')
+            + (e.offsetParent ? '' : ' [hidden]'),
+        )).catch(() => []);
+
+        note('premise', 'no ' + s.kind + ' trigger whose data-url matches ' + wantUrl
+          + ' — ' + offered.length + ' candidate(s): ' + offered.slice(0, 6).join(', '));
         continue;
       }
 
@@ -445,15 +611,32 @@ const MEASURE = (args) => {
       // One frame after the transition ends, so the measured box is the painted box.
       await page.waitForTimeout(150);
 
-      const m = await page.evaluate(MEASURE, { modal: MODAL, lang: combo.lang, latinOk: LATIN_OK })
+      const m = await page.evaluate(MEASURE, { modal: MODAL, lang: combo.lang, latinOk: LATIN_OK, strictNames: STRICT_NAMES })
         .catch(e => ({ ok: false, why: String(e).slice(0, 120) }));
 
       if (!m.ok) { note('premise', m.why); continue; }
 
+      /*
+       * A FAILED SCREENSHOT IS REPORTED, NOT SWALLOWED. This was `.catch(() => {})` with the tally
+       * running regardless, so a clip Playwright refuses left the summary claiming a capture that
+       * is not on disk. MEASURED in shoot-fragments.cjs, whose variant-panel surfaces reported
+       * `combos=4` across several runs while `find` returned zero files: the container sat ~2,025px
+       * down a long form and a viewport clip cannot reach it. The matrix generator never believed
+       * those claims -- its gate is the filesystem -- but the console summary is what a person
+       * reads, and it was wrong.
+       */
+      let shotError = null;
+
       await page.screenshot({
         path: path.join(OUT, s.slug + '__' + combo.lang + '_' + combo.dir + '_' + combo.theme + '.png'),
         clip: m.box,
-      }).catch(() => {});
+      }).then(() => null).catch((e) => { shotError = String(e.message || e).split('\n')[0].slice(0, 140); });
+
+      if (shotError) {
+        note('premise', 'the screenshot was refused, so there is no evidence for this combination: '
+          + shotError);
+        continue;
+      }
 
       for (const f of m.findings) note(f.kind, f.detail);
 

@@ -434,3 +434,50 @@ A live pass therefore has to be **serialised one area at a time with locale, the
 ### One more thing it could not see: its own staleness
 
 The snapshot drifted from the tree in two measured ways — `resources/views/users/index.blade.php` is +5 lines for everything at or after 99, and the `app/Helper/helper.php` citations disagree by 5–6 lines across three areas. Two refutations (§5 items 17 and 18) are purely that drift: both report a Feather kebab a shipped wave already replaced. **A static audit cannot tell "not yet fixed" from "fixed since I read it."** Re-anchor every line number against the tree before any edit, and re-run the three per-area censuses that a shipped wave can invalidate: the Feather inventory, the `ss-dt-card-body` inventory, and the `@forelse`/`<x-ss.empty>` adoption list.
+---
+
+## Found during P2.5-CLOSURE and NOT fixed: 12 controller view literals that do not resolve [2026-11-10]
+
+Chasing one of them — `ProductController::sku_combination()` returning
+`view('product.sku_combinations')`, a view that exists nowhere in the repository — made it worth
+asking how many more there are. Every `view('…')` string literal in `app/Http/Controllers` was
+reflected and checked against the real view finder:
+
+```
+distinct view literals checked: 268
+MISSING: 12
+  Auth/AuthenticatedSessionController.php  ->  auth.customer_login
+  CartController.php                       ->  front_end.pages.checkout-amount
+  CartController.php                       ->  front_end.pages.checkout-product-list
+  CurrencyRateController.php               ->  currency_rates.index
+  HomeController.php                       ->  main_file
+  OtpIntegrationController.php             ->  otp.integration
+  ProductAttributeOptionController.php     ->  attribute.index
+  ProductController.php                    ->  product.sku_combinations
+  SupportTicketController.php              ->  403
+  TestimonialController.php                ->  other_page.contact_us
+  TestimonialController.php                ->  other_page.privacy
+  TestimonialController.php                ->  other_page.terms
+```
+
+A literal that does not resolve is an uncaught `InvalidArgumentException` — HTTP 500 — for anyone
+who reaches that branch.
+
+**What is settled and what is not.** `product.sku_combinations` is settled: `find . -name
+"sku_combination*"` finds only `sku_combinations_edit.blade.php`, so it is absent from the whole
+tree, and its route is classified OUT OF SCOPE in the coverage matrix with that measurement.
+
+**The other eleven are NOT settled, and must not be reported as eleven defects.** The measurement
+was taken with **0 add-ons active**, and `CLAUDE.md` records that no WorkDo module loads unless an
+`add_on_managers` row says so — several of these names sit in namespaces a module could register
+(`otp.`, `currency_rates.`, `other_page.`, `front_end.pages.`). Each needs two further checks before
+it is called a defect:
+
+1. does an active module provide the view? (re-run the census with the relevant add-ons enabled)
+2. is the branch reachable at all? (`SupportTicketController -> '403'` looks like a guard arm; a
+   dead branch is a different and much smaller finding than a live one)
+
+**Why it is not fixed here.** Eleven handlers across nine controllers, most of them storefront or
+module surfaces, is a work package of its own and none of it is Phase 2.5 Merchant Experience. The
+census is cheap to re-run and is written out above so the next person starts from a measurement
+rather than a hunch.

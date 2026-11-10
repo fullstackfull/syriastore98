@@ -70,7 +70,11 @@
                                                 <span class="d-flex align-items-center">
                                                     <i class="ti ti-credit-card me-2"></i>{{ $str }}
                                                     @if (!empty($ProductVariantData->id))
+                                                        {{-- Icon-only with no name -- see attribute_combinations_data.blade.php:54
+                                                             for the measurement. Same control, same repair, through the
+                                                             same consent token. --}}
                                                         <a href="#"
+                                                            aria-label="{{ __('Delete variant :name', ['name' => \App\Services\VariantRemovalPolicy::consentToken($ProductVariantData)]) }}"
                                                             class="action-btn btn-danger  btn btn-sm d-inline-flex align-items-center delete-comment"
                                                             data-url="{{ route('product.attribute.delete', $ProductVariantData->id) }}"
                                                             {{-- THE CONSENT TOKEN, NOT THE RAW COLUMN. `VariantRemovalPolicy::consentToken()` is
@@ -85,7 +89,12 @@
                                                             <i class="ti ti-trash"></i>
                                                         </a>
                                                     @else
+                                                        {{-- The UNSAVED arm: no variant row exists yet, so there is no id
+                                                             and no consent token. `$str` is the combination's own name
+                                                             (built at :46 from its option values) and falls back to a
+                                                             generic phrase rather than an empty label. --}}
                                                         <a class="btn btn-sm btn-danger delete_option"
+                                                            aria-label="{{ __('Delete variant :name', ['name' => trim((string) $str) !== '' ? $str : __('this combination')]) }}"
                                                             data-id="{{ $str }}">
                                                             <i class="ti ti-trash text-white py-1"></i>
                                                         </a>
@@ -398,7 +407,8 @@
                                                                 @if ($ssVariantImage)
                                                                     <img src="{{ get_file($ssVariantImage->image_path) }}"
                                                                         alt="{{ __('Variant Image') }}" width="80" class="rounded" />
-                                                                    <a href="#" class="btn btn-sm btn-danger ms-2 ss-variant-image-remove">
+                                                                    {{-- Icon-only, same defect. --}}
+                                                                    <a href="#" aria-label="{{ __('Remove variant image') }}" class="btn btn-sm btn-danger ms-2 ss-variant-image-remove">
                                                                         <i class="ti ti-trash text-white py-1"></i>
                                                                     </a>
                                                                 @endif
@@ -457,6 +467,14 @@
             </div>
         </div>
     </div>
+@else
+    {{-- THE ARM THAT RENDERED NOTHING. See product/partials/_variant-empty-state.blade.php
+         for the measurement: 17,186 characters of textContent and an innerText of zero, so
+         the merchant's variant table was replaced by a blank area with no explanation. The
+         `@if` above had no `@else`, in this view and in both of its siblings. --}}
+    @include('product.partials._variant-empty-state', [
+        'ssVariantHint' => __('You have chosen an attribute to vary by. Now pick the option values you actually sell, and each combination will appear here.'),
+    ])
 @endif
 <script src="{{ asset('public/js/jquery-3.6.0.min.js') }}"></script>
 

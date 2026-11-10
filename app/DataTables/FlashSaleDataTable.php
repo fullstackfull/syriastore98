@@ -58,7 +58,22 @@ class FlashSaleDataTable extends DataTable
             'discount_type' => ['title' => __('Discount Type'), 'addClass' => 'text-capitalize'],
             'start_date' => ['title' => __('Start Date')],
             'end_date' => ['title' => __('End Date')],
-            'status' => ['title' => __('Status'), 'addClass' => 'text-center', 'printable' => false, 'exportable' => false, 'orderable' => false, 'searchable' => false]
+            /*
+             * `ss-flashsale-status-cell` IS A CAPTURE HOOK, and it is here rather than in the
+             * partial because the partial renders INSIDE the cell, not as it.
+             *
+             * The inventory tracks "Flash sale status cell" as a component in its own right, so
+             * its evidence has to be the CELL clipped to its own box -- a screenshot of the whole
+             * list is evidence for the list. Nothing in this table distinguished that cell:
+             * `text-center` is shared, and DataTables adds no per-column class of its own, so the
+             * harness had no selector and the row stayed PENDING for want of one.
+             *
+             * `addClass` lands on every cell in the column (Column::addClass -> DataTables
+             * `className`), which is what a per-row clip needs. It carries no styling: there is no
+             * `.ss-flashsale-status-cell` rule in public/css/store-syria-ds.css, deliberately, so
+             * adding it cannot change how the column looks in either theme or direction.
+             */
+            'status' => ['title' => __('Status'), 'addClass' => 'text-center ss-flashsale-status-cell', 'printable' => false, 'exportable' => false, 'orderable' => false, 'searchable' => false]
         ]);
     }
 

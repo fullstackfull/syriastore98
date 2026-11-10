@@ -5613,3 +5613,52 @@ Keeping these apart is the point; each is independently reviewable and independe
 
 Rotation (S2) is an owner operation, not an engineering package, and gates nothing on this list
 except the *severity* of S3.
+
+---
+
+## P25-SEC-02 — a latent arbitrary-`.php`-write that a well-meaning fix would arm [2026-11-10]
+
+**Severity as it stands: none. Severity if someone is helpful: critical.** This is in the queue for
+the second reason, not the first.
+
+`LanguageController::storeLanguageData()` writes
+`file_put_contents($langFolder . "/" . $fileName . '.php', $content)` where **`$fileName` is an array
+KEY from the request body**, unsanitised. `message[../../../../public/x]` would write an
+attacker-chosen PHP file outside the lang tree — arbitrary code execution for any principal holding
+`Create Language`.
+
+**The WRITE cannot execute today, and only by accident.** `buildArray()` is **defined nowhere in
+this repository**; the call two lines above the write is its only occurrence in any PHP file.
+`LanguageController` inherits `Illuminate\Routing\Controller::__call`, which throws
+`BadMethodCallException`, so any request carrying a non-empty `message` dies before the write. Found
+by an independent review of the P2.5 closure changes; the dead-method half is also recorded at
+`docs/discovery/06-UI-UX-ASSESSMENT.md:528`.
+
+**BUT THE EXCEPTION ITSELF IS LIVE, through the product's own form, and that is a second finding
+rather than a footnote to the first.** `language/index.blade.php:142-159` emits
+`name="message[<file>][<key>]…"` inputs for every PHP translation file a locale has, and **38 such
+files ship** across `resources/lang/<locale>/` (`pt-br`, `pl` and others). So an operator who opens
+one of those locales in the language editor and saves gets **HTTP 500**, every time — the save path
+for PHP translation files is simply broken. Operator-only (see the row below), but not theoretical.
+
+| | |
+|---|---|
+| the arbitrary-write primitive | **not reachable** — `BadMethodCallException` first, measured |
+| the HTTP 500 | **reachable now**, through the shipped language editor, for any locale with PHP lang files (38 ship) |
+| who can reach either | **the platform operator only** — `Create Language` is denylisted in `config/superadminaccess.php:9` and `RolePolicy::isGrantableBy()` enforces that on the write path, so no merchant role can hold it |
+| what arms the write | **implementing `buildArray()`** — the obvious response to a handler that 500s |
+
+**Remediation, whenever this is touched at all:** `basename($fileName)` plus an allowlist of expected
+lang file names, in the **same change** as any implementation of `buildArray()`, with escaping inside
+that method for the values it serialises.
+
+**Why no guard was added now.** A guard on a branch that cannot execute is dead code, and it would
+leave the next reader believing the branch is live and reviewed — which is the more expensive
+mistake. A named warning sits at the exact line instead (`LanguageController.php`, immediately above
+the `foreach`), saying that the dangerous change here is the helpful-looking one.
+
+**Sequencing:** no dependency, no contract impact, no client impact. **Not done in the P2.5 closure
+wave on purpose:** repairing the 500 *means* implementing `buildArray()`, which is the one change
+that arms the write, on an operator feature that generates executable PHP — a Phase 06 surface and a
+decision with a security dimension, not a closure-wave edit. It becomes urgent the moment anyone
+opens that method for any reason.

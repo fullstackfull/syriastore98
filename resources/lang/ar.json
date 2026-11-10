@@ -3140,7 +3140,7 @@
     "Upload Product Images": "تحميل صور المنتج",
     "Upload Screenshots": "تحميل لقطات الشاشة",
     "Uploading…": "جارٍ الرفع…",
-    "Url": "الرمز",
+    "Url": "الرابط",
     "URL": "عنوان",
     "url": "عنوان",
     "Usage limit per coupon": "حد الاستخدام لكل قسيمة",
@@ -3507,5 +3507,18 @@
     "Please Select": "الرجاء الاختيار",
     "No choices to choose from": "لا توجد خيارات متاحة",
     "Press to select": "اضغط للاختيار",
-    "Message :thing on WhatsApp": "مراسلة :thing على واتساب"
+    "Message :thing on WhatsApp": "مراسلة :thing على واتساب",
+    "Condition Value": "قيمة الشرط",
+    "Flash sale status for :name": "حالة التخفيض السريع لـ :name",
+    "No variant combinations yet": "لا توجد تركيبات متغيرات بعد",
+    "Choose the option values you want to sell, such as sizes, colours or materials, and each combination will appear here with its own price, stock and SKU.": "اختر قيم الخيارات التي تريد بيعها، مثل المقاسات أو الألوان أو المواد، وسيظهر كل تركيب هنا بسعره ومخزونه ورمزه التعريفي.",
+    "Choose at least one option value for every attribute you are varying by, and each combination will appear here.": "اختر قيمة خيار واحدة على الأقل لكل سمة تريد التنويع حسبها، وسيظهر كل تركيب هنا.",
+    "This product has no saved variant combinations yet. Pick the option values you sell and save the product to create them.": "لا توجد تركيبات متغيرات محفوظة لهذا المنتج بعد. اختر قيم الخيارات التي تبيعها واحفظ المنتج لإنشائها.",
+    "You have chosen an attribute to vary by. Now pick the option values you actually sell, and each combination will appear here.": "لقد اخترت سمة للتنويع حسبها. اختر الآن قيم الخيارات التي تبيعها فعلاً، وسيظهر كل تركيب هنا.",
+    "Delete variant :name": "حذف المتغير :name",
+    "Remove variant image": "إزالة صورة المتغير",
+    "this combination": "هذا التركيب",
+    "Please choose a language first.": "يرجى اختيار لغة أولاً.",
+    "No email template has been set up yet.": "لم يتم إعداد أي قالب بريد إلكتروني بعد.",
+    "This email template has no content in any language yet.": "لا يحتوي قالب البريد الإلكتروني هذا على محتوى بأي لغة بعد."
 }

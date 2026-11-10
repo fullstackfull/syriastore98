@@ -489,7 +489,13 @@
                 @csrf
                 <div class="modal-header">
                     <h5 class="modal-title">{{ __('Add Balance') }}</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    {{-- P2.5 -- THE CLOSE CONTROL HAD NO NAME. Bootstrap's `.btn-close` paints its
+                         glyph with a background-image SVG and carries no text, so the accessible
+                         name was the empty string: the harness reported `button[button]` nameless
+                         four times per modal, three modals, every combination. `aria-label="Close"`
+                         is what layouts/app.blade.php:720 already does for the shell's own
+                         dialogs -- this follows it rather than inventing a second convention. --}}
+                    <button type="button" aria-label="{{ __('Close') }}" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
@@ -520,7 +526,7 @@
                 @csrf
                 <div class="modal-header">
                     <h5 class="modal-title">{{ __('Deduct Balance') }}</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    <button type="button" aria-label="{{ __('Close') }}" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="alert alert-warning">
@@ -554,7 +560,7 @@
                 @csrf
                 <div class="modal-header">
                     <h5 class="modal-title">{{ __('Request Withdrawal') }}</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    <button type="button" aria-label="{{ __('Close') }}" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="alert alert-info">
