@@ -1374,6 +1374,81 @@ VERIFIED = {
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.
 OUT_OF_SCOPE = {
+    # ---- NOT A SCREEN: no picture of its own, in any combination ------------------------------
+    #
+    # Classified 2026-11-10 by a read-only sweep whose every "closes a row" verdict was then put
+    # to an adversarial reviewer told to refute it and to default to refuting when uncertain.
+    # All nine were upheld. These are NOT "nobody got round to them" -- each is a value object, a
+    # stylesheet or a configuration table that paints nothing until some other widget or page
+    # resolves it, so its effect is already inside every capture that uses it and it has no frame
+    # of its own to photograph. Leaving them PENDING implies design work is owed that is not.
+    'App root / shell':
+        'not a screen: StoreGoApp (lib/store_go.dart) is GetBuilder -> ScreenUtilInit -> '
+        'GetMaterialApp and sets only configuration -- initialRoute, bindings, getPages, theme, '
+        'locale, delegates. No Scaffold, no AppBar, no background, no painting widget: it has no '
+        'pixels of its own, only the current route\'s. Mounting it would photograph '
+        'initialRoute /splash, which is the separate "Splash / Welcome" row already captured.',
+    'Theme definition (the only ThemeData in the app)':
+        'not a screen: theme_controller.dart builds one ThemeData (confirmed the only one -- 17 '
+        'ThemeData hits in lib/, all in that file bar the pdf package\'s unrelated class in '
+        'invoice.dart:149 and a doc comment). A ThemeData is a value object with no build '
+        'method; each component theme it declares appears only inside another row\'s capture. '
+        'golden_harness.dart:146 builds exactly this object in order to render other surfaces.',
+    'Design tokens (colour)':
+        'not a screen: utils/colors.dart is 95 lines of bare `static Color` fields (62 across '
+        'AppColor, DarkThemeColor, LightThemeColor) plus the anchors in store_syria_brand.dart. '
+        'No widget, no build method. Live rather than inert -- 612 `AppColor.` references across '
+        '72 files -- so every token\'s effect is already inside the captures of the widgets that '
+        'read it. No palette or style-guide screen exists in lib/ to photograph.',
+    'Design tokens (typography)':
+        'not a screen: utils/text_style.dart is `appFontFamily = Tajawal` and 32 top-level '
+        'getters returning TextStyle only. A TextStyle paints nothing until a Text consumes it. '
+        'Live -- 36 files import it -- so every step of the scale is already visible inside other '
+        'rows\' captures, and no type specimen is rendered anywhere in the app.',
+    'Routing table':
+        'not a screen: routes/routes.dart is 29 path constants and a List<GetPage> of 17 entries, '
+        'consumed as data at store_go.dart:37-39. It declares nothing visual at all -- no '
+        'transition, transitionDuration, curve or custom page builder appears in the file, and '
+        'GetMaterialApp sets no defaultTransition -- so it contributes neither chrome nor '
+        'animation. Every screen it names is its own inventory row.',
+    'Bindings / DI':
+        'not a screen: lib/bindings/ is 11 Bindings subclasses whose dependencies() bodies are '
+        'only Get.put / Get.lazyPut calls. A grep for Widget or transition across the directory '
+        'returns zero hits -- no file there builds or configures a widget. Live (AppBinding is '
+        'the initialBinding) but with nothing to render.',
+    'Store Syria Design System stylesheet':
+        'not a screen: a 7,305-line CSS file, linked from layouts/app.blade.php:274 and '
+        'guest.blade.php:245 and never rendered. '
+        'Tests\\Unit\\Ui\\DesignSystemStylesheetScopeTest already asserts that every selector in '
+        'it is confined by an `.ss-` class or a `data-ss-` attribute -- i.e. the file only ever '
+        'paints OTHER surfaces and owns no element of its own. No route serves it as a page.',
+    'DS theme hook + opt-in partial':
+        'not a screen, and it is two artefacts neither of which emits a painting element. The '
+        'HOOK is an HTML attribute: layouts/app.blade.php:86 writes data-ss-theme onto <html> '
+        'server-side and an inline script re-derives it with a MutationObserver; an attribute on '
+        '<html> has no bounding box. The OPT-IN PARTIAL is '
+        'layouts/includes/store-syria-ds.blade.php -- 52 lines of which 27 are a Blade comment '
+        'and the rest one <link>, one <script defer> and an inline theme-sync script.',
+    'custom.css F126 region':
+        'not a screen: a ~100-line region of public/css/custom.css (and its mirror in '
+        'rtl-custom.css) that re-colours text inside `html[data-ss-theme="dark"] .modal-content`. '
+        'Pure CSS -- there is no markup and no element the region owns. Its effect is visible in '
+        'every dark modal capture already taken, which is where it was measured and accepted.',
+
+    # ---- THE FILE NO LONGER EXISTS ------------------------------------------------------------
+    # `resources/views/partision/settingPopup.blade.php` is gone. The empty result is NOT a
+    # spelling accident, which matters because this repository has twice been misled by one: a
+    # case-insensitive repo-wide grep for `settingpopup` returns four live PROSE references to it
+    # -- layouts/app.blade.php:767 carries the deletion record ("P2.5-PKG-A-02 --
+    # `partision/settingPopup.blade.php` WAS DELETED, NOT MOVED"), store-syria-ds.css:2145, and
+    # two tests, one of which holds it as `private const DEAD_MODAL`. So the symbol provably
+    # existed and provably does not now.
+    'Settings popup (vendored, inert)':
+        'the file was deleted: resources/views/partision/settingPopup.blade.php does not exist. '
+        'layouts/app.blade.php:767 carries the deletion record and '
+        'tests/Unit/Ui/SidebarActiveStateAndIconographyTest holds the path as DEAD_MODAL. There '
+        'is nothing left to render or photograph.',
+
     # NOT A SCREEN. `MerchantNotificationController::feed()` is declared `: JsonResponse` and every
     # return in it is `response()->json([...])` -- there is no view, in any branch, including the
     # 403. Its OUTPUT is already rendered and captured as the bell dropdown, so there is nothing
@@ -1447,6 +1522,42 @@ OUT_OF_SCOPE = {
 # A row here is a claim that WORK IS NOT POSSIBLE, so each carries the evidence for that, and each
 # names what would unblock it. None of these is a defect to fix inside Phase 2.5.
 BLOCKED_SURFACES = {
+    # ---- THE LOADING INDICATOR NEVER APPEARS, AND ITS SIBLING POPS A ROUTE -------------------
+    #
+    # lib/view/widget/loading_widget.dart, in full:
+    #
+    #     static showLoader() { const LoadingWidget(); }      <- constructs and DISCARDS it
+    #     static hideLoader() { Get.back(closeOverlays: true); }
+    #
+    # `showLoader()` builds a widget expression and throws it away. Nothing is inserted into any
+    # overlay, route or builder, so NO LOADER IS EVER SHOWN -- at three live call sites:
+    # category_controller.dart:116 (fetch), :173 (search) and :225 (add/update category), plus
+    # my_plan_controller.dart:22. Three further call sites are commented out.
+    #
+    # `hideLoader()` is the dangerous half: it is an unguarded `Get.back(closeOverlays: true)`,
+    # which pops whatever is on top of the navigation stack -- not "the loader", because there is
+    # no loader. At category_controller.dart:280 it runs after the add/update request returns,
+    # with the category bottom sheet open. Whether that pop is load-bearing (closing the sheet by
+    # accident) or harmful (closing the screen underneath when the sheet has already gone) is a
+    # NAVIGATION question, and the fix either introduces a loader that was never on screen or
+    # changes what `Get.back()` closes. Both are behaviour changes on a shipped flow.
+    #
+    # So this is NOT classified as a design pass that nobody did. There is no surface to
+    # photograph -- the indicator does not render -- and the repair is a behaviour change on
+    # merchant navigation.
+    #
+    # REMEDIATION: an owner decision on whether `showLoader()` should begin showing a loader and
+    # what `hideLoader()` should dismiss. `LoadingWidget` itself is a correct one-line
+    # `Center(child: CircularProgressIndicator(...))` and needs no design work.
+    'Loading indicator (Loader / LoadingWidget)':
+        'the indicator never renders: Loader.showLoader() (loading_widget.dart:6-8) constructs '
+        '`const LoadingWidget()` and discards it, so nothing is inserted into any overlay or '
+        'route -- at three live call sites in category_controller plus my_plan_controller:22. '
+        'Loader.hideLoader() is meanwhile an unguarded Get.back(closeOverlays: true) that pops '
+        'whatever is on top, with no loader to dismiss. There is no surface to photograph, and '
+        'the repair is a navigation behaviour change on a shipped flow. REMEDIATION: an owner '
+        'decision on whether to show a loader and on what hideLoader() should close.',
+
     # ---- BLOCKED ON A PLATFORM CHANNEL, measured rather than assumed --------------------------
     # `InvoicePdfViewScreen` builds a `PdfPreview` (invoice_pdf_view.dart:98) and the preview
     # rasterises through the `printing` plugin. Driven in all four combinations the screen throws
@@ -1626,6 +1737,27 @@ BLOCKED_SURFACES = {
 # SO THE INVENTORY HOLDS 295 ROWS DESCRIBING 293 DISTINCT SURFACES. Both numbers are reported.
 # ---------------------------------------------------------------------------------------------
 DUPLICATE_OF = {
+    # The inventory carries this artefact TWICE -- once in the Wave A component section
+    # (PHASE-2.5-SURFACE-INVENTORY.md:540) and once in the navigation-shell section (:99), both
+    # with route `partial/component`. Both name the same file,
+    # resources/views/layouts/includes/store-syria-ds.blade.php.
+    'Design-system opt-in partial': (
+        'DS theme hook + opt-in partial',
+        'the same file -- resources/views/layouts/includes/store-syria-ds.blade.php -- which the '
+        'other row already covers as its "opt-in partial" half. Two audit passes listed it in '
+        'two sections.'),
+
+    # The three stock row-payload rows are claimed on clipped captures of the very tables these
+    # cells are rendered INTO (`#low-stock-table` and its two siblings). The cells and the
+    # payload are the same pixels; claiming both would count one surface twice off one set of
+    # photographs, which is the overclaim the VERIFIED block exists to prevent.
+    'Stock report row cells (status + action)': (
+        'Low in Stock \u2014 row payload',
+        'the same pixels. shoot-fragments.cjs clips `#low-stock-table`, `#out-of-stock-table` '
+        'and `#most-stocked-table` -- the tables the row payloads land in -- so the three '
+        'payload rows are already claimed on captures OF these cells. A fourth claim on the '
+        'same images would inflate the count.'),
+
     # ONE FLUTTER SCREEN, INVENTORIED TWICE. Both rows name the same GetX route and the same
     # widget: inventory :602 `Bottom-nav shell (DashBoardManagerScreen)` -> `/dashboard (GetX
     # named route)`, and :658 `Dashboard shell (bottom navigation)` -> `GetX /dashboard`. There is

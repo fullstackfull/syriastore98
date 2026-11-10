@@ -11,10 +11,10 @@ hand-maintained matrix is precisely how that happens.
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
 | REDESIGNED AND VERIFIED | 184 | 62.4% |
-| BLOCKED | 18 | 6.1% |
-| OUT OF SCOPE | 5 | 1.7% |
-| DUPLICATE | 3 | 1.0% |
-| PENDING | 61 | 20.7% |
+| BLOCKED | 19 | 6.4% |
+| OUT OF SCOPE | 15 | 5.1% |
+| DUPLICATE | 5 | 1.7% |
+| PENDING | 48 | 16.3% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -34,13 +34,13 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | Flutter merchant admin app | 51 | 0 | 42 | 2 | 0 | 6 |
 | CATALOGUE taxonomy | 38 | 13 | 20 | 0 | 0 | 5 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 22 | 3 | 3 | 7 |
-| Phase 2.5 Wave A | 30 | 0 | 25 | 0 | 0 | 5 |
-| Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 16 | 5 | 1 | 3 |
-| Flutter merchant/employee admin app | 24 | 0 | 13 | 0 | 0 | 11 |
+| Phase 2.5 Wave A | 30 | 0 | 25 | 0 | 3 | 2 |
+| Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 16 | 5 | 1 | 2 |
+| Flutter merchant/employee admin app | 24 | 0 | 13 | 1 | 6 | 4 |
 | Customers and customer management | 20 | 0 | 12 | 4 | 0 | 4 |
 | ORDERS | 17 | 0 | 9 | 3 | 0 | 5 |
 | PRODUCTS | 16 | 1 | 7 | 1 | 0 | 7 |
-| Merchant admin NAVIGATION SHELL | 13 | 4 | 7 | 0 | 0 | 2 |
+| Merchant admin NAVIGATION SHELL | 13 | 4 | 7 | 0 | 1 | 0 |
 | Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 6 | 0 | 0 | 6 |
 | Merchant dashboard and KPI presentation | 9 | 3 | 5 | 0 | 1 | 0 |
 
@@ -195,8 +195,8 @@ actually been done to it since. They are different questions and the matrix keep
 
 | surface | route / kind | audit | state | evidence or reason |
 |---|---|---|---|---|
-| Store Syria Design System stylesheet | ``partial/component — linked globally at resources/views/layout` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| DS theme hook + opt-in partial | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Store Syria Design System stylesheet | ``partial/component — linked globally at resources/views/layout` | premium-already | **OUT OF SCOPE** | not a screen: a 7,305-line CSS file, linked from layouts/app.blade.php:274 and guest.blade.php:245 and never rendered. Tests\Unit\Ui\DesignSystemStylesheetScopeTest already asserts that every selector in it is confined by an `.ss-` class or a `data-ss-` attribute -- i.e. the file only ever paints OTHER surfaces and owns no element of its own. No route serves it as a page. |
+| DS theme hook + opt-in partial | ``partial/component`` | premium-already | **OUT OF SCOPE** | not a screen, and it is two artefacts neither of which emits a painting element. The HOOK is an HTML attribute: layouts/app.blade.php:86 writes data-ss-theme onto <html> server-side and an inline script re-derives it with a MutationObserver; an attribute on <html> has no bounding box. The OPT-IN PARTIAL is layouts/includes/store-syria-ds.blade.php -- 52 lines of which 27 are a Blade comment and the rest one <link>, one <script defer> and an inline theme-sync script. |
 | x-ss.page-header | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
 | x-ss.card | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
 | x-ss.stat | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
@@ -223,7 +223,7 @@ actually been done to it since. They are different questions and the matrix keep
 | x-ss.advanced-fields | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
 | x-ss.choice-group | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
 | x-datatable | ``partial/component — used by 39 host views; 66 of 68 DataTable` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| custom.css F126 region | ``partial/component — public/css/custom.css, loaded on every ad` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| custom.css F126 region | ``partial/component — public/css/custom.css, loaded on every ad` | premium-already | **OUT OF SCOPE** | not a screen: a ~100-line region of public/css/custom.css (and its mirror in rtl-custom.css) that re-colours text inside `html[data-ss-theme="dark"] .modal-content`. Pure CSS -- there is no markup and no element the region owns. Its effect is visible in every dark modal capture already taken, which is where it was measured and accepted. |
 | Legacy Breeze/Tailwind component set (co-resident) | ``partial/component`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 
 ### Reports/Analytics presentation, Notifications, and the con
@@ -237,7 +237,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Sales Report (radial/bar variant) | ``GET order-reports-data`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
 | Sales report bar body (AJAX fragment) | ``GET order-reports-chart-data`` | premium-already | **BLOCKED** | HTTP 500 on the SQLite dev fixture in all four combinations: ReportController::order_reports_chart_data (:985-1205) uses MONTH() and YEAR(). Production is MySQL. REMEDIATION: a MySQL dev fixture. |
 | Stock Reports | ``GET stock-reports (also registered as GET /stock-report, same` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
-| Stock report row cells (status + action) | ``partial/component — rendered into GET stockReport.lowStock / ` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Stock report row cells (status + action) | ``partial/component — rendered into GET stockReport.lowStock / ` | premium-already | **DUPLICATE** | the same surface as **Low in Stock — row payload** — the same pixels. shoot-fragments.cjs clips `#low-stock-table`, `#out-of-stock-table` and `#most-stocked-table` -- the tables the row payloads land in -- so the three payload rows are already claimed on captures OF these cells. A fourth claim on the same images would inflate the count. |
 | Sales by Product | ``GET product-order-sale-reports`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
 | Sales by Category | ``GET category-order-sale-reports`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
 | Sales Brand Report | ``GET Brand-order-sale-reports`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
@@ -261,10 +261,10 @@ actually been done to it since. They are different questions and the matrix keep
 
 | surface | route / kind | audit | state | evidence or reason |
 |---|---|---|---|---|
-| App root / shell | ``n/a — widget root, wraps every route`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Theme definition (the only ThemeData in the app) | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Design tokens (colour) | ``partial/component`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Design tokens (typography) | ``partial/component`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| App root / shell | ``n/a — widget root, wraps every route`` | needs-polish | **OUT OF SCOPE** | not a screen: StoreGoApp (lib/store_go.dart) is GetBuilder -> ScreenUtilInit -> GetMaterialApp and sets only configuration -- initialRoute, bindings, getPages, theme, locale, delegates. No Scaffold, no AppBar, no background, no painting widget: it has no pixels of its own, only the current route's. Mounting it would photograph initialRoute /splash, which is the separate "Splash / Welcome" row already captured. |
+| Theme definition (the only ThemeData in the app) | ``partial/component`` | needs-polish | **OUT OF SCOPE** | not a screen: theme_controller.dart builds one ThemeData (confirmed the only one -- 17 ThemeData hits in lib/, all in that file bar the pdf package's unrelated class in invoice.dart:149 and a doc comment). A ThemeData is a value object with no build method; each component theme it declares appears only inside another row's capture. golden_harness.dart:146 builds exactly this object in order to render other surfaces. |
+| Design tokens (colour) | ``partial/component`` | deficient | **OUT OF SCOPE** | not a screen: utils/colors.dart is 95 lines of bare `static Color` fields (62 across AppColor, DarkThemeColor, LightThemeColor) plus the anchors in store_syria_brand.dart. No widget, no build method. Live rather than inert -- 612 `AppColor.` references across 72 files -- so every token's effect is already inside the captures of the widgets that read it. No palette or style-guide screen exists in lib/ to photograph. |
+| Design tokens (typography) | ``partial/component`` | deficient | **OUT OF SCOPE** | not a screen: utils/text_style.dart is `appFontFamily = Tajawal` and 32 top-level getters returning TextStyle only. A TextStyle paints nothing until a Text consumes it. Live -- 36 files import it -- so every step of the scale is already visible inside other rows' captures, and no type specimen is rendered anywhere in the app. |
 | Bottom-nav shell (DashBoardManagerScreen) | ``/dashboard (GetX named route)`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Nav destination 1 — Home/dashboard | ``/dashboard tab 0`` | unknown | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SHELL; four captures under evidence/flutter-shell-2026-11-09/ |
 | Nav destination 2 — Orders | ``/dashboard tab 1`` | unknown | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SHELL; four captures under evidence/flutter-shell-2026-11-09/ |
@@ -282,9 +282,9 @@ actually been done to it since. They are different questions and the matrix keep
 | Shared skeletons (AppShimmer) | ``partial/component — adopted in 22 files`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
 | Shared status indicators | ``partial/component — statusPill 5 live sites; StatusBadgeHelpe` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-COMPONENTS; four captures under evidence/flutter-components-2026-11-09/ |
 | Theme switch animation | ``partial/component — wraps the whole app via GetMaterialApp bu` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Loading indicator (Loader / LoadingWidget) | ``partial/component — Loader.showLoader() live at 4 sites`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Routing table | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
-| Bindings / DI | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Loading indicator (Loader / LoadingWidget) | ``partial/component — Loader.showLoader() live at 4 sites`` | deficient | **BLOCKED** | the indicator never renders: Loader.showLoader() (loading_widget.dart:6-8) constructs `const LoadingWidget()` and discards it, so nothing is inserted into any overlay or route -- at three live call sites in category_controller plus my_plan_controller:22. Loader.hideLoader() is meanwhile an unguarded Get.back(closeOverlays: true) that pops whatever is on top, with no loader to dismiss. There is no surface to photograph, and the repair is a navigation behaviour change on a shipped flow. REMEDIATION: an owner decision on whether to show a loader and on what hideLoader() should close. |
+| Routing table | ``partial/component`` | needs-polish | **OUT OF SCOPE** | not a screen: routes/routes.dart is 29 path constants and a List<GetPage> of 17 entries, consumed as data at store_go.dart:37-39. It declares nothing visual at all -- no transition, transitionDuration, curve or custom page builder appears in the file, and GetMaterialApp sets no defaultTransition -- so it contributes neither chrome nor animation. Every screen it names is its own inventory row. |
+| Bindings / DI | ``partial/component`` | needs-polish | **OUT OF SCOPE** | not a screen: lib/bindings/ is 11 Bindings subclasses whose dependencies() bodies are only Get.put / Get.lazyPut calls. A grep for Widget or transition across the directory returns zero hits -- no file there builds or configures a widget. Live (AppBinding is the initialBinding) but with nothing to render. |
 
 ### Customers and customer management
 
@@ -368,9 +368,9 @@ actually been done to it since. They are different questions and the matrix keep
 | Breadcrumb component | ``partial/component (rendered by the layout on every screen exc` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-PKG-A-09; four captures under evidence/pkg-a-09/ |
 | Page-header component | ``partial/component`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-A-09; four captures under evidence/pkg-a-09/ |
 | Notifications (the bell's destination) | ``GET /merchant-notifications`` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
-| Settings popup (vendored, inert) | ``partial/component — included by layouts/app.blade.php:573 on ` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Settings popup (vendored, inert) | ``partial/component — included by layouts/app.blade.php:573 on ` | deficient | **OUT OF SCOPE** | the file was deleted: resources/views/partision/settingPopup.blade.php does not exist. layouts/app.blade.php:767 carries the deletion record and tests/Unit/Ui/SidebarActiveStateAndIconographyTest holds the path as DEAD_MODAL. There is nothing left to render or photograph. |
 | Footer + script bundle | ``partial/component`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-A-09; four captures under evidence/pkg-a-09/ |
-| Design-system opt-in partial | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Design-system opt-in partial | ``partial/component`` | premium-already | **DUPLICATE** | the same surface as **DS theme hook + opt-in partial** — the same file -- resources/views/layouts/includes/store-syria-ds.blade.php -- which the other row already covers as its "opt-in partial" half. Two audit passes listed it in two sections. |
 
 ### Stock/inventory reporting + finance/wallet/payout screens
 
