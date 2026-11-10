@@ -1,0 +1,250 @@
+{
+  "findings": [
+    {
+      "slug": "faq-edit",
+      "combo": "en-ltr-light",
+      "kind": "premise",
+      "detail": "modal holds no <form> (0 chars of text) — it never loaded"
+    },
+    {
+      "slug": "users-edit",
+      "combo": "en-ltr-light",
+      "kind": "premise",
+      "detail": "no visible edit trigger outside a menu matching button[data-ajax-popup=\"true\"] (0 matched, all hidden or in the Quick Add menu)"
+    },
+    {
+      "slug": "flash-sale-edit",
+      "combo": "en-ltr-light",
+      "kind": "premise",
+      "detail": "no visible edit trigger outside a menu matching button[data-ajax-popup=\"true\"] (0 matched, all hidden or in the Quick Add menu)"
+    },
+    {
+      "slug": "pixel-create",
+      "combo": "en-ltr-light",
+      "kind": "premise",
+      "detail": "no visible create trigger outside a menu matching a[data-ajax-popup=\"true\"] (3 matched, all hidden or in the Quick Add menu)"
+    },
+    {
+      "slug": "webhook-create",
+      "combo": "en-ltr-light",
+      "kind": "premise",
+      "detail": "no visible create trigger outside a menu matching a[data-ajax-popup=\"true\"] (3 matched, all hidden or in the Quick Add menu)"
+    },
+    {
+      "slug": "faq-edit",
+      "combo": "en-ltr-dark",
+      "kind": "premise",
+      "detail": "modal holds no <form> (0 chars of text) — it never loaded"
+    },
+    {
+      "slug": "users-edit",
+      "combo": "en-ltr-dark",
+      "kind": "premise",
+      "detail": "no visible edit trigger outside a menu matching button[data-ajax-popup=\"true\"] (0 matched, all hidden or in the Quick Add menu)"
+    },
+    {
+      "slug": "flash-sale-edit",
+      "combo": "en-ltr-dark",
+      "kind": "premise",
+      "detail": "no visible edit trigger outside a menu matching button[data-ajax-popup=\"true\"] (0 matched, all hidden or in the Quick Add menu)"
+    },
+    {
+      "slug": "pixel-create",
+      "combo": "en-ltr-dark",
+      "kind": "premise",
+      "detail": "no visible create trigger outside a menu matching a[data-ajax-popup=\"true\"] (3 matched, all hidden or in the Quick Add menu)"
+    },
+    {
+      "slug": "webhook-create",
+      "combo": "en-ltr-dark",
+      "kind": "premise",
+      "detail": "no visible create trigger outside a menu matching a[data-ajax-popup=\"true\"] (3 matched, all hidden or in the Quick Add menu)"
+    },
+    {
+      "slug": "faq-edit",
+      "combo": "ar-rtl-light",
+      "kind": "premise",
+      "detail": "modal holds no <form> (0 chars of text) — it never loaded"
+    },
+    {
+      "slug": "testimonial-edit",
+      "combo": "ar-rtl-light",
+      "kind": "latin",
+      "detail": "\"Textiles\" in \"Textiles\""
+    },
+    {
+      "slug": "users-edit",
+      "combo": "ar-rtl-light",
+      "kind": "premise",
+      "detail": "no visible edit trigger outside a menu matching button[data-ajax-popup=\"true\"] (0 matched, all hidden or in the Quick Add menu)"
+    },
+    {
+      "slug": "flash-sale-edit",
+      "combo": "ar-rtl-light",
+      "kind": "premise",
+      "detail": "no visible edit trigger outside a menu matching button[data-ajax-popup=\"true\"] (0 matched, all hidden or in the Quick Add menu)"
+    },
+    {
+      "slug": "pixel-create",
+      "combo": "ar-rtl-light",
+      "kind": "premise",
+      "detail": "no visible create trigger outside a menu matching a[data-ajax-popup=\"true\"] (3 matched, all hidden or in the Quick Add menu)"
+    },
+    {
+      "slug": "webhook-create",
+      "combo": "ar-rtl-light",
+      "kind": "premise",
+      "detail": "no visible create trigger outside a menu matching a[data-ajax-popup=\"true\"] (3 matched, all hidden or in the Quick Add menu)"
+    },
+    {
+      "slug": "faq-edit",
+      "combo": "ar-rtl-dark",
+      "kind": "premise",
+      "detail": "modal holds no <form> (0 chars of text) — it never loaded"
+    },
+    {
+      "slug": "testimonial-edit",
+      "combo": "ar-rtl-dark",
+      "kind": "latin",
+      "detail": "\"Textiles\" in \"Textiles\""
+    },
+    {
+      "slug": "users-edit",
+      "combo": "ar-rtl-dark",
+      "kind": "premise",
+      "detail": "no visible edit trigger outside a menu matching button[data-ajax-popup=\"true\"] (0 matched, all hidden or in the Quick Add menu)"
+    },
+    {
+      "slug": "flash-sale-edit",
+      "combo": "ar-rtl-dark",
+      "kind": "premise",
+      "detail": "no visible edit trigger outside a menu matching button[data-ajax-popup=\"true\"] (0 matched, all hidden or in the Quick Add menu)"
+    },
+    {
+      "slug": "pixel-create",
+      "combo": "ar-rtl-dark",
+      "kind": "premise",
+      "detail": "no visible create trigger outside a menu matching a[data-ajax-popup=\"true\"] (3 matched, all hidden or in the Quick Add menu)"
+    },
+    {
+      "slug": "webhook-create",
+      "combo": "ar-rtl-dark",
+      "kind": "premise",
+      "detail": "no visible create trigger outside a menu matching a[data-ajax-popup=\"true\"] (3 matched, all hidden or in the Quick Add menu)"
+    }
+  ],
+  "surfaces": [
+    [
+      "coupon-create",
+      {
+        "combos": 4,
+        "fields": 25
+      }
+    ],
+    [
+      "coupon-edit",
+      {
+        "combos": 4,
+        "fields": 25
+      }
+    ],
+    [
+      "category-create",
+      {
+        "combos": 4,
+        "fields": 8
+      }
+    ],
+    [
+      "category-edit",
+      {
+        "combos": 4,
+        "fields": 8
+      }
+    ],
+    [
+      "faq-create",
+      {
+        "combos": 4,
+        "fields": 3
+      }
+    ],
+    [
+      "tag-create",
+      {
+        "combos": 4,
+        "fields": 3
+      }
+    ],
+    [
+      "tag-edit",
+      {
+        "combos": 4,
+        "fields": 3
+      }
+    ],
+    [
+      "testimonial-create",
+      {
+        "combos": 4,
+        "fields": 13
+      }
+    ],
+    [
+      "testimonial-edit",
+      {
+        "combos": 4,
+        "fields": 13
+      }
+    ],
+    [
+      "brand-create",
+      {
+        "combos": 4,
+        "fields": 6
+      }
+    ],
+    [
+      "brand-edit",
+      {
+        "combos": 4,
+        "fields": 6
+      }
+    ],
+    [
+      "product-label-create",
+      {
+        "combos": 4,
+        "fields": 4
+      }
+    ],
+    [
+      "product-label-edit",
+      {
+        "combos": 4,
+        "fields": 4
+      }
+    ],
+    [
+      "users-create",
+      {
+        "combos": 4,
+        "fields": 6
+      }
+    ],
+    [
+      "flash-sale-create",
+      {
+        "combos": 4,
+        "fields": 13
+      }
+    ],
+    [
+      "product-question-edit",
+      {
+        "combos": 4,
+        "fields": 5
+      }
+    ]
+  ]
+}

@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 144 | 48.8% |
+| REDESIGNED AND VERIFIED | 155 | 52.5% |
 | BLOCKED | 10 | 3.4% |
 | OUT OF SCOPE | 3 | 1.0% |
-| PENDING | 114 | 38.6% |
+| PENDING | 103 | 34.9% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -31,8 +31,8 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
 | Flutter merchant admin app | 51 | 0 | 34 | 0 | 0 | 17 |
-| CATALOGUE taxonomy | 38 | 13 | 9 | 0 | 0 | 16 |
-| Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 20 | 1 | 2 | 12 |
+| CATALOGUE taxonomy | 38 | 13 | 19 | 0 | 0 | 6 |
+| Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 21 | 1 | 2 | 11 |
 | Phase 2.5 Wave A | 30 | 0 | 25 | 0 | 0 | 5 |
 | Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 6 | 1 | 0 | 19 |
 | Flutter merchant/employee admin app | 24 | 0 | 13 | 0 | 0 | 11 |
@@ -110,11 +110,11 @@ actually been done to it since. They are different questions and the matrix keep
 |---|---|---|---|---|
 | Category list | ``GET /category`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Category create (modal) | ``GET /category/create`` | premium-already | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-modals/ |
-| Category edit (modal) | ``GET /category/{category}/edit`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Category edit (modal) | ``GET /category/{category}/edit`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-MODAL; four captures under evidence/web-modals-2026-11-10/ |
 | Category row actions | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Brand list | ``GET /product-brand`` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Brand create (modal) | ``GET /product-brand/create`` | deficient | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-modals/ |
-| Brand edit (modal) | ``GET /product-brand/{productBrand}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Brand edit (modal) | ``GET /product-brand/{productBrand}/edit`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-MODAL; four captures under evidence/web-modals-2026-11-10/ |
 | Brand row actions | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Attributes list | ``GET /product-attributes`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Attribute create / edit (modals) | ``GET /product-attributes/create, GET /product-attributes/{id}/` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
@@ -122,28 +122,28 @@ actually been done to it since. They are different questions and the matrix keep
 | Attribute options (DS pilot screen) | ``GET /attribute-option/{id?}`` | premium-already | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
 | Attribute option create / edit (modals) | ``GET /add-attribute-option/{id?}, GET /edit-attribute-option/{` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Tag list | ``GET /tag`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
-| Tag create / edit (modals) | ``GET /tag/create, GET /tag/{tag}/edit`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Tag create / edit (modals) | ``GET /tag/create, GET /tag/{tag}/edit`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-MODAL; four captures under evidence/web-modals-2026-11-10/ |
 | Tag row actions | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Product label list | ``GET /product-label`` | needs-polish | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
-| Product label create / edit (modals) | ``GET /product-label/create, GET /product-label/{id}/edit`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Product label create / edit (modals) | ``GET /product-label/create, GET /product-label/{id}/edit`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-MODAL; four captures under evidence/web-modals-2026-11-10/ |
 | Product label row actions | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Coupon list | ``GET /coupon`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-2; four captures under evidence/wave-2/ |
 | Coupon detail | ``GET /coupon/{coupon}`` | deficient | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
-| Coupon create (modal) | ``GET /coupon/create`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Coupon edit (modal) | ``GET /coupon/{coupon}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Coupon create (modal) | ``GET /coupon/create`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-MODAL; four captures under evidence/web-modals-2026-11-10/ |
+| Coupon edit (modal) | ``GET /coupon/{coupon}/edit`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-MODAL; four captures under evidence/web-modals-2026-11-10/ |
 | Coupon row actions | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Flash sale list | ``GET /flash-sale`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
 | Flash sale status cell | ``partial/component`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
-| Flash sale create (modal) | ``GET /flash-sale/create`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Flash sale create (modal) | ``GET /flash-sale/create`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-MODAL; four captures under evidence/web-modals-2026-11-10/ |
 | Flash sale edit (modal) | ``GET /flash-sale/{id}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Product question list | ``GET /product-question`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
-| Product question reply (modal) | ``GET /product-question/{id}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Product question reply (modal) | ``GET /product-question/{id}/edit`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-MODAL; four captures under evidence/web-modals-2026-11-10/ |
 | Product question row actions | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Testimonial list | ``GET /testimonial`` | deficient | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
-| Testimonial create / edit (modals) | ``GET /testimonial/create, GET /testimonial/{Testimonial}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Testimonial create / edit (modals) | ``GET /testimonial/create, GET /testimonial/{Testimonial}/edit`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-MODAL; four captures under evidence/web-modals-2026-11-10/ |
 | Testimonial row actions | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | FAQ list | ``GET /faqs`` | needs-polish | **PREMIUM VERIFIED** | P2.5-PKG-B; four captures under evidence/pkg-b-pages/ |
-| FAQ create (modal) | ``GET /faqs/create`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| FAQ create (modal) | ``GET /faqs/create`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-MODAL; four captures under evidence/web-modals-2026-11-10/ |
 | FAQ edit (modal, repeater) | ``GET /faqs/{faq}/edit`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | FAQ row actions | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 
@@ -166,7 +166,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Delivery Syria (wallet + parcels) | ``GET /setting (tab) and POST /delivery-syria/update`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-SET; four captures under evidence/web-settings-tabs-2026-11-09/ |
 | Users / staff list (card grid) | ``GET /users`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
 | Users / staff list (table view) | ``GET /user-list`` | premium-already | **PREMIUM VERIFIED** | P2.5-WAVE-33; four captures under evidence/wave-33/ |
-| Create staff user (modal) | ``GET /users/create -> POST /users`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Create staff user (modal) | ``GET /users/create -> POST /users`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-MODAL; four captures under evidence/web-modals-2026-11-10/ |
 | Edit staff user (modal) | ``GET /users/{id}/edit -> PUT /users/{id}`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Reset staff password (modal) | ``POST users.resetpassword`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Staff detail / user info | ``GET /user-info/{id}`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |

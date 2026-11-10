@@ -255,9 +255,6 @@ const MEASURE = (args) => {
 
   if (args.lang === 'ar') {
     const ok = new Set(args.latinOk);
-    // Merchant data already on the page is not an untranslated string -- the same rule
-    // shoot-row-actions.cjs needed, and for the same reason.
-    const pageData = (document.body.innerText || '').toLowerCase();
     const seen = new Set();
     const walker = document.createTreeWalker(modal, NodeFilter.SHOW_TEXT);
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
@@ -267,6 +264,23 @@ const MEASURE = (args) => {
       if (!el || hidden(el)) continue;
       if (el.closest('.visually-hidden, .sr-only, .ss-visually-hidden, code, pre, script, style, option')) continue;
       if (el.closest('input, textarea, select')) continue;
+      /*
+       * A SELECTED-VALUE CHIP IS MERCHANT DATA, NOT UI COPY.
+       *
+       * Choices.js renders each selected option as a `<div class="choices__item">` -- NOT an
+       * `<option>` -- so skipping form controls does not reach it, and the testimonial edit
+       * modal reported its own category `Textiles` as an untranslated string. It is one of four
+       * categories in the fixture (`Textiles`, `Soaps`, `Homeware`, `Scarves & Shawls`), all
+       * named by the merchant.
+       *
+       * This is the same mistake shoot-row-actions.cjs made with
+       * `تعديل التصنيف Scarves & Shawls`, and it has the same cost if left: the "fix" a reader
+       * would reach for is to stop showing the record's name, which makes the surface worse.
+       *
+       * An earlier version of this file computed a `pageData` string for exactly this purpose
+       * and then never used it -- dead code that looked like the check was handled.
+       */
+      if (el.closest('.choices__item, .select2-selection, .select2-selection__choice')) continue;
       const bad = (raw.match(/[A-Za-z][A-Za-z'.-]+/g) || [])
         .filter(w => !w.toLowerCase().split(/[^a-z]+/).filter(Boolean).every(part => ok.has(part)));
       if (!bad.length) continue;

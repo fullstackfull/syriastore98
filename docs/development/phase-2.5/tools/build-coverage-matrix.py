@@ -1069,6 +1069,50 @@ VERIFIED = {
     #       This reaches EVERY date in the app, not only these two screens.
     # ----------------------------------------------------------------------------------------
 
+    # ----------------------------------------------------------------------------------------
+    # P2.5-MODAL. The AJAX create/edit modals, driven by shoot-modals.cjs.
+    #
+    # 16 surfaces captured x 4 combinations = 64 captures, 64 distinct. The eleven rows below are
+    # the ones that were PENDING; `Category create (modal)` and `Brand create (modal)` are
+    # ALREADY PREMIUM VERIFIED and are deliberately NOT claimed here, because a second dict entry
+    # under the same name overwrites the first and would demote them.
+    #
+    # FOUR HARNESS DEFECTS and FOUR APPLICATION DEFECTS are described in
+    # evidence/web-modals-2026-11-10/README.md. The two that generalise:
+    #   - the shell's Quick Add dropdown owns three `a[data-ajax-popup]` on EVERY page, and
+    #     clicking the first match timed out against an invisible element for 30s, recording
+    #     "never loaded" for every create surface;
+    #   - the flash-sale `[condition]` select a merchant sees is written by JAVASCRIPT, so an
+    #     aria-label added to the blade's `Form::select` rendered and was then thrown away.
+    #
+    # FIVE SURFACES ARE NOT CLAIMED and stay PENDING with their measured reason:
+    #   users-edit, flash-sale-edit  -- no record with an edit trigger in the fixture
+    #   pixel-create, webhook-create -- the settings panel offers no create control of its own
+    #   faq-edit                     -- the modal loads no form even with repeater-shaped data
+    # ----------------------------------------------------------------------------------------
+    'Category edit (modal)':
+        ('REDESIGNED AND VERIFIED', 'web-modals-2026-11-10', 'category-edit__', 'P2.5-MODAL'),
+    'Brand edit (modal)':
+        ('REDESIGNED AND VERIFIED', 'web-modals-2026-11-10', 'brand-edit__', 'P2.5-MODAL'),
+    'Tag create / edit (modals)':
+        ('REDESIGNED AND VERIFIED', 'web-modals-2026-11-10', 'tag-create__', 'P2.5-MODAL'),
+    'Product label create / edit (modals)':
+        ('REDESIGNED AND VERIFIED', 'web-modals-2026-11-10', 'product-label-create__', 'P2.5-MODAL'),
+    'Coupon create (modal)':
+        ('REDESIGNED AND VERIFIED', 'web-modals-2026-11-10', 'coupon-create__', 'P2.5-MODAL'),
+    'Coupon edit (modal)':
+        ('REDESIGNED AND VERIFIED', 'web-modals-2026-11-10', 'coupon-edit__', 'P2.5-MODAL'),
+    'FAQ create (modal)':
+        ('REDESIGNED AND VERIFIED', 'web-modals-2026-11-10', 'faq-create__', 'P2.5-MODAL'),
+    'Testimonial create / edit (modals)':
+        ('REDESIGNED AND VERIFIED', 'web-modals-2026-11-10', 'testimonial-create__', 'P2.5-MODAL'),
+    'Flash sale create (modal)':
+        ('REDESIGNED AND VERIFIED', 'web-modals-2026-11-10', 'flash-sale-create__', 'P2.5-MODAL'),
+    'Create staff user (modal)':
+        ('REDESIGNED AND VERIFIED', 'web-modals-2026-11-10', 'users-create__', 'P2.5-MODAL'),
+    'Product question reply (modal)':
+        ('REDESIGNED AND VERIFIED', 'web-modals-2026-11-10', 'product-question-edit__', 'P2.5-MODAL'),
+
     'Store payment methods':
         ('REDESIGNED AND VERIFIED', 'flutter-payment-methods-2026-11-10',
          'flutter-payment-methods_', 'P2.5-FLUTTER-DETAIL2'),
