@@ -10,7 +10,13 @@
             --}}
             <x-ss.stats :label="__('Order value by category')">
                 @foreach ($NetSalesofcategory as $name => $saleAmount)
-                    <x-ss.stat :label="$name"
+                    {{-- The key IS the label here, and one key in this map is the application's own
+                         aggregate row rather than a merchant record. `AggregateSeriesLabel`
+                         translates those two literals and passes every merchant brand or
+                         category name through untouched -- a blanket `__($name)` would
+                         rewrite a merchant's record whenever its name collided with a UI
+                         translation key. --}}
+                    <x-ss.stat :label="\App\Support\Reports\AggregateSeriesLabel::display($name)"
                                :value="$currency . number_format($saleAmount, 2)"
                                :period="$periodLabel"
                                :hint="__('The total value of items ordered. This is not payments received, and not profit.')" />

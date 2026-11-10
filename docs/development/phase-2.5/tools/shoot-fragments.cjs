@@ -75,6 +75,55 @@ const SURFACES = [
     trigger: 'button[data-url*="order_view"], a[data-url*="order_view"]',
     container: '#commanModel',
   },
+
+  // ---- P2.5-WEB-SWEEP follow-up: the fragments the 2026-11-10 route sweep identified ---------
+  //
+  // Each of these scored EXACTLY 1/4 when driven as a URL, always `en-ltr-light`, which is the
+  // fingerprint of a document fragment rather than a partial failure: the response carries no
+  // `<html>` element, so `dir` reads null (null !== 'rtl' fails both Arabic rows) and no dark
+  // stylesheet is linked (fails both dark rows), leaving the one combination that asks for
+  // neither to pass by coincidence. They are captured here, in place, inside the page that
+  // actually asks for them.
+  //
+  // THE CHART BODIES LOAD THEMSELVES. `fetchData(...)` runs on document-ready
+  // (sale_by_category.blade.php:159, sale_by_brand.blade.php:175) and replaces `.chart_data`.
+  // There is no trigger to click and no table to wait for.
+  {
+    slug: 'category-sales-body',
+    route: '/category-order-sale-reports',
+    container: '.chart_data',
+    waitForRows: false,
+  },
+  {
+    slug: 'brand-sales-body',
+    route: '/Brand-order-sale-reports',
+    container: '.chart_data',
+    waitForRows: false,
+  },
+
+  // THE STOCK ROW PAYLOADS are three DataTables inside one 3-tab shell
+  // (reports/stock_report.blade.php:160-235). Each tab's table fetches its own route
+  // (stockReport.lowStock / .outOfStock / .mostStocked at :265, :325, :388), so the fragment is
+  // the table body and the trigger is the pill that reveals it. Low-stock is the default tab;
+  // its pill is clicked anyway so all three are driven the same way.
+  {
+    slug: 'stock-low-rows',
+    route: '/stock-reports',
+    trigger: 'a[data-bs-target="#pills-low-stock"]',
+    container: '#low-stock-table',
+  },
+  {
+    slug: 'stock-out-rows',
+    route: '/stock-reports',
+    trigger: 'a[data-bs-target="#pills-out-of-stock"]',
+    container: '#out-of-stock-table',
+  },
+  {
+    slug: 'stock-most-rows',
+    route: '/stock-reports',
+    trigger: 'a[data-bs-target="#pills-most-stocked"]',
+    container: '#most-stocked-table',
+  },
 ];
 
 const COMBOS = [
@@ -287,27 +336,41 @@ const MEASURE = (args) => {
       }
 
       // The list is a DataTable: wait for a real row before looking for a row trigger.
-      await page.waitForFunction(() => {
-        const rows = [...document.querySelectorAll('table tbody tr')];
-        return rows.length > 0 && rows.some(r => !r.querySelector('.ss-dt-empty') && r.querySelectorAll('td').length > 1);
-      }, null, { timeout: 15000 }).catch(() => {});
-
-      const handles = await page.$$(s.trigger);
-      let trigger = null;
-      for (const h of handles) {
-        const usable = await h.evaluate(
-          (e) => !!e.offsetParent && !e.closest('.dropdown-menu, nav, header, .ss-topbar'),
-        ).catch(() => false);
-        if (usable) { trigger = h; break; }
+      // SKIPPED for a surface that declares `waitForRows: false`. The chart bodies live on pages
+      // that have no table at all, and this wait is a 15-SECOND timeout there -- harmless, but it
+      // doubles the run, and a swallowed timeout reads like a working wait to the next person.
+      if (s.waitForRows !== false) {
+        await page.waitForFunction(() => {
+          const rows = [...document.querySelectorAll('table tbody tr')];
+          return rows.length > 0 && rows.some(r => !r.querySelector('.ss-dt-empty') && r.querySelectorAll('td').length > 1);
+        }, null, { timeout: 15000 }).catch(() => {});
       }
 
-      if (!trigger) {
-        note('premise', 'no visible trigger outside a menu matching ' + s.trigger
-          + ' (' + handles.length + ' matched)');
-        continue;
-      }
+      // A TRIGGER IS OPTIONAL, because not every fragment waits to be asked for.
+      //
+      // `reports/sale_by_category.blade.php:159` and `sale_by_brand.blade.php:175` both call
+      // `fetchData(...)` inside `$(document).ready`, so the chart body is fetched and injected
+      // into `.chart_data` without anybody clicking anything. Requiring a trigger reported those
+      // two as "no visible trigger", which is true and says nothing about the fragment. A surface
+      // with no `trigger` goes straight to the container wait.
+      if (s.trigger) {
+        const handles = await page.$$(s.trigger);
+        let trigger = null;
+        for (const h of handles) {
+          const usable = await h.evaluate(
+            (e) => !!e.offsetParent && !e.closest('.dropdown-menu, nav, header, .ss-topbar'),
+          ).catch(() => false);
+          if (usable) { trigger = h; break; }
+        }
 
-      await trigger.click({ timeout: 5000 }).catch(() => {});
+        if (!trigger) {
+          note('premise', 'no visible trigger outside a menu matching ' + s.trigger
+            + ' (' + handles.length + ' matched)');
+          continue;
+        }
+
+        await trigger.click({ timeout: 5000 }).catch(() => {});
+      }
 
       await page.waitForFunction((a) => {
         const el = document.querySelector(a.container);

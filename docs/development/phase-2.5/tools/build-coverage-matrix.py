@@ -1235,6 +1235,42 @@ VERIFIED = {
     # seed-dev-catalogue-rows.php. It stays PENDING with that reason rather than being claimed
     # on a sibling's capture.
 
+    # ---- P2.5-WEB-FRAGMENTS (2026-11-10): the fragments, captured where they actually live ----
+    # `shoot-fragments.cjs` drives the PARENT page, waits for the fragment to arrive, and
+    # screenshots the container's own bounding box -- so each capture is evidence for the
+    # fragment, not for the page hosting it. That distinction is what lets these be claimed
+    # separately from the report screens below, which were captured whole.
+    #
+    # The brand body is claimed on captures taken AFTER `seed-dev-brand-assignments.php` gave the
+    # ordered products a brand. Before that every card read $0.00 against an empty grid --
+    # correct for a fixture where 0 of 32 products carried a brand_id, and worthless as evidence:
+    # no bar, no legend, no thousands separator, and no way to see whether the chart reads
+    # right-to-left. The claimed captures show 336.00 + 126.00 = 462.00, which also re-confirms
+    # the D-42.3 aggregate-is-the-sum property.
+    'Brand sales body (AJAX fragment)':
+        ('REDESIGNED AND VERIFIED', 'web-fragments-2026-11-10', 'brand-sales-body__', 'P2.5-WEB-FRAGMENTS'),
+
+    # The three stock row payloads are three DataTables inside one 3-tab shell. Each tab fetches
+    # its own route, so each is its own fragment and each has its own four captures.
+    'Low in Stock — row payload':
+        ('REDESIGNED AND VERIFIED', 'web-fragments-2026-11-10', 'stock-low-rows__', 'P2.5-WEB-FRAGMENTS'),
+    'Out Of Stock — row payload':
+        ('REDESIGNED AND VERIFIED', 'web-fragments-2026-11-10', 'stock-out-rows__', 'P2.5-WEB-FRAGMENTS'),
+    'Most Stocked — row payload':
+        ('REDESIGNED AND VERIFIED', 'web-fragments-2026-11-10', 'stock-most-rows__', 'P2.5-WEB-FRAGMENTS'),
+
+    # DELIBERATELY NOT CLAIMED: 'Category / Product sales bodies (AJAX fragments)'.
+    #
+    # That one inventory row names TWO fragments -- `GET category-order-reports` and
+    # `GET product-order-reports`. The category half IS captured
+    # (evidence/web-fragments-2026-11-10/after/category-sales-body__*.png, four combinations, and
+    # the "All Categories" label is Arabic in them). The product half answers HTTP 500 on this
+    # fixture because `order_product_reports` builds raw SQL with MONTH(), so it is blocked on a
+    # MySQL dev fixture along with the other report routes.
+    #
+    # Claiming the row off the half that works would say "verified" about a surface nobody has
+    # seen. It stays PENDING until both halves can be driven, which is one MySQL fixture away.
+
     # ---- P2.5-WEB-SWEEP (2026-11-10): the reports family, driven and photographed ------------
     # `render-matrix.cjs` drove 32 PENDING routes x 4 combinations against the dev fixture signed
     # in as a real merchant with a real store. These NINE answered 200 in all four, carried the

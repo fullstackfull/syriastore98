@@ -52,9 +52,21 @@ use Tests\TestCase;
  * docs/development/phase-2.5/PHASE-2.5-WEB-SWEEP-FINDINGS.md.
  *
  * The redirect keeps every pinned assertion true -- `Route::has('profile.edit')`, the
- * `profile/edit` URI, and `route('profile.edit')` all still resolve -- and it turns a blank page
- * into the merchant's actual profile. It also improves the save path: a successful PATCH /profile
- * previously landed the merchant on this blank page.
+ * `profile/edit` URI, and `route('profile.edit')` all still resolve -- and it sends the merchant
+ * to the profile screen the product ships instead of an empty page. It also improves the save
+ * path: a successful PATCH /profile previously landed the merchant on this blank page.
+ *
+ * WHAT THIS TEST DOES AND DOES NOT MEASURE. It asserts the redirect and stops there; it does not
+ * follow it. That is deliberate, and the reason is worth stating so nobody "strengthens" it into
+ * a red test: `GET /profile` is a DECLARED ACCEPTED FAILURE
+ * (.github/known-test-outcomes.json -> expected_failures ->
+ * Tests\Feature\ProfileTest::test_profile_page_is_displayed). It answers 500 for a principal
+ * with no store, because partision/header.blade.php:11-12 reaches
+ * HomeController::getThemeUrl() (:610, :612) through getStoreById(getCurrentStore()), which is
+ * null for a bare `User::factory()` row. Adding `followRedirects()` here would assert against
+ * that known failure and would also break the declared-outcome set, which the gate checks in
+ * both directions. The sweep's fixture -- a real merchant WITH a store -- is where the blank
+ * page becomes a real page, and that is shown by the captures, not by this case.
  */
 class ProfileEditRendersSomethingTest extends TestCase
 {

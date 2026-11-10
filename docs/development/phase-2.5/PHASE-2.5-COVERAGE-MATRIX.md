@@ -10,11 +10,11 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 174 | 59.0% |
+| REDESIGNED AND VERIFIED | 178 | 60.3% |
 | BLOCKED | 16 | 5.4% |
 | OUT OF SCOPE | 4 | 1.4% |
 | DUPLICATE | 2 | 0.7% |
-| PENDING | 75 | 25.4% |
+| PENDING | 71 | 24.1% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -35,13 +35,13 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | CATALOGUE taxonomy | 38 | 13 | 19 | 0 | 0 | 6 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 21 | 3 | 3 | 8 |
 | Phase 2.5 Wave A | 30 | 0 | 25 | 0 | 0 | 5 |
-| Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 15 | 5 | 0 | 5 |
+| Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 16 | 5 | 0 | 4 |
 | Flutter merchant/employee admin app | 24 | 0 | 13 | 0 | 0 | 11 |
 | Customers and customer management | 20 | 0 | 12 | 4 | 0 | 4 |
 | ORDERS | 17 | 0 | 9 | 3 | 0 | 5 |
 | PRODUCTS | 16 | 1 | 7 | 1 | 0 | 7 |
 | Merchant admin NAVIGATION SHELL | 13 | 4 | 7 | 0 | 0 | 2 |
-| Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 3 | 0 | 0 | 9 |
+| Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 6 | 0 | 0 | 6 |
 | Merchant dashboard and KPI presentation | 9 | 3 | 5 | 0 | 1 | 0 |
 
 ## Every surface
@@ -241,7 +241,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Sales by Product | ``GET product-order-sale-reports`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
 | Sales by Category | ``GET category-order-sale-reports`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
 | Sales Brand Report | ``GET Brand-order-sale-reports`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
-| Brand sales body (AJAX fragment) | ``GET brand-order-reports`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Brand sales body (AJAX fragment) | ``GET brand-order-reports`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-FRAGMENTS; four captures under evidence/web-fragments-2026-11-10/ |
 | Category / Product sales bodies (AJAX fragments) | ``GET category-order-reports, GET product-order-reports`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Sales Downloadable Product | ``GET order-downloadable-reports`` | unknown | **BLOCKED** | audit could not determine its state; it needs to be rendered and classified |
 | Top Sales Report | ``GET top-all-reports`` | premium-already | **BLOCKED** | HTTP 500 on the SQLite dev fixture in all four combinations: ReportController::top_product joins on SUBSTRING_INDEX (:2814, :2826), which SQLite does not implement -- the controller's own comment at :2883 records this. Production is MySQL. REMEDIATION: a MySQL dev fixture. |
@@ -377,9 +377,9 @@ actually been done to it since. They are different questions and the matrix keep
 | surface | route / kind | audit | state | evidence or reason |
 |---|---|---|---|---|
 | Stock Reports (3-tab shell) | ``GET stock-reports (reports.stock_report) and the duplicate GE` | needs-polish | **DUPLICATE** | the same surface as **Stock Reports** — the same controller action. routes/web.php:1108-1109 register it as BOTH GET stock-reports (reports.stock_report) and GET /stock-report (stock.report); the inventory's own route column says so. Claimed once, on `_stock_reports__`. |
-| Low in Stock — row payload | ``GET /stock-report/low-stock (stockReport.lowStock) — routes/w` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Out Of Stock — row payload | ``GET /stock-report/out-stock (stockReport.outOfStock) — routes` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Most Stocked — row payload | ``GET /stock-report/most-stocked (stockReport.mostStocked) — ro` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Low in Stock — row payload | ``GET /stock-report/low-stock (stockReport.lowStock) — routes/w` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WEB-FRAGMENTS; four captures under evidence/web-fragments-2026-11-10/ |
+| Out Of Stock — row payload | ``GET /stock-report/out-stock (stockReport.outOfStock) — routes` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WEB-FRAGMENTS; four captures under evidence/web-fragments-2026-11-10/ |
+| Most Stocked — row payload | ``GET /stock-report/most-stocked (stockReport.mostStocked) — ro` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WEB-FRAGMENTS; four captures under evidence/web-fragments-2026-11-10/ |
 | Stock Settings panel | ``POST stock-settings (stock.settings) — routes/web.php:842 (re` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Finance dashboard | ``GET /finance (finance.index) — routes/web.php:208`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-WAVE-10 + #12; four captures under evidence/wave-10/ |
 | Add Balance modal | ``POST /finance/add-balance (finance.add.balance) — routes/web.` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |

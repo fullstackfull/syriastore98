@@ -105,8 +105,8 @@
             "classification": "OPEN -- ACTIONABLE DEFECT"
         },
         "Tests\\Feature\\ProfileTest::test_profile_page_is_displayed": {
-            "cause": "A REAL APPLICATION DEFECT, and a DIFFERENT one from the other seven. GET /profile answers 500 with ErrorException: Attempt to read property \"slug\" on null at app/Http/Controllers/HomeController.php:367 (`route('landing_page', $store->slug)`). /profile is served by UserController@profile, not by Breeze's ProfileController@edit, so this test exercises the real merchant profile page.",
-            "owner": "app/ -- NOT owned by the CI workstream. Needs a null-store guard at HomeController.php:367 (and :369, the same expression in the sibling branch).",
+            "cause": "A REAL APPLICATION DEFECT, and a DIFFERENT one from the other seven. GET /profile answers 500 with ErrorException: Attempt to read property \"slug\" on null at app/Http/Controllers/HomeController.php:610 and :612 (`route('landing_page', $store->slug)` in getThemeUrl(), reached from resources/views/partision/header.blade.php:11-12 via getStoreById(getCurrentStore()), which is null for a User with no current_store and no store they created). RE-MEASURED 2026-11-10: the cited line was :367, which now holds an unrelated comment in the stock-indicator block -- a stale file:line in this record is the exact failure mode this file warns about in its own README. /profile is served by UserController@profile, not by Breeze's ProfileController@edit, so this test exercises the real merchant profile page.",
+            "owner": "app/ -- NOT owned by the CI workstream. Needs a null-store guard at HomeController.php:610 (and :612, the same expression in the sibling branch of the same if/elseif).",
             "proof_it_is_not_the_casing_bug": "tests/Feature/Platform/AddonMigrationStrandingTest::test_the_profile_page_failure_is_not_this_bug asserts the 500 persists with every stranded table present, and reddens if it is ever fixed.",
             "classification": "OPEN -- ACTIONABLE DEFECT"
         }

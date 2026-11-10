@@ -1,38 +1,91 @@
 {
   "findings": [
     {
-      "slug": "order-view-modal",
-      "combo": "en-ltr-dark",
-      "kind": "contrast",
-      "detail": "2.5:1 needs 4.5  a.btn.btn-sm.btn-success.me-  \"Edit Order\""
+      "slug": "category-sales-body",
+      "combo": "ar-rtl-light",
+      "kind": "latin",
+      "detail": "\"Soaps\" in \"Soaps\""
     },
     {
-      "slug": "order-view-modal",
+      "slug": "category-sales-body",
+      "combo": "ar-rtl-light",
+      "kind": "latin",
+      "detail": "\"Homeware\" in \"Homeware\""
+    },
+    {
+      "slug": "category-sales-body",
+      "combo": "ar-rtl-light",
+      "kind": "latin",
+      "detail": "\"Scarves Shawls\" in \"Scarves & Shawls\""
+    },
+    {
+      "slug": "brand-sales-body",
+      "combo": "ar-rtl-light",
+      "kind": "latin",
+      "detail": "\"Damascene Silk\" in \"Damascene Silk\""
+    },
+    {
+      "slug": "brand-sales-body",
+      "combo": "ar-rtl-light",
+      "kind": "latin",
+      "detail": "\"Aleppo Weave\" in \"Aleppo Weave\""
+    },
+    {
+      "slug": "brand-sales-body",
+      "combo": "ar-rtl-light",
+      "kind": "latin",
+      "detail": "\"Homs Cotton\" in \"Homs Cotton\""
+    },
+    {
+      "slug": "category-sales-body",
       "combo": "ar-rtl-dark",
-      "kind": "contrast",
-      "detail": "2.5:1 needs 4.5  a.btn.btn-sm.btn-success.me-  \"تعديل الطلب\""
+      "kind": "latin",
+      "detail": "\"Soaps\" in \"Soaps\""
+    },
+    {
+      "slug": "category-sales-body",
+      "combo": "ar-rtl-dark",
+      "kind": "latin",
+      "detail": "\"Homeware\" in \"Homeware\""
+    },
+    {
+      "slug": "category-sales-body",
+      "combo": "ar-rtl-dark",
+      "kind": "latin",
+      "detail": "\"Scarves Shawls\" in \"Scarves & Shawls\""
+    },
+    {
+      "slug": "brand-sales-body",
+      "combo": "ar-rtl-dark",
+      "kind": "latin",
+      "detail": "\"Damascene Silk\" in \"Damascene Silk\""
+    },
+    {
+      "slug": "brand-sales-body",
+      "combo": "ar-rtl-dark",
+      "kind": "latin",
+      "detail": "\"Aleppo Weave\" in \"Aleppo Weave\""
+    },
+    {
+      "slug": "brand-sales-body",
+      "combo": "ar-rtl-dark",
+      "kind": "latin",
+      "detail": "\"Homs Cotton\" in \"Homs Cotton\""
     }
   ],
   "surfaces": [
     [
-      "order-preview-panel",
+      "category-sales-body",
       {
         "combos": 4,
-        "chars": 382
+        "chars": 524
       }
     ],
     [
-      "product-preview-panel",
+      "brand-sales-body",
       {
         "combos": 4,
-        "chars": 276
-      }
-    ],
-    [
-      "order-view-modal",
-      {
-        "combos": 4,
-        "chars": 252
+        "chars": 561
       }
     ]
   ]

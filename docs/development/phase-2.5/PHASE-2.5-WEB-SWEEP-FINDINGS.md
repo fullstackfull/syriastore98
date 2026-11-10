@@ -133,3 +133,85 @@ harness read `dir` as `null`:
 A fragment therefore scores exactly 1/4, every time. These are captured by `shoot-fragments.cjs`,
 which drives the parent page and photographs the fragment in place, rather than by navigating to
 the URL directly.
+
+---
+
+## 5. Independent review of the `/profile/edit` change, and one correction to this document
+
+The change was put through the `tenant-authz-reviewer` subagent before it was relied on. It
+cleared the change itself and found two pre-existing risks on the two routes the change
+deliberately left alone. Everything below was re-verified here rather than taken on trust.
+
+### The change is clean
+
+* **No widening.** Both declarations sit in the *same* middleware group — `routes/web.php:449`
+  (`profile.edit`) and `:1081` (`profile`) are both inside
+  `Route::middleware(['auth','xss','setlocate','verified'])` opened at `:411` and closed at
+  `:1573`. Neither chains extra middleware. The default guard is `web`, so no `Customer` or
+  `DeliveryBoy` can satisfy either, and `custom.auth` — the guard-class trap this codebase keeps
+  finding — is not on these routes at all. The redirect is issued *from inside the handler*, so
+  the browser's follow-up request runs the destination's own identical stack.
+* **No loop.** `UserController@profile` returns a view unconditionally; the longest chain is
+  `PATCH /profile` → `profile.edit` → `profile`, which terminates in two hops.
+* **`edit()` reads no request input** — the target is a route *name*, so there is no
+  open-redirect primitive and none of the id-from-input shapes this repository keeps hitting.
+
+### CORRECTION to this document and to commit `c91497fd`
+
+That commit's message says `ProfileTest::test_profile_page_is_displayed` "is not a declared
+failure because it passes in the full suite". **That is wrong.** It *is* declared, at
+`.github/known-test-outcomes.json` → `expected_failures` →
+`Tests\Feature\ProfileTest::test_profile_page_is_displayed`, and it is one of the two accepted
+Feature failures. What I actually observed — the same single failure with and without my change —
+was correct, and the conclusion drawn from it (no regression) still holds. The reason given for it
+was not. Recorded here because the commit message cannot be corrected without rewriting history.
+
+While confirming it, the entry's own file:line turned out to be stale: it cites
+`HomeController.php:367 (and :369)`, but `route('landing_page', $store->slug)` now lives at
+**:610 and :612** inside `getThemeUrl()`; `:367` holds an unrelated comment in the stock-indicator
+block. The prose has been corrected — the entry's KEY is untouched, so the outcome set the gate
+asserts in both directions has not moved.
+
+### F1 — `DELETE /profile` is a cascading tenant wipe. Pre-existing. **Not actioned.**
+
+`ProfileController@destroy` is a bare `$user->delete()`; `User` has no `SoftDeletes` and no
+observer. Measured on the schema section of the committed production dump: **every** foreign key
+referencing `users` is `ON DELETE CASCADE` (15 of them), so the delete does not fail — it
+propagates. `stores_created_by_foreign` (`:37441`) takes the store with it, and twelve further
+`ON DELETE CASCADE` keys hang off `stores`, including all four money ledgers —
+`store_wallets` (`:37455`), `store_wallet_transactions` (`:37461`), `store_withdrawals` (`:37468`)
+and `store_order_financials` (`:37448`) — plus the subscription rows (`plan_orders`,
+`plan_requests`, `plan_user_coupons`) and `delivery_boys`. `orders`, `products` and `customers`
+reference neither table, so **those rows survive pointing at a deleted store**, and `Order` carries
+no tenant scope.
+
+A merchant whose `users.type` is `admin` *is* their own tenant root (`User::creatorId()`), so one
+authenticated request with a valid CSRF token and their own password is irreversible. What stops a
+third party: CSRF applies (no `profile` entry among the exemptions in `bootstrap/app.php:373-423`),
+`auth` restricts to the `web` guard, and `current_password` resolves the same guard as
+`$request->user()`. So this is **unguarded destructive self-service with no UI**, not an
+authorization hole.
+
+**This change reduces the exposure rather than adding to it.** The Delete Account control exists
+only in `profile/partials/delete-user-form.blade.php:18`, included only by `profile/edit.blade.php`,
+which only `edit()` ever rendered. Before, the one thing standing between a merchant and that
+button was the `$slot`/`@yield` Blade bug — so whoever eventually repairs `layouts.app`'s slot
+handling would have resurrected the button by accident. Now it is the controller.
+
+**Owner decision, and deliberately kept out of a rendering fix.** If it is actioned, the bounded
+options are to drop the `profile.destroy` declaration (`routes/web.php:451`), since nothing posts
+to it, or to refuse a principal who is a tenant root or the last super admin.
+
+### F2 — `PATCH /profile` writes `email` with no password re-confirmation. Pre-existing. **Not actioned.**
+
+An email write is a takeover primitive: a session-only attacker changes the address and then drives
+the password reset, whose broker is `users`. But hardening *this* route closes nothing — the
+product's own rendered screen has the identical shape at `UserController.php:455`, routed at
+`routes/web.php:1082` and posted by the live form at `users/profile.blade.php:47`. Same primitive,
+and that one is reachable from the UI. Raised so it is on the record where it can be fixed once,
+on both paths, rather than half-fixed on the path nobody can reach.
+
+One related note worth keeping visible: `update()` is safe *only* because
+`ProfileUpdateRequest::rules()` returns just `name` and `email`. `type`, `plan_id` and `created_by`
+are all in `User::$fillable`, so that rule list is the single thing between `PATCH /profile` and a
+`type => 'super admin'` escalation. Widening those rules escalates immediately.
