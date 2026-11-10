@@ -10,10 +10,10 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 157 | 53.2% |
+| REDESIGNED AND VERIFIED | 160 | 54.2% |
 | BLOCKED | 10 | 3.4% |
 | OUT OF SCOPE | 3 | 1.0% |
-| PENDING | 101 | 34.2% |
+| PENDING | 98 | 33.2% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -37,8 +37,8 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 | Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 6 | 1 | 0 | 19 |
 | Flutter merchant/employee admin app | 24 | 0 | 13 | 0 | 0 | 11 |
 | Customers and customer management | 20 | 0 | 12 | 4 | 0 | 4 |
-| ORDERS | 17 | 0 | 6 | 3 | 0 | 8 |
-| PRODUCTS | 16 | 1 | 6 | 1 | 0 | 8 |
+| ORDERS | 17 | 0 | 8 | 3 | 0 | 6 |
+| PRODUCTS | 16 | 1 | 7 | 1 | 0 | 7 |
 | Merchant admin NAVIGATION SHELL | 13 | 4 | 7 | 0 | 0 | 2 |
 | Stock/inventory reporting + finance/wallet/payout screens | 13 | 0 | 3 | 0 | 0 | 10 |
 | Merchant dashboard and KPI presentation | 9 | 3 | 5 | 0 | 1 | 0 |
@@ -317,8 +317,8 @@ actually been done to it since. They are different questions and the matrix keep
 | Order list | ``GET order (order.index)`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WAVE-1; four captures under evidence/wave-1/ |
 | Order board (Kanban) | ``GET order-kanban (order.kanban)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-ORDERS; four captures under evidence/ord-repair-2026-11-09/ |
 | Order detail | ``GET order-view/{id} (order.view)`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WAVE-11; four captures under evidence/wave-11/ |
-| Order quick preview (side panel fragment) | ``GET order-preview/{id} (order.preview)`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Order AJAX modal (the eye / Show button) | ``GET orders/order_view/{id} (order.order_view)`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Order quick preview (side panel fragment) | ``GET order-preview/{id} (order.preview)`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FRAG; four captures under evidence/web-fragments-2026-11-10/ |
+| Order AJAX modal (the eye / Show button) | ``GET orders/order_view/{id} (order.order_view)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FRAG; four captures under evidence/web-fragments-2026-11-10/ |
 | Order grid (card view) | ``GET order-grid (order.grid)`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-ORDERS; four captures under evidence/ord-repair-2026-11-09/ |
 | Order row actions (DataTable partial) | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Order filter bar + saved views | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
@@ -343,7 +343,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Product detail (read-only) | ``GET /product/{product} → product.show`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-PARAM; four captures under evidence/web-param-routes-2026-11-10/ |
 | Product row actions (list cell fragment) | ``partial/component — rendered by ProductDataTable::dataTable()` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-ROW; four captures under evidence/web-row-actions-2026-11-10/ |
 | Product list filter bar | ``partial/component — included by product/index.blade.php:51`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
-| Product quick-preview panel body | ``GET /product-preview/{id} → product.preview`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Product quick-preview panel body | ``GET /product-preview/{id} → product.preview`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FRAG; four captures under evidence/web-fragments-2026-11-10/ |
 | Variant panels — create side | ``POST /products/attribute_combination → products.attribute_com` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
 | Variant panels — edit/show side (saved variants) | ``ANY /products/attribute_combination_data/edit → products.attr` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Variant panels — rebuild after attribute change | ``PUT /products/attribute_combination/edit → products.attribute` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |

@@ -952,7 +952,7 @@
     "Edit Flash Sale": "تحرير بيع فلاش",
     "Edit Label": "تحرير العلامة",
     "Edit New Section": "تحرير القسم الجديد",
-    "Edit Order": "ترتيب التحرير",
+    "Edit Order": "تعديل الطلب",
     "Edit order :id": "تعديل الطلب :id",
     "Edit Page": "صفحة التحرير",
     "Edit Plan": "خطة التحرير",
@@ -3505,5 +3505,6 @@
     "Please enter more characters": "الرجاء إدخال المزيد من الأحرف",
     "Please Select": "الرجاء الاختيار",
     "No choices to choose from": "لا توجد خيارات متاحة",
-    "Press to select": "اضغط للاختيار"
+    "Press to select": "اضغط للاختيار",
+    "Message :thing on WhatsApp": "مراسلة :thing على واتساب"
 }

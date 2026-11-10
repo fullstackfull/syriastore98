@@ -1141,6 +1141,55 @@ VERIFIED = {
     'Product editor — edit':
         ('REDESIGNED AND VERIFIED', 'web-param-routes-2026-11-10', '_product_1_edit__', 'P2.5-PARAM'),
 
+    # ----------------------------------------------------------------------------------------
+    # P2.5-FRAG. The panel-injected fragments, driven by shoot-fragments.cjs.
+    #
+    # 3 surfaces x 4 combinations = 12 captures, 12 distinct. Findings 46 -> 2.
+    #
+    # THESE ARE NOT PAGES. Each answers 200 with a body that has no `<html dir>` and no theme
+    # stylesheet, because the parent page's JavaScript fetches it into a side panel
+    # (`data-ss-panel-url`, store-syria-ds.js:273) or a modal (`data-ajax-popup`,
+    # custom.js:138). Driven as routes they were unmeasurable -- not merely unphotographable,
+    # UNMEASURABLE, because a fragment with no stylesheet has no colours to measure. Every
+    # finding below was invisible until the fragment was driven in its real container.
+    #
+    # FOUR DEFECTS FOUND AND FIXED:
+    #   the order-view modal's fourteen address labels at 2.3:1 IN DARK MODE. The cause is the
+    #       recorded quirk that `.modal-content` stays WHITE under `data-ss-theme="dark"`: a
+    #       previous fix (custom.css:5222) gave those labels the dark palette's light grey,
+    #       correct on the PAGE and wrong in the modal, because the same blade renders in both.
+    #   the `Payment Type` / delivery labels at 3.84:1, which are `<b class="shipping-text">`
+    #       outside the address block and so were missed by the first selector.
+    #   two WhatsApp links that rendered as EMPTY anchors pointing at `send?phone=&text=Hi`
+    #       whenever the order had no phone -- no accessible name, no text, no destination.
+    #       Guarded, with an em-dash placeholder that is itself legible.
+    #   `Edit Order` translated as `ترتيب التحرير` ("the arrangement of editing"): the machine
+    #       read `Order` as sequence and reversed the words. Now `تعديل الطلب`.
+    #
+    # THE PREVIEW PANELS' definition terms were raised from `--ss-fg-subtle` to `--ss-fg-muted`
+    # (4.39:1 -> 5.88:1 on the sunken surface).
+    #
+    # ONE FINDING REMAINS, DELIBERATELY. `.btn-success` measures 2.5:1 in dark. Giving it a fill
+    # and white text made it WORSE -- 1:1, green on green -- because
+    # `store-syria-ds.css:1904` records that the host sets `--bs-btn-bg: var(--third-color)`,
+    # which resolves TRANSPARENT: it is not a filled button, it is coloured text that happens to
+    # be clickable, and the DS already moved its text colour and tracks the missing fill
+    # separately. Restoring a real fill is a design-system change for every `.btn-success` in the
+    # application, not a modal-scoped patch. The attempt and its measurement are recorded rather
+    # than left as a silent partial fix.
+    #
+    # ALSO RECORDED: `custom.css` and `rtl-custom.css` are PARALLEL COPIES, not a base and a
+    # supplement. After the modal fix landed in custom.css alone the labels were clean in
+    # en-ltr-dark and still 2.3:1 in ar-rtl-dark. A contrast fix in one file is a fix in one
+    # language.
+    # ----------------------------------------------------------------------------------------
+    'Order quick preview (side panel fragment)':
+        ('REDESIGNED AND VERIFIED', 'web-fragments-2026-11-10', 'order-preview-panel__', 'P2.5-FRAG'),
+    'Order AJAX modal (the eye / Show button)':
+        ('REDESIGNED AND VERIFIED', 'web-fragments-2026-11-10', 'order-view-modal__', 'P2.5-FRAG'),
+    'Product quick-preview panel body':
+        ('REDESIGNED AND VERIFIED', 'web-fragments-2026-11-10', 'product-preview-panel__', 'P2.5-FRAG'),
+
     'Store payment methods':
         ('REDESIGNED AND VERIFIED', 'flutter-payment-methods-2026-11-10',
          'flutter-payment-methods_', 'P2.5-FLUTTER-DETAIL2'),

@@ -1,5 +1,19 @@
+{{-- F153. `payment_type` HOLDS THE BUYER'S LANGUAGE, not an identifier.
+
+     `BankTransferController:103` writes `__('Bank Transfer')`, so a merchant who submitted in
+     Arabic stored `تحويل مصرفي`. Comparing that against the English literal was false, so the
+     Payment Status control -- the one a platform operator uses to approve the transfer -- never
+     rendered, and the order sat paid, pending and invisible to the only screen that can advance
+     it. SIXTEEN locale files translate the string, so English was the only language this worked
+     in.
+
+     `payment_status` is NOT affected: :104 writes the plain literal `'Pending'`.
+
+     `PlanPaymentType::is()` recognises every spelling this application has shipped. It decides
+     whether the button is DRAWN and nothing else -- `plan.order.show` is still gated by
+     `PlanOrderViewGate`, and approve/reject are still gated on their own routes. --}}
 <span class="d-flex gap-1 justify-content-start">
-    @if ($order->payment_status == 'Pending' && $order->payment_type == 'Bank Transfer')
+    @if ($order->payment_status == 'Pending' && \App\Payments\PlanPaymentType::is($order->payment_type, \App\Payments\PlanPaymentType::BANK_TRANSFER))
         <button aria-label="{{ __('Payment Status') }}" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--ghost"
             data-url="{{ route('plan.order.show', $order->id) }}"
             data-size="lg" data-ajax-popup="true"

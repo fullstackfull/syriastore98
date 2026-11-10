@@ -1,0 +1,39 @@
+{
+  "findings": [
+    {
+      "slug": "order-view-modal",
+      "combo": "en-ltr-dark",
+      "kind": "contrast",
+      "detail": "2.5:1 needs 4.5  a.btn.btn-sm.btn-success.me-  \"Edit Order\""
+    },
+    {
+      "slug": "order-view-modal",
+      "combo": "ar-rtl-dark",
+      "kind": "contrast",
+      "detail": "2.5:1 needs 4.5  a.btn.btn-sm.btn-success.me-  \"تعديل الطلب\""
+    }
+  ],
+  "surfaces": [
+    [
+      "order-preview-panel",
+      {
+        "combos": 4,
+        "chars": 382
+      }
+    ],
+    [
+      "product-preview-panel",
+      {
+        "combos": 4,
+        "chars": 276
+      }
+    ],
+    [
+      "order-view-modal",
+      {
+        "combos": 4,
+        "chars": 252
+      }
+    ]
+  ]
+}

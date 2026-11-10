@@ -2565,11 +2565,55 @@
     margin: 0;
 }
 
+/* `--ss-fg-muted`, NOT `--ss-fg-subtle`. Measured in the live panel at 4.39:1 against a 4.5
+   floor -- the subtle grey is the right weight for a label and the wrong contrast for one at
+   12px. `--ss-fg-muted` is 5.88:1 on the sunken surface and 6.42:1 on white, and reads the same.
+   Found by shoot-fragments.cjs, which measures the panel in the container its parent injects it
+   into; driven as a route this fragment has no stylesheet at all, so nothing was measurable. */
 .ss-order-preview dt {
     margin: 0 0 var(--ss-space-1);
-    color: var(--ss-fg-subtle);
+    color: var(--ss-fg-muted);
     font-size: var(--ss-text-xs);
     font-weight: var(--ss-weight-medium);
+}
+
+/* ---- Definition term inside a dialog or panel ----
+   The order-view modal marked its sixteen labels with Bootstrap's `.h6 .text-sm`, which measured
+   2.3:1 IN DARK MODE -- Name, Email, City, State, Country, Postal Code and ten more, all of them
+   effectively unreadable on a surface a merchant reads an address from.
+
+   Confined by its own `.ss-` class because `DesignSystemStylesheetScopeTest` refuses an
+   unconfined selector: this sheet loads on every admin page across all 70 vendored modules, so a
+   bare `dt` rule would restyle WorkDo markup the design system does not own. */
+.ss-dl__term {
+    color: var(--ss-fg-muted);
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-medium);
+}
+
+/* ---- The white-modal-in-dark-mode quirk, again ----
+   `.modal-content` measures `rgb(255,255,255)` under `data-ss-theme="dark"` (recorded at the top
+   of this file). So inside a modal the DARK palette's `--ss-fg-muted` -- a LIGHT grey, chosen for
+   a dark surface -- lands on WHITE: measured 2.3:1 for all fourteen terms of the order-view modal
+   in dark mode, which is worse than the Bootstrap `.h6` it replaced.
+
+   The dark theme's own tokens are the wrong family here because the surface is not dark. Same
+   shape, same reasoning and the same override the required-field marker needs a few hundred lines
+   above: name the LIGHT-theme value explicitly for this one container.
+
+   `--ss-grey-600` on white is 6.42:1. */
+[data-ss-theme="dark"] .modal-content .ss-dl__term {
+    color: var(--ss-grey-600);
+}
+
+/* The em-dash that stands in for an absent value. Same container, same reason -- and it must
+   still be legible, because "there is no phone number" is information. */
+.ss-dl__empty {
+    color: var(--ss-fg-muted);
+}
+
+[data-ss-theme="dark"] .modal-content .ss-dl__empty {
+    color: var(--ss-grey-600);
 }
 
 .ss-order-preview dd {

@@ -5226,6 +5226,53 @@ html[data-ss-theme="dark"] body .card-body dl.row dd {
     color: var(--ss-fg, #e6eceb);
 }
 
+/* THE SAME BLADE RENDERS IN A MODAL, AND A MODAL IS WHITE IN DARK MODE.
+   ----------------------------------------------------------------------------------------------
+   `order/order_show.blade.php` is both the order detail page AND the body of the order-view modal
+   that `orders/order_view/{id}` fills. The rule above was measured on the PAGE, where the card
+   sits on a dark surface and `--ss-fg-muted` is correct. `.modal-content` computes
+   `rgb(255,255,255)` under `data-ss-theme="dark"` -- recorded at the top of store-syria-ds.css --
+   so inside the modal the same tokens put LIGHT ink on WHITE.
+
+   Measured by shoot-fragments.cjs, which drives the fragment in the container its parent injects
+   it into. As a route this fragment has no stylesheet at all, so nothing here was measurable
+   before: 2.3:1 for all fourteen address labels, 3.84:1 for the Payment Type label, 2.5:1 for the
+   Edit Order button.
+
+   The selectors carry `.modal-content` so they out-specify the page rules above without
+   `!important`, and they name LIGHT-theme values explicitly because the surface is light. */
+html[data-ss-theme="dark"] body .modal-content .card-body dl.row dt,
+html[data-ss-theme="dark"] body .modal-content .ss-dl__term,
+html[data-ss-theme="dark"] body .modal-content address b,
+/* `.shipping-text` is the Payment Type / Delivery labels, which are `<b>` OUTSIDE the address
+   block -- measured 3.84:1 after the selectors above were added, because `address b` did not
+   reach them. Named explicitly rather than widening to a bare `b`, which would recolour every
+   bold word in every modal. */
+html[data-ss-theme="dark"] body .modal-content .shipping-text {
+    color: var(--ss-grey-600, #5b5f66);   /* 6.42:1 on white */
+}
+
+html[data-ss-theme="dark"] body .modal-content .card-body dl.row dd,
+html[data-ss-theme="dark"] body .modal-content address,
+html[data-ss-theme="dark"] body .modal-content .ss-dl__empty {
+    color: var(--ss-grey-700, #43474d);   /* 9.35:1 on white */
+}
+
+/* `.btn-success` IS DELIBERATELY NOT TOUCHED HERE, and the attempt is worth recording.
+   ----------------------------------------------------------------------------------------------
+   Giving it a green fill and white text looked like the obvious repair for the 2.5:1 the fragment
+   harness measured. It made the button WORSE: 1:1, green on green.
+
+   `store-syria-ds.css:1904` already explains why. The host sets `--bs-btn-bg: var(--third-color)`,
+   which resolves TRANSPARENT, so `.btn-success` is not a filled button at all -- it is coloured
+   text that happens to be clickable. The design system therefore moved ONLY the text colour and
+   recorded the missing fill as a separate, known item. Adding a background under text that was
+   recoloured to sit on the PAGE puts that text on its own fill.
+
+   Restoring a real fill means choosing a text colour and a background together for every
+   `.btn-success` in the application, not just this one in a modal. That is a design-system change
+   with a blast radius, so it stays where the DS already tracks it. */
+
 
 /* F158 (header). THE BRAND AS TEXT IN THE SHARED HEADER -- P2-A-03's defect a fourth time.
    MEASURED at 2.59:1 on white, 14px, in both ar/rtl and en/ltr light mode: the store switcher's
