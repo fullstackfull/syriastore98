@@ -425,7 +425,20 @@
       data-ss-dt-no-results-body="{{ __('Try a shorter term, or clear the search to see everything.') }}"
       data-ss-dt-search="{{ __('Search...') }}"
       data-ss-dt-per-page="{{ __('{select} entries per page') }}"
-      data-ss-dt-info="{{ __('Showing {start} to {end} of {rows} entries') }}">
+      data-ss-dt-info="{{ __('Showing {start} to {end} of {rows} entries') }}"
+      {{-- CHOICES.JS, which ships its own English UI strings and is initialised from
+           `public/js/custom.js` -- a static file that cannot call `__()`. Measured on the Arabic
+           testimonial modal: the remove-X on a multi-select read `Remove item`, and the field's
+           placeholder read `Please Select`. NOTHING IN THIS REPOSITORY SAID EITHER, which is why
+           no translation sweep had found them; the library injects them.
+
+           Carried as data attributes for the same reason the DataTables strings above are: it is
+           the one place a static script can read a translated string from. --}}
+      data-ss-choices-remove="{{ __('Remove item') }}"
+      data-ss-choices-placeholder="{{ __('Please Select') }}"
+      data-ss-choices-no-results="{{ __('No results found') }}"
+      data-ss-choices-no-choices="{{ __('No choices to choose from') }}"
+      data-ss-choices-select="{{ __('Press to select') }}">
     {{-- P2-01-11: restore the collapsed rail BEFORE the sidebar paints.
 
          This is inline and first-in-body rather than in store-syria-nav.js for

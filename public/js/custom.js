@@ -316,14 +316,88 @@ function comman_function() {
         $('[data-role="tagsinput"]').each(function (index, element) {
             if (typeof Choices !== 'undefined') {
                 var obj_id = $(this).attr('id');
+
+                /*
+                 * CHOICES' OWN STRINGS, in the merchant's language.
+                 *
+                 * `removeItemButton: true` renders an X whose text is the library's English
+                 * default `Remove item`, and `placeholderValue` was the English literal
+                 * "Please Select". Both appeared verbatim on the Arabic testimonial modal.
+                 *
+                 * This file is static and cannot call `__()`, so the translated strings ride on
+                 * <body> as `data-ss-choices-*` -- the same bridge `layouts/app.blade.php`
+                 * already uses for the DataTables copy. The `||` fallbacks keep the English
+                 * behaviour on any layout that does not carry them (guest, storefront, the
+                 * vendored LandingPage), rather than rendering empty controls there.
+                 */
+                var ssBody = document.body ? document.body.dataset : {};
+
                 var textRemove = new Choices(
                     document.getElementById(obj_id), {
                     delimiter: ',',
                     editItems: true,
-                    placeholderValue: "Please Select",
+                    placeholderValue: ssBody.ssChoicesPlaceholder || "Please Select",
                     removeItemButton: true,
+                    noResultsText: ssBody.ssChoicesNoResults || "No results found",
+                    noChoicesText: ssBody.ssChoicesNoChoices || "No choices to choose from",
+                    itemSelectText: ssBody.ssChoicesSelect || "Press to select",
                 }
                 );
+
+                /*
+                 * THE REMOVE BUTTON'S TEXT IS NOT AN OPTION IN THIS VERSION OF CHOICES.
+                 *
+                 * `removeItemIconText` and `removeItemLabelText` -- the options that would do
+                 * this -- appear ZERO times in `public/assets/js/plugins/choices.min.js`; they
+                 * arrived in a later release. This copy hardcodes `var _ = "Remove item"` and
+                 * writes it as both the button's text and its `aria-label`. Passing those
+                 * options was measured to change nothing.
+                 *
+                 * The button is an X ICON to a sighted user -- the text is styled away -- so
+                 * this is a screen-reader-only string, and an Arabic-speaking merchant using one
+                 * heard `Remove item: '3'` on every chip.
+                 *
+                 * Relabelled from the DOM instead, through an observer rather than a one-shot
+                 * pass: Choices re-renders its item list on every add and remove, so a single
+                 * sweep after construction would only fix the chips that existed at load.
+                 */
+                var ssChoicesRemoveText = ssBody.ssChoicesRemove;
+
+                if (ssChoicesRemoveText) {
+                    var ssRelabel = function (root) {
+                        var buttons = root.querySelectorAll('.choices__button[data-button]');
+
+                        for (var i = 0; i < buttons.length; i++) {
+                            /*
+                             * IDEMPOTENT, AND THAT IS LOAD-BEARING. Writing `textContent` is
+                             * itself a childList mutation on the button, so an unconditional
+                             * write re-triggers the observer that called this, which writes
+                             * again -- an infinite loop that hung the page and timed out the
+                             * capture harness twice before this guard was added.
+                             */
+                            if (buttons[i].textContent === ssChoicesRemoveText) {
+                                continue;
+                            }
+
+                            var label = buttons[i].getAttribute('aria-label') || '';
+                            // `Remove item: 'x'` -- keep the value, replace only the phrase.
+                            var value = label.indexOf(':') >= 0 ? label.slice(label.indexOf(':')) : '';
+
+                            buttons[i].textContent = ssChoicesRemoveText;
+                            buttons[i].setAttribute('aria-label', ssChoicesRemoveText + value);
+                        }
+                    };
+
+                    var ssContainer = document.getElementById(obj_id);
+                    ssContainer = ssContainer && ssContainer.closest('.choices');
+
+                    if (ssContainer && typeof MutationObserver !== 'undefined') {
+                        ssRelabel(ssContainer);
+                        new MutationObserver(function () {
+                            ssRelabel(ssContainer);
+                        }).observe(ssContainer, { childList: true, subtree: true });
+                    }
+                }
             }
         });
     }

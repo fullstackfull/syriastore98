@@ -3502,5 +3502,8 @@
     "Remove item": "إزالة العنصر",
     "No results found": "لا توجد نتائج",
     "Searching...": "جارٍ البحث...",
-    "Please enter more characters": "الرجاء إدخال المزيد من الأحرف"
+    "Please enter more characters": "الرجاء إدخال المزيد من الأحرف",
+    "Please Select": "الرجاء الاختيار",
+    "No choices to choose from": "لا توجد خيارات متاحة",
+    "Press to select": "اضغط للاختيار"
 }
