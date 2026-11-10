@@ -10,11 +10,11 @@ hand-maintained matrix is precisely how that happens.
 | state | count | of 295 |
 |---|---:|---:|
 | PREMIUM VERIFIED | 24 | 8.1% |
-| REDESIGNED AND VERIFIED | 178 | 60.3% |
-| BLOCKED | 16 | 5.4% |
-| OUT OF SCOPE | 4 | 1.4% |
-| DUPLICATE | 2 | 0.7% |
-| PENDING | 71 | 24.1% |
+| REDESIGNED AND VERIFIED | 182 | 61.7% |
+| BLOCKED | 17 | 5.8% |
+| OUT OF SCOPE | 5 | 1.7% |
+| DUPLICATE | 3 | 1.0% |
+| PENDING | 64 | 21.7% |
 | **total** | **295** | |
 
 **PENDING is not one of the directive's four states, and that is the point.** The four
@@ -31,11 +31,11 @@ screens and exactly three of them have been looked at. The other ~97 stay PENDIN
 
 | area | total | premium | redesigned | blocked | out of scope | pending |
 |---|---:|---:|---:|---:|---:|---:|
-| Flutter merchant admin app | 51 | 0 | 38 | 0 | 0 | 13 |
+| Flutter merchant admin app | 51 | 0 | 42 | 1 | 0 | 7 |
 | CATALOGUE taxonomy | 38 | 13 | 19 | 0 | 0 | 6 |
 | Staff/Roles/Permissions + Merchant Settings & Integrations | 38 | 3 | 21 | 3 | 3 | 8 |
 | Phase 2.5 Wave A | 30 | 0 | 25 | 0 | 0 | 5 |
-| Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 16 | 5 | 0 | 4 |
+| Reports/Analytics presentation, Notifications, and the con | 26 | 0 | 16 | 5 | 1 | 3 |
 | Flutter merchant/employee admin app | 24 | 0 | 13 | 0 | 0 | 11 |
 | Customers and customer management | 20 | 0 | 12 | 4 | 0 | 4 |
 | ORDERS | 17 | 0 | 9 | 3 | 0 | 5 |
@@ -56,7 +56,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Splash / Welcome | ``GetX /splash (initialRoute)`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-AUTH; four captures under evidence/flutter-auth-2026-11-09/ |
 | Onboarding | ``GetX /onboarding`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-AUTH; four captures under evidence/flutter-auth-2026-11-09/ |
 | Login | ``GetX /login`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-AUTH; four captures under evidence/flutter-auth-2026-11-09/ |
-| Dashboard shell (bottom navigation) | ``GetX /dashboard`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Dashboard shell (bottom navigation) | ``GetX /dashboard`` | needs-polish | **DUPLICATE** | the same surface as **Bottom-nav shell (DashBoardManagerScreen)** — the same GetX route `/dashboard` and the same widget. Two audit passes recorded the bottom-navigation shell under two names; claiming both would count one screen twice. |
 | Home / Overview (tab 0) | ``tab 0 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HOME; four captures under evidence/flutter-home-2026-11-09/ |
 | Home widgets (stat tiles, QR, profile row) | ``partial/component`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
 | Orders list (tab 1) | ``tab 1 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-ORDERS; four captures under evidence/flutter-orders-2026-11-09/ |
@@ -69,7 +69,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Add rating / review | ``Get.to(() => AddRatingScreen()) from product detail`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-EDITORS; four captures under evidence/flutter-editors-2026-11-10/ |
 | Product card / field partials | ``partial/component`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Categories (tab 3) | ``tab 3 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HARNESS; four captures under evidence/flutter-harness-2026-11-09/ |
-| Add / edit category (modal) | ``showModalBottomSheet from categories`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Add / edit category (modal) | ``showModalBottomSheet from categories`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SHEETS; four captures under evidence/flutter-sheets-2026-11-10/ |
 | More / Settings grid (tab 4) | ``tab 4 of /dashboard`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SETTINGS; four captures under evidence/flutter-settings-2026-11-09/ |
 | App settings | ``GetX /appSettings`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SETTINGS; four captures under evidence/flutter-settings-2026-11-09/ |
 | Store settings grid | ``Get.to(() => StoreSettingScreen()) from the More grid`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-DETAIL; four captures under evidence/flutter-detail-2026-11-09/ |
@@ -78,14 +78,14 @@ actually been done to it since. They are different questions and the matrix keep
 | Store email settings | ``Get.to(() => EmailSettingScreen()) from store settings`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-ACCOUNT; four captures under evidence/flutter-account-2026-11-09/ |
 | Loyalty programme | ``Get.to(() => LoyaltyProgramScreen()) from store settings`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-ACCOUNT; four captures under evidence/flutter-account-2026-11-09/ |
 | Store payment methods | ``Get.to(() => PaymentSettingScreen()) from store settings`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-DETAIL2; four captures under evidence/flutter-payment-methods-2026-11-10/ |
-| COD / Stripe / Bank-transfer gateway editors | ``unreachable — no Get.to, no AppRoutes entry anywhere in lib/`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| COD / Stripe / Bank-transfer gateway editors | ``unreachable — no Get.to, no AppRoutes entry anywhere in lib/`` | deficient | **BLOCKED** | built but unreachable: cod_screen.dart (159 lines), stripe_screen.dart (169) and bank_transfer_screen.dart (152) all define complete screens, and CODScreen / StripeScreen / BankTransferScreen are referenced nowhere in lib/ outside their own directory -- not even by payment_setting_screen.dart, the one payment screen a merchant can open. No Get.to, no named route, no AppRoutes entry. A merchant cannot configure these gateways from the app. REMEDIATION: an owner decision on whether to wire them up; that is new navigation, not a design pass. |
 | Tax | ``GetX /tax`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-OPS; four captures under evidence/flutter-ops-2026-11-09/ |
-| Add / edit tax (modal) | ``showModalBottomSheet from tax`` | deficient | **PENDING** | audited deficient; not yet redesigned or verified |
+| Add / edit tax (modal) | ``showModalBottomSheet from tax`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SHEETS; four captures under evidence/flutter-sheets-2026-11-10/ |
 | Shipping | ``GetX /shipping`` | deficient | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-OPS; four captures under evidence/flutter-ops-2026-11-09/ |
-| Add / edit shipping (modal) | ``showModalBottomSheet from shipping`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Add / edit shipping (modal) | ``showModalBottomSheet from shipping`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SHEETS; four captures under evidence/flutter-sheets-2026-11-10/ |
 | Customers list | ``GetX /customers`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HARNESS; four captures under evidence/flutter-harness-2026-11-09/ |
 | Customer detail | ``Get.to(() => CustomerDetailsScreen()) from customers list`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-DETAIL; four captures under evidence/flutter-detail-2026-11-09/ |
-| Add / edit customer (modal) | ``showModalBottomSheet from customers list`` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
+| Add / edit customer (modal) | ``showModalBottomSheet from customers list`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-SHEETS; four captures under evidence/flutter-sheets-2026-11-10/ |
 | Delivery men (staff) list | ``GetX /delivery_boys`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HARNESS; four captures under evidence/flutter-harness-2026-11-09/ |
 | Coupons list | ``GetX /coupon`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-HARNESS; four captures under evidence/flutter-harness-2026-11-09/ |
 | Coupon detail | ``Get.to(() => CouponDetailScreen()) from coupons list`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-FLUTTER-DETAIL2; four captures under evidence/flutter-coupon-detail-2026-11-10/ |
@@ -248,7 +248,7 @@ actually been done to it since. They are different questions and the matrix keep
 | Order Status Report | ``GET Status-reports`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
 | Top Selling By Country Report | ``GET order-country-reports`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-WEB-SWEEP; four captures under evidence/web-sweep-2026-11-10/ |
 | Notifications (full list) | ``GET merchant-notifications`` | premium-already | **DUPLICATE** | the same surface as **Notifications (the bell's destination)** — the same route, GET merchant-notifications. The owning row is already PREMIUM VERIFIED (P2.5-WAVE-33, `_merchant_notifications__`), so claiming this one from the 2026-11-10 sweep would count one screen twice. |
-| Notification bell feed (JSON) | ``GET merchant-notifications/feed`` | premium-already | **PENDING** | audited premium-already; not yet redesigned or verified |
+| Notification bell feed (JSON) | ``GET merchant-notifications/feed`` | premium-already | **OUT OF SCOPE** | not a screen: MerchantNotificationController::feed() returns JsonResponse in every branch. The data it serves is rendered and captured as the notification bell dropdown, so a separate capture would reuse that evidence for a second surface. |
 | Mark read / mark all read | ``POST merchant-notifications/{id}/read, POST merchant-notifica` | needs-polish | **PENDING** | audited needs-polish; not yet redesigned or verified |
 | Report period filter (shared component) | ``partial/component`` | premium-already | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |
 | Chart (shared component) | ``partial/component`` | needs-polish | **REDESIGNED AND VERIFIED** | P2.5-DS-GALLERY; four captures under evidence/ds-gallery-2026-11-09/ |

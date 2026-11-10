@@ -1235,6 +1235,33 @@ VERIFIED = {
     # seed-dev-catalogue-rows.php. It stays PENDING with that reason rather than being claimed
     # on a sibling's capture.
 
+    # ---- P2.5-FLUTTER-SHEETS (2026-11-10): the four bottom-sheet editors --------------------
+    # Category, customer, tax and shipping are edited in a `showModalBottomSheet`, so none of
+    # them is in a route table and no capture wave that navigates could reach them. Driven as the
+    # widgets the sheet actually builds, in all four combinations, CREATE and EDIT -- `isUpdate`
+    # decides the title, the submit label and whether the fields arrive populated, so a capture
+    # of the empty create state is not evidence for the edit state. Each row is claimed on its
+    # `-edit_` prefix; the matching `-create_` set sits beside it in the same directory.
+    #
+    # The customer sheet is a TWO-STEP WIZARD and both steps are captured. Its create path has a
+    # third surface the edit path does not: `customer_bottom_sheet.dart:423` opens
+    # `if(!widget.isUpdate) ...[`, so the password field and the account-status switch exist only
+    # when creating. Driving the edit path alone -- the obvious way to get a switch into the ON
+    # state -- renders no switch at all, and a finder that matches nothing reads exactly like a
+    # passing check. That is how the dark-mode defect below nearly went unmeasured twice.
+    'Add / edit category (modal)':
+        ('REDESIGNED AND VERIFIED', 'flutter-sheets-2026-11-10',
+         'flutter-sheet-category-edit_', 'P2.5-FLUTTER-SHEETS'),
+    'Add / edit customer (modal)':
+        ('REDESIGNED AND VERIFIED', 'flutter-sheets-2026-11-10',
+         'flutter-sheet-customer-edit_', 'P2.5-FLUTTER-SHEETS'),
+    'Add / edit tax (modal)':
+        ('REDESIGNED AND VERIFIED', 'flutter-sheets-2026-11-10',
+         'flutter-sheet-tax-edit_', 'P2.5-FLUTTER-SHEETS'),
+    'Add / edit shipping (modal)':
+        ('REDESIGNED AND VERIFIED', 'flutter-sheets-2026-11-10',
+         'flutter-sheet-shipping-edit_', 'P2.5-FLUTTER-SHEETS'),
+
     # ---- P2.5-WEB-FRAGMENTS (2026-11-10): the fragments, captured where they actually live ----
     # `shoot-fragments.cjs` drives the PARENT page, waits for the fragment to arrive, and
     # screenshots the container's own bounding box -- so each capture is evidence for the
@@ -1305,6 +1332,20 @@ VERIFIED = {
 
 # Surfaces that are out of the Phase 2.5 merchant scope by the approved phase plan.
 OUT_OF_SCOPE = {
+    # NOT A SCREEN. `MerchantNotificationController::feed()` is declared `: JsonResponse` and every
+    # return in it is `response()->json([...])` -- there is no view, in any branch, including the
+    # 403. Its OUTPUT is already rendered and captured as the bell dropdown, so there is nothing
+    # here that could be photographed separately that would not be reusing that evidence.
+    #
+    # Same category as the two rows the inventory-taxonomy proposal calls kind A: a route that
+    # answers with JSON or an HTML fragment and can never render a page for a merchant to look at.
+    # Counting it in a denominator of SCREENS is a category error, and leaving it PENDING implies
+    # design work is owed that is not.
+    'Notification bell feed (JSON)':
+        'not a screen: MerchantNotificationController::feed() returns JsonResponse in every '
+        'branch. The data it serves is rendered and captured as the notification bell dropdown, '
+        'so a separate capture would reuse that evidence for a second surface.',
+
     # NOT A SCREEN ANY MORE, as of this branch. GET /profile/edit answered HTTP 200 with the
     # sidebar, header, breadcrumb and footer drawn correctly around an ENTIRELY EMPTY content
     # area, in all four combinations -- captures under evidence/web-sweep-2026-11-10/after/
@@ -1364,6 +1405,37 @@ OUT_OF_SCOPE = {
 # A row here is a claim that WORK IS NOT POSSIBLE, so each carries the evidence for that, and each
 # names what would unblock it. None of these is a defect to fix inside Phase 2.5.
 BLOCKED_SURFACES = {
+    # ---- BUILT, BUT NO MERCHANT CAN REACH IT -------------------------------------------------
+    # MEASURED 2026-11-10 in StoreSyria_app98, after a first check using the WRONG CLASS NAME
+    # (`CodScreen`) returned a confident empty result -- the class is `CODScreen`.
+    #
+    #   lib/view/screen/setting_screen/payment_setting_screen/cod_screen.dart            159 lines
+    #   .../stripe_screen.dart                                                           169 lines
+    #   .../bank_transfer_screen.dart                                                    152 lines
+    #
+    # All three are complete screens with their own controllers. `CODScreen`, `StripeScreen` and
+    # `BankTransferScreen` are referenced by NOTHING outside their own directory, and
+    # `payment_setting_screen.dart` -- the one payment screen a merchant can actually open
+    # (`store_setting_screen.dart:102` does `Get.to(() => PaymentSettingScreen())`) -- does not
+    # mention any of them either. There is no `Get.to`, no named route and no AppRoutes entry.
+    #
+    # So a merchant cannot configure COD, Stripe or bank transfer from the admin app at all. That
+    # is a real gap in merchant functionality, but closing it means WIRING UP NEW NAVIGATION,
+    # which is new functionality rather than a design pass, and payment configuration is one of
+    # the areas CLAUDE.md reserves for an owner decision.
+    #
+    # REMEDIATION: an owner decision on whether these three screens should be reachable. If they
+    # should, they then need capturing like any other screen; until then there is no surface to
+    # photograph, because the application never shows one.
+    'COD / Stripe / Bank-transfer gateway editors':
+        'built but unreachable: cod_screen.dart (159 lines), stripe_screen.dart (169) and '
+        'bank_transfer_screen.dart (152) all define complete screens, and CODScreen / '
+        'StripeScreen / BankTransferScreen are referenced nowhere in lib/ outside their own '
+        'directory -- not even by payment_setting_screen.dart, the one payment screen a merchant '
+        'can open. No Get.to, no named route, no AppRoutes entry. A merchant cannot configure '
+        'these gateways from the app. REMEDIATION: an owner decision on whether to wire them up; '
+        'that is new navigation, not a design pass.',
+
     # ---- BLOCKED ON THE DEV FIXTURE'S DATABASE ENGINE, not on design ------------------------
     # These four answered HTTP 500 in ALL FOUR combinations in the 2026-11-10 sweep, and the
     # cause is the same every time: the controller builds raw SQL out of MySQL-only functions,
@@ -1481,6 +1553,15 @@ BLOCKED_SURFACES = {
 # SO THE INVENTORY HOLDS 295 ROWS DESCRIBING 293 DISTINCT SURFACES. Both numbers are reported.
 # ---------------------------------------------------------------------------------------------
 DUPLICATE_OF = {
+    # ONE FLUTTER SCREEN, INVENTORIED TWICE. Both rows name the same GetX route and the same
+    # widget: inventory :602 `Bottom-nav shell (DashBoardManagerScreen)` -> `/dashboard (GetX
+    # named route)`, and :658 `Dashboard shell (bottom navigation)` -> `GetX /dashboard`. There is
+    # one `DashBoardManagerScreen` in lib/ and one `/dashboard` route to reach it.
+    'Dashboard shell (bottom navigation)': (
+        'Bottom-nav shell (DashBoardManagerScreen)',
+        'the same GetX route `/dashboard` and the same widget. Two audit passes recorded the '
+        'bottom-navigation shell under two names; claiming both would count one screen twice.'),
+
     'Notifications (full list)': (
         "Notifications (the bell's destination)",
         'the same route, GET merchant-notifications. The owning row is already PREMIUM VERIFIED '
