@@ -144,6 +144,54 @@ class UserPolicy
     }
 
     /**
+     * P0-DELETE. THE SAME DEFECT SEC-F4 FIXED ABOVE, LEFT OPEN ON THE DESTRUCTIVE OPERATION.
+     *
+     * `UserController::destroy()` was `if (auth()->user()->isAbleTo('Delete User')) { ...
+     * $user->delete(); }` on a `User` bound from the URL -- the shape `update()` had before
+     * SEC-F4, with no ownership test at all. `User` is not in `config/tenancy.php`'s
+     * `scoped_models` (that list holds six models), so the global scope adds no predicate and
+     * route-model binding reaches every tenant's users. A permission is not an ownership test.
+     *
+     * AND DELETE IS NOT EDIT. `users` has no soft delete and no observer, and `stores.created_by`
+     * references `users.id` ON DELETE CASCADE (storesyria_ecommercego.sql:37441, declared at
+     * database/migrations/..._create_stores_table.php:25), with twelve further foreign keys
+     * cascading off `stores.id` -- `store_wallets`, `store_wallet_transactions`,
+     * `store_withdrawals` and `store_order_financials` among them. Exactly one of the schema's 89
+     * foreign keys is not CASCADE and none is RESTRICT, so the database never refuses. There is a
+     * live button at resources/views/users/index.blade.php:124.
+     *
+     * The limbs mirror `update()` deliberately, so the two cannot drift:
+     * permission first, then operator, then no-one-below-operator-touches-an-operator, then same
+     * tenant.
+     *
+     * WHAT THIS DOES NOT DO. It does not refuse the deletion of a user who OWNS STORES -- a
+     * merchant removing their own tenant root would still take the cascade with them. That is a
+     * change to destructive-data behaviour rather than an authorization repair, and it is held
+     * open as a release blocker for the owner's decision rather than decided here. Pinned by
+     * tests/Feature/Security/UserDeletionAuthorizationTest.
+     */
+    public function delete(User $actor, User $target): bool
+    {
+        // OPERATOR FIRST, because `isAbleTo()` alone refuses the platform operator in this
+        // codebase -- there is no super-admin bypass, operator status is a string comparison on
+        // users.type. Measured before this limb existed: the operator could not delete anybody.
+        if ($this->isPlatformAdmin($actor)) {
+            return true;
+        }
+
+        if (!$actor->isAbleTo('Delete User')) {
+            return false;
+        }
+
+        // Nobody below platform-admin may delete a platform admin.
+        if (self::isOperator($target)) {
+            return false;
+        }
+
+        return $this->sameTenant($actor, $target);
+    }
+
+    /**
      * SEC-F1. StoreController::storeResetPasswordUpdate had NO authorization of
      * any kind, and UserController::reset/updatePassword checked the permission
      * but not ownership -- so any holder of 'Reset Password' could set the

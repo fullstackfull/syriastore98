@@ -325,26 +325,35 @@ AuditLog::record('user_created', $user, [], [
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
+    /**
+     * P0-DELETE. This used to be the `isAbleTo('Delete User')` check and nothing else, on a
+     * `User` bound from the URL -- the exact shape SEC-F4 repaired in `update()` above, left
+     * open on the one operation that cannot be undone.
+     *
+     * `User` is not in `config/tenancy.php`'s `scoped_models`, so route-model binding reached
+     * every tenant's users and a permission every merchant holds for their own staff was the only
+     * gate. `users` has no soft delete, and `stores.created_by` is ON DELETE CASCADE against
+     * `users.id`, so the row-delete took the target's store and the money tables hanging off it.
+     * There is a live button for this at resources/views/users/index.blade.php:124.
+     *
+     * `authorize()` is now the control, exactly as it is on `update()` (:259) and
+     * `resetPassword()` (:360, :374). The permission test moved inside `UserPolicy::delete()` so
+     * it sits beside the tenancy test and the two cannot drift apart.
+     */
     public function destroy(User $user)
     {
+        $this->authorize('delete', $user);
 
-        if (auth()->user() && auth()->user()->isAbleTo('Delete User'))
-        {
-            Setting::where('created_by', $user->id)->delete();
-            $user->delete();
+        Setting::where('created_by', $user->id)->delete();
+        $user->delete();
 
+        AuditLog::record('user_deleted', $user, [
+            'name' => $user->name,
+            'email' => $user->email,
+            'type' => $user->type,
+        ], []);
 
-AuditLog::record('user_deleted', $user, [
-    'name' => $user->name,
-    'email' => $user->email,
-    'type' => $user->type,
-], []);
-
-
-            return redirect()->back()->with('success', 'User successfully deleted.');
-        } else {
-            return redirect()->back()->with('error', __('Permission denied.'));
-        }
+        return redirect()->back()->with('success', 'User successfully deleted.');
     }
 
     public function reset($id)
