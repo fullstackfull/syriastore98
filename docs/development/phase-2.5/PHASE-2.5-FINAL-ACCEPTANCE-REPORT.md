@@ -107,12 +107,15 @@ two CI steps outside the test suites are red and are §6.**
 |---|---:|
 | `php artisan test --testsuite=Unit` | **1588 passed** (12,144 assertions) |
 | `php artisan test --testsuite=Contract` | **38 passed** (149 assertions) — the Flutter API contract |
-| `php artisan test --testsuite=Feature` | see below |
-| `assert-known-test-outcomes.php` | asserts the outcome set **in both directions** |
+| `php artisan test --testsuite=Feature` | **8,416 testcases** — 8,413 passed, 2 failed, 1 skipped (43,430 assertions) |
+| `assert-known-test-outcomes.php` | **OK** — 2 declared failures, 1 declared skip, 0 errors, nothing undeclared; asserts the set **in both directions** |
 | `build-coverage-matrix.py --check` | **green** |
 | `check-distinct-surface-captures.py` | **green** (was red) |
 | `detect-refusal-toast-captures.py` | **green** (was red) |
 | `composer audit must not grow` | **RED** — §6.2 |
+
+All four were run against the final tree at `a20b4d8c`. The Feature count moved 8,404 → 8,416
+across this closure: the twelve cases §4.2 adds.
 
 ### 4.1 The two declared failures and the one declared skip
 
