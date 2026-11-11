@@ -108,7 +108,27 @@
        reports hub, where every chart compares customer against guest; the
        single-series path is untouched, so the dashboard's chart renders byte
        for byte as before. */
-    $ssHasB   = is_array($values2) && count($values2) > 0;
+    /* AND THE SAME DEFENCE ON THE FIRST TWO, which `$values2` already had and
+       they did not. A caller that hands this component a SCALAR used to take
+       the whole page down: `count()` on an int is a fatal in PHP 8, not a
+       warning, so the response was a 500 rather than a chart.
+
+       That is not hypothetical. `ReportController::order_reports_chart_data()`
+       initialises `$PurchasedItemTotal = 0` (:1004, :1076, :1136, :1221,
+       :1316) and passes it as `itemSeries`; on the paths where nothing ever
+       appends to it, an int arrives here. The route answered 500 on MySQL for
+       this reason ALONE -- it was recorded in the coverage matrix as blocked by
+       MySQL-only SQL, and that reason was incomplete: the SQL runs fine on
+       MySQL and this is what was left.
+
+       Coercing rather than throwing is the right call for a shared component:
+       `$values = 0` means "no series", and the empty state below already says
+       that honestly. One surface's bad input must not be able to 500 a page. */
+    $labels  = is_array($labels)  ? $labels  : [];
+    $values  = is_array($values)  ? $values  : [];
+    $values2 = is_array($values2) ? $values2 : [];
+
+    $ssHasB   = count($values2) > 0;
     $ssCount  = min(count($labels), count($values));
     if ($ssHasB) {
         $ssCount = min($ssCount, count($values2));
