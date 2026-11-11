@@ -1,10 +1,9 @@
 # =====================================================================================
-# P1-SEC-40 containment: never serve repository internals, database dumps or backups.
+# P1-SEC-40. This file deliberately contains NO deny rules. Read this before adding any.
 #
 # MEASURED ON THE LIVE HOST 2026-11-11 (HEAD requests only, no bodies retrieved):
 #   GET /.env                      -> 403   the <Files .env> rule below is live
-#   GET /storesyria_ecommercego.sql-> 404   dump absent from the deployed tree, AND no
-#                                           extension rule existed (a deny answers 403)
+#   GET /storesyria_ecommercego.sql-> 404   dump absent from the deployed tree
 #   GET /.git/HEAD                 -> 200   21 bytes = "ref: refs/heads/main"
 #   GET /.git/config               -> 200   270 bytes
 #   GET /.git/index                -> 200   10,376,528 bytes
@@ -26,56 +25,27 @@
 # CLAUDE.md, an unrotated APP_KEY. Removing the dump from the working tree does NOT
 # close this path -- the blob stays in the packfile.
 #
-# THIS FILE CHANGES NOTHING UNTIL IT IS DEPLOYED. The live host keeps serving the
-# paths above until this .htaccess reaches it. Deploying it also does not undo any
-# retrieval that already happened.
+# WHERE THE DENY RULES LIVE: docs/security/p1-sec-40-apache-deny.conf, beside the
+# nginx equivalent. They are written, reviewed and pinned by
+# tests/Unit/Security/DumpAndVcsPathsAreDeniedTest.php -- they are simply not here.
 #
-# READ THIS BEFORE DEPLOYING, 2026-11-11. The owner has given a STANDING INSTRUCTION
-# not to change public access to the test website or its .git directory:
+# WHY NOT HERE. The owner has given a STANDING INSTRUCTION:
 #
 #     "DO NOT block or change public access to the test website or its `.git`
 #      directory." ... "Record the existing exposed Git history and credentials as
 #      OWNER-DEFERRED -- UNRESOLVED SECURITY RISK."
 #
-# The rules below are therefore DORMANT ON PURPOSE. They were written before that
-# instruction, they have never been deployed, and verifying it on 2026-11-11 confirmed
-# the live host still answers 200 for /.git/HEAD and /.git/objects/info/packs -- i.e.
-# nothing here has altered public access to anything.
+# The deployed tree is a git checkout whose .git/HEAD reads `ref: refs/heads/main`.
+# Directives placed in this file therefore go live the moment anyone runs `git pull`
+# on that host -- no deploy pipeline required, and nobody intending it. Keeping them
+# out of here is what makes merging to main incapable of changing public access by
+# accident. An earlier revision of this branch did carry them, which is exactly the
+# accident this guards against.
 #
-# They are kept rather than deleted because the owner also said not to suppress
-# security findings, and deleting a written control would do exactly that. But the
-# FIRST DEPLOY OF THIS FILE WILL CLOSE THAT CHANNEL, which is a change the owner has
-# not asked for. If that is not wanted, remove this block before deploying; if it is
-# wanted, nothing needs doing. Either way it is the owner's call, not the deployer's.
-#
-# The deferral is a deferral, not a remediation: the exposure is real and unresolved.
-#
-# Deliberately placed OUTSIDE <IfModule mod_rewrite.c>: the existing <Files .env> deny
-# is inside that guard, so it silently stops applying if mod_rewrite is ever unloaded.
-# RedirectMatch (mod_alias) is used for directories because <Directory> is not allowed
-# in .htaccess and <FilesMatch> cannot match a path prefix. 404 rather than 403 so the
-# response does not confirm that a path exists.
+# THE DEFERRAL IS A DEFERRAL, NOT A REMEDIATION. The exposure above is real, reachable
+# by anonymous HTTP today, and unresolved. Activating the rules is the owner's call:
+# the conf file states what to append and where.
 # =====================================================================================
-
-# Version-control metadata, editor and dependency manifests.
-RedirectMatch 404 "(?i)/\.(git|svn|hg|bzr|idea|vscode|env|DS_Store)(/|$)"
-RedirectMatch 404 "(?i)^/(composer\.(json|lock)|package(-lock)?\.json|yarn\.lock|artisan|phpunit\.xml|\.editorconfig|\.gitignore|\.gitattributes)$"
-
-# Internal framework directories. /storage/<file> is NOT denied: uploads are served
-# through the public/storage symlink via Storage::url(), e.g. /storage/uploads/x.png.
-RedirectMatch 404 "(?i)^/storage/(logs|framework|app)(/|$)"
-RedirectMatch 404 "(?i)^/(bootstrap/cache|tests|database/(migrations|seeders|factories))(/|$)"
-
-# Database dumps and backup files, by extension, including compressed variants.
-<FilesMatch "(?i)\.(sql|dump|bak|backup|old|orig|save|swp|swo|sqlite|sqlite3|db|log)(\.(gz|bz2|xz|zip|tar|tgz|7z|rar))?$">
-    <IfModule mod_authz_core.c>
-        Require all denied
-    </IfModule>
-    <IfModule !mod_authz_core.c>
-        Order Allow,Deny
-        Deny from all
-    </IfModule>
-</FilesMatch>
 
 <IfModule mod_rewrite.c>
     <IfModule mod_negotiation.c>

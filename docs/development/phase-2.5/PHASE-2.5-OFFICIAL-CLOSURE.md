@@ -308,12 +308,19 @@ Per the owner's standing instruction, **nothing was done to change it**: no key 
 to public access, no deployment, no history rewrite, no visibility change. **Verified on 2026-11-11
 that the live host is unchanged** — `/.git/HEAD` and `/.git/objects/info/packs` still answer 200.
 
-**One thing the owner must know.** The deny rules committed earlier in `.htaccess` *would* close that
-channel **on the first deploy** of that file — a change the current instruction does not want. They
-are dormant and have never been deployed. They were **kept rather than deleted**, because deleting a
-written control would be suppressing a finding, which the same instruction also forbids; and a note
-at the block tells a deployer to remove it before deploying if the deferral is still in force.
-**This is an owner decision, not a deployer's.**
+**One thing the owner must know, and it has been corrected.** The deny rules were committed earlier
+*into* `.htaccess`, where they *would* have closed that channel — not on a deploy, which this project
+has none of, but on the next `git pull` on the live host, whose `.git/HEAD` reads
+`ref: refs/heads/main`. Merging this branch would therefore have armed them with nobody intending it,
+which is the opposite of the standing instruction.
+
+They were lifted out on 2026-11-11 into `docs/security/p1-sec-40-apache-deny.conf`, a file no server
+reads. Both `/.htaccess` and `public/.htaccess` are now **directive-identical to `origin/main`** —
+the diff is comments only — so **merging cannot change public access to anything.** The rules were
+**kept rather than deleted**, because deleting a written control would be suppressing a finding,
+which the same instruction also forbids; they remain reviewed and pinned by 32 tests, two of which
+fail if anyone re-arms a served file. Arming them is **an owner decision, not a deployer's**, and
+the conf states what to append and where.
 
 ### Still open, reported not fixed
 
@@ -386,7 +393,7 @@ change its shape:
 | 3 | **Convert #134 and #9 from draft, and review them** — zero human reviews exist on either |
 | 4 | Group A: capture the four report surfaces, or accept them on the measurement (§4) |
 | 5 | Groups B/C/D: five dispositions awaiting a decision (§4) |
-| 6 | **The `.htaccess` deny rules**: keep them dormant, or remove them before any deploy (§7) |
+| 6 | **The Apache deny rules**: arm them, or leave them dormant in the conf. No longer urgent — they can no longer arm themselves on a merge or a pull (§7) |
 | 7 | Whether #136 closes issue #136 — evidence posted, left open deliberately |
 | 8 | `P1-SEC-61` — fix the misleading message, or accept it |
 | 9 | Authorise Phase 03 implementation (§8) |

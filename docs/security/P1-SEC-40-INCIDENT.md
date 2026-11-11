@@ -208,19 +208,38 @@ from the remote.
    verified against eight candidate paths with `git check-ignore`. Note the removal in step 1 is
    what makes the pattern effective against this file: `git check-ignore` reports a *tracked* path
    as not ignored, so the block was inert against it until now.
-3. **Deny rules added** to `/.htaccess` and `public/.htaccess` covering `.git` and other VCS
-   metadata, dump and backup extensions including compressed variants, `storage/{logs,framework,app}`,
-   `composer.json`/`composer.lock`, and editor swapfiles. They sit **outside**
-   `<IfModule mod_rewrite.c>` — the pre-existing `<Files .env>` deny is inside it and would fail
-   open if mod_rewrite were ever unloaded.
+3. **Deny rules written, and deliberately NOT armed.** They cover `.git` and other VCS metadata,
+   dump and backup extensions including compressed variants, `storage/{logs,framework,app}`,
+   `composer.json`/`composer.lock`, and editor swapfiles, and they are held in
+   `docs/security/p1-sec-40-apache-deny.conf`, which no server reads.
+
+   They were originally committed into `/.htaccess` and `public/.htaccess`. That was a latent
+   breach of the owner's standing instruction not to change public access to the test site: the
+   live document root **is** the repository root, and the deployed tree is a git checkout whose
+   `.git/HEAD` reads `ref: refs/heads/main`. Directives in those files therefore go live the
+   moment anyone runs `git pull` on that host — no deploy pipeline, nobody intending it. They
+   were lifted out on 2026-11-11, so both served files are now **directive-identical to
+   `origin/main`** and merging cannot change public access. The conf states what to append and
+   where; activation is an owner decision.
+
+   The placement instruction survives with them: **outside** `<IfModule mod_rewrite.c>` — the
+   pre-existing `<Files .env>` deny is inside it and would fail open if mod_rewrite were ever
+   unloaded.
 4. **An nginx equivalent** is committed at `docs/security/p1-sec-40-nginx-deny.conf`, unused today
    (the host is Apache) but ready, because a migration to nginx would silently discard every
    `.htaccess` protection.
 5. **A regression test**, `tests/Unit/Security/DumpAndVcsPathsAreDeniedTest.php`, extracts the
-   patterns from the committed `.htaccess` and applies them the way Apache does — `<FilesMatch>`
-   against the basename, `RedirectMatch` against the path. 30 cases: 18 paths that must be refused
-   and 10 that must keep working. Reverting the deny block fails 19 of them; the 11 that still pass
-   are the legitimate-path controls plus `.env`, which the original config already covered.
+   patterns from the committed conf and applies them the way Apache does — `<FilesMatch>`
+   against the basename, `RedirectMatch` against the path. 32 tests: 18 paths that must be refused,
+   10 that must keep working, and four structural pins. Deleting the conf fails 30 of them.
+
+   Two of those pins guard the deferral rather than the rules. One fails if **either** served
+   `.htaccess` gains an active deny directive — measured by re-arming each file in turn — so the
+   arming described in step 3 cannot recur silently. The other fails if the conf buries its rules
+   in `<IfModule mod_rewrite.c>`, which anyone activating them by copying the file verbatim would
+   otherwise inherit. A third fails if a served file stops naming P1-SEC-40 and the conf, because
+   once the rules are absent that comment is the only thing distinguishing a deferral from an
+   oversight.
 
    The negative controls are the point. Denying `/storage/` wholesale would have broken every
    product image on the storefront, because uploads are served as `/storage/uploads/<file>` through
@@ -247,8 +266,10 @@ from the remote.
    delete the coverage built on it.** Removing the dump was right; letting it take four tests with
    it would not have been.
 
-> **None of this takes effect on the live host until it is deployed.** The server keeps serving
-> `.git` until the new `.htaccess` reaches it. Deployment is an owner decision (§8).
+> **None of this takes effect on the live host, and now cannot take effect by accident.** The
+> server keeps serving `.git`. The deny rules are not in any file Apache reads, so deploying or
+> pulling this branch changes nothing about public access — which is what the owner asked for.
+> Arming them means copying the conf's rules into `.htaccess`, an owner decision (§8).
 
 ---
 
@@ -306,7 +327,7 @@ is downloadable from production no matter what state GitHub is in.
 
 | # | Step | Needs owner authorization | Why this order |
 |---|---|---|---|
-| 1 | **Deploy the `.htaccess` deny rules to the live host.** Or, faster and not requiring a deploy at all: move the server's `.git` directory outside the document root, or delete it if the deploy does not rely on `git pull` | deployment / server access | **The emergency step.** It is the only thing that stops anonymous retrieval of `APP_KEY` and the database credentials. Everything else in this table is secondary to it |
+| 1 | **Arm the deny rules and deploy them** — copy `docs/security/p1-sec-40-apache-deny.conf` into `/.htaccess` and `public/.htaccess` as it describes, then deploy. They are deliberately dormant today (§4.3), so a deploy alone does nothing. Or, faster and not requiring a deploy at all: move the server's `.git` directory outside the document root, or delete it if the deploy does not rely on `git pull` | deployment / server access | **The emergency step.** It is the only thing that stops anonymous retrieval of `APP_KEY` and the database credentials. Everything else in this table is secondary to it |
 | 2 | Re-run the §3.2 `HEAD` table and expect 404 for every `.git` path | no | Cheap confirmation the deploy took effect. Do not assume it did |
 | 3 | **Rotate the database password, and `APP_KEY`** | **yes** — breaks existing ciphertext and needs a coordinated config change | Must follow step 1, or the replacements are exposed through the same channel within minutes. Assume both are compromised: they were anonymously retrievable for an unknown period. Rotating `APP_KEY` invalidates session cookies and any ciphertext written under the old key — scope `Crypt::` call sites and encrypted columns first |
 | 4 | Pull Apache access logs and search for `/.git/` and the dump path **before rotation discards the window** | server access | Time-critical, and the only way to turn "exposed" into "accessed or not". Do it early even though it is listed here |
@@ -440,7 +461,8 @@ separate, lower-priority item.
 |---|---|
 | work queue entry | `docs/security/P01-SECURITY-WORK-QUEUE.md` (P1-SEC-40) |
 | recurrence containment | `.gitignore`, the dump-and-archives block |
-| Apache deny rules | `/.htaccess`, `public/.htaccess` |
+| Apache deny rules (dormant) | `docs/security/p1-sec-40-apache-deny.conf` |
+| served Apache config (no deny rules, by design) | `/.htaccess`, `public/.htaccess` |
 | nginx deny rules | `docs/security/p1-sec-40-nginx-deny.conf` |
 | regression test | `tests/Unit/Security/DumpAndVcsPathsAreDeniedTest.php` |
 | token lifetime follow-up | `docs/security/P01-TOKEN-EXPIRY-PROPOSAL.md` |

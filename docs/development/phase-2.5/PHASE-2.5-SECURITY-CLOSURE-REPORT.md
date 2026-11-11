@@ -50,13 +50,14 @@ No history rewritten, no force-push, nothing deleted from any remote.
 |---|---|
 | **Dump untracked from the working tree** | `git rm --cached storesyria_ecommercego.sql`. Merging removes it from every checkout that pulls, the server's included. It does **not** remove it from history, and by design cannot. |
 | **Recurrence blocked** | `.gitignore` carries `*.sql`, `*.sql.gz`, `*.dump`, `*.bak`, verified against eight candidate paths with `git check-ignore`. The removal above is what makes the pattern bite: `check-ignore` reports a *tracked* path as not ignored, so the block was inert against this file until now. |
-| **Apache deny rules** | `/.htaccess` and `public/.htaccess` — VCS metadata, dump and backup extensions including compressed variants, `storage/{logs,framework,app}`, composer manifests, editor swapfiles. Placed **outside** `<IfModule mod_rewrite.c>`, because the pre-existing `<Files .env>` deny sits inside it and would fail open if mod_rewrite were ever unloaded. |
+| **Apache deny rules — written, deliberately NOT armed** | `docs/security/p1-sec-40-apache-deny.conf`, which no server reads — VCS metadata, dump and backup extensions including compressed variants, `storage/{logs,framework,app}`, composer manifests, editor swapfiles. The conf tells an operator to place them **outside** `<IfModule mod_rewrite.c>`, because the pre-existing `<Files .env>` deny sits inside it and would fail open if mod_rewrite were ever unloaded. They were originally committed into `/.htaccess` and `public/.htaccess` and were lifted out on 2026-11-11: the live document root **is** the repository root and the deployed tree is a checkout of `main`, so directives in those files arm themselves on the next `git pull` there. Both served files are now **directive-identical to `origin/main`**. |
 | **nginx equivalent** | `docs/security/p1-sec-40-nginx-deny.conf`. Unused today — the host answers `Server: Apache` — because migrating to nginx discards every `.htaccess` protection silently. |
-| **Regression test** | `tests/Unit/Security/DumpAndVcsPathsAreDeniedTest.php`, 30 cases: 18 paths that must be refused, 10 that must keep working. |
+| **Regression test** | `tests/Unit/Security/DumpAndVcsPathsAreDeniedTest.php`, 32 tests: 18 paths that must be refused, 10 that must keep working, and four structural pins — two of which guard the **deferral**, failing if either served `.htaccess` gains an active deny directive or if the conf buries its rules in the mod_rewrite guard. Each falsified by re-arming the file in question. |
 | **Second repository checked** | `StoreSyria_app98` is clean — no dump-shaped file tracked, none anywhere in its history. Dump patterns added to its `.gitignore` as prevention. Pushed as `40a7f4b`. |
 
-> **None of this changes the live host until it is deployed.** The server keeps serving `.git`
-> until the new `.htaccess` reaches it.
+> **None of this changes the live host, and it now cannot by accident.** The server keeps serving
+> `.git`. No file Apache reads contains a deny rule, so deploying or pulling this branch changes
+> nothing about public access. Arming the rules is a separate, explicit owner decision.
 
 ### 1.2 Two things in that work worth singling out
 

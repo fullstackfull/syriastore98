@@ -33,6 +33,7 @@ class DumpAndVcsPathsAreDeniedTest extends TestCase
 {
     private const ROOT_HTACCESS = __DIR__ . '/../../../.htaccess';
     private const PUBLIC_HTACCESS = __DIR__ . '/../../../public/.htaccess';
+    private const DENY_CONF = __DIR__ . '/../../../docs/security/p1-sec-40-apache-deny.conf';
 
     /** URL paths that MUST be refused, each one measured reachable or dump-shaped. */
     public static function deniedPaths(): array
@@ -77,53 +78,125 @@ class DumpAndVcsPathsAreDeniedTest extends TestCase
     }
 
     #[Test]
-    public function test_both_htaccess_files_carry_the_p1_sec_40_block(): void
+    public function test_the_deny_rules_exist_and_name_p1_sec_40(): void
+    {
+        $this->assertFileExists(
+            self::DENY_CONF,
+            'docs/security/p1-sec-40-apache-deny.conf is gone. It is the written Apache '
+            . 'control for P1-SEC-40. Deleting it suppresses a finding the owner deferred '
+            . 'but did not resolve.'
+        );
+
+        $body = file_get_contents(self::DENY_CONF);
+
+        $this->assertStringContainsString('P1-SEC-40', $body);
+        $this->assertMatchesRegularExpression(
+            '/^\s*RedirectMatch\s+404/m',
+            $body,
+            'No RedirectMatch deny survives in the conf. <Directory> is illegal in .htaccess '
+            . 'and <FilesMatch> cannot match a path prefix, so RedirectMatch is what would '
+            . 'refuse the .git directory once the owner activates these rules.'
+        );
+    }
+
+    /**
+     * MERGE SAFETY. The live document root is the repository root and the deployed tree
+     * is a git checkout on `main` (.git/HEAD measured 2026-11-11). A deny directive
+     * committed to either served .htaccess therefore goes live on the next `git pull`,
+     * with no deploy pipeline and nobody intending it -- which would breach the owner's
+     * standing instruction not to change public access to the test site or its .git.
+     *
+     * An earlier revision of this branch did carry those directives. This test is why
+     * that cannot happen again silently.
+     *
+     * The pre-existing <Files .env> deny is excluded: it is already live on main and is
+     * not ours to remove.
+     */
+    #[Test]
+    public function test_neither_served_htaccess_activates_the_deferred_deny_rules(): void
     {
         foreach ([self::ROOT_HTACCESS, self::PUBLIC_HTACCESS] as $file) {
             $this->assertFileExists($file);
-            $body = file_get_contents($file);
 
-            $this->assertStringContainsString(
-                'P1-SEC-40',
-                $body,
-                basename(dirname($file)) . '/.htaccess no longer names P1-SEC-40. The deny '
-                . 'block was removed or retitled. It is the only thing stopping the live host '
-                . 'from serving .git and database dumps -- see the measured evidence in the '
-                . 'root .htaccess header before deleting it.'
-            );
+            $directives = [];
+            $inStockEnvBlock = false;
 
-            $this->assertMatchesRegularExpression(
-                '/^\s*RedirectMatch\s+404/m',
-                $body,
-                'No RedirectMatch deny survives in ' . $file . '. <Directory> is illegal in '
-                . '.htaccess and <FilesMatch> cannot match a path prefix, so RedirectMatch is '
-                . 'what refuses the .git directory.'
+            foreach (explode("\n", file_get_contents($file)) as $line) {
+                if (preg_match('/^\s*#/', $line)) {
+                    continue;
+                }
+
+                // The stock <Files .env> deny predates this branch and is already live on
+                // main, so it is not ours to remove. Skip its whole block, nothing else.
+                if (preg_match('/^\s*<Files\s+\.env\s*>/', $line)) {
+                    $inStockEnvBlock = true;
+                    continue;
+                }
+                if ($inStockEnvBlock) {
+                    if (preg_match('#^\s*</Files>#', $line)) {
+                        $inStockEnvBlock = false;
+                    }
+                    continue;
+                }
+
+                if (preg_match('/^\s*(RedirectMatch|Require\s+all\s+denied|Deny\s+from\s+all|<FilesMatch)/', $line)) {
+                    $directives[] = trim($line);
+                }
+            }
+
+            $this->assertSame(
+                [],
+                $directives,
+                basename(dirname($file)) . '/.htaccess has gained an ACTIVE deny directive: '
+                . implode(' | ', $directives) . "\n"
+                . 'The P1-SEC-40 rules are OWNER-DEFERRED. They belong in '
+                . 'docs/security/p1-sec-40-apache-deny.conf, which no server reads. Putting '
+                . 'them here arms them: the deployed tree is a checkout of main, so merging '
+                . 'changes public access on the live host the next time anyone pulls. The '
+                . 'owner asked for the opposite. Move them back to the conf.'
             );
         }
     }
 
     #[Test]
-    public function test_the_deny_block_sits_outside_the_mod_rewrite_guard(): void
+    public function test_both_served_files_still_explain_where_the_rules_went(): void
     {
-        // The pre-existing <Files .env> deny is INSIDE <IfModule mod_rewrite.c>, so it
-        // stops applying the moment mod_rewrite is unloaded. Ours must not inherit that.
-        $body = file_get_contents(self::ROOT_HTACCESS);
+        foreach ([self::ROOT_HTACCESS, self::PUBLIC_HTACCESS] as $file) {
+            $body = file_get_contents($file);
 
-        // Locate real DIRECTIVES, not mentions. The header comment explains that the
-        // block sits "OUTSIDE <IfModule mod_rewrite.c>", and a plain strpos finds that
-        // sentence first -- which made this assertion fail against a correct file.
-        $guardAt = $this->firstDirectiveOffset($body, '<IfModule\s+mod_rewrite\.c>');
-        $denyAt = $this->firstDirectiveOffset($body, 'RedirectMatch\s+404');
+            $this->assertStringContainsString(
+                'P1-SEC-40',
+                $body,
+                basename(dirname($file)) . '/.htaccess no longer names P1-SEC-40. The rules '
+                . 'are deliberately absent, so this comment is the only thing telling the '
+                . 'next reader that the absence is a deferral rather than an oversight. '
+                . 'Removing it suppresses the finding.'
+            );
 
-        $this->assertNotFalse($guardAt, 'the mod_rewrite guard vanished from the root .htaccess');
-        $this->assertNotFalse($denyAt, 'the RedirectMatch deny vanished from the root .htaccess');
+            $this->assertStringContainsString(
+                'p1-sec-40-apache-deny.conf',
+                $body,
+                basename(dirname($file)) . '/.htaccess no longer points at the conf that '
+                . 'holds the deny rules, so nobody can find them.'
+            );
+        }
+    }
 
-        $this->assertLessThan(
-            $guardAt,
-            $denyAt,
-            'The P1-SEC-40 deny rules moved INSIDE <IfModule mod_rewrite.c>. They must stay '
-            . 'above it: everything in that guard silently stops applying if mod_rewrite is '
-            . 'unloaded, which is exactly how the existing <Files .env> deny would fail open.'
+    /**
+     * If the conf wrapped its rules in <IfModule mod_rewrite.c>, anyone activating them by
+     * copying the file verbatim would inherit the flaw the existing <Files .env> deny has:
+     * silently ceasing to apply the moment mod_rewrite is unloaded.
+     */
+    #[Test]
+    public function test_the_conf_does_not_bury_its_rules_in_the_mod_rewrite_guard(): void
+    {
+        $body = file_get_contents(self::DENY_CONF);
+
+        $this->assertFalse(
+            $this->firstDirectiveOffset($body, '<IfModule\s+mod_rewrite\.c>'),
+            'The P1-SEC-40 conf now wraps its rules in <IfModule mod_rewrite.c>. Everything '
+            . 'inside that guard stops applying if mod_rewrite is unloaded, which is exactly '
+            . 'how the stock <Files .env> deny fails open. Keep the rules unguarded.'
         );
     }
 
@@ -135,8 +208,8 @@ class DumpAndVcsPathsAreDeniedTest extends TestCase
     public function test_a_dangerous_path_is_refused(string $path): void
     {
         $this->assertTrue(
-            $this->isDenied($path, self::ROOT_HTACCESS),
-            "The root .htaccess would SERVE {$path}. Every path in this provider was either "
+            $this->isDenied($path, self::DENY_CONF),
+            "The P1-SEC-40 conf would SERVE {$path}. Every path in this provider was either "
             . 'measured returning 200 on the live host on 2026-11-11 or is dump-shaped. '
             . 'Widen the deny patterns rather than deleting the case.'
         );
@@ -150,8 +223,8 @@ class DumpAndVcsPathsAreDeniedTest extends TestCase
     public function test_a_legitimate_path_still_resolves(string $path): void
     {
         $this->assertFalse(
-            $this->isDenied($path, self::ROOT_HTACCESS),
-            "The root .htaccess now REFUSES {$path}, which must keep working. Uploads are "
+            $this->isDenied($path, self::DENY_CONF),
+            "The P1-SEC-40 conf now REFUSES {$path}, which must keep working. Uploads are "
             . 'served as /storage/uploads/<file> through the public/storage symlink, so a '
             . 'deny on /storage/ wholesale breaks every product image on the storefront. '
             . 'Only /storage/{logs,framework,app} may be denied.'
