@@ -75,3 +75,57 @@ and these are captured by `shoot-fragments.cjs`, which drives the parent page in
 `YEAR()` and `SUBSTRING_INDEX` all exist. They are blocked on the dev fixture's database
 engine, and the matrix records them as BLOCKED with that remediation rather than as
 failures — and equally, none of them can be called verified, because nobody has seen them.
+
+---
+
+## Correction, 2026-11-11 — `/woocom_product`'s row above is wrong, and its four captures were pictures of another surface
+
+The table says `/woocom_product` answered *"200, empty body, no `<html>`"*. **Re-measured against the
+running fixture, every clause of that is false**, and the four PNGs that carried this surface's name
+have been removed. They were byte-identical to `_webhook_create__*.png`, which is what
+`check-distinct-surface-captures.py` reported as a collision — correctly.
+
+### What actually happens
+
+Both refusal arms of `WoocomProductController::index` end in **`redirect()->back()`**
+(`:50` for the integration arm, `:53` for the permission arm). So the browser is sent **wherever it
+came from**. Measured, logging in as the fixture merchant and driving it from two different pages:
+
+| driven from | HTTP | landed on | title |
+|---|---|---|---|
+| `/dashboard` | 200 | `/dashboard` | `Store Syria - لوحة التحكم` |
+| `/webhook/create` | 200 | `/webhook/create` | `""` |
+
+**The landing page follows the referrer.** This sweep drove `/webhook/create` immediately before
+`/woocom_product`, so the refusal returned to the webhook page and the screenshot photographed it.
+The recorded `title: ""` came from the same place: `/webhook/create` is a modal fragment with no
+`<title>`, so a page that had never changed read as an empty title — which was then written down as
+"empty body".
+
+This is the **`redirect()->back()` trap** that `PHASE-2.5-DEV-FIXTURE-PERMISSIONS.md` already
+records, in its most literal form. There it keeps the previous page's legitimate *title*; here it
+kept the previous page's legitimate *pixels*.
+
+### Why the captures were not regenerated
+
+Because **this surface has no pixels of its own.** Regenerating would only photograph a different
+previous page. The evidence for a surface that refuses before rendering is the *measurement*, and it
+is now at `after/_woocom_product__MEASUREMENT.json`, which also records the two gates:
+`isAbleTo('Manage Woocommerce Product')` — which the fixture merchant does not hold — and then
+`woocommerce_setting_enabled == 'on'`, whose settings row does not exist. Granting the permission
+would only reach the second gate.
+
+**The matrix state is unchanged: still BLOCKED, no promotion.** Only its stated reason was corrected.
+
+### `_webhook_create__*.png` is kept, and here is what it is
+
+Those four are genuine pictures of `GET /webhook/create` — but that route returns a **modal body**
+(`WebhookController::create()` is `return view('webhook.create')`, a fragment with no layout), so
+driven as a page it renders as unstyled browser-default markup on white. `shoot-fragments.cjs`'s own
+header states the rule: *"a capture taken anyway is a screenshot of unstyled markup on a white page.
+That is not what any merchant sees, so it is not evidence about the surface."*
+
+They are left in place because they are honest pictures of that URL and they back no claim: the
+matrix's **Webhooks (create/edit modals)** row is verified from
+`evidence/web-closure-2026-11-10/`, where the modal is opened in its real context. Read these four
+as a record of what the sweep did, not as evidence of the surface.

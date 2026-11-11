@@ -1,0 +1,64 @@
+{
+  "surface": "WooCommerce import screens (product)",
+  "route": "GET /woocom_product -> WoocomProductController@index",
+  "matrix_state": "BLOCKED",
+  "measured_on": "2026-11-11",
+  "measured_against": "database/p2dev.sqlite via docs/development/phase-2.5/tools/serve-dev.sh",
+
+  "why_there_is_no_screenshot": [
+    "This surface cannot be photographed, and that is a property of the surface rather than of",
+    "the harness. Both refusal arms of WoocomProductController::index end in",
+    "`redirect()->back()` (:50 for the integration arm, :53+ for the permission arm), so the",
+    "browser is sent to WHATEVER PAGE IT CAME FROM. There are no pixels of its own to capture.",
+    "",
+    "The four PNGs that used to sit here under this name were therefore pictures of the surface",
+    "driven immediately before it in the same sweep -- /webhook/create -- and were byte-identical",
+    "to that surface's own captures. check-distinct-surface-captures.py reported them as a",
+    "collision, correctly. They were removed rather than regenerated, because regenerating them",
+    "would only photograph a different previous page.",
+    "",
+    "This is the `redirect()->back()` trap PHASE-2.5-DEV-FIXTURE-PERMISSIONS.md already records,",
+    "in its most literal form: there it keeps the previous page's legitimate TITLE; here it kept",
+    "the previous page's legitimate PIXELS."
+  ],
+
+  "measurement": {
+    "method": "logged in as the fixture merchant, navigated to a known previous page, then to /woocom_product",
+    "runs": [
+      {
+        "previous_page": "/dashboard",
+        "http_status": 200,
+        "landed_on": "/dashboard",
+        "landed_title": "Store Syria - لوحة التحكم",
+        "has_html_element": true
+      },
+      {
+        "previous_page": "/webhook/create",
+        "http_status": 200,
+        "landed_on": "/webhook/create",
+        "landed_title": "",
+        "has_html_element": true
+      }
+    ],
+    "conclusion": "the landing page follows the referrer, which is what redirect()->back() does"
+  },
+
+  "correction_to_the_previously_recorded_reason": {
+    "was": "measured HTTP 200 with an empty body and no <html> element in all four combinations",
+    "is_wrong_because": [
+      "The status is 200 only after the redirect is followed, and the body is a FULL page with an",
+      "<html> element -- the previous page's. The earlier reading of 'empty body, no <html>' came",
+      "from the sweep recording document.title of a page that had not changed: the previous",
+      "surface was /webhook/create, a modal fragment with no <title>, so the title read as ''."
+    ],
+    "now": "refused before it renders. Two gates, and the first is the one that fires for the fixture."
+  },
+
+  "the_two_gates": {
+    "first": "isAbleTo('Manage Woocommerce Product') -- the fixture merchant does NOT hold it (measured against the fixture's role grants)",
+    "second": "settings woocommerce_setting_enabled == 'on' -- the setting row does not exist (measured: absent)",
+    "consequence": "even granting the permission would stop at the second gate, which needs a connected WooCommerce store with credentials"
+  },
+
+  "disposition": "BLOCKED is CORRECT and unchanged. Only the stated reason was wrong, and it is corrected in the coverage matrix. Remediation is unchanged: an owner-provided WooCommerce sandbox credential, or an explicit decision to leave these screens unverified in Phase 2.5."
+}

@@ -547,9 +547,23 @@ VERIFIED = {
                                    '_setting__', 'P2.5-WEB-FINAL', '/setting'),
     'Support tickets':            ('REDESIGNED AND VERIFIED', 'web-p25-final-2026-11-09',
                                    '_support_ticket__', 'P2.5-WEB-FINAL', '/support_ticket'),
+    # EVIDENCE RE-POINTED 2026-11-11 (P2.5-ACCEPTANCE), state unchanged. The four captures this
+    # row used to cite -- `_attribute_option__*` -- photograph the DASHBOARD carrying a
+    # "Permission denied" toast, and `detect-refusal-toast-captures.py` says so: 1.12-1.77%
+    # toast-red against a next-closest clean capture of 0.47%.
+    #
+    # The cause is NOT a permission the fixture lacks; it holds `Manage Attributes Option`.
+    # `/attribute-option/{id?}` declares its id OPTIONAL, and the sweep drove it WITHOUT one --
+    # `ProductAttributeOptionController::show()` then calls `ownedAttribute(null)`, finds no
+    # attribute and returns `denied()` (:250-254). Measured: `/attribute-option` lands on
+    # /dashboard with «تم رفض الإذن», while `/attribute-option/1` renders «خيار السمة» with
+    # content, 4 combinations, 0 not clean.
+    #
+    # The row is re-pointed at the capture of the URL that actually renders the screen. The
+    # filename now carries the id, so the evidence states the URL it was taken from.
     'Attribute options list (DS pilot)':
                                   ('REDESIGNED AND VERIFIED', 'web-p25-final-2026-11-09',
-                                   '_attribute_option__', 'P2.5-WEB-FINAL', '/attribute-option'),
+                                   '_attribute_option_1__', 'P2.5-WEB-FINAL', '/attribute-option'),
 
     # These two rows each name more than one screen, and in each case one of the named things is
     # NOT a screen. Both are claimed on the screens that exist, with the gap stated in the
@@ -2177,15 +2191,40 @@ BLOCKED_SURFACES = {
         'calls the Shopify Admin API before returning a view. Measured HTTP 500 in all four '
         'combinations on the dev fixture. REMEDIATION: an owner-provided Shopify sandbox '
         'credential, or an explicit decision to leave these screens unverified in Phase 2.5.',
+    # REASON CORRECTED 2026-11-11 (P2.5-ACCEPTANCE). The state is unchanged -- still BLOCKED, no
+    # promotion -- but the measurement behind it was wrong, and the wrongness is worth recording
+    # because it produced a false capture that the integrity checker caught.
+    #
+    # It used to read "measured HTTP 200 with an empty body and no <html> element in all four
+    # combinations". Re-measured against the running fixture, every clause of that is false: the
+    # status is 200 only AFTER a redirect is followed, and the body is a FULL page with an <html>
+    # element -- the PREVIOUS page's. Both refusal arms of WoocomProductController::index end in
+    # `redirect()->back()` (:50 and :53), so the browser is sent wherever it came from. Driven
+    # from /dashboard it lands on /dashboard; driven from /webhook/create it lands on
+    # /webhook/create. The old "empty body, no <html>" reading came from the sweep recording
+    # document.title of a page that had never changed: the previous surface was /webhook/create,
+    # a modal fragment with no <title>, so the title read as ''.
+    #
+    # The four PNGs that carried this surface's name were therefore pictures of /webhook/create,
+    # byte-identical to that surface's own. They are removed and replaced by
+    # evidence/web-sweep-2026-11-10/after/_woocom_product__MEASUREMENT.json, because this surface
+    # CANNOT be photographed: it has no pixels of its own to capture.
     'WooCommerce import screens (product, category, coupon, customer)':
-        'cannot be rendered without a connected WooCommerce store: measured HTTP 200 with an '
-        'empty body and no <html> element in all four combinations. REMEDIATION: an '
-        'owner-provided WooCommerce sandbox credential, or an explicit decision to leave these '
-        'screens unverified in Phase 2.5.',
+        'refused before it renders, by two gates, and the first is the one that fires: '
+        "WoocomProductController::index needs isAbleTo('Manage Woocommerce Product'), which the "
+        'fixture merchant does not hold, and then needs the setting woocommerce_setting_enabled '
+        "== 'on', whose row does not exist -- so granting the permission would only reach the "
+        'second gate, which needs a connected store with credentials. Both refusal arms end in '
+        '`redirect()->back()`, so the surface has NO pixels of its own and a screenshot of it is '
+        'meaningless by construction: measured landing on /dashboard when driven from /dashboard '
+        'and on /webhook/create when driven from /webhook/create. Evidence is the measurement at '
+        'evidence/web-sweep-2026-11-10/after/_woocom_product__MEASUREMENT.json, not a capture. '
+        'REMEDIATION unchanged: an owner-provided WooCommerce sandbox credential, or an explicit '
+        'decision to leave these screens unverified in Phase 2.5.',
 
     'Edit customer (registered, unimplemented)':
         'NOT a missing screen -- a WEB/FLUTTER PARITY GAP, and the inventory description is stale. '
-        'The routes are NOT registered: routes/web.php:1191 is '
+        'The routes are NOT registered: routes/web.php:1200 is '
         "Route::resource('customer', ...)->except(['edit','update']), applied by P2.5-PKG-C (F-C-04) "
         'because CustomerController has neither method and GET /customer/1/edit answered HTTP 500. '
         'But a COMPLETE customer-update backend ships today and the Flutter admin already uses it: '
