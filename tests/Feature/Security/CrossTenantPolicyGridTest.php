@@ -177,6 +177,71 @@ class CrossTenantPolicyGridTest extends SecurityTestCase
         );
     }
 
+    /**
+     * THE WRITE DOOR WAS CLOSED AND THE READ DOOR BESIDE IT WAS LEFT OPEN.
+     *
+     * `UserController::update()` carries this comment, from SEC-F4:
+     *
+     *     "This method was gated on the 'Edit User' permission alone -- which every merchant
+     *      holds for their own tenant -- and then operated on User::findOrFail($id) with no
+     *      ownership test, so any merchant could edit any user on the platform, including user
+     *      id 1."
+     *
+     * That repair added `$this->authorize('update', $user)` at :260. **`edit()`, twenty lines
+     * above it, was not touched** -- it asks `isAbleTo('Edit User')`, then does `User::find($id)`
+     * with no ownership test and renders `users.edit`, whose form prints the target's NAME and
+     * EMAIL. Same file, same permission, same missing check; only the verb differs.
+     *
+     * That matters because of who holds the permission. `Utility::addNewData()` grants `Edit User`
+     * to the `admin` role, which every merchant has -- 31 of the 33 users in the production dump.
+     * So the read reached every user on the platform, and the write did not.
+     *
+     * The repair mirrors `update()` exactly: the same `authorize('update', ...)` call, which is
+     * the right ability because being allowed to OPEN the edit form is the same question as being
+     * allowed to submit it. Nothing is reordered and no permission is broadened.
+     */
+    public function test_the_edit_form_does_not_leak_another_tenants_name_and_email(): void
+    {
+        $attacker = $this->armedMerchant('grid-read-attacker@example.test');
+        [$victim] = $this->makeTenant();
+        $victimStaff = $this->makeStaff($victim, ['email' => 'grid-read-victim@example.test']);
+
+        $response = $this->actingAs($attacker)->get("/users/{$victimStaff->id}/edit");
+
+        /* ASSERT ON THE BODY, not only on the status. A 200 that happens to render an empty form
+           would pass a status check and still be the fix working; a 200 carrying the victim's
+           address is the defect, and the address is the thing that must not appear. */
+        $this->assertStringNotContainsString(
+            'grid-read-victim@example.test',
+            (string) $response->getContent(),
+            'GET /users/{id}/edit rendered another tenant\'s email address. `Edit User` is held '
+            . 'by every merchant, so this reached every user on the platform. The sibling '
+            . 'update() has carried `authorize(\'update\', $user)` since SEC-F4; edit() did not.'
+        );
+
+        $this->assertStringNotContainsString(
+            $victimStaff->name,
+            (string) $response->getContent(),
+            'GET /users/{id}/edit rendered another tenant\'s name'
+        );
+    }
+
+    public function test_a_merchant_may_still_open_the_edit_form_for_their_own_staff(): void
+    {
+        /* The other half: this must refuse a stranger and nobody else. */
+        $owner = $this->armedMerchant('grid-read-owner@example.test');
+        $ownStaff = $this->makeStaff($owner, ['email' => 'grid-read-ownstaff@example.test']);
+
+        $response = $this->actingAs($owner)->get("/users/{$ownStaff->id}/edit");
+
+        $this->assertStringContainsString(
+            'grid-read-ownstaff@example.test',
+            (string) $response->getContent(),
+            'a merchant can no longer open the edit form for their OWN staff member -- the guard '
+            . 'is refusing the one person it is supposed to admit'
+        );
+    }
+
     // =============================================================================================
     //  2. THE OPERATOR AS A TARGET -- in every spelling the database treats as the operator
     // =============================================================================================

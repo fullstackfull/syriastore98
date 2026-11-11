@@ -3265,3 +3265,112 @@ Nothing was added to `.github/known-test-outcomes.json`. This is the second time
 the known-outcome gate has caught a real regression introduced by a repair — the first was the
 observability inventory's twelve shifted log lines — and in both cases the fix was to correct the
 thing the gate was defending rather than to declare the failure.
+
+---
+
+## 4.32 P2.5-ACCEPTANCE — the closure found five live security defects the inventory had not [2026-11-11]
+
+The owner's final acceptance directive asked for four things: freeze the matrix, resolve the
+capture-integrity gate, close out security, and prepare visual acceptance. The matrix is frozen and
+unchanged — **225 / 24 / 28 / 8 / 10 / 0**, verified by `--check` after every edit in this round.
+The rest is below, and the headline is the part nobody asked for:
+
+> **Five live security defects, none of which was known when the implementation inventory reached
+> zero PENDING. Four of them destroy data. All five are fixed with tests.**
+
+### Why the inventory reaching zero did not mean this
+
+Every one of the five shares the shape this codebase has recorded before: *a routed action, on a
+model absent from `scoped_models`, whose target id comes from the URL, with no authorization in the
+handler and no gate on the route.* The matrix tracks whether a **surface** was designed and
+verified. It has never tracked whether the code behind it checks who is asking. Those are different
+questions and this round is the clearest demonstration of it the phase has produced.
+
+| | path | what any account could do |
+|---|---|---|
+| F-1 | `DELETE /bank_transfer/{order}` | erase **any merchant's subscription payment record** — hard delete, no soft delete, no audit row |
+| F-2 | `DELETE /menu/delete-item/{id}` | delete any tenant's menu item **and cascade into its custom link** |
+| F-3 | `DELETE /delete-custom-link/{id}` | the same, one model along |
+| F-4 | `DELETE /plan/{plan}` | delete a **platform subscription plan** — privilege escalation |
+| F-5 | `GET /users/{id}/edit` | read **any user's name and email, platform-wide** |
+
+F-1 is the one to read twice. Its route carried `web, auth, xss, setlocate, verified` and **nothing
+else**; the handler's `if ($order)` is decoration under route-model binding. Measured: a **staff
+member holding no permission at all** deleted another tenant's payment record. And the repository
+already stated the principle — `BulkDeleteTenantGuard` classifies `plan-order` as PLATFORM_GLOBAL
+because *"letting the payer erase it is an audit problem"*. **The bulk door refuses it; the
+single-row door never looked.** Four of the five routes on that one screen had been gated by earlier
+reviews; the only irreversible one was the one left open.
+
+F-5 is the other kind of lesson. `UserController::update()` carries SEC-F4's own account of this
+exact defect and was repaired with `authorize('update', $user)`. **`edit()`, twenty lines above it,
+was not touched** — same file, same permission, same missing check, only the verb differs. SEC-F4
+closed the write door and left the read door open, and `Edit User` is held by 31 of the 33 users in
+the production dump.
+
+Every fix mirrors a gate that already exists elsewhere in this codebase rather than inventing a
+policy: F-1 mirrors `PlanOrderDataTable::query()`'s own scope, F-2/F-3 the sibling methods'
+`Manage Menu` check plus one hop through the store-scoped `menus` table, F-5 the sibling
+`update()`'s own `authorize()` call.
+
+### What the revert check caught, twice
+
+`DestructiveRoutesTenantGuardTest` has **10** cases: 4 refusals and **6 legitimate-path** cases,
+because refusing everyone is an outage and not a fix. Reverting each fix individually reddened the
+matching test — BankTransfer 2, Menu 1, MenuItems 1, Plan 1, UserController 1.
+
+It earned its keep twice over. **F-3 initially had no test at all**: its row was only ever reached
+as a cascade through F-2's route, so reverting F-3's fix left everything green. Direct-route
+coverage was added, with the attacker deliberately *holding* `Manage Menu` so the case fails on
+ownership rather than on the permission. It also caught a partial revert of my own that would have
+reported a false clean result.
+
+### The capture-integrity gate: two defects, not one collision
+
+Both were **false evidence**, and neither was cleared by weakening a guard or deleting valid
+evidence.
+
+1. **The WooCommerce captures were pictures of the webhook page.** Both refusal arms of that
+   controller end in `redirect()->back()`, so the browser goes wherever it came from — measured
+   landing on `/dashboard` from `/dashboard` and on `/webhook/create` from `/webhook/create`. The
+   matrix's stated reason was false in every clause, including the recorded `title: ""`, which came
+   from reading the title of a page that had never changed. **Not regenerated: that surface has no
+   pixels of its own.** Replaced with a measurement file.
+
+2. **And a second, found because Pillow turned out to be installed.**
+   `detect-refusal-toast-captures.py` is documented as a manual run *because it needs Pillow*, and
+   Pillow 12.3.0 is present here. Running it found four captures photographing a *"permission
+   denied"* toast, backing a different row. The cause was a route driven without its
+   optional-but-required id. Re-captured and re-pointed; the filename now carries the id.
+
+**That detector should become a required CI step.** It found a false VERIFIED claim that every other
+gate passed.
+
+### What was deliberately NOT done
+
+* **The `composer.lock` is untouched.** Three same-major non-breaking bumps would clear all four
+  critical advisories, and a separate lock-only symfony bump would clear the red ceiling gate
+  *without raising the ratchet*. Both are owner-gated.
+* **`AUDIT_CEILING` is untouched.** The step's own text says to raise it deliberately, never
+  silently, and raising a security ratchet is not engineering's call.
+* **Nothing was done about the committed dump except stop the next one.** `.gitignore` now refuses
+  dump shapes, verified in both directions — and the existing tracked file **remains tracked**,
+  because ignoring never untracks. That is containment, not remediation, and the report says so.
+* **Whether a merchant may delete their OWN payment record is left exactly as it was.** That is a
+  financial-behaviour change and was reserved.
+* **§8.1's `platform-operator` role was not created.** Measured, it is a no-op in production: the
+  operator already holds those five permissions through a role that `Utility::addNewData()`
+  re-grants **on every login**. The recommendation is to decline it, and the larger question — is
+  that automatic grant intended? — is put to the owner instead.
+
+### Deliverables
+
+`PHASE-2.5-FINAL-ACCEPTANCE-REPORT.md` (matrix reconciliation, evidence, tests including the two
+declared failures and one skip, security findings, commits, the ten BLOCKED dispositions, eleven
+owner decisions, and engineering completion versus release readiness) and
+`PHASE-2.5-VISUAL-ACCEPTANCE-PACKAGE.md` (the 24 PREMIUM VERIFIED surfaces, all web — **no Flutter
+row is PREMIUM VERIFIED** — with the absence of any `before/` stated plainly and the measured
+contrast ratios offered instead of a misleading pixel pair).
+
+**Release readiness is not claimed and cannot be:** a mandatory security gate is red, an incident is
+unremediated, and rotation for 90 exposed password hashes is outstanding.

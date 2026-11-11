@@ -212,8 +212,43 @@ class BankTransferController extends Controller
         return redirect()->back()->with('success', __('Order Successfully Rejected'));
     }
 
+    /*
+     * P2.5-SEC-DESTRUCTIVE F-1. THIS DOOR HAD NO LOCK, AND IT IS THE IRREVERSIBLE ONE.
+     *
+     * `destroy(PlanOrder $order)` is route-model bound, so `if ($order)` below is decoration --
+     * it is never null -- and the route carries `web, auth, xss, setlocate, verified` and NOTHING
+     * else. MEASURED end to end: merchant A sent DELETE /bank_transfer/{B's plan order id} and the
+     * row was gone; so did a STAFF member holding no permission at all. What goes is a
+     * SUBSCRIPTION PAYMENT RECORD -- order id, price paid, payment status and the pointer to the
+     * bank slip the merchant uploaded -- hard deleted, with no soft delete on PlanOrder and no
+     * audit row to restore it from.
+     *
+     * THE REPOSITORY ALREADY STATED THIS PRINCIPLE AND THIS DOOR DID NOT READ IT.
+     * `BulkDeleteTenantGuard` puts `plan-order` in PLATFORM_GLOBAL precisely because "letting the
+     * payer erase it is an audit problem". The BULK door refuses it; the SINGLE-ROW door did not
+     * look. Four of the five routes on this screen were gated by earlier reviews -- show, approve,
+     * refund -- and the one that destroys was the one left open.
+     *
+     * THE GATE MIRRORS THE LIST'S OWN SCOPE, which is what makes it a fix and not a new policy:
+     * `PlanOrderDataTable::query()` shows a non-operator only `users.id = auth()->user()->id`, so
+     * a merchant can only ever SEE their own. This refuses what they could never have listed.
+     * Operator-first, because `isAbleTo()` alone refuses the platform operator in this codebase.
+     *
+     * WHAT THIS DELIBERATELY DOES NOT DECIDE: whether the legitimate owner should be able to
+     * erase their own payment record at all. That is an audit question with a financial
+     * dimension, it is recorded for the owner in the acceptance report, and this change leaves
+     * that behaviour exactly as it was.
+     */
     public function destroy(PlanOrder $order)
     {
+        $actor = auth()->user();
+
+        if (! $actor
+            || (! \App\Policies\UserPolicy::isOperator($actor)
+                && (int) $order->user_id !== (int) $actor->id)) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         if ($order) {
             $order->delete();
             return redirect()->back()->with('success', __('Order Successfully Deleted.'));

@@ -232,6 +232,34 @@ AuditLog::record('user_created', $user, [], [
         if (auth()->user() && auth()->user()->isAbleTo('Edit User'))
         {
             $user  = User::find($id);
+
+            /*
+             * P2.5-SEC-READ. SEC-F4 CLOSED THE WRITE DOOR AND LEFT THIS ONE OPEN.
+             *
+             * `update()` below carries SEC-F4's own account of this exact defect -- gated on
+             * `Edit User` alone, "which every merchant holds for their own tenant", then operating
+             * on a user found by id with no ownership test -- and it was repaired there with
+             * `$this->authorize('update', $user)` at :260. This method, twenty lines above it, was
+             * not touched: same file, same permission, same missing check, only the verb differs.
+             *
+             * MEASURED: a merchant holding `Edit User` requested another tenant's staff member and
+             * got HTTP 200 with the victim's NAME and EMAIL rendered into the form
+             * (`users/edit.blade.php` prints both). `Utility::addNewData()` grants `Edit User` to
+             * the `admin` role that every merchant has -- 31 of the 33 users in the production
+             * dump -- so the read reached every user on the platform while the write did not.
+             *
+             * `update` IS THE RIGHT ABILITY TO ASK FOR, not a weaker read ability: being allowed
+             * to open the edit form is the same question as being allowed to submit it, and
+             * borrowing the sibling's check is what keeps the two from drifting apart again. The
+             * null guard is because `find()` returns null for an id that does not exist, and
+             * `authorize()` on null would raise rather than refuse.
+             */
+            if (! $user) {
+                return response()->json(['error' => __('Permission denied.')], 401);
+            }
+
+            $this->authorize('update', $user);
+
             $roles = Role::where('created_by', '=', auth()->user()->creatorId())->where('store_id', getCurrentStore())->get()->pluck('name', 'id');
             return view('users.edit', compact('user', 'roles'));
         }

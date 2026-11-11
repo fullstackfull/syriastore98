@@ -187,9 +187,39 @@ class MenuController extends Controller
         return response()->json(['status' => true, 'message' => __('Item added successfully'), 'menuItem' => $menuItem]);
     }
 
+    /*
+     * P2.5-SEC-DESTRUCTIVE F-2. A SILENT CROSS-TENANT DELETE, AND IT CASCADES.
+     *
+     * MEASURED: merchant A sent DELETE /menu/delete-item/{B's item} and got
+     * `{"status":true,"message":"Menu item deleted successfully"}` -- both the `menu_items` row
+     * and the `custom_links` row it pointed at were gone. Any tenant's storefront navigation,
+     * removed by anyone with an account, with a success message.
+     *
+     * `index()` (:24) and `store()` (:43) on THIS controller both check
+     * `isAbleTo('Manage Menu')`. `deleteItem()` checked nothing. The gate below is the one its
+     * own siblings already use, plus the ownership test they get for free from a scoped list:
+     * `MenuItem` has no `store_id` and is not in `scoped_models`, but it carries `menu_id` and
+     * `menus` IS store-scoped, so the owning store is reachable in one hop.
+     */
     public function deleteItem($id)
     {
+        $actor = auth()->user();
+
+        if (! $actor || ! $actor->isAbleTo('Manage Menu')) {
+            return response()->json(['status' => false, 'message' => __('Permission denied.')], 403);
+        }
+
         $menuItem = MenuItem::find($id);
+
+        /* THE OWNING STORE, ONE HOP THROUGH `menus`. A non-operator may only touch an item whose
+           menu belongs to the store they are currently in. */
+        if ($menuItem && ! \App\Policies\UserPolicy::isOperator($actor)) {
+            $ownerStore = Menu::where('id', $menuItem->menu_id)->value('store_id');
+
+            if ((int) $ownerStore !== (int) getCurrentStore()) {
+                return response()->json(['status' => false, 'message' => __('Permission denied.')], 403);
+            }
+        }
 
         if ($menuItem) {
             if ($menuItem->menu_itemable_type == "App\Models\CustomLink") {

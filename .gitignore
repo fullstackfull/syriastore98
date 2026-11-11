@@ -90,3 +90,23 @@ database/p2dev.sqlite
 # checker as a module and left a .pyc, which got committed once -- 50529d6b).
 __pycache__/
 *.pyc
+
+# =================================================================================================
+# DATABASE DUMPS AND ARCHIVES -- recurrence containment for P1-SEC-40 (issue #120). 2026-11-11.
+# =================================================================================================
+#
+# READ THIS BEFORE ASSUMING IT FIXED ANYTHING. These patterns stop the NEXT dump from being
+# committed. They do NOT untrack, remove or hide the one already in the tree:
+# `storesyria_ecommercego.sql` is tracked at the repository root and an already-tracked path is
+# unaffected by .gitignore. Its blob also stays fetchable from history after any `git rm`, so the
+# only true remediation of the git channel is a history rewrite -- which this project forbids and
+# which is an owner decision, recorded in the final acceptance report.
+#
+# What that dump contains, measured: ~29,790 rows across 84 tables, including 90 bcrypt password
+# hashes (33 users + 57 customers), customer email / mobile / date_of_birth, 137 distinct IPv4
+# addresses, and 6,442 raw visitor request logs carrying headers and user agents. Gateway keys
+# present are Stripe TEST mode; no live gateway key and no APP_KEY were found inside it.
+*.sql
+*.sql.gz
+*.dump
+*.bak
