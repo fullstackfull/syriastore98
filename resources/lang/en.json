@@ -3525,5 +3525,10 @@
     "Please choose a language first.": "Please choose a language first.",
     "No email template has been set up yet.": "No email template has been set up yet.",
     "This email template has no content in any language yet.": "This email template has no content in any language yet.",
-    "Payment status for order :order": "Payment status for order :order"
+    "Payment status for order :order": "Payment status for order :order",
+    "We could not confirm this auction on this store, so no bid was placed. Please contact the store.": "We could not confirm this auction on this store, so no bid was placed. Please contact the store.",
+    "Please sign in to place a bid.": "Please sign in to place a bid.",
+    "Your bid could not be placed.": "Your bid could not be placed.",
+    "Please enter a valid bid amount.": "Please enter a valid bid amount.",
+    "Your bid must be higher than the current highest bid.": "Your bid must be higher than the current highest bid."
 }

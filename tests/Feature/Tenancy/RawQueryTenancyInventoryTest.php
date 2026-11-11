@@ -387,7 +387,14 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
          * They are declared with that reason in `ServiceLayerRawQueryInventoryTest`'s
          * STORE_LESS_BY_DESIGN.
          */
-        $this->assertSame(['app' => 176, 'packages' => 45], $perDir,
+        /*
+         * 176 -> 177 [2026-11-11, P1-SEC-61]: AuctionBidIdentityGuard::logSlugCollision()'s twin
+         * lookup. It is SCOPED -- `->where('store_id', $routeStore)` -- and it feeds no
+         * authorization decision at all: the admit/refuse call is already made before it runs, and
+         * its result only selects which of two operator log messages is written. Counted here
+         * because every raw site is counted here, not because it is an exposure.
+         */
+        $this->assertSame(['app' => 177, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -463,7 +470,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // dependants rather than hide rows, and the thing it would hide is a store or a wallet
         // the delete then destroys. Declared with that reason in
         // ServiceLayerRawQueryInventoryTest::STORE_LESS_BY_DESIGN; see the per-directory note.
-        $this->assertSame(221, array_sum($perDir));
+        // 221 -> 222 [2026-11-11, P1-SEC-61]: the logSlugCollision twin lookup (177 + 45). It
+        // carries a `store_id` predicate, so the UNSCOPED sum below does not move.
+        $this->assertSame(222, array_sum($perDir));
     }
 
     /**
@@ -608,7 +617,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // remedy is, uniquely here, the defect. Verified on MySQL 8.0.46 by
             // tests/Support/Security/bin/verify-category-product-cascade-on-mysql.php (6 checks, 0 failures) and by
             // mutant B of the removal check. None of the three returns rows -- each is a COUNT read only to refuse.
-            'products' => [7, 3],     // 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own. 5 -> 6 total [2026-10-30, F207 / D-29.2] with ModuleResourceOwnershipGuard:523's existence check; THE UNSCOPED HALF STAYS AT 3, which is the assertion that matters -- the new site names `store_id`. 6 -> 7 [2026-11-01, F242] with TopSellersByRevenue:106's dimension lookup, AGAIN WITH a store_id predicate, so the unscoped half still does not move
+            'products' => [8, 3],     // 7 -> 8 total [2026-11-11, P1-SEC-61] with AuctionBidIdentityGuard::logSlugCollision()'s twin lookup, WITH a store_id predicate -- it asks whether the ROUTED store holds its own product under the colliding slug, so THE UNSCOPED HALF STAYS AT 3, which is again the assertion that matters. 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own. 5 -> 6 total [2026-10-30, F207 / D-29.2] with ModuleResourceOwnershipGuard:523's existence check; THE UNSCOPED HALF STAYS AT 3, which is the assertion that matters -- the new site names `store_id`. 6 -> 7 [2026-11-01, F242] with TopSellersByRevenue:106's dimension lookup, AGAIN WITH a store_id predicate, so the unscoped half still does not move
             'settings' => [17, 5],   // 16 -> 17 with P1-SEC-11 criterion 4's review follow-up (DocumentDirection::ownRow reads the ORDER store's SITE_RTL and invoice_logo rows, WITH a store_id predicate -- see the entry-point note above for why it cannot go through GetValueByName); 15 -> 16 with P1-SEC-11 (OrderController::shippinglabel reads the order store's five address rows, WITH a store_id predicate); earlier: 15 -> 16 with P1-SEC-27 (StoreSettingsAccess::storedRows, WITH a store_id predicate); 16 -> 15 and 9 -> 5 with P1-SEC-29 (HostClaims)
             'shetabit_visits' => [16, 0],
             'side_menus_option' => [28, 0],
@@ -731,8 +740,11 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // `DB::table('stores')->where('created_by', $user->id)`. One of the guard's two entry
         // points; the other names its table through a loop variable over two const arrays and so
         // joins the unattributable remainder (49 -> 50), for the same reason F217's exposure
-        // census does. 171 literal-table sites of the 221 entry points.
-        $this->assertSame(171, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        // census does.
+        // 171 -> 172 [2026-11-11, P1-SEC-61]: AuctionBidIdentityGuard::logSlugCollision()'s twin
+        // lookup names `products` as a literal, so it is attributable and lands in the per-table
+        // count rather than the remainder. 172 literal-table sites of the 222 entry points.
+        $this->assertSame(172, array_sum(array_map(fn ($r) => $r[0], $actual)),
             '[2026-11-02] 167 -> 170 AND the remainder 52 -> 49, with NOTHING IN app/ CHANGED. '
             . 'Three entry points were counted by RAW_ENTRY_POINT_PATTERN and NOT attributed to '
             . 'their table, because they write `DB::table(` on one line and the name on the next: '
@@ -744,7 +756,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             . 'per-table count and leaves 219 unchanged. Two of the three are the store-less money '
             . 'reads of F219, so the blind spot was hiding exactly what this census exists for. '
             . 'Found by independent review re-deriving the number rather than accepting it. '
-            . '170 literal-table sites of the 219 entry points; the other 49 build their table name '
+            . '172 literal-table sites of the 222 entry points; the other 50 build their table name '
             . 'from a variable or a class constant and so cannot be attributed (see LIMIT 2 in '
             . 'this class docblock). [2026-11-01] THIS MESSAGE SAID "164 of 207 / the other 43" '
             . 'while the assertion itself read 164 and the real total was 215 -- the number in the '

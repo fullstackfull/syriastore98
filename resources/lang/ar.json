@@ -3521,5 +3521,10 @@
     "Please choose a language first.": "يرجى اختيار لغة أولاً.",
     "No email template has been set up yet.": "لم يتم إعداد أي قالب بريد إلكتروني بعد.",
     "This email template has no content in any language yet.": "لا يحتوي قالب البريد الإلكتروني هذا على محتوى بأي لغة بعد.",
-    "Payment status for order :order": "حالة الدفع للطلب :order"
+    "Payment status for order :order": "حالة الدفع للطلب :order",
+    "We could not confirm this auction on this store, so no bid was placed. Please contact the store.": "لم نتمكن من تأكيد هذا المزاد في هذا المتجر، لذلك لم يتم تقديم أي عرض. يرجى التواصل مع المتجر.",
+    "Please sign in to place a bid.": "يرجى تسجيل الدخول لتقديم عرض.",
+    "Your bid could not be placed.": "لم نتمكن من تقديم عرضك.",
+    "Please enter a valid bid amount.": "يرجى إدخال مبلغ عرض صالح.",
+    "Your bid must be higher than the current highest bid.": "يجب أن يكون عرضك أعلى من أعلى عرض حالي."
 }

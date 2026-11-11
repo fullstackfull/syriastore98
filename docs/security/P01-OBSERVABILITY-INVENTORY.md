@@ -90,7 +90,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 190 lines
+### `warning` — 192 lines
 
 > **[2026-11-02, second edit] 186 -> 190, and BOTH HEADINGS WERE STALE BEFORE IT.** Measured
 > against `app/` with the test's own regex: **27 `critical`, 190 `warning`, 217 total** — which is
@@ -254,6 +254,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/SofortController.php:233` | Plan payment return rejected: claimed amount does not match the plan price. |
 | `app/Http/Controllers/ZidOAuthController.php:31` | DS exchange failed |
 | `app/Http/Middleware/ActiveTheme.php:35` | Storefront visit log failed |
+| `app/Http/Middleware/AuctionBidIdentityGuard.php:410` | P1-SEC-61 auction bid refused: products.slug collision across stores. |
+| `app/Http/Middleware/AuctionBidIdentityGuard.php:424` | P1-SEC-61 auction bid refused: bid target does not belong to this storefront. |
 | `app/Http/Middleware/FlashedMessageSafety.php:74` | an exception object was flashed to a session and was replaced before it could be rendered |
 | `app/Http/Middleware/LotteryDrawOwnershipGuard.php:260` | lottery draw refused |
 | `app/Http/Middleware/ModuleOrderMutationGuard.php:378` | module order mutation refused |

@@ -6048,3 +6048,78 @@ deleting the file.
 | **P1-SEC-54** | the auction bid write | **CLOSED** — the routed-storefront match is enforced, 18 cases, reverting the check fails exactly one |
 | **P1-SEC-60** | a security fix re-staged a test and silently emptied it (30 → 42 assertions once repaired) | **CLOSED** — and worth remembering as a class |
 | **P1-SEC-61** | `bidingForm` is unscoped and `products.slug` is not unique, so a legitimate click can resolve another store's product | **OPEN — REPORTED.** Fails closed since #136; the remaining cost is a misleading message |
+
+---
+
+## S57 — P1-SEC-61 resolved, and the new dependency it creates (2026-11-11)
+
+**P1-SEC-61 (`bidingForm` unscoped + `products.slug` not unique) → CLOSED for the misleading
+message, OPEN for the root cause.** The owner asked for the bounded misleading-message issue to be
+resolved "if safely possible". It was, and a safer thing than the obvious fix was chosen.
+
+### What the message problem actually was
+
+`products.slug` has no unique index (`2023_12_26_092822_create_products_table.php:17` is a plain
+nullable string) and `AuctionProductController:205` assigns a **merchant-supplied** slug verbatim
+with no uniqueness check. The generated path cannot collide — `Product::slugs()` →
+`getRelatedSlugs()` is `where('slug','like',$slug.'%')` with no store predicate, so auto-slugs are
+globally unique. Only typed slugs collide, and the field is merchant-controlled.
+
+`bidingForm:1566` then resolves `Product::where('slug', $product_slug)->first()` with **no store
+predicate and no ordering**, so the lowest product id wins for every store sharing that slug. A
+customer on the losing store clicks their own auction, is shown the other store's product, and
+posts a bid the guard correctly refuses — while being told *"That auction product could not be
+found."* about something plainly on screen.
+
+### What was NOT done, and why
+
+**The obvious fix — tell the customer which cause fired — would have been a regression.**
+`AuctionBidIdentityGuard` deliberately gives all four ownership refusals one body so the response
+cannot be used to separate "no such product id" from "that id exists, in a store that is not this
+one". Differentiating it builds a cross-tenant catalogue-enumeration oracle.
+`test_every_ownership_refusal_is_indistinguishable` now pins that property.
+
+Three other candidate fixes were rejected as out of proportion or out of scope:
+
+| candidate | rejected because |
+|---|---|
+| store-scope `bidingForm`'s query | `packages/workdo/` is vendored and must not be edited |
+| add `Product` to `config/tenancy.php`'s `scoped_models` | changes behaviour at every one of the ~49 `Product::find` sites, in admin, operator and API contexts, days before a merge. CLAUDE.md records `Product`'s absence as having already produced a live cross-tenant stock drain — this is not a bounded pre-merge change |
+| `UNIQUE (store_id, slug)` on `products` | a persistent migration, which needs owner authorisation, and would fail against any collisions already in the data |
+
+### What was done
+
+The shared refusal text now reads *"We could not confirm this auction on this store, so no bid was
+placed. Please contact the store."* — true of all four causes, explicit about the outcome of a money
+action, and pointing at the only party who can rename a colliding slug. It deliberately does not
+say "try again": the collision is deterministic, so that would be a second false statement.
+
+All five of the guard's messages were also added to `en.json` and `ar.json`. None had an Arabic
+entry, so an Arabic shopper was being handed English — which on a storefront is part of the same
+defect. The orphan ratchet in `TranslationFileIntegrityTest` caught the first attempt, which added
+Arabic without English; the ceiling was **not** raised.
+
+Diagnosis goes to the operator instead, through `logSlugCollision()`: on a store mismatch it asks
+whether the routed storefront holds its own product under the same slug, and logs either the
+collision (naming both rows so the merchant can rename one) or a plain hand-crafted mismatch.
+
+### THE DEPENDENCY THIS CREATES — read before closing P1-SEC-40
+
+**→ P1-SEC-62 (new, below).** Independent review established that the *choice* of log line is
+itself the distinction the shared message exists to withhold, and `storage/logs/laravel.log`
+answered 200 with 3,421,645 bytes of `text/plain` on the live host on 2026-11-11. So on the live
+host today the diagnostic is readable by anonymous HTTP.
+
+**The incremental disclosure today is nil** — the same channel already hands out `.env` with the
+unrotated `APP_KEY` and the `DB_*` credentials, so anyone who can read the log can already read the
+`products` table directly. But the diagnostic's safety is **conditional on P1-SEC-40**, and that
+conditionality is recorded here rather than left as a footnote. Remediating P1-SEC-40 closes
+P1-SEC-62 with no further work.
+
+### Status
+
+| id | finding | state |
+|---|---|---|
+| **P1-SEC-61** | the misleading refusal message | **CLOSED** — 5 regression cases, each falsified |
+| **P1-SEC-61-ROOT** | `bidingForm` unscoped + `products.slug` not unique | **OPEN — REPORTED.** Needs a vendored patch or a `UNIQUE (store_id, slug)` migration. Owner decision; fails closed meanwhile |
+| **P1-SEC-62** | the operator diagnostic is readable by anonymous HTTP while P1-SEC-40 stands | **OPEN — ACCEPTED, dependent.** Zero incremental disclosure today; closed by remediating P1-SEC-40 |

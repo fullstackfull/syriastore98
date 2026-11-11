@@ -501,7 +501,12 @@ class OwnedPathRawQueryInventoryTest extends TestCase
         // landed in the `unclassified` list. Classified 'tenant' above, and the statement carries
         // `->where('store_id', $rowStore)` so it earns that category rather than taking an
         // exemption from it.
-        $this->assertCount(36, $sites, "The owned-path raw query inventory changed:\n  "
+        // 36 -> 37 [2026-11-11, P1-SEC-61]: AuctionBidIdentityGuard::logSlugCollision()'s twin
+        // lookup. The file is already classified 'derivation' above, and the statement carries
+        // `->where('store_id', $routeStore)`, so it earns that category rather than taking an
+        // exemption from it. It informs an operator log line only -- the refuse decision is taken
+        // before it runs and cannot be changed by it.
+        $this->assertCount(37, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry
