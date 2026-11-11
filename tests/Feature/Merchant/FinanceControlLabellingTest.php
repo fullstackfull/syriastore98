@@ -349,21 +349,77 @@ class FinanceControlLabellingTest extends SecurityTestCase
     }
 
     /**
-     * THE EXCLUSION, ASSERTED RATHER THAN DESCRIBED. The per-row `payment_status` select
-     * (index.blade.php:426) renders inside `@forelse`, so a static id would duplicate per row. It
-     * stays out of this repair; its missing accessible name is a separate tracked row.
+     * THE EXCLUSION, ASSERTED RATHER THAN DESCRIBED — and the separately-tracked half is now done.
+     *
+     * The per-row `payment_status` select renders inside `@forelse`, so a static `id` would
+     * duplicate once per row and every `label[for]` pointing at it would resolve to the first
+     * one. That is the real constraint and it still holds: **no id**.
+     *
+     * WHY THIS WAS REWRITTEN (P2.5-CLOSURE-AUDIT, 2026-11-11). The assertion used to be a single
+     * regex over the view's source:
+     *
+     *     /<select\s+name="payment_status"\s+class="form-control form-control-sm"/
+     *
+     * which required `class` to follow `name` IMMEDIATELY. Its message said the control's
+     * "missing accessible name needs an aria-label and is tracked separately" — so when that
+     * aria-label was finally added, between those two attributes, this test failed. It failed on
+     * the remedy its own message prescribed, because it was matching incidental attribute ORDER
+     * rather than the two things it meant.
+     *
+     * It now asserts both halves separately, which is a tightening: the `id` ban is checked
+     * directly rather than implied by a character position, and the accessible name it used to
+     * merely describe is now REQUIRED. A future edit that removes the aria-label fails here
+     * instead of quietly regressing a control that decides whether money is recorded as received.
      */
-    public function test_the_per_row_payment_status_select_took_no_id(): void
+    public function test_the_per_row_payment_status_select_has_a_name_and_no_id(): void
     {
         $source = (string) file_get_contents(base_path('resources/views/finance/index.blade.php'));
 
-        $this->assertMatchesRegularExpression(
-            '/<select\s+name="payment_status"\s+class="form-control form-control-sm"/',
-            $source,
-            'the per-row payment_status select has been given an id or otherwise rewritten. It '
-            . 'renders inside @forelse, so a static id duplicates once per row; its missing '
-            . 'accessible name needs an aria-label and is tracked separately.'
+        if (! preg_match('/<select\s+name="payment_status"(?P<attrs>[^>]*)>/', $source, $m)) {
+            $this->fail('the per-row payment_status select is no longer in finance/index.blade.php '
+                . 'in a recognisable form; this test can no longer speak for it');
+        }
+
+        $attrs = $m['attrs'];
+
+        /* NO ID. The constraint this test was written for: inside `@forelse` a static id is
+           duplicated once per rendered row, and a `label[for]` would address only the first. */
+        $this->assertDoesNotMatchRegularExpression(
+            '/\sid\s*=/',
+            $attrs,
+            'the per-row payment_status select has been given an id. It renders inside @forelse, '
+            . 'so one static id duplicates across every row and any label[for] pointing at it '
+            . 'resolves to the first row only. Name it with aria-label, which needs no id.'
         );
+
+        /* AND IT MUST STILL HAVE A NAME. Before this was added the accessible name was the empty
+           string: a combobox announced as "combobox", once per row, on the control that records
+           whether a customer's money was received. */
+        $this->assertStringContainsString(
+            'aria-label=',
+            $attrs,
+            'the per-row payment_status select has lost its accessible name. Without it the '
+            . 'control is announced as "combobox" and nothing else, identically on every row, and '
+            . 'it is the control that records whether money was received.'
+        );
+
+        /* The name identifies the ORDER, because a screen-reader user arriving by column has no
+           row context. It must NOT carry the current status: the selected option already
+           announces that, and a name repeating it would contradict itself on change. */
+        $this->assertStringContainsString(
+            'Payment status for order',
+            $attrs,
+            'the accessible name no longer identifies which order the select governs'
+        );
+
+        foreach (['Received', 'Not Received'] as $state) {
+            $this->assertStringNotContainsString(
+                $state . "')",
+                $attrs,
+                'the accessible name carries the payment status, which the selected option '
+                . 'already announces and which would contradict itself the moment it changes'
+            );
+        }
     }
 
     /**

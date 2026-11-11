@@ -3232,3 +3232,36 @@ all three new test files and their contents, **each of the three argument-defaul
 `git diff c3b82304..HEAD -- .github/known-test-outcomes.json`, every §6.1 composer figure, §6.2's
 `buildArray` absence and 38 PHP translation files and twelve non-resolving view literals (re-measured
 12 of 12), and §7 in full.
+
+### 4.31a The ratchet caught the audit's own fix, and the test was asserting the wrong thing [2026-11-11]
+
+Adding the `aria-label` from §4.31 turned `FinanceControlLabellingTest` red as an **undeclared**
+failure. It is worth recording because the test failed **on the remedy its own message prescribed**.
+
+Its assertion was one regex over the view's source:
+
+```
+/<select\s+name="payment_status"\s+class="form-control form-control-sm"/
+```
+
+which requires `class` to follow `name` IMMEDIATELY — and its failure message read *"its missing
+accessible name needs an aria-label and is tracked separately."* So the moment that aria-label was
+added, between those two attributes, the test objected. It was matching incidental attribute ORDER
+while meaning two quite different things.
+
+**Rewritten to assert both of them, which is a tightening and not a relaxation:**
+
+| | before | now |
+|---|---|---|
+| no static `id` (it renders inside `@forelse`, so one id duplicates per row and any `label[for]` resolves to the first) | implied by a character position | asserted directly against the select's attribute list |
+| an accessible name | merely *described* in the failure message as owed | **required** |
+| the name identifies the order, and does NOT carry the status | not checked | both checked |
+
+So a future edit that drops the aria-label now fails here instead of quietly regressing a control
+that decides whether a customer's money is recorded as received. Proved in both directions:
+removing the aria-label reddens it, and giving the select an `id` reddens it, each on its own.
+
+Nothing was added to `.github/known-test-outcomes.json`. This is the second time in two waves that
+the known-outcome gate has caught a real regression introduced by a repair — the first was the
+observability inventory's twelve shifted log lines — and in both cases the fix was to correct the
+thing the gate was defending rather than to declare the failure.

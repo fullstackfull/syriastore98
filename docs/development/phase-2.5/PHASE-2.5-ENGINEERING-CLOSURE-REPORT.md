@@ -322,7 +322,13 @@ with a premise message carrying the measured rect; and the re-capture is 210×57
 nothing else, once per row, on the control that records whether money was received. Now labelled with
 the order it governs, and the surface re-runs at **0 findings**.
 
-
+**Labelling it turned `FinanceControlLabellingTest` red**, as an undeclared failure, and the reason is
+worth keeping: that test asserted a single regex requiring `class` to follow `name` immediately,
+while its own failure message said the control's missing name *"needs an aria-label and is tracked
+separately"*. It failed on the remedy it had prescribed, because it was matching attribute ORDER. It
+now asserts the two things it meant — **no static `id`** (the real constraint: inside `@forelse` one
+id duplicates per row) and **an accessible name that identifies the order without repeating the
+status**. Each half reddens on its own revert. That is a tightening; nothing was declared.
 
 ---
 
