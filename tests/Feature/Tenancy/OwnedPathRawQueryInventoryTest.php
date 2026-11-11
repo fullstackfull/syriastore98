@@ -299,14 +299,20 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             // It fetches the authoritative store and OVERWRITES what the caller sent. Neither read
             // carries a store predicate, and neither should.
             //
-            // `:118` reads `products` by id with NO store filter, and that is the POINT: bidding
-            // across stores is the module's own design (place_bid.blade.php:314 renders
-            // `store_id = $product->store_id`), so the guard wants the product whatever store owns
-            // it. What it must not do is let the CALLER name the store, and it does not -- the
-            // store is taken from the row and merged over the caller's value. A
-            // `->where('store_id', getCurrentStore())` here would break the legitimate flow and
-            // close nothing: the attacker can already see the product, since storefronts are
-            // public.
+            // The `products` read is by id with NO store filter, and that is still the POINT,
+            // but the reason is narrower than it was. The guard must fetch the row before it can
+            // compare anything, so the LOOKUP is unscoped on purpose; what it must not do is let
+            // the CALLER name the store, and it does not -- the store is taken from the row and
+            // merged over the caller's value.
+            //
+            // CORRECTED 2026-11-11 (issue #136). This note used to go further and say "bidding
+            // across stores is the module's own design ... a `->where('store_id', ...)` here would
+            // break the legitimate flow and close nothing". The owner reversed that: the guard now
+            // ALSO refuses when the routed storefront's store differs from the product's. The
+            // refusal is a separate statement after this read, not a predicate on it, so this
+            // classification is unchanged -- but the prose no longer claims the opposite of the
+            // code. A customer may still bid on another store's product by VISITING that
+            // storefront; what is refused is naming one storefront and targeting another's.
             //
             // `:143` reads `max('bid_amount')` keyed on `product_id` alone, deliberately matching
             // the vendored display reads at AuctionProductController:1568 and :1635. The guard

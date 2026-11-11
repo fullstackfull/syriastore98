@@ -46,30 +46,72 @@ defect in the screens: production is MySQL, the SQL is valid there, and `ReportC
 carries the controller's own comment recording the SQLite limitation. These are measurement
 failures, not product failures.
 
-### Recommended disposition: **remediate, as a small scoped follow-up. Do not accept as unverified.**
+### Recommended disposition: **the engineering blocker is RESOLVED. What remains is capture, not remediation.**
 
-This is the group I would fix first, because the cost is low and the path is already built. The
-repository holds **42** standalone MySQL verification harnesses in
-`tests/Support/Security/bin/`, plus `run-mysql-verifications.sh` to drive them, each creating and
-dropping its own throwaway database. Rendering four routes against MySQL is one more script in a
-well-worn shape.
+**UPDATED 2026-11-11 with executed evidence.** The owner asked to prefer an isolated MySQL
+environment over assuming SQLite proves production behaviour. Doing that refuted this blocker and
+found something else.
 
-**The honest cost, because it is not zero.** Neither this container nor CI has a MySQL server —
-`.github/workflows/ci.yml` declares no `services:` block, so those 42 harnesses are operator-run
-today, not continuously verified. So the work is: provision MySQL (a CI service container, or a
-local server for a one-off run), then write the script. Modest, not free.
+**What was actually run, in this container:**
 
-**Why not just accept them.** Accepting four surfaces as verified on the strength of "it should
-work on MySQL" is exactly the reasoning that produced the capture-integrity failures this phase
-already had to repair — six surfaces marked PREMIUM VERIFIED on photographs of permission
-refusals. An unrendered screen has not been reviewed, and recording it as reviewed would make the
-matrix assert something nobody checked.
+1. **MariaDB 10.11.14 installed from apt** (`apt-get install -y --no-install-recommends
+   mariadb-server`, exit 0) and started with `service mariadb start`. So the earlier cost estimate
+   — "provision MySQL" — was pessimistic: it is one package and no configuration. Docker is not a
+   fallback here (the daemon is unreachable), but it is not needed.
+2. **`php artisan migrate --force` against MySQL: 132 tables, exit 0.**
+3. **`database/seed-p2dev.php` seeded cleanly into MySQL** — 32 products, 7 orders, 2 stores, 3
+   customers, 5 users. The fixture is not SQLite-specific, which was the open question.
+4. **A dev server was pointed at that database** and the four routes driven over HTTP as the
+   authenticated fixture merchant — a real request through the real stack, not the test kernel.
 
-**Secondary benefit worth noting.** A MySQL service in CI would also move those 42 security
-harnesses from operator-run to continuously verified. That is a larger win than the four report
-bodies and argues for doing this properly rather than with a local one-off.
+| surface | SQLite | MySQL |
+|---|---|---|
+| Customer report body — `GET reports-chart` | 500 | **200**, 3,060 bytes |
+| Sales report body — `GET order-reports-chart` | 500 | **200**, 8,689 bytes |
+| Sales report bar body — `GET order-reports-chart-data` | 500 | **200**, 7,099 bytes *(after a fix, below)* |
+| Top Sales Report — `GET top-all-reports` | 500 | **200**, 88,461 bytes |
 
----
+Evidence: `evidence/mysql-reports-2026-11-11/_report_bodies__MEASUREMENT.json`. It is a measurement
+rather than a capture for the same reason the WooCommerce row carries one — these are AJAX
+fragments, and the matrix's four-combination contract is about a surface rendered in place.
+
+### One of the four had a SECOND defect, and its recorded reason never mentioned it
+
+`order-reports-chart-data` answered **500 on MySQL too**. Its matrix row says the blocker is
+`MONTH()` and `YEAR()`. The SQL runs fine on MySQL. The 500 was ours:
+
+```
+count(): Argument #1 ($value) must be of type Countable|array, int given
+(View: resources/views/components/ss/bar-chart.blade.php)
+```
+
+`ReportController::order_reports_chart_data()` initialises `$PurchasedItemTotal = 0` — a scalar — at
+`:1004`, `:1076`, `:1136`, `:1221`, `:1316` and passes it as `itemSeries`. Sibling methods append to
+it later (`$PurchasedItemTotal[] =` at `:561`, `:630`, `:684`, `:772`), so it is an array on those
+paths; on these it never is. In PHP 8 `count()` on an int is a **fatal**, so one surface's bad input
+took the page down. The component already guarded `$values2` with `is_array()` and did not guard
+`$labels` or `$values` — that inconsistency was the defect, and the three are now uniform. Pinned by
+`tests/Unit/Ui/BarChartScalarSeriesTest.php` (20 cases; reverting the fix fails them).
+
+**This is the argument for the owner's MySQL instruction, in one example.** SQLite 500s on `MONTH()`
+before reaching any view, so one blocker's recorded cause was completely masking a second, unrelated
+defect in a Phase 2.5 component. "Confirm its exact reason" was worth doing rather than trusting the
+row.
+
+### What this does and does not change
+
+**It does not promote any row.** The matrix stays at 225/24/28/8/10/0 and these four remain BLOCKED,
+because the four-combination captures do not exist. What changed is that their recorded reason is now
+accurate and the obstacle is gone: capturing them is ordinary capture work against a MySQL-backed
+dev server, not a blocker.
+
+**Recommended to the owner:** authorise the capture pass for these four, or accept them as verified
+on the measurement above. Either is defensible; leaving them BLOCKED on a reason that is now known to
+be incomplete is not.
+
+**Secondary benefit, unchanged:** a MySQL service in CI would also move the repository's 42
+standalone `verify-*-on-mysql.php` security harnesses from operator-run to continuously verified.
+That remains the larger prize and now has a proven install path.
 
 ## Group B — two importer families, blocked on third-party credentials
 
@@ -192,10 +234,10 @@ merchant functionality — which Phase 2.5 does not.
 
 | # | Surface | Group | Recommendation | Blocked on |
 |---|---|---|---|---|
-| 1 | Customer report body | A | Remediate via a MySQL harness | engineering + a MySQL server |
-| 2 | Sales report body | A | Remediate via a MySQL harness | engineering + a MySQL server |
-| 3 | Sales report bar body | A | Remediate via a MySQL harness | engineering + a MySQL server |
-| 4 | Top Sales Report | A | Remediate via a MySQL harness | engineering + a MySQL server |
+| 1 | Customer report body | A | **Blocker resolved** — renders 200 on MySQL. Capture or accept | owner: authorise the capture pass |
+| 2 | Sales report body | A | **Blocker resolved** — renders 200 on MySQL. Capture or accept | owner: authorise the capture pass |
+| 3 | Sales report bar body | A | **Blocker resolved** — and a first-party defect was found and fixed behind it | owner: authorise the capture pass |
+| 4 | Top Sales Report | A | **Blocker resolved** — renders 200 on MySQL. Capture or accept | owner: authorise the capture pass |
 | 5 | Shopify import (5 screens) | B | Reclassify OUT OF SCOPE | owner: provision a sandbox, or accept |
 | 6 | WooCommerce import (4 screens) | B | Reclassify OUT OF SCOPE — it has no pixels of its own | owner: provision a sandbox, or accept |
 | 7 | Invoice PDF viewer | C | Accept current evidence; device capture optional | nothing — behaviour is test-pinned |
@@ -203,8 +245,15 @@ merchant functionality — which Phase 2.5 does not.
 | 9 | Edit customer (web) | D | Schedule in Phase 04 | owner: product decision |
 | 10 | Wishlist CRUD | D | Unregister the routes regardless; feature is owner's call | owner: product decision |
 
-**If only one of these is actioned, make it Group A** — four surfaces, a path the repository has
+**Group A is no longer a backlog item but a decision** — four surfaces, a path the repository has
 walked 42 times, and a MySQL service in CI would additionally convert 42 operator-run security
 harnesses into continuously verified ones.
 
-**Nothing above has been executed.** The matrix stays at 225/24/28/8/10/0.
+**What has and has not been executed.** Group A's investigation WAS executed: MariaDB installed,
+the schema migrated, the fixture seeded, the four routes driven, and the first-party component
+defect found behind one of them fixed and pinned by tests. Nothing in Groups B, C or D has been
+executed — those are owner decisions or external dependencies.
+
+**No row was promoted, demoted or deleted. The matrix stays at 225/24/28/8/10/0**, which is the
+state §5 of the directive declares authoritative. Group A's four rows remain BLOCKED because their
+four-combination captures do not exist; what changed is that their recorded reason is now true.

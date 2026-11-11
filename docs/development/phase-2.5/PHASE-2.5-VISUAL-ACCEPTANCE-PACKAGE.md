@@ -98,6 +98,57 @@ These ten were judged already at standard. **Nothing about them was redesigned**
 
 ---
 
+## 3.1 A second cut: was a change actually MADE? — and where it disagrees with §3
+
+The owner asked specifically to *"identify actual visual changes and distinguish them from screens
+that were already premium"*. §3 above groups by the **audit verdict recorded at discovery**. That is
+not the same question, and on seven rows the two answers differ, so both are given rather than one
+silently replacing the other.
+
+**Measured on the filesystem, and these are hard facts, not judgements:**
+
+| | |
+|---|---|
+| surfaces | **24** — the coverage matrix and this package name the identical 24, checked row by row |
+| capture files | **96 of 96 present** (24 × 4 combinations), every one non-empty and carrying a real PNG magic number |
+| `before/` captures | **none exist for any of the 24**, in any of the five backing folders |
+
+**The second cut, by whether a visual change was actually made:** **13 CHANGED, 11 ALREADY-PREMIUM.**
+
+- **CHANGED (13):** Brand list · Tag list · Product label list · Flash sale list · Testimonial list ·
+  FAQ list · Brand create (modal) · Category create (modal) · Product list (grid view) ·
+  Own profile (WorkDo) · Notifications · Footer + script bundle · x-ss.attention
+- **ALREADY-PREMIUM (11):** Coupon detail · Product question list · Page-header component ·
+  x-ss.stat / x-ss.stats · Category list · Attributes list · Attribute options · Users / staff list ·
+  Roles list · Workspace chip · Dashboard overview region
+
+### The seven rows where the two cuts disagree
+
+| surface | §3 discovery verdict | change actually made? |
+|---|---|---|
+| Coupon detail | DEFICIENT | no |
+| Product question list | NEEDS-POLISH | no |
+| Page-header component | NEEDS-POLISH | no |
+| x-ss.stat / x-ss.stats | NEEDS-POLISH | no |
+| Category create (modal) | PREMIUM-ALREADY | yes |
+| Own profile (WorkDo) | PREMIUM-ALREADY | yes |
+| x-ss.attention | PREMIUM-ALREADY | yes |
+
+**This disagreement is reported, not resolved.** The two cuts come from different sources — §3 from
+the audit verdict recorded when the surface was first reviewed, this one from the task ledger and
+the git history of the backing files — and neither was re-derived from the other. Three rows judged
+below standard appear to have been captured without a change, and three judged already-premium
+appear to have been changed anyway; a verdict revised mid-phase would explain either direction, and
+no attempt is made here to say which happened per row.
+
+**Which to use for what.** For *"how much should I scrutinise this screen"*, §3's verdict is the
+better guide — it records what a reviewer thought when they looked. For *"is there anything new to
+look at"*, this cut is. For the acceptance decision itself the distinction does not change what is
+being asked: all 24 are captured, none has a before/, and the owner is being asked to accept the
+screens as they stand today.
+
+---
+
 ## 4. Before / after — what exists, and what would mislead you
 
 **No `before/` directory exists in any of the five folders backing these 24.** That is a real

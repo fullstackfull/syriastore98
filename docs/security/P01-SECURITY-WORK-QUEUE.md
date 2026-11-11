@@ -5857,7 +5857,7 @@ or accept the risk explicitly.**
 | **P1-SEC-51** | `getProductsVariantQuantity()` returned any tenant's exact variant stock to any authenticated merchant | **CLOSED** — predicate from the authenticated principal, fail-closed on a null tenant, 8 cases in `ProductReadTenancyTest` |
 | **P1-SEC-52** | `product_price()` priced another tenant's product under the browsing storefront's rules | **CLOSED** — predicate from the storefront being browsed |
 | **P1-SEC-53** | `VariantDelete()` is unreachable (`can()` under `permissions_as_gates => false`), concealing an unguarded cross-tenant write | **MITIGATED** — predicate added while dead; the broken permission gate is left as-is and pinned, because fixing it without the predicate would have activated the write |
-| **P1-SEC-54** | `AuctionProduct::addProductbidamount()` writes a bid against any tenant's product | **OPEN — REPORTED, NOT FIXED.** Vendored module; needs owner authorisation |
+| **P1-SEC-54** | `AuctionProduct::addProductbidamount()` writes a bid against any tenant's product | **CLOSED by issue #136, 2026-11-11** — and the finding as written above was INCOMPLETE: a registered first-party guard already derived `store_id` from the product row, so the write was never unguarded. What was missing is the routed-storefront match, which is now enforced. See S56. |
 
 ## S55 — The independent review of S54 found a LIVE bypass of the financial-record prohibition, and three defects inside the S54 fix itself
 
@@ -5958,3 +5958,93 @@ Final discrimination, driven in both directions: with both fixes reverted the tw
 | **P1-SEC-57** | `VariantDelete()`'s `ProductVariantOption` delete was outside the predicate, and the docblock told readers to activate it | **CLOSED** — option resolves through the owning product; the note is corrected |
 | **P1-SEC-58** | `productVariant()` (POS modal) rendered any tenant's product name, image, category and price | **CLOSED** |
 | **P1-SEC-59** | `StoreController::update()` wrote `users.email` with no uniqueness rule | **CLOSED** |
+
+## S56 — Issue #136, the auction bid: the finding was incomplete, the fix reverses a documented decision, and the review found the fix had made a test vacuous
+
+### 1. What S54 said, and what was actually there
+
+S54 recorded `AuctionProduct::addProductbidamount()` as writing a bid against any tenant's product
+with "no store predicate", **reported not fixed**. That was incomplete in the way that matters.
+
+A first-party middleware, `AuctionBidIdentityGuard`, was already registered on the `web` group and
+already targeted that exact action. It required a signed-in customer, rejected `DERIVED` keys
+arriving as file parts, refused a product with an unusable `store_id`, enforced the bid-amount rules
+the module only ever enforced in the browser, and **merged `customer_id` from the session and
+`store_id` from the product row** over whatever the caller posted. So the write was never unguarded
+and the caller could never name their own tenant.
+
+What it deliberately did **not** do was restrict WHICH store's product could be bid on. Its own
+comment said so: *"the guard WANTS the product whatever store it belongs to, because bidding across
+stores is legitimate"*, and `AuctionBidForgeryTest` asserted a cross-store bid **was written**,
+calling it "the module's own design".
+
+### 2. The owner reversed that, and the reversal is safe — measured
+
+Issue #136: *"Resolve store context from the validated route/storefront ... ensure the selected
+auction and bid target match the store."* The guard now also refuses when `getRouteStoreId()` is
+null or differs from the product's `store_id`.
+
+**Why it breaks no user journey, measured rather than argued:**
+`AuctionProductController::product_detail()` resolves the auction product with
+`Product::where('slug', $product_slug)->where('store_id', $store_id)->first()`, so a storefront only
+ever shows its own auction products, and `place_bid.blade.php:280` posts that same store's slug. A
+cross-store bid only arrives hand-crafted.
+
+It is a **pure tightening**: an added refusal between two existing ones, with the derivation
+unchanged and the amount rules untouched. Independent review confirmed no branch admits a caller who
+was previously refused.
+
+**Scope, stated so nobody over-reads it:** the check is ROUTE store vs PRODUCT store, **not**
+customer store vs product store. A customer registered at store A may still bid by visiting store
+B's storefront — `customers` is one session guard and storefronts are public. That is deliberate and
+is now pinned by its own test, because after the re-basing below nothing else did.
+
+### 3. THE REVIEW FOUND THE FIX HAD MADE AN EXISTING TEST VACUOUS
+
+The fix required re-staging tests that had been built on the old cross-store model. Two were
+re-based deliberately. **A third was missed, and the suite could not tell.**
+
+`test_an_errored_file_part_cannot_defeat_the_derivation` posts 28 iterations (7 upload-error shapes
+× 4 derived keys) to `/err-a/product-bid` with store B's product. After #136 the guard refused every
+one of them at the new store check, the loop took its `continue` each time, and the three real
+derivation assertions became **dead code**. It still reported **30 passing assertions** — all of
+them the status check and the premise — so it looked healthy while pinning nothing.
+
+What that silently unpinned: deleting `'store_id'`, `'product_id'` or `'bid_amount'` from
+`AuctionBidIdentityGuard::DERIVED` became invisible to the suite. The control that was once a live
+hole had no behavioural test.
+
+**Fixed** by posting to the product's own storefront while keeping the posted `store_id` foreign, so
+the derived-versus-posted divergence the case exists to measure survives. Assertions went **30 → 42**:
+the twelve that return are exactly the dead ones.
+
+This is the third time in this phase that a passing test proved nothing, and the first where a
+SECURITY FIX was what killed it. A fix that re-stages a test can delete its coverage as surely as
+deleting the file.
+
+### 4. Everything else the review raised
+
+| | |
+|---|---|
+| the new cross-store case asserted only a row count | a 404 or 500 would satisfy it. Status assertions added, per this file's own standard |
+| nothing pinned the customer-store allowance | a dedicated case added: a customer registered elsewhere may still bid on the storefront they visit |
+| `bootstrap/app.php` stated the OPPOSITE of the code at the registration site | corrected. It read "IT DOES NOT RESTRICT WHICH STORE'S PRODUCT MAY BE BID ON, deliberately" |
+| two `tests/Feature/Tenancy/` inventory comments justified the missing predicate with the reversed design | corrected; their classifications and counts are unaffected |
+
+### 5. Two pre-existing facts the review surfaced, neither closed here
+
+- **`bidingForm:1566` is NOT store-scoped** — `Product::where('slug', $product_slug)->first()`. A
+  hand-made URL renders a foreign product's bid modal, whose POST is now refused. Cosmetic, and
+  nobody reaches it from a link.
+- **`products.slug` is not unique** and the product form honours `$request->slug` verbatim, so a
+  slug collision can make `bidingForm` resolve another store's product from a legitimate click.
+  Before #136 that silently wrote a cross-store bid; now it fails closed with a "could not be found"
+  message. The direction is right; the message is unhelpful. **Recorded, not fixed.**
+
+### 6. Status
+
+| id | finding | state |
+|---|---|---|
+| **P1-SEC-54** | the auction bid write | **CLOSED** — the routed-storefront match is enforced, 18 cases, reverting the check fails exactly one |
+| **P1-SEC-60** | a security fix re-staged a test and silently emptied it (30 → 42 assertions once repaired) | **CLOSED** — and worth remembering as a class |
+| **P1-SEC-61** | `bidingForm` is unscoped and `products.slug` is not unique, so a legitimate click can resolve another store's product | **OPEN — REPORTED.** Fails closed since #136; the remaining cost is a misleading message |

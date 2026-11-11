@@ -176,10 +176,10 @@ class AuctionBidIdentityGuard
         }
 
         // `Product` carries NO effective scope -- it is absent from `scoped_models`, which is the
-        // defect CLAUDE.md records as having produced a live cross-tenant stock drain. That is
-        // exactly why this read is safe to use HERE: the guard WANTS the product whatever store it
-        // belongs to, because bidding across stores is legitimate. What it must not do is let the
-        // caller name the store; the store comes from the row.
+        // defect CLAUDE.md records as having produced a live cross-tenant stock drain. So this
+        // read deliberately reaches any store, and the two checks below are what constrain it:
+        // first that the row exists and carries a usable store, then that the store is the one
+        // whose storefront the bid was posted to.
         $product = DB::table('products')->where('id', $productId)->first(['id', 'store_id', 'sale_price']);
 
         if ($product === null) {
@@ -191,6 +191,44 @@ class AuctionBidIdentityGuard
         if ($productStore === null) {
             // A product with a NULL or unusable store_id is invisible to every store_id predicate
             // in the application. A bid on it would be unreachable by its own merchant.
+            return $this->deny($request, __('That auction product could not be found.'));
+        }
+
+        /*
+         * ISSUE #136. THE BID TARGET MUST BELONG TO THE STOREFRONT THE BID WAS POSTED TO, and this
+         * REVERSES THE DECISION THIS GUARD WAS BUILT ON. Recorded, not slipped in.
+         *
+         * The comment above `$product` used to end "the guard WANTS the product whatever store it
+         * belongs to, because bidding across stores is legitimate", and
+         * `AuctionBidForgeryTest::test_a_customer_cannot_forge_a_bid_for_another_customer_on_another_store`
+         * asserted a cross-store bid was WRITTEN, calling it "the module's own design". Under that
+         * model the forgery was closed by DERIVING `store_id` from the product row rather than by
+         * refusing the request -- which is a real protection and is still here, just no longer the
+         * only one.
+         *
+         * The owner decided otherwise: *"Resolve store context from the validated route/storefront,
+         * not a second caller-controlled parameter. Fail closed on missing/mismatched
+         * store/product, and ensure the selected auction and bid target match the store."*
+         *
+         * THE ROUTE IS THE SOURCE, NOT A REQUEST FIELD. `getRouteStoreId()` reads the matched
+         * route's `storeSlug` parameter, which is the same source `getStore()` uses to render the
+         * page. It is not `$request->store_id` -- that key is in DERIVED above and is overwritten
+         * below precisely because a caller must never name their own tenant.
+         *
+         * WHY THIS BREAKS NO USER JOURNEY, measured rather than assumed:
+         * `AuctionProductController::product_detail()` resolves the auction product with
+         * `Product::where('slug', $product_slug)->where('store_id', $store_id)->first()`, so a
+         * customer browsing store A is only ever shown store A's auction products, and
+         * `place_bid.blade.php:280` posts to this route with that same store's slug. A cross-store
+         * bid cannot be produced by the storefront; it only arrives hand-crafted.
+         *
+         * It refuses more and admits nobody, so it is a tightening. The amount rules below -- the
+         * current-maximum comparison and the `sale_price` floor -- are untouched, so no pricing or
+         * financial behaviour changes with it.
+         */
+        $routeStore = $this->usableId(getRouteStoreId());
+
+        if ($routeStore === null || $routeStore !== $productStore) {
             return $this->deny($request, __('That auction product could not be found.'));
         }
 

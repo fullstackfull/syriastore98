@@ -30,6 +30,26 @@
 # paths above until this .htaccess reaches it. Deploying it also does not undo any
 # retrieval that already happened.
 #
+# READ THIS BEFORE DEPLOYING, 2026-11-11. The owner has given a STANDING INSTRUCTION
+# not to change public access to the test website or its .git directory:
+#
+#     "DO NOT block or change public access to the test website or its `.git`
+#      directory." ... "Record the existing exposed Git history and credentials as
+#      OWNER-DEFERRED -- UNRESOLVED SECURITY RISK."
+#
+# The rules below are therefore DORMANT ON PURPOSE. They were written before that
+# instruction, they have never been deployed, and verifying it on 2026-11-11 confirmed
+# the live host still answers 200 for /.git/HEAD and /.git/objects/info/packs -- i.e.
+# nothing here has altered public access to anything.
+#
+# They are kept rather than deleted because the owner also said not to suppress
+# security findings, and deleting a written control would do exactly that. But the
+# FIRST DEPLOY OF THIS FILE WILL CLOSE THAT CHANNEL, which is a change the owner has
+# not asked for. If that is not wanted, remove this block before deploying; if it is
+# wanted, nothing needs doing. Either way it is the owner's call, not the deployer's.
+#
+# The deferral is a deferral, not a remediation: the exposure is real and unresolved.
+#
 # Deliberately placed OUTSIDE <IfModule mod_rewrite.c>: the existing <Files .env> deny
 # is inside that guard, so it silently stops applying if mod_rewrite is ever unloaded.
 # RedirectMatch (mod_alias) is used for directories because <Directory> is not allowed

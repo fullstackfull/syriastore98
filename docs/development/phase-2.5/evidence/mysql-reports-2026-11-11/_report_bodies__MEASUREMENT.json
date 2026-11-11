@@ -1,0 +1,47 @@
+{
+  "what_this_is": "Executed evidence that the four report surfaces recorded BLOCKED for MySQL-only SQL do render against a real MySQL. It is a MEASUREMENT, not a capture, for the same reason the WooCommerce row carries one: these are AJAX fragments, and the matrix's four-combination capture contract is about a rendered surface in place. Recording a measurement is honest; a full-page screenshot of a bare fragment would not be.",
+  "measured_on": "2026-11-11",
+  "environment": {
+    "server": "MariaDB 10.11.14-0ubuntu0.24.04.1, installed from apt in the session container",
+    "schema": "php artisan migrate --force -> 132 tables",
+    "fixture": "database/seed-p2dev.php seeded into MySQL: 32 products, 7 orders, 2 stores, 3 customers, 5 users",
+    "driver": "authenticated as merchant@example.test over HTTP, real dev server, not the test kernel",
+    "sqlite_control": "the same four routes on database/p2dev.sqlite, same session shape"
+  },
+  "results": [
+    {
+      "surface": "Customer report body (AJAX fragment)",
+      "route": "GET /reports-chart",
+      "controller": "ReportController::reports_chart",
+      "sqlite_status": 500,
+      "mysql_status": 200,
+      "mysql_bytes": 3060
+    },
+    {
+      "surface": "Sales report body (AJAX fragment)",
+      "route": "GET /order-reports-chart",
+      "controller": "ReportController::order_reports_chart",
+      "sqlite_status": 500,
+      "mysql_status": 200,
+      "mysql_bytes": 8689
+    },
+    {
+      "surface": "Sales report bar body (AJAX fragment)",
+      "route": "GET /order-reports-chart-data",
+      "controller": "ReportController::order_reports_chart_data",
+      "sqlite_status": 500,
+      "mysql_status": 200,
+      "mysql_bytes": 7099
+    },
+    {
+      "surface": "Top Sales Report",
+      "route": "GET /top-all-reports",
+      "controller": "ReportController::top_product",
+      "sqlite_status": 500,
+      "mysql_status": 200,
+      "mysql_bytes": 88461
+    }
+  ],
+  "finding": "Three of the four were blocked by SQLite alone and now answer 200. The fourth, order-reports-chart-data, answered 500 on MySQL TOO, for a reason its matrix row does not mention: count() on an int in resources/views/components/ss/bar-chart.blade.php, because ReportController::order_reports_chart_data initialises $PurchasedItemTotal = 0 and passes it as itemSeries. That is a first-party Phase 2.5 defect that SQLite's earlier 500 hid completely. It is fixed, and pinned by tests/Unit/Ui/BarChartScalarSeriesTest.php.",
+  "what_this_does_NOT_do": "It does not promote any matrix row. The coverage matrix is declared authoritative at 225/24/28/8/10/0 and these four remain BLOCKED. What has changed is that their recorded REASON is now accurate and the engineering obstacle is gone: capturing them in place is ordinary capture work, not a blocker, and is a decision for the owner."
+}

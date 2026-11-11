@@ -351,12 +351,31 @@ return Application::configure(basePath: dirname(__DIR__))
         // the browser: an HTML `min` and a JS border recolour that does not block submit, with a
         // controller validator asking only `required`.
         //
-        // IT DOES NOT RESTRICT WHICH STORE'S PRODUCT MAY BE BID ON, deliberately. `customers` is
-        // one session guard and storefronts are public, so a customer of store A really can open
-        // store B's auction page -- the form renders $product->store_id for exactly that reason. A
-        // slug-versus-store check would add nothing (the attacker can already see the product) and
-        // would refuse a real flow. That is the mistake the guard above shipped and had to
-        // withdraw; it is not repeated here.
+        // IT NOW RESTRICTS WHICH STORE'S PRODUCT MAY BE BID ON. CORRECTED 2026-11-11 (issue #136),
+        // and the paragraph that stood here said the exact opposite, so read this one.
+        //
+        // What it used to say: "IT DOES NOT RESTRICT WHICH STORE'S PRODUCT MAY BE BID ON,
+        // deliberately ... A slug-versus-store check would add nothing (the attacker can already
+        // see the product) and would refuse a real flow." That was a reasoned position, not an
+        // oversight: `customers` is one session guard and storefronts are public, so the forgery
+        // was closed by DERIVING store_id from the product row rather than by refusing the request.
+        //
+        // The owner decided otherwise in #136: "Resolve store context from the validated
+        // route/storefront ... ensure the selected auction and bid target match the store." The
+        // guard now also refuses when getRouteStoreId() is null or differs from the product's
+        // store_id. The derivation is UNCHANGED and still runs -- the refusal is an addition, not a
+        // replacement, so this is a pure tightening.
+        //
+        // The old paragraph's "would refuse a real flow" was measured and is not the case:
+        // AuctionProductController::product_detail() resolves the product with a store_id
+        // predicate, so a storefront only ever shows its own auction products, and the bid form
+        // posts that same store's slug. A cross-store bid only arrives hand-crafted.
+        //
+        // WHAT IS STILL NOT RESTRICTED, so nobody mistakes the scope: the check is ROUTE store vs
+        // PRODUCT store, NOT customer store vs product store. A customer registered at store A may
+        // still bid on store B's product by posting to /store-b/product-bid, which is
+        // indistinguishable from a genuine visit. That is deliberate and is the half of the old
+        // paragraph that survives.
         //
         // NOT CLOSED: rows already written before this guard. A forged bid in the table still
         // counts toward max('bid_amount'), which has no store predicate in the vendored reads. A

@@ -583,14 +583,19 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // cross-tenant read this ratchet's message warns about. See the per-directory note.
             'personal_access_tokens' => [3, 3],
             // NEW WITH P1-INV-19, and the [1, 0] is a HEURISTIC ARTIFACT worth naming rather than
-            // reading as reassurance. AuctionBidIdentityGuard:118 is
-            // `DB::table('products')->where('id', $productId)->first(['id', 'store_id'])` -- it
-            // carries NO store_id PREDICATE, and must not: bidding across stores is the module's
-            // own design. It counts as "scoped" only because this inventory looks for the string
-            // `store_id` in the statement, and the statement SELECTS that column in order to
-            // derive the bid's store from the row instead of from the caller. The real control is
-            // asserted per-site in OwnedPathRawQueryInventoryTest, where the file is classified
-            // 'comparison'.
+            // reading as reassurance. AuctionBidIdentityGuard reads
+            // `DB::table('products')->where('id', $productId)->first(['id', 'store_id', ...])` --
+            // it carries NO store_id PREDICATE, and must not: the guard has to FETCH the row
+            // before it can compare anything. It counts as "scoped" only because this inventory
+            // looks for the string `store_id` in the statement, and the statement SELECTS that
+            // column in order to derive the bid's store from the row instead of from the caller.
+            // The real control is asserted per-site in OwnedPathRawQueryInventoryTest.
+            //
+            // CORRECTED 2026-11-11 (issue #136): this note used to justify the missing predicate
+            // with "bidding across stores is the module's own design", which the owner reversed.
+            // The guard now refuses a product outside the routed storefront -- as a separate
+            // statement after this read, so the counts here are unaffected. Line numbers are
+            // deliberately not quoted any more; they drifted once already.
             // `products` 2 -> 5 and ITS NO-store_id COLUMN 0 -> 3 WITH OWNER DECISION D13 / P1-INV-12, and this is the
             // one entry in this table where a RISE in the second number is the correct outcome rather than a regression.
             // The three sites are the product counts in front of each path that can delete a `categories` row:

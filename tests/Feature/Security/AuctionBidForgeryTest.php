@@ -214,24 +214,205 @@ class AuctionBidForgeryTest extends SecurityTestCase
      * So the right assertion is not "no row" but "the row is the attacker's own": the bid is
      * written, attributed to the caller, in the product's store -- and the victim is untouched.
      */
-    public function test_a_customer_cannot_forge_a_bid_for_another_customer_on_another_store(): void
+    /**
+     * ISSUE #136. A BID MUST BELONG TO THE STOREFRONT IT WAS PLACED FROM.
+     * =============================================================================================
+     *
+     * THIS REVERSES A DELIBERATE DESIGN DECISION, and says so rather than quietly changing it.
+     *
+     * `AuctionBidIdentityGuard` used to resolve the product in ANY store on purpose -- its own
+     * comment read "the guard WANTS the product whatever store it belongs to, because bidding
+     * across stores is legitimate. What it must not do is let the caller name the store; the store
+     * comes from the row." The forgery case below asserted a cross-store bid was WRITTEN, calling
+     * it "the module's own design". Under that model the forgery was closed by DERIVING `store_id`
+     * from the product row rather than by refusing the request -- a real protection, still present,
+     * just no longer the only one.
+     *
+     * The owner decided otherwise in issue #136: "Resolve store context from the validated
+     * route/storefront, not a second caller-controlled parameter. Fail closed on missing/mismatched
+     * store/product, and ensure the selected auction and bid target match the store."
+     *
+     * WHY THAT IS SAFE HERE, MEASURED RATHER THAN ASSUMED. The storefront cannot produce such a bid:
+     * `AuctionProductController::product_detail()` resolves the auction product with
+     * `Product::where('slug', $product_slug)->where('store_id', $store_id)->first()`, so a customer
+     * browsing store A is only ever shown store A's auction products, and
+     * `place_bid.blade.php:280` posts to `place_bid.store` with that same store's slug. A
+     * cross-store bid only arrives hand-crafted, so refusing it removes no user journey -- which is
+     * what makes tightening a shipped rule defensible.
+     *
+     * It refuses more and admits nobody who was refused, so it is a tightening, and the amount
+     * rules are untouched.
+     */
+    public function test_a_customer_cannot_bid_on_a_product_outside_the_storefront_they_posted_to(): void
     {
         $this->enableModule();
 
-        [$storeA, ] = $this->storeWithAuctionProduct('store-a');
-        [$storeB, $productB] = $this->storeWithAuctionProduct('store-b');
+        [$storeA, ] = $this->storeWithAuctionProduct('x-store-a');
+        [$storeB, $productB] = $this->storeWithAuctionProduct('x-store-b');
 
-        $attacker = $this->customerIn($storeA);
-        $victim = $this->customerIn($storeB);
+        $bidder = $this->customerIn($storeA);
+
+        $before = DB::table('auction_product_bids')->count();
+
+        $response = $this->actingAs($bidder, 'customers')
+            ->post('/x-store-a/product-bid', [
+                'product_id' => $productB,   // store B's auction product
+                'bid_amount' => 999999,
+            ]);
+
+        fwrite(STDERR, "\nX-STORE  status=" . $response->getStatusCode()
+            . ' bids before=' . $before . ' after=' . DB::table('auction_product_bids')->count() . "\n");
+
+        // A ROW COUNT ALONE IS SATISFIED BY A CRASH. This file's own standard is to assert the
+        // status too (see the errored-file and merchant-session cases), because "no row was
+        // written" is equally true of a 404 from an unloaded module and a 500 from a fatal.
+        // 302 is the form path: deny() returns 403 only for expectsJson().
+        $this->assertNotSame(
+            500,
+            $response->getStatusCode(),
+            'The refusal came from a server error rather than from the guard, so this case would '
+            . 'pass for the wrong reason.'
+        );
+        $this->assertNotSame(
+            404,
+            $response->getStatusCode(),
+            'The route 404d, which means the module was not loaded and nothing was exercised. '
+            . 'enableModule() is what makes this route real -- see the premise case.'
+        );
+
+        $this->assertSame(
+            $before,
+            DB::table('auction_product_bids')->count(),
+            'A bid was written against store B\'s product from store A\'s storefront. Issue #136 '
+            . 'requires the store to come from the validated route and the bid target to match it. '
+            . 'The storefront cannot produce this request -- product_detail() is store-scoped -- so '
+            . 'it only reaches here hand-crafted, and it must fail closed.'
+        );
+    }
+
+    /**
+     * The other half, and the one that matters more: the tightening must not break bidding.
+     */
+    public function test_a_customer_can_still_bid_on_a_product_in_the_storefront_they_posted_to(): void
+    {
+        $this->enableModule();
+
+        [$store, $product] = $this->storeWithAuctionProduct('same-store');
+        $bidder = $this->customerIn($store);
+
+        $response = $this->actingAs($bidder, 'customers')
+            ->post('/same-store/product-bid', [
+                'product_id' => $product,
+                'bid_amount' => 500,     // the fixture's sale_price is 100, so this clears the floor
+            ]);
+
+        $row = DB::table('auction_product_bids')->orderByDesc('id')->first();
+
+        fwrite(STDERR, "\nSAME-STORE  status=" . $response->getStatusCode()
+            . ' row=' . var_export($row !== null, true) . "\n");
+
+        $this->assertNotNull(
+            $row,
+            'The legitimate same-store bid was refused. The #136 tightening must only refuse a '
+            . 'product outside the routed storefront; refusing the ordinary path would break the '
+            . 'auction feature outright. Status ' . $response->getStatusCode()
+            . ', error: ' . var_export(session('error'), true)
+        );
+
+        $this->assertSame((int) $product, (int) $row->product_id, 'wrong product recorded');
+        $this->assertSame((int) $bidder->id, (int) $row->customer_id, 'wrong customer recorded');
+        $this->assertSame((int) $store->id, (int) $row->store_id, 'wrong store recorded');
+        $this->assertSame(
+            500.0,
+            (float) $row->bid_amount,
+            'the bid amount changed, so the tightening touched the pricing rules it must not'
+        );
+    }
+
+    /**
+     * THE SCOPE OF #136, PINNED FROM THE OTHER SIDE.
+     *
+     * The tightening is ROUTE store vs PRODUCT store. It is NOT customer store vs product store,
+     * and that distinction is deliberate: `customers` is one session guard and storefronts are
+     * public, so a customer who registered at store A can genuinely visit store B's storefront and
+     * bid there. Posting to `/store-b/product-bid` for a store-B product is indistinguishable from
+     * a real visit and must keep working.
+     *
+     * Nothing pinned this after the re-basing above -- every remaining accepted-bid case now puts
+     * the bidder in the same store as the product, so a future "tightening" to
+     * `customer->store_id === $routeStore` would break a real flow with no test to notice. Found
+     * by independent review of the #136 change.
+     */
+    public function test_a_customer_registered_elsewhere_may_still_bid_on_the_storefront_they_visit(): void
+    {
+        $this->enableModule();
+
+        [$home, ] = $this->storeWithAuctionProduct('visitor-home');
+        [$host, $product] = $this->storeWithAuctionProduct('visitor-host');
+
+        // Registered at one store, bidding on another store's own storefront.
+        $visitor = $this->customerIn($home);
+
+        $this->assertNotSame((int) $home->id, (int) $host->id, 'premise: two distinct stores');
+
+        $response = $this->actingAs($visitor, 'customers')
+            ->post('/visitor-host/product-bid', [
+                'product_id' => $product,
+                'bid_amount' => 750,
+            ]);
+
+        $row = DB::table('auction_product_bids')->orderByDesc('id')->first();
+
+        fwrite(STDERR, "\nVISITOR  status=" . $response->getStatusCode()
+            . ' row=' . var_export($row !== null, true) . "\n");
+
+        $this->assertNotNull(
+            $row,
+            'A customer registered at another store was refused on the storefront they were '
+            . 'actually visiting. #136 restricts the PRODUCT to the routed store, not the '
+            . 'CUSTOMER -- tightening it that far would refuse a real flow. Status '
+            . $response->getStatusCode() . ', error: ' . var_export(session('error'), true)
+        );
+
+        $this->assertSame((int) $host->id, (int) $row->store_id,
+            'the bid was filed under the wrong store');
+        $this->assertSame((int) $visitor->id, (int) $row->customer_id,
+            'the bid was attributed to the wrong customer');
+    }
+
+    /**
+     * RE-BASED ON A SAME-STORE SETUP, 2026-11-11 (issue #136), and the reason matters.
+     *
+     * This case used to put the attacker in store A and the product in store B, and asserted the
+     * bid WAS written -- "The guard refused a legitimate cross-store bid, which is the module's own
+     * design". #136 reversed that design: a bid must now belong to the storefront it was posted to,
+     * so that request is refused before the forgery is ever evaluated and the case could no longer
+     * test what it exists to test.
+     *
+     * THE FORGERY IS STILL THE SUBJECT. It is simply staged inside one store now: the attacker
+     * names somebody else's `customer_id` and a `store_id` of their choosing, and both must still
+     * be derived rather than taken. Deleting this case because #136 made its old staging
+     * unreachable would have quietly dropped the protection it covers; the cross-store refusal is
+     * covered separately by its own case above.
+     */
+    public function test_a_customer_cannot_forge_a_bid_for_another_customer(): void
+    {
+        $this->enableModule();
+
+        [$store, $productId] = $this->storeWithAuctionProduct('store-a');
+        [$elsewhere, ] = $this->storeWithAuctionProduct('store-b');
+
+        $attacker = $this->customerIn($store);
+        $victim = $this->customerIn($store);
 
         $before = DB::table('auction_product_bids')->count();
 
         $response = $this->actingAs($attacker, 'customers')
             ->post('/store-a/product-bid', [
-                'product_id' => $productB,       // store B's product
+                'product_id' => $productId,
                 'bid_amount' => 999999,
-                'customer_id' => $victim->id,    // somebody else entirely
-                'store_id' => $storeA->id,       // and a store of the attacker's choosing
+                'customer_id' => $victim->id,     // somebody else entirely
+                'store_id' => $elsewhere->id,     // and a store of the attacker's choosing
             ]);
 
         $row = DB::table('auction_product_bids')->orderByDesc('id')->first();
@@ -243,21 +424,21 @@ class AuctionBidForgeryTest extends SecurityTestCase
                 . ' customer_id=' . $row->customer_id
                 . ' store_id=' . var_export($row->store_id, true)
                 . ' bid_amount=' . $row->bid_amount . "\n");
-            fwrite(STDERR, '     (attacker is customer ' . $attacker->id . ' in store ' . $storeA->id
-                . '; victim is customer ' . $victim->id . ' in store ' . $storeB->id . ")\n");
+            fwrite(STDERR, '     (attacker is customer ' . $attacker->id . ', victim is ' . $victim->id
+                . '; the posted store_id was ' . $elsewhere->id . ', the real one is ' . $store->id . ")\n");
         }
 
         $this->assertNotNull($row,
-            'No bid row at all. The guard refused a legitimate cross-store bid, which is the '
-            . "module's own design -- see the docblock. Status " . $response->getStatusCode()
-            . ', error: ' . var_export(session('error'), true));
+            'No bid row at all. This is the LEGITIMATE path -- same store, real product -- with '
+            . 'two forged fields on it, and it must still be accepted. Status '
+            . $response->getStatusCode() . ', error: ' . var_export(session('error'), true));
 
-        // THE FORGERY, CLOSED. Both of these were the attacker's to choose and are now derived.
+        // THE FORGERY, CLOSED. Both of these were the attacker's to choose and are derived.
         $this->assertSame((int) $attacker->id, (int) $row->customer_id,
             'The bid is attributed to the customer named in the REQUEST, not the authenticated '
             . 'one. Console/Auction.php:79 reads this column to decide who wins the auction and '
             . 'gets the order.');
-        $this->assertSame((int) $storeB->id, (int) $row->store_id,
+        $this->assertSame((int) $store->id, (int) $row->store_id,
             "The bid's store came from request input rather than from the product it is a bid on.");
 
         // AND THE VICTIM HAS NOTHING. Making them the winner was the point of the forgery.
@@ -283,17 +464,20 @@ class AuctionBidForgeryTest extends SecurityTestCase
     {
         $this->enableModule();
 
-        [$storeA, ] = $this->storeWithAuctionProduct('top-a');
-        [$storeB, $productB] = $this->storeWithAuctionProduct('top-b');
+        // SAME STORE, for the reason recorded on the forgery case above: since #136 a bid must
+        // belong to the storefront it was posted to, so a cross-store staging would be refused
+        // before the attribution this case is about could be evaluated.
+        [$store, $productB] = $this->storeWithAuctionProduct('top-a');
+        [$elsewhere, ] = $this->storeWithAuctionProduct('top-b');
 
-        $attacker = $this->customerIn($storeA);
-        $victim = $this->customerIn($storeB);
+        $attacker = $this->customerIn($store);
+        $victim = $this->customerIn($store);
 
         DB::table('auction_product_bids')->insert([
             'product_id' => $productB,
             'bid_amount' => 150,
             'customer_id' => $victim->id,
-            'store_id' => $storeB->id,
+            'store_id' => $store->id,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -303,7 +487,7 @@ class AuctionBidForgeryTest extends SecurityTestCase
                 'product_id' => $productB,
                 'bid_amount' => 999999,
                 'customer_id' => $victim->id,   // the forgery attempt
-                'store_id' => $storeA->id,
+                'store_id' => $elsewhere->id,
             ]);
 
         $max = DB::table('auction_product_bids')->where('product_id', $productB)->max('bid_amount');
@@ -685,6 +869,18 @@ class AuctionBidForgeryTest extends SecurityTestCase
     {
         $this->enableModule();
 
+        // POSTS TO err-b, THE PRODUCT'S OWN STORE, and that is load-bearing since #136.
+        //
+        // This case used to post to `/err-a/product-bid` with store B's product. Once the #136
+        // route-store check landed, the guard refused every one of the 28 iterations before the
+        // derivation could be evaluated: the loop took its `continue` each time and the three real
+        // assertions below became DEAD CODE. The case still reported 30 passing assertions -- all
+        // of them the status check and the premise -- so it looked healthy while pinning nothing.
+        // Found by independent review of the #136 change, not by the suite.
+        //
+        // The divergence this case exists to measure is preserved by keeping the POSTED
+        // `store_id` foreign (storeA) while the ROUTE and the product agree (storeB). That is
+        // what makes "derived, not taken" observable.
         [$storeA, ] = $this->storeWithAuctionProduct('err-a');
         [$storeB, $productB] = $this->storeWithAuctionProduct('err-b');
         $attacker = $this->customerIn($storeA);
@@ -700,7 +896,7 @@ class AuctionBidForgeryTest extends SecurityTestCase
 
                 $response = $this->actingAs($attacker, 'customers')->call(
                     'POST',
-                    '/err-a/product-bid',
+                    '/err-b/product-bid',
                     [
                         'product_id' => $productB,
                         'bid_amount' => 1000 + $before,
