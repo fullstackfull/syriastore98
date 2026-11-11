@@ -161,6 +161,24 @@ was only ever reached as a cascade through F-2's route, so reverting F-3's fix l
 green. Direct-route coverage was added. It also caught a partial revert of my own that would have
 reported a false result.
 
+### 4.3 And the known-outcome gate caught a drift from the §5.5 repair
+
+Adding the guard to `UserController::edit()` shifted three line numbers that
+`StoreAndStaffRefusalNamesEveryFieldTest` pins — a test that records which refusal sites are
+deliberately **excluded** from its rule, by file and line. It failed as an **undeclared** failure,
+and its own message anticipated the cause in terms: *"an edit above it moved the line — re-measure
+before changing this number."*
+
+Re-measured: `460 → 488`, `503 → 531`, `567 → 595`, a pure +28 shift. **Each new number was
+confirmed by the enclosing method name rather than by adding 28** — `updatePassword`, `editprofile`,
+`password_update` — because arithmetic would have been exactly the guess the test warns against.
+The exclusions themselves are unchanged and nothing was added to the manifest.
+
+**This is the third time in this phase the known-outcome gate has caught a real regression
+introduced by a repair** — the others being the observability inventory's twelve shifted log lines
+and `FinanceControlLabellingTest` asserting attribute order. Every time the fix was to correct what
+the gate was defending, never to declare the failure.
+
 ---
 
 ## 5. Security findings — five live defects, found during closure, all fixed with tests

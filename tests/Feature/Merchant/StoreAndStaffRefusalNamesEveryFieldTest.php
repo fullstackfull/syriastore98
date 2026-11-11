@@ -637,7 +637,7 @@ class StoreAndStaffRefusalNamesEveryFieldTest extends SecurityTestCase
      * source rather than a note in a report.
      *
      * TWO ARE PASSWORD SCREENS WHOSE TWO MESSAGES RESTATE EACH OTHER. `StoreController:819`
-     * (`storeResetPasswordUpdate`) and `UserController:460` (`updatePassword`) both validate
+     * (`storeResetPasswordUpdate`) and `UserController:488` (`updatePassword`) both validate
      * `'password' => 'required|confirmed|same:password_confirmation'`, and `confirmed` and
      * `same:password_confirmation` are the SAME CHECK WRITTEN TWICE. Measured: a mismatch bag is
      * ['The password confirmation does not match.', 'The password and password confirmation must
@@ -681,11 +681,18 @@ class StoreAndStaffRefusalNamesEveryFieldTest extends SecurityTestCase
                 819 => 'password reset: `confirmed` and `same:password_confirmation` are one check '
                     . 'written twice, so the bag says the same thing twice',
             ],
+            /* RE-MEASURED 2026-11-11 (P2.5-ACCEPTANCE): 460/503/567 -> 488/531/595, a pure
+               +28 line shift from the cross-tenant guard added to UserController::edit() above
+               them. This gate caught it, exactly as its own failure message anticipates -- "an
+               edit above it moved the line -- re-measure before changing this number". Each new
+               number was confirmed by the ENCLOSING METHOD NAME, not by adding 28: updatePassword
+               at :488, editprofile at :531, password_update at :595. The exclusions themselves are
+               unchanged, and nothing was added to the known-outcome manifest. */
             'app/Http/Controllers/UserController.php' => [
-                460 => 'updatePassword: the same duplicate rule pair as StoreController:819',
-                503 => 'editprofile already returns withErrors()+withInput(), so the bag reaches '
+                488 => 'updatePassword: the same duplicate rule pair as StoreController:819',
+                531 => 'editprofile already returns withErrors()+withInput(), so the bag reaches '
                     . 'the per-field @error blocks; the toast is a deliberate summary',
-                567 => 'password_update: the same Class A shape, and a password screen',
+                595 => 'password_update: the same Class A shape, and a password screen',
             ],
         ];
 
