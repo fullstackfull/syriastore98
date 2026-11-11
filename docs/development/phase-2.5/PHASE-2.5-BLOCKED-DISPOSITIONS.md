@@ -1,15 +1,33 @@
-# Phase 2.5 — the 10 BLOCKED surfaces, with a recommended disposition for each
+# Phase 2.5 — the 10 BLOCKED surfaces: FINAL dispositions
 
 **Prepared:** 2026-11-11 · **Matrix state:** frozen at 295 surfaces —
 225 REDESIGNED AND VERIFIED / 24 PREMIUM VERIFIED / 28 OUT OF SCOPE / 8 DUPLICATE / 10 BLOCKED / 0 PENDING
 
 Requested by the owner's directive of 2026-11-11: *"Report the 10 BLOCKED items separately with
-recommended dispositions."*
+recommended dispositions."* **Finalised** by the owner's final-acceptance directive of the same
+date, which settled every one of them in a single sentence:
 
-**Nothing here changes the matrix.** The same directive says to keep it frozen and not to reopen
-the 295-surface inventory, so every row below stays BLOCKED until the owner decides otherwise.
-Three of these dispositions are things I could have executed; they are left undone deliberately,
-and the table says which.
+> *"Recommend accepting Group A's MySQL measurements and Group C's invoice evidence, deferring
+> external sandbox coverage, and scheduling inactive/new functionality in its appropriate future
+> phase."*
+
+That instruction maps one-to-one onto the four groups below, and it matches what this document had
+already recommended, so nothing was re-argued: **A accepted on measurement, C accepted on existing
+evidence, B deferred, D scheduled.** All ten are now disposed; none is awaiting a decision. §Final
+dispositions at the end of this file is the record.
+
+**AND THE MATRIX IS STILL NOT TOUCHED — deliberately, because the same directive says to finalise
+the dispositions "without falsifying the authoritative matrix".** A disposition is a decision about
+what to do; it is not a claim that a capture now exists. All ten rows still have no verified
+four-combination visual capture, which is exactly what `BLOCKED` records, so the matrix correctly
+stays at **225 / 24 / 28 / 8 / 10 / 0**. Promoting Group A to VERIFIED on the strength of an HTTP
+200 would be the falsification the instruction forbids: a 200 with a byte count is evidence the
+route executes, not evidence the screen looks right in four combinations.
+
+`PHASE-2.5-COVERAGE-MATRIX.md` is **generated** from the inventory by
+`docs/development/phase-2.5/tools/build-coverage-matrix.py`, which carries a `--check` mode that
+fails when the file and the inventory disagree. So the matrix could not have been quietly hand-edited
+even if that had been wanted, and it was not wanted.
 
 ---
 
@@ -257,3 +275,44 @@ executed — those are owner decisions or external dependencies.
 **No row was promoted, demoted or deleted. The matrix stays at 225/24/28/8/10/0**, which is the
 state §5 of the directive declares authoritative. Group A's four rows remain BLOCKED because their
 four-combination captures do not exist; what changed is that their recorded reason is now true.
+
+---
+
+## Final dispositions
+
+Settled by the owner's final-acceptance directive of 2026-11-11. Each row is **closed as a
+decision**; the matrix status is unchanged and stated beside it so the two are never confused.
+
+| # | Surface | Group | FINAL disposition (owner-directed) | matrix status | still owed |
+|---|---|---|---|---|---|
+| 1 | Customer report body — `GET reports-chart` | A | **ACCEPTED ON MEASUREMENT.** HTTP 200, 3,060 bytes on MySQL | BLOCKED (no visual capture) | nothing in Phase 2.5 |
+| 2 | Sales report body — `GET order-reports-chart` | A | **ACCEPTED ON MEASUREMENT.** HTTP 200, 8,689 bytes on MySQL | BLOCKED (no visual capture) | nothing in Phase 2.5 |
+| 3 | Sales report bar body — `GET order-reports-chart-data` | A | **ACCEPTED ON MEASUREMENT.** HTTP 200, 7,099 bytes on MySQL — after a first-party defect found behind it was fixed and pinned (`BarChartScalarSeriesTest`, 20 cases) | BLOCKED (no visual capture) | nothing in Phase 2.5 |
+| 4 | Top Sales Report — `GET top-all-reports` | A | **ACCEPTED ON MEASUREMENT.** HTTP 200, 88,461 bytes on MySQL | BLOCKED (no visual capture) | nothing in Phase 2.5 |
+| 5 | Shopify import (5 screens) | B | **DEFERRED — external sandbox coverage.** Needs an owner-provided Shopify credential; not a Phase 2.5 obligation | BLOCKED | a credential, if and when the owner wants these verified |
+| 6 | WooCommerce import (4 screens) | B | **DEFERRED — external sandbox coverage.** Same, and the surface has no pixels of its own: both refusal arms `redirect()->back()` | BLOCKED | as above |
+| 7 | Invoice PDF viewer (Flutter) | C | **ACCEPTED ON EXISTING EVIDENCE.** Behaviour is test-pinned and the page format was corrected to A4 while there; a device capture is optional, not required | BLOCKED (no device capture) | nothing |
+| 8 | COD / Stripe / Bank-transfer gateway editors (Flutter) | D | **SCHEDULED — Phase 06 (SaaS & Super Admin).** All six files are 100% commented out, 815 lines, 0 live. Reviving them exposes financial configuration, which Phase 2.5 reserves | BLOCKED | a product decision in Phase 06 |
+| 9 | Edit customer (web) | D | **SCHEDULED — Phase 04 (Commerce).** The update backend ships and Flutter already uses it; the web screen is new merchant functionality, which Phase 2.5 is not authorised to build | BLOCKED | the screen, in Phase 04 |
+| 10 | Wishlist create / edit / store / update | D | **SCHEDULED — Phase 04 (Commerce).** `create()` and `store()` have bodies that are literally `//`; nothing on any merchant screen targets them | BLOCKED | a product decision on whether merchant-authored wishlists exist at all |
+
+### What this changes, and what it does not
+
+**Changes:** the ten rows are no longer open questions. Four are accepted on measurement, one on
+existing evidence, two are deferred to an external dependency the owner controls, and three are
+scheduled into the phase that owns them. Phase 2.5 owes no further work on any of them.
+
+**Does not change:** the matrix, the 24 PREMIUM VERIFIED count, or the claim set. All ten remain
+`BLOCKED` in `PHASE-2.5-COVERAGE-MATRIX.md` because none has a four-combination visual capture, and
+that is the only thing `BLOCKED` has ever meant here. Anyone reading "10 BLOCKED" alongside this
+table gets the truth from both: no captures exist, and no decisions are outstanding.
+
+**One row previously recommended for reclassification was NOT reclassified.** Group B's two rows
+were recommended as OUT OF SCOPE. The owner said *deferring*, not reclassifying, so they stay
+BLOCKED–DEFERRED. Reclassifying would have moved two rows out of the BLOCKED count and into OUT OF
+SCOPE, changing the authoritative numbers on my own initiative — which is what the directive's
+"without falsifying the authoritative matrix" rules out.
+
+**And one disposition is not a remediation.** None of this touches the publicly served `.git`
+metadata or the historical credentials on the test host. Those remain **OWNER-DEFERRED —
+UNRESOLVED SECURITY RISK**.

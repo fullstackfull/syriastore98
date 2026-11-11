@@ -1,6 +1,7 @@
 # Phase 2.5 — Official Closure
 
-**Date:** 2026-11-11 · **Laravel branch:** `claude/vibrant-bell-12tquy` ·
+**Date:** 2026-11-11 · **Amended 2026-11-11** for the final-acceptance directive (§12) ·
+**Laravel branch:** `claude/vibrant-bell-12tquy` ·
 **Flutter branch:** `claude/vibrant-bell-12tquy` (`StoreSyria_app98`)
 
 ---
@@ -8,13 +9,15 @@
 ## 0. The four states, and which actually hold
 
 The directive asks these to be distinguished and not claimed until their requirements hold. They
-are, and they do not all hold.
+are, and they do not all hold. **Re-verified against GitHub and a full gate run on 2026-11-11
+after the final-acceptance directive; every verdict below is unchanged.** §12 is the item-by-item
+record of that directive.
 
 | state | verdict | why |
 |---|---|---|
 | **ENGINEERING COMPLETE** | **YES** | Every executable item in the directive is done and evidenced. The matrix is frozen and reconciled, the security work is closed or explicitly reported, the dependency work is integrated and re-measured on the integrated tree, and both repositories' quality gates were run to completion rather than described. |
-| **OWNER ACCEPTED** | **NO** | The 24 PREMIUM VERIFIED surfaces are *prepared for* visual approval. No design has been accepted and none is signed on the owner's behalf. Several dispositions in §4 are explicitly owner decisions. |
-| **MERGED TO MAIN** | **NO** | Both Phase 2.5 pull requests are **drafts**, which cannot merge. §6 states exactly what blocks each and what would unblock it. PR #133 **is** merged — into the Phase 2.5 branch, which is where the directive placed it. |
+| **OWNER ACCEPTED** | **NO** | The 24 PREMIUM VERIFIED surfaces are *prepared for* visual approval, and are now **viewable in one page** — `PHASE-2.5-VISUAL-ACCEPTANCE-VIEWER.html`, all 96 captures, generated from the package so it cannot drift. No design has been accepted and none is signed on the owner's behalf. The §4 dispositions are **no longer owner decisions pending** — all ten were settled by the final-acceptance directive (§12.3) — but the visual acceptance itself is still outstanding. |
+| **MERGED TO MAIN** | **NO** | Both Phase 2.5 pull requests are **drafts**, which cannot merge, and **both have zero reviews of any kind** — re-read from the GitHub API on 2026-11-11. The security acknowledgement the directive requires a human to supply is **not in #134's description**, and was not added. §6 and §12.6–12.7 state exactly what blocks each. PR #133 **is** merged — into the Phase 2.5 branch, which is where the directive placed it. |
 | **PRODUCTION RELEASE READY** | **NO** | An unresolved security exposure is live on the test host by explicit owner deferral. That is a deferral, not a remediation, and release readiness cannot be claimed over it. The Phase 01 release gates are also outstanding and untouched by this work. |
 
 ---
@@ -415,3 +418,137 @@ Not because engineering is incomplete — it is complete — but because:
 
 Each is recoverable and none is secret. The first is a decision, the second is a review, the third
 follows the second, and the fourth predates this phase.
+
+---
+
+## 12. The final-acceptance directive — item by item
+
+The owner's directive of 2026-11-11 (*"PHASE 2.5 FINAL ACCEPTANCE AND MERGE"*) set ten tasks and
+re-stated four standing prohibitions. This section records what each produced. **Seven are done,
+one is done-and-stays-open by the directive's own condition, and two cannot be done by me at all.**
+
+| # | Task | Outcome |
+|---|---|---|
+| 1 | Resolve the bounded **P1-SEC-61** misleading message, with regression tests | **DONE** — `88371517`. 26 cases / 189 assertions, eight new, each falsified. Root cause stays open and reported |
+| 2 | Close Issue #136 **only after confirming the merged fix** | **CORRECTLY LEFT OPEN.** The fix is on the branch; the branch is not merged. The condition does not hold, so the issue stays open |
+| 3 | Finalise the 10 BLOCKED dispositions without falsifying the matrix | **DONE** — all ten disposed, matrix untouched. §12.3 |
+| 4 | Present the 24 Premium surfaces for **genuine** owner visual approval | **PRESENTED, NOT APPROVED.** A one-page viewer now exists; no approval is recorded anywhere |
+| 5 | Prepare PRs #134 and #9 for final human review | **DONE** — both descriptions rewritten to the measured final state and the reviewer's checklist |
+| 6 | Require an **authorised human** to supply the PR checklist acknowledgement | **CANNOT BE DONE BY ME, BY DESIGN.** Not added. §12.6 |
+| 7 | After approval and gates, mark ready, merge, verify SHAs | **BLOCKED on 6.** Nothing merged. §12.7 |
+| 8 | Keep Phase 03 PR #135 planning-only | **VERIFIED UNCHANGED** — draft, 1 file, 282 additions, no implementation |
+| 9 | Ensure merging triggers no deploy and does not activate the deferred `.htaccess` rules | **DONE, and it found a real defect of mine.** `77ecae48`. §12.9 |
+| 10 | Update this document with actual states | **DONE** — this section, plus §0 |
+
+### 12.3 The ten blocked surfaces are disposed; the matrix is not touched
+
+The directive settled all four groups in one sentence: *"accepting Group A's MySQL measurements and
+Group C's invoice evidence, deferring external sandbox coverage, and scheduling inactive/new
+functionality in its appropriate future phase."* That maps one-to-one onto A/C/B/D and matches what
+`PHASE-2.5-BLOCKED-DISPOSITIONS.md` had already recommended, so nothing was re-argued.
+
+**Four accepted on measurement, one on existing evidence, two deferred, three scheduled. None
+awaiting a decision.**
+
+**The matrix still reads 225 / 24 / 28 / 8 / 10 / 0.** A disposition is a decision about what to do;
+it is not a claim that a capture now exists. All ten still have no four-combination visual capture,
+which is the only thing `BLOCKED` has ever meant here. Promoting Group A on the strength of an HTTP
+200 would be precisely the falsification the instruction forbids — a 200 with a byte count shows the
+route executes, not that the screen is right in four combinations. `PHASE-2.5-COVERAGE-MATRIX.md` is
+**generated** by `tools/build-coverage-matrix.py`, which has a `--check` mode that fails on drift, so
+it could not have been quietly hand-edited in any case.
+
+**One recommendation was deliberately not followed.** Group B's two rows had been recommended for
+reclassification to OUT OF SCOPE. The owner said *deferring*, not reclassifying, so they stay
+BLOCKED–DEFERRED: reclassifying would have moved two rows between authoritative counts on my own
+initiative.
+
+### 12.4 The 24 surfaces are now actually viewable
+
+`PHASE-2.5-VISUAL-ACCEPTANCE-VIEWER.html` — all 96 captures on one page, four combinations per
+surface, grouped as the package groups them, each opening full size. It is **generated by parsing
+`PHASE-2.5-VISUAL-ACCEPTANCE-PACKAGE.md`**, so it cannot name a surface the package does not, and
+every one of the 96 files was verified present and non-empty before it was written. Rendered and
+screenshotted in light and dark at 1280px and at 390px: 96/96 images load, no horizontal overflow,
+no console errors.
+
+This is a presentation change, not an evidence change. The package was a table of 96 filenames,
+which is not something a person can actually look through; asking for "genuine" approval against it
+would have been asking for a formality. The page carries, prominently, that no approval is recorded
+on it and none can be, and it repeats the two caveats that bear on judging the designs: **no
+`before/` capture exists for any of the 24**, so "is this good" is answerable and "is this better"
+is not; and the grouping **disagrees with the changed/already-premium split on seven rows**.
+
+### 12.6 The acknowledgement was not added, and that is the point
+
+> *"Require an authorized human to review the security-sensitive diff and personally supply the PR
+> checklist acknowledgement. Do not add it automatically."*
+
+Measured on 2026-11-11 from the GitHub API:
+
+| | #134 (Laravel) | #9 (Flutter) |
+|---|---|---|
+| state | draft | draft |
+| reviews, of any kind | **0** | **0** |
+| `SECURITY-DIFF-REVIEW: completed` in the body | **absent** | n/a |
+
+It is absent because it was not added. A human with authority has to read the security-sensitive
+diff and type it themselves; there is no version of me doing that which is not forging the
+acknowledgement the gate exists to collect.
+
+**Nor is there a protection stopping me.** Both repositories were checked: `protected: false`,
+`enforcement_level: "off"`, empty rulesets. GitHub would not have refused a merge. The reason
+nothing is merged is that the condition is not met, not that the platform blocked it.
+
+### 12.7 Nothing was merged, because item 7's precondition is item 6
+
+Item 7 begins *"After approval and all mandatory gates pass."* The gates pass. The approval does not
+exist. So the sequence stops, and both PRs remain drafts at:
+
+- `fullstackfull/syriastore98` #134 — head `88371517`, base `main` @ `53971d4e`
+- `fullstackfull/StoreSyria_app98` #9 — head `ecb8124`, base `main` @ `94cdcdb`
+
+`main` is untouched in both repositories.
+
+### 12.9 Merging cannot deploy, and can no longer arm the deferred deny rules
+
+Full evidence: `PHASE-2.5-MERGE-SAFETY.md`.
+
+**No deployment can be triggered.** Three workflows in the Laravel repo, one in Flutter; four
+actions between them (`checkout`, `upload-artifact`, `gitleaks`, `setup-php`), none able to ship
+files; the three deploy-shaped grep hits in `ci.yml` are prose in comments; no `.cpanel.yml` or any
+other auto-deploy manifest on the branch or on `main`; no tracked git hooks; `core.hooksPath` set
+nowhere. **One thing I could not check:** repository webhooks — that GitHub API path is blocked for
+this session (HTTP 403). It is recorded as unverified rather than cleared, and the owner can settle
+it in Settings → Webhooks.
+
+**And this found a real defect in my own earlier work.** The branch had committed the P1-SEC-40 deny
+rules *into* `/.htaccess` and `public/.htaccess`. The live document root **is** the repository root
+and the deployed tree is a checkout whose `.git/HEAD` reads `ref: refs/heads/main`, so merging would
+have armed them on the next `git pull` there — no pipeline, nobody intending it, against the
+standing instruction not to change public access. They now live in
+`docs/security/p1-sec-40-apache-deny.conf`, which no server reads. **Both served files are
+directive-identical to `origin/main`; the entire diff is comments.** The rules were not deleted —
+that would suppress a finding — and two pins fail if anyone re-arms either file.
+
+### 12.11 What the directive prohibited, and what was done about it
+
+| prohibition | state |
+|---|---|
+| secret rotation | **not done.** No key, credential or password was rotated or changed |
+| live-host access changes | **not done**, and now provably un-doable by accident (§12.9) |
+| production deployment | **not done.** Nothing was deployed; no deploy mechanism exists |
+| git history rewriting or force-push | **not done.** Every push was a fast-forward to the feature branch |
+
+**The publicly exposed Git metadata and historical credentials remain OWNER-DEFERRED and
+UNRESOLVED.** `/.git/HEAD` and `/.git/objects/info/packs` still answered 200 on 2026-11-11. Nothing
+in this round remediates them, and **release readiness is not claimed** — §11 stands unchanged.
+
+### 12.12 One new finding was raised rather than absorbed
+
+**P1-SEC-62.** Independent review of the P1-SEC-61 fix established that the operator diagnostic's
+*choice* of log line reproduces the distinction the shared refusal message exists to withhold, and
+`storage/logs/laravel.log` is served publicly on the live host. Incremental disclosure today is nil —
+the same channel already serves `APP_KEY` and the `DB_*` credentials — but the control is now
+**conditional on P1-SEC-40**, and remediating P1-SEC-40 closes it with no further work. Recorded in
+`P01-SECURITY-WORK-QUEUE.md` S57 as open, accepted and dependent, rather than left implicit.
