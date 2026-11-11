@@ -5662,3 +5662,99 @@ wave on purpose:** repairing the 500 *means* implementing `buildArray()`, which 
 that arms the write, on an operator feature that generates executable PHP — a Phase 06 surface and a
 decision with a security dimension, not a closure-wave edit. It becomes urgent the moment anyone
 opens that method for any reason.
+
+## S53 — The live host serves its own `.git`, so `#120`'s "reachable in history" is actually "reachable by anonymous HTTP" — **P1-SEC-40 CONTAINMENT PREPARED; the exposure itself needs owner action**
+
+Found while reviewing download exposure for the tracked database dump. The dump was the reason for
+looking. It is not the most serious thing that was found.
+
+### 1. What was measured
+
+`HEAD` requests only, no response bodies retrieved, 2026-11-11. A nonsense path answered **404**,
+so the 200s are real files and not the app's error page returned with a 200.
+
+| Path | Status | Content-Length |
+|---|---|---|
+| `/.env` | 403 | — |
+| `/storesyria_ecommercego.sql` | 404 | — |
+| `/.git/HEAD` | **200** | 21 — exactly `ref: refs/heads/main` |
+| `/.git/config` | **200** | 270 |
+| `/.git/index` | **200** | 10,376,528 |
+| `/.git/objects/info/packs` | **200** | 54 |
+| `/.git/logs/HEAD` | **200** | 3,647 |
+| `/composer.lock` | **200** | 611,406 |
+| `/storage/logs/laravel.log` | **200** | 3,421,645 |
+| `/.git/shallow`, `/.git/info/sparse-checkout`, `/.git/objects/info/alternates` | 404 | — |
+
+The 403 on `/.env` is what proves the root `.htaccess` is the live config: the pre-existing
+`<Files .env>` deny is being applied. The 404 on the dump proves two things at once — it is not on
+the deployed tree, **and** no extension-based deny existed, because a deny answers 403, not 404.
+
+### 2. Why it is reachable
+
+The document root is the **repository root**, not `public/` — a root `index.php` shim sits beside
+the root `.htaccess`, the standard shared-hosting Laravel layout. The front-controller rewrite is
+guarded by `RewriteCond %{REQUEST_FILENAME} !-f`, so Apache returns any file that really exists
+rather than routing the request to `index.php`. Nothing was misconfigured. The default serves
+whatever the deploy left on disk, and a deploy by `git pull` leaves `.git` there.
+
+### 3. The consequence, as a chain of measured links
+
+1. A `.env` with `APP_KEY`, three `DB_*` variables and one mail/gateway password is committed at
+   `3c39c160:.env` — blob `aa5c75b8…`, 1,047 bytes. **Key names counted; no value read.**
+2. `3c39c160` is the **root commit** ("Initial commit 98", 2026-08-27), so the blob is an ancestor
+   of every ref, `main` included.
+3. The deployed checkout is on `main` (link: `/.git/HEAD` is 21 bytes).
+4. The deployed clone is full — not shallow, sparse or alternates-backed (three 404s above).
+5. So the server's packfile holds the root commit and its blobs.
+6. `/.git/objects/info/packs` names the packfiles, which is the input an off-the-shelf `.git`
+   dumper consumes.
+
+**Therefore the production `APP_KEY`, database name, username and password are retrievable by an
+anonymous HTTP client.** The packfile was deliberately not fetched: the chain is sufficient, and
+fetching it would have meant retrieving the credentials and the dump.
+
+### 4. What this means for `#120` / `P1-OWN-09`
+
+That item is recorded as **OPEN, OWNER-DEFERRED** — *"the live `APP_KEY` and database credentials
+reachable at `3c39c160:.env`"*. The deferral is reasonable on the reading that exploiting it takes
+a clone of the repository and knowledge of which commit to look in.
+
+It does not. It takes one anonymous HTTP request to the production host, and it has been that way
+since the site was first deployed from this repository. **The item's severity should be re-rated on
+that basis.** This is a change in the finding's reachability, not a new finding, and not a change
+anyone can make unilaterally — it is recorded here for the owner rather than acted on.
+
+### 5. What was done, and what was deliberately not
+
+Prepared, non-destructive, nothing rewritten and nothing force-pushed:
+
+- the dump untracked from the working tree (`git rm --cached`), so merging removes it from every
+  checkout that pulls — including the server's, which does not close §3 above;
+- `.gitignore` dump patterns verified effective against eight candidate paths, in this repository
+  and in `StoreSyria_app98`, which is itself clean in tree and history;
+- deny rules in `/.htaccess` and `public/.htaccess` covering VCS metadata, dump and backup
+  extensions, `storage/{logs,framework,app}` and the composer manifests — placed **outside**
+  `<IfModule mod_rewrite.c>`, because the pre-existing `<Files .env>` deny is inside it and would
+  fail open if mod_rewrite were unloaded;
+- an nginx equivalent at `docs/security/p1-sec-40-nginx-deny.conf`, unused today, because migrating
+  to nginx discards every `.htaccess` protection silently;
+- `tests/Unit/Security/DumpAndVcsPathsAreDeniedTest.php` — 30 cases, 18 paths that must be refused
+  and 10 that must keep working. Reverting the deny block fails 19; the 11 that still pass are the
+  legitimate-path controls plus `.env`, already covered by the original config.
+
+**Not done, and needing owner authorization:** deploying the rules (the emergency step — nothing
+here changes the live host until it is deployed), rotating the database password and `APP_KEY`,
+pulling the access logs before rotation discards the window, repository visibility, password
+resets, token revocation, and any history rewrite.
+
+### 6. Status
+
+| id | finding | state |
+|---|---|---|
+| **P1-SEC-40** | a production database dump tracked on the default branch of a public repository | **CONTAINMENT PREPARED.** Untracked from the tree, recurrence blocked, deny rules and regression test committed. The history blob and the deployed-`.git` channel both remain |
+| **P1-SEC-50** | the live host serves `.git`, `composer.lock` and `storage/logs/laravel.log`; `objects/info/packs` is readable | **OPEN — rules written, NOT DEPLOYED.** Needs production access. This is the emergency item |
+| **#120 / P1-OWN-09** | the live `APP_KEY` and database credentials at `3c39c160:.env` | **OPEN, and the reachability is worse than recorded** — anonymous HTTP, not "in history". Re-rate; do not close on the strength of this work |
+
+Full incident record, including the coordinated history-cleanup plan and the incident-response
+recommendation: **`docs/security/P1-SEC-40-INCIDENT.md`**.

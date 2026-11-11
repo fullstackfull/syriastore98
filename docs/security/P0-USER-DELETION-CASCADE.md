@@ -217,7 +217,8 @@ the same wallet.
 
 **The list is pinned, not discovered at runtime.** A guard that reflects over the live schema
 silently narrows itself on any database missing a table, and in this project *the migrations are
-not the schema*. `UserDeletionSafetyCoverageTest` reads the production dump's schema section and
+not the schema*. `UserDeletionSafetyCoverageTest` reads production's constraint
+declarations -- from a committed schema-only fixture since P1-SEC-40 untracked the dump -- and
 asserts the list in **both** directions — every production cascade is covered, and every pinned
 entry is a real production foreign key. A new cascade added to production and not added here
 **fails that test** rather than quietly escaping the guard.
@@ -312,13 +313,35 @@ in behaviour. It is written here rather than left for a merchant to discover. Th
 `Setting::where('created_by', …)->delete()` calls inside the transactions are consequently
 unreachable; they are kept, annotated, as the correct cleanup if `settings` ever leaves that list.
 
-### A gap in the ratchet's own coverage
+### A gap in the ratchet's own coverage — **CLOSED 2026-11-11**
 
-`UserDeletionSafetyCoverageTest` skips when `storesyria_ecommercego.sql` is absent — deliberate,
-and better than passing. But **removing that dump is the planned remediation for P1-SEC-40 (#120)**,
-and a skip in the *Unit* suite is covered by no outcome gate: `.github/known-test-outcomes.json`
-asserts the outcome set for the Feature log only. On the day the dump goes, the only thing keeping
-`CASCADE_DEPENDENCIES` honest stops running with no CI signal. Recorded against #120.
+The prediction recorded here was correct, and the day it warned about arrived:
+
+> `UserDeletionSafetyCoverageTest` skips when `storesyria_ecommercego.sql` is absent — deliberate,
+> and better than passing. But **removing that dump is the planned remediation for P1-SEC-40
+> (#120)**, and a skip in the *Unit* suite is covered by no outcome gate:
+> `.github/known-test-outcomes.json` asserts the outcome set for the Feature log only. On the day
+> the dump goes, the only thing keeping `CASCADE_DEPENDENCIES` honest stops running with no CI
+> signal.
+
+P1-SEC-40 containment untracked the dump on 2026-11-11. Measured before closing the gap: with the
+dump moved aside, **all four cases skipped and the suite exited 0** — `vendor/bin/phpunit
+--testsuite Unit` carries no `--fail-on-skipped`, so there would have been no signal of any kind.
+
+**What closed it.** The 15 relevant `ADD CONSTRAINT` lines were extracted into a committed fixture,
+`tests/Support/Security/fixtures/production-users-cascades.txt`, verified at extraction to carry
+zero bcrypt hashes, emails, IP addresses, `INSERT` statements and value tuples. The four cases read
+the fixture, so they run everywhere including CI. A **fifth** case cross-checks the fixture against
+the dump wherever the dump is still present, so the extract cannot drift from production unnoticed;
+that case alone skips when the dump is gone.
+
+Measured after: dump present → **5 passed**; dump absent → **4 passed, 1 skipped**. Corrupting the
+fixture fails 3 cases if edges are dropped and 2 if a constraint is invented, so the fixture is
+load-bearing rather than decorative.
+
+The `.txt` extension is deliberate: `.gitignore` now carries `*.sql` to stop the next dump being
+committed, and naming the fixture `.sql` would need `git add -f` on every change and set a
+precedent that could later mask a real dump.
 
 ### THE LIMITATION, reported as the owner asked
 
@@ -389,7 +412,7 @@ orders and subscription records are all **still there** after a refused deletion
 `tests/Feature/Security/CredentialSanitisationTest` — **6 cases**, including a premise that the
 sweep really would have mangled the chosen password.
 
-`tests/Unit/Security/UserDeletionSafetyCoverageTest` — **4 cases**, the pinned-list ratchet.
+`tests/Unit/Security/UserDeletionSafetyCoverageTest` — **5 cases**, the pinned-list ratchet. Four read the committed constraint fixture; the fifth cross-checks that fixture against the production dump where it is still present, and is the only one that skips without it.
 
 **Proved in both directions.** With the guard reverted, 5 of the 15 deletion cases fail — exactly
 the data-safety ones — and 3 of the 6 credential cases fail. The authorization, premise and

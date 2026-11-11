@@ -1,3 +1,62 @@
+# =====================================================================================
+# P1-SEC-40 containment: never serve repository internals, database dumps or backups.
+#
+# MEASURED ON THE LIVE HOST 2026-11-11 (HEAD requests only, no bodies retrieved):
+#   GET /.env                      -> 403   the <Files .env> rule below is live
+#   GET /storesyria_ecommercego.sql-> 404   dump absent from the deployed tree, AND no
+#                                           extension rule existed (a deny answers 403)
+#   GET /.git/HEAD                 -> 200   21 bytes = "ref: refs/heads/main"
+#   GET /.git/config               -> 200   270 bytes
+#   GET /.git/index                -> 200   10,376,528 bytes
+#   GET /.git/objects/info/packs   -> 200   54 bytes -- names the packfiles
+#   GET /.git/logs/HEAD            -> 200   3,647 bytes
+#   GET /composer.lock             -> 200   611,406 bytes
+#   GET /storage/logs/laravel.log  -> 200   3,421,645 bytes of text/plain
+#   GET /a-nonexistent-path        -> 404   so the 200s above are real files, not soft-404s
+#
+# WHY THESE ARE REACHABLE AT ALL: the document root IS the repository root -- this file
+# sits beside index.php, the shared-hosting shim. The front-controller rewrite below is
+# guarded by `RewriteCond %{REQUEST_FILENAME} !-f`, so Apache returns ANY file that
+# really exists instead of routing it to index.php. Nothing was misconfigured; the
+# default simply serves everything the deploy put on disk.
+#
+# WHY IT IS SEVERE: a readable .git/objects/info/packs names the packfiles, which is
+# precisely what an off-the-shelf .git dumper needs to reconstruct the whole repository
+# and its full history. That history contains the tracked database dump and, per
+# CLAUDE.md, an unrotated APP_KEY. Removing the dump from the working tree does NOT
+# close this path -- the blob stays in the packfile.
+#
+# THIS FILE CHANGES NOTHING UNTIL IT IS DEPLOYED. The live host keeps serving the
+# paths above until this .htaccess reaches it. Deploying it also does not undo any
+# retrieval that already happened.
+#
+# Deliberately placed OUTSIDE <IfModule mod_rewrite.c>: the existing <Files .env> deny
+# is inside that guard, so it silently stops applying if mod_rewrite is ever unloaded.
+# RedirectMatch (mod_alias) is used for directories because <Directory> is not allowed
+# in .htaccess and <FilesMatch> cannot match a path prefix. 404 rather than 403 so the
+# response does not confirm that a path exists.
+# =====================================================================================
+
+# Version-control metadata, editor and dependency manifests.
+RedirectMatch 404 "(?i)/\.(git|svn|hg|bzr|idea|vscode|env|DS_Store)(/|$)"
+RedirectMatch 404 "(?i)^/(composer\.(json|lock)|package(-lock)?\.json|yarn\.lock|artisan|phpunit\.xml|\.editorconfig|\.gitignore|\.gitattributes)$"
+
+# Internal framework directories. /storage/<file> is NOT denied: uploads are served
+# through the public/storage symlink via Storage::url(), e.g. /storage/uploads/x.png.
+RedirectMatch 404 "(?i)^/storage/(logs|framework|app)(/|$)"
+RedirectMatch 404 "(?i)^/(bootstrap/cache|tests|database/(migrations|seeders|factories))(/|$)"
+
+# Database dumps and backup files, by extension, including compressed variants.
+<FilesMatch "(?i)\.(sql|dump|bak|backup|old|orig|save|swp|swo|sqlite|sqlite3|db|log)(\.(gz|bz2|xz|zip|tar|tgz|7z|rar))?$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order Allow,Deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
 <IfModule mod_rewrite.c>
     <IfModule mod_negotiation.c>
         Options -MultiViews -Indexes

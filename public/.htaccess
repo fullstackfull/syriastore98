@@ -1,3 +1,28 @@
+# =====================================================================================
+# P1-SEC-40 containment, defence in depth. The live document root is the REPOSITORY
+# root, not this directory (a root index.php shim sits beside the root .htaccess), so
+# the rules that actually matter today are the ones in ../.htaccess -- read the measured
+# evidence there. This copy exists because the front-controller rewrite below carries
+# the same `RewriteCond %{REQUEST_FILENAME} !-f`, so if the vhost is ever repointed at
+# public/ (the stock Laravel layout) this directory inherits the identical behaviour:
+# any file that really exists is served verbatim instead of being routed to index.php.
+#
+# Note this file has no <Files .env> deny of its own -- the root copy does.
+# Placed outside <IfModule mod_rewrite.c> so it still applies if mod_rewrite is unloaded.
+# =====================================================================================
+
+RedirectMatch 404 "(?i)/\.(git|svn|hg|bzr|idea|vscode|env|DS_Store)(/|$)"
+
+<FilesMatch "(?i)\.(sql|dump|bak|backup|old|orig|save|swp|swo|sqlite|sqlite3|db|log)(\.(gz|bz2|xz|zip|tar|tgz|7z|rar))?$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order Allow,Deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
 <IfModule mod_rewrite.c>
     <IfModule mod_negotiation.c>
         Options -MultiViews -Indexes
