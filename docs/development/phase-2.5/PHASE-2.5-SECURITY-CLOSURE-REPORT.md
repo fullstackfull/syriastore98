@@ -118,12 +118,87 @@ Resolving it needs a comparison against the live database, which needs productio
 
 ## 2. Dependency remediation results
 
-See §2 of `docs/security/P1-SEC-40-INCIDENT.md` for why `composer.lock` matters here beyond the
-advisories: **`/composer.lock` is world-readable on the live host** (200, 611,406 bytes), so an
-attacker holds the exact version of every dependency. That is what turns a published advisory list
-into a targeting aid, and it is closed by the same deploy that closes `.git`.
+**Branch: `claude/composer-security-same-major`. Not merged.** The directive reserves that: *"Do not
+merge potentially breaking dependency changes without explicit approval."*
 
-*(Results recorded in §2.1 below.)*
+First, why this matters beyond the advisory count: **`/composer.lock` is world-readable on the live
+host** (200, 611,406 bytes, §1 / `P1-SEC-40-INCIDENT.md` §3.2.2). An attacker holds the exact
+version of every dependency, which is what turns a published advisory list into a targeting aid. The
+same deploy that closes `.git` closes that too.
+
+### 2.1 Result
+
+**A blanket `composer update` was NOT used, and the dry-run is why.** It moves roughly 150 packages
+and crosses **major** versions — `firebase/php-jwt` v6→v7 and `hamcrest/hamcrest-php` v2→v3 among
+them, both permitted by the existing constraints. That is precisely the "potentially breaking" change
+the directive reserves, and it is not a same-major update in any sense. So the three packages the
+acceptance report identified were updated by name, without `--with-all-dependencies`, so nothing
+transitive could be dragged across a major boundary.
+
+| package | from | to | advisories before → after |
+|---|---|---|---|
+| `phpoffice/phpspreadsheet` | 1.30.1 | **1.30.8** | **12 → 0** |
+| `mtdowling/jmespath.php` | 2.8.0 | **2.9.2** | **1 → 0** |
+| `laravel/framework` | v11.47.0 | **v11.57.1** | **5 → 4** |
+
+| | |
+|---|---|
+| packages changed | **exactly 3** — no additions, no removals |
+| **major-version crossings** | **0**, verified by comparing the major component of every changed version |
+| `composer.json` | **unchanged** — all three were already permitted by the existing constraints |
+| advisories | **66 → 52**, across **22 → 20** packages |
+| `AUDIT_CEILING` | **untouched at 58** |
+
+### 2.2 The gate goes green without raising the ratchet
+
+`ci.yml` sets `AUDIT_CEILING: '58'` and exits 1 above it. Before: **66, failing by 8.** After:
+**52, passing with 6 to spare.**
+
+That is the outcome worth having. The directive says *"Do not raise AUDIT_CEILING or suppress
+findings"*, and the acceptance report had already noted that a lock-only route clearing the gate is
+*"a better answer than raising a ratchet"*. This is that route, and it clears the gate by actually
+removing 14 advisories rather than by moving the line — including **both criticals in
+phpspreadsheet**, the package that carried the largest count of any single dependency.
+
+phpspreadsheet going 12 → 0 also retires the reachability argument in `ci.yml` entirely, which is
+worth noting because §4.3 shows half of that argument was false.
+
+### 2.3 Verification
+
+| check | result |
+|---|---|
+| dependency resolution | clean; `composer update` completed and wrote a consistent lock |
+| **Unit** | **1619 passed**, 12,182 assertions — identical to pre-update |
+| **Contract** (the Flutter API contract) | **38 passed**, 149 assertions — identical |
+| **Feature / security** (`tests/Feature/Security/`) | **5150 passed, 1 skipped** (the declared one), **0 failures**, 21,839 assertions |
+| `composer validate` | `composer.json` valid, lock in sync |
+
+`laravel/framework` v11.47.0 → v11.57.1 is ten minor versions, and that is where breakage would
+live if anywhere — which is why the suites, not the diff, are the evidence here.
+
+### 2.4 What is still open, and the honest limits of this
+
+**52 advisories remain and the gate passing is not the same as them being addressed.** The largest
+remaining clusters are `guzzlehttp/guzzle` 9, `symfony/http-foundation` 6, `dompdf/dompdf` 6,
+`phpseclib/phpseclib` 5, `laravel/framework` 4 (one of its five survived the bump),
+`guzzlehttp/psr7` 4, and the rest of symfony at 12 between eight packages.
+
+Several of those are same-major bumps too — guzzle 7.10→7.16 and psr7 2.8→2.13 would clear 13
+between them — and the acceptance report records a symfony route worth 66→53 on its own. They were
+**not** applied here, for one reason: each additional package widens the blast radius of a change
+nobody has approved yet, and the three named ones already clear the gate. A second tranche is a
+sensible follow-up once this one is accepted, not something to bundle in uninvited.
+
+**None of the four criticals was ever measured as reachable** — that finding from the acceptance
+report stands, and §4.3 corrects the one piece of its reasoning that was wrong.
+
+**One thing found while validating, pre-existing and not from this change.** `composer.json` carries
+two **unbound `*` constraints**: `myfatoorah/laravel-package` in `require` and `laravel/pint` in
+`require-dev`. Any future version satisfies them, including a breaking one or a hostile one if either
+package were ever compromised — and a payment integration is not where you want that. `composer
+validate` already warns about the first. Worth pinning to a caret range, as a separate small change;
+it is not bundled here because changing a constraint is a `composer.json` edit and this branch
+deliberately contains none.
 
 ---
 
@@ -332,14 +407,26 @@ and `CrossTenantPolicyGridTest` still drive them.
 
 | gate | result |
 |---|---|
+Measured on `claude/vibrant-bell-12tquy` at `69da2799`, with `vendor/` resynced to that branch's
+own lock first — so these are this branch's numbers, not the dependency branch's.
+
+| gate | result |
+|---|---|
 | **Unit** (blocking) | **1619 passed**, 12,182 assertions |
 | **Contract** (blocking, the Flutter API contract) | **38 passed**, 149 assertions |
-| **Feature** | *(recorded in §4.1.1)* |
-| known-outcome gate | *(recorded in §4.1.1)* |
-| coverage matrix `--check` | **green** — 295 surfaces, 225/24/28/8/10/0 |
+| **Feature** | **8,436 testcases — 8,433 passed**, 2 failed, 1 skipped, 43,485 assertions |
+| **known-outcome gate** | **OK** — "the observed outcome set matches the manifest exactly: 2 declared failures, 1 declared skip, 0 errors, and nothing undeclared" |
+| coverage matrix `--check` | **green** — 295 surfaces, **225/24/28/8/10/0** |
 | `check-distinct-surface-captures` | **green** |
-| `detect-refusal-toast-captures` | **green** — 932 captures checked |
-| `composer audit must not grow` | **RED** — 66 advisories against `AUDIT_CEILING: '58'`, fails by 8. See §2 |
+| `detect-refusal-toast-captures` | **green** — **932 captures** checked |
+| `composer audit must not grow` | **RED on this branch** — 66 advisories against `AUDIT_CEILING: '58'`, failing by 8. **Green on `claude/composer-security-same-major`** at 52. See §2 |
+
+**Nothing was added to `.github/known-test-outcomes.json`.** The 2 failures and 1 skip are the
+pre-existing declared set. The gate's own closing words are worth repeating, because they are the
+difference between this report and a claim of readiness:
+
+> This is NOT a statement that the suite is green. It is a statement that the suite is failing and
+> skipping exactly the tests the project has recorded, for the reasons it has recorded.
 
 Two Unit failures appeared during this work and both were caused by the change, so both are
 recorded rather than worked around:
@@ -470,7 +557,43 @@ Also outstanding, unchanged by this work: the Phase 01 release gates in
 
 ## 7. Commits and repository state
 
-*(Recorded in §7.1 below.)*
+### 7.1 `fullstackfull/syriastore98`
+
+**Development branch `claude/vibrant-bell-12tquy`** — the branch this directive's work was done on:
+
+| commit | what |
+|---|---|
+| `32f562c4` | P1-SEC-40 containment: dump untracked, `.gitignore` census corrected to the measured 93 hashes, Apache + nginx deny rules, 30-case regression test, the schema-only cascade fixture that saved four tests, the incident record and the S53 queue entry |
+| `69da2799` | the two cross-tenant product reads; the live bypass of the financial-record prohibition and the operator bulk-delete path; three defects the review found inside the fix; refusal-toast detection wired into CI; the refuted phpspreadsheet justification and the `CLAUDE.md` guard claim corrected; S54 and S55 queue entries; the BLOCKED dispositions |
+| *(this commit)* | this report |
+
+Prior commits in the same branch, from the acceptance work that preceded this directive:
+`78e14d03`, `5284c57b`, `f9424503`, `5326caa4`, `e1c80472`, `b4a4a924`, `37237a92`, `a20b4d8c`,
+`bb641f6e`.
+
+**Dependency branch `claude/composer-security-same-major`**, branched from `69da2799`:
+
+| commit | what |
+|---|---|
+| `a4c011d9` | `composer.lock` only — the three same-major bumps. 66 → 52 advisories. **Not merged.** |
+
+It carries **no** application change and no `composer.json` change, so it can be accepted or
+discarded on its own.
+
+### 7.2 `fullstackfull/StoreSyria_app98`
+
+| commit | what |
+|---|---|
+| `40a7f4b` | dump patterns in `.gitignore` as prevention — the repository is clean in tree and history — plus the recorded finding that its two committed `AIza` Firebase keys are client-side by design and are **not** part this incident, with what they *do* need (key restriction, not rotation) |
+
+### 7.3 State
+
+| | |
+|---|---|
+| working tree | clean on both branches after this commit |
+| `main` | **untouched.** No merge, no push to it |
+| history | **not rewritten.** No force-push anywhere. The dump blob `d3d42e68…` and the `.env` blob `aa5c75b8…` both remain reachable, which is also what preserves the forensic evidence — no separate copy of either was made |
+| the dump on disk | present in this container only, untracked and ignored; it was not copied, printed, uploaded or sent anywhere |
 
 ---
 
