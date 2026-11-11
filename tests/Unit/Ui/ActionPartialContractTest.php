@@ -106,10 +106,23 @@ class ActionPartialContractTest extends TestCase
          * A FLOOR ON THE COUNT, not just "none unnamed". Deleting every control in all 37 files
          * satisfies "none unnamed" perfectly.
          */
+        // 98 -> 97 on 2026-11-11, and this is the one kind of reason that justifies moving it.
+        //
+        // The delete control was REMOVED from plans/action.blade.php, not left unnamed:
+        // `BankTransferController::destroy()` now refuses every caller, under the owner
+        // instruction "Treat financial-record deletion as prohibited pending an approved retention
+        // and correction policy", so the button could only ever raise a "not permitted" toast.
+        // Leaving a control that looks available and never works would most likely get the
+        // controller re-opened to make it function.
+        //
+        // The floor is lowered by EXACTLY ONE and the removal is named here. Do not lower it to
+        // make a red suite green: its whole purpose is that deleting controls satisfies
+        // "none unnamed" perfectly, so an unexplained decrement is the failure it exists to catch.
         $this->assertGreaterThanOrEqual(
-            98,
+            97,
             $named,
-            'fewer named action controls than the 98 measured after the conversion'
+            'fewer named action controls than the 97 that remain after the prohibited plan-order '
+            . 'delete control was removed (98 were measured after the conversion)'
         );
 
         $this->assertSame(

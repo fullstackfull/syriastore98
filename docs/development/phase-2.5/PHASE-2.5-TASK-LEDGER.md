@@ -3374,3 +3374,72 @@ contrast ratios offered instead of a misleading pixel pair).
 
 **Release readiness is not claimed and cannot be:** a mandatory security gate is red, an incident is
 unremediated, and rotation for 90 exposed password hashes is outstanding.
+
+---
+
+## 4.33 — Security closure directive (2026-11-11): incident containment, remaining paths, CI gate
+
+Owner directive: *"PRIORITY: SECURITY INCIDENT CONTAINMENT AND RELEASE GATES"*, with the repository
+confirmed **public**. Report: `PHASE-2.5-SECURITY-CLOSURE-REPORT.md`.
+
+### What the incident turned out to be
+
+**The dump was the reason for looking, not the worst thing found.** Reviewing download exposure, as
+the directive asked, established with HEAD requests only — no body retrieved — that the live host
+serves its own `.git`, including `objects/info/packs`; that the deployed clone is a full clone of
+`main`; and that the repository's **root commit** carries a committed `.env` with the production
+`APP_KEY`, three `DB_*` variables and a mail password.
+
+**So the production `APP_KEY` and database credentials are retrievable over plain HTTP by any
+anonymous visitor.** Eight measured links, set out in `docs/security/P1-SEC-40-INCIDENT.md` §3.2.1.
+The packfile was deliberately **not** fetched: the chain is sufficient, and fetching it would have
+meant retrieving the credentials and the dump the directive forbids distributing.
+
+That re-rates `#120` / `P1-OWN-09`, recorded **owner-deferred** on the reading that exploiting it
+needs a clone. It needs one HTTP request. Recorded for the owner, not acted on.
+
+### Done — all non-destructive, nothing rewritten, nothing force-pushed
+
+Dump untracked from the tree; `.gitignore` verified against eight candidate paths in both
+repositories (`StoreSyria_app98` is clean in tree and history); Apache deny rules in both
+`.htaccess` files, placed **outside** `<IfModule mod_rewrite.c>` because the pre-existing
+`<Files .env>` deny sits inside it and would fail open; an nginx equivalent against a future
+migration; a 30-case regression test; refusal-toast detection wired into CI after verifying its
+dependency, determinism **and efficacy**; two cross-tenant product reads fixed; a live bypass of the
+financial-record prohibition closed; the 10 BLOCKED surfaces given dispositions.
+
+### Three things worth carrying forward
+
+* **A security remediation nearly deleted its own coverage.** Untracking the dump made
+  `UserDeletionSafetyCoverageTest` skip all four cases — and the Unit suite still **exited 0**,
+  because CI passes no `--fail-on-skipped` and the known-outcome manifest covers Feature only.
+  `P0-USER-DELETION-CASCADE.md` had predicted exactly this and recorded it as an open gap. Closed
+  with a committed schema-only fixture carrying zero hashes, emails, IPs or rows.
+* **The census was wrong twice before it was right.** `Product::find` gave 49 sites; adding "no
+  guard within 12 lines" gave 38; requiring the id to be **caller-supplied** gave **4, of which 3
+  were already guarded**. The middle number measured comment length, not safety. One unguarded
+  vendored site remains (`AuctionProduct::addProductbidamount`) and is reported, not fixed.
+* **Two new regression tests passed vacuously three times** — a precondition the exposure needs, a
+  route that 404s under test because no WorkDo module loads, and `auth()->user()` not being
+  `$request->user()`. And one Feature failure was an artefact of editing source *while a suite was
+  in flight*: that test slices handler bodies by reflection line numbers against the file re-read
+  from disk.
+
+### Not done, and why
+
+* **Nothing reaches the live host until it is deployed.** The deny rules are the emergency step and
+  deployment is not authorised. Rotating the database password and `APP_KEY`, and pulling the access
+  logs before rotation discards the window, are owner decisions — the log pull **expires** rather
+  than waits.
+* **No history rewrite.** The plan is `P1-SEC-40-INCIDENT.md` §6, as a plan only.
+* **The matrix did not move:** 225/24/28/8/10/0. No design accepted; the 24 are *prepared for*
+  approval.
+* **`AUDIT_CEILING` untouched** at 58 against 66 advisories. The gate stays red and that is reported
+  as red.
+* **The `StoreController` operator-spelling divergence was left exactly as it was**, and pinned by a
+  test that explains itself: normalising it would **admit** an actor currently refused, and the
+  instruction is *"Do not broaden operator permissions."*
+* **Financial-record deletion is now prohibited outright**, which **inverted** two tests that had
+  asserted the owner and the operator could still delete. The earlier one had closed with
+  *"(Whether they SHOULD be able to is a separate audit question, recorded for the owner and not
+  decided here.)"* The owner decided it.

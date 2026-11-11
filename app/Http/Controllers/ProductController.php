@@ -4204,7 +4204,20 @@ $Product->cost_price = $request->cost_price;
         $product_id = $request->product_id;
         $return['qty'] = $qty;
         $return['variant_id'] = 0;
-        $product = Product::find($product_id);
+
+        // The product must belong to the storefront being browsed. `Product::find($product_id)`
+        // alone reached every tenant's catalogue: `Product` has StoreScope registered but is NOT
+        // in config/tenancy.php's `scoped_models`, and `StoreScope::isActiveFor()` short-circuits
+        // for an unlisted model, so the scope adds no predicate for ANY principal. Store A's
+        // storefront was therefore pricing store B's product under A's settings, tax rules and
+        // flash-sale conditions, and the result feeds A's cart UI.
+        //
+        // `$store` is the right source and not a second caller-supplied value in disguise: it is
+        // the storefront whose page is being served, the same source `getRouteStoreId()` uses, and
+        // the very next line already trusts `$store->id` to select the settings. The price itself
+        // is public -- anyone may read it on B's own storefront -- so this closes an isolation
+        // failure rather than a disclosure.
+        $product = Product::where('store_id', $store->id)->find($product_id);
         $return['variant_product'] = $product->variant_product ?? 0;
         if (!empty($product)) {
             if (module_is_active('WholesaleProduct')) {
@@ -5358,9 +5371,32 @@ $Product->cost_price = $request->cost_price;
         }
     }
 
+    /**
+     * The POS variant modal. Found by independent review, five lines above the handler that was
+     * actually reported: this is the door that OPENS the modal whose quantity call
+     * `getProductsVariantQuantity()` below serves, and it carried the same defect.
+     *
+     * `Product::where('id', $id)->first()` had no store predicate, on a route in the same
+     * `['auth', 'xss', 'setlocate', 'verified']` group with no permission check
+     * (routes/web.php:1365). Any authenticated merchant rendered any tenant's product name, cover
+     * image, category and price into `pos/product_variant.blade.php`. It does NOT render the stock
+     * integer, which is why the note on the quantity handler can still say no other route exposes
+     * that figure — but leaving this one unfixed would have made the pair incoherent: the modal
+     * opens for a foreign product and its quantity comes back 0.
+     *
+     * `$product->id` was also dereferenced unguarded, so an unknown id was a 500.
+     */
     public function productVariant(Request $request, $id, $session_key)
     {
-        $product = Product::where('id', $id)->first();
+        $currentStore = getCurrentStore();
+        $product = $currentStore === null
+            ? null
+            : Product::where('store_id', $currentStore)->where('id', $id)->first();
+
+        if (! $product) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         $product_variant_names = ProductVariant::where('product_id', $product->id)->get();
 
         return view('pos.product_variant', compact('product', 'product_variant_names', 'session_key'));
@@ -5374,8 +5410,33 @@ $Product->cost_price = $request->cost_price;
         $quantity = $variant_id = 0;
         $quantityHTML = '<strong>' . __('Please select variants to get available quantity.') . '</strong>';
         $priceHTML = '';
-        $product = Product::find($request->product_id);
-        $price = currency_format_with_sym($product->price, getCurrentStore());
+
+        // Derive the tenant from the AUTHENTICATED PRINCIPAL, never from request input. This route
+        // sits in `Route::middleware(['auth', 'xss', 'setlocate', 'verified'])` with no permission
+        // check, and it returns `quantity` as an integer -- a competitor's exact variant stock
+        // level. `Product::find($request->product_id)` reached every tenant's catalogue, because
+        // `Product` is not in config/tenancy.php's `scoped_models` and StoreScope adds no
+        // predicate for an unlisted model. A storefront publishes "In Stock" or "Out Of Stock"; it
+        // never publishes the number, and no public route exposes this figure, so this was a real
+        // cross-tenant disclosure of inventory rather than a restatement of public data.
+        // FAIL CLOSED WHEN NO TENANT RESOLVES, and note why this is not paranoia: a bare
+        // `Product::where('store_id', $currentStore)` fails OPEN. `getCurrentStore()` returns null
+        // for a principal with no `current_store` who is not `super admin` and owns no store
+        // (helper.php:758), and Laravel's `where($column, null)` does not compare against NULL --
+        // it rewrites itself to `whereNull($column)`. Since `products.store_id` is nullable, the
+        // predicate would then select exactly the products NOBODY owns, rather than none. That is
+        // the `null_tenant => 'open'` failure mode by a different road, and it was present in the
+        // first version of this fix.
+        $currentStore = getCurrentStore();
+        $product = $currentStore === null
+            ? null
+            : Product::where('store_id', $currentStore)->find($request->product_id);
+
+        // `$product->price` used to be dereferenced right here, BEFORE the `if ($product && ...)`
+        // check below -- a 500 on any unknown id. The predicate above makes that path ordinary
+        // rather than exceptional, since every cross-tenant id now resolves to null, so the null
+        // case has to answer properly or the fix trades a leak for an error.
+        $price = $product ? currency_format_with_sym($product->price, $currentStore) : '';
         $status = false;
 
         if ($product && $request->variants != '') {
@@ -5383,8 +5444,19 @@ $Product->cost_price = $request->cost_price;
             if ($variant) {
                 $status = true;
                 $quantity = $variant->stock - (isset($cart[$variant->id]['quantity']) ? $cart[$variant->id]['quantity'] : 0);
-                $store = getStoreById(getCurrentStore());
-                $price = currency_format_with_sym(Product::ProductPrice($store->slug, $product->id,$variant->id));
+
+                // `$currentStore`, not a second `getCurrentStore()` call, and the null is checked.
+                // This line was `getStoreById(getCurrentStore())` followed by an unguarded
+                // `$store->slug`, which is a 500 whenever `current_store` points at a deleted store
+                // -- a state the codebase handles explicitly elsewhere -- or when an operator with
+                // an empty `current_store` gets the helper's hardcoded fallback of store id 1 on a
+                // deployment whose stores do not start at 1. Found by independent review.
+                $store = getStoreById($currentStore);
+
+                if ($store) {
+                    $price = currency_format_with_sym(Product::ProductPrice($store->slug, $product->id, $variant->id));
+                }
+
                 $variant_id = $variant->id;
             }
         }
@@ -5399,10 +5471,65 @@ $Product->cost_price = $request->cost_price;
         );
     }
 
+    /**
+     * THIS HANDLER CURRENTLY REFUSES EVERYONE, INCLUDING A MERCHANT WHO HOLDS THE PERMISSION.
+     *
+     * `can()` is the wrong call in this codebase. Laratrust runs with
+     * `permissions_as_gates => false` (config/laratrust.php:265), so a permission is not
+     * registered as a Gate ability and `can('Delete Variants')` is **always false**. Measured on a
+     * merchant granted that exact permission: `isAbleTo('Delete Variants')` is `true` while
+     * `can('Delete Variants')` is `false`. So this is a broken feature, fail-closed.
+     *
+     * THE STORE PREDICATE BELOW IS ADDED NOW, DELIBERATELY, WHILE THE HANDLER IS STILL DEAD.
+     * `can()` → `isAbleTo()` is exactly the tidy-up a future reader will make, and on the day they
+     * make it this method starts resolving a caller-supplied `$product_id` with a bare
+     * `Product::find()`. `Product` is not in config/tenancy.php's `scoped_models`, so that reaches
+     * every tenant's catalogue — and the method then WRITES, rewriting `variants_json`. Adding the
+     * predicate to an unreachable handler cannot break anything, and it means the permission fix
+     * does not have to remember the tenancy fix.
+     *
+     * If you are here to make the gate work: change `can` to `isAbleTo`, keep BOTH guards below
+     * (the product predicate AND the option-through-product lookup), and add a cross-tenant
+     * refusal case to tests/Feature/Security/ProductReadTenancyTest.php.
+     *
+     * An earlier version of this note said only "keep the predicate", and an independent review
+     * showed that following it verbatim would have shipped a cross-tenant destructive write: the
+     * predicate guarded the `variants_json` rewrite while the `ProductVariantOption` delete ran
+     * outside that block on a bare id. The note is corrected here rather than only in the code,
+     * because the note is what the next reader will act on.
+     */
     public function VariantDelete(Request $request, $id, $product_id)
     {
         if (auth()->user() && auth()->user()->can('Delete Variants')) {
-            $product = Product::find($product_id);
+            $currentStore = getCurrentStore();
+            $product = $currentStore === null
+                ? null
+                : Product::where('store_id', $currentStore)->find($product_id);
+
+            // THE PREDICATE ABOVE IS NOT ENOUGH ON ITS OWN, and the first version of this change
+            // got that wrong. It guarded only the `variants_json` read and rewrite; the
+            // `ProductVariantOption::find($id)->delete()` at the end of this method sat OUTSIDE the
+            // `if (!empty($product->variants_json) ...)` block and ran unconditionally on a bare,
+            // caller-supplied `$id`. `ProductVariantOption` is not in config/tenancy.php's
+            // `scoped_models` either, so nothing narrowed it, and an unknown id was a fatal
+            // (`null->delete()` is an Error, not a warning). Found by independent review.
+            //
+            // So refuse the whole method when the product does not resolve, and resolve the option
+            // THROUGH the product rather than by bare id. Both are needed: the first stops a
+            // caller naming someone else's product, the second stops them naming someone else's
+            // variant option while naming their own product.
+            if (! $product) {
+                return redirect()->back()->with('error', __('Permission denied.'));
+            }
+
+            $option = ProductVariantOption::where('id', $id)
+                ->where('product_id', $product->id)
+                ->first();
+
+            if (! $option) {
+                return redirect()->back()->with('error', __('Permission denied.'));
+            }
+
             if (!empty($product->variants_json) && ProductVariantOption::find($id)->exists()) {
                 $var_json = json_decode($product->variants_json, true);
 
@@ -5425,7 +5552,10 @@ $Product->cost_price = $request->cost_price;
                     $product->update();
                 }
             }
-            ProductVariantOption::find($id)->delete();
+            // `$option`, not `ProductVariantOption::find($id)`: the row already resolved through
+            // the owning product above, so this cannot delete another tenant's option and cannot
+            // fatal on an unknown id.
+            $option->delete();
             return redirect()->back()->with('success', __('Variant successfully deleted.'));
         } else {
             return redirect()->back()->with('error', 'Permission denied.');

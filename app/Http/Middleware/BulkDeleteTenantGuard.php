@@ -213,6 +213,20 @@ class BulkDeleteTenantGuard
      * a merchant's own subscription payment, and letting the payer erase it is an audit problem,
      * not a tenancy one.
      */
+    /**
+     * Types that are a RECORD OF MONEY RECEIVED. Refused to every principal, operator included,
+     * pending an approved retention and correction policy (owner instruction, 2026-11-11).
+     *
+     * Kept separate from `PLATFORM_GLOBAL` on purpose, even though `plan-order` appears in both.
+     * `PLATFORM_GLOBAL` answers "may a MERCHANT delete this?" and is checked after the operator
+     * bypass. This list answers "may ANYONE delete this?" and is checked before it. Merging them
+     * would make the operator's reach over countries, states and cities depend on a financial rule,
+     * which is not what the instruction says.
+     */
+    public const FINANCIAL_RECORDS = [
+        'plan-order',
+    ];
+
     public const PLATFORM_GLOBAL = [
         'country',
         'state',
@@ -336,6 +350,34 @@ class BulkDeleteTenantGuard
             if ($blocked !== []) {
                 return $this->rejectPopulatedCategories($blocked);
             }
+        }
+
+        /*
+         * FINANCIAL RECORDS ARE REFUSED TO EVERYONE, AND THIS CHECK SITS AHEAD OF THE OPERATOR
+         * BYPASS BELOW BECAUSE THAT IS THE ONLY PLACE IT WORKS. 2026-11-11.
+         *
+         * Owner instruction: *"Treat financial-record deletion as prohibited pending an approved
+         * retention and correction policy."* `BankTransferController::destroy()` was made to refuse
+         * every caller for the same reason, and its docblock claimed the prohibition as a property
+         * of the OPERATION. An independent review found that claim was false here: `plan-order` is
+         * in `PLATFORM_GLOBAL` (:216) and therefore refused to a merchant, but the operator branch
+         * below `return $next($request)` **before** the platform-global denial ever runs, so the
+         * operator could bulk-delete plan orders and the prohibition held on one route only.
+         *
+         * WHY THIS DOES NOT CONTRADICT THE EARLIER DECISION QUOTED BELOW. That decision kept
+         * platform-administration types for the operator — countries, states, cities, newsletters —
+         * and named plan orders among them. This narrows exactly one of those types, on a newer and
+         * more specific instruction about financial records, and leaves the operator's reach over
+         * every other platform-administration type untouched. It refuses more and admits nobody, so
+         * it is not a broadening of operator permissions.
+         *
+         * `plan-request` is deliberately NOT here. It is a request to change plan, not a record of
+         * money received; adding it would be scope the instruction does not cover.
+         */
+        $ssFinancialType = $request->input('type');
+
+        if (is_string($ssFinancialType) && in_array($ssFinancialType, self::FINANCIAL_RECORDS, true)) {
+            return $this->reject(__('Deleting a payment record is not permitted.'));
         }
 
         /*

@@ -5039,7 +5039,23 @@ public function DeleteStore(Request $request)
 
         Category::where('store_id', $store->id)->delete();
         Newsletter::where('store_id', $store->id)->delete();
-        PlanOrder::where('store_id', $store->id)->delete();
+        // PlanOrder IS BILLING. Same decision as the `Order` delete above: these are the records
+        // of what the merchant paid the platform, and they outlive the store.
+        //
+        // THIS DOOR WAS MISSED WHEN THAT DECISION WAS APPLIED. The web twin,
+        // StoreController::destroy, has carried this exact line commented out with that exact
+        // rationale -- and StoreController:994 even points here -- but the API twin kept deleting.
+        // It is the more reachable of the two: `DELETE api/admin/deletestore` under `custom.auth`,
+        // which the shipped Flutter admin app calls with a `User` Sanctum token. The handler's own
+        // predicate (`created_by = $user->id`, :4966) is satisfied by a merchant deleting THEIR
+        // OWN store, so a merchant holding more than one store erased their own payment history --
+        // order id, price paid, payment status, and the pointer to the bank slip they uploaded as
+        // proof of payment.
+        //
+        // Reinforced by the owner instruction of 2026-11-11: "Treat financial-record deletion as
+        // prohibited pending an approved retention and correction policy." BankTransferController
+        // ::destroy() refuses every caller for the same reason; this was the live bypass of it.
+        // PlanOrder::where('store_id', $store->id)->delete();
         Testimonial::where('store_id', $store->id)->delete();
         Setting::where('store_id', $store->id)->delete();
         Shipping::where('store_id', $store->id)->delete();
@@ -5132,7 +5148,10 @@ public function DeleteStore(Request $request)
         Coupon::where('store_id', $store->id)->delete();
         Category::where('store_id', $store->id)->delete();
         Newsletter::where('store_id', $store->id)->delete();
-        PlanOrder::where('store_id', $store->id)->delete();
+        // PlanOrder IS BILLING -- commented out for the same reason as in DeleteStore() above,
+        // even though nothing routes this method. A dead copy carrying the live line is how the
+        // decision came to be applied on one door and not the other in the first place.
+        // PlanOrder::where('store_id', $store->id)->delete();
         Testimonial::where('store_id', $store->id)->delete();
         Setting::where('store_id', $store->id)->delete();
         Shipping::where('store_id', $store->id)->delete();

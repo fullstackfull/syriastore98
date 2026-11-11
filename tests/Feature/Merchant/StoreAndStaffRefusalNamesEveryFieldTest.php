@@ -677,8 +677,16 @@ class StoreAndStaffRefusalNamesEveryFieldTest extends SecurityTestCase
         // `editprofile` still returns `withErrors()`, `password_update` is still the password
         // screen -- so this is the same four sites at new offsets and not a different four.
         $excluded = [
+            /* RE-MEASURED AGAIN 2026-11-11 (security closure directive): 819 -> 926. The guards
+               and docblocks added to StoreController::edit() and ::update(), and the new
+               callerMayAdministerStores() helper, all sit above it. Confirmed by the ENCLOSING
+               METHOD NAME and not by adding the offset: it is the ONLY `$messages->first()` in the
+               file and it is inside storeResetPasswordUpdate(), which is the site this exclusion
+               has always described. The exclusion itself is unchanged, and nothing was added to
+               the known-outcome manifest -- the gate caught this drift exactly as its own failure
+               message says it will, for the second time in two packages. */
             'app/Http/Controllers/StoreController.php' => [
-                819 => 'password reset: `confirmed` and `same:password_confirmation` are one check '
+                926 => 'password reset: `confirmed` and `same:password_confirmation` are one check '
                     . 'written twice, so the bag says the same thing twice',
             ],
             /* RE-MEASURED 2026-11-11 (P2.5-ACCEPTANCE): 460/503/567 -> 488/531/595, a pure
@@ -689,7 +697,7 @@ class StoreAndStaffRefusalNamesEveryFieldTest extends SecurityTestCase
                at :488, editprofile at :531, password_update at :595. The exclusions themselves are
                unchanged, and nothing was added to the known-outcome manifest. */
             'app/Http/Controllers/UserController.php' => [
-                488 => 'updatePassword: the same duplicate rule pair as StoreController:819',
+                488 => 'updatePassword: the same duplicate rule pair as StoreController:926',
                 531 => 'editprofile already returns withErrors()+withInput(), so the bag reaches '
                     . 'the per-field @error blocks; the toast is a deliberate summary',
                 595 => 'password_update: the same Class A shape, and a password screen',

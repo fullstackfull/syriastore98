@@ -339,10 +339,70 @@ jobs:
         # pixel-identical mean the harness photographed one thing and filed it under two names.
         #
         # The thorough check, detect-refusal-toast-captures.py, finds a LONE impostor by looking
-        # for the refusal toast itself, but it needs Pillow. Adding an image library to every run
-        # is a dependency decision for the owner, exactly as the browser half of the design-system
-        # checks is, so it stays a documented manual run.
+        # for the refusal toast itself. It needs Pillow, and adding an image library to every run
+        # was a dependency decision deferred to the owner. THE OWNER MADE IT on 2026-11-11, so it
+        # now runs as its own step below rather than as a documented manual run. This step stays:
+        # the two checks find different things, and the one below cannot see a pair of identical
+        # pictures that both show a real screen.
         run: python3 docs/development/phase-2.5/tools/check-distinct-surface-captures.py
+
+      - name: Evidence captures must not photograph a permission refusal
+        # OWNER DECISION, 2026-11-11: "Add refusal-toast capture detection to CI after verifying
+        # its runner dependencies and deterministic results." Both were verified before wiring it,
+        # and so was the third thing that matters more than either -- that it actually catches
+        # something.
+        #
+        #   DEPENDENCY. Pillow and nothing else; os, re, sys and json are stdlib. Installed into a
+        #   venv rather than the system Python, because PEP 668 marks a distro Python as
+        #   externally managed and `pip install` into it can simply refuse. Pinned, and
+        #   --only-binary so the step never compiles anything. The pin is load-bearing beyond
+        #   reproducibility: under 12.3.0 the detector already emits a DeprecationWarning that
+        #   Image.getdata is removed in Pillow 14 (2027-10-15), so an unpinned install would
+        #   eventually turn this gate into an error.
+        #
+        #   DETERMINISM. Three consecutive runs over the committed captures: exit 0 each time and
+        #   byte-identical stdout, compared by sha256 of the output rather than by eye. It is a
+        #   pure function of the files -- a fixed relative crop of each PNG, compared against fixed
+        #   thresholds. No clock, no network, no randomness, no ordering dependence.
+        #
+        #   EFFICACY. A clean run proves nothing on its own, so it was driven in both directions: a
+        #   toast-red block painted into the top-right corner of one cited capture made it exit 1
+        #   and name that file; restoring the capture returned it to exit 0, with the evidence tree
+        #   byte-identical to HEAD afterwards. It checks 932 captures.
+        #
+        # EXIT 2 MUST FAIL THE BUILD, which is why the codes are handled explicitly instead of
+        # letting a bare `run:` do it. The detector exits 2 when its PREMISE fails -- Pillow
+        # missing, or the VERIFIED table in build-coverage-matrix.py no longer parseable -- meaning
+        # NOTHING WAS CHECKED. S51 in docs/security/P01-SECURITY-WORK-QUEUE.md is exactly that
+        # failure: a guard whose premise expired went silent and its silence was filed as a passing
+        # release gate. A bare run would fail on exit 2 as well, but with the same red X as a real
+        # finding, and the difference between "your evidence is fake" and "this gate checked
+        # nothing" is the whole point of distinguishing them.
+        run: |
+          python3 -m venv /tmp/refusal-toast-venv
+          /tmp/refusal-toast-venv/bin/pip install --quiet --only-binary :all: 'Pillow==12.3.0'
+          set +e
+          /tmp/refusal-toast-venv/bin/python \
+            docs/development/phase-2.5/tools/detect-refusal-toast-captures.py
+          code=$?
+          set -e
+          case "$code" in
+            0)
+              echo "no capture cited by the coverage matrix photographs a permission refusal"
+              ;;
+            1)
+              echo "::error::A capture cited as PREMIUM VERIFIED evidence photographs a PERMISSION REFUSAL, not the surface it claims. The coverage matrix is asserting a surface was reviewed on a picture of a denial. Re-capture the surface with a fixture that holds the permission -- do NOT relax the threshold, and do NOT delete the row."
+              exit 1
+              ;;
+            2)
+              echo "::error::PREMISE FAILED: the refusal-toast detector checked NOTHING (exit 2). Either Pillow is unavailable or the VERIFIED table in build-coverage-matrix.py stopped parsing. This is NOT a pass. See S51 in docs/security/P01-SECURITY-WORK-QUEUE.md for the time a silent guard was filed as a green release gate."
+              exit 1
+              ;;
+            *)
+              echo "::error::the refusal-toast detector exited ${code}, which it is not documented to do. Read the script before trusting either outcome."
+              exit 1
+              ;;
+          esac
 
       - name: Cross-repo API contract - the shipped Flutter app must not be broken
         # The Flutter admin app pins its endpoint paths as constants compiled into a
@@ -619,10 +679,39 @@ jobs:
         # vendor/maatwebsite/excel/src: zero `IOFactory::load(` call sites. Every path is
         # IOFactory::createReader($type) followed by $reader->load($path) --
         # Factories/ReaderFactory.php:32, Writer.php:139-140, Sheet.php:469,
-        # Reader.php:269, Jobs/ReadChunk.php:193 -- with an explicitly chosen reader type
-        # and a server-generated temporary path, so the vulnerable auto-detection branch
-        # is never entered and the path is not attacker-influenced. phpspreadsheet is
-        # still ranked 2nd above on its OTHER advisories, which are real.
+        # Reader.php:269, Jobs/ReadChunk.php:193.
+        #
+        #   HALF OF THE ORIGINAL REASONING WAS WRONG, CORRECTED 2026-11-11. This comment
+        #   used to add "with an explicitly chosen reader type ... so the vulnerable
+        #   auto-detection branch is never entered". **That clause is measurably false**
+        #   and it is deleted rather than softened, because a reader would have relied on
+        #   it. Measured, four links:
+        #     1. EIGHT import controllers validate
+        #        `'csv_file' => 'required|mimes:xlsx,xls,csv,txt'` -- `txt` is explicitly
+        #        ACCEPTED (packages/workdo/ImportExport/src/app/Http/Controllers/
+        #        {Product,MainCategory,SubCategory,Brand,Label,City,State,Country}
+        #        ImportExportController.php:32-33).
+        #     2. config/excel.php is NOT published in this app, so the package defaults
+        #        apply, and vendor/maatwebsite/excel/config/excel.php's
+        #        `extension_detector` maps 16 extensions -- xlsx, xlsm, xltx, xltm, xls,
+        #        xlt, ods, ots, slk, xml, gnumeric, htm, html, csv, tsv, pdf. **`txt` is
+        #        not among them**, so the reader type resolves to NULL.
+        #     3. ReaderFactory.php:33 is `$readerType ?: static::identify($file)`, and
+        #        :82 is `return IOFactory::identify($temporaryFile->getLocalPath())`. So
+        #        there is an EXPLICIT FALLBACK into auto-detection, and a merchant
+        #        uploading `evil.txt` enters it.
+        #     4. THE CONCLUSION NEVERTHELESS HOLDS, on the other clause alone: the CVE
+        #        needs the FILENAME STRING attacker-controlled with a stream wrapper, and
+        #        `getLocalPath()` is a server-generated temporary path. All 13 call sites
+        #        pass an UploadedFile.
+        #
+        #   So: not exploitable, for ONE of the two reasons originally given. Keep the
+        #   surviving reason and do not restore the other -- if the temporary-path
+        #   guarantee ever changes, the auto-detection branch is live and reachable, and
+        #   nothing else stands between a merchant upload and the vulnerable code.
+        #
+        # phpspreadsheet is still ranked 2nd above on its OTHER advisories, which are real
+        # -- 12 of them as of 2026-11-11, the largest count of any single package.
         #
         # FLIP THIS TO ENFORCING (drop continue-on-error, and prefer
         # `--abandoned=ignore` over widening the audit) as soon as the owner approves the

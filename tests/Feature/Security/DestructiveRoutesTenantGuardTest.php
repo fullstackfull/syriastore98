@@ -221,7 +221,27 @@ class DestructiveRoutesTenantGuardTest extends SecurityTestCase
        and asserts the row really goes.
        ============================================================================================= */
 
-    public function test_the_owner_of_a_subscription_payment_record_can_still_delete_it(): void
+    /* =============================================================================================
+       THESE TWO CASES WERE INVERTED ON 2026-11-11, AND THAT IS NOT A REGRESSION.
+       =============================================================================================
+       They used to assert that the record's own user, and the platform operator, COULD still
+       delete a subscription payment record -- the legitimate-path half of the F-1 repair. The
+       first of them closed with: "(Whether they SHOULD be able to is a separate audit question,
+       recorded for the owner and not decided here.)"
+
+       The owner decided it: *"Treat financial-record deletion as prohibited pending an approved
+       retention and correction policy."* (2026-11-11.) So `BankTransferController::destroy()` now
+       refuses EVERY caller, and these two cases assert the refusal instead. The method's own
+       docblock carries the same instruction, and the delete button was removed from
+       `resources/views/plans/action.blade.php` so that nobody re-admits a caller in order to fix
+       an affordance.
+
+       If you are here because these look like over-tightening: the fix is a correction mechanism
+       -- a reversing entry, or a soft delete that writes an audit row -- under an approved
+       retention policy. It is NOT re-admitting a principal to a hard delete that leaves no trace.
+       ============================================================================================= */
+
+    public function test_the_owner_of_a_subscription_payment_record_may_no_longer_delete_it(): void
     {
         [$owner, $store] = $this->tenant();
 
@@ -230,16 +250,17 @@ class DestructiveRoutesTenantGuardTest extends SecurityTestCase
         $this->actingAs($owner)->delete('/bank_transfer/' . $orderId);
 
         $this->assertSame(
-            0,
+            1,
             DB::table('plan_orders')->where('id', $orderId)->count(),
-            'the gate refuses the record\'s OWN user. The list shows a non-operator exactly the '
-            . 'rows where users.id = their id, so this is the one principal who could always '
-            . 'reach it -- blocking them would be an outage, not a fix. (Whether they SHOULD be '
-            . 'able to is a separate audit question, recorded for the owner and not decided here.)'
+            'The record\'s OWN user deleted their subscription payment record. Financial-record '
+            . 'deletion is prohibited pending an approved retention and correction policy (owner '
+            . 'instruction 2026-11-11), and this is the principal the earlier repair deliberately '
+            . 'left able to do it. Asserted through the raw table because PlanOrder is not in '
+            . 'scoped_models and a plain Eloquent count answers against whichever tenant resolved.'
         );
     }
 
-    public function test_the_platform_operator_can_still_delete_any_subscription_payment_record(): void
+    public function test_not_even_the_platform_operator_may_delete_a_subscription_payment_record(): void
     {
         [$merchant, $store] = $this->tenant();
 
@@ -251,8 +272,197 @@ class DestructiveRoutesTenantGuardTest extends SecurityTestCase
 
         $this->actingAs(User::find($operator->id))->delete('/bank_transfer/' . $orderId);
 
-        $this->assertSame(0, DB::table('plan_orders')->where('id', $orderId)->count(),
-            'the operator was refused a record they are supposed to administer');
+        $this->assertSame(
+            1,
+            DB::table('plan_orders')->where('id', $orderId)->count(),
+            'The platform operator deleted a subscription payment record. The prohibition is not '
+            . 'an authorization rule with an operator exemption -- it is a prohibition on the '
+            . 'operation, so the operator is refused too. Re-admitting them here would be the '
+            . 'first step back to a hard delete with no audit row.'
+        );
+    }
+
+    /* =============================================================================================
+       THE PROHIBITION HELD ON ONE ROUTE AND NOT ON THE PLATFORM -- found by independent review.
+       =============================================================================================
+       `BankTransferController::destroy()`'s docblock claimed the prohibition as a property of the
+       OPERATION ("refuses EVERY caller", "the operator is refused too"). A review of that change
+       showed the claim was false: two other paths hard-deleted `PlanOrder` rows, and the more
+       reachable one was LIVE for a merchant.
+
+       1. `Api\DashboardController::DeleteStore` ran `PlanOrder::where('store_id', $store->id)
+          ->delete()`, routed `DELETE api/admin/deletestore` under `custom.auth` -- which the
+          SHIPPED Flutter admin app calls with a `User` Sanctum token. Its own predicate
+          (`created_by = $user->id`) is satisfied by a merchant deleting THEIR OWN store, so a
+          merchant with more than one store erased their own payment history. The web twin,
+          `StoreController::destroy`, has carried that exact line commented out with the exact
+          rationale ("PlanOrder IS BILLING ... they outlive the store") -- the decision had simply
+          been applied to one door.
+       2. `BulkDeleteTenantGuard` returned `$next($request)` for an operator BEFORE its
+          platform-global denial, so `POST /bulk-delete` with `type=plan-order` passed for a
+          `super admin` although `plan-order` is in `PLATFORM_GLOBAL`.
+
+       Both are closed, and these cases exist so the claim and the code cannot drift apart again.
+       ============================================================================================= */
+
+    public function test_deleting_a_store_through_the_admin_api_keeps_its_payment_records(): void
+    {
+        [$merchant, $store] = $this->tenant();
+
+        // THE SECOND STORE IS LOAD-BEARING, and the first version of this test did not have it.
+        // `DeleteStore` refuses with "You cannot delete your last store. Create another store
+        // first." before it reaches any delete, so with one store the case passed with the bypass
+        // fully restored -- a vacuous pass that proved nothing. Measured: status 200,
+        // {"status":0,"message":"fail",...}. The exposure needs a merchant holding two or more
+        // stores, which is also what makes it realistic.
+        $this->makeStore($merchant);
+
+        $orderId = $this->planOrderFor($store->id, $merchant->id);
+
+        // The shipped Flutter admin app's own authentication shape: a `User` Sanctum token
+        // through `custom.auth`, not a web session.
+        $token = $merchant->createToken('auth_token')->plainTextToken;
+
+        $response = $this->withHeader('Authorization', 'Bearer ' . $token)
+            ->deleteJson('/api/admin/deletestore', ['store_id' => $store->id]);
+
+        // PREMISE: the delete must actually have been carried out, or the assertion below is
+        // measuring a refusal rather than a prohibition.
+        $this->assertSame(
+            0,
+            DB::table('stores')->where('id', $store->id)->count(),
+            'premise: DeleteStore did not delete the store, so this case is not exercising the '
+            . 'path it claims. Response was: ' . $response->getContent()
+        );
+
+        $this->assertSame(
+            1,
+            DB::table('plan_orders')->where('id', $orderId)->count(),
+            'Deleting a store through the admin API erased the merchant\'s subscription payment '
+            . 'record. This was the LIVE bypass of the financial-record prohibition: the web twin '
+            . 'StoreController::destroy already had this line commented out as billing data that '
+            . 'outlives the store, and the API twin kept deleting. Re-commenting it is the fix; do '
+            . 'not re-add the delete to make store removal feel tidier.'
+        );
+    }
+
+    /**
+     * A request the guard will actually inspect.
+     *
+     * `BulkDeleteTenantGuard::handle()` opens with
+     * `if (! $this->isBulkDeleteRoute($request)) { return $next($request); }`, and
+     * `isBulkDeleteRoute()` reads `$request->route()` -- the MATCHED route's name or action. A
+     * bare `Request::create()` has no matched route, so the guard passed everything straight
+     * through and the first version of these two cases proved nothing: the plan-order case failed
+     * and the platform-administration case passed, both for the same irrelevant reason.
+     *
+     * So bind a route named exactly `BulkDeleteTenantGuard::ROUTE_NAME`. The vendored controller
+     * is not loaded in tests -- which is why `POST /bulk-delete` is a 404 here and why these cases
+     * drive the middleware directly -- so the action is a closure and the name is what matches.
+     *
+     * AND THE ACTOR MUST BE AUTHENTICATED THROUGH THE GUARD, NOT THROUGH THE REQUEST. `handle()`
+     * reads `$user = auth()->user()` (:318) and returns `$next($request)` when it is null,
+     * deliberately, so that a reordered stack yields a sign-in redirect rather than a 403. A
+     * `setUserResolver()` on the request does not reach `auth()`, so an earlier version of these
+     * two cases bailed at that null check: the plan-order case failed and the
+     * platform-administration case passed, both because the guard never inspected anything.
+     * `actingAs()` is what makes `auth()->user()` resolve.
+     */
+    private function bulkDeleteRequest(array $payload, User $actor): \Illuminate\Http\Request
+    {
+        $this->actingAs(User::find($actor->id));
+
+        $request = \Illuminate\Http\Request::create('/bulk-delete', 'POST', $payload);
+
+        $route = new \Illuminate\Routing\Route(['POST'], '/bulk-delete', ['uses' => fn () => null]);
+        $route->name(\App\Http\Middleware\BulkDeleteTenantGuard::ROUTE_NAME);
+        $route->bind($request);
+        $request->setRouteResolver(fn () => $route);
+
+        return $request;
+    }
+
+    /**
+     * Driven through the MIDDLEWARE, not over HTTP, and the reason matters.
+     *
+     * `POST /bulk-delete` answers **404** in any test run: the route belongs to a vendored WorkDo
+     * addon, and CLAUDE.md records that no module loads unless the test inserts an
+     * `add_on_managers` row. The first version of this case went over HTTP and passed with the
+     * guard's financial check fully removed -- it was measuring a 404, not a refusal. Measured
+     * directly: status 404.
+     *
+     * So the guard is invoked against a real request instead. That is deterministic, needs no
+     * module loader, and tests the thing the fix changed: that a financial type is refused BEFORE
+     * the operator bypass returns `$next()`.
+     */
+    public function test_the_operator_cannot_bulk_delete_payment_records_either(): void
+    {
+        $operator = $this->makeMerchant();
+        $operator->type = 'super admin';
+        $operator->save();
+
+        $request = $this->bulkDeleteRequest(['type' => 'plan-order', 'ids' => [1, 2, 3]], $operator);
+
+        $reached = false;
+        $response = (new \App\Http\Middleware\BulkDeleteTenantGuard())->handle(
+            $request,
+            function () use (&$reached) {
+                $reached = true;
+
+                return response('reached the controller', 200);
+            }
+        );
+
+        $this->assertFalse(
+            $reached,
+            'The guard passed a plan-order bulk delete through to the controller for an operator. '
+            . '`plan-order` is in BulkDeleteTenantGuard::PLATFORM_GLOBAL, which refuses a MERCHANT '
+            . '-- but the operator branch returns $next() BEFORE that check runs, so the '
+            . 'financial-record refusal has to sit ahead of the bypass. It narrows exactly that '
+            . "one type and leaves the operator's reach over countries, states, cities and "
+            . 'newsletters untouched.'
+        );
+
+        $this->assertStringContainsString(
+            'not permitted',
+            (string) $response->getContent(),
+            'the refusal should name the prohibition rather than read as a generic permission error'
+        );
+    }
+
+    /**
+     * The other half of the same guard, so the change above cannot be "fixed" by refusing
+     * everything. An operator must still reach the platform-administration types that an earlier
+     * owner decision deliberately left them.
+     */
+    public function test_the_operator_still_reaches_other_platform_administration_types(): void
+    {
+        $operator = $this->makeMerchant();
+        $operator->type = 'super admin';
+        $operator->save();
+
+        foreach (['country', 'state', 'city', 'newsletter'] as $type) {
+            $request = $this->bulkDeleteRequest(['type' => $type, 'ids' => [1]], $operator);
+
+            $reached = false;
+            (new \App\Http\Middleware\BulkDeleteTenantGuard())->handle(
+                $request,
+                function () use (&$reached) {
+                    $reached = true;
+
+                    return response('ok', 200);
+                }
+            );
+
+            $this->assertTrue(
+                $reached,
+                "The operator was refused bulk type '{$type}'. The financial-record check added "
+                . 'ahead of the operator bypass must cover ONLY the types in FINANCIAL_RECORDS; '
+                . 'refusing platform administration generally would contradict the earlier owner '
+                . 'decision that the operator keeps those, and would be a behaviour change nobody '
+                . 'asked for.'
+            );
+        }
     }
 
     public function test_a_merchant_holding_manage_menu_can_still_delete_their_own_menu_item(): void

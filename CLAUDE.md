@@ -15,8 +15,8 @@ Each of these has produced a real defect. Do not assume the framework default.
 
 **Authorization**
 
-- **Laratrust, not spatie.** `permissions_as_gates => false`, so **`@can('Some Permission')` is
-  always false**. Use `$user->isAbleTo('Permission Name')`.
+- **Laratrust, not spatie.** `permissions_as_gates => false`, so **`@can('X')` and `$user->can('X')`
+  are ALWAYS false** — measured. Use `$user->isAbleTo('Permission Name')`.
 - **There is no super-admin bypass.** Operator status is a *string comparison* on `users.type`
   (`'super admin'` / `'admin'`). `isAbleTo()` alone **refuses the platform operator**, so an
   authorization check must test the operator first:
@@ -41,8 +41,8 @@ Each of these has produced a real defect. Do not assume the framework default.
 
 **Authentication**
 
-- Three *session* guards: `web`, `customers`, `deliveryboy`. There is **no `api` or `sanctum`
-  guard**.
+- Three *session* guards: `web`, `customers`, `deliveryboy`, and **no `api` guard**. There **is** a
+  `sanctum` one: `config('auth.guards')` has **four** at runtime, the config file three.
 - `app/Http/Middleware/CustomAuth.php` (`custom.auth`) resolves a Sanctum token and logs its owner
   into whichever guard matches the **tokenable class**: `Customer`→`customers`, `User`→`web`,
   `DeliveryBoy`→`deliveryboy`. **A merchant's or driver's token passes `custom.auth` while

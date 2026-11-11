@@ -23,13 +23,23 @@
             <i class="ti ti-caret-right" aria-hidden="true"></i>
         </button>
     @endif
-    {!! Form::open(['method' => 'DELETE', 'route' => ['bank_transfer.destroy', $order->id], 'class' => 'd-inline']) !!}
-        <button aria-label="{{ __('Delete :thing', ['thing' => __('Plan Order')]) }}" type="button" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm" data-bs-toggle="tooltip" data-confirm="{{ __('Are You Sure?') }}"
-        data-text="{{ __('This action can not be undone. Do you want to continue?') }}" data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}" 
-        title="{{ __('Delete') }}">
-            <i class="ti ti-trash" aria-hidden="true" ></i>
-        </button>
-    {!! Form::close() !!}
+    {{--
+        The delete affordance for a subscription payment record was REMOVED, not hidden behind a
+        permission.
+
+        Owner instruction, 2026-11-11: "Treat financial-record deletion as prohibited pending an
+        approved retention and correction policy." `BankTransferController::destroy()` now refuses
+        every caller, operator and record owner included, so this button could only ever produce a
+        "Deleting a payment record is not permitted." toast. Leaving it would be a control that
+        looks available and never works, and the next person to meet it would most likely re-admit
+        a caller in the controller to make it function -- which is the one thing the instruction
+        forbids.
+
+        A @permission or @if guard would be the wrong shape here too: the action is prohibited for
+        everyone, not reserved for someone. When a retention and correction policy is approved,
+        add a CORRECTION affordance (a reversing entry, or a soft delete that writes an audit row)
+        rather than restoring this one.
+    --}}
 
     @foreach ($userOrders as $userOrder)
         @if ($user->plan_id == $order->plan_id && $order->order_id == $userOrder->order_id && $order->is_refund == 0)
