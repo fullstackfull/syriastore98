@@ -3443,3 +3443,65 @@ financial-record prohibition closed; the 10 BLOCKED surfaces given dispositions.
   asserted the owner and the operator could still delete. The earlier one had closed with
   *"(Whether they SHOULD be able to is a separate audit question, recorded for the owner and not
   decided here.)"* The owner decided it.
+
+---
+
+## 4.34 — Final closure directive (2026-11-11): merge preparation, #136, Phase 03
+
+Owner directive: *"CLOSE PHASE 2.5, MERGE BOTH REPOSITORIES & PREPARE PHASE 03."* Closure document:
+`PHASE-2.5-OFFICIAL-CLOSURE.md`.
+
+### The owner's restrictions inverted the previous directive, and that is recorded rather than worked around
+
+The previous round's urgent recommendation was to stop the live host serving `.git` and rotate the
+credentials. This directive forbids both: *"DO NOT block or change public access to the test website
+or its `.git` directory"*, no rotation, no deploy, no history rewrite, no visibility change, and
+*"Record the existing exposed Git history and credentials as OWNER-DEFERRED — UNRESOLVED SECURITY
+RISK."* Done. **Verified the live host is unchanged** — `/.git/HEAD` still answers 200.
+
+**One conflict was surfaced rather than silently resolved.** The deny rules committed in `.htaccess`
+last round *would* close that channel on the first deploy. They are dormant and have never been
+deployed, and they were **kept** — deleting a written control would be suppressing a finding, which
+the same directive also forbids — with a note at the block telling a deployer to remove it if the
+deferral still stands. That is an owner decision, not a deployer's.
+
+### What the work found, as opposed to what it was asked to do
+
+* **A BLOCKED row's recorded reason was incomplete.** The owner asked to prefer a real MySQL over
+  assuming SQLite proves production behaviour. MariaDB installed from apt, 132 tables migrated, the
+  dev fixture seeded into it, the four report routes driven over HTTP. Three were blocked by SQLite
+  alone. **The fourth still 500'd on MySQL** — `count()` on an int in `x-ss.bar-chart`, a
+  first-party Phase 2.5 component, because `order_reports_chart_data()` passes a scalar as a series.
+  SQLite's unrelated 500 had hidden it completely. Fixed, 20 cases pin it.
+* **Issue #136's premise needed correcting.** `AuctionBidIdentityGuard` was already registered and
+  already derived `store_id` from the product row, so the write was never unguarded. What it
+  deliberately allowed was cross-store bidding — its own comment said so and a test asserted it. The
+  owner reversed that; the reversal is recorded at every site that asserted the old model.
+* **The #136 fix emptied an existing test**, which still reported 30 passing assertions while
+  pinning nothing. Independent review caught it; the suite could not. 30 → 42 once repaired.
+* **Two Flutter analyzer gates were RED and both were this branch's own debt** — 13 warnings and a
+  breached info ratchet, none in `lib/`. 13 → 0 and 253 → 247.
+* **No branch protection exists on either repository.** `protected: false`, empty rulesets. The
+  "required" gates are the project's own conventions, honoured on their merits.
+
+### Not done, and why
+
+* **Nothing merged to `main`.** Both Phase 2.5 PRs are drafts; there are zero human reviews on
+  either; and #134's security-attestation check is red because its PR body lacks
+  `SECURITY-DIFF-REVIEW: completed`. **That line was deliberately not typed** — it is a human
+  acknowledgement and adding it would be forging approval.
+* **The matrix did not move:** 225/24/28/8/10/0. Group A's blocker is resolved but its four rows
+  stay BLOCKED, because their four-combination captures do not exist.
+* **No design accepted**, and the visual package now carries a measured second cut (13 CHANGED / 11
+  ALREADY-PREMIUM) that **disagrees with its own discovery grouping on seven rows** — reported, not
+  resolved.
+* **Phase 03 is planned, not started.** The plan went from a 75-line outline to a measured inventory
+  whose headline is that a storefront evidence harness is a *prerequisite*: the storefront has no
+  dark mode at all and no harness can sign in as a customer.
+
+### Gates on the final integrated tree
+
+Unit **1,639** · Contract **38** · Feature **8,436 passed, 2 declared failures, 1 declared skip,
+gate OK** · Security **5,152 passed** · Tenancy **450** · matrix/distinct/refusal-toast all green,
+**932** captures · composer audit **52 vs ceiling 58** · Flutter **2,001 tests, analyze 0/0/247**,
+contract green both ways with zero drift.
