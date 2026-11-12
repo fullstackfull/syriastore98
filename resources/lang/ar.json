@@ -3715,5 +3715,10 @@
     "View Finance Withdrawal Requests": "عرض طلبات السحب",
     "Manage Status": "إدارة الحالة",
     "Manage Calculation": "إدارة الاحتساب",
-    "Manage Payments": "إدارة المدفوعات"
+    "Manage Payments": "إدارة المدفوعات",
+    "Appearance": "المظهر",
+    "Follow device": "حسب الجهاز",
+    "Light": "فاتح",
+    "Dark": "داكن",
+    "Activate to switch to :mode": "اضغط للتبديل إلى :mode"
 }

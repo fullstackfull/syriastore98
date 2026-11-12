@@ -76,6 +76,10 @@
                   @endguest
             @endif
             @stack('marketPlaceListButton')
+
+            {{-- M2-A. The appearance control, OUTSIDE the @auth gate below: a guest shopper needs
+                 it as much as a signed-in one. --}}
+            @include('front_end.partials.appearance-toggle')
             @if(isset($themeSettings['header_wishlist_status']) && $themeSettings['header_wishlist_status'] == 1) 
                 @auth('customers')
                 <a href="{{ route('wishlist', $slug) }}" class="relative text-gray-700 hover:text-orange-500 wishlist-header wish-header">

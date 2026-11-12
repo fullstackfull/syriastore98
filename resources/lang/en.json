@@ -3719,5 +3719,10 @@
     "View Finance Withdrawal Requests": "View Finance Withdrawal Requests",
     "Manage Status": "Manage Status",
     "Manage Calculation": "Manage Calculation",
-    "Manage Payments": "Manage Payments"
+    "Manage Payments": "Manage Payments",
+    "Appearance": "Appearance",
+    "Follow device": "Follow device",
+    "Light": "Light",
+    "Dark": "Dark",
+    "Activate to switch to :mode": "Activate to switch to :mode"
 }

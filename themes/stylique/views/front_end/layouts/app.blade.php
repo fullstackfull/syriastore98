@@ -15,6 +15,11 @@
   <link rel="stylesheet" href="{{ asset('themes/' . $currentTheme . '/assets/css/all.min.css') }}">
   <link rel="stylesheet" href="{{ asset('themes/' . $currentTheme . '/assets/css/swiper-bundle.min.css') }}" />
 
+  {{-- M2-A. The design system + the pre-paint appearance script. Deliberately BEFORE the theme
+       sheet: the DS declares `--ss-*` on `:root`, so a theme that wants to override a token can,
+       and the inline script sets `data-ss-theme` before anything paints. --}}
+  @include('front_end.partials.appearance')
+
     <link rel="stylesheet" href="{{ asset('themes/' . $currentTheme . '/assets/css/main-style.css') }}">
 
   <script src="{{ asset('themes/' . $currentTheme . '/assets/js/tailwind.js') }}"></script>
