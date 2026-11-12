@@ -38,8 +38,16 @@ import os
 import re
 import sys
 
-# `aleppo-soap_cart__ar_mobile.png` -> store `aleppo-soap`, surface `cart`, combo `ar_mobile`.
-NAME = re.compile(r'^(?P<store>.+?)_(?P<surface>.+?)__(?P<combo>[a-z]{2}_[a-z]+)\.png$')
+# `aleppo-soap_cart__ar_mobile.png`            -> store, surface, combo `ar_mobile`
+# `aleppo-soap_cart__ar_dark_mobile.png`       -> store, surface, combo `ar_dark_mobile`
+#
+# THE APPEARANCE SEGMENT WAS ADDED IN M2-B and this check REFUSED TO REPORT CLEAN until it could
+# parse it -- "PREMISE FAILED: parsed 0 captures, so a pass would mean nothing." That is the
+# behaviour it was built for: an unparsed name is a capture the check is not covering, and a clean
+# report over files it never opened is worse than no report. Recorded because the refusal was
+# correct and is the second time a gate in this project has caught its own blind spot.
+NAME = re.compile(
+    r'^(?P<store>.+?)_(?P<surface>.+?)__(?P<combo>[a-z]{2}(?:_(?:light|dark))?_[a-z]+)\.png$')
 
 
 def main():
