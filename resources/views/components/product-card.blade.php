@@ -15,7 +15,7 @@
                 <button class="wishlist-btn wishbtn-globaly {{ $product->in_whishlist ? 'active' : ''}} relative flex bg-white rounded p-2 border" 
                         product_id="{{ $product->id }}"
                         in_wishlist="{{ $product->in_whishlist ? 'remove' : 'add' }}">
-                        <i class="far fa-heart text-gray-600"></i>
+                        <i class="ti ti-heart text-gray-600"></i>
                     </button>
                     {!! \App\Models\Product::actionLinks( $store, $product) !!}
                 </div>

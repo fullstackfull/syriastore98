@@ -1,3 +1,52 @@
+# =====================================================================================
+# P1-SEC-40. This file deliberately contains NO deny rules. Read this before adding any.
+#
+# MEASURED ON THE LIVE HOST 2026-11-11 (HEAD requests only, no bodies retrieved):
+#   GET /.env                      -> 403   the <Files .env> rule below is live
+#   GET /storesyria_ecommercego.sql-> 404   dump absent from the deployed tree
+#   GET /.git/HEAD                 -> 200   21 bytes = "ref: refs/heads/main"
+#   GET /.git/config               -> 200   270 bytes
+#   GET /.git/index                -> 200   10,376,528 bytes
+#   GET /.git/objects/info/packs   -> 200   54 bytes -- names the packfiles
+#   GET /.git/logs/HEAD            -> 200   3,647 bytes
+#   GET /composer.lock             -> 200   611,406 bytes
+#   GET /storage/logs/laravel.log  -> 200   3,421,645 bytes of text/plain
+#   GET /a-nonexistent-path        -> 404   so the 200s above are real files, not soft-404s
+#
+# WHY THESE ARE REACHABLE AT ALL: the document root IS the repository root -- this file
+# sits beside index.php, the shared-hosting shim. The front-controller rewrite below is
+# guarded by `RewriteCond %{REQUEST_FILENAME} !-f`, so Apache returns ANY file that
+# really exists instead of routing it to index.php. Nothing was misconfigured; the
+# default simply serves everything the deploy put on disk.
+#
+# WHY IT IS SEVERE: a readable .git/objects/info/packs names the packfiles, which is
+# precisely what an off-the-shelf .git dumper needs to reconstruct the whole repository
+# and its full history. That history contains the tracked database dump and, per
+# CLAUDE.md, an unrotated APP_KEY. Removing the dump from the working tree does NOT
+# close this path -- the blob stays in the packfile.
+#
+# WHERE THE DENY RULES LIVE: docs/security/p1-sec-40-apache-deny.conf, beside the
+# nginx equivalent. They are written, reviewed and pinned by
+# tests/Unit/Security/DumpAndVcsPathsAreDeniedTest.php -- they are simply not here.
+#
+# WHY NOT HERE. The owner has given a STANDING INSTRUCTION:
+#
+#     "DO NOT block or change public access to the test website or its `.git`
+#      directory." ... "Record the existing exposed Git history and credentials as
+#      OWNER-DEFERRED -- UNRESOLVED SECURITY RISK."
+#
+# The deployed tree is a git checkout whose .git/HEAD reads `ref: refs/heads/main`.
+# Directives placed in this file therefore go live the moment anyone runs `git pull`
+# on that host -- no deploy pipeline required, and nobody intending it. Keeping them
+# out of here is what makes merging to main incapable of changing public access by
+# accident. An earlier revision of this branch did carry them, which is exactly the
+# accident this guards against.
+#
+# THE DEFERRAL IS A DEFERRAL, NOT A REMEDIATION. The exposure above is real, reachable
+# by anonymous HTTP today, and unresolved. Activating the rules is the owner's call:
+# the conf file states what to append and where.
+# =====================================================================================
+
 <IfModule mod_rewrite.c>
     <IfModule mod_negotiation.c>
         Options -MultiViews -Indexes

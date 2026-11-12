@@ -83,8 +83,14 @@ class CatalogueEndpointIntegrityTest extends SecurityTestCase
         'App\\Http\\Controllers\\AppSettingController@show',
         'App\\Http\\Controllers\\AppSettingController@update',
         'App\\Http\\Controllers\\BlogController@show',
-        'App\\Http\\Controllers\\CustomerController@edit',
-        'App\\Http\\Controllers\\CustomerController@update',
+        // P2.5-PKG-C (F-C-04) REMOVED THESE TWO, which is why the list is one shorter here than
+        // the count in the docblock above. `Route::resource('customer', ...)` now carries
+        // `->except(['edit','update'])` (routes/web.php), so the two routes no longer exist and
+        // cannot raise BadMethodCallException. Deleted rather than left in place because this list
+        // is asserted in BOTH directions -- a resolved entry is fiction, and the test says so in
+        // its own failure message.
+        //
+        // The other entries stand. They are not this slice's either.
         'App\\Http\\Controllers\\ModuleController@AddOnSessionSave',
         'App\\Http\\Controllers\\ModuleController@AddOnSessioncreate',
         'App\\Http\\Controllers\\MyFatoorahController@callback',

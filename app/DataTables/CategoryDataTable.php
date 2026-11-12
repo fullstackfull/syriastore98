@@ -28,7 +28,7 @@ class CategoryDataTable extends DataTable
                 return view('category.action', compact('category'));
             })
             ->editColumn('trending', function (Category $category) {
-                $trending = $category->trending == 1 ? __('Yes') : __('No');
+                $trending = $category->trending == 1 ? __('Trending') : __('Not Trending');
                     return $trending;
             })
             /*
@@ -125,7 +125,7 @@ class CategoryDataTable extends DataTable
         public function getColumns(): array
     {
         return buildDataTableColumn([
-            'name' => ['title' => __('Name')],
+            'name' => ['title' => __('Name'), 'addClass' => 'ss-dt-ident'],
             'image_path' => ['title' => __('Image')],
             'icon_path' => ['title' => __('Icon')],
             'parent_id' => ['title' => __('Parent Category')],

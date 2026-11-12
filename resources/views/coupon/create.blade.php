@@ -5,7 +5,7 @@
         <a href="#" class="btn btn-primary me-2 ai-btn btn-badge" data-size="lg" data-ss-panel-open="ai-generate"
             data-ss-panel-url="{{ route('generate', ['coupan']) }}" data-bs-toggle="tooltip" data-bs-placement="top"
             title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
-            <i class="fas fa-robot"></i> {{ __('Generate with AI') }}
+            <i class="ti ti-wand"></i> {{ __('Generate with AI') }}
         </a>
     </div>
 @endif
@@ -13,12 +13,15 @@
 
 <div class="row">
     <div class="form-group col-md-12">
-        {{ Form::label('name', __('Name'), ['class' => 'form-label']) }}
+        {{ Form::label('coupon_name', __('Name'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
         {{ Form::text('coupon_name', old('coupon_name'), ['class' => 'form-control font-style', 'required' => 'required']) }}
     </div>
 
     <div class="form-group col-md-12">
-        {!! Form::label('', __('Type'), ['class' => 'form-label']) !!}
+        {{-- `for="category"`, NOT `for="coupon_type"`: the select carries an explicit
+             `'id' => 'category'`, which getIdAttribute() returns ahead of the field name, and ten
+             JavaScript references drive the fixed-product-discount toggle from `#category`. --}}
+        {!! Form::label('category', __('Type'), ['class' => 'form-label']) !!}
         {!! Form::select(
             'coupon_type',
             ['percentage' => 'Percentage', 'flat' => 'Flat', 'fixed product discount' => 'Fixed product discount'],
@@ -66,31 +69,31 @@
     </div>
 
     <div class="form-group col-md-6">
-        {{ Form::label('Minimum spend', __('Minimum spend'), ['class' => 'form-label']) }}
+        {{ Form::label('minimum_spend', __('Minimum spend'), ['class' => 'form-label']) }}
         {{ Form::number('minimum_spend', old('minimum_spend'), ['class' => 'form-control']) }}
     </div>
     <div class="form-group col-md-6">
-        {{ Form::label('Maximum spend', __('Maximum spend'), ['class' => 'form-label']) }}
+        {{ Form::label('maximum_spend', __('Maximum spend'), ['class' => 'form-label']) }}
         {{ Form::number('maximum_spend', old('maximum_spend'), ['class' => 'form-control']) }}
     </div>
     <div class="form-group col-md-6">
-        {{ Form::label('discount', __('Discount'), ['class' => 'form-label']) }}
+        {{ Form::label('discount_amount', __('Discount'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
         {{ Form::number('discount_amount', old('discount_amount'), ['class' => 'form-control', 'required' => 'required', 'min' => '1', 'max' => '100', 'step' => '0.01']) }}
     </div>
     <div class="form-group col-md-6">
-        {{ Form::label('limit', __('Usage limit per coupon'), ['class' => 'form-label']) }}
+        {{ Form::label('coupon_limit', __('Usage limit per coupon'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
         {{ Form::number('coupon_limit', old('coupon_limit'), ['class' => 'form-control', 'min' => '1', 'required' => 'required']) }}
     </div>
     <div class="form-group col-md-6">
-        {{ Form::label('limit', __('Usage limit per user'), ['class' => 'form-label']) }}
+        {{ Form::label('coupon_limit_user', __('Usage limit per user'), ['class' => 'form-label']) }}
         {{ Form::number('coupon_limit_user', old('coupon_limit_user'), ['class' => 'form-control', 'min' => '1']) }}
     </div>
     <div class="form-group col-md-6 format">
-        {{ Form::label('limit', __('Limit usage to X items'), ['class' => 'form-label']) }}
+        {{ Form::label('coupon_limit_x_item', __('Limit usage to X items'), ['class' => 'form-label']) }}
         {{ Form::number('coupon_limit_x_item', old('coupon_limit_x_item'), ['class' => 'form-control', 'min' => '1']) }}
     </div>
     <div class="form-group col-md-6">
-        {{ Form::label('coupon_expiry_date', __('Expiry Date'), ['class' => 'form-label']) }}
+        {{ Form::label('coupon_expiry_date', __('Expiry Date'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
         {{ Form::date('coupon_expiry_date', old('coupon_expiry_date'), ['class' => 'form-control', 'required' => 'required', 'placeholder' => 'Select date']) }}
     </div>
     <div class="form-group">
@@ -107,6 +110,15 @@
         </div>
     </div>
     <div class="form-group col-md-12">
+        {{-- P2.5-WAVE-25. THE ONLY FIELD IN THIS FORM WITH NO LABEL, and it is the coupon code --
+             the one value the merchant hands to a customer. Every other field here uses
+             `Form::label`; this one carried a PLACEHOLDER only, and a placeholder is not a label:
+             it disappears the moment anything is typed, it is not announced as the field's name,
+             and it fails WCAG 2.2 SC 3.3.2 and 4.1.2. MEASURED by opening the modal at 320px and
+             listing every control with no label[for], no aria-label and no wrapping label -- this
+             was the single real one; the other two the sweep flagged were `<input type="submit">`
+             and `<input type="button">`, which ARE named, by their `value`. --}}
+        {{ Form::label('auto-code', __('Coupon Code'), ['class' => 'form-label']) }}
         <div class="row">
             <div class="col-md-10" id="code_text">
                 <input class="form-control" name="coupon_code" type="text" id="auto-code"
@@ -119,30 +131,34 @@
     </div>
 
     <div class="form-group col-md-4">
-        {!! Form::label('', __('Status'), ['class' => 'form-label']) !!}
+        {{-- THE id RENAME CAME FIRST, AND IT IS NOT COSMETIC. `customCheckdef1` was on BOTH
+             this switch and the sale-items one below, in one document. A `for` pointing at a
+             duplicated id resolves to the FIRST match, so making the "Exclude sale items"
+             caption clickable while the duplicate stood would have toggled "Status" instead:
+             an accessibility fix introducing a functional bug invisible to any
+             for-resolves assertion. Captions now live inside the already-associated
+             `.form-check-label`, which is the shape category/create.blade.php:123 ships. --}}
         <div class="form-check form-switch">
             <input type="hidden" name="status" value="0">
             {!! Form::checkbox('status', 1, 1, ['class' => 'form-check-input input-primary', 'id' => 'customCheckdef1']) !!}
-            <label class="form-check-label" for="customCheckdef1"></label>
+            <label class="form-check-label" for="customCheckdef1">{{ __('Status') }}</label>
         </div>
     </div>
     <div class="form-group col-md-4">
-        {!! Form::label('', __('Exclude sale items'), ['class' => 'form-label']) !!}
         <div class="form-check form-switch">
             <input type="hidden" name="sale_items" value="0">
-            {!! Form::checkbox('sale_items', 1, 1, ['class' => 'form-check-input input-primary', 'id' => 'customCheckdef1']) !!}
-            <label class="form-check-label" for="customCheckdef1"></label>
+            {!! Form::checkbox('sale_items', 1, 1, ['class' => 'form-check-input input-primary', 'id' => 'coupon_sale_items']) !!}
+            <label class="form-check-label" for="coupon_sale_items">{{ __('Exclude sale items') }}</label>
         </div>
     </div>
     <div class="form-group col-md-4">
-        {!! Form::label('', __('Free Shipping Status'), ['class' => 'form-label']) !!}
         <div class="form-check form-switch">
             <input type="hidden" name="free_shipping_coupon" value="0">
             {!! Form::checkbox('free_shipping_coupon', 1, 1, [
                 'class' => 'form-check-input input-primary',
                 'id' => 'customCheckdef2',
             ]) !!}
-            <label class="form-check-label" for="customCheckdef2"></label>
+            <label class="form-check-label" for="customCheckdef2">{{ __('Free Shipping Status') }}</label>
         </div>
     </div>
 

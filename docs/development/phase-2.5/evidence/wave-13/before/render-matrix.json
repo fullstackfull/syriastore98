@@ -1,0 +1,58 @@
+[
+ {
+  "path": "/customer/1",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Laravel - Orders",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/customer/1",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Laravel - Orders",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/customer/1",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Laravel - الطلبات",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ },
+ {
+  "path": "/customer/1",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Laravel - الطلبات",
+  "h1": "",
+  "consoleErrors": [],
+  "premiseFail": []
+ }
+]

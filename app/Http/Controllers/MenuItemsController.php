@@ -181,9 +181,29 @@ class MenuItemsController extends Controller
         return response()->json(['status' => true, 'message' => __('Blog added successfully'), 'menuItems' => $menuItems]);
     }
 
+    /*
+     * P2.5-SEC-DESTRUCTIVE F-3. The same shape as F-2, one model along: `CustomLink::find($id)`
+     * from the URL, deleted with no authorization. MEASURED: 302, and another tenant's
+     * `custom_links` row gone. `CustomLink` carries `menu_id`, so the owning store is one hop
+     * away through the store-scoped `menus` table, exactly as in MenuController::deleteItem().
+     */
     public function deleteCustomLink($id)
     {
+        $actor = auth()->user();
+
+        if (! $actor || ! $actor->isAbleTo('Manage Menu')) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         $customLink = CustomLink::find($id);
+
+        if ($customLink && ! \App\Policies\UserPolicy::isOperator($actor)) {
+            $ownerStore = \App\Models\Menu::where('id', $customLink->menu_id)->value('store_id');
+
+            if ((int) $ownerStore !== (int) getCurrentStore()) {
+                return redirect()->back()->with('error', __('Permission denied.'));
+            }
+        }
 
         if (! $customLink) {
             return redirect()->back()->with('failed', __('Custom Link Not Found!'));

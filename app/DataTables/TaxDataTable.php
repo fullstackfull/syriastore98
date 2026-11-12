@@ -52,7 +52,7 @@ class TaxDataTable extends DataTable
     {
         return buildDataTableColumn([
             'No' => ['title' => __('#'), 'data' => 'DT_RowIndex', 'name' => 'DT_RowIndex', 'searchable' => false, 'orderable' => false],
-            'name' => ['title' => __('Name')]
+            'name' => ['title' => __('Name'), 'addClass' => 'ss-dt-ident']
         ]);
     }
 

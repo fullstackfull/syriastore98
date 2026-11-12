@@ -99,6 +99,45 @@ if (!file_exists($installedMarker)) {
     }
 }
 
+/*
+ * EVERY SOURCE IS ASSERTED, NOT THE FIRST ONE THAT EXISTS. P2.5-SAFETY, 2026-11-06.
+ *
+ * The `??` chain below answers "does the environment carry anything", which is still the right
+ * question for choosing Source A or Source B. It is the WRONG question for safety, and that cost
+ * the development fixture: `$_ENV['x'] ?? $_SERVER['x'] ?? getenv('x')` stops at the first source
+ * that EXISTS, phpunit.xml's force="true" guarantees `$_ENV` and `putenv()` always exist, and
+ * Laravel's Dotenv reads `$_SERVER` FIRST. So an exported DB_DATABASE lived in the one source this
+ * chain could never reach, and the suite ran `migrate:fresh` against it while every value printed
+ * here read ':memory:'. Measured, reproduced on a throwaway copy, and recorded in
+ * Tests\Support\TestDatabaseGuard and Tests\Unit\TestDatabaseEnvironmentSourcesTest.
+ *
+ * getenv() answers `false` when unset; it is normalised to null so "absent" is one value.
+ */
+$sourceOrNull = static function ($value) {
+    return ($value === false || $value === null || $value === '') ? null : (string) $value;
+};
+
+try {
+    TestDatabaseGuard::assertEveryEnvironmentSourceIsSafe(
+        [
+            '$_ENV' => $sourceOrNull($_ENV['DB_CONNECTION'] ?? null),
+            '$_SERVER' => $sourceOrNull($_SERVER['DB_CONNECTION'] ?? null),
+            'getenv()' => $sourceOrNull(getenv('DB_CONNECTION')),
+        ],
+        [
+            '$_ENV' => $sourceOrNull($_ENV['DB_DATABASE'] ?? null),
+            '$_SERVER' => $sourceOrNull($_SERVER['DB_DATABASE'] ?? null),
+            'getenv()' => $sourceOrNull(getenv('DB_DATABASE')),
+        ]
+    );
+} catch (RuntimeException $e) {
+    $fail(
+        $e->getMessage(),
+        $sourceOrNull($_SERVER['DB_CONNECTION'] ?? null) ?? $sourceOrNull($_ENV['DB_CONNECTION'] ?? null),
+        $sourceOrNull($_SERVER['DB_DATABASE'] ?? null) ?? $sourceOrNull($_ENV['DB_DATABASE'] ?? null)
+    );
+}
+
 $connection = $_ENV['DB_CONNECTION'] ?? $_SERVER['DB_CONNECTION'] ?? getenv('DB_CONNECTION') ?: null;
 $database   = $_ENV['DB_DATABASE']   ?? $_SERVER['DB_DATABASE']   ?? getenv('DB_DATABASE')   ?: null;
 

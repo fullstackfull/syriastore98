@@ -10,36 +10,46 @@
                 <div class="card-body pt-0">
                     <address class="mb-0 text-sm">
                         <dl class="row mt-4 align-items-center">
-                            <dt class="col-sm-3 h6 text-sm">{{ __('Name') }}</dt>
+                            <dt class="col-sm-3 ss-dl__term">{{ __('Name') }}</dt>
                             <dd class="col-sm-9 text-sm">
                                 {{ !empty($order['delivery_informations']['name']) ? $order['delivery_informations']['name'] : '' }}
                             </dd>
-                            <dt class="col-sm-3 h6 text-sm">{{ __('Email') }}</dt>
+                            <dt class="col-sm-3 ss-dl__term">{{ __('Email') }}</dt>
                             <dd class="col-sm-9 text-sm">
                                 {{ !empty($order['delivery_informations']['email']) ? $order['delivery_informations']['email'] : '' }}
                             </dd>
-                            <dt class="col-sm-3 h6 text-sm">{{ __('City') }}</dt>
+                            <dt class="col-sm-3 ss-dl__term">{{ __('City') }}</dt>
                             <dd class="col-sm-9 text-sm">
                                 {{ !empty($order['delivery_informations']['city']) ? $order['delivery_informations']['city'] : '' }}
                             </dd>
-                            <dt class="col-sm-3 h6 text-sm">{{ __('State') }}</dt>
+                            <dt class="col-sm-3 ss-dl__term">{{ __('State') }}</dt>
                             <dd class="col-sm-9 text-sm">
                                 {{ !empty($order['delivery_informations']['state']) ? $order['delivery_informations']['state'] : '' }}
                             </dd>
-                            <dt class="col-sm-3 h6 text-sm">{{ __('Country') }}</dt>
+                            <dt class="col-sm-3 ss-dl__term">{{ __('Country') }}</dt>
                             <dd class="col-sm-9 text-sm">
                                 {{ !empty($order['delivery_informations']['country']) ? $order['delivery_informations']['country'] : '' }}
                             </dd>
-                            <dt class="col-sm-3 h6 text-sm">{{ __('Postal Code') }}</dt>
+                            <dt class="col-sm-3 ss-dl__term">{{ __('Postal Code') }}</dt>
                             <dd class="col-sm-9 text-sm">
                                 {{ !empty($order['delivery_informations']['post_code']) ? $order['delivery_informations']['post_code'] : '' }}
                             </dd>
-                            <dt class="col-sm-3 h6 text-sm">{{ __('Phone') }}</dt>
+                            <dt class="col-sm-3 ss-dl__term">{{ __('Phone') }}</dt>
                             <dd class="col-sm-9 text-sm">
-                                <a href="https://api.whatsapp.com/send?phone={{ !empty($order['delivery_informations']['phone']) ? $order['delivery_informations']['phone'] : '' }}&amp;text=Hi"
-                                    target="_blank">
-                                    {{ !empty($order['delivery_informations']['phone']) ? $order['delivery_informations']['phone'] : '' }}
-                                </a>
+                                @if (! empty($order['delivery_informations']['phone']))
+                                    {{-- GUARDED. With no phone on the order this rendered an EMPTY
+                                         anchor pointing at `send?phone=&text=Hi`: a link with no
+                                         accessible name, no visible text and no destination. Measured
+                                         by shoot-fragments.cjs on a guest order, which is exactly the
+                                         kind that has no phone. --}}
+                                    <a href="https://api.whatsapp.com/send?phone={{ $order['delivery_informations']['phone'] }}&amp;text=Hi"
+                                        aria-label="{{ __('Message :thing on WhatsApp', ['thing' => $order['delivery_informations']['phone']]) }}"
+                                        target="_blank" rel="noopener">
+                                        {{ $order['delivery_informations']['phone'] }}
+                                    </a>
+                                @else
+                                    <span class="ss-dl__empty">&mdash;</span>
+                                @endif
                             </dd>
                         </dl>
                     </address>
@@ -53,36 +63,46 @@
                 </div>
                 <div class="card-body pt-0">
                     <dl class="row mt-4 align-items-center">
-                        <dt class="col-sm-3 h6 text-sm">{{ __('Name') }}</dt>
+                        <dt class="col-sm-3 ss-dl__term">{{ __('Name') }}</dt>
                         <dd class="col-sm-9 text-sm">
                             {{ !empty($order['billing_informations']['name']) ? $order['billing_informations']['name'] : '' }}
                         </dd>
-                        <dt class="col-sm-3 h6 text-sm">{{ __('Email') }}</dt>
+                        <dt class="col-sm-3 ss-dl__term">{{ __('Email') }}</dt>
                         <dd class="col-sm-9 text-sm">
                             {{ !empty($order['billing_informations']['email']) ? $order['billing_informations']['email'] : '' }}
                         </dd>
-                        <dt class="col-sm-3 h6 text-sm">{{ __('City') }}</dt>
+                        <dt class="col-sm-3 ss-dl__term">{{ __('City') }}</dt>
                         <dd class="col-sm-9 text-sm">
                             {{ !empty($order['billing_informations']['city']) ? $order['billing_informations']['city'] : '' }}
                         </dd>
-                        <dt class="col-sm-3 h6 text-sm">{{ __('State') }}</dt>
+                        <dt class="col-sm-3 ss-dl__term">{{ __('State') }}</dt>
                         <dd class="col-sm-9 text-sm">
                             {{ !empty($order['billing_informations']['state']) ? $order['billing_informations']['state'] : '' }}
                         </dd>
-                        <dt class="col-sm-3 h6 text-sm">{{ __('Country') }}</dt>
+                        <dt class="col-sm-3 ss-dl__term">{{ __('Country') }}</dt>
                         <dd class="col-sm-9 text-sm">
                             {{ !empty($order['billing_informations']['country']) ? $order['billing_informations']['country'] : '' }}
                         </dd>
-                        <dt class="col-sm-3 h6 text-sm">{{ __('Postal Code') }}</dt>
+                        <dt class="col-sm-3 ss-dl__term">{{ __('Postal Code') }}</dt>
                         <dd class="col-sm-9 text-sm">
                             {{ !empty($order['billing_informations']['post_code']) ? $order['billing_informations']['post_code'] : '' }}
                         </dd>
-                        <dt class="col-sm-3 h6 text-sm">{{ __('Phone') }}</dt>
+                        <dt class="col-sm-3 ss-dl__term">{{ __('Phone') }}</dt>
                         <dd class="col-sm-9 text-sm">
-                            <a href="https://api.whatsapp.com/send?phone={{ !empty($order['billing_informations']['phone']) ? $order['billing_informations']['phone'] : '' }}&amp;text=Hi"
-                                target="_blank">
-                                {{ !empty($order['billing_informations']['phone']) ? $order['billing_informations']['phone'] : '' }}
-                            </a>
+                            @if (! empty($order['billing_informations']['phone']))
+                                    {{-- GUARDED. With no phone on the order this rendered an EMPTY
+                                         anchor pointing at `send?phone=&text=Hi`: a link with no
+                                         accessible name, no visible text and no destination. Measured
+                                         by shoot-fragments.cjs on a guest order, which is exactly the
+                                         kind that has no phone. --}}
+                                    <a href="https://api.whatsapp.com/send?phone={{ $order['billing_informations']['phone'] }}&amp;text=Hi"
+                                        aria-label="{{ __('Message :thing on WhatsApp', ['thing' => $order['billing_informations']['phone']]) }}"
+                                        target="_blank" rel="noopener">
+                                        {{ $order['billing_informations']['phone'] }}
+                                    </a>
+                                @else
+                                    <span class="ss-dl__empty">&mdash;</span>
+                                @endif
                         </dd>
                     </dl>
                 </div>
@@ -108,7 +128,7 @@
         <div class="col-lg-12">
             <div class="table-responsive">
 
-            <table class="table modal-table">
+            <table class="table ss-table modal-table">
                 <thead>
                     <tr>
                         <th>{{ __('Item') }}</th>
@@ -208,7 +228,7 @@
                                                 class="download-btn action-btn btn-primary btn btn-sm align-items-center"
                                                 data-bs-toggle="tooltip" data-bs-placement="top"
                                                 title="{{ __('Download') }}"
-                                                data-product-id="{{ $item['product_id'] }}">
+                                                data-product-id="{{ $item['product_id'] }}" aria-label="{{ __('Download') }}">
                                                 <i class="ti ti-download "></i>
                                             </button>
                                         </td>

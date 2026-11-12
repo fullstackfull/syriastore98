@@ -33,7 +33,7 @@
                 <div class="col-md-12 mb-3">
                     <label class="ss-label" for="base_url">
                         {{ __('Base URL') }}
-                    </label>
+                    </label><span class="ss-label__required" aria-hidden="true">*</span>
 
                     <input id="base_url"
                         type="url"
@@ -69,7 +69,7 @@
                 <div class="col-md-6 mb-3">
                     <label class="ss-label" for="otp_channel">
                         {{ __('OTP Channel') }}
-                    </label>
+                    </label><span class="ss-label__required" aria-hidden="true">*</span>
 
                     <select id="otp_channel"
                         name="otp_channel"

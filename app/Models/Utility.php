@@ -275,7 +275,63 @@ class Utility extends Model
     {
         $settings = Utility::GetValueByName('site_date_format');
 
-        return date($settings, strtotime($date));
+        return self::formatMomentForLocale($date, $settings);
+    }
+
+    /**
+     * P2.5-PKG-M -- the merchant's own date format, in the merchant's own language.
+     *
+     * FOUND BY LOOKING AT THE ORDER LIST at 390px in Arabic: every row read `Nov 6, 2026`, a Latin
+     * month abbreviation inside a right-to-left line, and the status chip read `معلق : Nov 6, 2026`
+     * -- an Arabic status and a Latin date in one control.
+     *
+     * THE CAUSE IS `date()`, WHICH IS NOT LOCALE-AWARE AT ALL. It emits English month and day names
+     * whatever the application locale is; no setting changes that, and the only fix is a different
+     * formatter. Carbon's `translatedFormat()` takes THE SAME `date()` format characters and
+     * translates only the textual ones, so `site_date_format` keeps working exactly as configured:
+     *
+     *     date('M j, Y')                      Nov 6, 2026
+     *     translatedFormat('M j, Y')  en      Nov 6, 2026            <- byte-identical
+     *     translatedFormat('M j, Y')  ar_SY   تشرين الثاني 6, 2026
+     *
+     * The English half is not a hope: MerchantDateFormatTest asserts byte-identity across a format
+     * set that exercises every textual token `date()` can emit.
+     *
+     * `ar_SY`, NOT `ar`, for the reason P2.5-PKG-L recorded on the customer timeline -- the generic
+     * Arabic locale gives the transliterated Gregorian names (`نوفمبر`), the Syrian variant gives
+     * the Levantine ones a merchant here actually writes (`تشرين الثاني`). Set PER INSTANCE, never
+     * with `Carbon::setLocale()`, which would reach every date in the process.
+     *
+     * THE ARITHMETIC IS DELIBERATELY `strtotime()` AND A TIMESTAMP, not `Carbon::parse()`. An
+     * unusable value must behave EXACTLY as it did: `strtotime(null)` is false, `date($f, false)`
+     * is the epoch, and callers already guard that themselves -- OrderDataTable carries a
+     * `hasDate()` check and a docblock about precisely this. Parsing instead would throw, or
+     * answer `now()`, and either one moves a goalpost somebody is already standing on.
+     *
+     * NOT APPLIED TO THE OTHER TWO COPIES OF THIS FUNCTION, and that is a scope decision rather
+     * than an oversight. `User::dateFormat()` has the same bug, but four of its seven call sites
+     * are the API -- Api\DashboardController:7461/7464/7472/7473 return `plan_expire_date` and
+     * `trial_expire_date` to the Flutter app, which DISPLAYS them verbatim and never parses them
+     * (my_plan_widget.dart:128). Localising would help rather than break, but the server's locale
+     * is not necessarily the app's, and public API compatibility is the owner's call.
+     * `Customer::dateFormat()` has zero call sites anywhere in the repository.
+     */
+    public static function formatMomentForLocale($date, $format)
+    {
+        $format = (string) $format;
+
+        if ($format === '') {
+            return '';
+        }
+
+        $timestamp = is_numeric($date) ? (int) $date : (int) @strtotime((string) $date);
+
+        $locale = (string) app()->getLocale();
+        $locale = str_starts_with($locale, 'ar') ? 'ar_SY' : $locale;
+
+        return \Carbon\Carbon::createFromTimestamp($timestamp, date_default_timezone_get())
+            ->locale($locale)
+            ->translatedFormat($format);
     }
 
     public static function success($data = [], $message = "successfull", int $code = 200, $count_data = '')

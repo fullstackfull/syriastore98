@@ -40,10 +40,27 @@ class ProductAttributeOptionController extends Controller
      * An attribute option inside the caller's own store, or null.
      *
      * Raw predicate rather than findOrFail() + comparison so that "belongs to another tenant" and
-     * "does not exist" are the same answer and the id space cannot be enumerated. Fails closed
-     * when the caller has no store context: getCurrentStore() returns null for a merchant with no
-     * current_store and no owned Store, and `where('store_id', null)` would match nothing, so the
-     * empty check is explicit rather than relying on that.
+     * "does not exist" are the same answer and the id space cannot be enumerated.
+     *
+     * THE `empty($store)` CHECK IS LOAD-BEARING, NOT BELT-AND-BRACES, and this docblock used to
+     * say the opposite. It claimed `where('store_id', null)` "would match nothing", so the
+     * explicit check was merely tidier. That is false in both halves, and an independent review
+     * caught it:
+     *
+     *   - `Builder::where()` converts a null value to `whereNull()`. MEASURED:
+     *     `ProductAttributeOption::where('store_id', null)->toSql()` compiles to
+     *     `select * from "product_attribute_options" where "store_id" is null`.
+     *   - and the column is `nullable()`
+     *     (database/migrations/..._create_product_attribute_options_table.php:19).
+     *
+     * So without this check a caller with no store context would not get an empty result — they
+     * would get every ORPHAN row on the platform, across tenants. getCurrentStore() returns null
+     * for an authenticated user with no current_store, who is not 'super admin', and who owns no
+     * Store: a staff member created without current_store, which is constructible.
+     *
+     * Worth stating plainly because the false version of this sentence is what makes `index()`
+     * below look safe. It is NOT guarded, and it is only harmless because no route reaches it —
+     * see the note on that method.
      */
     private function ownedOption($id): ?ProductAttributeOption
     {
@@ -77,6 +94,23 @@ class ProductAttributeOptionController extends Controller
     /**
      * Display a listing of the resource.
      */
+    /**
+     * UNROUTED, AND IT WOULD LEAK ACROSS TENANTS IF IT WERE ROUTED. Recorded rather than fixed,
+     * because fixing a method nothing can reach inside a change about two other methods is noise.
+     *
+     * The query below calls `getCurrentStore()` with NO `empty($store)` guard, unlike every other
+     * row-touching path in this controller, which goes through `ownedOption()` / `ownedAttribute()`.
+     * A null store makes `where('store_id', null)` compile to `store_id IS NULL` (measured), and
+     * the column is nullable — so a principal with no store context would be served every ORPHAN
+     * option on the platform rather than an empty list.
+     *
+     * IT IS UNREACHABLE TODAY. `routes/web.php` declares seven routes for this controller —
+     * :984, :986, :988, :990, :992, :995, :997 — and none of them points here. The method also
+     * returns `view('attribute.index')` with the options in `$ProductAttributes`, which is the
+     * ATTRIBUTE list's variable, so this is vestigial vendored code rather than a screen.
+     *
+     * WHOEVER ROUTES THIS MUST ADD THE GUARD FIRST. Route it as-is and the leak becomes live.
+     */
     public function index()
     {
         if (auth()->user() && auth()->user()->isAbleTo('Manage Attributes Option')) {
@@ -92,7 +126,26 @@ class ProductAttributeOptionController extends Controller
     /**
      * Show the form for creating a new resource.
      */
-    public function create($id)
+    /**
+     * P2.5-PKG-B. `$id` DEFAULTS TO NULL BECAUSE THE ROUTE SAYS IT MAY BE ABSENT.
+     *
+     * `routes/web.php:984` declares `add-attribute-option/{id?}` — optional — while this signature
+     * required it, so an authenticated request for `/add-attribute-option` died with
+     * `ArgumentCountError: Too few arguments ... 0 passed` before any line of this method ran.
+     * Measured: HTTP 500 for a signed-in merchant.
+     *
+     * THE ROUTE'S `?` IS LOAD-BEARING AND MUST NOT BE REMOVED. `layouts/app.blade.php:829` calls
+     * `route('product-attribute-option.create')` with NO id on purpose and appends `/' + i` in
+     * javascript, using the result as a URL PREFIX. Making the parameter required would make that
+     * `route()` call throw `UrlGenerationException` while rendering the layout — on every admin
+     * page. So the fix belongs here, not in the route.
+     *
+     * NOTHING ELSE CHANGES, AND THE REFUSAL PATH ALREADY EXISTED: `ownedAttribute()` returns null
+     * for an empty id, which falls into `denied()` two lines below. That guard was written and was
+     * simply unreachable, because PHP threw first. A missing id now refuses instead of crashing —
+     * strictly more restrictive than before, never less.
+     */
+    public function create($id = null)
     {
         if (!auth()->user() || !auth()->user()->isAbleTo('Create Attributes Option')) {
             return $this->denied();
@@ -112,7 +165,29 @@ class ProductAttributeOptionController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request ,$id)
+    /**
+     * P2.5-PKG-B. THE SAME ROUTE-OPTIONAL / SIGNATURE-REQUIRED MISMATCH AS create()/edit(), on the
+     * three write routes. `routes/web.php:988`, `:995` and `:997` all declare `{id?}` while
+     * `store()`, `destroy()` and `update()` required the argument, so omitting it threw
+     * `ArgumentCountError` in the router -- HTTP 500 before any check ran.
+     *
+     * THESE WERE NEVER HOLES, and that is why they were fixed after create()/edit() rather than
+     * with them: the crash PRECEDES every check, so nothing was ever served. They are also harder
+     * to reach -- no `route()` call anywhere generates the bare form (the create, edit and index
+     * blades all pass an id), and POST/DELETE need a valid CSRF token, so there is none of the
+     * layout-render blast radius that forced create()'s fix into the controller.
+     *
+     * THE DEFAULT IS SAFE BECAUSE EACH REFUSES BEFORE IT WRITES, which was checked rather than
+     * assumed: `store()` calls `ownedAttribute($id)` before assigning `attribute_id` and saving;
+     * `update()` and `destroy()` OVERWRITE their route-model-bound parameter with
+     * `ownedOption($id)` and refuse on null before `save()` / `delete()`. A null id therefore
+     * reaches a refusal, never a write. (That overwrite is deliberate and worth noticing: route
+     * model binding is NOT tenant-scoped, so the bound instance is decorative and the scoped
+     * helper is the real resolution.)
+     *
+     * `$id` is positional-LAST in all three, so a default cannot shift a route-model binding.
+     */
+    public function store(Request $request, $id = null)
     {
         if (auth()->user() && auth()->user()->isAbleTo('Create Attributes Option')) {
 
@@ -151,7 +226,21 @@ class ProductAttributeOptionController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(ProductAttributeOption $productAttributeOption , $id)
+    /**
+     * `$id` DEFAULTS TO NULL BECAUSE THE ROUTE DECLARES IT OPTIONAL.  P2.5-WAVE-17
+     *
+     * routes/web.php:986 is `attribute-option/{id?}`. Without the default, a bare
+     * /attribute-option threw ArgumentCountError and answered HTTP 500 with a stack trace --
+     * measured on the running server against 200 for /attribute-option/1.
+     *
+     * No refusal logic is added here: `ownedAttribute()` already returns null for an empty id, so
+     * the request falls into the existing `denied()` branch below. Nothing links to the bare form
+     * (ProductAttributeDataTable.php:48 always passes an attribute id), so this changes no journey.
+     *
+     * `$productAttributeOption` is unused by attribute_option/index.blade.php but stays in the
+     * signature: `compact()` below passes it to the view, and the view is vendored markup.
+     */
+    public function show(ProductAttributeOption $productAttributeOption , $id = null)
     {
         if (!auth()->user() || !auth()->user()->isAbleTo('Manage Attributes Option')) {
             return $this->denied();
@@ -178,7 +267,19 @@ class ProductAttributeOptionController extends Controller
     /**
      * Show the form for editing the specified resource.
      */
-    public function edit($id)
+    /**
+     * The same defect, the same shape, on the sibling route. `routes/web.php:992` declares
+     * `edit-attribute-option/{id?}` optional while this signature required it, so
+     * `/edit-attribute-option` answered 500 for a signed-in merchant with
+     * `ArgumentCountError ... edit(), 0 passed`.
+     *
+     * Unlike `create`, no view uses this route's no-id form as a prefix — the only caller,
+     * `attribute_option/index.blade.php:118`, always passes a real id. The route could therefore
+     * have been made required instead. It is left optional and fixed the same way deliberately:
+     * one shape for both methods is easier to keep true than two, and `ownedOption()` already
+     * refuses an empty id, so the behaviour is a refusal rather than a crash either way.
+     */
+    public function edit($id = null)
     {
         if (!auth()->user() || !auth()->user()->isAbleTo('Edit Attributes Option')) {
             return $this->denied();
@@ -196,7 +297,7 @@ class ProductAttributeOptionController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, ProductAttributeOption $productAttributeoption,$id)
+    public function update(Request $request, ProductAttributeOption $productAttributeoption, $id = null)
     {
         if (auth()->user() && auth()->user()->isAbleTo('Edit Attributes Option')) {
 
@@ -229,7 +330,7 @@ class ProductAttributeOptionController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(ProductAttributeOption $productAttributeOption ,$id)
+    public function destroy(ProductAttributeOption $productAttributeOption, $id = null)
     {
         if (auth()->user() && auth()->user()->isAbleTo('Delete Attributes Option')) {
 

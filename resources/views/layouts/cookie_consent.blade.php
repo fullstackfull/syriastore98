@@ -140,7 +140,7 @@
                             }
                         ],
                         blocks: [{
-                            title: '{{ $setting['cookie_title'] }} . 📢',
+                            title: '{{ $setting['cookie_title'] }}',
                             description: "{{ $setting['cookie_description'] }}",
                         }, {
                             title: "{{ $setting['strictly_cookie_title'] }}",

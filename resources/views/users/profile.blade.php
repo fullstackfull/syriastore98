@@ -40,6 +40,22 @@
 @endsection
 
 @section('content')
+{{--
+    P2.5 area-wide-no-withinput-witherrors. The summary is PAGE-LEVEL, above the two cards,
+    not form-level above the Name field. #Personal_Info and #Change_Password are two forms on
+    ONE continuously scrolling page -- the sidebar drives a Bootstrap ScrollSpy, not pane
+    switching -- and they share ONE default error bag. A form-level summary would therefore
+    announce "There is a problem with 1 field" at the top of the Personal Info card after a
+    failed PASSWORD change, above three fields that are perfectly fine. Page-level placement
+    makes no claim about which form failed while keeping every anchor resolving, because
+    Form::label() precedes every Form::text()/Form::password() so konekt's getIdAttribute()
+    emits id="name", id="old_password" and so on.
+
+    The component is used, never copied: its own @if ($errors->any()) guard is what keeps an
+    unsubmitted form silent, and its ss-scope class is required by
+    tests/Unit/Ui/MerchantShellDesignSystemTest.php:55.
+--}}
+<x-ss.error-summary :errors="$errors" class="mb-3" />
 <div class="row">
     <div class="col-sm-12">
         <div class="row">
@@ -78,7 +94,8 @@
                                                         <div class=" setting-card">
                                                             <h4>{{__('Picture')}}</h4>
                                                             <div class="logo-content mt-4 d-flex justify-content-center">
-                                                                    <img src="{{(!empty($userDetail->profile_image)) && file_exists($userDetail->profile_image) ? get_file($userDetail->profile_image ) : $profile.'/avatar.png'}}"
+                                                                    <img src="{{(!empty($userDetail->profile_image)) && file_exists($userDetail->profile_image) ? get_file($userDetail->profile_image ) : asset('images/avatar-placeholder.svg')}}"
+                                                                    alt="{{ __('Profile picture') }}"
                                                                     class=" rounded-circle-avatar" id="blah" width="100px">
                                                             </div>
                                                             <div class="choose-files mt-4">
@@ -98,7 +115,7 @@
                                                         <div class="col-md-12">
                                                             <div class="form-group">
                                                                 {{Form::label('name',__('Name'),array('class'=>'ss-label')) }}
-                                                                {{Form::text('name',null,array('class'=>'ss-input font-style','placeholder'=>__('Enter User Name')))}}
+                                                                {{Form::text('name',$userDetail->name,array('class'=>'ss-input font-style','placeholder'=>__('Enter User Name')))}}
                                                                 @error('name')
                                                                 <span class="invalid-name" role="alert">
                                                                         <strong class="text-danger">{{ $message }}</strong>
@@ -108,7 +125,7 @@
                                                         </div>
                                                         <div class="col-md-12">
                                                             {{Form::label('email',__('Email'),array('class'=>'ss-label')) }}
-                                                            {{Form::text('email',null,array('class'=>'ss-input','placeholder'=>__('Enter User Email')))}}
+                                                            {{Form::text('email',$userDetail->email,array('class'=>'ss-input','placeholder'=>__('Enter User Email')))}}
                                                             @error('email')
                                                             <span class="invalid-email" role="alert">
                                                                     <strong class="text-danger">{{ $message }}</strong>
@@ -117,7 +134,7 @@
                                                         </div>
                                                         <div class="col-md-12">
                                                             {{Form::label('mobile',__('Mobile No.'),array('class'=>'ss-label')) }}
-                                                            {{Form::text('mobile',null,array('class'=>'ss-input','placeholder'=>__('Enter User Mobile')))}}
+                                                            {{Form::text('mobile',$userDetail->mobile,array('class'=>'ss-input','placeholder'=>__('Enter User Mobile')))}}
                                                             @error('mobile')
                                                             <span class="invalid-mobile" role="alert">
                                                                     <strong class="text-danger">{{ $message }}</strong>

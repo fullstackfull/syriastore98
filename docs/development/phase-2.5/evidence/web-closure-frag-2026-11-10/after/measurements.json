@@ -1,0 +1,12 @@
+{
+  "findings": [],
+  "surfaces": [
+    [
+      "finance-payment-status-inline",
+      {
+        "combos": 4,
+        "chars": 21
+      }
+    ]
+  ]
+}

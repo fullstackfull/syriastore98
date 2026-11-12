@@ -24,7 +24,7 @@
             <a href="#" class="ss-btn ss-btn--secondary ai-btn" data-size="lg"
                data-ss-panel-open="ai-generate" data-ss-panel-url="{{ route('generate', ['meta']) }}"
                data-title="{{ __('Generate Content With AI') }}">
-                <i class="fas fa-robot" aria-hidden="true"></i> {{ __('Generate with AI') }}
+                <i class="ti ti-wand" aria-hidden="true"></i> {{ __('Generate with AI') }}
             </a>
         @endif
     </div>

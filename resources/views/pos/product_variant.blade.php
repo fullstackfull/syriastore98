@@ -95,6 +95,6 @@
     <input type="button" value="{{ __('Cancel') }}" class="btn btn-badge btn-secondary" data-bs-dismiss="modal">
     <a href="#!" type="submit" class="btn btn-primary add_to_cart_variant toacartvariant btn-badge mx-1" data-toggle="tooltip" data-id="{{ $product->id }}" >
         {{ __('Add To Cart') }}
-        <i class="fas fa-shopping-basket ms-1" style="font-size: initial;"></i>
+        <i class="ti ti-basket ms-1" style="font-size: initial;"></i>
     </a>
 </div>

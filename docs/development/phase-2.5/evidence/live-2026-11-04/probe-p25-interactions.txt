@@ -1,0 +1,50 @@
+
+=== withdrawal confirmations  (ar/rtl) ===
+  PASS  ar: /finance/withdrawals serves the screen
+        HTTP 200, 1 confirm-guarded control(s) found
+  PASS  ar: native confirm fired and reads in the merchant's language
+        type=confirm  text="هل تريد الموافقة على طلب السحب هذا؟"  (expected one of: "هل تريد الموافقة على طلب السحب هذا؟", "هل تؤكد أن هذا السحب قد تم دفعه؟")
+
+=== withdrawal confirmations  (en/ltr) ===
+  PASS  en: /finance/withdrawals serves the screen
+        HTTP 200, 1 confirm-guarded control(s) found
+  PASS  en: native confirm fired and reads in the merchant's language
+        type=confirm  text="Approve this withdrawal request?"  (expected one of: "Approve this withdrawal request?", "Confirm that this withdrawal has been paid?")
+
+=== board column cap  (en/ltr) ===
+  PASS  en: /order-kanban serves the board
+        HTTP 200, 9 column(s)
+  PASS  en: the capped column renders exactly 50 cards, not its 55 total
+        "Pending" header count=55, cards rendered=50
+  PASS  en: the capped column links to the full list and names the TRUE total
+        overflow link = "See all 55 in the list"  href=http://127.0.0.1:8899/order?ss_status=0
+  PASS  en: no uncapped column claims an overflow
+        8 uncapped column(s), none with a link
+
+=== board column cap  (ar/rtl) ===
+  PASS  ar: /order-kanban serves the board
+        HTTP 200, 9 column(s)
+  PASS  ar: the capped column renders exactly 50 cards, not its 55 total
+        "معلق" header count=55, cards rendered=50
+  PASS  ar: the capped column links to the full list and names the TRUE total
+        overflow link = "عرض الكل (55) في القائمة"  href=http://127.0.0.1:8899/order?ss_status=0
+  PASS  ar: no uncapped column claims an overflow
+        8 uncapped column(s), none with a link
+
+=== keyboard reach  (en/ltr) ===
+  PASS  en: the skip link is the first focusable element
+        first Tab reached <A class="ss-skip-link"> "Skip to main content"
+  PASS  en: activating it MOVES FOCUS rather than only scrolling
+        document.activeElement = <DIV id="ss-main" tabindex="-1">
+  PASS  en: the kebab opens from the keyboard and is named
+        aria-label="Actions for Rami Haddad"  aria-expanded=true  menu shown=true  items=4
+
+=== keyboard reach  (ar/rtl) ===
+  PASS  ar: the skip link is the first focusable element
+        first Tab reached <A class="ss-skip-link"> "الانتقال إلى المحتوى الرئيسي"
+  PASS  ar: activating it MOVES FOCUS rather than only scrolling
+        document.activeElement = <DIV id="ss-main" tabindex="-1">
+  PASS  ar: the kebab opens from the keyboard and is named
+        aria-label="إجراءات Rami Haddad"  aria-expanded=true  menu shown=true  items=4
+
+18 check(s), 0 failed.

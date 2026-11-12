@@ -1,9 +1,39 @@
+{{-- P2.5-PKG-I -- THE ACTION COLUMN WAS A HEADER OVER AN EMPTY CELL.
+
+     The twin of cart/action.blade.php, with the same defect and the same repair. A viewer holding
+     none of the gates below met a column titled «العمل» / "Action" whose every cell was literally
+     empty. `@permission` compiles to Laratrust's `hasPermission()`, which has NO super-admin
+     bypass, so the PLATFORM OPERATOR met it too. Found by looking at a capture.
+
+     THE REPAIR GRANTS NOBODY ANYTHING: the gates are untouched, no operator limb is added. A
+     viewer who can do nothing here is simply told so. --}}
+@php
+    $ssUser = auth()->user();
+    $ssMayAbandonWishlist = $ssUser && $ssUser->isAbleTo('Abandon Wishlist');
+    $ssMayDeleteWishlist = $ssUser && $ssUser->isAbleTo('Delete Wishlist');
+
+    /*
+     * THE DELETE REMOVES THE WHOLE WISHLIST, NOT THIS ROW. The route hands
+     * `$wishlist->customer_id` to `WishlistController::destroy()`, whose parameter is NAMED
+     * `$wish_id` but is a CUSTOMER id, and which loops
+     * `Wishlist::where('customer_id', ...)->where('store_id', ...)` deleting every row. The old
+     * dialog said only "This action can not be undone"; the count is now named so the blast
+     * radius is visible before the click rather than after it.
+     */
+    $ssWishlistCount = $ssMayDeleteWishlist
+        ? \App\Models\Wishlist::where('customer_id', $wishlist->customer_id)
+            ->where('store_id', getCurrentStore())->count()
+        : 0;
+    $ssWishCustomerName = optional($wishlist->UserData)->first_name
+        ? trim(optional($wishlist->UserData)->first_name . ' ' . optional($wishlist->UserData)->last_name)
+        : __('this customer');
+@endphp
 <span class="d-flex gap-1 justify-content-end">
 @permission('Abandon Wishlist')
     <button aria-label="{{ __('Send Mail :thing', ['thing' => __('Wishlist')]) }}" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--ghost bandonwish"
             data-size="md" data-id="{{$wishlist->id}}"  data-bs-toggle="tooltip"
             title="{{ __('Send Mail') }}">
-        <i class="fa fa-paper-plane"> </i>
+        <i class="ti ti-send" aria-hidden="true"> </i>
     </button>
 @endpermission
 
@@ -11,17 +41,21 @@
     <button aria-label="{{ __('Send Message :thing', ['thing' => __('Wishlist')]) }}" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--ghost bandonwishmess d-flex align-items-center justify-content-center"
             data-size="md" data-id="{{$wishlist->id}}"  data-bs-toggle="tooltip"
             title="{{ __('Send Message') }}">
-        <svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="0 0 448 512"><style>svg{fill:#ffffff}</style><path d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L0 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.3 0 224.1-99.6 224.1-222 0-59.3-25.2-115-67.1-157zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3L72 359.2l-4.4-7c-18.5-29.4-28.2-63.3-28.2-98.2 0-101.7 82.8-184.5 184.6-184.5 49.3 0 95.6 19.2 130.4 54.1 34.8 34.9 56.2 81.2 56.1 130.5 0 101.8-84.9 184.6-186.6 184.6zm101.2-138.2c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.6-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7.9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.6-19.4 19-19.4 46.3 0 27.3 19.9 53.7 22.6 57.4 2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z"/></svg> 
+        <svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="0 0 448 512" fill="currentColor"><path d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L0 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.3 0 224.1-99.6 224.1-222 0-59.3-25.2-115-67.1-157zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3L72 359.2l-4.4-7c-18.5-29.4-28.2-63.3-28.2-98.2 0-101.7 82.8-184.5 184.6-184.5 49.3 0 95.6 19.2 130.4 54.1 34.8 34.9 56.2 81.2 56.1 130.5 0 101.8-84.9 184.6-186.6 184.6zm101.2-138.2c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.6-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7.9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.6-19.4 19-19.4 46.3 0 27.3 19.9 53.7 22.6 57.4 2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z"/></svg> 
     </button>
 @endpermission
 
 @permission('Delete Wishlist')
     {!! Form::open(['method' => 'DELETE', 'route' => ['wishlist.destroy', $wishlist->customer_id], 'class' => 'd-inline']) !!}
-    <button aria-label="{{ __('Delete :thing', ['thing' => __('Wishlist')]) }}" type="button" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm"  data-bs-toggle="tooltip" data-confirm="{{ __('Are You Sure?') }}"
-    data-text="{{ __('This action can not be undone. Do you want to continue?') }}" data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}" 
+    <button aria-label="{{ __('Delete :thing', ['thing' => __('Wishlist')]) }}" type="button" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm"  data-bs-toggle="tooltip" data-confirm="{{ __('Delete this abandoned wishlist?') }}" data-confirm-tone="danger"
+    data-text="{{ __('This removes all :count items in :name\'s wishlist. It cannot be undone.', ['count' => $ssWishlistCount, 'name' => $ssWishCustomerName]) }}" data-text-yes="{{ __('Delete wishlist') }}" data-text-no="{{ __('Keep it') }}" 
     title="{{ __('Delete') }}">
         <i class="ti ti-trash" aria-hidden="true"></i>
     </button>
     {!! Form::close() !!}
 @endpermission
+@if (! $ssMayAbandonWishlist && ! $ssMayDeleteWishlist)
+    <span class="ss-scope text-muted" aria-hidden="true">&mdash;</span>
+    <span class="ss-visually-hidden">{{ __('No actions available with your permissions') }}</span>
+@endif
 </span>

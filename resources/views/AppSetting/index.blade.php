@@ -16,6 +16,15 @@
 
 @section('content')
 
+{{--
+    P2.5 area-wide-no-withinput-witherrors. Page-level, above the tab nav: the panes are
+    inline on this one page and every @error block in them shares the default bag, so there is
+    no form to attach a summary to. The existing app_setting_tab hidden field (:129/:301/:436)
+    already restores the failing pane, so the summary and the revived @error blocks land
+    together. The component is used, never copied, so its own @if ($errors->any()) guard keeps
+    a fresh page silent.
+--}}
+<x-ss.error-summary :errors="$errors" class="mb-3" />
 
 <link rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
@@ -313,7 +322,7 @@
                             <div class="row mt-2">
                                 <div class="col-md-6">
                                     <div class="form-group">
-                                        <i class="fab fa-google fs-3 me-1" aria-hidden="true"></i>
+                                        <i class="ti ti-brand-google fs-3 me-1" aria-hidden="true"></i>
                                         {{ Form::label('google_analytic', __('Google Analytic'), ['class' => 'form-label']) }}
                                         {{ Form::text('google_analytic', null, ['class' => 'form-control', 'placeholder' => 'UA-XXXXXXXXX-X']) }}
                                         @error('google_analytic')
@@ -326,7 +335,7 @@
 
                                 <div class="col-md-6">
                                     <div class="form-group">
-                                        <i class="fab fa-facebook-f fs-3 me-1" aria-hidden="true"></i>
+                                        <i class="ti ti-brand-facebook fs-3 me-1" aria-hidden="true"></i>
                                         {{ Form::label('facebook_pixel_code', __('Facebook Pixel'), ['class' => 'form-label']) }}
                                         {{ Form::text('fbpixel_code', null, ['class' => 'form-control', 'placeholder' => 'UA-0000000-0']) }}
                                         @error('facebook_pixel_code')
@@ -553,7 +562,7 @@
                                             aria-describedby="button-addon2" readonly>
                                         <div class="input-group-append">
                                             <button class="btn btn-outline-primary btn-badge" type="button"
-                                                onclick="myFunction()" id="button-addon2"><i class="far fa-copy"></i>
+                                                onclick="myFunction()" id="button-addon2"><i class="ti ti-copy"></i>
                                                 {{ __('Copy Link') }}</button>
                                         </div>
                                     </div>
@@ -585,7 +594,7 @@
                                             aria-describedby="button-addon2" readonly>
                                         <div class="input-group-append">
                                             <button class="btn btn-outline-primary btn-badge" type="button"
-                                                onclick="myFunction()" id="button-addon2"><i class="far fa-copy"></i>
+                                                onclick="myFunction()" id="button-addon2"><i class="ti ti-copy"></i>
                                                 {{ __('Copy Link') }}</button>
                                         </div>
                                     </div>
@@ -718,7 +727,7 @@
                                 <div class="form-group col-lg-6 col-sm-6 col-md-6">
                                     <div class="custom-control form-switch p-0 ">
                                         <label class="form-check-label mb-2 text-primary"
-                                            for="is_checkout_login_required">{{ __('Is Checkout Login Required') }}</label><br>
+                                            for="is_checkout_login_required">{{ __('Is Checkout Login Required') }}</label><span class="ss-label__required" aria-hidden="true">*</span><br>
                                         <small class="mb-2 d-inline-block"> {{ __('Note') }}:
                                             {{ __('Use the Is Checkout Required feature to prevent guest checkout, requiring users to log in before completing their purchase for added security.') }}</small><br>
                                         {!! Form::hidden('is_checkout_login_required', 'off') !!}

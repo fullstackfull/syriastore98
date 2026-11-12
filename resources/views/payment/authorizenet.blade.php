@@ -39,13 +39,13 @@
                         <div class="row">
                             <div class="col-12">
                                 <div class="form-group mb-3">
-                                    <label class="d-block mb-1">{{ __('Owner Name') }} <sup aria-hidden="true" class="text-danger">*</sup></label>
+                                    <label class="d-block mb-1">{{ __('Owner Name') }} <span class="ss-label__required" aria-hidden="true">*</span></label>
                                     <input class="form-control" type="text" placeholder="Name" value="{{ $other_info['firstname'] }}" disabled>
                                 </div>
                             </div>
                             <div class="col-12">
                                 <div class="form-group mb-3">
-                                    <label class="d-block mb-1">{{ __('Amount') }}<sup aria-hidden="true" class="text-danger">*</sup></label>
+                                    <label class="d-block mb-1">{{ __('Amount') }}<span class="ss-label__required" aria-hidden="true">*</span></label>
                                     <div class="input-group">
                                         <span class="input-group-prepend"><span
                                                 class="input-group-text">{{ $admin_payment_setting['CURRENCY_NAME'] ? $admin_payment_setting['CURRENCY_NAME'] : 'USD' }}</span></span>
@@ -55,19 +55,19 @@
                             </div>
                             <div class="col-12">
                                 <div class="form-group mb-3">
-                                    <label class="d-block mb-1">{{ __('Card Number') }}<sup aria-hidden="true" class="text-danger">*</sup></label>
+                                    <label class="d-block mb-1">{{ __('Card Number') }}<span class="ss-label__required" aria-hidden="true">*</span></label>
                                     <input class="form-control" pattern="\d{16}"  type="text" placeholder="Enter Card Number" name="cardNumber" required>
                                     <small class="form-text text-muted">{{ __('Please enter a 16-digit card number.') }}</small>
                                 </div>
                             </div>
                             <div class="col-sm-4">
                                 <div class="form-group ">
-                                    <label class="d-block mb-1">{{ __('CVV') }}<sup aria-hidden="true" class="text-danger"> *</sup></label>
+                                    <label class="d-block mb-1">{{ __('CVV') }}<span class="ss-label__required" aria-hidden="true">*</span></label>
                                     <input class="form-control" type="text" placeholder="Enter CVV" name="cvv" maxlength="3" size="3" required>
                                 </div>
                             </div>
                             <div class="col-sm-4 form-group" >
-                                <label class="d-block mb-1">{{ __('Expiration') }}<sup aria-hidden="true" class="text-danger">*</sup></label>
+                                <label class="d-block mb-1">{{ __('Expiration') }}<span class="ss-label__required" aria-hidden="true">*</span></label>
                                 <div class=" expiration form-control">
                                     <input type="text" class="" name="month" placeholder="MM" maxlength="2" size="2" />
                                     <span>/</span>

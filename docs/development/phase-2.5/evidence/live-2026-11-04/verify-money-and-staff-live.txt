@@ -1,0 +1,190 @@
+
+================ en-light  (en/ltr/light)  /finance HTTP 200 ================
+  dir=ltr  data-ss-theme=null  #main-style-link=style.css   premises ok
+     7.82:1  ss-money ss-money--credit          2,844.00     fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass  [inside a heading]
+     9.12:1  ss-money ss-money--debit fw-bold   -42.75       fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  +125.50      fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+  /users HTTP 200
+   kebab : "Actions for Rami Haddad" len=23 from=attribute:aria-label
+   kebab : "Actions for Lina Khoury" len=23 from=attribute:aria-label
+   kebab : "Actions for Jad Mansour" len=23 from=attribute:aria-label
+   avatar: "Profile photo of Rami Haddad" len=28 from=attribute:alt
+   avatar: "Profile photo of Lina Khoury" len=28 from=attribute:alt
+   avatar: "Profile photo of Jad Mansour" len=28 from=attribute:alt
+   av-lnk: "Profile photo of Rami Haddad" len=28 from=contents
+   av-lnk: "Profile photo of Lina Khoury" len=28 from=contents
+   av-lnk: "Profile photo of Jad Mansour" len=28 from=contents
+   heading outline: h2 h3 h3 h3 h3 h3 h3 h3 h3 h3
+
+================ en-dark  (en/ltr/dark)  /finance HTTP 200 ================
+  dir=ltr  data-ss-theme=dark  #main-style-link=style-dark.css   premises ok
+     8.16:1  ss-money ss-money--credit          2,844.00     fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass  [inside a heading]
+     7.48:1  ss-money ss-money--debit fw-bold   -42.75       fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  +125.50      fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+  /users HTTP 200
+   kebab : "Actions for Rami Haddad" len=23 from=attribute:aria-label
+   kebab : "Actions for Lina Khoury" len=23 from=attribute:aria-label
+   kebab : "Actions for Jad Mansour" len=23 from=attribute:aria-label
+   avatar: "Profile photo of Rami Haddad" len=28 from=attribute:alt
+   avatar: "Profile photo of Lina Khoury" len=28 from=attribute:alt
+   avatar: "Profile photo of Jad Mansour" len=28 from=attribute:alt
+   av-lnk: "Profile photo of Rami Haddad" len=28 from=contents
+   av-lnk: "Profile photo of Lina Khoury" len=28 from=contents
+   av-lnk: "Profile photo of Jad Mansour" len=28 from=contents
+   heading outline: h2 h3 h3 h3 h3 h3 h3 h3 h3 h3
+
+================ ar-light  (ar/rtl/light)  /finance HTTP 200 ================
+  dir=rtl  data-ss-theme=null  #main-style-link=style-rtl.css   premises ok
+     7.82:1  ss-money ss-money--credit          2,844.00     fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass  [inside a heading]
+     9.12:1  ss-money ss-money--debit fw-bold   -42.75       fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  +125.50      fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+     9.12:1  ss-money ss-money--debit           -0.00        fg rgb(140, 29, 23)     on rgb(255, 255, 255)   AA pass
+     7.82:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(22, 94, 52)      on rgb(255, 255, 255)   AA pass
+  /users HTTP 200
+   kebab : "إجراءات Rami Haddad" len=19 from=attribute:aria-label
+   kebab : "إجراءات Lina Khoury" len=19 from=attribute:aria-label
+   kebab : "إجراءات Jad Mansour" len=19 from=attribute:aria-label
+   avatar: "الصورة الشخصية لـ Rami Haddad" len=29 from=attribute:alt
+   avatar: "الصورة الشخصية لـ Lina Khoury" len=29 from=attribute:alt
+   avatar: "الصورة الشخصية لـ Jad Mansour" len=29 from=attribute:alt
+   av-lnk: "الصورة الشخصية لـ Rami Haddad" len=29 from=contents
+   av-lnk: "الصورة الشخصية لـ Lina Khoury" len=29 from=contents
+   av-lnk: "الصورة الشخصية لـ Jad Mansour" len=29 from=contents
+   heading outline: h2 h3 h3 h3 h3 h3 h3 h3 h3 h3
+
+================ ar-dark  (ar/rtl/dark)  /finance HTTP 200 ================
+  dir=rtl  data-ss-theme=dark  #main-style-link=rtl-style-dark.css   premises ok
+     8.16:1  ss-money ss-money--credit          2,844.00     fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass  [inside a heading]
+     7.48:1  ss-money ss-money--debit fw-bold   -42.75       fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  +125.50      fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+     7.48:1  ss-money ss-money--debit           -0.00        fg rgb(243, 169, 164)   on rgb(41, 42, 51)      AA pass
+     8.16:1  ss-money ss-money--credit fw-bold  0.00         fg rgb(127, 214, 160)   on rgb(41, 42, 51)      AA pass
+  /users HTTP 200
+   kebab : "إجراءات Rami Haddad" len=19 from=attribute:aria-label
+   kebab : "إجراءات Lina Khoury" len=19 from=attribute:aria-label
+   kebab : "إجراءات Jad Mansour" len=19 from=attribute:aria-label
+   avatar: "الصورة الشخصية لـ Rami Haddad" len=29 from=attribute:alt
+   avatar: "الصورة الشخصية لـ Lina Khoury" len=29 from=attribute:alt
+   avatar: "الصورة الشخصية لـ Jad Mansour" len=29 from=attribute:alt
+   av-lnk: "الصورة الشخصية لـ Rami Haddad" len=29 from=contents
+   av-lnk: "الصورة الشخصية لـ Lina Khoury" len=29 from=contents
+   av-lnk: "الصورة الشخصية لـ Jad Mansour" len=29 from=contents
+   heading outline: h2 h3 h3 h3 h3 h3 h3 h3 h3 h3
+
+0 problem(s). screenshots in /tmp/claude-0/-home-user/c1fead93-e010-5c9c-961e-62abcd74611a/scratchpad/p25-final

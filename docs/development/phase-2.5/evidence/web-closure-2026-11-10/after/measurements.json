@@ -1,0 +1,201 @@
+{
+  "findings": [],
+  "surfaces": [
+    [
+      "coupon-create",
+      {
+        "combos": 4,
+        "fields": 25
+      }
+    ],
+    [
+      "coupon-edit",
+      {
+        "combos": 4,
+        "fields": 25
+      }
+    ],
+    [
+      "category-create",
+      {
+        "combos": 4,
+        "fields": 8
+      }
+    ],
+    [
+      "category-edit",
+      {
+        "combos": 4,
+        "fields": 8
+      }
+    ],
+    [
+      "faq-create",
+      {
+        "combos": 4,
+        "fields": 3
+      }
+    ],
+    [
+      "faq-edit",
+      {
+        "combos": 4,
+        "fields": 7
+      }
+    ],
+    [
+      "tag-create",
+      {
+        "combos": 4,
+        "fields": 3
+      }
+    ],
+    [
+      "tag-edit",
+      {
+        "combos": 4,
+        "fields": 3
+      }
+    ],
+    [
+      "testimonial-create",
+      {
+        "combos": 4,
+        "fields": 13
+      }
+    ],
+    [
+      "testimonial-edit",
+      {
+        "combos": 4,
+        "fields": 13
+      }
+    ],
+    [
+      "brand-create",
+      {
+        "combos": 4,
+        "fields": 6
+      }
+    ],
+    [
+      "brand-edit",
+      {
+        "combos": 4,
+        "fields": 6
+      }
+    ],
+    [
+      "product-label-create",
+      {
+        "combos": 4,
+        "fields": 4
+      }
+    ],
+    [
+      "product-label-edit",
+      {
+        "combos": 4,
+        "fields": 4
+      }
+    ],
+    [
+      "users-create",
+      {
+        "combos": 4,
+        "fields": 6
+      }
+    ],
+    [
+      "users-edit",
+      {
+        "combos": 4,
+        "fields": 5
+      }
+    ],
+    [
+      "users-resetpassword",
+      {
+        "combos": 4,
+        "fields": 4
+      }
+    ],
+    [
+      "webhook-edit",
+      {
+        "combos": 4,
+        "fields": 7
+      }
+    ],
+    [
+      "pixel-edit",
+      {
+        "combos": 4,
+        "fields": 4
+      }
+    ],
+    [
+      "attribute-option-create",
+      {
+        "combos": 4,
+        "fields": 3
+      }
+    ],
+    [
+      "attribute-option-edit",
+      {
+        "combos": 4,
+        "fields": 3
+      }
+    ],
+    [
+      "flash-sale-create",
+      {
+        "combos": 4,
+        "fields": 13
+      }
+    ],
+    [
+      "flash-sale-edit",
+      {
+        "combos": 4,
+        "fields": 13
+      }
+    ],
+    [
+      "pixel-create",
+      {
+        "combos": 4,
+        "fields": 4
+      }
+    ],
+    [
+      "webhook-create",
+      {
+        "combos": 4,
+        "fields": 7
+      }
+    ],
+    [
+      "product-question-edit",
+      {
+        "combos": 4,
+        "fields": 5
+      }
+    ],
+    [
+      "attribute-create",
+      {
+        "combos": 4,
+        "fields": 3
+      }
+    ],
+    [
+      "attribute-edit",
+      {
+        "combos": 4,
+        "fields": 3
+      }
+    ]
+  ]
+}

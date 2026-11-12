@@ -38,7 +38,7 @@
                 <div class="row">
                     <div class="col-md-6">
                         <div class="form-group">
-                            {{ Form::label('customer_id', __('Customer'), ['class' => 'form-label']) }}
+                            {{ Form::label('customer_id', __('Customer'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                             <select name="customer_id" id="customer_id" class="form-control select2 @error('customer_id') is-invalid @enderror" required>
                                 <option value="">{{ __('Select Customer') }}</option>
                                 @foreach($customers as $customer)
@@ -56,7 +56,7 @@
 
                     <div class="col-md-6">
                         <div class="form-group">
-                            {{ Form::label('payment_type', __('Payment Type'), ['class' => 'form-label']) }}
+                            {{ Form::label('payment_type', __('Payment Type'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                             <select name="payment_type" class="form-control select2 @error('payment_type') is-invalid @enderror" required>
                                 <option value="">{{ __('Select Payment Method') }}</option>
                                 @foreach($activePaymentMethods as $key => $name)
@@ -71,7 +71,7 @@
 
                     <div class="col-md-6">
                         <div class="form-group">
-                            {{ Form::label('payment_status', __('Payment Status'), ['class' => 'form-label']) }}
+                            {{ Form::label('payment_status', __('Payment Status'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                             <select name="payment_status" class="form-control @error('payment_status') is-invalid @enderror" required>
                                 <option value="Unpaid">{{ __('Unpaid') }}</option>
                                 <option value="Paid">{{ __('Paid') }}</option>
@@ -106,7 +106,7 @@
                 <div id="products-container">
                     <div class="product-item row mb-3 p-3 border rounded">
                         <div class="col-md-4">
-                            <label class="form-label">{{ __('Product') }}</label>
+                            <label class="form-label">{{ __('Product') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                             <!-- لاحظ هنا الكلاس product-select-temp لمنع تعارض القالب -->
                             <select name="products[0][product_id]" class="form-control product-select-temp" required>
                                 <option value="">{{ __('Select Product') }}</option>
@@ -118,11 +118,11 @@
                             </select>
                         </div>
                         <div class="col-md-2">
-                            <label class="form-label">{{ __('Quantity') }}</label>
+                            <label class="form-label">{{ __('Quantity') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                             <input type="number" name="products[0][quantity]" class="form-control product-qty" min="1" value="1" required>
                         </div>
                         <div class="col-md-2">
-                            <label class="form-label">{{ __('Price') }}</label>
+                            <label class="form-label">{{ __('Price') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                             <input type="number" name="products[0][price]" class="form-control product-price" step="0.01" required>
                         </div>
                         <div class="col-md-3">
@@ -147,7 +147,7 @@
                 <div class="row">
                     <div class="col-md-6">
                         <div class="form-group">
-                            {{ Form::label('first_name', __('First Name'), ['class' => 'form-label']) }}
+                            {{ Form::label('first_name', __('First Name'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                             {{ Form::text('first_name', null, ['class' => 'form-control' . ($errors->has('first_name') ? ' is-invalid' : ''), 'required' => 'required']) }}
                             @error('first_name')
                                 <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
@@ -156,7 +156,7 @@
                     </div>
                     <div class="col-md-6">
                         <div class="form-group">
-                            {{ Form::label('last_name', __('Last Name'), ['class' => 'form-label']) }}
+                            {{ Form::label('last_name', __('Last Name'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                             {{ Form::text('last_name', null, ['class' => 'form-control' . ($errors->has('last_name') ? ' is-invalid' : ''), 'required' => 'required']) }}
                             @error('last_name')
                                 <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
@@ -165,7 +165,7 @@
                     </div>
                     <div class="col-md-6">
                         <div class="form-group">
-                            {{ Form::label('email', __('Email'), ['class' => 'form-label']) }}
+                            {{ Form::label('email', __('Email'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                             {{ Form::email('email', null, ['class' => 'form-control' . ($errors->has('email') ? ' is-invalid' : ''), 'required' => 'required']) }}
                             @error('email')
                                 <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
@@ -174,7 +174,7 @@
                     </div>
                     <div class="col-md-6">
                         <div class="form-group">
-                            {{ Form::label('telephone', __('Phone'), ['class' => 'form-label']) }}
+                            {{ Form::label('telephone', __('Phone'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                             {{ Form::text('telephone', null, ['class' => 'form-control' . ($errors->has('telephone') ? ' is-invalid' : ''), 'required' => 'required']) }}
                             @error('telephone')
                                 <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
@@ -183,7 +183,7 @@
                     </div>
                     <div class="col-md-12">
                         <div class="form-group">
-                            {{ Form::label('address', __('Address'), ['class' => 'form-label']) }}
+                            {{ Form::label('address', __('Address'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                             {{ Form::text('address', null, ['class' => 'form-control' . ($errors->has('address') ? ' is-invalid' : ''), 'required' => 'required']) }}
                             @error('address')
                                 <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
@@ -192,7 +192,7 @@
                     </div>
                     <div class="col-md-4">
                         <div class="form-group">
-                            {{ Form::label('city', __('City'), ['class' => 'form-label']) }}
+                            {{ Form::label('city', __('City'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                             {{ Form::text('city', null, ['class' => 'form-control' . ($errors->has('city') ? ' is-invalid' : ''), 'required' => 'required']) }}
                             @error('city')
                                 <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
@@ -201,7 +201,7 @@
                     </div>
                     <div class="col-md-4">
                         <div class="form-group">
-                            {{ Form::label('state', __('State'), ['class' => 'form-label']) }}
+                            {{ Form::label('state', __('State'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                             {{ Form::text('state', null, ['class' => 'form-control' . ($errors->has('state') ? ' is-invalid' : ''), 'required' => 'required']) }}
                             @error('state')
                                 <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
@@ -210,7 +210,7 @@
                     </div>
                     <div class="col-md-4">
                         <div class="form-group">
-                            {{ Form::label('country', __('Country'), ['class' => 'form-label']) }}
+                            {{ Form::label('country', __('Country'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                             {{ Form::text('country', null, ['class' => 'form-control' . ($errors->has('country') ? ' is-invalid' : ''), 'required' => 'required']) }}
                             @error('country')
                                 <span class="invalid-feedback" role="alert"><strong>{{ $message }}</strong></span>
@@ -244,7 +244,7 @@
                     </div>
                     <div class="col-md-3">
                         <div class="form-group">
-                            {{ Form::label('final_price', __('Final Price'), ['class' => 'form-label']) }}
+                            {{ Form::label('final_price', __('Final Price'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
                             {{ Form::number('final_price', 0, ['class' => 'form-control', 'step' => '0.01', 'id' => 'final_price', 'required' => 'required']) }}
                         </div>
                     </div>
@@ -364,7 +364,7 @@
         const html = `
             <div class="product-item row mb-3 p-3 border rounded bg-light">
                 <div class="col-md-4">
-                    <label class="form-label">{{ __('Product') }}</label>
+                    <label class="form-label">{{ __('Product') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                     <select name="products[${productIndex}][product_id]" class="form-control product-select" required>
                         <option value="">{{ __('Select Product') }}</option>
                         @foreach($products as $product)
@@ -375,11 +375,11 @@
                     </select>
                 </div>
                 <div class="col-md-2">
-                    <label class="form-label">{{ __('Quantity') }}</label>
+                    <label class="form-label">{{ __('Quantity') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                     <input type="number" name="products[${productIndex}][quantity]" class="form-control product-qty" min="1" value="1" required>
                 </div>
                 <div class="col-md-2">
-                    <label class="form-label">{{ __('Price') }}</label>
+                    <label class="form-label">{{ __('Price') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                     <input type="number" name="products[${productIndex}][price]" class="form-control product-price" step="0.01" required>
                 </div>
                 <div class="col-md-3">

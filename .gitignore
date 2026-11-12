@@ -90,3 +90,31 @@ database/p2dev.sqlite
 # checker as a module and left a .pyc, which got committed once -- 50529d6b).
 __pycache__/
 *.pyc
+
+# =================================================================================================
+# DATABASE DUMPS AND ARCHIVES -- recurrence containment for P1-SEC-40 (issue #120). 2026-11-11.
+# =================================================================================================
+#
+# READ THIS BEFORE ASSUMING IT FIXED ANYTHING. These patterns stop the NEXT dump from being
+# committed. `storesyria_ecommercego.sql` was untracked from the working tree on 2026-11-11
+# (`git rm --cached`), which is why *.sql now covers it -- `git check-ignore` reports a tracked
+# path as NOT ignored, so this block was inert against it until that removal. The blob stays
+# fetchable from history regardless: the only true remediation of the git channel is a history
+# rewrite, which this project forbids without a separate owner authorization. The plan for it is
+# docs/security/P1-SEC-40-INCIDENT.md section 6.
+#
+# What that dump contains, measured 2026-11-11 by counting patterns, never printing values:
+# 29,790 rows across 84 tables (198 tables exist in the schema; 84 carry data). 93 bcrypt hashes
+# -- customers 57, users 33, delivery_boys 2, lynomia_contact_verifications 1. Email addresses in
+# 14 tables, led by shetabit_visits 186, order_billing_details 143, stores 34. 6,442 raw visitor
+# request rows carrying headers, user agents and referers. 7 personal_access_tokens rows (4 User,
+# 2 DeliveryBoy, 1 Customer), every one with ["*"] abilities -- stored as SHA-256 digests with
+# zero plaintext tokens present, so the dump hands over no usable bearer token.
+# Gateway keys present are Stripe TEST mode. Zero matches for sk_live_, pk_live_, AKIA, AIza,
+# ghp_, SendGrid or Slack tokens, and zero for `base64:`, so no APP_KEY is inside the dump
+# itself. That is NOT reassurance about APP_KEY generally: per CLAUDE.md it is in git history and
+# unrotated, and the live host serves .git (see docs/security/P1-SEC-40-INCIDENT.md section 3).
+*.sql
+*.sql.gz
+*.dump
+*.bak

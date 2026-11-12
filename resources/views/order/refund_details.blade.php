@@ -100,7 +100,7 @@
                     </div>
                     <div class="card-body">
                         <div class="table-responsive">
-                            <table class="table">
+                            <table class="table ss-table">
                                 <thead>
                                     <tr>
                                         <th>{{ __('Item') }}</th>
@@ -200,48 +200,107 @@
     </div>
 
     <div class="text-end">
-        <button class="btn btn-primary mt-2 btn-submit accept-button" data-refund-id="{{ $refund_requests['id'] }}">{{ __('Accept Request') }}</button>
-        <button class="btn btn-primary btn-block mt-2 btn-submit cancel-button" data-refund-id="{{ $refund_requests['id'] }}" type="submit">{{ __('Cancel Request') }}</button>
+        <button type="button" class="ss-btn ss-btn--primary ss-btn--sm mt-2 accept-button" data-refund-id="{{ $refund_requests['id'] }}">{{ __('Accept Request') }}</button>
+        <button type="button" class="ss-btn ss-btn--danger-quiet ss-btn--sm mt-2 cancel-button" data-refund-id="{{ $refund_requests['id'] }}">{{ __('Cancel Request') }}</button>
             @if ($RefundStatus['manage_stock'] ?? '' && $RefundStatus['manage_stock'] ?? '' == '1')
-                <button class="btn btn-primary mt-2 btn-submit" id="manage-button">{{ __('Manage Stock')}}</button>
+                <button type="button" class="ss-btn ss-btn--secondary ss-btn--sm mt-2" id="manage-button">{{ __('Manage Stock')}}</button>
             @endif
-        <button class="btn btn-primary mt-2 btn-submit " id="refund-amount"> {{ __('Refund Amount')}}</button>
+        <button type="button" class="ss-btn ss-btn--primary ss-btn--sm mt-2" id="refund-amount">{{ __('Refund Amount')}}</button>
     </div>
 </div>
 @endsection
 @push('custom-script')
 <script>
-    $(document).ready(function() {
-        setTimeout(() => {
-            var actionPerformed = localStorage.getItem('actionPerformed');
-            var initialStatus = '{{ $refund_requests["refund_status"] }}';
+    /*
+     * P2.5 refund-silent-ajax-failures. Four of the five AJAX calls on this screen declared only
+     * a success handler, so every non-2xx answer was discarded and the two buttons that restock
+     * goods and pay money out looked dead rather than refused. The fifth declared an error
+     * handler that threw the server's own message away for a hardcoded English sentence.
+     *
+     * MEASURED, and the reason this is status-first rather than body-first: a stale CSRF token
+     * answers 419 with a body of its own, and an unhandled 500 answers "Server Error" or the raw
+     * exception text when debug is on. Preferring the body wherever it is non-empty therefore
+     * shows the merchant framework English on a money path and leaves the translated strings
+     * below permanently unreachable. So the body is trusted only for the statuses this
+     * controller itself writes through refundDenied.
+     *
+     * Deliberately does NOT hide a control and does NOT write manageButtonClicked or
+     * refundedClicked: a refusal must leave the button usable once the permission is granted, and
+     * those keys were read on every later page load. No loader fade either -- loader.js only ever
+     * fades the loader in for an input[type="submit"], and these triggers are buttons, so the
+     * fadeOut calls on this screen are a measured no-op.
+     */
+    function refundAjaxRefusal(xhr) {
+        var authored = (xhr.status === 403 || xhr.status === 404 || xhr.status === 409 || xhr.status === 422);
+        var body = (authored && xhr.responseJSON && typeof xhr.responseJSON.message === 'string')
+            ? xhr.responseJSON.message
+            : '';
 
-            if (initialStatus === 'Processing') {
-                $('#manage-button').hide();
-                $('#refund-amount').hide();
-                $('.accept-button').show();
-                $('.cancel-button').show();
-            }
-            else if (initialStatus === 'Accept') {
-                $('#manage-button').show();
-                $('#refund-amount').show();
-                $('.accept-button').hide();
-                $('.cancel-button').hide();
-            }
-            else if (initialStatus === 'Cancel') {
-                $('.accept-button').hide();
-                $('.cancel-button').hide();
-                $('#manage-button').hide();
-                $('#refund-amount').hide();
-            }
-            else if (initialStatus === 'Refunded') {
-                $('.accept-button').hide();
-                $('.cancel-button').hide();
-                $('#manage-button').hide();
-                $('#refund-amount').hide();
-            }
-        });
-    }, 500);
+        if (body !== '') {
+            show_toastr('{{ __('Error') }}', body, 'error');
+            return;
+        }
+
+        if (xhr.status === 403) {
+            show_toastr('{{ __('Error') }}', '{{ __('You are not allowed to do this.') }}', 'error');
+        } else if (xhr.status === 419) {
+            show_toastr('{{ __('Error') }}', '{{ __('Your session has expired. Please reload the page.') }}', 'error');
+        } else {
+            show_toastr('{{ __('Error') }}', '{{ __('Something went wrong. Please try again.') }}', 'error');
+        }
+    }
+
+    /*
+     * ONE AUTHORITATIVE VISIBILITY PASS, and it is the database that decides.
+     *
+     * This branch used to run inside a bare deferred timer, which gave it no delay but did put
+     * it in its own macrotask. In jQuery 3.6 every ready handler already runs in its own
+     * macrotask, so that accidentally made this the LAST visibility writer -- it overrode two
+     * further handlers below that set the same buttons from browser-global localStorage keys.
+     * All four controls therefore painted first and rearranged in front of the merchant.
+     *
+     * Removing the timeout alone would have been worse than the flash: those two writers would
+     * have become authoritative, and because refundedClicked carries no refund-request id, one
+     * completed refund would have hidden Refund Amount on every later refund request in that
+     * browser with no way back but clearing site data. They are gone with it, so the status from
+     * the database is the only thing that decides what is reachable.
+     */
+    $(document).ready(function() {
+        var initialStatus = '{{ $refund_requests["refund_status"] }}';
+
+        if (initialStatus === 'Processing') {
+            $('#manage-button').hide();
+            $('#refund-amount').hide();
+            $('.accept-button').show();
+            $('.cancel-button').show();
+        }
+        else if (initialStatus === 'Accept') {
+            $('#manage-button').show();
+            $('#refund-amount').show();
+            $('.accept-button').hide();
+            $('.cancel-button').hide();
+        }
+        else if (initialStatus === 'Cancel') {
+            $('.accept-button').hide();
+            $('.cancel-button').hide();
+            $('#manage-button').hide();
+            $('#refund-amount').hide();
+        }
+        else if (initialStatus === 'Refunded') {
+            $('.accept-button').hide();
+            $('.cancel-button').hide();
+            $('#manage-button').hide();
+            $('#refund-amount').hide();
+        }
+        else {
+            /* refund_status is a plain string column with no database constraint, so an
+               unrecognised value must not leave every action live on a money path. */
+            $('.accept-button').hide();
+            $('.cancel-button').hide();
+            $('#manage-button').hide();
+            $('#refund-amount').hide();
+        }
+    });
 
     $('.accept-button').click(function() {
         var refundId = $(this).data('refund-id');
@@ -268,58 +327,85 @@
                     show_toastr('Error', data.message, 'error');
                 }
             },
+            error: function (xhr) {
+                refundAjaxRefusal(xhr);
+            },
         });
     });
 
-    $('.cancel-button').click(function() {
+    $('.cancel-button').click(function (e) {
+        e.preventDefault();
+
+        /* Read the DOM BEFORE the dialog: `this` is the button only in this scope, and the
+           reads must happen while the page is untouched. */
         var refundId = $(this).data('refund-id');
         var product_refund_qty = $('.product_refund_qty').val();
         var subtotalString = $('.product_refund_price').val();
         var subtotal = parseFloat(subtotalString.replace('USD', '').trim());
 
-        $.ajax({
-            type: 'POST',
-            url: '{{ route('cancel.refund.status') }}',
-            data: {
-                _token: '{{ csrf_token() }}',
-                refund_id: refundId,
-                product_refund_qty: product_refund_qty,
-                subtotal: subtotal,
-            },
+        /*
+         * This action is terminal: LEGAL_TRANSITIONS leaves no way back out of the state it
+         * writes, so the server refuses any later change and a stray click is not undoable
+         * through this screen at all. SweetAlert rather than the shared confirmation class
+         * bound in custom.js: that handler ends in form.submit() on closest('form'), this
+         * view has no form, and its own preventDefault does not stop the separately-bound
+         * handler below -- so the dialog would open while the request posted regardless.
+         */
+        Swal.mixin({
+            customClass: { confirmButton: 'btn btn-success', cancelButton: 'btn btn-danger' },
+            buttonsStyling: false
+        }).fire({
+            title: '{{ __('Are You Sure?') }}',
+            text: '{{ __('This action can not be undone. Do you want to continue?') }}',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: '{{ __('Yes') }}',
+            cancelButtonText: '{{ __('No') }}',
+            reverseButtons: true
+        }).then(function (result) {
+            if (!result.isConfirmed) {
+                return;
+            }
 
-            success: function(data) {
-                $('#loader').fadeOut();
-                if (data.status === 'Cancel') {
-                    $('.accept-button').hide();
-                    $('.cancel-button').hide();
-                    $('#manage-button').hide();
-                    $('#refund-amount').hide();
-                    show_toastr('Success', data.message, 'success');
+            $.ajax({
+                type: 'POST',
+                url: '{{ route('cancel.refund.status') }}',
+                data: {
+                    _token: '{{ csrf_token() }}',
+                    refund_id: refundId,
+                    product_refund_qty: product_refund_qty,
+                    subtotal: subtotal,
+                },
 
-                    localStorage.setItem('actionPerformed', true);
-                } else {
-                    $('#manage-button').hide();
-                    $('#refund-amount').hide();
-                    $('.accept-button').show();
-                    $('.cancel-button').show();
-                    show_toastr('Error', data.message, 'error');
-                }
-            },
+                success: function(data) {
+                    $('#loader').fadeOut();
+                    if (data.status === 'Cancel') {
+                        $('.accept-button').hide();
+                        $('.cancel-button').hide();
+                        $('#manage-button').hide();
+                        $('#refund-amount').hide();
+                        show_toastr('Success', data.message, 'success');
+
+                        localStorage.setItem('actionPerformed', true);
+                    } else {
+                        $('#manage-button').hide();
+                        $('#refund-amount').hide();
+                        $('.accept-button').show();
+                        $('.cancel-button').show();
+                        show_toastr('Error', data.message, 'error');
+                    }
+                },
+                error: function (xhr) {
+                    refundAjaxRefusal(xhr);
+                },
+            });
+
+            localStorage.setItem('actionPerformed', 'Cancel');
         });
-
-        localStorage.setItem('actionPerformed', 'Cancel');
     });
 
 
     $(document).ready(function() {
-        var isButtonClicked = localStorage.getItem('manageButtonClicked');
-
-        if (isButtonClicked !== 'true') {
-            $('#manage-button').show();
-        } else {
-            $('#manage-button').hide();
-        }
-
         $(document).on('click', '#manage-button', function(e) {
             var refundId = $('.refund_id').val();
             var product_refund_qty = $('.product_refund_qty').val();
@@ -337,9 +423,25 @@
                 success: function(response) {
                     $('#loader').fadeOut();
                     $('#manage-button').hide();
+                    /* WRITE RETAINED, READER DELETED. Nothing reads this key any more. The
+                       reader that used to hide #manage-button from it is gone, because the key is
+                       browser-global rather than per-refund -- one merchant's click changed what
+                       they saw on every OTHER refund, and clearing site data restored buttons for
+                       work already done. Visibility is now decided solely by the server-rendered
+                       `refund_status` pass. The write is left in place because removing it is a
+                       behaviour change to a money path for no gain: dead state, not a live
+                       dependency. Do not go looking for the consumer.
+
+                       This note deliberately does NOT quote the old reader call. The guard at
+                       RefundActionBarHierarchyTest::test_no_browser_global_localstorage_key_decides_what_the_merchant_can_reach
+                       scans the raw source for that literal with no comment stripping, so quoting
+                       it here fails the test -- which is the guard working, not a flaw in it. */
                     localStorage.setItem('manageButtonClicked', 'true');
                     show_toastr('Success', response.message, 'success');
-                }
+                },
+                error: function (xhr) {
+                    refundAjaxRefusal(xhr);
+                },
             });
         });
     });
@@ -371,9 +473,8 @@
                     $('.refunded_amount').html('<b class="abc">' + response.refund_amount + '</b>');
                     show_toastr('Success', response.message, 'success');
                 },
-                error: function (error) {
-                    $('#loader').fadeOut();
-                    show_toastr('Error', 'Error updating final price.', 'error')
+                error: function (xhr) {
+                    refundAjaxRefusal(xhr);
                 }
             });
         });
@@ -382,11 +483,10 @@
 
 
     $(document).ready(function() {
-        var isButtonClicked = localStorage.getItem('refundedClicked');
-        if(isButtonClicked) {
-            $('#refund-amount').hide();
-        }
         $(document).on('click', '#refund-amount', function(e) {
+            e.preventDefault();
+
+            /* Read the DOM BEFORE the dialog, while the page is untouched. */
             var refundId = $('.refund_id').val();
             var refund_amount = $("td.refunded_amount b").text();
             var isTrendingChecked = $('#customCheckdef1trending').is(':checked');
@@ -397,22 +497,54 @@
                 isTrendingChecked: isTrendingChecked,
             }
 
-            $.ajax({
-                url: '{{ route('refund.amount', $order['id']) }}',
-                method: 'POST',
-                data: data,
-                context: this,
-                success: function(response) {
-                    $('#loader').fadeOut();
-                    if (response.status === 'Refunded') {
-                        $('#refund-amount').hide();
-                        localStorage.setItem('refundedClicked', 'true');
-                        show_toastr('Success', response.message, 'success');
-                    } else {
-                        $('#refund-amount').show();
-                        show_toastr('Error', response.message, 'error');
-                    }
+            /*
+             * This action is terminal: LEGAL_TRANSITIONS leaves no way back out of the state it
+             * writes, so the server refuses any later change and a stray click is not undoable
+             * through this screen at all. SweetAlert rather than the shared confirmation class
+             * bound in custom.js: that handler ends in form.submit() on closest('form'), this
+             * view has no form, and its own preventDefault does not stop the separately-bound
+             * handler below -- so the dialog would open while the request posted regardless.
+             */
+            Swal.mixin({
+                customClass: { confirmButton: 'btn btn-success', cancelButton: 'btn btn-danger' },
+                buttonsStyling: false
+            }).fire({
+                title: '{{ __('Are You Sure?') }}',
+                text: '{{ __('This action can not be undone. Do you want to continue?') }}',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: '{{ __('Yes') }}',
+                cancelButtonText: '{{ __('No') }}',
+                reverseButtons: true
+            }).then(function (result) {
+                if (!result.isConfirmed) {
+                    return;
                 }
+
+                $.ajax({
+                    url: '{{ route('refund.amount', $order['id']) }}',
+                    method: 'POST',
+                    data: data,
+                    context: this,
+                    success: function(response) {
+                        $('#loader').fadeOut();
+                        if (response.status === 'Refunded') {
+                            $('#refund-amount').hide();
+                            /* WRITE RETAINED, READER DELETED -- same as the note on the
+                               manage-stock key above. The reader that hid #refund-amount from
+                               this key is gone; `refund_status` governs it now. Dead state,
+                               deliberately left. */
+                            localStorage.setItem('refundedClicked', 'true');
+                            show_toastr('Success', response.message, 'success');
+                        } else {
+                            $('#refund-amount').show();
+                            show_toastr('Error', response.message, 'error');
+                        }
+                    },
+                    error: function (xhr) {
+                        refundAjaxRefusal(xhr);
+                    },
+                });
             });
         });
     });

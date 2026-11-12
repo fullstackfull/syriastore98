@@ -458,14 +458,28 @@ class ReportController extends Controller
         return $month;
     }
 
+    /*
+     * EVERY KEY DEFAULTS TO AN EMPTY ARRAY, and that is the whole repair here. This method read
+     * `Session::get(...)` and indexed it immediately, so on a session that had never fetched a
+     * chart -- the ordinary state of a bookmarked or deep-linked report -- `null['monthList']`
+     * raised E_WARNING, HandleExceptions turned it into an ErrorException, and a merchant admin
+     * route answered HTTP 500. No merchant admin route should.
+     *
+     * AN ARRAY, not the `''` that category_order_export used to return: the six views now test
+     * these series with `Array.isArray`, which is false for a string. And NOT a 403 and NOT a
+     * redirect carrying session('error') -- ReportAuthorizationTest defines refusal as exactly
+     * those two shapes and asserts these six exports are not refused for the owner or the
+     * operator, so a guard of that shape would flip 12 assertions. The status stays 200, the key
+     * set is unchanged, and the client decides what an empty period means.
+     */
     public function export(Request $request)
     {
-        $requests_data = Session::get('return');
-        $return['monthList'] = $requests_data['monthList'];
-        $return['userTotal'] = $requests_data['userTotal'];
-        $return['registerTotal'] = $requests_data['registerTotal'];
-        $return['guest'] = $requests_data['guestTotal'];
-        $return['newguestTotal'] = $requests_data['newguestTotal'];
+        $requests_data = Session::get('return') ?? [];
+        $return['monthList'] = $requests_data['monthList'] ?? [];
+        $return['userTotal'] = $requests_data['userTotal'] ?? [];
+        $return['registerTotal'] = $requests_data['registerTotal'] ?? [];
+        $return['guest'] = $requests_data['guestTotal'] ?? [];
+        $return['newguestTotal'] = $requests_data['newguestTotal'] ?? [];
         return response()->json($return);
     }
 
@@ -916,30 +930,30 @@ class ReportController extends Controller
     public function order_report_export(Request $request)
     {
 
-        $requests_data = Session::get('order_line_chart_report');
-        $return['monthList'] = $requests_data['monthList'];
-        $return['TotalOrderCount'] = $requests_data['TotalOrderCount'];
-        $return['NetSaleTotal'] = $requests_data['NetSaleTotal'];
-        $return['AverageNetSales'] = $requests_data['AverageNetSales'];
-        $return['GrossSaleTotal'] = $requests_data['GrossSaleTotal'];
-        $return['AverageGrossSales'] = $requests_data['AverageGrossSales'];
-        $return['PurchasedItemTotal'] = $requests_data['PurchasedItemTotal'];
-        $return['ShippingTotal'] = $requests_data['ShippingTotal'];
-        $return['CouponTotal'] = $requests_data['CouponTotal'];
+        $requests_data = Session::get('order_line_chart_report') ?? [];
+        $return['monthList'] = $requests_data['monthList'] ?? [];
+        $return['TotalOrderCount'] = $requests_data['TotalOrderCount'] ?? [];
+        $return['NetSaleTotal'] = $requests_data['NetSaleTotal'] ?? [];
+        $return['AverageNetSales'] = $requests_data['AverageNetSales'] ?? [];
+        $return['GrossSaleTotal'] = $requests_data['GrossSaleTotal'] ?? [];
+        $return['AverageGrossSales'] = $requests_data['AverageGrossSales'] ?? [];
+        $return['PurchasedItemTotal'] = $requests_data['PurchasedItemTotal'] ?? [];
+        $return['ShippingTotal'] = $requests_data['ShippingTotal'] ?? [];
+        $return['CouponTotal'] = $requests_data['CouponTotal'] ?? [];
         return response()->json($return);
     }
 
     public function order_bar_report_export(Request $request)
     {
 
-        $requests_data = Session::get('order_bar_chart_report');
-        $return['monthList'] = $requests_data['monthList'];
-        $return['NetSaleTotal'] = $requests_data['NetSaleTotal'];
-        $return['AverageNetSales'] = $requests_data['AverageNetSales'];
-        $return['GrossSaleTotal'] = $requests_data['GrossSaleTotal'];
-        $return['AverageGrossSales'] = $requests_data['AverageGrossSales'];
-        $return['ShippingTotal'] = $requests_data['ShippingTotal'];
-        $return['CouponTotal'] = $requests_data['CouponTotal'];
+        $requests_data = Session::get('order_bar_chart_report') ?? [];
+        $return['monthList'] = $requests_data['monthList'] ?? [];
+        $return['NetSaleTotal'] = $requests_data['NetSaleTotal'] ?? [];
+        $return['AverageNetSales'] = $requests_data['AverageNetSales'] ?? [];
+        $return['GrossSaleTotal'] = $requests_data['GrossSaleTotal'] ?? [];
+        $return['AverageGrossSales'] = $requests_data['AverageGrossSales'] ?? [];
+        $return['ShippingTotal'] = $requests_data['ShippingTotal'] ?? [];
+        $return['CouponTotal'] = $requests_data['CouponTotal'] ?? [];
         return response()->json($return);
     }
 
@@ -1821,10 +1835,10 @@ class ReportController extends Controller
     public function product_order_export(Request $request)
     {
 
-        $requests_data = Session::get('product_order_report');
-        $return['monthList'] = $requests_data['monthList'];
-        $return['NetSaleTotal'] = $requests_data['NetSaleTotal'];
-        $return['PurchasedItemTotal'] = $requests_data['PurchasedItemTotal'];
+        $requests_data = Session::get('product_order_report') ?? [];
+        $return['monthList'] = $requests_data['monthList'] ?? [];
+        $return['NetSaleTotal'] = $requests_data['NetSaleTotal'] ?? [];
+        $return['PurchasedItemTotal'] = $requests_data['PurchasedItemTotal'] ?? [];
         return response()->json($return);
     }
 
@@ -1840,7 +1854,7 @@ class ReportController extends Controller
         $store_id = getStoreById(getCurrentStore());
         $currency = Utility::GetValueByName('CURRENCY');
         if ($request->chart_data == 'last-month') {
-            $selectedCategory = $request->selectedCategory;
+            $selectedCategory = $this->reportSelectionWithinCurrentStore(Category::class, $request->selectedCategory);
             $year = date('Y');
             $monthList = $this->yearMonth();
             $NetSaleTotal = [];
@@ -1916,7 +1930,7 @@ class ReportController extends Controller
             }
             $monthList = $month = $this->getLastMonthDatesFormatted();
         } elseif ($request->chart_data == 'this-month') {
-            $selectedCategory = $request->selectedCategory;
+            $selectedCategory = $this->reportSelectionWithinCurrentStore(Category::class, $request->selectedCategory);
             $year = date('Y');
             $monthList = $this->yearMonth();
             $NetSaleTotal = [];
@@ -1991,7 +2005,7 @@ class ReportController extends Controller
 
             $monthList = $month = $this->getCurrentMonthDates();
         } elseif ($request->chart_data == 'seven-day') {
-            $selectedCategory = $request->selectedCategory;
+            $selectedCategory = $this->reportSelectionWithinCurrentStore(Category::class, $request->selectedCategory);
             $year = date('Y');
             $NetSaleTotal = [];
             $currentDate = date('Y-m-d');
@@ -2074,7 +2088,7 @@ class ReportController extends Controller
             }
         } elseif ($request->chart_data == 'year') {
 
-            $selectedCategory = $request->selectedCategory;
+            $selectedCategory = $this->reportSelectionWithinCurrentStore(Category::class, $request->selectedCategory);
             $year = date('Y');
             $monthList = $this->yearMonth();
             $NetSaleTotal = [];
@@ -2169,7 +2183,7 @@ class ReportController extends Controller
                 $to_date = date('Y-m-d', strtotime($request->Date));
             }
 
-            $selectedCategory = $request->selectedCategory;
+            $selectedCategory = $this->reportSelectionWithinCurrentStore(Category::class, $request->selectedCategory);
             $year = date('Y');
             $NetSaleTotal = [];
 
@@ -2260,8 +2274,25 @@ class ReportController extends Controller
         }
         $html = '';
         [$periodLabel] = $this->chartPeriodLabels($request);
+
+        /* D-42.3. THE CHART'S ACCESSIBLE TABLE GETS THE PER-PERIOD MONEY TOTAL, NOT THE APEXCHARTS
+           SERIES LIST. `$NetSaleTotal` is `[['name' => 'Shirts', 'data' => [...]], ...]` -- one entry
+           per CATEGORY against `$monthList`, which is one entry per PERIOD -- so a numeric chart
+           component cannot read it: `intval()` of a non-empty array is 1, and every row of that table
+           read `1` whatever the money was (MEASURED on /category-order-reports). `<x-ss.bar-chart>` now
+           refuses the shape and shows its empty state instead of a false amount, and this line is what
+           gives it the real figures.
+           NOTHING IS CALCULATED HERE. Each of the five period branches ALREADY sums the per-category
+           series into a per-period total and then never passes it; only the NAME differs -- `year` calls
+           it `$totalNetSalesAllCategories` and the other four `$allCategoriesTotal` (measured, not
+           assumed). This resolves whichever one the branch that ran defined. Exactly one branch runs per
+           request, so the chain cannot pick up a stale value. `$return['NetSaleTotal']` below is
+           deliberately UNCHANGED: the browser's ApexCharts series and anything reading this response
+           see precisely what they saw before. */
+        $netSeries = $allCategoriesTotal ?? ($totalNetSalesAllCategories ?? []);
+
         $html = view('reports.order_category_chart', compact('currency', 'NetSalesofcategory', 'periodLabel')
-            + ['labels' => $monthList ?? [], 'netSeries' => $NetSaleTotal ?? []])->render();
+            + ['labels' => $monthList ?? [], 'netSeries' => $netSeries])->render();
 
         $return['html'] = $html;
 
@@ -2274,9 +2305,9 @@ class ReportController extends Controller
 
     public function category_order_export(Request $request)
     {
-        $requests_data = Session::get('category_order_report');
-        $return['monthList'] = $requests_data['monthList'] ?? '';
-        $return['NetSaleTotal'] = $requests_data['NetSaleTotal'] ?? '';
+        $requests_data = Session::get('category_order_report') ?? [];
+        $return['monthList'] = $requests_data['monthList'] ?? [];
+        $return['NetSaleTotal'] = $requests_data['NetSaleTotal'] ?? [];
         return response()->json($return);
     }
 
@@ -2297,7 +2328,7 @@ class ReportController extends Controller
     {
         $store_id = getStoreById(getCurrentStore());
         $currency = Utility::GetValueByName('CURRENCY');
-        $selectedBrand = $request->selectedBrand;
+        $selectedBrand = $this->reportSelectionWithinCurrentStore(ProductBrand::class, $request->selectedBrand);
         $year = date('Y');
         $monthList = $this->yearMonth();
         $NetSaleTotal = [];
@@ -2444,7 +2475,7 @@ class ReportController extends Controller
             $NetSalesofbrand['All Brands'] = array_sum($allBrandsTotal);
             $monthList = $month = $this->getCurrentMonthDates();
         } elseif ($request->chart_data == 'year') {
-            $selectedBrand = $request->selectedBrand;
+            $selectedBrand = $this->reportSelectionWithinCurrentStore(ProductBrand::class, $request->selectedBrand);
             $year = date('Y');
             $monthList = $this->yearMonth(); // Assuming this method returns an array of month names or month start dates
             $NetSaleTotal = [];
@@ -2501,7 +2532,26 @@ class ReportController extends Controller
                     $NetSalesofbrand[$brand->name] = array_sum($brandNetSales[$brand->name]);
 
                     $brandNetSales[$brand->name][$index] = $totalNetSales;
-                    $totalNetSalesAllBrands[$index] += $totalNetSales;
+                    /* D-42.3. `$totalNetSalesAllBrands[$index] += $totalNetSales;` STOOD HERE AND
+                       MADE THE YEAR VIEW'S "All Brands" FIGURE EXACTLY DOUBLE. The loop below
+                       already walks `$brandNetSales` and array_maps every brand's series onto
+                       `$totalNetSalesAllBrands`, so this line added the same money a second time.
+                       MEASURED on /brand-order-reports?chart_data=year with ONE order worth
+                       1234.56: the aggregate read 2,469.12.
+
+                       THIS BRANCH WAS THE ONLY ONE WITH BOTH ADDS -- measured across all five:
+                       last-month, this-month, seven-day and the custom range each have only the
+                       post-loop array_map, and each reads correctly. Removing the line here is
+                       what makes `year` agree with its four siblings, which is why it is the one
+                       removed rather than the loop below.
+
+                       IT WAS ALREADY WRONG ON THE SCREEN, before anything in this change: the
+                       doubled array is what `$NetSaleTotal[]['All Brands']` carries to the
+                       browser's ApexCharts and what `$NetSalesofbrand['All Brands']` sums for the
+                       card. The accessible table printed `1` in every row, which is what hid it.
+                       So the visible year chart stops being double as well -- an existing figure
+                       becoming accurate, which is the whole of this authorisation. No stored
+                       amount, wallet, settlement, payment or conversion rate is touched. */
 
                     if (!isset($NetSalesOfBrand[$brand->name])) {
                         $NetSalesOfBrand[$brand->name] = 0;
@@ -2534,7 +2584,7 @@ class ReportController extends Controller
 
             $NetSalesofbrand['All Brands'] = array_sum($totalNetSalesAllBrands);
         } elseif ($request->chart_data == 'seven-day') {
-            $selectedBrand = $request->selectedBrand;
+            $selectedBrand = $this->reportSelectionWithinCurrentStore(ProductBrand::class, $request->selectedBrand);
             $currentDate = date('Y-m-d');
             $sevenDaysAgo = date('Y-m-d', strtotime('-7 days'));
 
@@ -2630,7 +2680,7 @@ class ReportController extends Controller
                 $to_date = date('Y-m-d', strtotime($request->Date));
             }
 
-            $selectedBrand = $request->selectedBrand;
+            $selectedBrand = $this->reportSelectionWithinCurrentStore(ProductBrand::class, $request->selectedBrand);
             $NetSaleTotal = [];
             $totalNetSalesAllBrands = [];
 
@@ -2715,8 +2765,16 @@ class ReportController extends Controller
             $monthList = $dayList; // Use dayList to represent the selected date range
         }
         [$periodLabel] = $this->chartPeriodLabels($request);
+
+        /* D-42.3, the same repair as `order_category_reports` and for the same reason: `$NetSaleTotal`
+           is a per-BRAND ApexCharts series list, the chart's table is per-PERIOD, and the cast that
+           bridged them printed `1`. The per-period total is already computed in all five branches --
+           `$allBrandsTotal` in two, `$totalNetSalesAllBrands` in three (measured) -- and was never
+           passed. Nothing is calculated here; `$return['NetSaleTotal']` is unchanged. */
+        $netSeries = $allBrandsTotal ?? ($totalNetSalesAllBrands ?? []);
+
         $html = view('reports.order_brand_chart', compact('currency', 'NetSalesofbrand', 'periodLabel')
-            + ['labels' => $monthList ?? [], 'netSeries' => $NetSaleTotal ?? []])->render();
+            + ['labels' => $monthList ?? [], 'netSeries' => $netSeries])->render();
 
         $return = [
             'html' => $html,
@@ -2731,10 +2789,10 @@ class ReportController extends Controller
 
     public function brand_order_export(Request $request)
     {
-        $requests_data = Session::get('brand_order_report');
+        $requests_data = Session::get('brand_order_report') ?? [];
         $return = [
-            'monthList' => $requests_data['monthList'],
-            'NetSaleTotal' => $requests_data['NetSaleTotal']
+            'monthList' => $requests_data['monthList'] ?? [],
+            'NetSaleTotal' => $requests_data['NetSaleTotal'] ?? []
         ];
         return response()->json($return);
     }
@@ -3496,5 +3554,108 @@ class ReportController extends Controller
             return view('reports.most_stock_action', compact('product'));
         })
             ->rawColumns(['action'])->make(true);
+    }
+    /**
+     * NARROW A REPORT CHART'S CALLER-SUPPLIED ID SELECTION TO THE CURRENT STORE, IN SQL.
+     * =============================================================================================
+     *
+     * WHY THIS EXISTS. `order_category_reports` and `order_brand_reports` take their selection
+     * straight off the query string and used to resolve each id with a bare `Category::find()` /
+     * `ProductBrand::find()` -- ten such calls per handler. Neither model filters by tenant:
+     * `Category` registers `App\Scopes\StoreScope` and carries `BelongsToStore`, but it is absent
+     * from `config/tenancy.php`'s `scoped_models`, so `StoreScope::isActiveFor()` short-circuits
+     * and the scope adds NO predicate for ANY principal; `ProductBrand` registers no global scope
+     * at all. So `find()` reached every tenant's rows and each resolved row's `name` became a
+     * chart series name -- in the `NetSaleTotal` JSON, in the rendered stat cards, and in the
+     * session `category_order_export` / `brand_order_export` replay. Resolving in SQL against
+     * `store_id` closes it: a foreign id does not come back, so there is no name and no series.
+     * Covered by `tests/Feature/Security/ReportCategoryBrandTenantScopeTest`.
+     *
+     * WHAT IT DELIBERATELY DOES NOT DO.
+     *
+     *   * It does not touch the money. Every period branch keeps its own
+     *     `Order::where('store_id', getCurrentStore())` -- which is what kept foreign FIGURES out
+     *     of reach throughout, and why this finding is a name disclosure and not a data breach.
+     *     This reads the same `getCurrentStore()`, so the two predicates cannot drift apart.
+     *   * It does not filter `status`. `find()` ignored it and so does this: the chart is an admin
+     *     screen and a merchant may legitimately chart a disabled category of their own. (The two
+     *     SELECTOR screens, `OrderSaleCategoryReport` and `OrderSaleBrandReport`, do filter
+     *     `status = 1`. That asymmetry is why the leak reached names that are not even public on
+     *     the victim's own storefront. Narrowing this read by status as well would not improve it
+     *     -- it would only remove a capability from the owner of the row.)
+     *   * It does not narrow the PLATFORM OPERATOR. A plain predicate would, and today the
+     *     operator may name any tenant's id (and sees zeros, because their order query is still
+     *     `getCurrentStore()`-scoped). That capability is worth nothing, but taking it away is an
+     *     AUTHORIZATION-POLICY change, which needs owner approval. So the operator keeps the same
+     *     exemption `CategoryController::categoryIsOutsideCurrentStore()` already grants, with the
+     *     same EXACT-CASE comparison -- which also fails SAFE: a non-canonical `'Super Admin'` is
+     *     treated as a merchant and narrowed, never exempted.
+     *
+     * THE RETURN TYPE IS LOAD-BEARING. DO NOT "SIMPLIFY" IT WITH `->all()`.
+     *   * An empty selection comes back UNCHANGED, so each caller's own `empty($selected)` default
+     *     (and, in the brand handler's first two branches, its `$selected ?? ...`) still fires, and
+     *     the "All Categories" / "All Brands" series -- which are decided from the RAW
+     *     `$request->selected*`, untouched here -- behave exactly as before.
+     *   * A selection that survives nothing comes back as an EMPTY COLLECTION, and `empty()` on an
+     *     object is always false in PHP. That is what preserves today's behaviour for a selection
+     *     resolving to no rows: an empty chart, NOT a silent fallback to every row this store owns.
+     *     Returning `[]` here would flip that, and a request naming only foreign ids would answer
+     *     with the caller's whole catalogue instead of nothing.
+     *
+     * It is at the END of the class, away from its nine call sites, on purpose:
+     * `tests/Feature/Tenancy/RawQueryTenancyInventoryTest` cites a line of this file by number and
+     * inserting anything above it would make that citation stale.
+     *
+     * @param  class-string<\Illuminate\Database\Eloquent\Model>  $model  Category or ProductBrand
+     * @param  mixed  $selected  whatever the request supplied
+     * @return mixed  the input unchanged, or a Collection of ids this store really owns
+     */
+    private function reportSelectionWithinCurrentStore(string $model, $selected)
+    {
+        // Nothing was selected, so there is nothing to narrow: hand it straight back and let the
+        // caller's own default run. Note `empty('0')` is true, which is also how the callers'
+        // existing defaults read a `selected*=0`, so that case is unchanged too.
+        if (empty($selected)) {
+            return $selected;
+        }
+
+        $actor = auth()->user();
+
+        if ($actor !== null && $actor->type === \App\Policies\UserPolicy::PLATFORM_ADMIN) {
+            return $selected;
+        }
+
+        $currentStore = getCurrentStore();
+
+        // AN UNRESOLVED TENANT IS OUTSIDE, NOT EVERYWHERE. `StoreScope` fails OPEN on a null
+        // tenant by design (`null_tenant => 'open'`), and a predicate whose whole job is to hold
+        // where the scope adds nothing must not inherit that.
+        if (empty($currentStore)) {
+            return collect();
+        }
+
+        // FILTER_VALIDATE_INT, not is_numeric: is_numeric accepts '5.9' and rejects '5abc', while
+        // MySQL coerces '5abc' to row 5 in a `WHERE id = ?` comparison. flatten() because a
+        // query string can nest arrays, and a nested array reaching whereIn() is a SQL error.
+        $ids = collect($selected)
+            ->flatten()
+            ->map(static fn ($id) => filter_var($id, FILTER_VALIDATE_INT))
+            ->reject(static fn ($id) => $id === false)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($ids === []) {
+            return collect();
+        }
+
+        $owned = $model::where('store_id', $currentStore)->whereIn('id', $ids)->pluck('id');
+
+        // Back in the CALLER'S order, not the database's. The callers push one `NetSaleTotal`
+        // series per id in iteration order, so returning `$owned` directly would silently
+        // re-order the chart legend for a merchant who picked their own categories in any order
+        // other than ascending id. intersect() keeps this collection's order, so a legitimate
+        // selection comes back byte-identical to what it was before this guard existed.
+        return collect($ids)->intersect($owned)->values();
     }
 }

@@ -5,18 +5,18 @@
         <a href="#" class="btn btn-primary me-2 ai-btn btn-badge" data-size="lg" data-ss-panel-open="ai-generate"
             data-ss-panel-url="{{ route('generate', ['shipping']) }}" data-bs-toggle="tooltip" data-bs-placement="top"
             title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
-            <i class="fas fa-robot"></i> {{ __('Generate with AI') }}
+            <i class="ti ti-wand"></i> {{ __('Generate with AI') }}
         </a>
     </div>
 @endif
 
 <div class="row">
     <div class="form-group col-md-12">
-        {!! Form::label('', __('Name'), ['class' => 'form-label']) !!}
+        {!! Form::label('name', __('Name'), ['class' => 'form-label']) !!}<span class="ss-label__required" aria-hidden="true">*</span>
         {!! Form::text('name', null, ['class' => 'form-control', 'required' => 'required']) !!}
     </div>
     <div class="form-group col-md-12">
-        {!! Form::label('', __('Description'), ['class' => 'form-label']) !!}
+        {!! Form::label('description', __('Description'), ['class' => 'form-label']) !!}<span class="ss-label__required" aria-hidden="true">*</span>
         {!! Form::textarea('description', null, [
             'class' => 'form-control autogrow',
             'required' => 'required',

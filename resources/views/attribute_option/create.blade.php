@@ -20,7 +20,7 @@
 {{ Form::open(array('route' => array('product-attribute-option.store', $id), 'method' => 'post', 'enctype' => 'multipart/form-data')) }}
 <div class="row">
     <div class="ss-field col-md-12">
-        {{ Form::label('terms', __('Name'), ['class' => 'ss-label']) }}
+        <span class="ss-label-line">{{ Form::label('terms', __('Name'), ['class' => 'ss-label']) }}<span class="ss-label__required" aria-hidden="true">*</span></span>
         {{ Form::text('terms',old('terms'), ['class' => 'ss-input font-style', 'id' => 'terms', 'required' => 'required']) }}
     </div>
     <div class="ss-dialog__footer modal-footer pb-0">

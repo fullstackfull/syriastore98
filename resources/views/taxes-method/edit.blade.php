@@ -2,16 +2,16 @@
 
 <div class="row">
     <div class="form-group col-md-6">
-        {!! Form::label('', __('Name'), ['class' => 'form-label']) !!}
+        {!! Form::label('name', __('Name'), ['class' => 'form-label']) !!}
         {!! Form::text('name', null, ['class' => 'form-control']) !!}
     </div>
     <div class="form-group col-md-6">
-        {!! Form::label('', __('Rate %'), ['class' => 'form-label']) !!}
+        {!! Form::label('tax_rate', __('Rate %'), ['class' => 'form-label']) !!}
         {!! Form::number('tax_rate', null, ['class' => 'form-control', 'min' => '0', 'step' => '0.10']) !!}
     </div>
     <div class="form-group list_height_css col-md-12">
         <label>{{ __('Country') }}</label>
-        {!! Form::label('', __(''), ['class' => 'form-label']) !!}
+        {!! Form::label('country_id', __(''), ['class' => 'form-label']) !!}
         {!! Form::select('country_id', $country_option, null, [
             'class' => 'form-control country_change',
         ]) !!}
@@ -37,7 +37,7 @@
         </div>
     </div>
     <div class="form-group col-md-6">
-        {!! Form::label('', __('Priority'), ['class' => 'form-label']) !!}
+        {!! Form::label('priority', __('Priority'), ['class' => 'form-label']) !!}
         {!! Form::number('priority', 0, ['class' => 'form-control']) !!}
     </div>
     <div class="form-group col-md-6">

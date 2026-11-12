@@ -290,8 +290,30 @@ class PlanController extends Controller
     /**
      * Remove the specified resource from storage.
      */
+    /*
+     * P2.5-SEC-DESTRUCTIVE F-4. PRIVILEGE ESCALATION, not only cross-tenant reach.
+     *
+     * A Plan is PLATFORM data -- the subscription tiers every merchant buys. MEASURED: an
+     * ordinary merchant sent DELETE /plan/{id} and the row was gone. The merchant role is granted
+     * `Manage Plan` and NEVER Create or Edit (`Utility::addNewData()`'s `$companyNewPermission`),
+     * so `destroy` outranked the view-only grant it was paired with.
+     *
+     * The only protection present was incidental: `User::where('plan_id', $id)` refuses a plan
+     * somebody is subscribed to, so only unsubscribed tiers went. That is a referential-integrity
+     * check, not an authorization one, and it is left exactly where it is below.
+     *
+     * OPERATOR ONLY. Platform data is the operator's, and this neither broadens what an operator
+     * may do nor narrows any permission a merchant legitimately holds -- `Manage Plan` was always
+     * a view grant.
+     */
     public function destroy(Request $request, $id)
     {
+        $actor = auth()->user();
+
+        if (! $actor || ! \App\Policies\UserPolicy::isOperator($actor)) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         $userPlan = User::where('plan_id' , $id)->first();
         if($userPlan != null)
         {

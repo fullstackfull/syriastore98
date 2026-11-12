@@ -159,4 +159,73 @@ class TranslationFileIntegrityTest extends TestCase
             implode(' | ', array_slice($orphans, 0, 10))
         ));
     }
+
+    /**
+     * P2.5-PKG-J — a translation must not end in a bare `..`.
+     *
+     * FOUND BY LOOKING AT A SCREENSHOT, not by a test and not by reading the file. The Arabic
+     * confirmation dialog offered `نعم ..` and `لا ..` -- "Yes .." and "No .." -- because those
+     * two values shipped with a trailing double dot the English keys do not have. `Yes` and `No`
+     * are each used at about 60 first-party call sites plus the vendored modules, so that is two
+     * stray dots on every confirmation button, every boolean cell and every yes/no radio in the
+     * Arabic admin.
+     *
+     * WHY THIS RULE AND NOT THE GENERAL ONE. The first version of this test asked the general
+     * question -- does the Arabic value end in punctuation its English key lacks -- and found 76
+     * values, almost all of them correct: Arabic typography routinely wraps a transliterated brand
+     * in quotes or parentheses, so `Braintree` => `" برينتري "` is right, not an artefact.
+     * Asserting zero there would have demanded a 76-entry sweep nobody authorised, and pinning the
+     * count at 76 would have been the "ratchet set above the real value" the test above warns
+     * about. A bare `..` is different: it is not punctuation in any language, so the rule can be
+     * absolute and still be true.
+     *
+     * A proper ellipsis is explicitly allowed. Nine values end in `...`, and all nine translate a
+     * key that ends in `...` -- "Loading..." must stay "جارٍ التحميل...".
+     */
+    public function test_no_translated_value_ends_in_a_bare_double_dot(): void
+    {
+        $offenders = [];
+
+        foreach (self::languageFileProvider() as [$relative]) {
+            $decoded = json_decode((string) file_get_contents($this->path($relative)), true);
+            $this->assertIsArray($decoded, $relative . ' is not valid JSON.');
+
+            foreach ($decoded as $key => $value) {
+                if (! is_string($value)) {
+                    continue;
+                }
+
+                // a bare `..` -- two dots and not the third, which would be a real ellipsis
+                if (preg_match('/(?<!\.)\.\.$/u', rtrim($value)) !== 1) {
+                    continue;
+                }
+                if (is_string($key) && preg_match('/(?<!\.)\.\.$/u', rtrim($key)) === 1) {
+                    continue; // the English key really does end in `..`; the translation matches it
+                }
+
+                $offenders[] = sprintf('%s: %s => %s', $relative, (string) $key, $value);
+            }
+        }
+
+        $this->assertSame([], $offenders, sprintf(
+            "%d translated value(s) end in a bare `..` their key does not have:\n  %s\n"
+            . 'Two dots are not punctuation in any language -- drop them.',
+            count($offenders),
+            implode("\n  ", array_slice($offenders, 0, 12))
+        ));
+    }
+
+    /** Without this the rule above passes the day the file stops being read. */
+    public function test_the_double_dot_scan_reads_the_arabic_file(): void
+    {
+        $ar = json_decode((string) file_get_contents($this->path('resources/lang/ar.json')), true);
+
+        $this->assertIsArray($ar);
+        $this->assertGreaterThan(1000, count($ar),
+            'ar.json has shrunk to ' . count($ar) . ' keys, so the scan above covers almost nothing.');
+        $this->assertSame('نعم', $ar['Yes'] ?? null,
+            'The Arabic "Yes" is not the repaired value, so the dialog may read "نعم .." again.');
+        $this->assertSame('لا', $ar['No'] ?? null,
+            'The Arabic "No" is not the repaired value, so the dialog may read "لا .." again.');
+    }
 }

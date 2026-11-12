@@ -366,8 +366,35 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
          * Only three of the four reach the per-table census below, because `DB::table($table)` has
          * no literal name for `LITERAL_TABLE_PATTERN` to capture. That is why `app` moves by 4 while
          * the per-table rows move by 3.
+         *
+         * 174 -> 176 on 2026-11-10 [P0, the user-deletion safety guard]. `app/Services/
+         * UserDeletionSafety.php` adds TWO raw entry points, and the same split as above applies:
+         * only ONE of them reaches the per-table census, because the other is `DB::table($table)`
+         * over the pinned cascade and orphan lists and has no literal name to capture.
+         *
+         *   - `DB::table('stores')->where('created_by', $user->id)->count()` — the store-ownership
+         *     half. Literal, so `stores` moves by 1 below.
+         *   - `DB::table($table)->where($column, $userId)->count()` — the dependency half, over
+         *     the 15 cascade tables and 5 orphan tables. `$table` comes from two `const` arrays on
+         *     the service and never from request input, so the variable table name is not a
+         *     caller-controlled identifier — the same reasoning `TopSellersByRevenue` records.
+         *
+         * **NEITHER CARRIES A `store_id` PREDICATE, DELIBERATELY**, and the direction of failure is
+         * why: this guard exists to find dependants before a `users` row is hard-deleted, so a
+         * predicate that hid one would turn a refusal into a destroyed store or wallet. Both are
+         * counts keyed on the target user id, both can only produce a refusal, and
+         * `UserPolicy::delete()` has already refused a cross-tenant target before either runs.
+         * They are declared with that reason in `ServiceLayerRawQueryInventoryTest`'s
+         * STORE_LESS_BY_DESIGN.
          */
-        $this->assertSame(['app' => 174, 'packages' => 45], $perDir,
+        /*
+         * 176 -> 177 [2026-11-11, P1-SEC-61]: AuctionBidIdentityGuard::logSlugCollision()'s twin
+         * lookup. It is SCOPED -- `->where('store_id', $routeStore)` -- and it feeds no
+         * authorization decision at all: the admit/refuse call is already made before it runs, and
+         * its result only selects which of two operator log messages is written. Counted here
+         * because every raw site is counted here, not because it is an exposure.
+         */
+        $this->assertSame(['app' => 177, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -437,7 +464,15 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // is per-purchaser. See the note on the per-directory assertion above.
         // 215 -> 219 [2026-11-01]: the same four sites as the per-directory assertion above
         // (174 + 45). Stated here as well because this sum is what a reader quotes.
-        $this->assertSame(219, array_sum($perDir));
+        // 219 -> 221 [2026-11-10, P0]: the two UserDeletionSafety entry points (176 + 45). The
+        // UNSCOPED sum moves again, and for the second time it is deliberate: a `store_id`
+        // predicate on a guard that counts a user's dependants before a hard delete would hide
+        // dependants rather than hide rows, and the thing it would hide is a store or a wallet
+        // the delete then destroys. Declared with that reason in
+        // ServiceLayerRawQueryInventoryTest::STORE_LESS_BY_DESIGN; see the per-directory note.
+        // 221 -> 222 [2026-11-11, P1-SEC-61]: the logSlugCollision twin lookup (177 + 45). It
+        // carries a `store_id` predicate, so the UNSCOPED sum below does not move.
+        $this->assertSame(222, array_sum($perDir));
     }
 
     /**
@@ -557,14 +592,19 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // cross-tenant read this ratchet's message warns about. See the per-directory note.
             'personal_access_tokens' => [3, 3],
             // NEW WITH P1-INV-19, and the [1, 0] is a HEURISTIC ARTIFACT worth naming rather than
-            // reading as reassurance. AuctionBidIdentityGuard:118 is
-            // `DB::table('products')->where('id', $productId)->first(['id', 'store_id'])` -- it
-            // carries NO store_id PREDICATE, and must not: bidding across stores is the module's
-            // own design. It counts as "scoped" only because this inventory looks for the string
-            // `store_id` in the statement, and the statement SELECTS that column in order to
-            // derive the bid's store from the row instead of from the caller. The real control is
-            // asserted per-site in OwnedPathRawQueryInventoryTest, where the file is classified
-            // 'comparison'.
+            // reading as reassurance. AuctionBidIdentityGuard reads
+            // `DB::table('products')->where('id', $productId)->first(['id', 'store_id', ...])` --
+            // it carries NO store_id PREDICATE, and must not: the guard has to FETCH the row
+            // before it can compare anything. It counts as "scoped" only because this inventory
+            // looks for the string `store_id` in the statement, and the statement SELECTS that
+            // column in order to derive the bid's store from the row instead of from the caller.
+            // The real control is asserted per-site in OwnedPathRawQueryInventoryTest.
+            //
+            // CORRECTED 2026-11-11 (issue #136): this note used to justify the missing predicate
+            // with "bidding across stores is the module's own design", which the owner reversed.
+            // The guard now refuses a product outside the routed storefront -- as a separate
+            // statement after this read, so the counts here are unaffected. Line numbers are
+            // deliberately not quoted any more; they drifted once already.
             // `products` 2 -> 5 and ITS NO-store_id COLUMN 0 -> 3 WITH OWNER DECISION D13 / P1-INV-12, and this is the
             // one entry in this table where a RISE in the second number is the correct outcome rather than a regression.
             // The three sites are the product counts in front of each path that can delete a `categories` row:
@@ -577,7 +617,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // remedy is, uniquely here, the defect. Verified on MySQL 8.0.46 by
             // tests/Support/Security/bin/verify-category-product-cascade-on-mysql.php (6 checks, 0 failures) and by
             // mutant B of the removal check. None of the three returns rows -- each is a COUNT read only to refuse.
-            'products' => [7, 3],     // 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own. 5 -> 6 total [2026-10-30, F207 / D-29.2] with ModuleResourceOwnershipGuard:523's existence check; THE UNSCOPED HALF STAYS AT 3, which is the assertion that matters -- the new site names `store_id`. 6 -> 7 [2026-11-01, F242] with TopSellersByRevenue:106's dimension lookup, AGAIN WITH a store_id predicate, so the unscoped half still does not move
+            'products' => [8, 3],     // 7 -> 8 total [2026-11-11, P1-SEC-61] with AuctionBidIdentityGuard::logSlugCollision()'s twin lookup, WITH a store_id predicate -- it asks whether the ROUTED store holds its own product under the colliding slug, so THE UNSCOPED HALF STAYS AT 3, which is again the assertion that matters. 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own. 5 -> 6 total [2026-10-30, F207 / D-29.2] with ModuleResourceOwnershipGuard:523's existence check; THE UNSCOPED HALF STAYS AT 3, which is the assertion that matters -- the new site names `store_id`. 6 -> 7 [2026-11-01, F242] with TopSellersByRevenue:106's dimension lookup, AGAIN WITH a store_id predicate, so the unscoped half still does not move
             'settings' => [17, 5],   // 16 -> 17 with P1-SEC-11 criterion 4's review follow-up (DocumentDirection::ownRow reads the ORDER store's SITE_RTL and invoice_logo rows, WITH a store_id predicate -- see the entry-point note above for why it cannot go through GetValueByName); 15 -> 16 with P1-SEC-11 (OrderController::shippinglabel reads the order store's five address rows, WITH a store_id predicate); earlier: 15 -> 16 with P1-SEC-27 (StoreSettingsAccess::storedRows, WITH a store_id predicate); 16 -> 15 and 9 -> 5 with P1-SEC-29 (HostClaims)
             'shetabit_visits' => [16, 0],
             'side_menus_option' => [28, 0],
@@ -607,7 +647,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // Note the shape of this row generally: 18 of 19 `stores` sites are 'unscoped' for the
             // same structural reason, which is why a rising count on THIS table is not by itself a
             // finding -- the per-site classification is.
-            'stores' => [23, 22],    // P1-SEC-10 (DeliverySyriaCredential: stores created by a matched owner) and P1-SEC-04 (Duo setting rule); the Zid controller's own stores read is gone.
+            // [23, 22] -> [24, 23] on 2026-11-10 (P0): UserDeletionSafety's store-ownership count,
+            // `DB::table('stores')->where('created_by', $user->id)->count()`. It is the ONE of the
+            // guard's two entry points with a literal table name, which is why `app` moved by 2
+            // above and this row by 1. Unscoped on purpose -- it must see every store the user
+            // owns, because one it misses is one the delete destroys.
+            'stores' => [24, 23],    // P1-SEC-10 (DeliverySyriaCredential: stores created by a matched owner), P1-SEC-04 (Duo setting rule) and the P0 deletion guard; the Zid controller's own stores read is gone.
                                      // 20 -> 23 and 20 -> 22 with ModuleStorefrontInputGuard: two slug resolutions (no store_id to predicate on yet) and the thread read's by-id lookup, whose statement names `store_id` because the id comes from the body and is compared, not trusted
             'theme_customizes' => [2, 0],
             'user_email_templates' => [1, 1], // P1-SEC-04: ModuleAdministrativeRouteGuard::ownsEmailTemplate (the row named in the body)
@@ -691,7 +736,15 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // LIMIT 2 in this class's docblock rather than a new weakness. What covers them instead is
         // direct: GatewayReferenceIdempotencyTest drives tenant isolation on the service, and the
         // per-directory assertion above counts all six.
-        $this->assertSame(170, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        // 170 -> 171 on 2026-11-10 [P0]: the user-deletion guard's store-ownership count,
+        // `DB::table('stores')->where('created_by', $user->id)`. One of the guard's two entry
+        // points; the other names its table through a loop variable over two const arrays and so
+        // joins the unattributable remainder (49 -> 50), for the same reason F217's exposure
+        // census does.
+        // 171 -> 172 [2026-11-11, P1-SEC-61]: AuctionBidIdentityGuard::logSlugCollision()'s twin
+        // lookup names `products` as a literal, so it is attributable and lands in the per-table
+        // count rather than the remainder. 172 literal-table sites of the 222 entry points.
+        $this->assertSame(172, array_sum(array_map(fn ($r) => $r[0], $actual)),
             '[2026-11-02] 167 -> 170 AND the remainder 52 -> 49, with NOTHING IN app/ CHANGED. '
             . 'Three entry points were counted by RAW_ENTRY_POINT_PATTERN and NOT attributed to '
             . 'their table, because they write `DB::table(` on one line and the name on the next: '
@@ -703,7 +756,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             . 'per-table count and leaves 219 unchanged. Two of the three are the store-less money '
             . 'reads of F219, so the blind spot was hiding exactly what this census exists for. '
             . 'Found by independent review re-deriving the number rather than accepting it. '
-            . '170 literal-table sites of the 219 entry points; the other 49 build their table name '
+            . '172 literal-table sites of the 222 entry points; the other 50 build their table name '
             . 'from a variable or a class constant and so cannot be attributed (see LIMIT 2 in '
             . 'this class docblock). [2026-11-01] THIS MESSAGE SAID "164 of 207 / the other 43" '
             . 'while the assertion itself read 164 and the real total was 215 -- the number in the '
@@ -736,7 +789,14 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // scanner see three previously invisible sites, two of which carry no `store_id`
         // (OrderFinancialService.php:289 and :402 -- the F219 money reads). The third,
         // StoreFinanceController.php:545, does carry it and so is counted as aware.
-        $this->assertSame(80, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        // 80 -> 81 on 2026-11-10 [P0]: the same single site. It is store-less DELIBERATELY and in
+        // the direction opposite to every other row here -- a `store_id` predicate would hide
+        // stores the user owns, and a store this guard fails to see is a store the delete
+        // destroys. So this +1 is in the numerator of "statements with no store_id" and is NOT a
+        // cross-tenant read: it is a count keyed on the target user id that can only produce a
+        // refusal, behind a UserPolicy::delete() check that has already refused a foreign target.
+        // Declared with that reason in ServiceLayerRawQueryInventoryTest::STORE_LESS_BY_DESIGN.
+        $this->assertSame(81, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**

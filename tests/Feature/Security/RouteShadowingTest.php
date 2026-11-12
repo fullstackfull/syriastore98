@@ -487,8 +487,14 @@ class RouteShadowingTest extends TestCase
             'get product-brand-popular' => 'api.php:371 is api-prefixed, web.php:1062 is not',
             'get product-label-status' => 'api.php:377 is api-prefixed, web.php:1066 is not',
             // IDENTICAL declarations, same action AND same name, inside one group.
-            'post products/attribute_combination' => 'identical declaration repeated (web.php:810, :827)',
-            'post abandon-wish-emailsend' => 'identical declaration repeated (web.php:931, :949)',
+            'post products/attribute_combination' => 'identical declaration repeated (web.php:982, :999)',
+            // RE-CITED by P2.5-PKG-C: these were web.php:931/:949 when the exemption was
+            // written and are now :1128/:1146. The test keys on verb+URI so it stayed
+            // green either way -- which is exactly why a stale citation survives in the
+            // project's own shadowing ledger until somebody reads the lines. Still
+            // genuinely harmless: same controller action, same name, same middleware
+            // group, later declaration wins.
+            'post abandon-wish-emailsend' => 'identical declaration repeated (web.php:1128, :1146)',
         ];
 
         $seen = [];

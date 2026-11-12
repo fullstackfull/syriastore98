@@ -65,8 +65,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:954` | Gateway return gave up after the capture was classified: |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1004` | Gateway return refused: the basket names a product or variant row that no longer exists. |
 | `app/Http/Controllers/KhaltiPaymnetController.php:1358` | Khalti order written for RECONCILIATION: the gateway could not be asked whether money moved |
-| `app/Http/Controllers/PaymentController.php:3662` | Order write failed before the transaction opened; stock decrements were given back |
-| `app/Http/Controllers/PaymentController.php:5102` | Order write failed before the transaction opened; stock decrements were given back |
+| `app/Http/Controllers/PaymentController.php:3689` | Order write failed before the transaction opened; stock decrements were given back |
+| `app/Http/Controllers/PaymentController.php:5129` | Order write failed before the transaction opened; stock decrements were given back |
 | `app/Http/Controllers/PaymentController.php:1753` | Paymera write threw and a committed order cannot be ruled out; the claim is kept so no replay can write a second order |
 | `app/Http/Controllers/PaymentController.php:469` | Paymera status poll ABANDONED: no API credential is configured |
 | `app/Http/Controllers/PaymentController.php:580` | Paymera callback REJECTED: the payment status could not be established |
@@ -75,8 +75,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaymentController.php:1738` | Paymera trigger verified the payment but wrote no order; the capture is unreconciled |
 | `app/Http/Controllers/PaymentController.php:939` | Paymera callback REJECTED: inbound signature not verified |
 | `app/Http/Controllers/PaymentController.php:968` | Paymera callback REJECTED: captured amount not verified |
-| `app/Http/Controllers/PaymentController.php:3861` | Order write failed and was rolled back; stock decrements were given back |
-| `app/Http/Controllers/PaymentController.php:5292` | Order write failed and was rolled back; stock decrements were given back |
+| `app/Http/Controllers/PaymentController.php:3888` | Order write failed and was rolled back; stock decrements were given back |
+| `app/Http/Controllers/PaymentController.php:5319` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Services/OrderFinancialService.php:271` | OrderFinancialService: an order line names a product that is not |
 | `app/Services/PaymentService.php:231` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
 | `app/Services/PaymentService.php:3099` | Order write failed and was rolled back; stock decrements were given back |
@@ -90,7 +90,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 190 lines
+### `warning` — 192 lines
 
 > **[2026-11-02, second edit] 186 -> 190, and BOTH HEADINGS WERE STALE BEFORE IT.** Measured
 > against `app/` with the test's own regex: **27 `critical`, 190 `warning`, 217 total** — which is
@@ -162,8 +162,10 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Api/DeliverySyriaOrderController.php:82` | Delivery Syria invalid credentials |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:342` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:384` | AuthorizeNet capture refused: no server-computed payable in the stored state. |
-| `app/Http/Controllers/CartController.php:247` | product_cart: refused a non-positive or non-integer quantity |
-| `app/Http/Controllers/CartController.php:300` | product_cart: refused a product belonging to another store |
+| `app/Http/Controllers/CartController.php:248` | product_cart: refused a non-positive or non-integer quantity |
+| `app/Http/Controllers/CartController.php:301` | product_cart: refused a product belonging to another store |
+| `app/Http/Controllers/CartController.php:1447` | abandoned-cart WhatsApp nudge failed |
+| `app/Http/Controllers/WishlistController.php:603` | abandoned-wishlist WhatsApp nudge failed |
 | `app/Http/Controllers/CinetPayController.php:516` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:133` | Gateway return refused: no server-stored checkout state. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:282` | Gateway return carries no claimable identity; falling back to the session control alone. |
@@ -172,7 +174,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1091` | Gateway return refused: the gateway request could not be built. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1108` | Gateway return refused: basket holds a non-positive quantity. |
 | `app/Http/Controllers/Concerns/GuardsPlanActivation.php:85` | Plan activation refused: provider is disabled pending verification. |
-| `app/Http/Controllers/Concerns/GuardsPlanActivation.php:505` | Plan activation refused: this provider reference has already activated a plan. |
+| `app/Http/Controllers/Concerns/GuardsPlanActivation.php:576` | Plan activation refused: this provider reference has already activated a plan. |
 | `app/Http/Controllers/ShippingMethodController.php:120` | shipping method write refused: the platform operator has read rights only |
 | `app/Http/Controllers/Concerns/RefusesDeferredGateway.php:130` | Paid plan checkout refused before any charge: this gateway is deferred from Phase 02. |
 | `app/Http/Controllers/Concerns/RefusesDeferredGateway.php:180` | Paid plan activation refused: this gateway is deferred from Phase 02 and its payment evidence cannot be verified. |
@@ -187,19 +189,20 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/KhaltiPaymnetController.php:452` | Khalti verification refused: no server-computed payable in the stored state. |
 | `app/Http/Controllers/KhaltiPaymnetController.php:497` | Khalti order refused before any stock moved: the gateway rejected the capture |
 | `app/Http/Controllers/NMIPayController.php:428` | Pending partial payment refused: the balance named does not belong to this customer. |
-| `app/Http/Controllers/OrderController.php:322` | Manual order total did not match its components; the computed total was stored |
-| `app/Http/Controllers/OrderController.php:1352` | Return approval restored no stock: order carries no readable product_json |
-| `app/Http/Controllers/OrderController.php:1398` | Return approval skipped a line whose stock was already credited |
-| `app/Http/Controllers/OrderController.php:1418` | Return approval skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1439` | Return approval skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1473` | Return approval skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1588` | Order replacement refused. |
-| `app/Http/Controllers/OrderController.php:1912` | Customer cancellation endpoint refused a status it does not serve |
-| `app/Http/Controllers/OrderController.php:1982` | Order cancellation skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1997` | Order cancellation skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:2054` | Order cancellation skipped a line the stock record says never took stock out |
-| `app/Http/Controllers/OrderController.php:2098` | Order cancellation skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:2340` | Order assignment refused: the delivery boy is not in a store this caller owns |
+| `app/Http/Controllers/OrderController.php:343` | Manual order total did not match its components; the computed total was stored |
+| `app/Http/Controllers/OrderController.php:1312` | order receipt could not be rendered |
+| `app/Http/Controllers/OrderController.php:1474` | Return approval restored no stock: order carries no readable product_json |
+| `app/Http/Controllers/OrderController.php:1520` | Return approval skipped a line whose stock was already credited |
+| `app/Http/Controllers/OrderController.php:1540` | Return approval skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1561` | Return approval skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1595` | Return approval skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:1710` | Order replacement refused. |
+| `app/Http/Controllers/OrderController.php:2153` | Customer cancellation endpoint refused a status it does not serve |
+| `app/Http/Controllers/OrderController.php:2223` | Order cancellation skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:2238` | Order cancellation skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:2295` | Order cancellation skipped a line the stock record says never took stock out |
+| `app/Http/Controllers/OrderController.php:2339` | Order cancellation skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:2581` | Order assignment refused: the delivery boy is not in a store this caller owns |
 | `app/Http/Controllers/OrderRefundController.php:180` | Refund transition refused: unrecognised current state |
 | `app/Http/Controllers/OrderRefundController.php:202` | Refund transition refused: illegal transition |
 | `app/Http/Controllers/OrderRefundController.php:416` | Refund cancellation refused: the record does not match the order |
@@ -223,15 +226,15 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaymentController.php:1732` | Paymera trigger could not identify the order it created; the pending record names none |
 | `app/Http/Controllers/PaymentController.php:1947` | checkout: refused, basket names a product from another store |
 | `app/Http/Controllers/PaymentController.php:1987` | checkout: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/PaymentController.php:2641` | Checkout refused: this payment method cannot settle an outstanding balance. |
-| `app/Http/Controllers/PaymentController.php:2658` | Checkout refused: no recorded balance matches this pending payment. |
-| `app/Http/Controllers/PaymentController.php:2676` | Checkout refused: the posted pending-payment amount disagrees with the record. |
-| `app/Http/Controllers/PaymentController.php:2992` | Pending partial payment refused: the balance named does not belong to this customer. |
-| `app/Http/Controllers/PaymentController.php:4255` | Telegram order message not sent: the store has no bot token or chat id |
-| `app/Http/Controllers/PaymentController.php:4271` | Telegram refused an order message |
-| `app/Http/Controllers/PaymentController.php:4277` | Telegram order message could not be sent |
-| `app/Http/Controllers/PaymentController.php:4345` | Whatsapp order writer: posted slug does not match the route slug; the route wins. |
-| `app/Http/Controllers/PaymentController.php:4461` | Order intake refused: this basket is already being written. |
+| `app/Http/Controllers/PaymentController.php:2668` | Checkout refused: this payment method cannot settle an outstanding balance. |
+| `app/Http/Controllers/PaymentController.php:2685` | Checkout refused: no recorded balance matches this pending payment. |
+| `app/Http/Controllers/PaymentController.php:2703` | Checkout refused: the posted pending-payment amount disagrees with the record. |
+| `app/Http/Controllers/PaymentController.php:3019` | Pending partial payment refused: the balance named does not belong to this customer. |
+| `app/Http/Controllers/PaymentController.php:4282` | Telegram order message not sent: the store has no bot token or chat id |
+| `app/Http/Controllers/PaymentController.php:4298` | Telegram refused an order message |
+| `app/Http/Controllers/PaymentController.php:4304` | Telegram order message could not be sent |
+| `app/Http/Controllers/PaymentController.php:4372` | Whatsapp order writer: posted slug does not match the route slug; the route wins. |
+| `app/Http/Controllers/PaymentController.php:4488` | Order intake refused: this basket is already being written. |
 | `app/Http/Controllers/PaystackPaymentController.php:290` | Paystack plan activation refused: the transaction is not a matching success. |
 | `app/Http/Controllers/PaystackPaymentController.php:377` | Paystack plan activation refused: this reference is already recorded against a different buyer or plan. |
 | `app/Http/Controllers/PaystackPaymentController.php:444` | Paystack plan activation refused: the captured payment does not match the plan being activated. |
@@ -240,8 +243,9 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PosController.php:664` | POS sale failed after stock may have moved; the claim was released so the till can retry |
 | `app/Http/Controllers/PosController.php:487` | POS sale skipped a line whose product is not this store |
 | `app/Http/Controllers/StoreFinanceController.php:81` | Manual wallet change refused as a duplicate submission |
-| `app/Http/Controllers/StoreFinanceController.php:1728` | Manual wallet change refused as a duplicate submission |
-| `app/Http/Controllers/StoreFinanceController.php:1929` | Manual wallet change refused as a duplicate submission |
+| `app/Http/Controllers/StoreFinanceController.php:367` | Financial action refused: operator has selected no merchant store |
+| `app/Http/Controllers/StoreFinanceController.php:2165` | Manual wallet change refused as a duplicate submission |
+| `app/Http/Controllers/StoreFinanceController.php:2366` | Manual wallet change refused as a duplicate submission |
 | `app/Http/Controllers/SavedViewController.php:117` | Saved view apply refused: not the owner or no such view |
 | `app/Http/Controllers/SavedViewController.php:136` | Saved view delete refused: not the owner or no such view |
 | `app/Http/Controllers/SenangPayController.php:140` | SenangPay plan return refused: the return hash could not be verified. |
@@ -250,14 +254,16 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/SofortController.php:233` | Plan payment return rejected: claimed amount does not match the plan price. |
 | `app/Http/Controllers/ZidOAuthController.php:31` | DS exchange failed |
 | `app/Http/Middleware/ActiveTheme.php:35` | Storefront visit log failed |
+| `app/Http/Middleware/AuctionBidIdentityGuard.php:410` | P1-SEC-61 auction bid refused: products.slug collision across stores. |
+| `app/Http/Middleware/AuctionBidIdentityGuard.php:424` | P1-SEC-61 auction bid refused: bid target does not belong to this storefront. |
 | `app/Http/Middleware/FlashedMessageSafety.php:74` | an exception object was flashed to a session and was replaced before it could be rendered |
 | `app/Http/Middleware/LotteryDrawOwnershipGuard.php:260` | lottery draw refused |
 | `app/Http/Middleware/ModuleOrderMutationGuard.php:378` | module order mutation refused |
 | `app/Http/Middleware/ModuleResourceOwnershipGuard.php:559` | module resource mutation refused |
-| `app/Models/Order.php:936` | Order return refused: the order carries no readable product_json |
-| `app/Models/Order.php:947` | Order return refused: the order lines are not in a shape this workflow can return |
-| `app/Models/Utility.php:2174` | New Order webhook skipped: no store could be resolved for the order |
-| `app/Models/Utility.php:2184` | New Order webhook skipped: the resolved store does not exist |
+| `app/Models/Order.php:998` | Order return refused: the order carries no readable product_json |
+| `app/Models/Order.php:1009` | Order return refused: the order lines are not in a shape this workflow can return |
+| `app/Models/Utility.php:2230` | New Order webhook skipped: no store could be resolved for the order |
+| `app/Models/Utility.php:2240` | New Order webhook skipped: the resolved store does not exist |
 | `app/Providers/PackageServiceProvider.php:80` | addon loader: the dynamic add-on pass failed, so some modules are not loaded |
 | `app/Providers/PackageServiceProvider.php:144` | addon loader: a module failed to load and its features are absent |
 | `app/Services/CodCollectionService.php:161` | COD collection refused: the event is not verifiable |

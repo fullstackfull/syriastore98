@@ -2,7 +2,7 @@
 @permission('Replay Support Ticket')
 <a aria-label="{{ __('Reply :thing', ['thing' => __('Support')]) }}" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--ghost" href="{{route('support_ticket.edit',$ticket->id)}}"  data-bs-toggle="tooltip"
 title="{{ __('Reply') }}">
-    <i class="fas fa-share"></i>
+    <i class="ti ti-share" aria-hidden="true"></i>
 </a>
 @endpermission
 

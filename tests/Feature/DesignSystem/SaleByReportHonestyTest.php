@@ -137,7 +137,20 @@ class SaleByReportHonestyTest extends TestCase
         $this->assertStringContainsString('<caption', $html);
         $this->assertStringContainsString('>Order value</th>', $html);
         $this->assertStringContainsString('>Items ordered</th>', $html);
-        $this->assertStringContainsString('>20</td>', $html, 'the series values are in the table');
+        /* D-42.3. RE-POINTED, not weakened: `>20</td>` encoded the DEFECT this assertion was
+           written beside. `netSeries` is money, and the component used to `intval` it and print
+           it with no decimal places, so 1234.56 rendered as `1,234` on the real route
+           /product-order-reports. Series A now keeps two places — the project's money rule, as
+           on the finance screen — while series B is a UNIT COUNT and keeps none. Asserting both
+           is strictly stronger than the single `>20</td>`: it proves the two series in one
+           table are formatted according to what they measure.
+           MEASURED cells for this fixture: ["10.00","1","20.00","2","30.00","3"]. */
+        $this->assertStringContainsString('>20.00</td>', $html,
+            'the money series must be in the table, with the cents it was given');
+        $this->assertStringContainsString('>2</td>', $html,
+            'and the unit COUNT beside it must stay a whole number');
+        $this->assertStringNotContainsString('>2.00</td>', $html,
+            'a count must not have grown decimal places along with the money');
         $this->assertStringContainsString('>21-Oct</th>', $html, 'the labels are in the table');
     }
 

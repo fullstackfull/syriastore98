@@ -1,0 +1,19 @@
+{
+  "findings": [],
+  "surfaces": [
+    [
+      "customer-status-toggle",
+      {
+        "combos": 4,
+        "chars": 0
+      }
+    ],
+    [
+      "customer-status-toggle-off",
+      {
+        "combos": 4,
+        "chars": 0
+      }
+    ]
+  ]
+}

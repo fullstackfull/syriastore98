@@ -74,7 +74,7 @@
         </div>
         <div class="col-6">
             <div class="form-group">
-                {{Form::label('',__('Maximum Result Length'),array('class'=>'col-form-label'))}}
+                {{Form::label('result_length',__('Maximum Result Length'),array('class'=>'col-form-label'))}}
                 {{ Form::number('result_length',10,['class'=>'form-control']) }}
             </div>
         </div>

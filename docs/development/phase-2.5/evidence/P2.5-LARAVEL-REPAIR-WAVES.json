@@ -1,0 +1,79 @@
+{
+ "chains": {
+  "finance": [
+   "finance-controls-have-no-labels",
+   "finance-status-badges-below-aa",
+   "finance-validation-failure-is-silent",
+   "withdrawal-native-confirm"
+  ],
+  "reports": [
+   "reports-csv-header-untranslated",
+   "reports-export-anchor-as-button",
+   "reports-export-no-failure-feedback"
+  ],
+  "ordergrid": [
+   "grid-card-icons-black",
+   "grid-row-actions-unnamed",
+   "grid-status-icon-colour-only"
+  ],
+  "header": [
+   "header-icononly-name-lost-by-tooltip",
+   "header-triggers-nameless-below-992"
+  ],
+  "settings": [
+   "area-wide-no-withinput-witherrors",
+   "settings-no-error-or-loading-state",
+   "settings-tabs-not-keyboard-reachable"
+  ],
+  "timeline": [
+   "timeline-white-box-dark-mode"
+  ],
+  "gallery": [
+   "gallery-image-actions-unnamed"
+  ],
+  "catalogue": [
+   "catalogue-unassociated-labels",
+   "switch-no-accessible-name",
+   "upload-not-keyboard-reachable"
+  ],
+  "shell": [
+   "offcanvas-sidebar-stays-focusable",
+   "shell-skip-link-after-chrome"
+  ],
+  "ds": [
+   "ds-switch-knob-dark-16"
+  ],
+  "kanban": [
+   "kanban-unbounded-render"
+  ],
+  "modal": [
+   "validation-errors-lose-the-modal"
+  ],
+  "primary": [
+   "primary-action-named-only-by-title"
+  ]
+ },
+ "waves": {
+  "0": [
+   "header",
+   "shell",
+   "finance",
+   "primary"
+  ],
+  "1": [
+   "settings",
+   "modal",
+   "reports"
+  ],
+  "2": [
+   "ordergrid",
+   "catalogue",
+   "ds",
+   "gallery"
+  ],
+  "3": [
+   "timeline",
+   "kanban"
+  ]
+ }
+}

@@ -1,6 +1,11 @@
 @extends('layouts.app')
 
-@section('page-title', __('Order'))
+{{-- P2.5-PKG-M (F-M-01). `__('Order')` -- SINGULAR, and SHARED WITH order/grid.blade.php, so
+     two different screens titled themselves identically and the browser tab said the same
+     thing for both. The Arabic made it worse: `الطلب` ("the order") against the sidebar's
+     `الطلبات`, the same disagreement PKG-L fixed between `العميل` and `الزبائن`. Both keys
+     already exist in ar.json, so this is a key change, not a translation change. --}}
+@section('page-title', __('Orders'))
 
 @section('action-button')
 <div class="text-end d-flex flex-wrap gap-2 justify-content-end">
@@ -15,7 +20,9 @@
             <i class="ti ti-file-export" aria-hidden="true"></i>
         </a>
 
-    <a href="{{ route('order.grid') }}" aria-label="{{ __('Grid View') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('Grid View') }}" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--secondary">
+    {{-- P2.5-ORD-10. `request()->query()`, which the board's link ten lines down already carried.
+         Without it the cards screen silently showed every order in the store. --}}
+    <a href="{{ route('order.grid', request()->query()) }}" aria-label="{{ __('Grid View') }}" data-bs-toggle="tooltip" data-bs-original-title="{{ __('Grid View') }}" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--secondary">
         <i class="ti ti-layout-grid" aria-hidden="true"></i>
     </a>
     {{-- P2-04-12: the board's entry point. The route existed from P2-04-7 with nothing linking

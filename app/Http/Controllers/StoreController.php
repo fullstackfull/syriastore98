@@ -113,7 +113,7 @@ class StoreController extends Controller
     if ($validator->fails()) {
         $messages = $validator->getMessageBag();
 
-        return redirect()->back()->with('error', $messages->first());
+        return redirect()->back()->with('error', implode(' ', $messages->all()));
     }
 
     /*
@@ -441,58 +441,165 @@ foreach ($defaultCurrencies as $currency) {
     /**
      * Show the form for editing the specified resource.
      */
+    /**
+     * `$id` HERE IS A **USER** ID. In `update()` below it is a **STORE** ID.
+     *
+     * That is not a typo in this comment -- the two methods on the same resource route take
+     * different kinds of id, and `resources/views/store/edit.blade.php` quietly bridges the gap by
+     * submitting `$store->id` rather than echoing back the `$id` it was reached with. So the happy
+     * path works, and `PUT /stores/{userId}` typed by hand writes to **whichever store happens to
+     * carry that number as its own id** -- a different tenant from the one this form was opened
+     * for.
+     *
+     * `update()` REFUSES AN UNRESOLVABLE ID AND A BROKEN OWNER LINK, NOT A MISMATCHED ONE. An
+     * earlier version of this note claimed it "refuses that", which an independent review showed
+     * was an overclaim: if the number is both a user id and a store id, both lookups succeed and
+     * the write lands on the wrong store. Only the platform operator can reach it (they may
+     * legitimately administer any store, so this is an integrity footgun rather than a cross-tenant
+     * authorization hole), and nothing in the UI links `stores.edit` or `stores.update` at all --
+     * the stores list links `users.edit`. A real fix means posting the owner's user id and
+     * verifying `$store->created_by` against it, which is a behavioural change larger than the
+     * finding warrants, so it is reported rather than taken.
+     *
+     * `destroy($id)` takes a USER id like this method; `show()` is empty. Both are left taking the
+     * id they already take: changing the meaning of a route parameter is a behavioural change, not
+     * a security fix.
+     */
     public function edit($id)
     {
-        if (auth()->user() && auth()->user()->type == 'super admin') {
-            $user = User::find($id);
-            $store = Store::where('created_by', $user->id)->first();
-            $setting = getSuperAdminAllSetting();
-
-            return view('store.edit', compact('store', 'user', 'setting'));
-        } else {
+        if (! $this->callerMayAdministerStores()) {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
+
+        $user = User::find($id);
+
+        // `User::find($id)` was dereferenced unguarded, so an unknown id was a 500 rather than a
+        // refusal. `User` is not tenant-scoped and has no `store_id`, so nothing else narrows it.
+        if (! $user) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        $store = Store::where('created_by', $user->id)->first();
+        $setting = getSuperAdminAllSetting();
+
+        return view('store.edit', compact('store', 'user', 'setting'));
     }
 
     /**
      * Update the specified resource in storage.
      */
+    /**
+     * `$id` HERE IS A **STORE** ID, unlike `edit()` above, which takes a user id.
+     *
+     * THIS METHOD REWRITES A MERCHANT'S EMAIL ADDRESS, which is an account-takeover primitive:
+     * change the address, then drive password reset against the new one. It also rewrites the
+     * store's `slug`, which is the storefront's public identity and the key every storefront
+     * handler resolves its tenant from (`getStore($slug)`, `getRouteStoreId()`).
+     *
+     * Shipped, it was gated on `auth()->user()->type == 'super admin'` and nothing else -- no
+     * permission, no policy, and no null handling, so `Store::find($id)` returning null was a 500
+     * on `$store->created_by`. Two guards are added below and both can only REFUSE more than
+     * before:
+     *
+     *   * the operator test is routed through one named helper instead of an inline string
+     *     comparison repeated across this controller, so it cannot drift method by method -- which
+     *     is exactly how the operator-spelling defect in `UserPolicy` arose;
+     *   * the store and its owner must both resolve, and the owner link must be consistent.
+     *
+     * The strictness of the operator test is UNCHANGED on purpose. `UserPolicy::isOperator()`
+     * normalises case and a trailing space, and MySQL's `utf8mb4_unicode_ci` treats `'Super Admin'`
+     * as equal to `'super admin'` -- so a row typed that way is the operator to the database and a
+     * stranger to this `==`. Normalising here would ADMIT an actor this code currently refuses, and
+     * the owner instruction of 2026-11-11 is *"Do not broaden operator permissions."* So the
+     * inconsistency is recorded rather than resolved: it is an owner decision, not a cleanup.
+     */
     public function update(Request $request, $id)
     {
-
-        if (auth()->user() && auth()->user()->type == 'super admin') {
-            $store = Store::find($id);
-            $user = User::find($store->created_by);
-
-            $validator = \Validator::make(
-                $request->all(),
-                [
-                    'name' => 'required|max:120',
-                    'storename' => 'required|max:120',
-                    'email' => 'required',
-                ]
-            );
-            if ($validator->fails()) {
-                $messages = $validator->getMessageBag();
-
-                return redirect()->back()->with('error', $messages->first());
-            }
-            $slug = User::slugs($request->storename);
-
-            $store->name = $request->storename;
-            $store->slug = $slug;
-            $store->email = $request->email;
-            $store->update();
-
-            $user->name = $request->name;
-            $user->email = $request->email;
-            $user->update();
-
-            return redirect()->back()->with('success', __('User Successfully Updated!'));
-        } else {
+        if (! $this->callerMayAdministerStores()) {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 
+        $store = Store::find($id);
+
+        // `edit()` is reached with a USER id and this method with a STORE id. Refusing an
+        // unresolvable id, and an owner link that does not hold, removes the 500s and the
+        // half-resolved writes -- but it does NOT refuse a number that happens to be a valid id of
+        // both kinds. That residue is operator-only and is recorded on edit()'s docblock rather
+        // than papered over here.
+        if (! $store) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        $user = User::find($store->created_by);
+
+        if (! $user) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        $validator = \Validator::make(
+            $request->all(),
+            [
+                'name' => 'required|max:120',
+                'storename' => 'required|max:120',
+                // `required` ALONE was the rule here, while the sibling `store()` uses
+                // `required|unique:users,email` (:107). Found by independent review, and it is the
+                // gap in this method's own docblock: it calls email rewriting an account-takeover
+                // primitive and then left off the one rule that bounds it. Without uniqueness the
+                // operator could set merchant B's address to merchant C's existing one, and both
+                // login and the password-reset broker resolve by
+                // `User::where('email', ...)->first()` -- so a duplicate silently re-points a
+                // recovery flow at the wrong row. Scoped to ignore this user's own id so saving
+                // the form unchanged still works.
+                'email' => 'required|email|unique:users,email,' . $user->id,
+            ]
+        );
+
+        if ($validator->fails()) {
+            $messages = $validator->getMessageBag();
+
+            return redirect()->back()->with('error', implode(' ', $messages->all()));
+        }
+
+        $slug = User::slugs($request->storename);
+
+        $store->name = $request->storename;
+        $store->slug = $slug;
+        $store->email = $request->email;
+        $store->update();
+
+        $user->name = $request->name;
+        $user->email = $request->email;
+        $user->update();
+
+        return redirect()->back()->with('success', __('User Successfully Updated!'));
+    }
+
+    /**
+     * May the CURRENT caller administer stores belonging to other people?
+     *
+     * One place, so the test cannot drift method by method. `StoreController` repeated
+     * `auth()->user()->type == 'super admin'` inline across its methods, and a repeated inline
+     * comparison is precisely how `UserPolicy` ended up with four methods testing operator status
+     * four different ways -- three of them against a literal that MySQL's collation and PHP's
+     * `===` disagree about.
+     *
+     * Operator-only, and deliberately no `isAbleTo()` fallback. These methods edit ANY merchant's
+     * store and rewrite that merchant's email address and their storefront's public slug; a
+     * permission-holding non-operator must not reach them, and adding a permission branch would
+     * widen a platform-level surface rather than narrow it.
+     *
+     * The comparison is kept byte-identical to what shipped -- `== 'super admin'`, not
+     * `UserPolicy::isOperator()` -- because normalising it would admit an actor whose `type` is
+     * `'Super Admin'` or carries a trailing space, and who is currently refused here. That would
+     * be a broadening, and the owner instruction of 2026-11-11 is "Do not broaden operator
+     * permissions." The disagreement between this test and the database's collation is real and is
+     * reported as an owner decision rather than settled here.
+     */
+    private function callerMayAdministerStores(): bool
+    {
+        $actor = auth()->user();
+
+        return $actor && $actor->type == 'super admin';
     }
 
     /**
@@ -501,14 +608,83 @@ foreach ($defaultCurrencies as $currency) {
     public function destroy($id)
     {
 
-        if (auth()->user() && auth()->user()->type == 'super admin') {
-            $user = User::find($id);
-            Setting::where('created_by', $user->id)->delete();
-            $user->delete();
-            return redirect()->back()->with('success', __('Store Successfully Deleted!'));
-        } else {
+        // THROUGH THE SHARED HELPER, not a literal comparison. `type !== 'super admin'` disagrees
+        // with `UserPolicy::isOperator()` for `'Super Admin'` and for `'super admin '` -- values
+        // MySQL's utf8mb4_unicode_ci treats as EQUAL to the literal, so a row typed either way is
+        // the operator to the database and a stranger to this line. Found by independent review.
+        if (! auth()->user() || ! \App\Policies\UserPolicy::isOperator(auth()->user())) {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
+
+        /*
+         * P0-DELETE, THE THIRD DOOR. This route deletes a STORE by deleting its OWNER, which is
+         * the unsafe pattern the whole P0 repair is about: `users` has no soft delete and
+         * `stores.created_by` is ON DELETE CASCADE, so the row-delete takes the store AND the
+         * wallet, the wallet transactions, the withdrawals and the per-order financials with it,
+         * while `orders`, `customers` and `products` survive pointing at a store that is gone.
+         *
+         * IT IS GUARDED RATHER THAN REWRITTEN, on the owner's instruction: *"If implementing a
+         * safe guard requires a breaking business decision, keep deletion disabled for the
+         * affected cases and report the limitation. Never proceed with destructive behavior."*
+         *
+         * THE LIMITATION, STATED PLAINLY: a store owner always owns a store, so this route now
+         * always refuses. That costs no shipped workflow -- a repo-wide grep finds NO view
+         * linking to `stores.destroy`; it is reachable only by a crafted request. The merchant's
+         * own store removal is a different route with a UI (`ownerstore-remove`,
+         * AppSetting/index.blade.php:285), and that one deletes the STORE, preserving orders and
+         * plan orders under owner decision D14.
+         *
+         * `User::find()` was also unchecked: a non-existent id reached `$user->id` and fatalled.
+         */
+        $user = User::find($id);
+
+        if ($user === null) {
+            return redirect()->back()->with('error', __('User not found.'));
+        }
+
+        /*
+         * THE SAME TRANSACTION AND THE SAME LOCK AS THE OTHER TWO DOORS. This one was written as a
+         * plain check-then-delete and independent review caught it: the reasoning recorded on
+         * `UserController::destroy` -- that a store created between the count and the DELETE would
+         * be destroyed by a guard that had just proved there was none -- applies here verbatim and
+         * had not been applied. Operator-only, so it needs the operator plus a concurrent write;
+         * that makes it a consistency hole rather than a live attack, and it is still the kind of
+         * hole this whole repair exists to close.
+         */
+        $blockers = [];
+
+        DB::transaction(function () use ($user, &$blockers) {
+            $locked = User::whereKey($user->getKey())->lockForUpdate()->first();
+
+            if ($locked === null) {
+                return;
+            }
+
+            $blockers = \App\Services\UserDeletionSafety::blockers($locked);
+
+            if ($blockers !== []) {
+                return;
+            }
+
+            // UNREACHABLE BY DESIGN, and kept rather than deleted. `settings` is an entry in
+            // ORPHAN_DEPENDENCIES, so a user with any `settings` row is already refused above and
+            // this line only ever runs when there is nothing to delete. It stays because it is the
+            // correct cleanup if `settings` is ever moved out of that list, and a silent gap would
+            // be worse than a no-op. Same at UserController::destroy.
+            Setting::where('created_by', $locked->id)->delete();
+
+            $locked->delete();
+        });
+
+        if ($blockers !== []) {
+            return redirect()->back()->with(
+                'error',
+                __('This account cannot be deleted because it still owns data.') . ' '
+                . implode('; ', $blockers)
+            );
+        }
+
+        return redirect()->back()->with('success', __('Store Successfully Deleted!'));
     }
 
 
@@ -548,7 +724,7 @@ foreach ($defaultCurrencies as $currency) {
             );
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
             $enable_storelink = Utility::GetValueByName('enable_storelink', $store->id);
             $enable_domain = Utility::GetValueByName('enable_domain', $store->id);
@@ -1031,7 +1207,15 @@ foreach ($defaultCurrencies as $currency) {
             );
             $serverIp = gethostbyname($serverName);
 
-            if ($serverIp == $_SERVER['SERVER_ADDR']) {
+            /* P2.5-WAVE-23. The same unguarded `$_SERVER['SERVER_ADDR']` read that made
+             * /app-setting return HTTP 500 under a SAPI that does not set the key.
+             *
+             * STATED HONESTLY: this route was NOT driven, so this is prevention, not a measured
+             * repair -- the crash was measured on AppSettingController::index and this is the
+             * identical pattern two files away. `request()->server()` reads the same `$_SERVER`
+             * bag, so where the key exists nothing changes at all; the else-branch below already
+             * used the safe accessor. */
+            if ($serverIp == request()->server('SERVER_ADDR')) {
                 $serverIp;
             } else {
                 $serverIp = request()->server('SERVER_ADDR');

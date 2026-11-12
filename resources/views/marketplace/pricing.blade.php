@@ -638,32 +638,32 @@
                 <div class="row">
                     <div class="col-lg-6 col-md-6 col-12">
                         <div class="form-group">
-                            <label class="form-label">{{ __('Name') }}</label>
+                            <label class="form-label">{{ __('Name') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                             <input id="name" type="text" class="form-control" name="name" value="" required="required" autocomplete="name" autofocus>
                         </div>
                     </div>
                     <input type="hidden" name = "type" value="pricing" id="type">
                     <div class="col-lg-6 col-md-6 col-12">
                         <div class="form-group">
-                            <label class="form-label">{{ __('WorkSpace Name') }}</label>
+                            <label class="form-label">{{ __('WorkSpace Name') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                             <input id="store_name" type="text" class="form-control" name="store_name" value="" required="required" >
                         </div>
                     </div>
                     <div class="col-lg-6 col-md-6 col-12">
                         <div class="form-group">
-                            <label class="form-label">{{ __('Email') }}</label>
+                            <label class="form-label">{{ __('Email') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                             <input id="email" type="email" class="form-control " name="email" value="" required="required">
                         </div>
                     </div>
                     <div class="col-lg-6 col-md-6 col-12">
                         <div class="form-group">
-                            <label class="form-label">{{ __('Password') }}</label>
+                            <label class="form-label">{{ __('Password') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                             <input id="password" type="password" class="form-control" name="password" required="required">
                         </div>
                     </div>
                     <div class="col-lg-6 col-md-6 col-12">
                         <div class="form-group">
-                            <label class="form-label">{{__('Confirm password')}}</label>
+                            <label class="form-label">{{__('Confirm password')}}</label><span class="ss-label__required" aria-hidden="true">*</span>
                             <input id="password_confirmation" type="password" class="form-control" name="password_confirmation" required="required">
                             <small class="text-danger password-msg d-none">{{ __('Passwords do not match!')}}</small>
                         </div>

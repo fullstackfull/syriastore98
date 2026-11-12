@@ -17,7 +17,7 @@
     @if (auth()->user()->type == 'super admin')
         <div class="text-end d-flex all-button-box justify-content-md-end justify-content-center">
             <a href="{{ route('plan.create') }}" class="btn btn-sm btn-badge btn-primary" data-bs-toggle="tooltip"
-            title="{{ __('Create New Plan') }}">
+            title="{{ __('Create New Plan') }}" aria-label="{{ __('Create New Plan') }}">
                 <i class="ti ti-plus"></i>
             </a>
         </div>
@@ -67,7 +67,7 @@
                                                 <a href="#!"
                                                     class="bs-pass-para btn btn-danger show_confirm btn-icon btn-sm" data-bs-toggle="tooltip" data-confirm="{{ __('Are You Sure?') }}"
                                                     data-text="{{ __('This action can not be undone. Do you want to continue?') }}" data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}" 
-                                                    title="{{ __('Delete') }}">
+                                                    title="{{ __('Delete') }}" aria-label="{{ __('Delete') }}">
                                                     <i class="ti ti-trash"></i>
                                                 </a>
                                                 {!! Form::close() !!}

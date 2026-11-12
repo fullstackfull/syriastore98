@@ -162,23 +162,64 @@ class Customer extends Authenticatable implements CanResetPasswordContract
         }
     }
 
+    /**
+     * P2.5-PKG-C (F-C-07). THE ORDERS THAT BELONG TO THIS CUSTOMER *IN THIS CUSTOMER'S OWN STORE*.
+     *
+     * ONE HELPER, BECAUSE THE DEFECT WAS THE DUPLICATION. `Ordercount()` and `total_spend()` were
+     * the same five lines twice and BOTH were missing the same predicate, so fixing one would have
+     * left the other leaking. They now share this query.
+     *
+     * WHAT WAS WRONG, MEASURED rather than argued (CustomerOrderAggregateTenancyTest):
+     * none of the three queries carried a store predicate, and `Order` is absent from
+     * `config/tenancy.php`'s `scoped_models`, so `StoreScope` adds none for any principal.
+     *
+     *     store A customer, one $100 guest order in A and one $900 guest order in B,
+     *     both billed to the same email address:
+     *         Ordercount()   -> 2     (should be 1)
+     *         total_spend()  -> 1000  (should be 100)
+     *
+     * So store A's merchant was shown STORE B'S REVENUE attributed to their own customer. The
+     * direct branch leaked the same way: `orders.customer_id` carries no composite key with
+     * `store_id`, so the same id on an order in another store was counted too.
+     *
+     * THE GUEST BRANCH IS THE LIVE ONE, not an edge case. It runs whenever no order carries the
+     * customer's own id -- the ordinary state for someone who checked out as a guest -- and it
+     * matched `order_billing_details` BY EMAIL ACROSS EVERY STORE. That table has no `store_id`
+     * column at all (measured), so the only route to a tenant is through `order_id` ->
+     * `orders.store_id`, which is what the predicate below does.
+     *
+     * SERVER-DERIVED, never from request input: the store comes from this customer's own row, and
+     * `Customer` is store-scoped, so the row itself was already resolved within a tenant.
+     *
+     * FAILS CLOSED on a customer with no store: such a row matches no store's orders, and
+     * answering with every store's would be the defect inverted.
+     *
+     * Also no longer loads every matching row twice just to count them.
+     */
+    private function ownStoreOrders()
+    {
+        $storeId = (int) ($this->store_id ?? 0);
+
+        if ($storeId <= 0) {
+            return Order::whereRaw('1 = 0');
+        }
+
+        $direct = Order::where('store_id', $storeId)->where('customer_id', $this->id);
+
+        if ($direct->clone()->exists()) {
+            return $direct;
+        }
+
+        // The guest fallback, scoped through the order rather than the billing row, because the
+        // billing table cannot be scoped on its own.
+        return Order::where('store_id', $storeId)
+            ->where('customer_id', 0)
+            ->whereIn('id', OrderBillingDetail::where('email', $this->email)->pluck('order_id'));
+    }
+
     public function Ordercount()
     {
-        $users_id = Order::where('customer_id', $this->id)->get();
-        if($users_id->count() == 0){
-            $orders_detail = OrderBillingDetail::where('email',$this->email)->get()->toArray();
-            $order_id = [];
-            foreach($orders_detail as $orders){
-                $order_id[] = $orders['order_id'];
-
-            }
-            $orders = Order::whereIn('id', $order_id)->where('customer_id', 0)->count();
-        }
-        else{
-            $orders = Order::where('customer_id', $this->id)->count();
-
-        }
-        return $orders;
+        return $this->ownStoreOrders()->count();
     }
 
     /**
@@ -247,23 +288,14 @@ class Customer extends Authenticatable implements CanResetPasswordContract
         return $this->hasOne(DeliveryAddress::class, 'customer_id', 'id');
     }
 
+    /**
+     * P2.5-PKG-C (F-C-07). See `ownStoreOrders()`. This SUMS money, so it was the sharper half of
+     * that defect: another store's `final_price` appeared in this store's figure, and AOV --
+     * `total_spend() / Ordercount()` at `CustomerDataTable:96,202` and `CustomerController:560` --
+     * was computed from two wrong inputs.
+     */
     public function total_spend(){
-        $users_id = Order::where('customer_id', $this->id)->get();
-        if($users_id->count() == 0){
-            $orders_detail = OrderBillingDetail::where('email',$this->email)->get()->toArray();
-            $order_id = [];
-            foreach($orders_detail as $orders){
-                $order_id[] = $orders['order_id'];
-
-            }
-            $orders = Order::whereIn('id',$order_id)->where('customer_id', 0)->get();
-            $total_spend = $orders->sum('final_price');
-
-        }else{
-            $orders = Order::where('customer_id',$this->id)->get();
-            $total_spend = $orders->sum('final_price');
-        }
-        return $total_spend;
+        return $this->ownStoreOrders()->sum('final_price');
     }
 
     public function getTotal()

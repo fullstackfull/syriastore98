@@ -1590,6 +1590,33 @@ public function OrderList(Request $request)
         }
     }
 
+    /**
+     * The store's currency symbol, resolved the way every other handler here resolves it.
+     *
+     * P2.5-TAX-CURRENCY. Extracted rather than copied a fourth time: `ProductList` (:1317),
+     * `:1484` and `:2630` each carry this block verbatim. Those three are deliberately left alone
+     * -- rewriting working handlers is not part of this bounded change -- but the next site that
+     * needs a symbol should call this instead of growing the duplication.
+     *
+     * The fallback chain is the existing one and is unchanged: the active `currency_rates` row for
+     * the store's configured currency; failing that `$` only when the configured currency really
+     * is USD; failing that the currency CODE, which is a poor symbol but an honest one. There is
+     * no hard-coded `$` default for a store that has not been configured.
+     */
+    private function storeCurrencySymbol($store): string
+    {
+        $currencyCode = \App\Models\Utility::GetValueByName('defult_currancy', $store->id) ?? 'USD';
+
+        $currencyRate = \App\Models\CurrencyRate::where('store_id', $store->id)
+            ->where('currency_code', $currencyCode)
+            ->where('is_active', 1)
+            ->first();
+
+        return $currencyRate
+            ? $currencyRate->symbol
+            : ($currencyCode === 'USD' ? '$' : $currencyCode);
+    }
+
     public function TaxList(Request $request)
     {
         $store = $this->resolveOwnedStore($request->store_id);
@@ -1600,7 +1627,21 @@ public function OrderList(Request $request)
         $tax = Tax::where('store_id', $store->id)->OrderBy('id', 'desc')->paginate(10);
 
         if (!empty($tax)) {
-            return $this->success($tax);
+            // P2.5-TAX-CURRENCY. ADDITIVE: every key the paginator already sent is still sent,
+            // with `currency_symbol` beside them -- the same shape and the same key name
+            // `ProductList` already uses (:1346), so the app parses it the same way.
+            //
+            // WHY IT WAS NEEDED. This endpoint returned the paginator and nothing else, and
+            // nothing in the admin app caches a store currency -- every `currencySymbol` in it is
+            // assigned from the response of that screen's own endpoint. So the tax screen had no
+            // way to know the store's currency and printed a hard-coded `$` on a fixed-amount
+            // tax, which is wrong for every store that does not price in dollars. The `$` was
+            // removed when the defect was found; this is what lets the right symbol take its
+            // place.
+            return $this->success(array_merge(
+                $tax->toArray(),
+                ['currency_symbol' => $this->storeCurrencySymbol($store)]
+            ));
         } else {
             return $this->error(['message' => __('Tax Data not found.')]);
         }
@@ -4998,7 +5039,23 @@ public function DeleteStore(Request $request)
 
         Category::where('store_id', $store->id)->delete();
         Newsletter::where('store_id', $store->id)->delete();
-        PlanOrder::where('store_id', $store->id)->delete();
+        // PlanOrder IS BILLING. Same decision as the `Order` delete above: these are the records
+        // of what the merchant paid the platform, and they outlive the store.
+        //
+        // THIS DOOR WAS MISSED WHEN THAT DECISION WAS APPLIED. The web twin,
+        // StoreController::destroy, has carried this exact line commented out with that exact
+        // rationale -- and StoreController:994 even points here -- but the API twin kept deleting.
+        // It is the more reachable of the two: `DELETE api/admin/deletestore` under `custom.auth`,
+        // which the shipped Flutter admin app calls with a `User` Sanctum token. The handler's own
+        // predicate (`created_by = $user->id`, :4966) is satisfied by a merchant deleting THEIR
+        // OWN store, so a merchant holding more than one store erased their own payment history --
+        // order id, price paid, payment status, and the pointer to the bank slip they uploaded as
+        // proof of payment.
+        //
+        // Reinforced by the owner instruction of 2026-11-11: "Treat financial-record deletion as
+        // prohibited pending an approved retention and correction policy." BankTransferController
+        // ::destroy() refuses every caller for the same reason; this was the live bypass of it.
+        // PlanOrder::where('store_id', $store->id)->delete();
         Testimonial::where('store_id', $store->id)->delete();
         Setting::where('store_id', $store->id)->delete();
         Shipping::where('store_id', $store->id)->delete();
@@ -5091,7 +5148,10 @@ public function DeleteStore(Request $request)
         Coupon::where('store_id', $store->id)->delete();
         Category::where('store_id', $store->id)->delete();
         Newsletter::where('store_id', $store->id)->delete();
-        PlanOrder::where('store_id', $store->id)->delete();
+        // PlanOrder IS BILLING -- commented out for the same reason as in DeleteStore() above,
+        // even though nothing routes this method. A dead copy carrying the live line is how the
+        // decision came to be applied on one door and not the other in the first place.
+        // PlanOrder::where('store_id', $store->id)->delete();
         Testimonial::where('store_id', $store->id)->delete();
         Setting::where('store_id', $store->id)->delete();
         Shipping::where('store_id', $store->id)->delete();
@@ -6254,110 +6314,6 @@ public function destroy(Request $request, $id = null)
         ], 500);
     }
 }
-public function store(Request $request)
-{
-    try {
-        $adminUser = auth()->user();
-
-        if (!$adminUser) {
-            return response()->json([
-                'status' => 0,
-                'message' => 'fail',
-                'data' => ['message' => 'Unauthorized. Valid token is required.']
-            ], 401);
-        }
-
-        $storeId = $request->query('store_id');
-
-        \Validator::make(['store_id' => $storeId], [
-            'store_id' => 'required|integer|exists:stores,id'
-        ])->validate();
-
-        $validated = $request->validate([
-            'first_name' => 'required|string|max:255',
-            'last_name' => 'required|string|max:255',
-            'email' => [
-                'required',
-                'email',
-                'max:255',
-                \Illuminate\Validation\Rule::unique('customers', 'email')
-                    ->where('store_id', $storeId) 
-            ],
-            'mobile' => 'required|string|max:20',
-            'password' => 'required|string|min:8',
-            'status' => 'required|in:0,1',
-        ]);
-
-        $store = $this->resolveOwnedStore($storeId);
-
-        if (!$store) {
-            return response()->json([
-                'status' => 0,
-                'message' => 'fail',
-                'data' => ['message' => 'You do not have permission to add customers to this store.']
-            ], 403);
-        }
-
-        $customer = \App\Models\Customer::create([
-            'first_name' => $validated['first_name'],
-            'last_name' => $validated['last_name'],
-            'email' => $validated['email'],
-            'mobile' => $validated['mobile'] ?? null,
-            // A FIXED, PUBLIC DEFAULT IS NOT A PASSWORD. This fell back to Hash::make('default123')
-            // -- a literal committed to this repository -- whenever an administrator created a
-            // customer without supplying one, so anyone who read the source could sign in as every
-            // such account. Same defect as the 'hello@1234' the recovery emergency removed and the
-            // '1234' in PaymentController::createCustomer.
-            //
-            // A long random value leaves the account recoverable through the password-reset flow
-            // but not signable-into with a known value. Nothing attempts a login with the old
-            // literal (checked across app/).
-            'password' => !empty($validated['password'])
-                ? \Hash::make($validated['password'])
-                : \Hash::make(\Illuminate\Support\Str::random(64)),
-            'type' => 'customer',
-            'status' => $validated['status'],
-            'store_id' => $storeId, 
-            'regiester_date' => now()->toDateString(),
-            'last_active' => now()->toDateString(),
-            'created_by' => $adminUser->id,
-            'email_verified_at' => now(),
-        ]);
-
-        return response()->json([
-            'status' => 1,
-            'message' => 'successful',
-            'data' => [
-                'message' => 'Customer created successfully.',
-                'customer_id' => $customer->id,
-                'store_id' => $storeId
-            ]
-        ], 201);
-
-    } catch (\Illuminate\Validation\ValidationException $e) {
-        return response()->json([
-            'status' => 0,
-            'message' => 'fail',
-            'data' => [
-                'message' => 'Validation failed.',
-                'errors' => $e->errors()
-            ]
-        ], 422);
-
-    } catch (\Exception $e) {
-        \Log::error('API Customer Store Error: ' . $e->getMessage() . ' | File: ' . $e->getFile() . ' | Line: ' . $e->getLine());
-
-        return response()->json([
-            'status' => 0,
-            'message' => 'fail',
-            'data' => [
-                'message' => 'Failed to create customer. Please try again later.'
-            ]
-        ], 500);
-    }
-}  
-  
-
 public function createOrderViaApi(Request $request)
 {
     $storeId = $request->query('store_id');
@@ -8443,14 +8399,46 @@ public function getCustomerOrdersApi(Request $request)
 
         $aov = $ordersCount > 0 ? ($totalSpend / $ordersCount) : 0;
 
-        $ordersQuery = \App\Models\Order::where('customer_id', $id);
-        if ($ordersQuery->count() == 0) {
+        /*
+         * P2.5-PKG-C (F-C-08). `->where('store_id', $storeId)` ON BOTH BRANCHES, which the count
+         * and the sum TEN LINES ABOVE already had and this list did not.
+         *
+         * That asymmetry is what makes it an omission rather than a decision: `$ordersCount` at
+         * :8436 and `$totalSpend` at :8440 are both scoped, and this query -- the one whose rows
+         * are expanded in full by `Order::order_detail()` below and returned -- was not. So the
+         * figures were this store's and the ORDERS were every store's.
+         *
+         * MEASURED before this change (CustomerOrderAggregateTenancyTest): merchant A, their own
+         * customer, one $100 guest order in A and one $900 guest order in B billed to the same
+         * email -- the response listed BOTH, with full order detail for each.
+         *
+         * `resolveOwnedStore($storeId)` above guards the store_id PARAMETER, not these rows: the
+         * merchant legitimately owns the store they named and the customer really is theirs, so
+         * that check passes and cannot help here. `Order` is absent from `scoped_models`, so
+         * `StoreScope` adds no predicate either. `$storeId` is already authorised at this point.
+         *
+         * THIS IS THE API TWIN of `Customer::ownStoreOrders()`, and it is the one with a shipped
+         * client: the route is `/api/admin/customer/orders`, inside `Route::prefix('admin')`,
+         * which is the Flutter admin app's base URL. The response SHAPE is unchanged and no new
+         * status code is introduced -- the orders array simply no longer carries another store's
+         * rows, so the app sees fewer entries and never a new error.
+         *
+         * NOT CHANGED, and recorded instead: `$ordersCount` uses only the direct branch while
+         * this list has the email fallback, so for a guest-only customer the response still says
+         * "0 orders" and "$0 total spend" while listing their orders. That incoherence is real and
+         * pre-existing, but reconciling it is a decision about what the figure MEANS.
+         */
+        $ordersQuery = \App\Models\Order::where('store_id', $storeId)->where('customer_id', $id);
+
+        if ($ordersQuery->clone()->count() == 0) {
             $orders_detail = \App\Models\OrderBillingDetail::where('email', $customer->email)->get()->toArray();
             $order_id = [];
             foreach ($orders_detail as $orders) {
                 $order_id[] = $orders['order_id'];
             }
-            $ordersQuery = \App\Models\Order::whereIn('id', $order_id)->where('customer_id', 0);
+            $ordersQuery = \App\Models\Order::where('store_id', $storeId)
+                ->whereIn('id', $order_id)
+                ->where('customer_id', 0);
         }
 
         $perPage = $request->query('per_page', 15);
@@ -8569,6 +8557,136 @@ public function addCustomer(Request $request)
             'store_id' => 'required|integer|exists:stores,id'
         ])->validate();
 
+        /*
+         * OWNERSHIP BEFORE FIELD VALIDATION, and the ORDER is the fix -- no rule here changes.
+         *
+         * `$storeId` above is `$request->query('store_id')`: CALLER-SUPPLIED. The e-mail rule
+         * below is correctly scoped to it, but until `resolveOwnedStore()` has run nothing has
+         * checked that the caller owns that store. So a merchant posted another merchant's
+         * `store_id` with an address and the 422 told them whether that address is a customer of
+         * that store; the 403 arrived only afterwards, for requests that got past validation.
+         *
+         * MEASURED before the move, in AddCustomerEmailDisclosureTest: a known address answered
+         * **422** and an unknown one **403** for the same non-owned store. One bit per request,
+         * and a list of addresses enumerates another merchant's customer base.
+         *
+         * `resolveOwnedStore()` itself was already correct (`:4543-4563`) -- it compares
+         * `created_by` against `creatorId()` and exempts the operator. It was simply called too
+         * late to protect anything.
+         *
+         * NOTHING CHANGES FOR A CALLER WHO OWNS THE STORE: same rules, same 422, same reason, and
+         * two tests pin that. Only a NON-owner's answer changes, from 422 to 403, which is the
+         * point. 403 and not 401, so the shipped Flutter app's force-logout-on-401 rule is not
+         * engaged by this.
+         */
+        $store = $this->resolveOwnedStore($storeId);
+
+        if (!$store) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'You do not have permission to add customers to this store.']
+            ], 403);
+        }
+
+        /*
+         * S2 — THE PERMISSION CHECK THIS HANDLER SHIPPED WITHOUT. Owner-authorised 2026-11-07,
+         * "NARROW FIX AUTHORIZED", and tracked at docs/security/P01-SECURITY-WORK-QUEUE.md.
+         *
+         * Until this line the only gates were a 401 for a missing token and the ownership 403
+         * above. There was no `isAbleTo` and no operator limb anywhere in the method, while its
+         * WEB SIBLING -- `CustomerController::store():50-54` -- has required `Manage Customer`
+         * since the escalation recorded at `CustomerController.php:21-26` ("Any authenticated user
+         * could create a customer... A HIDDEN BUTTON IS NOT A FIX"). The same operation was gated
+         * on one surface and open on the other.
+         *
+         * MEASURED, not inferred: a staff member holding NO permissions obtained an admin token
+         * (`login` restricts only `is_active`/`is_enable_login`, never `type`), resolved their
+         * owning merchant's store through `resolveOwnedStore()` -- which scopes on
+         * `created_by = $user->creatorId()`, and `creatorId()` returns `created_by` for any type
+         * that is not admin/super admin -- and got 201. And the write is a CREDENTIAL: the create
+         * below sets `password` from the request and `email_verified_at => now()`, so the account
+         * signs in to that merchant's storefront at once.
+         *
+         * `MerchantPermissions::allowsAny()` AND NOT `isAbleTo()`, which is the whole of the
+         * ordering question and the reason this is not a one-liner:
+         *
+         *   * `isAbleTo()` ALONE REFUSES THE PLATFORM OPERATOR. There is no super-admin bypass in
+         *     this codebase -- operator status is a string on `users.type` -- so an operator-last
+         *     check here would be a LOCKOUT rather than a tightening. `MerchantPermissions`
+         *     answers WILDCARD for the operator, which is the established operator-first handling
+         *     and is reused rather than re-derived.
+         *   * `isAbleTo()` IS NOT STORE-SCOPED. `allPermissions()` unions every role the principal
+         *     holds with no store predicate, so a staff member granted the permission in one store
+         *     would carry it into every other store of the same merchant. `MerchantPermissions`
+         *     corrects exactly that, keeping the NULL-store arm so a merchant -- who holds the
+         *     global `admin` role -- does not lose their own permissions when they are read per
+         *     store.
+         *
+         * THE PRECEDENT IS `:2403`, the `Edit Products` gate -- about 6,280 lines ABOVE this
+         * one, not below it. An earlier draft of this comment said "150 lines below"; the
+         * independent review measured the call sites (`:804`, `:809`, `:944`, `:1083`, `:2403`,
+         * `:4804`, `:6442`, and this one) and there is NO `MerchantPermissions` call after this
+         * point in the file at all. A comment that is wrong about where its own precedent lives
+         * sends the next reader to the wrong code, which this project treats as a defect in its
+         * own right (`MerchantPermissions.php:138-141`).
+         *
+         * THE CALL IS THE SAME AS `:2403`; THE RESPONSE DELIBERATELY IS NOT. That gate answers
+         * `$this->error([...])`, and `ApiResponser::error()` is HTTP **200** with `{status: 0}`.
+         * This one answers a real 403, for two reasons that both point the same way: the owner's
+         * authorising instruction is explicit -- *"Return 403 for authenticated users lacking
+         * permission, not 401"* -- and the ownership refusal 59 lines above already answers 403
+         * with this exact body, so matching it is what keeps the two refusals indistinguishable.
+         * Matching `:2403` instead would have made the permission refusal a 200 that the shipped
+         * app reads as a generic failure. NO NEW PERMISSION MODEL: the name is the existing
+         * `MerchantDashboardAbilities::PERMISSION_CUSTOMERS`, which is what the web form, the
+         * merchant search and the quick actions all already ask for.
+         *
+         * PLACED AFTER THE OWNERSHIP 403, deliberately. Both refusals answer 403 with the same
+         * body, so a caller cannot tell "I do not own that store" from "I lack the right" -- no
+         * new existence oracle, which is the defect this same handler was repaired for earlier in
+         * this branch.
+         *
+         * 403 AND NEVER 401. `ApiResponser::error()` returns HTTP 200 by default and 401 must be
+         * passed deliberately; the shipped Flutter app FORCES A LOGOUT on any 401, so answering
+         * 401 to a permission refusal would sign a merchant's staff out of the app instead of
+         * telling them they lack a right. A test asserts the code is not 401.
+         */
+        if (! \App\Services\MerchantPermissions::allowsAny(
+            $adminUser,
+            [\App\Support\MerchantDashboardAbilities::PERMISSION_CUSTOMERS],
+            $store->id
+        )) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => 'You do not have permission to add customers to this store.']
+            ], 403);
+        }
+
+        /*
+         * TAKE THE ID FROM THE RESOLVED STORE, NOT FROM THE QUERY STRING. Until this line,
+         * `$storeId` was the caller's own `$request->query('store_id')` all the way through --
+         * into the uniqueness rule below, into `Customer::create(['store_id' => $storeId])` and
+         * into the `DeliveryAddress::create()` after it.
+         *
+         * IT WAS NOT EXPLOITABLE, and that is stated rather than implied: `resolveOwnedStore()`
+         * matched `Store::where('id', $storeId)`, so the value identifies the store that was
+         * checked, and `required|integer|exists:stores,id` above rejects the shapes that could
+         * make the two queries disagree -- `'5.0'`, an overflow, a non-integer -- while numeric
+         * affinity collapses `'+5'` and `' 5'` identically in both. The review of this change
+         * tried to make them diverge and could not.
+         *
+         * SO THIS IS HARDENING, AND IT HAS NO BITE TEST, because there is no input that behaves
+         * differently before and after. Saying so is the point: the value of the line is that the
+         * next reader does not have to redo the paragraph above, and that this handler now matches
+         * `updateCustomerInfo()` (`:9179`), which has always done exactly this.
+         *
+         * It also corrects a claim I made in the commit for the ordering fix, which said `$storeId`
+         * was already reassigned here. It was not. Raised by the tenant-authz review.
+         */
+        $storeId = $store->id;
+
         $validated = $request->validate([
             'first_name' => 'required|string|max:255',
             'last_name'  => 'required|string|max:255',
@@ -8576,7 +8694,9 @@ public function addCustomer(Request $request)
                 'required',
                 'email',
                 'max:255',
-                \Illuminate\Validation\Rule::unique('customers', 'email')->where('store_id', $storeId)
+                \Illuminate\Validation\Rule::unique('customers', 'email')
+                    ->where('store_id', $storeId)
+                    ->whereNull('deleted_at')
             ],
             'mobile'     => 'required|string|regex:/^\+?[0-9\s\-]{8,20}$/',
             'password'   => 'required|string|min:8|regex:/^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*?&]{8,}$/',
@@ -8593,15 +8713,9 @@ public function addCustomer(Request $request)
             'address_type'        => 'nullable|in:0,1,2',
         ]);
 
-        $store = $this->resolveOwnedStore($storeId);
-
-        if (!$store) {
-            return response()->json([
-                'status' => 0,
-                'message' => 'fail',
-                'data' => ['message' => 'You do not have permission to add customers to this store.']
-            ], 403);
-        }
+        // The ownership resolution that used to sit HERE has moved ABOVE the field validation.
+        // See the note there: it was the ordering, not the check, that leaked. $store is
+        // already resolved and already proven owned by the time this point is reached.
 
         \DB::beginTransaction();
 
@@ -9107,6 +9221,7 @@ public function updateCustomerInfo(Request $request)
                 \Illuminate\Validation\Rule::unique('customers', 'email')
                     ->ignore($request->customer_id)
                     ->where('store_id', $storeId)
+                    ->whereNull('deleted_at')
             ],
             'mobile' => 'nullable|string|max:20',
             'status' => 'nullable|in:0,1',

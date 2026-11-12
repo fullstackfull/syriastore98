@@ -125,9 +125,41 @@ class ProfileTest extends TestCase
         $this->assertNotNull($user->refresh()->email_verified_at);
     }
 
-    public function test_user_can_delete_their_account(): void
+    /**
+     * THIS TEST IS NOT EVIDENCE THAT ACCOUNT DELETION IS SAFE, and it was being read that way.
+     *
+     * It is green because `User::factory()` creates a CHILDLESS user: no store, no subscription,
+     * no orders. `users` has no soft delete and `stores.created_by` is ON DELETE CASCADE, so a
+     * user who owns anything takes their store, wallet, wallet transactions, withdrawals and
+     * per-order financials with them -- and this case never had any, so the cascade was invisible
+     * rather than absent. The blast radius being empty is the only reason the delete succeeds.
+     *
+     * That scope is now ASSERTED rather than implied, below, so the case cannot silently widen:
+     * if the factory ever starts giving the user a store, the premise fails loudly instead of
+     * this test quietly becoming a test of something else.
+     *
+     * The refusals live in tests/Feature/Security/UserDeletionAuthorizationTest -- a store owner,
+     * a user with a subscription record, a user who created orders, and the same through
+     * /profile. Five of those fail with the guard reverted.
+     */
+    public function test_a_dependency_free_user_can_delete_their_account(): void
     {
         $user = User::factory()->create();
+
+        // THE PREMISE, so this case states its own scope.
+        $this->assertSame(
+            0,
+            \Illuminate\Support\Facades\DB::table('stores')->where('created_by', $user->id)->count(),
+            'The factory user owns a store, so this is no longer the dependency-free case and the '
+            . 'deletion below would be a tenant wipe. Point this test at a user with no '
+            . 'dependencies, or move it.'
+        );
+
+        $this->assertSame(
+            [],
+            \App\Services\UserDeletionSafety::blockers($user),
+            'The factory user has dependencies, so this case is not what its name says.'
+        );
 
         $response = $this
             ->actingAs($user)

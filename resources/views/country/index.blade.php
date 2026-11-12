@@ -170,7 +170,7 @@
                                                     data-size="md" data-title="{{ __('Create Country') }}"
                                                     data-url="{{ route('countries.create') }}" data-bs-toggle="tooltip"
                                                     title="{{ __('Add Country') }}"
-                                                    data-bs-original-title="{{ __('Create Country') }}">
+                                                    data-bs-original-title="{{ __('Create Country') }}" aria-label="{{ __('Create Country') }}">
                                                     <i class="ti ti-plus"></i>
                                                 </a>
                                             </div>
@@ -233,7 +233,7 @@
                                                             data-title="{{ __('Create State') }}"
                                                             data-url="{{ route('state.create') }}"
                                                             data-bs-toggle="tooltip" title="{{ __('Add State') }}"
-                                                            data-bs-original-title="{{ __('Create State') }}">
+                                                            data-bs-original-title="{{ __('Create State') }}" aria-label="{{ __('Create State') }}">
                                                             <i class="ti ti-plus"></i>
                                                         </a>
                                                     </div>
@@ -297,7 +297,7 @@
                                                             data-title="{{ __('Create City') }}"
                                                             data-url="{{ route('city.create') }}"
                                                             data-bs-toggle="tooltip" title="{{ __('Add City') }}"
-                                                            data-bs-original-title="{{ __('Create City') }}">
+                                                            data-bs-original-title="{{ __('Create City') }}" aria-label="{{ __('Create City') }}">
                                                             <i class="ti ti-plus"></i>
                                                         </a>
                                                     </div>

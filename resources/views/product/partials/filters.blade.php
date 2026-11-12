@@ -30,6 +30,11 @@
         :filters="\App\Services\TableFilterMemory::describe(request(), 'product', collect($filterCategories ?? [])->toArray())"
         :restored="(bool) session('ss_filters_restored')" />
 
+    {{-- P2.5-WAVE-22. Below 576px the fields, hint and actions collapse behind this control and
+         the summary above stays visible. See components/ss/filter-disclosure.blade.php for why it
+         is CSS-only, why the checkbox carries no `name`, and why the summary is NOT collapsed. --}}
+    <x-ss.filter-disclosure />
+
 
     <div class="ss-filterbar__field">
         <label class="ss-label" for="ss-filter-status">{{ __('Status') }}</label>

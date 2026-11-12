@@ -36,12 +36,12 @@ $(function() {
         
         // Add Font Awesome icons
         var icons = [
-            'fab fa-facebook-f', 'fab fa-twitter', 'fab fa-x-twitter', 'fab fa-instagram', 
+            'ti ti-brand-facebook', 'ti ti-brand-twitter', 'fab fa-x-twitter', 'fab fa-instagram', 
             'fab fa-linkedin', 'fab fa-pinterest', 'fab fa-youtube', 'fab fa-tiktok',
             'fab fa-whatsapp', 'fab fa-telegram', 'fab fa-discord', 'fab fa-slack',
             'fab fa-github', 'fab fa-dribbble', 'fab fa-behance', 'fab fa-reddit',
-            'fas fa-home', 'fas fa-envelope', 'fas fa-phone', 'fas fa-map-marker-alt',
-            'fas fa-shopping-cart', 'fas fa-user', 'fas fa-heart', 'fas fa-star'
+            'ti ti-home', 'ti ti-mail', 'fas fa-phone', 'fas fa-map-marker-alt',
+            'fas fa-shopping-cart', 'ti ti-user', 'ti ti-heart', 'ti ti-star'
         ];
         
         // Get current icon value

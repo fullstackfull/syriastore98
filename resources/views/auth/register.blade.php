@@ -43,26 +43,26 @@
             @csrf
             <input name="plan_id" type="hidden" value="{{ request()->query('plan_id') }}">
             <div class="form-group mb-3">
-                <label class="form-label" for="name">{{ __('Name') }}</label>
+                <label class="form-label" for="name">{{ __('Name') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                 <input id="name" class="form-control" type="text" name="name" :value="old('name')" required
                 placeholder="{{ __('Enter Name') }}" autofocus />
             </div>
             <div class="form-group mb-3">
-                <label class="form-label" for="name">{{ __('Store name') }}</label>
+                <label class="form-label" for="name">{{ __('Store name') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                 <input id="name" class="form-control" type="text" name="store_name" :value="old('store_name')"
                 placeholder="{{ __('Enter Store name') }}" required autofocus />
             </div>
             <div class="form-group mb-3">
-                <label class="form-label" for="email">{{ __('Email') }}</label>
+                <label class="form-label" for="email">{{ __('Email') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                 <input id="email" class="form-control" type="email" name="email" :value="old('email')" placeholder="{{ __('Enter Email') }}" required />
             </div>
             <div class="form-group mb-3">
-                <label class="form-label" for="password">{{ __('Password') }}</label>
+                <label class="form-label" for="password">{{ __('Password') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                 <input id="password" class="form-control" type="password" name="password" placeholder="{{ __('Enter Password') }}" required
                     autocomplete="new-password" />
             </div>
             <div class="form-group mb-3">
-                <label class="form-label" for="password_confirmation">{{ __('Confirm Password') }}</label>
+                <label class="form-label" for="password_confirmation">{{ __('Confirm Password') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                 <input id="password_confirmation" class="form-control" type="password" name="password_confirmation"
                 placeholder="{{ __('Enter Confirm Password') }}" required />
             </div>

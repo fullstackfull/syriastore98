@@ -1,8 +1,11 @@
 {{ Form::open(['route' => 'roles.store', 'method' => 'post']) }}
 
-<div class="row">
+{{-- P2.5-WAVE-25: the same scope as roles/edit, on this view's own root -- it has no
+     `.modal-body`, so the class goes on the first row instead. The name was checked against the
+     sheets and the views before being used. --}}
+<div class="row ss-permission-matrix">
     <div class="form-group">
-        {{ Form::label('name', __('Name'), ['class' => 'form-label']) }}
+        {{ Form::label('name', __('Name'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
         <div class="form-icon-user">
             {{ Form::text('name', null, ['class' => 'form-control', 'placeholder' => __('Enter Role Name'), 'required' => 'required']) }}
         </div>
@@ -44,7 +47,7 @@
                                         {{ Form::label('checkall-' . strtolower($module), 'Assign ' . Module_Alias_Name($module) . ' Permission to Roles', ['class' => 'form-check-label pointer']) }}
                                     </small>
                                     <div class="table-responsive role-data-table">
-                                    <table class="table table-striped mb-0  mt-3" id="dataTable-1">
+                                    <table class="table ss-table mb-0 mt-3" id="dataTable-1">
                                         <thead>
                                             <tr>
                                                 <th>

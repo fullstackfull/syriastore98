@@ -22,10 +22,14 @@
     <div class="col-12 mt-3">
         <x-ss.card :title="__('Order and Purchase Product Overview')"
                    :note="__('Orders placed against units ordered, day by day.')">
+            {{-- D-42.3. BOTH SERIES ARE COUNTS here — orders placed and units ordered — so
+                 neither takes decimal places, and `value-decimals` is left at its default of 0.
+                 This is the chart that proves the fix did not simply format everything as
+                 money: the card below it, on the same body, is money. --}}
             <x-ss.bar-chart
                 :labels="$labels ?? []"
-                :values="array_map('intval', $orderSeries ?? [])"
-                :values2="array_map('intval', $itemSeries ?? [])"
+                :values="$orderSeries ?? []"
+                :values2="$itemSeries ?? []"
                 :title="__('Order and Purchase Product Overview')"
                 :value-label="__('Orders')"
                 :value-label2="__('Items ordered')"
@@ -37,10 +41,13 @@
     <div class="col-12 mt-3">
         <x-ss.card :title="__('Order Summary')"
                    :note="__('Order value before and after discounts, day by day.')">
+            {{-- Both series are MONEY, so both keep two decimal places. --}}
             <x-ss.bar-chart
                 :labels="$labels ?? []"
-                :values="array_map('intval', $grossSeries ?? [])"
-                :values2="array_map('intval', $netSeries ?? [])"
+                :values="$grossSeries ?? []"
+                :values2="$netSeries ?? []"
+                :value-decimals="2"
+                :value-decimals2="2"
                 :title="__('Order Summary')"
                 :value-label="__('Order value, before discounts')"
                 :value-label2="__('Order value')"

@@ -1,0 +1,70 @@
+[
+ {
+  "path": "/order-receipt/eyJpdiI6IkE0eFVJQzAySkd4dEkzODNkb1ZwaGc9PSIsInZhbHVlIjoiWlB4aFdCMUNFUHNEUENOSEZPMzMxZz09IiwibWFjIjoiZmI4Y2U1NzM1YzJhOGJiMjUwMGRlOGNjMDUyNzNhMzZkY2FiNDk2NTNkYzM1MWQ2ZTY0YjY3YWU0ZTZlZjA5MCIsInRhZyI6IiJ9",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Store Syria",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/order-receipt/eyJpdiI6IkE0eFVJQzAySkd4dEkzODNkb1ZwaGc9PSIsInZhbHVlIjoiWlB4aFdCMUNFUHNEUENOSEZPMzMxZz09IiwibWFjIjoiZmI4Y2U1NzM1YzJhOGJiMjUwMGRlOGNjMDUyNzNhMzZkY2FiNDk2NTNkYzM1MWQ2ZTY0YjY3YWU0ZTZlZjA5MCIsInRhZyI6IiJ9",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Store Syria",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": [
+   "sheet= wanted dark"
+  ]
+ },
+ {
+  "path": "/order-receipt/eyJpdiI6IkE0eFVJQzAySkd4dEkzODNkb1ZwaGc9PSIsInZhbHVlIjoiWlB4aFdCMUNFUHNEUENOSEZPMzMxZz09IiwibWFjIjoiZmI4Y2U1NzM1YzJhOGJiMjUwMGRlOGNjMDUyNzNhMzZkY2FiNDk2NTNkYzM1MWQ2ZTY0YjY3YWU0ZTZlZjA5MCIsInRhZyI6IiJ9",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Store Syria",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/order-receipt/eyJpdiI6IkE0eFVJQzAySkd4dEkzODNkb1ZwaGc9PSIsInZhbHVlIjoiWlB4aFdCMUNFUHNEUENOSEZPMzMxZz09IiwibWFjIjoiZmI4Y2U1NzM1YzJhOGJiMjUwMGRlOGNjMDUyNzNhMzZkY2FiNDk2NTNkYzM1MWQ2ZTY0YjY3YWU0ZTZlZjA5MCIsInRhZyI6IiJ9",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "",
+  "title": "Store Syria",
+  "h1": "",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": [
+   "sheet= wanted dark"
+  ]
+ }
+]

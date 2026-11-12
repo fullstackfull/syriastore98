@@ -63,9 +63,9 @@ class CouponDataTable extends DataTable
     public function getColumns(): array
     {
         return buildDataTableColumn([
-            'coupon_name' => ['title' => __('Name')],
+            'coupon_name' => ['title' => __('Name'), 'addClass' => 'ss-dt-ident'],
             'coupon_code' => ['title' => __('Code')],
-            'discount_amount' => ['title' => __('Discount')],
+            'discount_amount' => ['title' => __('Discount'), 'addClass' => 'ss-dt-num'],
             'coupon_limit' => ['title' => __('Limit')],
             'coupon_expiry_date' => ['title' => __('Expiry Date')],
         ]);

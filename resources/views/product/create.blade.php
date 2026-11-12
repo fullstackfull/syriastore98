@@ -51,11 +51,11 @@
               <div class="product-info-top p-3 border-bottom">
                 <div class="row row-gap">
                   <div class="col-12">
-                    {!! Form::label('', __('Name'), ['class' => 'form-label']) !!}<span class="text-danger">*</span>
+                    {!! Form::label('name', __('Name'), ['class' => 'form-label']) !!}<span class="ss-text-danger">*</span>
                     {!! Form::text('name', null, ['class' => 'form-control name']) !!}
                   </div>
                   <div class="col-12 parmalink " style =  "display: none; ">
-                    {!! Form::label('', __('parmalink'), ['class' => 'form-label col-md-3']) !!}
+                    {!! Form::label('slug', __('parmalink'), ['class' => 'form-label col-md-3']) !!}
                     <div class="d-flex flex-wrap gap-3">
                       <input class="input-group-text col-12"  readonly id="basic-addon2" value="{{ $link }}">
                       {!! Form::text('slug', null, ['class' => 'form-control slug col-12', 'aria-describedby' => 'slug-help']) !!}
@@ -65,7 +65,7 @@
                     </div>
                   </div>
                   <div class="col-sm-6 col-12">
-                    <label class="form-label">{{ __('Category') }}</label><span class="text-danger">*</span>
+                    <label for="category_id" class="form-label">{{ __('Category') }}</label><span class="ss-text-danger">*</span>
                     <select name="category_id" class="form-control" data-role="tagsinput" id="category_id">
                         <option value="">{{ __('Select Category') }}</option>
                         @foreach ($categoryTree as $category)
@@ -74,7 +74,7 @@
                     </select>
                   </div>
                   <div class="col-sm-6 col-12">
-                    {!! Form::label('', __('Tags'), ['class' => 'form-label']) !!}
+                    {!! Form::label('tag_id', __('Tags'), ['class' => 'form-label']) !!}<span class="ss-label__required" aria-hidden="true">*</span>
                     <select name ="tag_id[]" class="select2 form-control" id="tag_id" multiple required>
                       @foreach ($tag as $key => $t)
                         <option value="{{ $key }}">{{ $t }}</option>
@@ -130,7 +130,7 @@
                         ]) !!}
                       </div>
                       <div class=" col-sm-6 col-12" data_val='0'>
-                        {!! Form::label('', __('Brand'), ['class' => 'form-label']) !!}
+                        {!! Form::label('brand-dropdown', __('Brand'), ['class' => 'form-label']) !!}
                         <span>
                           {!! Form::select('brand_id', $brands, null, [
                               'class' => 'form-control',
@@ -140,7 +140,7 @@
                         </span>
                       </div>
                       <div class=" col-sm-6 col-12" data_val='0'>
-                        {!! Form::label('', __('Label'), ['class' => 'form-label']) !!}
+                        {!! Form::label('label-dropdown', __('Label'), ['class' => 'form-label']) !!}
                         <span>
                           {!! Form::select('label_id', $labels, null, [
                               'class' => 'form-control',
@@ -150,7 +150,7 @@
                         </span>
                       </div>
                       <div class="col-sm-6 col-12">
-                        {!! Form::label('', __('Shipping'), ['class' => 'form-label']) !!}
+                        {!! Form::label('shipping_id', __('Shipping'), ['class' => 'form-label']) !!}
                         {!! Form::select('shipping_id', $Shipping, null, [
                             'class' => 'form-control',
                             'data-role' => 'tagsinput',
@@ -158,7 +158,7 @@
                         ]) !!}
                       </div>
                       <div class="col-sm-6 col-12 product-weight">
-                        {!! Form::label('', __('Weight(Kg)'), ['class' => 'form-label ']) !!}
+                        {!! Form::label('product_weight', __('Weight(Kg)'), ['class' => 'form-label ']) !!}
                         {!! Form::number('product_weight', null, ['class' => 'form-control', 'min' => '0', 'step' => '0.01', 'aria-describedby' => 'product_weight-help']) !!}
                         <x-ss.field-help for="product_weight">{{ __('Used to work out shipping. Leave blank if your shipping does not depend on weight.') }}</x-ss.field-help>
                       </div>
@@ -166,17 +166,17 @@
                     </x-ss.advanced-fields>
                   </div>
                   <div class="col-md-6 col-12 product_price product-weight">
-                    {!! Form::label('', __('Price'), ['class' => 'form-label']) !!}<span class="text-danger">*</span>
+                    {!! Form::label('price', __('Price'), ['class' => 'form-label']) !!}<span class="ss-text-danger">*</span>
                     {!! Form::number('price', null, ['class' => 'form-control', 'min' => '0', 'step' => '0.01']) !!}
                   </div>
                   <div class="col-md-6 col-12 product-weight">
-                    {!! Form::label('', __('Sale Price'), ['class' => 'form-label']) !!}<!--<span class="text-danger">*</span>-->
+                    {!! Form::label('sale_price', __('Sale Price'), ['class' => 'form-label']) !!}<!--<span class="ss-text-danger">*</span>-->
                     {!! Form::number('sale_price', null, ['class' => 'form-control', 'min' => '0', 'step' => '0.01', 'aria-describedby' => 'sale_price-help']) !!}
                     <x-ss.field-help for="sale_price">{{ __('The discounted price customers pay. It must be lower than the price.') }}</x-ss.field-help>
                   </div>
                 <div class="col-md-6 col-12 product-weight">
-    {!! Form::label('', __('Cost Price'), ['class' => 'form-label']) !!}
-    <span class="text-danger">*</span>
+    {!! Form::label('cost_price', __('Cost Price'), ['class' => 'form-label']) !!}
+    <span class="ss-text-danger">*</span>
     {!! Form::number('cost_price', null, [
         'class' => 'form-control',
         'min' => '0',
@@ -249,11 +249,11 @@
                   @if ($stock_management == 'on')
                     <div class="row row-gap" id="options">
                       <div class="col-md-6 col-12 product_stock">
-                        {!! Form::label('', __('Stock'), ['class' => 'form-label']) !!}
+                        {!! Form::label('product_stock', __('Stock'), ['class' => 'form-label']) !!}
                         {!! Form::number('product_stock', null, ['class' => 'form-control productStock']) !!}
                       </div>
                       <div class="col-md-6 col-12">
-                        {!! Form::label('', __('Low stock threshold'), ['class' => 'form-label']) !!}
+                        {!! Form::label('low_stock_threshold', __('Low stock threshold'), ['class' => 'form-label']) !!}
                         {!! Form::number('low_stock_threshold', $low_stock_threshold, ['class' => 'form-control', 'min' => '0', 'aria-describedby' => 'low_stock_threshold-help']) !!}
                         <x-ss.field-help for="low_stock_threshold">{{ __('The product list shows Low stock at or below this number. Leave 0 to use the store default.') }}</x-ss.field-help>
                       </div>
@@ -348,7 +348,7 @@
               <div class="card-body">
                 <div class="row row-gap">
                   <div class="col-12">
-                      {{ Form::label('sub_images', __('Upload Product Images'), ['class' => 'form-label f-w-800']) }}<span class="text-danger">*</span>
+                      {{ Form::label('sub_images', __('Upload Product Images'), ['class' => 'form-label f-w-800']) }}<span class="ss-text-danger">*</span>
                         <div class="dropzone dropzone-multiple" data-toggle="dropzone1" data-dropzone-url="http://"
                             data-dropzone-multiple>
                             <!-- Dropzone message with icon -->
@@ -391,7 +391,7 @@
                                         </div>
                                         <div class="col-auto">
                                             <a href="#" class="dropdown-item btn-badge" data-dz-remove>
-                                                <i class="fas fa-trash-alt"></i>
+                                                <i class="ti ti-trash"></i>
                                             </a>
                                         </div>
                                     </div>
@@ -400,7 +400,7 @@
                         </div>
                     </div>
                     <div class="col-12">
-                      <label for="cover_image" class="form-label">{{ __('Upload Cover Image') }}</label><span class="text-danger">*</span>
+                      <label for="cover_image" class="form-label">{{ __('Upload Cover Image') }}</label><span class="ss-text-danger">*</span>
                       {{-- P2-03-4 / F75: `accept` filters the OS picker to what the server will take, so an
                            unsupported file is not chosen in the first place. It is the server's own configured
                            list, verbatim -- narrowing it here would newly block a `pdf` or `csv` that works
@@ -475,7 +475,7 @@
                 <div class="card-body p-3 pb-0 ">
                   <div class="row row-gap">
                     <div class="col-md-12">
-                      {!! Form::label('', __('Product Attribute'), ['class' => 'form-label']) !!}
+                      {!! Form::label('attribute_id', __('Product Attribute'), ['class' => 'form-label']) !!}
                       {!! Form::select('attribute_id[]', $ProductAttribute, null, [
                           'class' => 'form-control attribute_option attribute_option_data',
                           'multiple' => 'multiple',
@@ -528,17 +528,17 @@
                         <div data-repeater-item>
                           <div class="row">
                             <div class="col-md-6">
-                              {!! Form::label('', __('Field'), ['class' => 'form-label']) !!}
+                              {!! Form::label('custom_field', __('Field'), ['class' => 'form-label']) !!}
                               {!! Form::text('custom_field', null, ['class' => 'form-control', 'placeholder' => __('Enter Custom Field')]) !!}
                             </div>
                             <div class="col-md-5">
-                              {!! Form::label('', __('Value'), ['class' => 'form-label']) !!}
+                              {!! Form::label('answer', __('Value'), ['class' => 'form-label']) !!}
                               {!! Form::text('custom_value', null, ['id' => 'answer', 'rows' => 2, 'class' => 'form-control','placeholder' => __('Enter Custom Value')]) !!}
 
                             </div>
                             <div class="col-md-1">
                               <label></label>
-                              <a href="javascript:;" data-repeater-delete class="btn field-trash-btn btn-sm btn-light-danger mt-3 mt-md-8 btn-badge"  data-bs-toggle="tooltip" title="{{__('Delete')}}">
+                              <a href="javascript:;" data-repeater-delete class="btn field-trash-btn btn-sm btn-light-danger mt-3 mt-md-8 btn-badge"  data-bs-toggle="tooltip" title="{{__('Delete')}}" aria-label="{{__('Delete')}}">
                                   <i class="ti ti-trash"></i>
                               </a>
                             </div>
@@ -595,7 +595,21 @@
       implementation and a change to it reaches both controls.
   --}}
   <x-ss.actionbar :label="__('Save or discard your changes')">
-    <a href="#" class="btn btn-primary ss-btn"
+    {{-- P2.5-WAVE-33. This was `class="btn btn-primary ss-btn"` -- Bootstrap's variant beside the
+         design system's BASE, with no `ss-btn--primary`. `.ss-btn` is an explicit reset that
+         declares `background: transparent`, and store-syria-ds.css loads LAST of the five admin
+         sheets, so it wiped `.btn-primary`'s fill while `.btn-primary`'s white `color` survived.
+         The action bar is `--ss-surface`: #ffffff light, #262b33 dark. MEASURED at 1440x1000:
+
+             light   "Save"  #ffffff on #ffffff  = 1.00:1   <- the SAVE action, invisible
+             dark    "Save"  #ffffff on #262b33  = 14.23:1
+
+         Legible in one theme and absent in the other is why this survived a stylesheet read.
+         `.btn btn-primary` are dropped rather than kept: `.ss-btn`'s own comment says it must not
+         inherit Bootstrap's button metrics, the JS hook here is the attribute
+         `[data-ss-click-proxy]` and not `.btn`, and the other ~236 `.ss-btn` renderings in the
+         tree carry no `.btn`. --}}
+    <a href="#" class="ss-btn ss-btn--primary"
        data-ss-click-proxy="#submit-all"
        data-title="{{ __('Create Product') }}">
       <i class="ti ti-device-floppy" aria-hidden="true"></i>
@@ -993,7 +1007,22 @@
       }))
     }()
 
+    /* RE-ENTRANCY IS GUARDED BY `ssSaveInFlight`, NOT by `disabled`. `#submit-all` is an
+       `<a href="#">` (line 17), and the `disabled` CONTENT ATTRIBUTE IS NOT DEFINED FOR AN
+       ANCHOR -- nothing reads it. The jQuery handler below still fires on every click, and the
+       sticky action-bar Save reaches this same handler through `data-ss-click-proxy`, which
+       `StoreSyriaDS.wireClickProxy()` serves with an unconditional `target.click()` and no
+       disabled or aria-disabled test. Measured: the attribute is written at seven sites in this
+       file and read at none. Nothing downstream de-duplicates either -- `ProductController`'s
+       store rules carry no `unique` on name/slug/sku, `Product::slugs()` appends `-1` on
+       collision, and `products.slug` has no unique index -- so a second click persists a second
+       product, re-uploads the cover image and gallery, and is charged again against the tenant's
+       storage limit. Same latch and same reasoning as product/edit.blade.php. */
+    var ssSaveInFlight = false;
+
     $('#submit-all').on('click', function() {
+      if (ssSaveInFlight) { return; }
+
       $('#submit-all').attr('disabled', true);
       var fd = new FormData();
 
@@ -1053,6 +1082,25 @@
           show_toastr('Error', 'Please correct the error message before submitting the form.');
           return false;
         } else {
+          /* THE LATCH IS SET WHERE THE REQUEST IS ISSUED, NOT AT THE TOP OF THE HANDLER, AND
+             THAT IS A FIX RATHER THAN A STYLE CHOICE. Three exits sit between the entry check
+             and this request: the `return false` just above, and two unguarded dereferences that
+             can throw -- `document.getElementById('cover_image').files[0]` and the dropzone's
+             `getAcceptedFiles()`. Setting the latch early leaves every one of them wedged at
+             true for the life of the page, and Save then looks alive and does nothing, because
+             the disabled attribute on an anchor has never had an effect. Everything between the
+             check and here is synchronous, so no second click can interleave and the guard loses
+             nothing by being set later.
+
+             The scrim is raised here too: the four response callbacks below already called
+             `fadeOut()` and nothing ever showed it, so during a multipart upload the merchant had
+             no feedback at all -- which is what makes the second click natural. `.css` and not
+             `.fadeIn()`, because jQuery restores a div's default block display, which beats the
+             flex the loader wrapper needs for its spinner to centre. loader.css and its RTL twin
+             are linked per direction by the layout, so there is no stylesheet edit here. */
+          ssSaveInFlight = true;
+          $('#loader').css('display', 'flex');
+
           $.ajax({
             url: "{{ route('product.store') }}",
             headers: {
@@ -1063,9 +1111,18 @@
             processData: false,
             type: 'POST',
             success: function(data) {
+              ssSaveInFlight = false;
               $('#loader').fadeOut();
               if (data.flag == "success") {
                 $('#submit-all').attr('disabled', true);
+                /* RE-SET ACROSS THE NAVIGATION, deliberately unlike product/edit.blade.php, which clears
+                   once at the top of `success` and leaves it clear. This branch navigates, and a click
+                   landing in that window posts a SECOND create -- the duplicate this guard exists for.
+                   `#submit-all` is a focusable anchor, so Enter reaches the handler even under the scrim.
+                   Nothing between the top-of-callback clear and this line yields to the event loop. The
+                   clear still happens first so that a throw in show_toastr or applyFormErrors on the
+                   failure path below can never leave Save permanently dead. */
+                ssSaveInFlight = true;
 
                 /* P2-03-4 / F75. THE SUCCESS BRANCH NAVIGATES IMMEDIATELY AND SHOWED `data.msg`
                    NOWHERE, so the server's own warning -- "These images were not uploaded: ..." --
@@ -1076,6 +1133,15 @@
                    index.blade.php:67 and list.blade.php:169), so the same mechanism is used here
                    rather than a second one invented beside it. */
                 try { localStorage.setItem('success_msg', data.msg); } catch (e) { /* private mode */ }
+
+                /* A SAVE IS NOT A LOSS OF WORK, and the DS dirty tracker cannot know that here: it clears
+                   `data-ss-dirty` only on the form's `submit` event, which this editor never fires -- it
+                   posts a hand-built FormData by ajax. So the DS `beforeunload` armed the browser's
+                   leave-site dialog on EVERY successful create, while loader.js raised the full-viewport
+                   scrim on the same event with nothing left to lower it. A merchant who answered "stay" --
+                   the natural answer, having been shown no confirmation -- was left on a bricked page whose
+                   product already existed. Clearing the flag makes this navigation really end the page. */
+                $('#choice_form').attr('data-ss-dirty', 'false');
 
                 window.location.href = "{{ route('product.index') }}" + '?id=1';
 
@@ -1098,6 +1164,7 @@
               }
             },
             error: function(data) {
+              ssSaveInFlight = false;
               $('#loader').fadeOut();
               $('#submit-all').attr('disabled', false);
               // Dropzones.removeFile(file);
@@ -1110,6 +1177,11 @@
           });
         }
       } else {
+        /* The default branch -- the one that runs when CartQuantityControl is not enabled, i.e.
+           the ordinary case. Same latch-at-the-request-site reasoning as the branch above. */
+        ssSaveInFlight = true;
+        $('#loader').css('display', 'flex');
+
         $.ajax({
           url: "{{ route('product.store') }}",
           headers: {
@@ -1120,9 +1192,18 @@
           processData: false,
           type: 'POST',
           success: function(data) {
+            ssSaveInFlight = false;
             $('#loader').fadeOut();
             if (data.flag == "success") {
               $('#submit-all').attr('disabled', true);
+              /* RE-SET ACROSS THE NAVIGATION, deliberately unlike product/edit.blade.php, which clears
+                 once at the top of `success` and leaves it clear. This branch navigates, and a click
+                 landing in that window posts a SECOND create -- the duplicate this guard exists for.
+                 `#submit-all` is a focusable anchor, so Enter reaches the handler even under the scrim.
+                 Nothing between the top-of-callback clear and this line yields to the event loop. The
+                 clear still happens first so that a throw in show_toastr or applyFormErrors on the
+                 failure path below can never leave Save permanently dead. */
+              ssSaveInFlight = true;
               
 
               /* P2-03-4 / F75. THE DEFAULT SAVE PATH. There are TWO near-identical AJAX calls
@@ -1136,6 +1217,15 @@
                  likewise on the module-only branch, so by default an edit save showed the
                  merchant nothing either. Both defaults now carry the message. */
               try { localStorage.setItem('success_msg', data.msg); } catch (e) { /* private mode */ }
+              /* A SAVE IS NOT A LOSS OF WORK, and the DS dirty tracker cannot know that here: it clears
+                 `data-ss-dirty` only on the form's `submit` event, which this editor never fires -- it
+                 posts a hand-built FormData by ajax. So the DS `beforeunload` armed the browser's
+                 leave-site dialog on EVERY successful create, while loader.js raised the full-viewport
+                 scrim on the same event with nothing left to lower it. A merchant who answered "stay" --
+                 the natural answer, having been shown no confirmation -- was left on a bricked page whose
+                 product already existed. Clearing the flag makes this navigation really end the page. */
+              $('#choice_form').attr('data-ss-dirty', 'false');
+
               window.location.href = "{{ route('product.index') }}" + '?id=1';
 
             } else {
@@ -1157,6 +1247,7 @@
             }
           },
           error: function(data) {
+            ssSaveInFlight = false;
             $('#loader').fadeOut();
             $('#submit-all').attr('disabled', false);
             // Dropzones.removeFile(file);

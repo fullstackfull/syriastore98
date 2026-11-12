@@ -142,7 +142,7 @@ class OrderPanelProductScopeTest extends SecurityTestCase
            Both point at `OrderController@show`, but the resource route is `order/{order}` with
            implicit model binding, so an ENCRYPTED id 404s there before the handler runs — and a
            404 satisfies "the foreign path is absent" exactly as well as a working scope does.
-           `resources/views/order/grid.blade.php:115` shows which one the eye button really uses. */
+           `resources/views/order/grid.blade.php:154` shows which one the eye button really uses. */
         $response = $this->actingAs($this->merchantA)
             ->get(route('order.order_view', Crypt::encrypt($order->id)));
 

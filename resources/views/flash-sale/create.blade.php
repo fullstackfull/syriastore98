@@ -1,36 +1,36 @@
 {{ Form::open(['route' => 'flash-sale.store', 'method' => 'post', 'enctype' => 'multipart/form-data', 'class' => 'repeater']) }}
 <div class="row">
     <div class="form-group col-md-12">
-        {!! Form::label('', __('Name'), ['class' => 'form-label']) !!}
+        {!! Form::label('name', __('Name'), ['class' => 'form-label']) !!}
         {!! Form::text('name', old('name'), ['class' => 'form-control', 'required']) !!}
     </div>
     <div class="form-group col-md-6">
-        {!! Form::label('', __('Start Date'), ['class' => 'form-label']) !!}
+        {!! Form::label('start_date', __('Start Date'), ['class' => 'form-label']) !!}
         {!! Form::date('start_date', old('start_date'), ['class' => 'form-control', 'required']) !!}
     </div>
     <div class="form-group col-md-6">
-        {!! Form::label('', __('End Date'), ['class' => 'form-label']) !!}
+        {!! Form::label('end_date', __('End Date'), ['class' => 'form-label']) !!}
         {!! Form::date('end_date', old('end_date'), ['class' => 'form-control', 'required']) !!}
     </div>
     <div class="form-group col-md-6">
-        {!! Form::label('', __('Start Time'), ['class' => 'form-label']) !!}
+        {!! Form::label('start_time', __('Start Time'), ['class' => 'form-label']) !!}
         {!! Form::time('start_time', old('start_time'), ['class' => 'form-control', 'required']) !!}
     </div>
     <div class="form-group col-md-6">
-        {!! Form::label('', __('End Time'), ['class' => 'form-label']) !!}
+        {!! Form::label('end_time', __('End Time'), ['class' => 'form-label']) !!}
         {!! Form::time('end_time', old('end_time'), ['class' => 'form-control', 'required']) !!}
     </div>
     <div class="form-group col-md-6">
-        {!! Form::label('', __('Discount Type'), ['class' => 'form-label']) !!}
+        {!! Form::label('discount_type', __('Discount Type'), ['class' => 'form-label']) !!}
         {!! Form::select(
             'discount_type',
-            ['' => __('Select Discount Type'), 'percentage' => 'Percentage', 'flat' => 'Flat'],
+            ['' => __('Select Discount Type'), 'percentage' => __('Percentage'), 'flat' => __('Flat')],
             old('discount_type'),
             ['class' => 'form-control', 'required'],
         ) !!}
     </div>
     <div class="form-group col-md-6">
-        {!! Form::label('', __('Discount Amount'), ['class' => 'form-label']) !!}
+        {!! Form::label('discount_amount', __('Discount Amount'), ['class' => 'form-label']) !!}
         {!! Form::number('discount_amount', old('discount_amount'), [
             'class' => 'form-control',
             'min' => '0',
@@ -42,7 +42,12 @@
         <small>{{ __('Note: Override this discount if Sale is set  in another flash deal.') }}</small>
     </div>
     <div class="col-md-12 d-flex justify-content-between align-items-center">
-        {!! Form::label('', __('Apply this Campaign when these conditions are matched:'), ['class' => 'form-label']) !!}
+        {{-- NOT a <label>: this heads the condition repeater and names no single control, so a
+             `for` could only ever dangle. A <span>, not a <p> -- custom.css:4685 scopes
+             `.modal-content p:not([class^="ss-"])` to grey-600 at (0,4,3) and beats the
+             .form-label rule at :4670 (0,3,2), so a <p class="form-label"> would render two
+             contrast tiers lighter than every sibling caption. Mirrored at rtl-custom.css:4677. --}}
+        <span class="form-label mb-0">{{ __('Apply this Campaign when these conditions are matched:') }}</span>
         <a href="#" class="btn btn-sm btn-primary newfield" id="add-field-btn" title="{{ __('Add New Field') }}">
             <i class="ti ti-plus"></i>
         </a>
@@ -61,6 +66,7 @@
                                 [
                                     'class' => 'form-control condition_option',
                                     'id' => 'condition_option_' . $i,
+                                    'aria-label' => __('Condition Option'),
                                     'placeholder' => 'Select option',
                                 ],
                             ) !!}
@@ -74,6 +80,7 @@
                                 old('fields.' . $i . '.condition'),
                                 [
                                     'class' => 'form-control',
+                                    'aria-label' => __('Condition'),
                                     'placeholder' => 'Select option',
                                 ],
                             ) !!}
@@ -145,7 +152,7 @@
                         '.condition');
                     $(slect_divs).empty();
 
-                    var emp_selcts = `<select class="form-control" id="` + slect_ids + `"  required="required" name="fields[${index}][condition]">
+                    var emp_selcts = `<select class="form-control" aria-label="{{ __('Condition') }}" id="` + slect_ids + `"  required="required" name="fields[${index}][condition]">
                         </select>`;
                     $(slect_divs).html(emp_selcts);
 
@@ -182,7 +189,7 @@
                     $(slect_divs).empty();
 
                     var emp_selcts =
-                        `<select class="form-control" required="required" name="fields[${index}][condition]"></select>`;
+                        `<select class="form-control" aria-label="{{ __('Condition') }}" required="required" name="fields[${index}][condition]"></select>`;
 
                     $(slect_divs).html(emp_selcts);
 

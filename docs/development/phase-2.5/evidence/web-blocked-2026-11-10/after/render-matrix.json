@@ -1,0 +1,210 @@
+[
+ {
+  "path": "/theme-customize",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Store Syria - Dashboard",
+  "h1": "Dashboard",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": [
+   "landed on /dashboard, asked for /theme-customize (redirect — likely a permission refusal)"
+  ]
+ },
+ {
+  "path": "/order-downloadable-reports",
+  "lang": "en",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": null,
+  "sheet": "style.css",
+  "title": "Store Syria - Sales Downloadable Product",
+  "h1": "Sales Downloadable Product",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/customize-settings",
+  "lang": "en",
+  "theme": "light",
+  "status": 405,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "An Error Occurred: Method Not Allowed",
+  "h1": "Oops! An Error Occurred",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 405 (Method Not Allowed)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/theme-customize",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Store Syria - Dashboard",
+  "h1": "Dashboard",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": [
+   "landed on /dashboard, asked for /theme-customize (redirect — likely a permission refusal)"
+  ]
+ },
+ {
+  "path": "/order-downloadable-reports",
+  "lang": "en",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "ltr",
+  "dir": "ltr",
+  "ssTheme": "dark",
+  "sheet": "style-dark.css",
+  "title": "Store Syria - Sales Downloadable Product",
+  "h1": "Sales Downloadable Product",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/customize-settings",
+  "lang": "en",
+  "theme": "dark",
+  "status": 405,
+  "wantDir": "ltr",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "An Error Occurred: Method Not Allowed",
+  "h1": "Oops! An Error Occurred",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 405 (Method Not Allowed)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/theme-customize",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Store Syria - لوحة التحكم",
+  "h1": "لوحة التحكم",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": [
+   "landed on /dashboard, asked for /theme-customize (redirect — likely a permission refusal)"
+  ]
+ },
+ {
+  "path": "/order-downloadable-reports",
+  "lang": "ar",
+  "theme": "light",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": null,
+  "sheet": "style-rtl.css",
+  "title": "Store Syria - مبيعات منتج قابل للتحميل",
+  "h1": "مبيعات منتج قابل للتحميل",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/customize-settings",
+  "lang": "ar",
+  "theme": "light",
+  "status": 405,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "An Error Occurred: Method Not Allowed",
+  "h1": "Oops! An Error Occurred",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 405 (Method Not Allowed)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/theme-customize",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Store Syria - لوحة التحكم",
+  "h1": "لوحة التحكم",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)",
+   "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "premiseFail": [
+   "landed on /dashboard, asked for /theme-customize (redirect — likely a permission refusal)"
+  ]
+ },
+ {
+  "path": "/order-downloadable-reports",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 200,
+  "wantDir": "rtl",
+  "dir": "rtl",
+  "ssTheme": "dark",
+  "sheet": "rtl-style-dark.css",
+  "title": "Store Syria - مبيعات منتج قابل للتحميل",
+  "h1": "مبيعات منتج قابل للتحميل",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ],
+  "premiseFail": []
+ },
+ {
+  "path": "/customize-settings",
+  "lang": "ar",
+  "theme": "dark",
+  "status": 405,
+  "wantDir": "rtl",
+  "dir": null,
+  "ssTheme": null,
+  "sheet": "",
+  "title": "An Error Occurred: Method Not Allowed",
+  "h1": "Oops! An Error Occurred",
+  "consoleErrors": [
+   "Failed to load resource: the server responded with a status of 405 (Method Not Allowed)"
+  ],
+  "premiseFail": []
+ }
+]

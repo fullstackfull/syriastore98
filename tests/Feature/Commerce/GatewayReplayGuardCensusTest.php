@@ -173,6 +173,15 @@ class GatewayReplayGuardCensusTest extends TestCase
             '`(new OrderDataTable())->query(new Order())` — a query-builder seed that is never '
             . 'saved. The parser sees a constructor call; the method persists nothing.'],
 
+        'OrderController.php::order_grid_view' => [self::NOT_A_WRITE,
+            'The SAME shape as order_kanban_view above, and it arrived for the same reason: '
+            . 'P2.5-ORD-10 made the card view reuse `(new OrderDataTable())->query(new Order())` '
+            . 'so that the list, the board and the cards share ONE filter implementation instead '
+            . 'of agreeing by coincidence. The constructor call is a query-builder seed; the '
+            . 'method paginates and renders a view and persists nothing. The census population '
+            . 'therefore moves 15 -> 16 and `not-a-write` 1 -> 2 -- UPWARD, by a read-only '
+            . 'screen, with no new write site and no payment or stock path touched.'],
+
         'PosController.php::store' => [self::MERCHANT, 'The till. An authenticated merchant at a point of sale.'],
     ];
 
@@ -270,19 +279,23 @@ class GatewayReplayGuardCensusTest extends TestCase
                 self::GUARDED => 7,
                 self::UNGUARDED => 1,
                 self::MERCHANT => 2,
-                self::NOT_A_WRITE => 1,
+                self::NOT_A_WRITE => 2,
                 self::PUBLIC_NON_GATEWAY => 1,
             ],
             $buckets,
-            'E14 PAYMENT HALF, MEASURED 2026-10-31 — 15 customer-order write sites in 11 files. '
-            . 'Seven gateway returns claim; one (PayU) imports the trait without calling it and is '
-            . 'unreachable anyway; three client-API writers and one unauthenticated storefront '
-            . 'writer have no idempotency control of any kind; two are merchant-typed; one is not '
-            . 'a write. If a count moved, say which way and why.'
+            'E14 PAYMENT HALF, MEASURED 2026-10-31, re-measured 2026-11-09 — 16 customer-order '
+            . 'write sites in 11 files. Seven gateway returns claim; one (PayU) imports the trait '
+            . 'without calling it and is unreachable anyway; three client-API writers and one '
+            . 'unauthenticated storefront writer have no idempotency control of any kind; two are '
+            . 'merchant-typed; TWO are not writes. The sixteenth is '
+            . '`OrderController::order_grid_view`, which P2.5-ORD-10 gave the same '
+            . '`query(new Order())` seed the board already had — a read-only screen, so the '
+            . 'population grew without a write site growing. If a count moved, say which way and '
+            . 'why.'
         );
 
         $this->assertCount(
-            15,
+            16,
             OrderWriteCensus::customerOrderSites(),
             'the whole first-party customer-order write population'
         );

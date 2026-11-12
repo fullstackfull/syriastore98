@@ -57,7 +57,7 @@
                 <div class="col-md-6">
                     <div class="form-group">
                         <label for="nmi_cardholder_name"
-                            class="col-form-label">{{ __('Cardholder Name') }}</label>
+                            class="col-form-label">{{ __('Cardholder Name') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                         <input class="form-control"
                             placeholder="Enter Cardholder Name"
                             name="nmi_cardholder_name" type="text"
@@ -67,7 +67,7 @@
                 <div class="col-md-6">
                     <div class="form-group">
                         <label for="nmi_card_number"
-                            class="col-form-label">{{ __('Credit Card Number') }}</label>
+                            class="col-form-label">{{ __('Credit Card Number') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                         <input class="form-control"
                             placeholder="Enter Credit Card Number"
                             name="nmi_card_number" type="text"
@@ -77,7 +77,7 @@
                 <div class="col-md-6">
                     <div class="form-group">
                         <label for="nmi_expiration_date"
-                            class="col-form-label">{{ __('Expiration Date') }}</label>
+                            class="col-form-label">{{ __('Expiration Date') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                         <input class="form-control"
                             placeholder="Enter Expiration Date"
                             name="nmi_expiration_date" type="month"
@@ -87,7 +87,7 @@
                 <div class="col-md-6">
                     <div class="form-group">
                         <label for="nmi_cvv_code"
-                            class="col-form-label">{{ __('CVV') }}</label>
+                            class="col-form-label">{{ __('CVV') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                         <input class="form-control cvv_code"
                             placeholder="Enter CVV"
                             name="nmi_cvv_code" type="number" data-mask="1234"

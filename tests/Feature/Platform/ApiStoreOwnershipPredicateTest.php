@@ -802,6 +802,33 @@ class ApiStoreOwnershipPredicateTest extends SecurityTestCase
          * surface drops with it. Keeping the floor at 94 would mean keeping two latent
          * cross-tenant holes alive to satisfy a proxy measure.
          *
+         * LOWERED 92 -> 91 BY P2.5-S59, and the same accounting applies. What was deleted:
+         *
+         *   - store()  -- an UNROUTED near-duplicate of addCustomer(), ~102 lines. It ran
+         *                 `$request->validate()` with a `Rule::unique('customers','email')`
+         *                 BEFORE resolveOwnedStore(), which is the e-mail enumeration oracle
+         *                 measured in AddCustomerEmailDisclosureTest and repaired in the routed
+         *                 sibling; it had no permission gate, the gap S59 records; and its insert
+         *                 keyed `'store_id' => $storeId` on the raw query string rather than on
+         *                 the resolved `$store->id`. So its ONE call satisfied this counter while
+         *                 its per-row write did not -- exactly the shape of the two _backup
+         *                 methods above.
+         *
+         * PROVEN UNREACHABLE BEFORE REMOVAL, not assumed. Four independent methods plus two
+         * adversaries: 0 routes resolving to it with ALL 70 modules force-loaded (2309 routes,
+         * `getByAction()` null, 113 routes on this controller over 111 methods, none named
+         * `store`); 0 occurrences of the string `DashboardController` anywhere under
+         * packages/workdo/; no Route::resource/apiResource/singleton/apiSingleton/fallback/
+         * ->uses()/addRoute() naming it on ANY of the five refs in the clone; no subclass; no
+         * dynamic dispatch -- and Laravel's Controller::__call() THROWS, so a dynamic caller
+         * would already be a hard error rather than a silent success. The shipped Flutter admin
+         * creates customers through `/AddCustomer` (base_api.dart:92).
+         *
+         * WHY 'store' MATTERED MORE THAN AN ORDINARY DEAD METHOD: it is the Laravel
+         * resource-convention name, so one future `Route::apiResource(..., DashboardController::class)`
+         * would have exposed an unguarded, oracle-leaking credential writer in a single line, with
+         * no diff to any repaired handler for a reviewer to notice.
+         *
          * AND THE COUNT WAS NEVER THE REAL CONTROL. What actually stops an endpoint inlining its
          * own predicate is this file's sibling assertions -- the spelling-agnostic
          * `Store::where('id', ...)->where('created_by', <not creatorId()>)` scan above (which
@@ -812,10 +839,11 @@ class ApiStoreOwnershipPredicateTest extends SecurityTestCase
          * tripwire; it earned its keep here by making a dead-code removal explain itself.
          */
         $this->assertGreaterThanOrEqual(
-            92,
+            91,
             substr_count($code, 'resolveOwnedStore('),
-            'resolveOwnedStore() is called less than the 92 occurrences measured after P1-INV-10 '
-            . '(94 before it, 74 before the change that introduced the helper). Either call sites '
+            'resolveOwnedStore() is called less than the 91 occurrences measured after P2.5-S59 '
+            . '(92 after P1-INV-10, 94 before it, 74 before the change that introduced the '
+            . 'helper). Either call sites '
             . 'were deleted or some went back to inlining a predicate. If a method really was '
             . 'deleted, say WHICH and why its own per-row lookups did not need the helper, the way '
             . 'the comment above does -- do not just lower the number.'

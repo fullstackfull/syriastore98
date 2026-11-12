@@ -1,0 +1,173 @@
+{
+  "findings": [],
+  "perTab": [
+    [
+      "email_setting",
+      {
+        "combos": 4,
+        "worst": 5.65,
+        "worstWhere": "en-ltr-dark label.ss-label"
+      }
+    ],
+    [
+      "brand_setting",
+      {
+        "combos": 4,
+        "worst": 5.65,
+        "worstWhere": "en-ltr-dark label.ss-label"
+      }
+    ],
+    [
+      "system_setting",
+      {
+        "combos": 4,
+        "worst": 5.65,
+        "worstWhere": "en-ltr-dark label.ss-label"
+      }
+    ],
+    [
+      "payment_setting",
+      {
+        "combos": 4,
+        "worst": 6.17,
+        "worstWhere": "en-ltr-dark p.ss-page-header__subtitle"
+      }
+    ],
+    [
+      "currency_setting",
+      {
+        "combos": 4,
+        "worst": 5.58,
+        "worstWhere": "en-ltr-light th"
+      }
+    ],
+    [
+      "delivery_syria_setting",
+      {
+        "combos": 4,
+        "worst": 99,
+        "worstWhere": ""
+      }
+    ],
+    [
+      "email_notify_setting",
+      {
+        "combos": 4,
+        "worst": 6.42,
+        "worstWhere": "en-ltr-light button.ss-btn.ss-btn--primary.btn-pri"
+      }
+    ],
+    [
+      "shopify_setting",
+      {
+        "combos": 4,
+        "worst": 5.58,
+        "worstWhere": "en-ltr-light span.ss-input-group__suffix"
+      }
+    ],
+    [
+      "woocom_setting",
+      {
+        "combos": 4,
+        "worst": 5.65,
+        "worstWhere": "en-ltr-dark label.ss-label"
+      }
+    ],
+    [
+      "webhook_setting",
+      {
+        "combos": 4,
+        "worst": 5.58,
+        "worstWhere": "en-ltr-light th"
+      }
+    ],
+    [
+      "loyality_pro_setting",
+      {
+        "combos": 4,
+        "worst": 5.65,
+        "worstWhere": "en-ltr-dark label.ss-label"
+      }
+    ],
+    [
+      "whatsapp_setting",
+      {
+        "combos": 4,
+        "worst": 5.65,
+        "worstWhere": "en-ltr-dark label.ss-label"
+      }
+    ],
+    [
+      "otp_setting",
+      {
+        "combos": 4,
+        "worst": 5.65,
+        "worstWhere": "en-ltr-dark label.ss-label"
+      }
+    ],
+    [
+      "whatsapp_msg_setting",
+      {
+        "combos": 4,
+        "worst": 5.65,
+        "worstWhere": "en-ltr-dark label.ss-label"
+      }
+    ],
+    [
+      "twilio_setting",
+      {
+        "combos": 4,
+        "worst": 5.65,
+        "worstWhere": "en-ltr-dark label.ss-label"
+      }
+    ],
+    [
+      "pixel_field_setting",
+      {
+        "combos": 4,
+        "worst": 5.58,
+        "worstWhere": "en-ltr-light th"
+      }
+    ],
+    [
+      "stock_setting",
+      {
+        "combos": 4,
+        "worst": 5.65,
+        "worstWhere": "en-ltr-dark label.ss-label"
+      }
+    ],
+    [
+      "tax_opt_setting",
+      {
+        "combos": 4,
+        "worst": 5.65,
+        "worstWhere": "en-ltr-dark label.ss-choice__label"
+      }
+    ],
+    [
+      "pwa_setting",
+      {
+        "combos": 4,
+        "worst": 5.65,
+        "worstWhere": "en-ltr-dark label.ss-label"
+      }
+    ],
+    [
+      "refund_setting",
+      {
+        "combos": 4,
+        "worst": 6.42,
+        "worstWhere": "en-ltr-light button.ss-btn.ss-btn--primary.btn-sub"
+      }
+    ],
+    [
+      "whatsapp_notify_setting",
+      {
+        "combos": 4,
+        "worst": 5.65,
+        "worstWhere": "en-ltr-dark label.ss-label"
+      }
+    ]
+  ]
+}

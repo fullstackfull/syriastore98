@@ -1,3 +1,22 @@
+# =====================================================================================
+# P1-SEC-40, defence in depth. This file deliberately contains NO deny rules.
+#
+# The live document root is the REPOSITORY root, not this directory (a root index.php
+# shim sits beside the root .htaccess), so the measured evidence lives in ../.htaccess.
+# This copy matters only if the vhost is ever repointed at public/ (the stock Laravel
+# layout): the front-controller rewrite below carries the same
+# `RewriteCond %{REQUEST_FILENAME} !-f`, so this directory would inherit the identical
+# behaviour -- any file that really exists is served verbatim instead of being routed
+# to index.php.
+#
+# The deny rules are held in docs/security/p1-sec-40-apache-deny.conf (group 1), not
+# here, so that merging to main cannot change public access on a host that pulls this
+# branch. ../.htaccess explains the owner's standing deferral in full. The exposure is
+# unresolved, not remediated.
+#
+# Note this file has no <Files .env> deny of its own -- the root copy does.
+# =====================================================================================
+
 <IfModule mod_rewrite.c>
     <IfModule mod_negotiation.c>
         Options -MultiViews -Indexes

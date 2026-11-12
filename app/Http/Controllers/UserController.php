@@ -7,6 +7,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
 use App\Models\User;
+use App\Services\UserDeletionSafety;
 use App\Models\Plan;
 use App\Models\Store;
 use App\Models\Utility;
@@ -93,7 +94,7 @@ class UserController extends Controller
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
 
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
 
             $user = \Auth::user();
@@ -231,6 +232,34 @@ AuditLog::record('user_created', $user, [], [
         if (auth()->user() && auth()->user()->isAbleTo('Edit User'))
         {
             $user  = User::find($id);
+
+            /*
+             * P2.5-SEC-READ. SEC-F4 CLOSED THE WRITE DOOR AND LEFT THIS ONE OPEN.
+             *
+             * `update()` below carries SEC-F4's own account of this exact defect -- gated on
+             * `Edit User` alone, "which every merchant holds for their own tenant", then operating
+             * on a user found by id with no ownership test -- and it was repaired there with
+             * `$this->authorize('update', $user)` at :260. This method, twenty lines above it, was
+             * not touched: same file, same permission, same missing check, only the verb differs.
+             *
+             * MEASURED: a merchant holding `Edit User` requested another tenant's staff member and
+             * got HTTP 200 with the victim's NAME and EMAIL rendered into the form
+             * (`users/edit.blade.php` prints both). `Utility::addNewData()` grants `Edit User` to
+             * the `admin` role that every merchant has -- 31 of the 33 users in the production
+             * dump -- so the read reached every user on the platform while the write did not.
+             *
+             * `update` IS THE RIGHT ABILITY TO ASK FOR, not a weaker read ability: being allowed
+             * to open the edit form is the same question as being allowed to submit it, and
+             * borrowing the sibling's check is what keeps the two from drifting apart again. The
+             * null guard is because `find()` returns null for an id that does not exist, and
+             * `authorize()` on null would raise rather than refuse.
+             */
+            if (! $user) {
+                return response()->json(['error' => __('Permission denied.')], 401);
+            }
+
+            $this->authorize('update', $user);
+
             $roles = Role::where('created_by', '=', auth()->user()->creatorId())->where('store_id', getCurrentStore())->get()->pluck('name', 'id');
             return view('users.edit', compact('user', 'roles'));
         }
@@ -325,26 +354,99 @@ AuditLog::record('user_created', $user, [], [
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
+    /**
+     * P0-DELETE. This used to be the `isAbleTo('Delete User')` check and nothing else, on a
+     * `User` bound from the URL -- the exact shape SEC-F4 repaired in `update()` above, left
+     * open on the one operation that cannot be undone.
+     *
+     * `User` is not in `config/tenancy.php`'s `scoped_models`, so route-model binding reached
+     * every tenant's users and a permission every merchant holds for their own staff was the only
+     * gate. `users` has no soft delete, and `stores.created_by` is ON DELETE CASCADE against
+     * `users.id`, so the row-delete took the target's store and the money tables hanging off it.
+     * There is a live button for this at resources/views/users/index.blade.php:124.
+     *
+     * `authorize()` is now the control, exactly as it is on `update()` (:259) and
+     * `resetPassword()` (:360, :374). The permission test moved inside `UserPolicy::delete()` so
+     * it sits beside the tenancy test and the two cannot drift apart.
+     */
     public function destroy(User $user)
     {
+        $this->authorize('delete', $user);
 
-        if (auth()->user() && auth()->user()->isAbleTo('Delete User'))
-        {
-            Setting::where('created_by', $user->id)->delete();
-            $user->delete();
+        /*
+         * DATA SAFETY, SEPARATE FROM AUTHORIZATION, and owner-approved as fail-closed.
+         *
+         * `authorize()` above answers "may this principal delete this row". It does NOT answer
+         * "is deleting this row safe at all", and the two are different questions: an operator
+         * deleting a store owner destroys the same wallet a merchant would.
+         *
+         * THE CHECK AND THE DELETE ARE ONE TRANSACTION, with the row locked, because a
+         * check-then-delete is a race: a store created between the count and the DELETE would be
+         * destroyed by a guard that had just proved there was none.
+         *
+         * WHAT THE LOCK ACTUALLY CLOSES, corrected 2026-11-10 after independent review found this
+         * paragraph claiming more than the code does. It said "the window is closed on both". It
+         * is not, and the distinction is the same one the two dependency lists are built on:
+         *
+         *   CLOSED for the 15 CASCADE_DEPENDENCIES. InnoDB takes a SHARED record lock on the
+         *   parent row while checking a foreign key, so an `INSERT INTO stores (created_by = X)`
+         *   blocks behind our exclusive lock on user X. That -- not `lockForUpdate()` reaching
+         *   into the child table -- is the mechanism, and it works only because all 15 of those
+         *   tables have a real FK to `users(id)`.
+         *
+         *   OPEN for the ORPHAN_DEPENDENCIES. Those tables are in that list PRECISELY BECAUSE
+         *   they carry no foreign key, so an insert into one takes no lock on `users` and is not
+         *   serialised by anything here. T1 locks user X and counts zero orders; T2 inserts
+         *   `orders.created_by = X` and commits; T1 deletes. The order is orphaned. The window
+         *   needs the target user to be writing during their own deletion, which is narrow, and
+         *   it is real. There is no cheap lock that covers an FK-less table, so this is REPORTED
+         *   rather than closed -- see docs/security/P0-USER-DELETION-CASCADE.md.
+         *
+         * The SQLite half of the old claim was also loose: the guard's COUNT is a reader and the
+         * write lock is not taken until the DELETE. Immaterial in the suite (one connection) and
+         * in production (MySQL), but it was not the argument it was written as.
+         *
+         * If the row has gone between the route-model binding and the lock, there is nothing to
+         * delete and nothing to report.
+         */
+        $blockers = [];
 
+        DB::transaction(function () use ($user, &$blockers) {
+            $locked = User::whereKey($user->getKey())->lockForUpdate()->first();
 
-AuditLog::record('user_deleted', $user, [
-    'name' => $user->name,
-    'email' => $user->email,
-    'type' => $user->type,
-], []);
+            if ($locked === null) {
+                return;
+            }
 
+            $blockers = UserDeletionSafety::blockers($locked);
 
-            return redirect()->back()->with('success', 'User successfully deleted.');
-        } else {
-            return redirect()->back()->with('error', __('Permission denied.'));
+            if ($blockers !== []) {
+                return;
+            }
+
+            // UNREACHABLE BY DESIGN, and kept rather than deleted. `settings` is an entry in
+            // ORPHAN_DEPENDENCIES, so a user with any `settings` row is refused above and this
+            // line only ever runs when there is nothing to delete. It stays because it is the
+            // correct cleanup if `settings` is ever moved out of that list.
+            Setting::where('created_by', $locked->id)->delete();
+            $locked->delete();
+
+            AuditLog::record('user_deleted', $locked, [
+                'name' => $locked->name,
+                'email' => $locked->email,
+                'type' => $locked->type,
+            ], []);
+        });
+
+        if ($blockers !== []) {
+            return redirect()->back()->with(
+                'error',
+                __('This account cannot be deleted because it still owns data.') . ' '
+                . implode('; ', $blockers)
+            );
         }
+
+        return redirect()->back()->with('success', 'User successfully deleted.');
     }
 
     public function reset($id)
@@ -412,7 +514,30 @@ AuditLog::record('user_deleted', $user, [
         if($validator->fails())
         {
             $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+
+            // P2.5: toast KEPT (five security tests read it), bag and old input ADDED, both
+            // inside fails(). Never bare withInput(): see CredentialSinksTest:260. Full reasoning
+            // in tests/Feature/Merchant/ProfileValidationFeedbackTest.php.
+            //
+            // `type` IS EXCLUDED HERE FOR THE SAME REASON AS password_update BELOW, and the two
+            // lists are deliberately identical. profile.blade.php:209 renders
+            // Form::hidden('type', Auth::guard()->user()->type), and konekt's
+            // getValueAttribute() (vendor/konekt/html/src/FormBuilder.php:1293-1297) reads old()
+            // BEFORE the model value, so a flashed `type` re-renders an attacker-supplied value
+            // in that hidden field. This method persists only name/email/mobile/profile_image by
+            // explicit assignment -- there is no fill() and no $user->type here -- so nothing
+            // escalates today; excluding it keeps that true if anyone later adds one.
+            return redirect()->back()
+                ->with('error', $messages->first())
+                ->withErrors($validator)
+                ->withInput($request->except([
+                    'password',
+                    'password_confirmation',
+                    'old_password',
+                    'new_password',
+                    'new_password_confirmation',
+                    'type',
+                ]));
         }
 
         if ($request->hasFile('profile_image')) {
@@ -457,7 +582,26 @@ AuditLog::record('user_deleted', $user, [
         $validator = \Validator::make($request->all(), $rule);
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+
+            // P2.5 area-wide-no-withinput-witherrors (CLASS A). Same shape as editprofile
+            // above: the toast stays, the bag and old input are added, both inside fails().
+            //
+            // `type` IS IN THE EXCLUSION LIST ON PURPOSE. resources/views/users/profile.blade.php
+            // renders Form::hidden('type', Auth::guard()->user()->type), and konekt/html's
+            // getValueAttribute() (vendor/konekt/html/src/FormBuilder.php:1293-1297) reads
+            // old() BEFORE the model value -- so a flashed `type` would overwrite the
+            // account's real type in the re-rendered hidden field.
+            return redirect()->back()
+                ->with('error', $messages->first())
+                ->withErrors($validator)
+                ->withInput($request->except([
+                    'password',
+                    'password_confirmation',
+                    'old_password',
+                    'new_password',
+                    'new_password_confirmation',
+                    'type',
+                ]));
         }
 
         // `==`, not `=`: the original assignments overwrote $request->type and

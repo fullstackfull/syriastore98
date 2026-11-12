@@ -35,7 +35,28 @@
     <ul class="nav nav-pills row store-setting-tab ss-chips" role="list">
         @foreach ($role->permissions()->pluck('name') as $index => $permission)
             <li class="nav-item col-2 text-center {{ $index >= 11 ? 'd-none' : '' }}">
-                <span class="ss-chip ss-chip--static">{{ $permission }}</span>
+                {{-- P2.5 OWNER VISUAL REVIEW, 2026-11-12 -- item 12: "present understandable
+                     localized permission display labels without modifying permission
+                     identifiers, authorization semantics or role assignments".
+
+                     DISPLAY ONLY, AND THAT IS THE WHOLE OF IT. `$permission` is the string
+                     `isAbleTo()` matches on; it arrives from `permissions()->pluck('name')` and
+                     is printed, never compared. `__()` returns its key unchanged when no
+                     translation exists, so English renders byte-for-byte as before and a
+                     permission nobody has translated yet still shows its own name rather than
+                     disappearing. Nothing is written, no identifier changes, and no role
+                     assignment is touched.
+
+                     The Arabic for 206 permission names was generated from a 14-verb, 85-noun
+                     vocabulary rather than written out phrase by phrase, so what needed review
+                     was 99 words. Names already translated were LEFT ALONE: all 24 that differed
+                     from the generated form are also row-action labels elsewhere
+                     (`*/action.blade.php`), where their singular wording is the right one and a
+                     plural permission-list form would read "Edit the coupons" on a button. Six
+                     were repaired anyway because they are wrong in ANY context -- reversed word
+                     order, a lost verb, literal quote marks -- and those took singular forms to
+                     suit the buttons they also label. --}}
+                <span class="ss-chip ss-chip--static">{{ __($permission) }}</span>
             </li>
         @endforeach
         @if ($role->permissions->count() > 10)

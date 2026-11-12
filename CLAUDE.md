@@ -15,8 +15,8 @@ Each of these has produced a real defect. Do not assume the framework default.
 
 **Authorization**
 
-- **Laratrust, not spatie.** `permissions_as_gates => false`, so **`@can('Some Permission')` is
-  always false**. Use `$user->isAbleTo('Permission Name')`.
+- **Laratrust, not spatie.** `permissions_as_gates => false`, so **`@can('X')` and `$user->can('X')`
+  are ALWAYS false** — measured. Use `$user->isAbleTo('Permission Name')`.
 - **There is no super-admin bypass.** Operator status is a *string comparison* on `users.type`
   (`'super admin'` / `'admin'`). `isAbleTo()` alone **refuses the platform operator**, so an
   authorization check must test the operator first:
@@ -24,8 +24,8 @@ Each of these has produced a real defect. Do not assume the framework default.
   $isOperator = strtolower(trim((string) $user->type)) === 'super admin';
   if (! $user || (! $isOperator && ! $user->isAbleTo('Manage Order'))) { /* refuse */ }
   ```
-- `User::creatorId()` returns `$this->id` for type `admin`/`super admin`, else `created_by`; a user
-  whose type is `admin` is the root of their own tenant.
+- `User::creatorId()` returns `$this->id` for type `admin`/`super admin`, else `created_by`; a user whose type is `admin` is the root of their own tenant. **`created_by = 1` is NOT a tenant, and reading it as one was an account-takeover:** every merchant has `created_by = 1`, and a merchant can demote their own `type` through the product (`PUT /users/{self}` with a role they created), which drops `creatorId()` to 1 and used to make `sameTenant()` true against *every* merchant.
+  `UserPolicy::sameTenant()` now requires the tenant root to be a **type-`admin`** row — full chain in `docs/security/P0-USER-DELETION-CASCADE.md` §7.
 
 **Tenancy**
 
@@ -41,8 +41,8 @@ Each of these has produced a real defect. Do not assume the framework default.
 
 **Authentication**
 
-- Three *session* guards: `web`, `customers`, `deliveryboy`. There is **no `api` or `sanctum`
-  guard**.
+- Three *session* guards: `web`, `customers`, `deliveryboy`, and **no `api` guard**. There **is** a
+  `sanctum` one: `config('auth.guards')` has **four** at runtime, the config file three.
 - `app/Http/Middleware/CustomAuth.php` (`custom.auth`) resolves a Sanctum token and logs its owner
   into whichever guard matches the **tokenable class**: `Customer`→`customers`, `User`→`web`,
   `DeliveryBoy`→`deliveryboy`. **A merchant's or driver's token passes `custom.auth` while
@@ -156,9 +156,9 @@ reported a store-B row deleted while the raw table still held it. Assert through
 ## 3. Tests
 
 ```bash
-php artisan test --testsuite=Unit        # 339 tests (2026-10-21; counts drift)
-php artisan test --testsuite=Feature     # ~3670 tests, ~9 min
-php artisan test --testsuite=Contract    # 26 tests — the Flutter API contract
+php artisan test --testsuite=Unit        # 1079 tests, ~50s. CI RUNS THIS FIRST AND BLOCKS ON IT
+php artisan test --testsuite=Contract    # 27 tests — the Flutter API contract. Also blocking
+php artisan test --testsuite=Feature     # 7959 tests, ~9 min. SKIPPED ENTIRELY if Unit is red
 /tenant-check                            # tenancy + security suites (see .claude/commands)
 ```
 
@@ -291,7 +291,7 @@ public framework documentation only** — a query may name a package and version
 repository's code, schema, config or customer data; and **`gstack`, `claude-mem` and `strix` must
 not be installed**, by owner decision.
 
-The storefront and admin are **Blade + the vendored Bootstrap 5 WorkDo theme + `public/css/store-syria-ds.css`** — **not Tailwind**, which this file used to claim. Measured: `@vite` appears in **zero** views, `resources/css/app.css` is referenced nowhere, and there is no `public/build`, so the Tailwind toolchain is installed and never loaded. One live consequence: `resources/views/profile/edit.blade.php` is Breeze Tailwind markup on a registered route (`routes/web.php:449`) and renders unstyled. Bilingual **Arabic (RTL) and English (LTR)**.
+The storefront and admin are **Blade + the vendored Bootstrap 5 WorkDo theme + `public/css/store-syria-ds.css`** — **not Tailwind**, which this file used to claim. Measured: `@vite` appears in **zero** views, `resources/css/app.css` is referenced nowhere, and there is no `public/build`, so the Tailwind toolchain is installed and never loaded. One live consequence, **corrected 2026-11-10 by measurement**: `resources/views/profile/edit.blade.php` is Breeze markup on a registered route, and it did not render *unstyled* — it rendered **nothing**. `<x-app-layout>` passes its body as `$slot`; `AppLayout::render()` returns `view('layouts.app')`; and that file is the WorkDo layout, which contains **zero** `$slot` references and emits content with `@yield('content')` (:708). A layout that yields never prints the slot it was handed, so all four combinations drew perfect chrome around an empty content area. `ProfileController@edit` now redirects to `GET /profile`. **`layouts/guest.blade.php` has no `$slot` either**, and `auth/confirm-password.blade.php` was still `<x-guest-layout>`, so that registered route answered 200 with an empty body too; it is now `@extends`/`@section` like its five siblings. **Do not write a new view in the `<x-*-layout>` shape** — `tests/Unit/Ui/SlotLayoutViewsRenderTest` fails on it, because the failure is otherwise invisible: correct chrome, HTTP 200, no page. Bilingual **Arabic (RTL) and English (LTR)**.
 Any UI change must be checked in both directions, and contrast-checked — Claude B's verification
 found option names rendering at 1.00:1 white-on-white in dark mode.
 

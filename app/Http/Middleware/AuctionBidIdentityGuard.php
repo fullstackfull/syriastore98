@@ -5,7 +5,9 @@ namespace App\Http\Middleware;
 use App\Models\Product;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -116,6 +118,32 @@ class AuctionBidIdentityGuard
      */
     private const DERIVED = ['customer_id', 'store_id', 'product_id', 'bid_amount'];
 
+    /**
+     * P1-SEC-61. ONE BODY FOR EVERY OWNERSHIP REFUSAL, and the single text is the control, not a
+     * convenience: four different causes reach it, and a message that distinguished them would be
+     * a cross-tenant existence oracle. An attacker could then separate "no such product id" from
+     * "that product id exists, in a store that is not this one" and enumerate other tenants'
+     * catalogues one id at a time. `test_every_ownership_refusal_is_indistinguishable` pins it.
+     *
+     * WHAT WAS WRONG WITH THE OLD TEXT. It was "That auction product could not be found." --
+     * false in the case that actually reaches a real shopper. `products.slug` has no unique index
+     * and `AuctionProductController:205` takes a merchant-supplied slug VERBATIM with no
+     * uniqueness check (the generated path, `Product::slugs()` -> `getRelatedSlugs()`, dedupes
+     * globally, so auto-slugs never collide -- only typed ones do). `bidingForm:1566` then
+     * resolves `Product::where('slug', $product_slug)->first()` with NO store predicate, so the
+     * lowest product id wins for every store sharing that slug. A customer on the losing store
+     * clicks their own auction, is shown the OTHER store's product, and posts a bid this guard
+     * correctly refuses -- while being told the product they can plainly see does not exist.
+     *
+     * The new text is true of all four causes, states the outcome of a money action plainly, and
+     * points at the only party who can fix the underlying collision. It deliberately does NOT
+     * suggest retrying: the slug collision is deterministic, so "try again" would be a second
+     * false statement. Diagnosis goes to the operator through `logSlugCollision()` instead, where
+     * it is actionable and reveals nothing to the caller.
+     */
+    private const OWNERSHIP_REFUSAL =
+        'We could not confirm this auction on this store, so no bid was placed. Please contact the store.';
+
     public function handle(Request $request, Closure $next): Response
     {
         $route = $request->route();
@@ -172,18 +200,20 @@ class AuctionBidIdentityGuard
         $productId = $this->usableId($request->input('product_id'));
 
         if ($productId === null) {
-            return $this->deny($request, __('That auction product could not be found.'));
+            return $this->deny($request, __(self::OWNERSHIP_REFUSAL));
         }
 
         // `Product` carries NO effective scope -- it is absent from `scoped_models`, which is the
-        // defect CLAUDE.md records as having produced a live cross-tenant stock drain. That is
-        // exactly why this read is safe to use HERE: the guard WANTS the product whatever store it
-        // belongs to, because bidding across stores is legitimate. What it must not do is let the
-        // caller name the store; the store comes from the row.
-        $product = DB::table('products')->where('id', $productId)->first(['id', 'store_id', 'sale_price']);
+        // defect CLAUDE.md records as having produced a live cross-tenant stock drain. So this
+        // read deliberately reaches any store, and the two checks below are what constrain it:
+        // first that the row exists and carries a usable store, then that the store is the one
+        // whose storefront the bid was posted to.
+        $product = DB::table('products')
+            ->where('id', $productId)
+            ->first(['id', 'store_id', 'sale_price', 'slug']);
 
         if ($product === null) {
-            return $this->deny($request, __('That auction product could not be found.'));
+            return $this->deny($request, __(self::OWNERSHIP_REFUSAL));
         }
 
         $productStore = $this->usableId($product->store_id);
@@ -191,7 +221,63 @@ class AuctionBidIdentityGuard
         if ($productStore === null) {
             // A product with a NULL or unusable store_id is invisible to every store_id predicate
             // in the application. A bid on it would be unreachable by its own merchant.
-            return $this->deny($request, __('That auction product could not be found.'));
+            return $this->deny($request, __(self::OWNERSHIP_REFUSAL));
+        }
+
+        /*
+         * ISSUE #136. THE BID TARGET MUST BELONG TO THE STOREFRONT THE BID WAS POSTED TO, and this
+         * REVERSES THE DECISION THIS GUARD WAS BUILT ON. Recorded, not slipped in.
+         *
+         * The comment above `$product` used to end "the guard WANTS the product whatever store it
+         * belongs to, because bidding across stores is legitimate", and
+         * `AuctionBidForgeryTest::test_a_customer_cannot_forge_a_bid_for_another_customer_on_another_store`
+         * asserted a cross-store bid was WRITTEN, calling it "the module's own design". Under that
+         * model the forgery was closed by DERIVING `store_id` from the product row rather than by
+         * refusing the request -- which is a real protection and is still here, just no longer the
+         * only one.
+         *
+         * The owner decided otherwise: *"Resolve store context from the validated route/storefront,
+         * not a second caller-controlled parameter. Fail closed on missing/mismatched
+         * store/product, and ensure the selected auction and bid target match the store."*
+         *
+         * THE ROUTE IS THE SOURCE, NOT A REQUEST FIELD. `getRouteStoreId()` reads the matched
+         * route's `storeSlug` parameter, which is the same source `getStore()` uses to render the
+         * page. It is not `$request->store_id` -- that key is in DERIVED above and is overwritten
+         * below precisely because a caller must never name their own tenant.
+         *
+         * WHY THIS BREAKS NO USER JOURNEY, measured rather than assumed:
+         * `AuctionProductController::product_detail()` resolves the auction product with
+         * `Product::where('slug', $product_slug)->where('store_id', $store_id)->first()`, so a
+         * customer browsing store A is only ever shown store A's auction products, and
+         * `place_bid.blade.php:280` posts to this route with that same store's slug. A cross-store
+         * bid cannot be produced by the storefront; it only arrives hand-crafted.
+         *
+         * It refuses more and admits nobody, so it is a tightening. The amount rules below -- the
+         * current-maximum comparison and the `sale_price` floor -- are untouched, so no pricing or
+         * financial behaviour changes with it.
+         */
+        $routeStore = $this->usableId(getRouteStoreId());
+
+        if ($routeStore === null || $routeStore !== $productStore) {
+            // P1-SEC-61. The caller is told nothing extra; the operator is told everything, because
+            // only the store can fix a colliding slug. Runs on the refusal path only, so the
+            // successful bid costs no extra query.
+            //
+            // WRAPPED, AND NOT DEFENSIVELY -- FOR A MEASURED REASON. `config/logging.php:58` sets
+            // `ignore_exceptions => false` on the default stack, so a `Log::warning` that cannot
+            // open its stream (full disk, unwritable storage/logs) THROWS. Unwrapped, that throw
+            // happens here, before `deny()` below, and turns this branch's deliberate recoverable
+            // 302 into a 500 -- the exact regression `deny()`'s own docblock exists to prevent,
+            // and reachable because the branch is attacker-paced. A diagnostic must never be able
+            // to change the decision it is merely describing.
+            try {
+                $this->logSlugCollision($routeStore, $productStore, $product);
+            } catch (\Throwable) {
+                // Deliberately swallowed: losing a log line is strictly better than converting a
+                // refusal into an error page.
+            }
+
+            return $this->deny($request, __(self::OWNERSHIP_REFUSAL));
         }
 
         $amount = $this->usableAmount($request->input('bid_amount'));
@@ -256,6 +342,92 @@ class AuctionBidIdentityGuard
         ]);
 
         return $next($request);
+    }
+
+    /**
+     * P1-SEC-61 DIAGNOSIS, operator-side.
+     *
+     * A store mismatch has two very different causes and the shopper must not be able to tell
+     * them apart (see OWNERSHIP_REFUSAL). The operator must. So the distinguishing question is
+     * asked here and written to the log: does the storefront the bid was posted to have its OWN
+     * product under the same slug? If it does, this was a legitimate click defeated by a slug
+     * collision, and the log names both rows so the merchant can rename one. If it does not, the
+     * request was hand-crafted and is logged as such.
+     *
+     * DELIBERATELY NO CUSTOMER DATA. `storage/logs/laravel.log` answered 200 with 3,421,645 bytes
+     * of text/plain on the live host on 2026-11-11 (P1-SEC-40, owner-deferred and UNRESOLVED), so
+     * this log line is to be read as PUBLIC. The customer id and email are not written here.
+     *
+     * AND THAT IS NOT THE WHOLE OF IT -- P1-SEC-62, raised by independent review of this very
+     * change and recorded rather than waved away. Which of the two messages below is written, and
+     * indeed WHETHER either is written, reproduces exactly the four-way distinction
+     * OWNERSHIP_REFUSAL exists to withhold: the first three ownership branches log nothing at all.
+     * While P1-SEC-40 stands, a caller who can walk `product_id` and then read the log can
+     * reconstruct the `products.id -> store_id` map. So this diagnostic MOVES the oracle out of the
+     * response and into a file that is, today, also readable.
+     *
+     * It ships anyway, on a judgement that is stated so it can be disagreed with: the incremental
+     * disclosure is nil. The same channel already serves `.env` with the unrotated `APP_KEY` and
+     * the `DB_*` credentials, so anyone who can read this line can already read the `products`
+     * table itself. What the review changes is the DEPENDENCY, which is now explicit:
+     * **remediating P1-SEC-40 closes P1-SEC-62 with no further work here**, and
+     * `P01-SECURITY-WORK-QUEUE.md` S57 records it as dependent rather than as a footnote. If
+     * P1-SEC-40 is ever closed as "no longer applicable" without the log ceasing to be served,
+     * this method is the thing to re-examine.
+     *
+     * ONE LINE PER DISTINCT COLLISION, not one per attempt. The branch is attacker-paced and the
+     * `web` group carries no throttle (`throttleApi` is scoped to `api` only, `bootstrap/app.php`),
+     * so an unbounded append would both inflate a publicly served file and bury the real
+     * collisions in it -- which is the same noise the negative-control test was written against.
+     */
+    private function logSlugCollision(?int $routeStore, int $productStore, object $product): void
+    {
+        $slug = is_string($product->slug ?? null) ? $product->slug : null;
+
+        $twin = ($slug !== null && $routeStore !== null)
+            ? DB::table('products')
+                ->where('slug', $slug)
+                ->where('store_id', $routeStore)
+                ->value('id')
+            : null;
+
+        // `add()` is atomic and returns false when the key already exists, so the first refusal in
+        // the window logs and the rest are dropped. Keyed on the facts that identify the
+        // collision, so a DIFFERENT pair still reports immediately.
+        $once = sprintf(
+            'p1sec61:%s:%s:%s:%s',
+            $routeStore ?? 'none',
+            $productStore,
+            $product->id,
+            $twin ?? 'none'
+        );
+
+        if (! Cache::add($once, true, now()->addMinutes(10))) {
+            return;
+        }
+
+        if ($twin !== null) {
+            Log::warning('P1-SEC-61 auction bid refused: products.slug collision across stores.', [
+                'slug' => $slug,
+                'posted_product_id' => $product->id,
+                'posted_product_store_id' => $productStore,
+                'storefront_store_id' => $routeStore,
+                'storefront_product_id' => $twin,
+                'cause' => 'bidingForm resolves by slug with no store predicate and products.slug '
+                    . 'has no unique index, so the lowest product id wins for every store sharing '
+                    . 'the slug. Rename one of the two products to restore the losing storefront.',
+            ]);
+
+            return;
+        }
+
+        Log::warning('P1-SEC-61 auction bid refused: bid target does not belong to this storefront.', [
+            'posted_product_id' => $product->id,
+            'posted_product_store_id' => $productStore,
+            'storefront_store_id' => $routeStore,
+            'cause' => 'no product with this slug exists in the posted storefront, so the request '
+                . 'did not come from that storefront\'s own product page.',
+        ]);
     }
 
     /**
@@ -324,9 +496,12 @@ class AuctionBidIdentityGuard
      * `redirect()->back()` with a flash message. A 403 error page here would lose the auction the
      * customer was looking at -- the regression P1-INV-18's guard shipped and had to soften.
      *
-     * The three ownership-adjacent refusals share one body, so the response cannot be used to probe
-     * which product ids exist. The sign-in and bad-amount cases carry their own text: neither
-     * reveals anything about another tenant's rows, and both are ordinary user mistakes.
+     * ALL FOUR ownership-adjacent refusals share one body (OWNERSHIP_REFUSAL), so the response
+     * cannot be used to probe which product ids exist. This said "three" until 2026-11-11 and was
+     * wrong by one: #136 added the route/product store mismatch and this count was not updated.
+     * Corrected here because the comment is the record. The sign-in and bad-amount cases carry
+     * their own text: neither reveals anything about another tenant's rows, and both are ordinary
+     * user mistakes.
      */
     private function deny(Request $request, string $message): Response
     {

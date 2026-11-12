@@ -378,16 +378,30 @@ class LotteryPaymentMethodSelectionTest extends SecurityTestCase
 
     /**
      * RETRACTION, PINNED. The posted values are locale-invariant because the builder never calls
-     * `__()`. `resources/lang/ar.json` really does translate the brand names -- that part was
+     * `__()`. `resources/lang/ar.json` really does translate some brand names -- that part was
      * true -- but those translations only reach `Setting::paymentList`, which this form does not
      * use. Asserted so the retracted finding cannot be re-filed from the ar.json evidence alone.
+     *
+     * THE PREMISE MOVED OFF `Stripe` (P2.5-SET-03). It used to assert `__('Stripe') !== 'Stripe'`,
+     * which stopped being true when that change removed 32 mistranslated brand names -- `Stripe`
+     * had been rendering as `الشريط`, "the ribbon", so a merchant could not find the gateway.
+     *
+     * The retraction does NOT depend on `Stripe` specifically, and this is the distinction worth
+     * keeping: what makes the two builders differ is that ONE CALLS `__()` AT ALL and the other
+     * does not. A brand that is still translated demonstrates that difference just as well, and
+     * `Paypal` -> `بايبال` is one -- it is a faithful Arabic rendering of the brand, which is why
+     * P2.5-SET-03 deliberately kept it. The `Stripe` assertions below are unchanged, because the
+     * MECHANISM they pin (`Setting::paymentList` routes it through `__()`, the form's catalogue
+     * holds a literal) is untouched by what any language file says.
      */
     public function test_the_arabic_translations_exist_but_never_reach_this_form(): void
     {
         $this->app->setLocale('ar');
 
-        $this->assertNotSame('Stripe', __('Stripe'),
-            'resources/lang/ar.json no longer translates the brand name `Stripe`.');
+        $this->assertNotSame('Paypal', __('Paypal'),
+            'resources/lang/ar.json no longer translates any payment brand name, so this test can '
+            . 'no longer show that a `__()`-based builder would differ by locale. Retarget it at a '
+            . 'brand that is still translated rather than deleting the premise.');
 
         $fromSettingBuilder = array_values(array_filter(
             file(base_path('app/Models/Setting.php')),

@@ -5,14 +5,14 @@
         <a href="#" class="btn btn-primary me-2 ai-btn btn-badge" data-size="lg" data-ss-panel-open="ai-generate"
             data-ss-panel-url="{{ route('generate', ['blog']) }}" data-bs-toggle="tooltip" data-bs-placement="top"
             title="{{ __('Generate') }}" data-title="{{ __('Generate Content With AI') }}">
-            <i class="fas fa-robot"></i> {{ __('Generate with AI') }}
+            <i class="ti ti-wand"></i> {{ __('Generate with AI') }}
         </a>
     </div>
 @endif
 
 <div class="row">
     <div class="form-group col-md-6">
-        {!! Form::label('title', __('Title'), ['class' => 'form-label']) !!}
+        {!! Form::label('title', __('Title'), ['class' => 'form-label']) !!}<span class="ss-label__required" aria-hidden="true">*</span>
         {!! Form::text('title', old('title'), ['class' => 'form-control', 'required' => 'required', 'id' => 'title']) !!}
     </div>
     <div class="form-group col-md-6">
@@ -20,7 +20,7 @@
         {{ Form::text('slug', null, ['class' => 'form-control', 'id' => 'slug']) }}
     </div>
     <div class="form-group col-md-12">
-        {!! Form::label('short_description', __('Short Description'), ['class' => 'form-label']) !!}
+        {!! Form::label('short_description', __('Short Description'), ['class' => 'form-label']) !!}<span class="ss-label__required" aria-hidden="true">*</span>
         {!! Form::text('short_description', old('short_description'), [
             'class' => 'form-control',
             'required' => 'required',
@@ -47,14 +47,13 @@
         <label for="upload_cover_image" class="image-upload bg-primary pointer w-100">
             <i class="px-1 ti ti-upload"></i> {{ __('Choose File Here') }}
         </label>
-        <input type="file" name="cover_image" id="upload_cover_image" class="d-none">
+        <input type="file" name="cover_image" id="upload_cover_image" class="ss-visually-hidden">
     </div>
 </div>
 
 <div class="pb-0 modal-footer">
     <input type="button" value="{{__('Cancel')}}" class="btn btn-secondary btn-badge" data-bs-dismiss="modal">
     <input type="submit" value="{{__('Create')}}" class="btn btn-primary btn-badge mx-1">
-</div>
 </div>
 {!! Form::close() !!}
 

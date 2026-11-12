@@ -17,16 +17,16 @@
     @csrf
     <div class="row">
         <div class="ss-field col-md-12">
-            {{Form::label('name',__('Name'),array('class'=>'ss-label'))}}
+            <span class="ss-label-line">{{Form::label('name',__('Name'),array('class'=>'ss-label'))}}<span class="ss-label__required" aria-hidden="true">*</span></span>
             {{Form::text('name',$user->name,array('class'=>'ss-input','id'=>'name','placeholder'=>__('Enter Name'),'required'=>'required'))}}
         </div>
         <div class="ss-field col-md-12">
-            {{ Form::label('email',__('Email'),array('class'=>'ss-label')) }}
+            <span class="ss-label-line">{{ Form::label('email',__('Email'),array('class'=>'ss-label')) }}<span class="ss-label__required" aria-hidden="true">*</span></span>
             {{ Form::email('email',$user->email,array('class'=>'ss-input','id'=>'email','placeholder'=>__('Enter Email'),'required'=>'required')) }}
         </div>
         @if (auth()->user()->type != 'super admin')
         <div class="ss-field col-md-12">
-            {{ Form::label('role',__('User Role'),array('class'=>'ss-label')) }}
+            <span class="ss-label-line">{{ Form::label('role',__('User Role'),array('class'=>'ss-label')) }}<span class="ss-label__required" aria-hidden="true">*</span></span>
             {{ Form::select('role',$roles,$user->roles,array('class'=>'ss-select','id'=>'role','placeholder'=>__('Select Role'),'required'=>'required')) }}
         </div>
         @endif

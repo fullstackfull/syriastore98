@@ -30,6 +30,63 @@ settle it. No secret value appears in this document — only locations, names an
 
 ---
 
+## S3 — the order-status webhook fires the CALLER's store's URL with the ORDER's data, so a platform operator can post another store's order detail to a merchant's endpoint
+
+**Added 2026-11-09 (P2.5-ORD-12).** Found by the tenant/authz review of the ORD-12 repair, which
+asked whether the webhook limb still re-reads `getCurrentStore()`. It does. Recorded here rather
+than repaired in that slice, because closing it changes WHICH store's webhook fires — a behaviour
+decision, not a guard.
+
+| | |
+|---|---|
+| **where** | `app/Http/Controllers/OrderController.php` — `$store = getStoreById($d_order->store_id)` (the ORDER's store, used for the e-mail and SMS) and, ~40 lines later in the same success branch, `$store = Store::find(getCurrentStore()); $webhook = Utility::webhook($module, $store->id);` (the CALLER's store), whose URL then receives `json_encode(Order::order_detail($orderId))` |
+| **who can reach it** | the platform operator ONLY. `OrderPolicy::allow()` returns true for `isPlatformAdmin` *before* `sameStore()`, so for an operator the two stores can differ. For every merchant and staff principal they are the same store by construction, so there is no merchant-reachable path. |
+| **what leaks** | the victim order's full detail — customer name, street, city, country, postcode, e-mail, phone, every line item and total — to a URL the owner of the operator's *current* store configured (`WebhookController::store` forces `store_id` to the caller's own, so a merchant owns that URL) |
+| **severity** | S3: real, but it needs a deliberate operator action and a `Status Change` webhook already configured on the operator's current store. Latent, not live. |
+| **not introduced by ORD-12** | both lines predate it. Moving the notification block inside the success branch strictly REDUCES how often this sink fires — it no longer runs for a refused cancel, a refused return, an unrecognised status or an empty one. |
+| **the shape of a fix** | `Utility::webhook($module, $d_order->store_id)` and drop the `$store` reassignment, so the webhook that fires belongs to the store the order belongs to. That is the same reasoning P1-ORD-04 applied to the payload when it pinned the read to the route order; this is the remaining half, on the SELECTION of the sink rather than its contents. |
+| **what would settle it** | a test driving an operator whose `current_store` is store A through `order-status-change/<a store-B order>` with a `Status Change` webhook on store A, asserting the payload is not sent, or is sent to store B's URL. `Utility::WebhookCall` would need a seam. |
+| **secondary, same line** | `Store::find(getCurrentStore())` can be null (an operator whose `current_store` points at a deleted store); `$store->id` then warns and `Utility::webhook($module, null)` becomes `where('store_id', null)` → `IS NULL`, selecting a webhook row with a NULL store. Also pre-existing. |
+
+---
+
+## S2 — `POST api/admin/AddCustomer` has no permission check, and the web form that does the same thing has one
+
+**Added 2026-11-07 (P2.5-PKG-F).** CLAUDE.md sends readers here for open security findings, and this
+one was escalated to the owner in a report and a findings document without a row in the queue —
+so the one place a reader is told to look did not have it. That gap is the reason for this row.
+
+| | |
+|---|---|
+| **Severity** | S2 — exploitable by any principal who can already obtain an admin-API token, within their own tenant |
+| **Where** | `app/Http/Controllers/Api/DashboardController.php::addCustomer()` (~`:8585-8700`), routed at `routes/api.php:275` |
+| **State** | **MEASURED, PINNED, NOT FIXED — awaiting an owner decision** |
+| **Evidence** | `tests/Feature/Security/AdminApiCustomerCreatePermissionTest.php` — 7 tests, all passing, asserting the behaviour **as it is** |
+| **Detail** | `docs/security/P25-SECURITY-FINDINGS-2026-11-07.md` §5.4 |
+
+**The asymmetry.** `CustomerController::store()` tests the operator first and then
+`isAbleTo('Manage Customer')`. `addCustomer()` has **no `isAbleTo` and no operator limb** — only a
+401 for a missing token and the ownership 403. `resolveOwnedStore()` scopes on
+`created_by = $user->creatorId()`, and `creatorId()` returns `created_by` for any type that is not
+`admin`/`super admin`, so **a staff member resolves their owning merchant's store and passes**. The
+admin login places no restriction on `type`.
+
+**The write is a credential**: the create sets `password` from the request and
+`email_verified_at => now()`, so the account signs in to that merchant's storefront immediately.
+Measured: a staff member holding **no permissions** gets **201**, and `Hash::check` confirms the
+password is the one that caller chose.
+
+**`updateCustomerInfo()` is NOT affected** — checked, not assumed: it restricts `type`, so staff
+get 401. A test asserts it.
+
+**Why it is not fixed.** The gate would make a **shipped Flutter endpoint start refusing a principal
+it accepts today**, and the owner's instruction is *"No silent payment behavior or authentication
+policy changes."* The fix, when authorised, is the operator-first shape this codebase already uses
+— Laratrust has no super-admin bypass, so testing the permission alone would refuse the platform
+operator — and it must answer **403, not 401**, because the shipped app force-logs-out on any 401.
+
+---
+
 ## S1 — `BackupRestore` module: unauthenticated route to the whole database and `.env`
 
 **Owner action required before anything else: is `module_is_active('BackupRestore')` true on the
@@ -5441,6 +5498,90 @@ human approval` must not be added to any required-checks list — it runs in `re
 
 ---
 
+## S59 — `Api\DashboardController::store()` was an unrouted customer-creation twin carrying the two defects repaired next door — **CLOSED 2026-11-07, the method is deleted**
+
+> **REMOVED under the owner's instruction of 2026-11-07:** *"You may remove the unconnected
+> `DashboardController::store()` handler only after proving that it has no active routes, dynamic
+> callers, internal dependencies or required functionality. Do not create a route to it."*
+> The proof is below. **No route was created.** `addCustomer()` and its permission gate are
+> untouched.
+>
+> **How it was proven — four independent methods and two adversaries, not a grep:**
+> * **No routes.** All 70 modules force-loaded into a throwaway database (2309 routes, more than
+>   any real tenant loads), then the live router asked directly:
+>   `getByAction('…DashboardController@store')` returns **null**; a linear scan of all 2309
+>   registered routes for `/DashboardController@store$/` returns **0**; 113 routes resolve to this
+>   controller across **111 distinct methods** and `store` is not one. No route cache exists. The
+>   throwaway was deleted and `database/p2dev.sqlite` verified back at its original single row.
+> * **No module can reach it.** The string `DashboardController` appears **zero** times anywhere
+>   under `packages/workdo/` — all 70 modules, 139 route files, every file type. Read, not inferred
+>   from a green suite (which is structurally blind to modules).
+> * **No registration form was missed.** `Route::resource`/`apiResource`/`singleton`/
+>   `apiSingleton`/`fallback`/`match`/`->uses()`/`addRoute()`/`URL::action`/string `Controller@method`
+>   — all zero, on **every one of the five refs in the clone**, which closes the
+>   "a route on an unmerged branch" hazard.
+> * **No dynamic caller, and one could not exist silently.** Laravel's
+>   `Illuminate\Routing\Controller::__call()` **throws** `BadMethodCallException`, so a dynamic
+>   dispatch to a removed method is a hard error, not a quiet fallthrough.
+> * **No contract.** Nothing extends the class, it implements no interface, the parent and the one
+>   trait declare no `store()`, and no test referenced it.
+> * **No lost capability.** The shipped Flutter admin creates customers through `/AddCustomer`
+>   (`base_api.dart:92`). Nothing in either repository could reach `store()`.
+>
+> **The one real dependency, found only by the adversarial pass:**
+> `ApiStoreOwnershipPredicateTest.php:814` asserts a FLOOR of `resolveOwnedStore(` calls in this
+> controller, and the count was exactly **92 with zero headroom**. Three of the four proof agents
+> reported "deleting it breaks nothing"; that was **measurably false**, and shipping it would have
+> turned a blocking gate red.
+>
+> The floor is now **91**, lowered by exactly the one call the deleted method contained, documented
+> in that test's own comment the way its failure message demands and the way the **precedent in the
+> same file** does — it was lowered 94 → 92 by P1-INV-10 for the same reason, with the explicit
+> rationale *"Keeping the floor at 94 would mean keeping two latent cross-tenant holes alive to
+> satisfy a proxy measure."* `store()` had exactly that shape: one call satisfying the counter,
+> and an insert keyed on the raw query-string `store_id` that did not.
+>
+> **The real control is untouched and was proved so.** That test's own docblock says the count "was
+> never the real control" — the sibling `test_every_api_method_that_reads_a_request_store_id_also_proves_ownership`
+> is. An unguarded `store_id` reader was injected into the controller after the removal and that
+> assertion **failed**, then passed again on restore. Tenancy protection is exactly as strong as
+> before.
+
+**ORIGINAL FINDING, kept as the record of what was removed:**
+
+**Severity: low while unrouted; the same as S2/§5.4 the moment it is routed.** Recorded by the
+independent tenant-isolation review of the `AddCustomer` permission repair (2026-11-07).
+
+`app/Http/Controllers/Api/DashboardController.php:6257-6325` is a near-duplicate of
+`addCustomer()` and has **none** of its three repairs:
+
+* **no permission gate** — only the `:6262` 401 and `resolveOwnedStore()` at `:6291`, i.e. exactly
+  the gap closed in `addCustomer()`;
+* **validation before ownership** — `Rule::unique('customers','email')->where('store_id', $storeId)`
+  at `:6276-6289` runs *before* `resolveOwnedStore()` at `:6291`, which is the e-mail enumeration
+  oracle measured in `AddCustomerEmailDisclosureTest`;
+* **query-string `store_id` straight into the insert** at `:6320`, not `$store->id`;
+* and it writes a credential: `password` from the request, `email_verified_at => now()`.
+
+**Not exploitable today.** Measured unrouted: no `Route::…'store'` for this controller in
+`routes/`, no `Route::resource`/`apiResource` on it anywhere in the repository, and no module routes
+it. `routes/api.php` declares 115 `DashboardController` routes and none maps to `store`.
+
+**Why it is still a finding.** `store` is the Laravel resource-convention method name. A single
+future `Route::apiResource('customers', DashboardController::class)` exposes it and silently reverts
+both the S2 permission repair and the §2 e-mail-oracle repair at once — in one line, with no
+diff to either repaired handler for a reviewer to notice.
+
+**Fix: delete the method, or give it the same two repairs (`resolveOwnedStore()` before
+`validate()`, plus the permission gate). DO NOT route it to "fix" it.** Out of scope for the narrow
+`AddCustomer` authorisation of 2026-11-07, so not done there.
+
+The e-mail-oracle half of this was already recorded as
+`docs/security/P25-SECURITY-FINDINGS-2026-11-07.md` §5.1; the permission half and the
+resource-convention hazard are new. Full detail: that document's §6.4.
+
+---
+
 ## Suggested package boundaries
 
 Keeping these apart is the point; each is independently reviewable and independently revertable.
@@ -5468,6 +5609,517 @@ Keeping these apart is the point; each is independently reviewable and independe
 | **P01-SEC-5** | S7 | Owner decision on the swallow |
 | **P01-SEC-6** | S9 + S10 | Cheap; can ride alongside any of the above |
 | *(precondition, not a package)* | S8 | Must be settled before P01-B ships |
+| **P25-SEC-01** | **S59** | Tiny and isolated: delete an unrouted method, or repair it. No contract impact, no client impact. Needs an owner nod only because deleting a handler is a code removal |
 
 Rotation (S2) is an owner operation, not an engineering package, and gates nothing on this list
 except the *severity* of S3.
+
+---
+
+## P25-SEC-02 — a latent arbitrary-`.php`-write that a well-meaning fix would arm [2026-11-10]
+
+**Severity as it stands: none. Severity if someone is helpful: critical.** This is in the queue for
+the second reason, not the first.
+
+`LanguageController::storeLanguageData()` writes
+`file_put_contents($langFolder . "/" . $fileName . '.php', $content)` where **`$fileName` is an array
+KEY from the request body**, unsanitised. `message[../../../../public/x]` would write an
+attacker-chosen PHP file outside the lang tree — arbitrary code execution for any principal holding
+`Create Language`.
+
+**The WRITE cannot execute today, and only by accident.** `buildArray()` is **defined nowhere in
+this repository**; the call two lines above the write is its only occurrence in any PHP file.
+`LanguageController` inherits `Illuminate\Routing\Controller::__call`, which throws
+`BadMethodCallException`, so any request carrying a non-empty `message` dies before the write. Found
+by an independent review of the P2.5 closure changes; the dead-method half is also recorded at
+`docs/discovery/06-UI-UX-ASSESSMENT.md:528`.
+
+**BUT THE EXCEPTION ITSELF IS LIVE, through the product's own form, and that is a second finding
+rather than a footnote to the first.** `language/index.blade.php:142-159` emits
+`name="message[<file>][<key>]…"` inputs for every PHP translation file a locale has, and **38 such
+files ship** across `resources/lang/<locale>/` (`pt-br`, `pl` and others). So an operator who opens
+one of those locales in the language editor and saves gets **HTTP 500**, every time — the save path
+for PHP translation files is simply broken. Operator-only (see the row below), but not theoretical.
+
+| | |
+|---|---|
+| the arbitrary-write primitive | **not reachable** — `BadMethodCallException` first, measured |
+| the HTTP 500 | **reachable now**, through the shipped language editor, for any locale with PHP lang files (38 ship) |
+| who can reach either | **the platform operator only** — `Create Language` is denylisted in `config/superadminaccess.php:9` and `RolePolicy::isGrantableBy()` enforces that on the write path, so no merchant role can hold it |
+| what arms the write | **implementing `buildArray()`** — the obvious response to a handler that 500s |
+
+**Remediation, whenever this is touched at all:** `basename($fileName)` plus an allowlist of expected
+lang file names, in the **same change** as any implementation of `buildArray()`, with escaping inside
+that method for the values it serialises.
+
+**Why no guard was added now.** A guard on a branch that cannot execute is dead code, and it would
+leave the next reader believing the branch is live and reviewed — which is the more expensive
+mistake. A named warning sits at the exact line instead (`LanguageController.php`, immediately above
+the `foreach`), saying that the dangerous change here is the helpful-looking one.
+
+**Sequencing:** no dependency, no contract impact, no client impact. **Not done in the P2.5 closure
+wave on purpose:** repairing the 500 *means* implementing `buildArray()`, which is the one change
+that arms the write, on an operator feature that generates executable PHP — a Phase 06 surface and a
+decision with a security dimension, not a closure-wave edit. It becomes urgent the moment anyone
+opens that method for any reason.
+
+## S53 — The live host serves its own `.git`, so `#120`'s "reachable in history" is actually "reachable by anonymous HTTP" — **P1-SEC-40 CONTAINMENT PREPARED; the exposure itself needs owner action**
+
+Found while reviewing download exposure for the tracked database dump. The dump was the reason for
+looking. It is not the most serious thing that was found.
+
+### 1. What was measured
+
+`HEAD` requests only, no response bodies retrieved, 2026-11-11. A nonsense path answered **404**,
+so the 200s are real files and not the app's error page returned with a 200.
+
+| Path | Status | Content-Length |
+|---|---|---|
+| `/.env` | 403 | — |
+| `/storesyria_ecommercego.sql` | 404 | — |
+| `/.git/HEAD` | **200** | 21 — exactly `ref: refs/heads/main` |
+| `/.git/config` | **200** | 270 |
+| `/.git/index` | **200** | 10,376,528 |
+| `/.git/objects/info/packs` | **200** | 54 |
+| `/.git/logs/HEAD` | **200** | 3,647 |
+| `/composer.lock` | **200** | 611,406 |
+| `/storage/logs/laravel.log` | **200** | 3,421,645 |
+| `/.git/shallow`, `/.git/info/sparse-checkout`, `/.git/objects/info/alternates` | 404 | — |
+
+The 403 on `/.env` is what proves the root `.htaccess` is the live config: the pre-existing
+`<Files .env>` deny is being applied. The 404 on the dump proves two things at once — it is not on
+the deployed tree, **and** no extension-based deny existed, because a deny answers 403, not 404.
+
+### 2. Why it is reachable
+
+The document root is the **repository root**, not `public/` — a root `index.php` shim sits beside
+the root `.htaccess`, the standard shared-hosting Laravel layout. The front-controller rewrite is
+guarded by `RewriteCond %{REQUEST_FILENAME} !-f`, so Apache returns any file that really exists
+rather than routing the request to `index.php`. Nothing was misconfigured. The default serves
+whatever the deploy left on disk, and a deploy by `git pull` leaves `.git` there.
+
+### 3. The consequence, as a chain of measured links
+
+1. A `.env` with `APP_KEY`, three `DB_*` variables and one mail/gateway password is committed at
+   `3c39c160:.env` — blob `aa5c75b8…`, 1,047 bytes. **Key names counted; no value read.**
+2. `3c39c160` is the **root commit** ("Initial commit 98", 2026-08-27), so the blob is an ancestor
+   of every ref, `main` included.
+3. The deployed checkout is on `main` (link: `/.git/HEAD` is 21 bytes).
+4. The deployed clone is full — not shallow, sparse or alternates-backed (three 404s above).
+5. So the server's packfile holds the root commit and its blobs.
+6. `/.git/objects/info/packs` names the packfiles, which is the input an off-the-shelf `.git`
+   dumper consumes.
+
+**Therefore the production `APP_KEY`, database name, username and password are retrievable by an
+anonymous HTTP client.** The packfile was deliberately not fetched: the chain is sufficient, and
+fetching it would have meant retrieving the credentials and the dump.
+
+### 4. What this means for `#120` / `P1-OWN-09`
+
+That item is recorded as **OPEN, OWNER-DEFERRED** — *"the live `APP_KEY` and database credentials
+reachable at `3c39c160:.env`"*. The deferral is reasonable on the reading that exploiting it takes
+a clone of the repository and knowledge of which commit to look in.
+
+It does not. It takes one anonymous HTTP request to the production host, and it has been that way
+since the site was first deployed from this repository. **The item's severity should be re-rated on
+that basis.** This is a change in the finding's reachability, not a new finding, and not a change
+anyone can make unilaterally — it is recorded here for the owner rather than acted on.
+
+### 5. What was done, and what was deliberately not
+
+Prepared, non-destructive, nothing rewritten and nothing force-pushed:
+
+- the dump untracked from the working tree (`git rm --cached`), so merging removes it from every
+  checkout that pulls — including the server's, which does not close §3 above;
+- `.gitignore` dump patterns verified effective against eight candidate paths, in this repository
+  and in `StoreSyria_app98`, which is itself clean in tree and history;
+- deny rules in `/.htaccess` and `public/.htaccess` covering VCS metadata, dump and backup
+  extensions, `storage/{logs,framework,app}` and the composer manifests — placed **outside**
+  `<IfModule mod_rewrite.c>`, because the pre-existing `<Files .env>` deny is inside it and would
+  fail open if mod_rewrite were unloaded;
+- an nginx equivalent at `docs/security/p1-sec-40-nginx-deny.conf`, unused today, because migrating
+  to nginx discards every `.htaccess` protection silently;
+- `tests/Unit/Security/DumpAndVcsPathsAreDeniedTest.php` — 30 cases, 18 paths that must be refused
+  and 10 that must keep working. Reverting the deny block fails 19; the 11 that still pass are the
+  legitimate-path controls plus `.env`, already covered by the original config.
+
+**Not done, and needing owner authorization:** deploying the rules (the emergency step — nothing
+here changes the live host until it is deployed), rotating the database password and `APP_KEY`,
+pulling the access logs before rotation discards the window, repository visibility, password
+resets, token revocation, and any history rewrite.
+
+### 6. Status
+
+| id | finding | state |
+|---|---|---|
+| **P1-SEC-40** | a production database dump tracked on the default branch of a public repository | **CONTAINMENT PREPARED.** Untracked from the tree, recurrence blocked, deny rules and regression test committed. The history blob and the deployed-`.git` channel both remain |
+| **P1-SEC-50** | the live host serves `.git`, `composer.lock` and `storage/logs/laravel.log`; `objects/info/packs` is readable | **OPEN — rules written, NOT DEPLOYED.** Needs production access. This is the emergency item |
+| **#120 / P1-OWN-09** | the live `APP_KEY` and database credentials at `3c39c160:.env` | **OPEN, and the reachability is worse than recorded** — anonymous HTTP, not "in history". Re-rate; do not close on the strength of this work |
+
+Full incident record, including the coordinated history-cleanup plan and the incident-response
+recommendation: **`docs/security/P1-SEC-40-INCIDENT.md`**.
+
+## S54 — The reported product price/quantity reads, fixed; and what a narrowed census says about the rest — **two fixes landed, one vendored finding REPORTED NOT FIXED**
+
+Directive §3, 2026-11-11: *"Investigate the reported cross-tenant product price and quantity
+reads."* Both were real. The sweep that followed matters as much as the fixes, because its first
+two attempts gave numbers that were wrong in opposite directions.
+
+### 1. The two reported handlers
+
+| handler | route | middleware | what crossed |
+|---|---|---|---|
+| `ProductController::getProductsVariantQuantity()` | `GET get-products-variant-quantity` | `['auth','xss','setlocate','verified']` — **no permission check** | `quantity` as an **integer**: a competitor's exact variant stock level, for any product id on the platform |
+| `ProductController::product_price()` | `POST {storeSlug?}/product_price` | `[ActiveTheme, 'themelanguage']` — **public** | store A's storefront priced store B's product under A's settings, tax rules and flash-sale conditions |
+
+**They are not equally severe and the fix records which is which.** The quantity endpoint is a real
+confidentiality leak: a storefront publishes "In Stock" or "Out Of Stock", never the number, and no
+public route exposes that figure. `product_price` returns data that is already public — anyone may
+read B's prices on B's own storefront — so it was an **isolation** failure, not a disclosure, and it
+is fixed because computing one tenant's price under another tenant's rules is wrong.
+
+Predicates: `getCurrentStore()` for the merchant route (the authenticated principal) and
+`$store->id` for the storefront route (the storefront being browsed, the same source
+`getRouteStoreId()` uses). Never a second request field.
+
+### 2. A FLAW IN THE FIRST VERSION OF THE FIX, found before it shipped
+
+`Product::where('store_id', getCurrentStore())` **fails open**. Two facts compose:
+
+1. `getCurrentStore()` (`helper.php:758`) returns **null** for a principal with no `current_store`
+   who is not `super admin` and owns no store;
+2. Laravel's `Builder::where($column, null)` does not compare against NULL — it rewrites itself to
+   `whereNull($column)`. And `products.store_id` is `nullable()`.
+
+So the predicate became `where store_id is null` and selected **exactly the products nobody owns**
+rather than none — the `null_tenant => 'open'` failure mode by a different road. The handler now
+refuses an unresolvable tenant instead of building a query from null, and
+`ProductReadTenancyTest::test_a_principal_with_no_resolvable_store_reads_nothing` drives it with an
+orphan product.
+
+### 3. `VariantDelete()` is dead code, and that was concealing a trap
+
+It gates on `auth()->user()->can('Delete Variants')`. Laratrust runs with
+`permissions_as_gates => false` (`config/laratrust.php:265`), so a permission is not a Gate
+ability. **Measured** on a merchant granted that exact permission: `isAbleTo('Delete Variants')` is
+`true`, `can('Delete Variants')` is `false`. The handler refuses everyone — a broken feature, but
+fail-closed.
+
+The trap is that `can` → `isAbleTo` is the obvious tidy-up, and it would activate a handler that
+resolved a caller-supplied `$product_id` with a bare `Product::find()` and then **wrote**, rewriting
+`variants_json` on another tenant's product. **The store predicate was added while the handler was
+still unreachable**, so the permission fix cannot silently ship a cross-tenant write. Both facts are
+pinned by `test_the_variant_delete_gate_never_opens_and_carries_a_predicate_anyway`.
+
+### 4. The census, and the two wrong numbers it produced first
+
+Worth recording because the method failed twice before it worked.
+
+- **ATTEMPT 1 — grep `Product::find`: 49 sites. Wrong, far too high.** It counted comments
+  *about* previous fixes as findings, and it ignored where the id came from.
+- **ATTEMPT 2 — add "no ownership guard within 12 lines": 38 sites. Still wrong.** Spot-checks
+  killed it: `ProductController::destroy()` re-reads the **route-bound** model, the ~16 payment
+  callbacks take `$product->product_id` from an order-items collection they already own, and
+  `CartController::product_cartlist()` is guarded by P01-COMMERCE-SEC-01 — just **further than 12
+  lines** after the find, because the explanatory comment is long. A window heuristic measures
+  comment length, not safety.
+- **ATTEMPT 3 — require the id to be CALLER-SUPPLIED** (`$request->` directly, or a variable
+  assigned from `$request->` in the same function): **4 sites in `app/Http/Controllers/`, and 3 of
+  the 4 already guarded.** The fourth was `product_cartlist`, guarded just outside the window. So
+  the two handlers fixed above were the last unguarded first-party sites, and that is a measured
+  claim rather than an impression.
+
+### 5. One vendored finding — REPORTED, NOT FIXED
+
+Same census over **111 controller files in `packages/workdo/*/src/app/Http/Controllers/`**: 4
+caller-supplied sites, 3 guarded, **1 not**.
+
+**`packages/workdo/AuctionProduct/src/app/Http/Controllers/AuctionProductController.php:1585`,
+`addProductbidamount()`**, routed `POST /{storeSlug}/product-bid`
+(`packages/workdo/AuctionProduct/src/routes/web.php:26`).
+
+It checks `auth('customers')->user()` and redirects to login without one — so it authenticates, but
+**authentication is not tenancy**. `Product::find($request->product_id)` carries no store predicate,
+and the handler then **writes**: `$product_bid->product_id = $request->product_id`. A customer
+signed in to store A's storefront can place a bid against store B's auction product.
+
+**Not fixed, deliberately.** CLAUDE.md forbids editing vendored `packages/workdo/` as a shortcut,
+and a cross-tenant write in a payments-adjacent module is not a shortcut-sized change. Two things
+bound the exposure and neither removes it: the module must be active for its routes to load at all
+(an `add_on_managers` row — which is also why **no test run reaches it**, so the suite is
+structurally blind here), and a bid is not a purchase. **Owner decision: authorise a vendored patch,
+or accept the risk explicitly.**
+
+### 6. Status
+
+| id | finding | state |
+|---|---|---|
+| **P1-SEC-51** | `getProductsVariantQuantity()` returned any tenant's exact variant stock to any authenticated merchant | **CLOSED** — predicate from the authenticated principal, fail-closed on a null tenant, 8 cases in `ProductReadTenancyTest` |
+| **P1-SEC-52** | `product_price()` priced another tenant's product under the browsing storefront's rules | **CLOSED** — predicate from the storefront being browsed |
+| **P1-SEC-53** | `VariantDelete()` is unreachable (`can()` under `permissions_as_gates => false`), concealing an unguarded cross-tenant write | **MITIGATED** — predicate added while dead; the broken permission gate is left as-is and pinned, because fixing it without the predicate would have activated the write |
+| **P1-SEC-54** | `AuctionProduct::addProductbidamount()` writes a bid against any tenant's product | **CLOSED by issue #136, 2026-11-11** — and the finding as written above was INCOMPLETE: a registered first-party guard already derived `store_id` from the product row, so the write was never unguarded. What was missing is the routed-storefront match, which is now enforced. See S56. |
+
+## S55 — The independent review of S54 found a LIVE bypass of the financial-record prohibition, and three defects inside the S54 fix itself
+
+`.claude/agents/tenant-authz-reviewer.md` run against the uncommitted S53/S54 change. It is the
+reason this section exists, and it is the fourth time in five packages that the review found
+something in the *fix* rather than in the shipped code.
+
+### 1. The prohibition held on one route, not on the operation — **the serious one**
+
+`BankTransferController::destroy()`'s docblock claimed the prohibition as a property of the
+OPERATION: *"refuses EVERY caller"*, *"the operator is refused too"*. **False as written.** Two other
+paths hard-deleted `PlanOrder` rows.
+
+**(a) LIVE, merchant-reachable.** `Api\DashboardController::DeleteStore` ran
+`PlanOrder::where('store_id', $store->id)->delete()`, routed `DELETE api/admin/deletestore` under
+`custom.auth` — which the **shipped Flutter admin app** calls with a `User` Sanctum token. The
+handler's own predicate (`created_by = $user->id`) is satisfied by a merchant deleting **their own**
+store, so a merchant holding two or more stores erased their own payment history: order id, price
+paid, payment status, and the pointer to the bank slip they uploaded as proof.
+
+The decisive detail is that **the decision had already been taken and applied to one door only.**
+The web twin, `StoreController::destroy`, has carried that exact line commented out with the exact
+rationale — *"PlanOrder IS BILLING ... they outlive the store"* — and `StoreController:994` even
+points at this API twin. Closed by commenting it out identically. The unrouted `DeleteStore_backup`
+carried the same line and is closed too: a dead copy holding the live line is how the decision came
+to be applied unevenly in the first place.
+
+**(b) Operator-reachable.** `BulkDeleteTenantGuard::handle()` returns `$next($request)` for an
+operator **before** its platform-global denial, so `type=plan-order` passed for a `super admin`
+although `plan-order` is in `PLATFORM_GLOBAL`. Closed by checking a new `FINANCIAL_RECORDS` list
+**ahead of** the operator bypass.
+
+`FINANCIAL_RECORDS` is kept separate from `PLATFORM_GLOBAL` deliberately, though `plan-order` is in
+both: `PLATFORM_GLOBAL` answers *"may a MERCHANT delete this?"* and is checked after the bypass,
+while `FINANCIAL_RECORDS` answers *"may ANYONE?"* and is checked before it. Merging them would make
+the operator's reach over countries, states and cities depend on a financial rule. `plan-request` is
+deliberately **not** listed — it is a request to change plan, not a record of money received.
+
+This narrows exactly one type and leaves every other platform-administration type untouched, so it
+refuses more and admits nobody — not a broadening of operator permissions. A companion test pins
+that the operator still reaches `country`, `state`, `city` and `newsletter`.
+
+### 2. Three defects inside the S54 fix
+
+| # | what | severity |
+|---|---|---|
+| **a** | `VariantDelete()`'s new predicate guarded only the `variants_json` rewrite. `ProductVariantOption::find($id)->delete()` sat **outside** that block, on a bare caller-supplied id, with `ProductVariantOption` also absent from `scoped_models` — and an unknown id was a fatal, not a warning. **The docblock told the next reader to "change `can` to `isAbleTo`, keep the predicate"**, which followed verbatim would have shipped a cross-tenant destructive write. Both the code and the note are fixed; the option now resolves through the owning product. | latent, but the instruction made it likely |
+| **b** | `productVariant()` — the POS variant modal, **five lines above** the handler that was reported — had the same defect: `Product::where('id', $id)->first()` with no predicate, same middleware group, no permission check. Any authenticated merchant rendered any tenant's product name, cover image, category and price. It does **not** render the stock integer, so S54's claim that no other route exposes that figure survives. Fixed. | live, low |
+| **c** | The fixed quantity handler resolved the tenant **twice** — `getStoreById(getCurrentStore())` after memoising it — and dereferenced `$store->slug` unguarded, a 500 whenever `current_store` points at a deleted store or an operator gets the helper's hardcoded store-1 fallback on a deployment whose stores do not start at 1. Fixed. | hardening |
+
+Two overclaims in the same change were corrected rather than softened: `StoreController::edit()`'s
+note said `update()` *"refuses"* a mismatched id — it refuses an **unresolvable** one and a broken
+owner link, not a number that is validly both a user id and a store id (operator-only, and nothing
+in the UI links either route). And a test limb asserting `variant_product === 0` could not fail on a
+non-variant fixture; a variant-fixture companion case was added where it does.
+
+One review point was **stale, not wrong**: it reported the null-tenant branch as untested, having
+read the file mid-change. Verified by reverting that branch alone — the test reddens.
+
+### 3. A pre-existing gap the review found in the method S54 was already editing
+
+`StoreController::update()` validated `'email' => 'required'` **only**, while its sibling `store()`
+uses `required|unique:users,email`. So the operator could set merchant B's address to merchant C's
+existing one, and both login and the password-reset broker resolve by
+`User::where('email', ...)->first()` — a duplicate silently re-points a recovery flow at the wrong
+row. The docblock named email rewriting *"an account-takeover primitive"* and then left off the one
+rule bounding it. Now `required|email|unique:users,email,{id}`.
+
+### 4. THE TWO NEW TESTS PASSED VACUOUSLY THREE TIMES. Recorded because the pattern repeats.
+
+Neither regression test worked until the third repair, and each failure mode is one this project has
+met before:
+
+1. **A precondition the exposure needs.** `DeleteStore` answers *"You cannot delete your last store.
+   Create another store first."* before any delete, so a one-store fixture passed with the bypass
+   fully restored. Measured: HTTP 200, `{"status":0,"message":"fail"}`. The fixture now creates a
+   second store, and a **premise assertion** checks the store really was deleted — otherwise the
+   case measures a refusal and calls it a prohibition.
+2. **A route that does not exist in tests.** `POST /bulk-delete` is **404** under PHPUnit: the route
+   belongs to a vendored WorkDo addon and CLAUDE.md records that no module loads without an
+   `add_on_managers` row. The HTTP case was measuring a 404. It now drives the middleware directly.
+3. **Two ways of being authenticated that are not the same way.** `handle()` opens with
+   `if (! $this->isBulkDeleteRoute($request))` reading the **matched route**, and then
+   `$user = auth()->user()` — not `$request->user()`. A bare `Request::create()` has no matched
+   route, and `setUserResolver()` does not reach `auth()`, so the guard bailed twice without
+   inspecting anything. The helper now binds a route named `BulkDeleteTenantGuard::ROUTE_NAME` and
+   uses `actingAs()`.
+
+Final discrimination, driven in both directions: with both fixes reverted the two bypass cases
+**fail** and the platform-administration control still **passes**; restored, all 13 cases pass.
+
+### 5. Status
+
+| id | finding | state |
+|---|---|---|
+| **P1-SEC-55** | `Api\DashboardController::DeleteStore` hard-deleted a merchant's own `PlanOrder` rows — the live bypass of the financial-record prohibition | **CLOSED** — commented out as in the web twin, both there and in the unrouted backup copy |
+| **P1-SEC-56** | `BulkDeleteTenantGuard` let an operator bulk-delete `plan-order` because the bypass preceded the platform-global denial | **CLOSED** — `FINANCIAL_RECORDS` checked ahead of the bypass; a companion test pins the operator's other types |
+| **P1-SEC-57** | `VariantDelete()`'s `ProductVariantOption` delete was outside the predicate, and the docblock told readers to activate it | **CLOSED** — option resolves through the owning product; the note is corrected |
+| **P1-SEC-58** | `productVariant()` (POS modal) rendered any tenant's product name, image, category and price | **CLOSED** |
+| **P1-SEC-59** | `StoreController::update()` wrote `users.email` with no uniqueness rule | **CLOSED** |
+
+## S56 — Issue #136, the auction bid: the finding was incomplete, the fix reverses a documented decision, and the review found the fix had made a test vacuous
+
+### 1. What S54 said, and what was actually there
+
+S54 recorded `AuctionProduct::addProductbidamount()` as writing a bid against any tenant's product
+with "no store predicate", **reported not fixed**. That was incomplete in the way that matters.
+
+A first-party middleware, `AuctionBidIdentityGuard`, was already registered on the `web` group and
+already targeted that exact action. It required a signed-in customer, rejected `DERIVED` keys
+arriving as file parts, refused a product with an unusable `store_id`, enforced the bid-amount rules
+the module only ever enforced in the browser, and **merged `customer_id` from the session and
+`store_id` from the product row** over whatever the caller posted. So the write was never unguarded
+and the caller could never name their own tenant.
+
+What it deliberately did **not** do was restrict WHICH store's product could be bid on. Its own
+comment said so: *"the guard WANTS the product whatever store it belongs to, because bidding across
+stores is legitimate"*, and `AuctionBidForgeryTest` asserted a cross-store bid **was written**,
+calling it "the module's own design".
+
+### 2. The owner reversed that, and the reversal is safe — measured
+
+Issue #136: *"Resolve store context from the validated route/storefront ... ensure the selected
+auction and bid target match the store."* The guard now also refuses when `getRouteStoreId()` is
+null or differs from the product's `store_id`.
+
+**Why it breaks no user journey, measured rather than argued:**
+`AuctionProductController::product_detail()` resolves the auction product with
+`Product::where('slug', $product_slug)->where('store_id', $store_id)->first()`, so a storefront only
+ever shows its own auction products, and `place_bid.blade.php:280` posts that same store's slug. A
+cross-store bid only arrives hand-crafted.
+
+It is a **pure tightening**: an added refusal between two existing ones, with the derivation
+unchanged and the amount rules untouched. Independent review confirmed no branch admits a caller who
+was previously refused.
+
+**Scope, stated so nobody over-reads it:** the check is ROUTE store vs PRODUCT store, **not**
+customer store vs product store. A customer registered at store A may still bid by visiting store
+B's storefront — `customers` is one session guard and storefronts are public. That is deliberate and
+is now pinned by its own test, because after the re-basing below nothing else did.
+
+### 3. THE REVIEW FOUND THE FIX HAD MADE AN EXISTING TEST VACUOUS
+
+The fix required re-staging tests that had been built on the old cross-store model. Two were
+re-based deliberately. **A third was missed, and the suite could not tell.**
+
+`test_an_errored_file_part_cannot_defeat_the_derivation` posts 28 iterations (7 upload-error shapes
+× 4 derived keys) to `/err-a/product-bid` with store B's product. After #136 the guard refused every
+one of them at the new store check, the loop took its `continue` each time, and the three real
+derivation assertions became **dead code**. It still reported **30 passing assertions** — all of
+them the status check and the premise — so it looked healthy while pinning nothing.
+
+What that silently unpinned: deleting `'store_id'`, `'product_id'` or `'bid_amount'` from
+`AuctionBidIdentityGuard::DERIVED` became invisible to the suite. The control that was once a live
+hole had no behavioural test.
+
+**Fixed** by posting to the product's own storefront while keeping the posted `store_id` foreign, so
+the derived-versus-posted divergence the case exists to measure survives. Assertions went **30 → 42**:
+the twelve that return are exactly the dead ones.
+
+This is the third time in this phase that a passing test proved nothing, and the first where a
+SECURITY FIX was what killed it. A fix that re-stages a test can delete its coverage as surely as
+deleting the file.
+
+### 4. Everything else the review raised
+
+| | |
+|---|---|
+| the new cross-store case asserted only a row count | a 404 or 500 would satisfy it. Status assertions added, per this file's own standard |
+| nothing pinned the customer-store allowance | a dedicated case added: a customer registered elsewhere may still bid on the storefront they visit |
+| `bootstrap/app.php` stated the OPPOSITE of the code at the registration site | corrected. It read "IT DOES NOT RESTRICT WHICH STORE'S PRODUCT MAY BE BID ON, deliberately" |
+| two `tests/Feature/Tenancy/` inventory comments justified the missing predicate with the reversed design | corrected; their classifications and counts are unaffected |
+
+### 5. Two pre-existing facts the review surfaced, neither closed here
+
+- **`bidingForm:1566` is NOT store-scoped** — `Product::where('slug', $product_slug)->first()`. A
+  hand-made URL renders a foreign product's bid modal, whose POST is now refused. Cosmetic, and
+  nobody reaches it from a link.
+- **`products.slug` is not unique** and the product form honours `$request->slug` verbatim, so a
+  slug collision can make `bidingForm` resolve another store's product from a legitimate click.
+  Before #136 that silently wrote a cross-store bid; now it fails closed with a "could not be found"
+  message. The direction is right; the message is unhelpful. **Recorded, not fixed.**
+
+### 6. Status
+
+| id | finding | state |
+|---|---|---|
+| **P1-SEC-54** | the auction bid write | **CLOSED** — the routed-storefront match is enforced, 18 cases, reverting the check fails exactly one |
+| **P1-SEC-60** | a security fix re-staged a test and silently emptied it (30 → 42 assertions once repaired) | **CLOSED** — and worth remembering as a class |
+| **P1-SEC-61** | `bidingForm` is unscoped and `products.slug` is not unique, so a legitimate click can resolve another store's product | **OPEN — REPORTED.** Fails closed since #136; the remaining cost is a misleading message |
+
+---
+
+## S57 — P1-SEC-61 resolved, and the new dependency it creates (2026-11-11)
+
+**P1-SEC-61 (`bidingForm` unscoped + `products.slug` not unique) → CLOSED for the misleading
+message, OPEN for the root cause.** The owner asked for the bounded misleading-message issue to be
+resolved "if safely possible". It was, and a safer thing than the obvious fix was chosen.
+
+### What the message problem actually was
+
+`products.slug` has no unique index (`2023_12_26_092822_create_products_table.php:17` is a plain
+nullable string) and `AuctionProductController:205` assigns a **merchant-supplied** slug verbatim
+with no uniqueness check. The generated path cannot collide — `Product::slugs()` →
+`getRelatedSlugs()` is `where('slug','like',$slug.'%')` with no store predicate, so auto-slugs are
+globally unique. Only typed slugs collide, and the field is merchant-controlled.
+
+`bidingForm:1566` then resolves `Product::where('slug', $product_slug)->first()` with **no store
+predicate and no ordering**, so the lowest product id wins for every store sharing that slug. A
+customer on the losing store clicks their own auction, is shown the other store's product, and
+posts a bid the guard correctly refuses — while being told *"That auction product could not be
+found."* about something plainly on screen.
+
+### What was NOT done, and why
+
+**The obvious fix — tell the customer which cause fired — would have been a regression.**
+`AuctionBidIdentityGuard` deliberately gives all four ownership refusals one body so the response
+cannot be used to separate "no such product id" from "that id exists, in a store that is not this
+one". Differentiating it builds a cross-tenant catalogue-enumeration oracle.
+`test_every_ownership_refusal_is_indistinguishable` now pins that property.
+
+Three other candidate fixes were rejected as out of proportion or out of scope:
+
+| candidate | rejected because |
+|---|---|
+| store-scope `bidingForm`'s query | `packages/workdo/` is vendored and must not be edited |
+| add `Product` to `config/tenancy.php`'s `scoped_models` | changes behaviour at every one of the ~49 `Product::find` sites, in admin, operator and API contexts, days before a merge. CLAUDE.md records `Product`'s absence as having already produced a live cross-tenant stock drain — this is not a bounded pre-merge change |
+| `UNIQUE (store_id, slug)` on `products` | a persistent migration, which needs owner authorisation, and would fail against any collisions already in the data |
+
+### What was done
+
+The shared refusal text now reads *"We could not confirm this auction on this store, so no bid was
+placed. Please contact the store."* — true of all four causes, explicit about the outcome of a money
+action, and pointing at the only party who can rename a colliding slug. It deliberately does not
+say "try again": the collision is deterministic, so that would be a second false statement.
+
+All five of the guard's messages were also added to `en.json` and `ar.json`. None had an Arabic
+entry, so an Arabic shopper was being handed English — which on a storefront is part of the same
+defect. The orphan ratchet in `TranslationFileIntegrityTest` caught the first attempt, which added
+Arabic without English; the ceiling was **not** raised.
+
+Diagnosis goes to the operator instead, through `logSlugCollision()`: on a store mismatch it asks
+whether the routed storefront holds its own product under the same slug, and logs either the
+collision (naming both rows so the merchant can rename one) or a plain hand-crafted mismatch.
+
+### THE DEPENDENCY THIS CREATES — read before closing P1-SEC-40
+
+**→ P1-SEC-62 (new, below).** Independent review established that the *choice* of log line is
+itself the distinction the shared message exists to withhold, and `storage/logs/laravel.log`
+answered 200 with 3,421,645 bytes of `text/plain` on the live host on 2026-11-11. So on the live
+host today the diagnostic is readable by anonymous HTTP.
+
+**The incremental disclosure today is nil** — the same channel already hands out `.env` with the
+unrotated `APP_KEY` and the `DB_*` credentials, so anyone who can read the log can already read the
+`products` table directly. But the diagnostic's safety is **conditional on P1-SEC-40**, and that
+conditionality is recorded here rather than left as a footnote. Remediating P1-SEC-40 closes
+P1-SEC-62 with no further work.
+
+### Status
+
+| id | finding | state |
+|---|---|---|
+| **P1-SEC-61** | the misleading refusal message | **CLOSED** — 5 regression cases, each falsified |
+| **P1-SEC-61-ROOT** | `bidingForm` unscoped + `products.slug` not unique | **OPEN — REPORTED.** Needs a vendored patch or a `UNIQUE (store_id, slug)` migration. Owner decision; fails closed meanwhile |
+| **P1-SEC-62** | the operator diagnostic is readable by anonymous HTTP while P1-SEC-40 stands | **OPEN — ACCEPTED, dependent.** Zero incremental disclosure today; closed by remediating P1-SEC-40 |

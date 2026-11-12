@@ -26,6 +26,27 @@ use Illuminate\Http\RedirectResponse;
 use Session;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Crypt;
+/*
+ * P2.5-PKG-C (F-C-05). THIS IMPORT WAS MISSING, AND IT MADE FOUR CATCH BLOCKS DEAD CODE.
+ *
+ * `OrderController.php` carries `catch (DecryptException $e)` at four sites -- 829 (order_view),
+ * 1170 (shippinglabel), 1193 (order_receipt) and 1871 (orderDetails) -- all UNQUALIFIED. An
+ * unqualified class name in a catch resolves against the current namespace, so every one of them
+ * named `App\Http\Controllers\DecryptException`. MEASURED: that class does not exist
+ * (`class_exists()` is false) while `Illuminate\Contracts\Encryption\DecryptException` does.
+ *
+ * WHY IT WENT UNNOTICED FOR SO LONG: two of the four sites have a SECOND, fully-qualified
+ * `catch (\Exception $e)` immediately after, producing the same message -- so `order_view` and
+ * `order_receipt` handled a bad id correctly BY ACCIDENT. The two that do not, `shippinglabel`
+ * (dead catch only) and `show()` (no try at all), answered HTTP 500 with the exception's own
+ * stack page. Driven and measured in both directions before this line was added.
+ *
+ * Severity is modest and worth stating rather than inflating: a merchant always arrives from a
+ * list link carrying a token this application produced, so this is the quality of the error page
+ * on a stale or hand-edited URL. But four handlers that have never once run is not a thing to
+ * leave in place, and the fix is one line that revives all of them.
+ */
+use Illuminate\Contracts\Encryption\DecryptException;
 use App\Http\Controllers\Api\ApiController;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\OrderExport;
@@ -658,12 +679,71 @@ public function store(Request $request)
         ];
     }
 
-    public function show(Order $order, $id)
+    /**
+     * P2.5-PKG-C (F-C-02). THE BOUND `Order $order` PARAMETER IS GONE, and it was never used.
+     *
+     * It was declared `show(Order $order, $id)`. `$order` is overwritten by the very next
+     * statement below (`$order = Order::order_detail($id);`) and the bound instance is never read
+     * -- so its only effect was on ROUTING, and that effect broke the method's own route.
+     *
+     * TWO MEASURED FAILURES, both from that one parameter:
+     *   GET /order/1            -> binding resolves order 1, so `OrderDocumentAccessGuard`
+     *                              (appended to `web`, therefore running AFTER
+     *                              SubstituteBindings) receives an Order INSTANCE.
+     *                              `resolveOrderId()` requires a string at :405, returns null, and
+     *                              the guard abort(403)s -- for EVERY caller, the owner included.
+     *   GET /order/<encrypted>  -> binding finds no order with that primary key, so the request
+     *                              answers 404 before the guard is reached.
+     * The UI links neither spelling, so there was no input that worked; the surface was dead in
+     * both directions. Fail-closed throughout, so never an exposure.
+     *
+     * WHY NOT WIDEN THE GUARD, which is the obvious alternative. Teaching `resolveOrderId()` to
+     * read a bound model's key would loosen an input check in a security middleware to
+     * accommodate one caller. Dropping an unused parameter is the smaller change and leaves the
+     * guard strict. `order/{order}` is also the ONLY model-bound target of the twenty, and
+     * `OrderDocumentGuardBoundParameterTest` now fails CI if a future one appears -- because a
+     * bound target 403s silently, and fail-closed-but-invisible is how this survived.
+     *
+     * Laravel fills an untyped parameter from the route's segments positionally, so `{order}` and
+     * `{id}` both arrive as `$id` and the two routes that reach this method behave identically.
+     *
+     * TWO CONSEQUENCES THE TENANT-AUTHZ REVIEW ASKED BE WRITTEN DOWN:
+     *
+     *   THE RAW-INTEGER FORM IS NOW LIVE on `/order/{x}`. `OrderDocumentAccessGuard::resolveOrderId()`
+     *   accepts a raw positive integer by design, so `/order/5` resolves where it used to answer
+     *   403. That is not a leak -- a foreign order and one that exists nowhere both answer a bare
+     *   403, so the only distinguishable case is the caller's own order, which their order list
+     *   already shows them -- but it is an input form worth naming.
+     *
+     *   THE COST OF A `TARGETS` MISTAKE IS NOW HIGHER. While this route 403'd for everybody, an
+     *   error in the guard's URI table was free. It is not any more: this method checks NOTHING
+     *   itself -- no permission, no store -- so if `TARGETS['order/{order}']` were ever dropped, or
+     *   the resource parameter renamed, or `GET order/{order}` re-declared, the surface would
+     *   become an authenticated-but-unscoped cross-tenant order read. That is already ratcheted
+     *   twice, verified: `OrderDocumentRouteResolutionTest` derives this uri from the
+     *   `Route::resource` declaration and asserts it is in TARGETS or exempt, and
+     *   `test_no_alias_route_reaches_a_guarded_action_without_the_guard` asks the resolved route
+     *   table the same question. The controls exist; the stakes changed, and that is the note.
+     */
+    public function show($id)
     {
+        // P2.5-PKG-C (F-C-05). NO try AT ALL before this, so a `Crypt::decrypt()` failure left the
+        // method as an uncaught `DecryptException` and the user got a 500 stack page. Its three
+        // siblings all intend to redirect with a message instead; this one simply had no handler.
+        // MEASURED before: `GET /orders/order_view/1` answered HTTP 500 with
+        // `Illuminate\Contracts\Encryption\DecryptException` in the log.
+        //
+        // The message matches the siblings' wording exactly rather than inventing a new one, so a
+        // merchant who follows a stale link reads the same sentence whichever order surface it was.
+        try {
+            $id = Crypt::decrypt($id);
+        } catch (DecryptException $e) {
+            return redirect()->back()->with('error', __('Something was wrong.'));
+        }
 
-        $id = Crypt::decrypt($id);
         $order = Order::order_detail($id);
         $orders = Order::find($id);
+
         return view('order.order_show', compact('order', 'orders'));
     }
 
@@ -1193,6 +1273,48 @@ public function store(Request $request)
         } catch (DecryptException $e) {
             return redirect()->back()->with('error', __('Something was wrong.'));
         } catch (\Exception $e) {
+            /*
+             * P2.5 -- THE CATCH-ALL NOW SAYS WHAT IT CAUGHT, and finding that out is the whole
+             * reason for this change.
+             *
+             * `catch (\Exception)` returning a generic "Something was wrong." is indistinguishable
+             * from a forged id, a missing order and a broken view. Driving this route in the
+             * capture harness produced a redirect to /dashboard in all four combinations, and it
+             * cost a long diagnosis to establish what was NOT wrong: the token decrypts
+             * (measured, `Crypt::decrypt` -> '1'), the order resolves (`order_detail` returns no
+             * `message`), the view renders (8,314 bytes, rendered directly with the same four
+             * variables), and a browser navigating to the same URL with the same session gets
+             * HTTP 200. Every one of those checks was needed only because the handler threw the
+             * reason away.
+             *
+             * `redirect()->back()` is NOT changed -- the merchant still gets the same page and the
+             * same message, and a stack trace is never shown to them. Only the log gains the
+             * class, message and location. A caught exception that leaves no trace is a defect in
+             * its own right, and this one is on a document a merchant prints for a customer.
+             *
+             * WHERE THIS LINE CAN TRAVEL, because the default channel is not only a local file.
+             * `config/logging.php:55` makes `stack` = `['single', 'larabug']`, and larabug has an
+             * off-site leg. It is closed by a CONTROL rather than being absent:
+             * `AppServiceProvider:30` rebinds the singleton to `App\Services\ScrubbedLaraBug`,
+             * whose `mayReportOutbound()` requires both a configured account and
+             * `larabug.outbound_enabled`, which defaults to false (owner decision P1-SEC-14). So
+             * there is no egress today, and whoever one day sets `LARABUG_OUTBOUND_ENABLED=true`
+             * changes the destination of this line too.
+             *
+             * WHAT THE MESSAGE CAN CARRY, checked rather than assumed: every query inside the
+             * `try` binds ids only (`Order::find`, `Order::where('id', ...)`, and inside
+             * `order_detail()` reads keyed on id / order_id / customer_id / store_id), so a
+             * QueryException's interpolated bindings are at worst an order id and a store id --
+             * both already known to a caller whom `OrderDocumentAccessGuard` has authorised for
+             * this order. No credential or email column is bound on this path, and the view is
+             * rendered after the `return`, outside the `try`, so template data cannot reach here.
+             */
+            \Illuminate\Support\Facades\Log::warning('order receipt could not be rendered', [
+                'exception' => get_class($e),
+                'message' => $e->getMessage(),
+                'at' => $e->getFile() . ':' . $e->getLine(),
+            ]);
+
             return redirect()->back()->with('error', __('Something was wrong.'));
         }
     }
@@ -1653,6 +1775,51 @@ public function store(Request $request)
 
         $this->authorize('updateStatus', $order);
 
+        /*
+         * P2.5-ORD-12. NO STATUS CHOSEN IS NOT A STATUS CHANGE, AND IT MUST NOT LOOK LIKE ONE.
+         *
+         * The order BOARD is the only caller that can post an unset value. Its move control is a
+         * `<select name="delivered">` whose first option is `<option value="">Move to…</option>`
+         * (resources/views/order/partials/kanban-card.blade.php), and the board carries no
+         * JavaScript at all -- `grep -c '<script'` is 0 in kanban.blade.php, in the card partial
+         * and in partials/filters.blade.php -- so pressing `Move` before touching the select
+         * posts an empty `delivered`. The detail page cannot reach here with one: it sends a
+         * chosen `data-value`.
+         *
+         * WHAT USED TO HAPPEN, measured. `$data['order_status']` became '' (Laravel's
+         * ConvertEmptyStringsToNull makes it null), `Order::order_status_change()` matched no arm
+         * and returned `status => error` -- AND THE NOTIFICATION BLOCK BELOW RAN ANYWAY, because
+         * it sat above `if ($responce['status'] == 'success')`. A `Status Change` e-mail and a
+         * WhatsApp/SMS reading "Your Order is , !Hi ORD-2043" went to the BUYER, and
+         * `OrderNote::order_note_data()` wrote the order's own timeline a line reading
+         * "Order status changed to ." (app/Models/OrderNote.php:181) -- for a change that did not
+         * happen. The merchant saw only "That order status is not recognised." and had no way to
+         * know a message had left the system.
+         *
+         * THIS IS A GUARD, NOT A BUSINESS-RULE CHANGE. It changes no status vocabulary, no
+         * permission, no transition and no money: every value the writer accepts is still
+         * accepted, and every value it rejects is still rejected. It refuses the ABSENCE of a
+         * value before the write is attempted, and says so in words a merchant can act on --
+         * the old message blamed the data for a control that let them submit nothing.
+         *
+         * THE MODEL IS NOT THE PLACE FOR IT. `Order::order_status_change()` already answers ''
+         * with `error` and writes nothing (F81, OrderStatusUnknownValueTest); what was wrong was
+         * never the write, it was everything this controller did before reading the answer. The
+         * second half of the repair -- moving that block inside the success branch -- is below,
+         * and it is what protects the other error arms (a cancel on a delivered order, a return
+         * before delivery, an unknown status) that this guard does not see.
+         *
+         * THE BOARD ALSO GUARDS ITSELF, in the markup, and that is deliberately not the only
+         * guard: `required` plus a `disabled` placeholder stops the slip in the browser, and a
+         * client-side control is not a control at all for a request that does not come from one.
+         */
+        if (trim((string) $request->input('delivered', '')) === '') {
+            return $this->statusChangeResponse($request, [
+                'status' => false,
+                'message' => __('Choose a status to move this order to.'),
+            ], false);
+        }
+
         $data['order_id'] = $orderId;
         $data['order_status'] = $request->delivered;
         $responce = Order::order_status_change($data);
@@ -1702,46 +1869,78 @@ public function store(Request $request)
          * CodStateMachineTest pins every sentence above, including that a 'delivered' change
          * leaves payment_status alone and fires no OrderPaymentStatus event.
          */
-        $store = getStoreById($d_order->store_id);
-        $dArr = [
-            'order_id' => $data['order_id'],
-            'order_status' => $data['order_status']
-        ];
-        $owner = User::find($store->created_by);
-        try {
-            $order_id = Crypt::encrypt($data['order_id']);
-            $resp = Utility::sendEmailTemplate('Status Change', $order['delivery_informations']['email'], $dArr, $owner, $store, $order_id);
-        } catch (\Exception $e) {
-            $smtp_error = __('E-Mail has been not sent due to SMTP configuration');
-        }
-
-        if (module_is_active('ReviewReminder')) {
-
-            event(new SendOrderReviewMail($data, $order, $dArr, $owner, $store, $order_id));
-        }
-
-        OrderNote::order_note_data([
-            'customer_id' => $d_order->customer_id,
-            // P1-ORD-04: the ROUTE order, not the posted one. `order_notes.order_id` is a
-            // NULLABLE FK, so the body's value attached a note row to ANY order id on the
-            // platform while carrying the attacker's store_id. Litter in another tenant's id
-            // space rather than a disclosure -- order-note reads are store-filtered -- but it is
-            // the same one-token mistake as the webhook sink below.
-            'order_id' => $orderId,
-            'status' => 'Order status change',
-            'changeble_status' => $request->delivered,
-            'store_id' => $d_order->store_id
-        ]);
-        try {
-            $mobile_no = $order['delivery_informations']['phone'];
-            $order_id = $order['order_id'];
-            $msg = __("Hello, Welcome to $store->name .Your Order is $request->delivered, !Hi $order_id, Thank you for Shopping");
-
-            $resp = Utility::SendMsgs('Status Change', $mobile_no, $msg);
-        } catch (\Exception $e) {
-            $smtp_error = __('Invalid OAuth access token - Cannot parse access token');
-        }
         if ($responce['status'] == 'success') {
+            /*
+             * P2.5-ORD-12. THE BUYER IS TOLD ONLY WHAT ACTUALLY HAPPENED.
+             *
+             * Everything from here to the end of the SMS try/catch used to sit ABOVE this `if`,
+             * so it ran for EVERY answer the writer could give -- and three of those answers are
+             * refusals that change nothing:
+             *
+             *   - an unset `delivered` from the board's move control (now refused earlier still),
+             *   - `cancel` on an order already delivered   (app/Models/Order.php:640-644),
+             *   - `return` on an order not yet delivered   (app/Models/Order.php:699-703),
+             *   - any status no arm matches, `pre_order` with the module off among them (F81).
+             *
+             * On each of those the buyer received a `Status Change` e-mail and a WhatsApp/SMS
+             * naming a status the order never took, and `OrderNote::order_note_data()` wrote the
+             * order's timeline a matching false entry -- while the merchant was told the change
+             * had failed. An e-mail and an SMS cannot be recalled; a false line in an order's own
+             * history is the record a dispute is later settled against.
+             *
+             * NOTHING IN THE BLOCK ITSELF CHANGES -- not the template name, not the recipient,
+             * not the payload, not the order-note fields, not the message text, not the two
+             * try/catch arms that swallow transport failure. It is the same code, one level in.
+             * `$store` is still `getStoreById($d_order->store_id)` when the e-mail is composed
+             * and is still re-read as `Store::find(getCurrentStore())` for the webhook below,
+             * exactly as before.
+             *
+             * WHY NOT ALSO SUPPRESS IT WHEN THE STATUS DID NOT MOVE (writer said success but the
+             * column already held that value)? Because that is a different question -- the writer
+             * reports success for an idempotent re-send -- and answering it here would be a
+             * business-rule change. This commit only stops notifications for writes the writer
+             * itself reports as FAILED.
+             */
+            $store = getStoreById($d_order->store_id);
+            $dArr = [
+                'order_id' => $data['order_id'],
+                'order_status' => $data['order_status']
+            ];
+            $owner = User::find($store->created_by);
+            try {
+                $order_id = Crypt::encrypt($data['order_id']);
+                $resp = Utility::sendEmailTemplate('Status Change', $order['delivery_informations']['email'], $dArr, $owner, $store, $order_id);
+            } catch (\Exception $e) {
+                $smtp_error = __('E-Mail has been not sent due to SMTP configuration');
+            }
+
+            if (module_is_active('ReviewReminder')) {
+
+                event(new SendOrderReviewMail($data, $order, $dArr, $owner, $store, $order_id));
+            }
+
+            OrderNote::order_note_data([
+                'customer_id' => $d_order->customer_id,
+                // P1-ORD-04: the ROUTE order, not the posted one. `order_notes.order_id` is a
+                // NULLABLE FK, so the body's value attached a note row to ANY order id on the
+                // platform while carrying the attacker's store_id. Litter in another tenant's id
+                // space rather than a disclosure -- order-note reads are store-filtered -- but it
+                // is the same one-token mistake as the webhook sink below.
+                'order_id' => $orderId,
+                'status' => 'Order status change',
+                'changeble_status' => $request->delivered,
+                'store_id' => $d_order->store_id
+            ]);
+            try {
+                $mobile_no = $order['delivery_informations']['phone'];
+                $order_id = $order['order_id'];
+                $msg = __("Hello, Welcome to $store->name .Your Order is $request->delivered, !Hi $order_id, Thank you for Shopping");
+
+                $resp = Utility::SendMsgs('Status Change', $mobile_no, $msg);
+            } catch (\Exception $e) {
+                $smtp_error = __('Invalid OAuth access token - Cannot parse access token');
+            }
+
             $module = 'Status Change';
             $store = Store::find(getCurrentStore());
             $webhook = Utility::webhook($module, $store->id);
@@ -1778,12 +1977,54 @@ public function store(Request $request)
             $return['status'] = 'success';
             $return['order_status'] = ucfirst($data['order_status']) ?? '';
             $return['message'] = $responce['message'] . ((isset($msgs)) ? '<br> <span class="text-danger">' . $msgs . '</span>' : '');
-            return response()->json($return);
+
+            return $this->statusChangeResponse($request, $return, true);
         } else {
             $return['status'] = false;
             $return['message'] = $responce['message'];
+
+            return $this->statusChangeResponse($request, $return, false);
+        }
+    }
+
+    /**
+     * P2.5-R-05 -- answer this route in the shape the CALLER asked for.
+     *
+     * This handler has two callers and they are not alike. The order detail page calls it by AJAX
+     * (resources/views/order/view.blade.php:853) and reads `data.status` and `data.order_status`
+     * off the JSON to retitle its status button; that contract is shipped and must not move. The
+     * order board posts a plain form (order/partials/kanban-card.blade.php) -- and a plain form
+     * POST answered with `response()->json()` lands the merchant on a page of raw JSON at
+     * /order-status-change/<id> with no way back to the board. Measured in a browser before this
+     * was written.
+     *
+     * `expectsJson()` separates them exactly: jQuery sets `X-Requested-With: XMLHttpRequest` and
+     * accepts any content type, so the detail page still gets its JSON byte for byte, while a form
+     * submission is redirected back with a flash. `OrderKanbanMoveTest::
+     * test_the_detail_pages_ajax_contract_is_unchanged` is the control on that, and it fails if
+     * the redirect ever leaks into the AJAX path.
+     *
+     * NOTHING ABOUT THE WRITE CHANGES HERE. This runs after `Order::order_status_change()` has
+     * already returned; it only decides how to report what happened.
+     *
+     * THE NOT-FOUND LIMB AT :1647 DELIBERATELY DOES **NOT** COME THROUGH HERE, and that is not an
+     * oversight to tidy up later. `OrderStatusChangeOwnershipTest::test_an_absent_order_id_does
+     * _not_crash` posts plainly to a non-existent id and asserts `assertOk()` plus
+     * `assertJson(['status' => false])` on exactly that branch. Routing it through this method
+     * would turn that answer into a 302 and red the security suite. The board cannot reach it in
+     * practice — it renders live ids — so the cost of the inconsistency is a merchant who deletes
+     * an order in another tab and then clicks Move seeing raw JSON once.
+     */
+    private function statusChangeResponse(Request $request, array $return, bool $ok)
+    {
+        if ($request->expectsJson()) {
             return response()->json($return);
         }
+
+        return redirect()->back()->with(
+            $ok ? 'success' : 'error',
+            strip_tags((string) ($return['message'] ?? ''))
+        );
     }
 
     public function order_payment_status(UpdateOrderPaymentStatusRequest $request)
@@ -2502,13 +2743,61 @@ public function store(Request $request)
                 return redirect()->back()->with('error', __('No store is selected.'));
             }
 
-            $orders = Order::where('store_id', $storeId)->orderBy('created_at', 'desc')->paginate(16);
+            /*
+             * P2.5-ORD-10. THE CARD VIEW NOW HONOURS THE FILTERS IT ARRIVES WITH.
+             *
+             * This method took a `Request` and never read it. The whole query was
+             * `Order::where('store_id', $storeId)->orderBy('created_at','desc')->paginate(16)`,
+             * and `resources/views/order/grid.blade.php` carried no filter, search or sort control
+             * at all -- grep count 0 for `ss-select`/`ss-input` in all 302 lines. So a merchant
+             * who filtered the list to "returns, last 7 days" and clicked the cards icon got EVERY
+             * order in the store, with no warning and no way to re-filter, and no way to reach a
+             * specific order from this screen.
+             *
+             * THE AGGRAVATOR MADE IT LOOK LIKE THE LIST'S FAULT. `index()` restores a remembered
+             * filter from `TableFilterMemory` even on a bare `/order`, so list -> cards -> list
+             * came back filtered while the cards never were -- and nothing on the card screen
+             * stated its scope.
+             *
+             * ONE IMPLEMENTATION, NOT A SECOND ONE. The ORDER BOARD already solved this the right
+             * way: `order_kanban()` builds its rows from `(new OrderDataTable())->query(new
+             * Order())` with the comment "calling it rather than re-reading the `ss_*` parameters
+             * here is what makes 'the board and the list agree' a property of one implementation
+             * instead of a coincidence between two". This is the same call. It carries the store
+             * predicate, F149's `1 = 0` refusal for a principal with no store, and every `ss_*`
+             * filter -- including any added later -- without this handler knowing one of their
+             * names. `applyFilters()` adds only `where` limbs, so it can only narrow.
+             *
+             * THE GUARD ABOVE STAYS. `resolvedCurrentStoreId()` refuses before the query, which is
+             * where the owner's requirement is met; the DataTable's own predicate is the second
+             * layer, exactly as on the list and the board.
+             *
+             * `withQueryString()` IS NOT COSMETIC. 16 cards a page: without it page 2 of a
+             * filtered set is unfiltered, which is worse than no filter at all because the first
+             * page looked right.
+             *
+             * `CustomerData` IS EAGER-LOADED for the same reason the board does it: each card
+             * reads the buyer's name, and lazy loading it is one query per card.
+             */
+            $orders = (new \App\DataTables\OrderDataTable())
+                ->query(new Order())
+                ->with(['CustomerData'])
+                ->paginate(16)
+                ->withQueryString();
 
             return view('order.grid', compact('orders'));
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
     }
+
+    /**
+     * HOW MANY CARDS ONE COLUMN MAY DRAW. Not a tuning knob: it is the point past which the
+     * board stops being a glance and becomes a list the merchant already has, and the header
+     * keeps the true count beside a link to the rest so the truncation is visible rather than
+     * silent.
+     */
+    private const BOARD_COLUMN_CAP = 50;
 
     /**
      * P2-04-7 / WS E — THE ORDER BOARD (Kanban).
@@ -2552,9 +2841,32 @@ public function store(Request $request)
          */
         $query = (new \App\DataTables\OrderDataTable())
             ->query(new Order())
-            ->with('ShippingMethod');
+            ->with(['CustomerData']);
 
-        $orders = $query->get();
+        /*
+         * THE COUNTS ARE AN AGGREGATE AND THE CARDS ARE CAPPED, and the two halves are separate
+         * on purpose.
+         *
+         * THIS USED TO BE `$orders = $query->get()` -- the WHOLE filtered result set, with no
+         * `limit` anywhere: `OrderDataTable::query()` adds only an eager load, an `orderBy` and
+         * the store predicate, and `applyFilters()` adds only `where` limbs. Each row then drew
+         * one card, and a card is not cheap: `CustomerData` lazy-loaded, `Order::find()` and
+         * `getAdminAllSetting()` inside `order_currency_format_with_sym()`, plus a
+         * `Crypt::encrypt()`. So N orders cost ~4N round trips on the one screen a busy merchant
+         * leaves open, and at volume it does not render slowly -- it exhausts memory, and a board
+         * that will not load shows ZERO orders.
+         *
+         * `toBase()->reorder()` IS LOAD-BEARING, not tidying. `query()` applies
+         * `orderBy('created_at', 'desc')`; carried into a GROUP BY that is accepted by SQLite --
+         * which is what the suite runs -- and REFUSED by MySQL under ONLY_FULL_GROUP_BY, which is
+         * what production runs. A green Feature run cannot see that, so the clause is dropped
+         * here rather than relied upon to be harmless.
+         */
+        $counts = (clone $query)->toBase()->reorder()
+            ->select('delivered_status', DB::raw('count(*) as c'))
+            ->groupBy('delivered_status')
+            ->pluck('c', 'delivered_status')
+            ->mapWithKeys(fn ($c, $s) => [(int) $s => (int) $c]);
 
         $pipeline = [
             HomeController::ORDER_STATUS_PENDING,
@@ -2572,18 +2884,34 @@ public function store(Request $request)
             HomeController::ORDER_STATUS_PRE_ORDER,
         ];
 
-        $grouped = $orders->groupBy(fn (Order $o) => (int) $o->delivered_status);
+        /*
+         * ONE BOUNDED QUERY PER NON-EMPTY BUCKET.
+         *
+         * `clone $query`, NEVER a mutated `$query`, and not `Order::query()` either. `Order` is in
+         * no `scoped_models` list and registers no `StoreScope`, so the `where('store_id', ...)`
+         * (and the `whereRaw('1 = 0')` refusal limb) that `OrderDataTable::query()` installed is
+         * the ONLY thing keeping another merchant's orders off this board -- a rebuilt builder
+         * loses it, and a mutated one stacks nine contradictory `delivered_status` predicates so
+         * every column after the first renders empty, which looks exactly like a working cap.
+         *
+         * GUARDED ON THE AGGREGATE so an empty column costs no query at all: the typical board is
+         * five orders in two statuses, and firing nine bucket queries at it would turn one query
+         * into ten to fix a problem it does not have.
+         */
+        $bucket = fn (int $status) => ($counts[$status] ?? 0) === 0
+            ? collect()
+            : (clone $query)->where('delivered_status', $status)->limit(self::BOARD_COLUMN_CAP)->get();
 
         $columns = [];
 
         foreach ($pipeline as $status) {
-            $columns[$status] = $grouped->get($status, collect());
+            $columns[$status] = $bucket($status);
         }
 
         $aside = [];
 
         foreach ($notStages as $status) {
-            $aside[$status] = $grouped->get($status, collect());
+            $aside[$status] = $bucket($status);
         }
 
         /*
@@ -2592,11 +2920,17 @@ public function store(Request $request)
          * at -- the same failure mode as a filter offering 0..6. They go to the aside with their
          * raw value named, which is visible and reportable rather than invisible.
          */
-        foreach ($grouped->keys() as $status) {
+        /*
+         * AND THE AGGREGATE IS THE DISCOVERY MECHANISM. Iterating a fixed list of nine known
+         * statuses would never ask about `delivered_status = 99`, and that order would vanish --
+         * which is the failure this loop exists to prevent, so the cap must not reintroduce it by
+         * the back door. `$counts->keys()` is every value the table actually holds.
+         */
+        foreach ($counts->keys() as $status) {
             $status = (int) $status;
 
             if (! in_array($status, $pipeline, true) && ! array_key_exists($status, $aside)) {
-                $aside[$status] = $grouped->get($status, collect());
+                $aside[$status] = $bucket($status);
             }
         }
 
@@ -2604,7 +2938,12 @@ public function store(Request $request)
             'ssColumns' => $columns,
             'ssAside' => $aside,
             'ssPipeline' => $pipeline,
-            'ssTotal' => $orders->count(),
+            // The TRUE counts, so a capped column cannot claim the cap is the whole pipeline.
+            'ssCounts' => $counts,
+            // Every status, including the aside and any unknown one: summing only the seven
+            // pipeline statuses would tell a store whose orders are all Partially Paid that it
+            // has none, and the view's empty branch would then suppress the board entirely.
+            'ssTotal' => (int) $counts->sum(),
         ] + $this->orderAttentionCounts());
     }
 

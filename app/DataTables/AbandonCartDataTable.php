@@ -23,11 +23,28 @@ class AbandonCartDataTable extends DataTable
     {
         return (new EloquentDataTable($query))
                 ->addIndexColumn()
+                /*
+                 * P2.5-PKG-I. ESCAPED. These two columns are in this table's `rawColumns()` list,
+                 * so yajra emits them WITHOUT escaping, and both carry shopper-written
+                 * registration data. A shopper whose first name is `<img src=x onerror=...>` got it
+                 * EXECUTED in the merchant's admin the moment this report was opened.
+                 *
+                 * `app/Http/Middleware/XSS.php` is not the control: it strips the literal words
+                 * `javascript` and `alert` from `web` input, which a payload simply avoids. That is
+                 * why AbandonedListOutputEscapingTest's needle contains neither.
+                 *
+                 * `e()` IS APPLIED TO EACH VALUE, never to the finished string -- escaping the
+                 * whole concatenation would also escape the markup these columns legitimately
+                 * render, and the merchant would meet visible tag soup. Same shape as the repair
+                 * already made on CustomerDataTable:69-70 and OrderDataTable.
+                 */
                 ->editColumn('customer_id', function (Cart $cart) {
-                    return isset($cart->UserData) ? ($cart->UserData->first_name .' '. $cart->UserData->last_name) : null;
+                    return isset($cart->UserData)
+                        ? e((string) $cart->UserData->first_name) . ' ' . e((string) $cart->UserData->last_name)
+                        : null;
                 })
                 ->editColumn('email', function (Cart $cart) {
-                    return isset($cart->UserData) ? $cart->UserData->email : '';
+                    return isset($cart->UserData) ? e((string) $cart->UserData->email) : '';
                 })
                 ->addColumn('product', function (Cart $cart) {
                     $cart_count = Cart::where('customer_id',$cart->customer_id)->where('store_id', getCurrentStore())->count();
@@ -97,7 +114,7 @@ class AbandonCartDataTable extends DataTable
         return buildDataTableColumn([
             'customer_id' => ['title' => __('Customer'), 'addClass' => 'text-capitalize'],
             'email' => ['title' => __('Email')],
-            'product' => ['title' => __('Product'), 'searchable' => false],
+            'product' => ['title' => __('Products'), 'searchable' => false],
         ]);
     }
 

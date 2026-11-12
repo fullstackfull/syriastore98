@@ -58,7 +58,12 @@
                                                     aria-expanded="false" aria-controls="collapseone_{{ $safe_str }}">
                                                     <span class="d-flex align-items-center">
                                                         <i class="ti ti-credit-card me-2"></i>{{ $str }}
-                                                            <a href="#" class="btn btn-sm btn-danger delete_option" data-id="{{ $safe_str }}">
+                                                            {{-- Icon-only with no name -- see
+                                                                 attribute_combinations_data.blade.php:54 for the
+                                                                 measurement. Nothing is saved on the create side, so the
+                                                                 name comes from `$str`, the combination's own option
+                                                                 values, with a generic fallback. --}}
+                                                            <a href="#" aria-label="{{ __('Delete variant :name', ['name' => trim((string) $str) !== '' ? $str : __('this combination')]) }}" class="btn btn-sm btn-danger delete_option" data-id="{{ $safe_str }}">
                                                                 <i class="ti ti-trash"></i>
                                                             </a>
                                                     </span>
@@ -95,22 +100,76 @@
                                                     </div>
                                                     <div class="row">
                                                         <div class="form-group col-md-6 sku">
-                                                            {!! Form::label('', __('SKU'), ['class' => 'form-label']) !!}
-                                                            {!! Form::text('product_sku_' . $str, $sku, ['class' => 'form-control']) !!}
+                                                            {{-- F197 -- EVERY FIELD IN THIS PANEL HAS A PROGRAMMATIC NAME.
+
+                                                                 Each of these labels was a label call whose first argument
+                                                                 was the empty string. konekt
+                                                                 interpolates argument 1 straight into
+                                                                 `for=` (FormBuilder.php:259) and emits
+                                                                 an `id` only when the FIELD's OWN name
+                                                                 was pushed into `$this->labels`
+                                                                 (:1268-1277) -- the field's name is
+                                                                 `product_sku_<key>` while the pushed
+                                                                 label name was the empty string, so the
+                                                                 label rendered `for=""` and the input
+                                                                 carried no `id`. The two identifiers
+                                                                 that must match were the empty string
+                                                                 and nothing. Measured: a screen reader
+                                                                 announced the SKU box as "edit text,
+                                                                 Scarf-M-L" -- role and value, no name --
+                                                                 and clicking the visible word "SKU"
+                                                                 focused nothing.
+
+                                                                 BOTH HALVES, AND THE SANITISED KEY FOR
+                                                                 BOTH. The label names the control and
+                                                                 the control carries the SAME value as an
+                                                                 explicit `id`, rather than relying on
+                                                                 konekt's implicit one -- which would
+                                                                 dangle again the moment the label name
+                                                                 and the field name diverged. The id is
+                                                                 `$safe_str`, not the raw key: `label()`
+                                                                 does NOT pass argument 1 through
+                                                                 `entities()`, so a merchant-controlled
+                                                                 term would be an attribute-injection
+                                                                 vector, and a raw `M/L` is also not a
+                                                                 legal CSS selector (F72) nor unique once
+                                                                 sanitised without the loop index (F73).
+
+                                                                 THE SUBMITTED `name` STAYS THE RAW
+                                                                 `$str`, deliberately and not by
+                                                                 omission: ProductController::update()
+                                                                 reads `product_sku_` plus the raw key,
+                                                                 as do AuctionProduct's controller and
+                                                                 CartQuantityControl's model. `$safe_str`
+                                                                 appends the loop index, so a name moved
+                                                                 onto it would make every one of those
+                                                                 reads miss and write 0 or an empty
+                                                                 string over a live variant's price,
+                                                                 stock and SKU.
+
+                                                                 Checked before adding them: nothing
+                                                                 selects any of these eight fields by id
+                                                                 or by name -- not this view, not the two
+                                                                 sibling views, not public/js, not
+                                                                 public/assets/js. The handlers key on
+                                                                 classes and `closest()`, which are
+                                                                 untouched. --}}
+                                                            {!! Form::label('product_sku_' . $safe_str, __('SKU'), ['class' => 'form-label']) !!}
+                                                            {!! Form::text('product_sku_' . $str, $sku, ['class' => 'form-control', 'id' => 'product_sku_' . $safe_str]) !!}
                                                         </div>
                                                         <div class="form-group col-md-6 weight-div ">
-                                                            {!! Form::label('', __('Weight(Kg)'), ['class' => 'form-label ']) !!}
-                                                            {!! Form::number('product_weight_' . $str, null, ['class' => 'form-control', 'min' => '0', 'step' => '0.01']) !!}
+                                                            {!! Form::label('product_weight_' . $safe_str, __('Weight(Kg)'), ['class' => 'form-label ']) !!}
+                                                            {!! Form::number('product_weight_' . $str, null, ['class' => 'form-control', 'min' => '0', 'step' => '0.01', 'id' => 'product_weight_' . $safe_str]) !!}
                                                         </div>
                                                     </div>
                                                     <div class="row">
                                                         <div class="form-group col-md-6">
-                                                            {!! Form::label('', __('Variation Price'), ['class' => 'form-label']) !!}
-                                                            {!! Form::number('product_variation_price_' . $str, null, ['class' => 'form-control', 'min' => '0', 'step' => '0.01']) !!}
+                                                            {!! Form::label('product_variation_price_' . $safe_str, __('Variation Price'), ['class' => 'form-label']) !!}
+                                                            {!! Form::number('product_variation_price_' . $str, null, ['class' => 'form-control', 'min' => '0', 'step' => '0.01', 'id' => 'product_variation_price_' . $safe_str]) !!}
                                                         </div>
                                                         <div class="form-group col-md-6">
-                                                            {!! Form::label('', __('Sale Price'), ['class' => 'form-label']) !!}
-                                                            {!! Form::number('product_sale_price_' . $str, $unit_price, ['class' => 'form-control', 'min' => '0', 'step' => '0.01']) !!}
+                                                            {!! Form::label('product_sale_price_' . $safe_str, __('Sale Price'), ['class' => 'form-label']) !!}
+                                                            {!! Form::number('product_sale_price_' . $str, $unit_price, ['class' => 'form-control', 'min' => '0', 'step' => '0.01', 'id' => 'product_sale_price_' . $safe_str]) !!}
                                                         </div>
                                                     </div>
                                                     <div class="form-group col-md-12 shipping-div">
@@ -129,20 +188,47 @@
                                                         ]) !!}
                                                     </div>
                                                     <div class="form-group col-md-12 stock_status">
-                                                        {!! Form::label('', __('Stock Status'), ['class' => 'form-label']) !!}
-                                                        {!! Form::select('stock_status_' . $str, ['' => 'Select option','in_stock' => 'In Stock', 'out_of_stock' => 'Out Of Stock', 'on_backorder' => 'On Backorder'], null, ['class' => 'form-control']) !!}
+                                                        {!! Form::label('stock_status_' . $safe_str, __('Stock Status'), ['class' => 'form-label']) !!}
+                                                        {!! Form::select('stock_status_' . $str, ['' => 'Select option','in_stock' => 'In Stock', 'out_of_stock' => 'Out Of Stock', 'on_backorder' => 'On Backorder'], null, ['class' => 'form-control', 'id' => 'stock_status_' . $safe_str]) !!}
                                                     </div>
                                                     <div class="form-group col-md-12">
-                                                        {!! Form::label('', __('Description'), ['class' => 'form-label']) !!}
-                                                        {!! Form::textarea('product_description_' . $str, null, ['rows' => 4, 'class'=>'form-control']) !!}
+                                                        {!! Form::label('product_description_' . $safe_str, __('Description'), ['class' => 'form-label']) !!}
+                                                        {!! Form::textarea('product_description_' . $str, null, ['rows' => 4, 'class'=>'form-control', 'id' => 'product_description_' . $safe_str]) !!}
                                                     </div>
                                                     <div class="row col-md-12 d-none enable_manage_stock manageble_stock_{{ $str }}" id="enable_manage_stock_{{ $safe_str }}" data-id="{{ $str }}">
                                                         <div class="form-group col-md-4 " >
-                                                            {!! Form::label('', __('Stock'), ['class' => 'form-label']) !!}
-                                                            {!! Form::number('product_stock_' . $str, $stock, ['class' => 'form-control productVariantStock']) !!}
+                                                            {!! Form::label('product_stock_' . $safe_str, __('Stock'), ['class' => 'form-label']) !!}
+                                                            {!! Form::number('product_stock_' . $str, $stock, ['class' => 'form-control productVariantStock', 'id' => 'product_stock_' . $safe_str]) !!}
                                                         </div>
                                                         <div class="form-group col-md-5">
-                                                        {!! Form::label('', __('Allow BackOrders:'), ['class' => 'form-label']) !!}
+                                                        {{-- F197 -- A GROUP NAME, WHICH A `<label>` CANNOT CARRY. The caption above these three
+                                                             radios was a label call whose first argument was the empty string:
+                                                             `for=""`, so it named nothing -- and even a
+                                                             correct `for` would have named ONE radio rather than the set. The three radios
+                                                             each already carry a correct raw-key `for`/`id` pair and are left exactly as they
+                                                             are; what was missing is the name of the CHOICE. `<fieldset>` + `<legend>` is the
+                                                             native grouping, so the group is announced when focus ENTERS it. The group name
+                                                             carries the variant suffix on purpose: ChoiceGroupGuidanceTest finds the product
+                                                             editor's own groups with the exact value `stock_order_status` and `strpos` takes
+                                                             the FIRST hit, so an unsuffixed variant group would shadow them. No hint is
+                                                             passed, so no `aria-describedby` is emitted and nothing can dangle.
+
+                                                             THE ONE VISUAL CONSEQUENCE, MEASURED. The caption leaves `.form-label` (which
+                                                             inherits --bs-body-color #293240) for `.ss-choicegroup__legend` (color
+                                                             var(--ss-fg)). Computed with the WCAG 2.x formula, not estimated: LIGHT
+                                                             #1a1d23 on the card's #ffffff is 16.88:1, up from the 12.93:1 the caption it
+                                                             replaced had; DARK #e8eaed on --ss-surface #262b33 is 11.81:1. Both pass AA
+                                                             for normal text and the numbers are recomputed from the stylesheet by
+                                                             VariantFieldLabelAssociationTest on every run. The typographic delta is real
+                                                             and is recorded rather than hidden: the legend is 0.8125rem/600 while the two
+                                                             `.form-label` captions beside it in this same three-column row are
+                                                             0.875rem/400. A BARE fieldset would have been far worse -- the theme styles
+                                                             `legend` as `float: left; width: 100%; font-size: calc(1.275rem + 0.3vw)`
+                                                             (style.css:519-526) -- and that float is the only direction-sensitive
+                                                             declaration involved, which the component resets once for LTR and Arabic RTL
+                                                             alike, so no custom.css / rtl-custom.css pair is needed here. --}}
+                                                        <x-ss.choice-group :name="'stock_order_status_' . $safe_str"
+                                                                           :legend="__('Allow BackOrders:')">
                                                             <div class="form-check m-1">
                                                                 <input type="radio" id="not_allow_{{ $str }}" value="not_allow" name="stock_order_status_{{ $str }}" class="form-check-input code"
                                                                     checked="checked">
@@ -156,10 +242,11 @@
                                                                 <input type="radio" id="allow_{{ $str }}" value="allow" name="stock_order_status_{{ $str }}" class="form-check-input code">
                                                                 <label class="form-check-label" for="allow_{{ $str }}">{{ __('Allow') }}</label>
                                                             </div>
+                                                        </x-ss.choice-group>
                                                         </div>
                                                         <div class="form-group col-md-3 ">
-                                                            {!! Form::label('', __('Low stock threshold'), ['class' => 'form-label ']) !!}
-                                                            {!! Form::number('low_stock_threshold_' . $str, null, ['class' => 'form-control', 'min' => '0', 'step' => '0.01']) !!}
+                                                            {!! Form::label('low_stock_threshold_' . $safe_str, __('Low stock threshold'), ['class' => 'form-label ']) !!}
+                                                            {!! Form::number('low_stock_threshold_' . $str, null, ['class' => 'form-control', 'min' => '0', 'step' => '0.01', 'id' => 'low_stock_threshold_' . $safe_str]) !!}
                                                         </div>
                                                     </div>
                                                     <input type="hidden" class="options_data_{{ $str }}[]" name ="options[]" value="{{ $str }}">
@@ -203,6 +290,14 @@
         </div>
     </div>
 
+@else
+    {{-- THE ARM THAT RENDERED NOTHING. See product/partials/_variant-empty-state.blade.php
+         for the measurement: 17,186 characters of textContent and an innerText of zero, so
+         the merchant's variant table was replaced by a blank area with no explanation. The
+         `@if` above had no `@else`, in this view and in both of its siblings. --}}
+    @include('product.partials._variant-empty-state', [
+        'ssVariantHint' => __('Choose at least one option value for every attribute you are varying by, and each combination will appear here.'),
+    ])
 @endif
 <script>
 

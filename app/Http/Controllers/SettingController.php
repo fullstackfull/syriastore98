@@ -582,7 +582,7 @@ $u->save();
         // If validation fails, redirect back with the first error message
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+            return redirect()->back()->with('error', implode(' ', $messages->all()));
         }
 
         // Prepare data for database insertion/update
@@ -689,7 +689,7 @@ $u->save();
             return response()->json(
                 [
                     'is_success' => false,
-                    'message' => $messages->first(),
+                    'message' => implode(' ', $messages->all()),
                 ]
             );
         }
@@ -1089,7 +1089,7 @@ $u->save();
             );
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
         }
 
@@ -1157,7 +1157,7 @@ $u->save();
             );
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
         }
 
@@ -1254,6 +1254,15 @@ $u->save();
 
     public function customMassage(Request $request, $slug = null)
     {
+        // P1-SEC-27 (fourth pass). The tenth writer on the Settings screen, and the one that had NO check at all: its only live
+        // route is the storefront declaration at routes/customer.php:188, inside a group carrying just [ActiveTheme, themelanguage].
+        // Not an anonymous write only because `Auth::user()->id` below read a property on null first; the exposure was that ANY
+        // authenticated web user -- staff holding no Settings permission included -- could overwrite their own store's template.
+        // Same decision point and same refusal as the nine siblings, and `permits(null)` is false, so this one expression refuses
+        // the anonymous caller too. See CustomMassageAuthorizationTest for why the gate is here rather than on the route.
+        if (! \App\Services\StoreSettingsAccess::permits(auth()->user())) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
         session()->put(['setting_tab' => 'whatsapp_msg_setting']);
         $validator = \Validator::make(
             $request->all(),
@@ -1266,7 +1275,7 @@ $u->save();
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
 
-            return redirect()->back()->with('error', $messages->first());
+            return redirect()->back()->with('error', implode(' ', $messages->all()));
         }
         $post['whatsapp_item_variable'] = $request->whatsapp_item_variable;
         $post['whatsapp_content'] = $request->whatsapp_content;
@@ -1316,7 +1325,7 @@ $u->save();
         );
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+            return redirect()->back()->with('error', implode(' ', $messages->all()));
         }
 
         $post['low_stock_threshold'] = $request->low_stock_threshold;
@@ -1359,7 +1368,7 @@ $u->save();
             );
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
         }
 
@@ -1429,7 +1438,7 @@ $u->save();
         );
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+            return redirect()->back()->with('error', implode(' ', $messages->all()));
         }
 
         $post['whatsapp_phone_number_id'] = $request->whatsapp_phone_number_id;
@@ -1508,7 +1517,7 @@ $u->save();
         );
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
-            return redirect()->back()->with('error', $messages->first());
+            return redirect()->back()->with('error', implode(' ', $messages->all()));
         }
 
         /*
@@ -1664,7 +1673,7 @@ $u->save();
             );
             if ($validator->fails()) {
                 $messages = $validator->getMessageBag();
-                return redirect()->back()->with('error', $messages->first());
+                return redirect()->back()->with('error', implode(' ', $messages->all()));
             }
         }
 
@@ -1856,14 +1865,17 @@ if ($newCurrency !== 'USD' && (float) $currencyRate->rate_per_usd <= 1) {
         $length = strlen(trim($number[0]));
         $currency_symbol = explode('-', $request->defult_currancy);
 
-        if ($length > 3) {
-
-            $decimal_separator  = (isset($request->decimal_separator) && $request->decimal_separator == 'dot') ? '.' : ',';
-            $thousand_separator = (isset($request->thousand_separator) && $request->thousand_separator == 'dot') ? '.' : ',';
-        } else {
-            $decimal_separator  = (isset($request->decimal_separator) &&  $request->decimal_separator == 'dot')  ? '.' : ',';
-            $thousand_separator = (isset($request->thousand_separator) &&  $request->thousand_separator == 'dot') ? '.' : ',';
-        }
+        /* D-42.3. THE LIVE PREVIEW ON THE CURRENCY SCREEN MUST SHOW WHAT THE STORE WILL ACTUALLY
+           DO, so it resolves through the same one default as the four formatters -- see
+           App\Support\Money\CurrencySeparators. It read from `$request` rather than from the
+           stored settings, which is right (it previews the unsaved selection), but it carried its
+           own copy of the defaulting, so before a merchant had ever saved it previewed
+           `$10,000,00` -- the same character for both roles. Both limbs computed the identical
+           pair, so the branch is gone with the duplication. */
+        [$decimal_separator, $thousand_separator] = \App\Support\Money\CurrencySeparators::chars(
+            $request->decimal_separator,
+            $request->thousand_separator
+        );
 
         if (isset($request->site_currency_symbol_position) && $request->site_currency_symbol_position == "post") {
             $symbol_position = 'post';

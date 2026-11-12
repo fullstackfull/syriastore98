@@ -324,6 +324,71 @@ trait GuardsPlanActivation
     }
 
     /**
+     * SPELLINGS THIS APPLICATION HAS EVER WRITTEN, which the language files no longer supply.
+     *
+     * A row in `plan_orders` is a historical fact. It holds whatever `__('Paystack')` returned on
+     * the day it was written, and nothing can go back and change it — so the set of spellings this
+     * guard must search is the set the application has EVER produced, not the set it produces now.
+     *
+     * Deriving that set from `resources/lang/*.json` quietly assumed the two were the same. They
+     * stopped being the same the moment P2.5-SET-03 removed 32 mistranslated brand names from
+     * `ar.json`: `Stripe` had been stored as `الشريط` ("the ribbon") and `Paystack` as
+     * `كومة الدفع` ("payment pile"), those keys are gone, and `trans('Paystack', [], 'ar')` now
+     * returns `Paystack`. The lookup set silently shrank to the canonical spelling, and a buyer
+     * who paid in an Arabic session had a row this guard could no longer see — so re-opening the
+     * gateway return URL would have written a second PlanOrder and activated the plan twice.
+     *
+     * That is the whole argument for pinning them here. A money control must not depend on a file
+     * whose job is presentation and which anybody may edit for presentation reasons. The language
+     * sweep below is KEPT, because it still covers the fifteen other locales and any future one;
+     * this constant covers the spellings those files used to hold.
+     *
+     * Values recovered verbatim from `git show 598cccdd:resources/lang/ar.json`. Only providers
+     * that reach a plan-activation guard are listed. Entries are append-only: removing one
+     * re-opens exactly the hole described above.
+     */
+    private const HISTORICAL_SPELLINGS = [
+        'Paystack' => ['كومة الدفع'],
+        'Cashfree' => ['نقدية'],
+        'Mollie' => ['(مولي)'],
+        'Benefit' => ['الميزة'],
+        'Tap' => ['اضغط'],
+        'Stripe' => ['الشريط'],
+        'STRIPE' => ['الشريط'],
+        'PayU' => ['الدفع'],
+        'PhonePe' => ['هاتف'],
+        'Midtrans' => ['منتصف النقل'],
+        'Paytabs' => ['أدوات الدفع'],
+        'PayHere' => ['ادفع هنا'],
+        'Paddle' => ['المجاذفة'],
+        'Nepalste' => ['نيبال'],
+        'Coingate' => ['كينجيت'],
+        'Telegram' => ['تلغراف'],
+        'Sspay' => ['- لا'],
+        'DPO' => ['مدير حماية البيانات'],
+        'DPO Pay' => ['راتب موظف حماية البيانات'],
+        'MyFatoorah' => ['(فاطورة)'],
+        'Razorpay' => ['(رايزورباي)'],
+        'Sofort' => ['(سوفرت)'],
+        'Xendit' => ['(زيندت)'],
+        'Yookassa' => ['(يوكاسا)'],
+        // The EXACT strings these three controllers pass to __() and then store, which are not
+        // the canonical brand spellings: StripePaymentController uses 'STRIPE',
+        // CyberSourceController 'Cybersource', YookassaController lowercase 'yookassa'.
+        'Cybersource' => ['المصدر الإلكتروني'],
+        'yookassa' => ['(يوكاسا)'],
+        'Aamarpay' => ['(أمارباي)'],
+        'PowerTranz' => ['(بوافر ترانز)'],
+        'Braintree' => ['" برينتري "'],
+        'IyziPay' => ['"ايزي باي"'],
+        'Mercado Pago' => ['"مركادو باجو"'],
+        'Paiement Pro' => ['"بايمنت برو"'],
+        'PayFast' => ['"باي فاست"'],
+        'PaymentWall' => ['"جدار الدفع"'],
+        'Flutterwave' => ['"موجة التفجير"'],
+    ];
+
+    /**
      * EVERY SHIPPED SPELLING OF A PROVIDER'S `payment_type`.
      *
      * The handlers record `__('Benefit')`, `__('Mollie')`, `__('Paystack')` and so on, so the
@@ -332,13 +397,19 @@ trait GuardsPlanActivation
      * which is why Paystack built this list for itself under D-12/F87. It is generalised here
      * rather than copied: three private copies of a locale sweep is how one of them goes stale.
      *
-     * The canonical spelling is first, so the ordinary case costs one lookup.
+     * Three sources, in this order: the canonical spelling (so the ordinary case costs one
+     * lookup), the spellings the language files hold NOW, and the spellings they used to hold.
      *
      * @return list<string>
      */
     protected function planProviderTypeSpellings(string $canonicalType): array
     {
         $spellings = [$canonicalType];
+
+        // Spellings the language files no longer carry but rows in the table still do.
+        foreach (self::HISTORICAL_SPELLINGS[$canonicalType] ?? [] as $historical) {
+            $spellings[] = $historical;
+        }
 
         foreach ((array) glob(resource_path('lang/*.json')) as $file) {
             $locale = basename((string) $file, '.json');

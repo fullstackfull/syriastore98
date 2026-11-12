@@ -5,9 +5,16 @@
 @section('action-button')
     @permission('Create Flash Sale')
         <div class="text-end d-flex all-button-box justify-content-md-end justify-content-center">
-            <a href="#" class="btn btn-sm btn-primary btn-badge mr-1" data-ajax-popup="true" data-size="lg" data-title="{{__('Add Flash Sale')}}"
-                data-url="{{ route('flash-sale.create') }}" data-bs-toggle="tooltip" title="{{ __('Add Flash Sale') }}">
-                <i class="ti ti-plus"></i>
+            {{-- Phase 2.5 / primary-action-named-only-by-title. The only name was `title`, blanked
+                 by Bootstrap on tooltip init, so the computed name was the Tabler glyph U+EB0B.
+                 `btn-badge` and `mr-1` both go: neither matches any rule under public/, and `mr-1`
+                 is a Bootstrap 4 PHYSICAL edge that would mirror wrong in Arabic if it ever gained
+                 one. This is the screen's only control, so nothing needed the spacing. --}}
+            <a href="#" class="ss-btn ss-btn--primary ss-btn--sm" data-ajax-popup="true" data-size="lg" data-title="{{__('Add Flash Sale')}}"
+                data-url="{{ route('flash-sale.create') }}"
+                data-bs-placement="top" data-bs-toggle="tooltip" title="{{ __('Add Flash Sale') }}">
+                <i class="ti ti-plus" aria-hidden="true"></i>
+                <span>{{ __('Add Flash Sale') }}</span>
             </a>
         </div>
     @endpermission

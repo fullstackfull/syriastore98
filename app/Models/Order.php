@@ -146,6 +146,14 @@ class Order extends Model
     protected $appends = [
         'demo_field',
         'delivered_status_string',
+        /*
+         * F154. `delivered_status_string` is built with `__()` (:194-201), and the admin API
+         * never runs `SetLocate`, so it reaches the Flutter app in the APPLICATION DEFAULT
+         * language rather than the merchant's. These two sit beside it and change nothing about
+         * it: a stable key a consumer can branch on, and a label in the merchant's own language.
+         */
+        'order_status_key',
+        'order_status_label',
         'delivered_image',
         'order_id_string',
         'return_date',
@@ -188,7 +196,36 @@ class Order extends Model
 
 
 
-public function getDeliveredStatusStringAttribute()
+/**
+     * F154. A STABLE IDENTIFIER for the fulfilment status, derived from the INTEGER.
+     *
+     * `delivered_status_string` is a display string in whatever locale the server happened to be
+     * in; this is the thing a consumer should branch on. Never translated, never renamed.
+     *
+     * @return string
+     */
+    public function getOrderStatusKeyAttribute()
+    {
+        return \App\Support\Api\OrderStatusContract::key(
+            $this->delivered_status === null ? null : (int) $this->delivered_status
+        );
+    }
+
+    /**
+     * F154. The display string in the MERCHANT'S language, resolved without touching the
+     * application locale -- a `setLocale` here would leak into every field serialised after it.
+     *
+     * @return string
+     */
+    public function getOrderStatusLabelAttribute()
+    {
+        return \App\Support\Api\OrderStatusContract::label(
+            $this->delivered_status === null ? null : (int) $this->delivered_status,
+            \App\Support\Api\OrderStatusContract::localeForRequest()
+        );
+    }
+
+    public function getDeliveredStatusStringAttribute()
 {
     $status = $this->delivered_status;
     $return = __('Pending');
@@ -468,6 +505,31 @@ public function getFormattedSubTotalAttribute()
             if ($order->delivered_status == \App\Http\Controllers\HomeController::ORDER_STATUS_PRE_ORDER) {
                 $order_array['order_status_text'] = __('Pre Order');
             }
+
+            /*
+             * F154. TWO ADDITIVE FIELDS, beside `order_status_text` and changing nothing about it.
+             *
+             * The admin API never runs `SetLocate` -- measured from the booted kernel: the `web`
+             * group carries it, the `api` group has two middleware and neither is it -- so every
+             * `__()` above resolves in the APPLICATION DEFAULT language, not the merchant's. An
+             * Arabic merchant read `Pending` on an otherwise Arabic screen.
+             *
+             * Adding SetLocate to the API group would have fixed that by changing the language of
+             * existing fields for every consumer at once, and a census of the Flutter client found
+             * five places comparing `payment_status` to the English literal `'paid'`. That field
+             * is safe only because it is written as a plain literal and never through `__()`
+             * (:650) -- luck, not design.
+             *
+             * So `order_status_text` KEEPS ITS EXACT VALUE, including the host's `Comfirmed`
+             * misspelling that `tests/Feature/ApiContract/OrderStatusTextTest` pins, and these
+             * two carry the contract a consumer should have had:
+             *
+             *     order_status_key    stable, derived from the INTEGER, never translated
+             *     order_status_label  the display string, in the merchant's own language
+             */
+            $order_array += \App\Support\Api\OrderStatusContract::fields(
+                $order->delivered_status === null ? null : (int) $order->delivered_status
+            );
             if ($order->delivered_status == 2) {
                 $order_array['order_status_text'] = __('Cancel');
                 $order_array['order_status_message'] = __('Your order has been canced.');

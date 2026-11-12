@@ -49,6 +49,38 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
      * store-less statement cannot hide behind one.
      */
     private const STORE_LESS_BY_DESIGN = [
+        /* ---- P0 (2026-11-10): the USER-DELETION SAFETY GUARD. These two statements are
+           store-less for the opposite of the usual reason, and that is why they are declared
+           together with the argument rather than waved through.
+
+           `UserDeletionSafety::blockers()` answers one question before a `users` row is deleted:
+           does anything still depend on it? A `store_id` predicate here would not NARROW an
+           exposure -- it would make the guard MISS dependants that are really there, and a missed
+           dependant is a store, a wallet or an order ledger destroyed. The failure direction of a
+           scoped count is a destructive delete, so the count has to be table-wide.
+
+           It discloses nothing. Both statements are `->count()`, both are keyed on the id of the
+           user being deleted, and the only thing either can produce is a REFUSAL naming a number.
+           There is no path by which a caller reads another tenant's row through them, and
+           authorization has already happened: `UserPolicy::delete()` runs first at both doors,
+           operator-first, and refuses a cross-tenant target before this service is reached
+           (`UserDeletionAuthorizationTest`, 15 cases).
+
+           The `users` table is not in `config/tenancy.php`'s `scoped_models` either, so there is
+           no scope to be consistent with -- and `stores` is keyed on `created_by`, a user id, not
+           on a `store_id` of its own. */
+        "DB::table('stores')->where('created_by', \$user->id)" =>
+            'The store-ownership half of the user-deletion guard. It must see EVERY store this '
+            . 'user owns, because a store it fails to see is a store the delete destroys. The '
+            . 'statement is a count keyed on the target user id and can only produce a refusal; '
+            . 'UserPolicy::delete() has already refused a cross-tenant target before it runs.',
+
+        "DB::table(\$table)->where(\$column, \$userId)" =>
+            'The dependency half of the same guard, over the 15 pinned cascade tables and the 5 '
+            . 'orphan tables. Same argument and the same failure direction: a tenant predicate '
+            . 'would UNDERCOUNT dependants and let a destructive delete through. Count only, '
+            . 'keyed on the target user id, behind the same policy check.',
+
         /* ---- F229 / D-31: the PLAN purchase intent. A SaaS plan sale is not a tenant event.
            `plan_purchase_intents` carries no `store_id` COLUMN at all, and that is the design
            rather than an omission: a plan is bought by a USER from the platform, not by one of a
@@ -206,9 +238,22 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
          * is NULL now fails to lock and the replacement is refused, which is fail-closed and
          * deliberate: `where('store_id', null)` compiles to `IS NULL` and would match any other
          * orphan.
+         *
+         * 42 -> 44 on 2026-11-10 [P0, the user-deletion safety guard]: `UserDeletionSafety` adds
+         * TWO, and both are store-less (16 -> 18). They are the two halves of the guard that
+         * decides whether a `users` row can be hard-deleted at all: a count of the stores the user
+         * owns, and a count of their rows in the 15 pinned cascade tables and 5 orphan tables.
+         *
+         * **THEY ARE DECLARED RATHER THAN SCOPED, AND THE DIRECTION OF FAILURE IS THE ARGUMENT.**
+         * Everywhere else in this file a missing `store_id` predicate means a statement can SEE
+         * too much. Here a predicate would mean it sees too LITTLE: a dependant it fails to count
+         * is a dependant the delete destroys, so a scoped count turns a refusal into a silent
+         * cascade. Both statements are counts keyed on the target user id, both can produce only a
+         * refusal naming a number, and `UserPolicy::delete()` has already refused a cross-tenant
+         * target before either runs. See their entries in STORE_LESS_BY_DESIGN.
          */
         $this->assertSame(
-            42,
+            44,
             $total,
             "The number of raw query-builder statements in app/Services moved. Every one is "
             . "invisible to every Eloquent global scope, so a new one needs a `store_id` "
@@ -217,7 +262,7 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
         );
 
         $this->assertSame(26, $scoped, 'statements naming store_id');
-        $this->assertCount(16, $storeLess, 'statements naming store_id nowhere');
+        $this->assertCount(18, $storeLess, 'statements naming store_id nowhere');
     }
 
     public function test_every_store_less_service_statement_is_declared_with_its_reason(): void

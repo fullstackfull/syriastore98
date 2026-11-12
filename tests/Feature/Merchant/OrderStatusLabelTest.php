@@ -99,8 +99,27 @@ class OrderStatusLabelTest extends SecurityTestCase
          * by a column that prints all nine labels on every row, which is a different bug wearing
          * the same assertions.
          */
-        $this->assertSame(1, substr_count($body, 'Pre Order'),
-            'the label appears more than once, so it is not per-row');
+        /*
+         * TWO, NOT ONE, SINCE F154 -- and the property under test is unchanged.
+         *
+         * Nine orders are created, one per status, so exactly ONE row has status 8. That row now
+         * carries the label TWICE: `delivered_status_string` (the long-standing field, rendered
+         * in the application default locale) and `order_status_label` (added additively so the
+         * merchant's own language is available without changing what any existing consumer
+         * reads).
+         *
+         * The thing this asserts is still "only the row that HAS the status shows its label". A
+         * column printing all nine labels on every row -- the bug this case exists for -- would
+         * give eighteen, not two. The upper bound is what carries the meaning; the exact figure
+         * is just the number of label-bearing fields per row.
+         */
+        $occurrences = substr_count($body, 'Pre Order');
+
+        $this->assertLessThan(9, $occurrences,
+            'the label appears on more rows than the one with that status, so it is not per-row');
+        $this->assertSame(2, $occurrences,
+            'expected the label once in delivered_status_string and once in order_status_label; '
+            . 'a different count means a third field now carries it, or one of those two stopped.');
     }
 
     /**

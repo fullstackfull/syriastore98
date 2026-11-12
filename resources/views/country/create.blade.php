@@ -2,7 +2,7 @@
 <input type="hidden" name="country_active_tab" value="pills-country-tab">
 <div class="row">
     <div class="form-group col-md-12">
-        {{ Form::label('name', __('Name'), ['class' => 'form-label']) }}
+        {{ Form::label('name', __('Name'), ['class' => 'form-label']) }}<span class="ss-label__required" aria-hidden="true">*</span>
         {{ Form::text('name', null, ['class' => 'form-control font-style', 'placeholder' => 'Enter Country Name', 'required' => 'required']) }}
     </div>
 

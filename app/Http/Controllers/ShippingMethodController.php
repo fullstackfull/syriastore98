@@ -199,7 +199,20 @@ class ShippingMethodController extends Controller
      */
     public function show(ShippingMethod $shippingMethod)
     {
-        //
+        // NO PERMISSION LIMB AND NO OPERATOR LIMB, unlike every neighbouring method in this class
+        // (see :97-99), because this one calls scopedShippingMethod() directly and so bypasses them.
+        // Harmless today -- the body returns nothing and writes nothing. If a body is ever written
+        // here, add both limbs first: the operator with an empty `current_store` resolves to the
+        // literal store 1 (`helper.php:774-775`) and would NOT be refused by this guard alone.
+        // Raised by the tenant-authz review of F-SEC-08.
+        // P2.5-PKG-B. AN EMPTY BODY IS STILL AN EXISTENCE ORACLE: route model binding resolves
+        // the row BEFORE this method runs and `ShippingMethod` is absent from `scoped_models`, so the
+        // response was an empty 200 for a row in ANY store and 404 only for one existing nowhere.
+        // Eleventh instance of a shape closed five times in F-SEC-02, once in F-SEC-05 and three
+        // times in F-SEC-07; `OwnedResourceMethodsAreGuardedTest` now makes a twelfth fail CI.
+        if ($this->scopedShippingMethod($shippingMethod->id) === null) {
+            abort(404);
+        }
     }
 
     /**
@@ -269,7 +282,20 @@ class ShippingMethodController extends Controller
      */
     public function destroy(ShippingMethod $shippingMethod)
     {
-        //
+        // NO PERMISSION LIMB AND NO OPERATOR LIMB, unlike every neighbouring method in this class
+        // (see :97-99), because this one calls scopedShippingMethod() directly and so bypasses them.
+        // Harmless today -- the body returns nothing and writes nothing. If a body is ever written
+        // here, add both limbs first: the operator with an empty `current_store` resolves to the
+        // literal store 1 (`helper.php:774-775`) and would NOT be refused by this guard alone.
+        // Raised by the tenant-authz review of F-SEC-08.
+        // P2.5-PKG-B. AN EMPTY BODY IS STILL AN EXISTENCE ORACLE: route model binding resolves
+        // the row BEFORE this method runs and `ShippingMethod` is absent from `scoped_models`, so the
+        // response was an empty 200 for a row in ANY store and 404 only for one existing nowhere.
+        // Eleventh instance of a shape closed five times in F-SEC-02, once in F-SEC-05 and three
+        // times in F-SEC-07; `OwnedResourceMethodsAreGuardedTest` now makes a twelfth fail CI.
+        if ($this->scopedShippingMethod($shippingMethod->id) === null) {
+            abort(404);
+        }
     }
 
     public function freeShippingEdit($id)

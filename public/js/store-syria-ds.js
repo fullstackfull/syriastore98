@@ -969,8 +969,14 @@
         });
 
         cmd.input.setAttribute('aria-expanded', cmd.items.length ? 'true' : 'false');
-        cmd.status.textContent = String(cmd.items.length);
-        if (cmd.items.length) { cmdActivate(0); }
+        /* "Results: 5", NOT "5". This region is the only thing that tells a screen-reader user
+           how many results arrived, and it used to put a bare number into it. "LABEL: COUNT" is
+           also why there is no plural machinery here: it is grammatical in English and in Arabic
+           for every count, where "5 الإجراءات" -- a number in front of a definite plural, which
+           is what the old concatenation produced -- is not. */
+        cmd.status.textContent = (cmd.input.getAttribute('data-ss-results-label') || 'Results')
+            + ': ' + cmd.items.length;
+        if (cmd.items.length) { cmdActivate(0, false); }
     }
 
     /**
@@ -990,7 +996,7 @@
      * empty list renders an empty bar. Nothing here is filtered, hidden or re-checked, because a
      * client-side filter would mean the full action list had been sent to every caller.
      */
-    function cmdActions(option) {
+    function cmdActions(option, announce) {
         var box = document.getElementById('ss-command-actions');
         if (!box) { return; }
 
@@ -1013,10 +1019,13 @@
            actions that moved with it -- so a merchant arrowing down had no way to know an action
            had appeared, changed or gone. The count goes into the palette's own existing status
            region rather than a new one: two live regions for one dialog compete. */
-        if (cmd.status) {
+        if (cmd.status && announce !== false) {
+            /* Same shape as the result count, for the same reason: the label leads and the
+               number follows. The old order put the count in front of the translated word and
+               read "1 الإجراءات" in Arabic. */
             cmd.status.textContent = (option.ssTitle || '') + ' — '
-                + actions.length + ' '
-                + (box.getAttribute('data-ss-actions-label') || 'Actions');
+                + (box.getAttribute('data-ss-actions-label') || 'Actions')
+                + ': ' + actions.length;
         }
 
         actions.forEach(function (action) {
@@ -1039,7 +1048,15 @@
         });
     }
 
-    function cmdActivate(i) {
+    /* `announce` is false for the FIRST activation after a render, and that is not a detail.
+       `cmdRender` writes the result count into the status region and then activates row 0 in the
+       next statement; `cmdActions` wrote over it synchronously, and an `aria-live="polite"`
+       region announces only the value it holds at the next rendering opportunity. So the count
+       this component's own markup comment promises -- "the result COUNT is announced as it
+       changes" -- was never heard: MEASURED, the region read "#P25PROBE-55 — Actions: 1" every
+       time, never "Results: 5". Skipping the write on that one call lets the count be announced
+       when the set changes, and the option when the merchant arrows to it. */
+    function cmdActivate(i, announce) {
         if (!cmd.items.length) { return; }
         if (cmd.active >= 0 && cmd.items[cmd.active]) {
             cmd.items[cmd.active].setAttribute('aria-selected', 'false');
@@ -1051,7 +1068,7 @@
            keep typing while the selection moves. */
         cmd.input.setAttribute('aria-activedescendant', el.id);
         if (el.scrollIntoView) { el.scrollIntoView({ block: 'nearest' }); }
-        cmdActions(el);
+        cmdActions(el, announce !== false);
     }
 
     function cmdSearch() {
@@ -1619,6 +1636,204 @@
 
     /* ------------------------------------------------------------------ init */
 
+    /* ============================================================================================
+       P2.5-WAVE-22 — the DataTables control bar at phone width.
+       --------------------------------------------------------------------------------------------
+       MEASURED on /order at 320x568 before this existed: `.table-responsive` had clientWidth 250
+       and scrollWidth 1141, `.dataTable-top` was 905px wide, and its button block started at
+       x=376 -- 56px past the right edge of the screen. The search box, the export button, the
+       column-visibility collection and the reset button were all in the DOM and all unreachable
+       unless the merchant first discovered that the table scrolls sideways. Only the length
+       selector was visible.
+
+       Pinning the wrapper to its container (see the WAVE-22 block in custom.css) put every control
+       on screen, and MEASURED the cost: the bar grew 77px -> 182px, which then became the tallest
+       band on the page and pushed the first order further down. So the controls are on screen AND
+       the bar is one row: the search field -- the control a merchant reaches for most -- stays
+       visible beside this toggle, and the length selector and the button group sit behind it.
+
+       NOTHING IS REMOVED. Every control keeps its place in the DOM, its order and its handlers;
+       the toggle is a real <button> with aria-expanded and an accessible name, so it is reachable
+       by keyboard and announced as a disclosure. Above 575.98px the toggle is display:none and the
+       bar is untouched, which is why the attribute is set unconditionally: the breakpoint lives in
+       CSS, so there is no width to re-check on resize or rotation.
+
+       WHY HERE AND NOT IN A BLADE VIEW. `.dataTable-top` does not exist in any view -- DataTables
+       builds it at run time -- so a server-rendered checkbox could not be placed inside it. The
+       bar is already entirely JavaScript, so this adds no dependency that was not already load
+       bearing, and if it never runs the bar renders exactly as the CSS leaves it: all controls
+       present, on screen, 182px tall. Degrades to usable, not to broken.
+    */
+    var ssControlBarSeq = 0;
+
+    function wireTableControlDisclosure(bar) {
+        if (!bar || bar.getAttribute('data-ss-controls')) {
+            return; // already wired -- init() and the observer can both reach the same bar
+        }
+
+        var hidden = bar.querySelectorAll('.dataTable-dropdown, .dt-buttons');
+        if (!hidden.length) {
+            return; // nothing to disclose, so no toggle: an empty one would be a lie
+        }
+
+        if (!bar.id) {
+            bar.id = 'ss-dt-top-' + (++ssControlBarSeq);
+        }
+
+        var name = (document.body && document.body.getAttribute('data-ss-label-table-options'))
+            || 'Table options';
+
+        var toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'ss-dt-controls__toggle';
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.setAttribute('aria-controls', bar.id);
+        toggle.setAttribute('aria-label', name);
+        toggle.setAttribute('title', name);
+        toggle.innerHTML = '<i class="ti ti-adjustments-horizontal" aria-hidden="true"></i>';
+
+        toggle.addEventListener('click', function () {
+            var open = bar.getAttribute('data-ss-controls') === 'open';
+            bar.setAttribute('data-ss-controls', open ? 'closed' : 'open');
+            toggle.setAttribute('aria-expanded', open ? 'false' : 'true');
+        });
+
+        bar.setAttribute('data-ss-controls', 'closed');
+        bar.insertBefore(toggle, bar.firstChild);
+    }
+
+    /* DataTables initialises after DOMContentLoaded on most of these screens, so the bars do not
+       exist when init() runs. Observed rather than polled, and rather than hooked onto `draw.dt`,
+       which would make this file depend on jQuery for the first time. */
+    function observeTableControlBars() {
+        Array.prototype.forEach.call(
+            document.querySelectorAll('.dataTable-top'),
+            wireTableControlDisclosure
+        );
+
+        if (typeof MutationObserver !== 'function' || !document.body) {
+            return;
+        }
+
+        new MutationObserver(function (records) {
+            for (var i = 0; i < records.length; i++) {
+                var added = records[i].addedNodes;
+                for (var j = 0; j < added.length; j++) {
+                    var node = added[j];
+                    if (node.nodeType !== 1) {
+                        continue;
+                    }
+                    if (node.classList && node.classList.contains('dataTable-top')) {
+                        wireTableControlDisclosure(node);
+                    } else if (node.querySelectorAll) {
+                        Array.prototype.forEach.call(
+                            node.querySelectorAll('.dataTable-top'),
+                            wireTableControlDisclosure
+                        );
+                    }
+                }
+            }
+        }).observe(document.body, { childList: true, subtree: true });
+    }
+
+    /* ============================================================================================
+       P2.5-WAVE-28 — the row a merchant can actually read on a phone.
+       --------------------------------------------------------------------------------------------
+       MEASURED at 320x568 across eleven list screens: the tables carry 4 to 12 columns and 2 to 4
+       are inside the 250px scrollport -- of which one is the empty select-all column and one is
+       the pinned Action column. So on most screens the merchant reads exactly ONE real field.
+       /order showed an order id and nothing else: no date, no customer, no total, no status.
+
+       The constraint is "preserve every data field", so this is NOT column hiding. Below 576px
+       each row becomes a stacked block carrying EVERY cell, each one labelled with its own column
+       heading, read top to bottom with no sideways scrolling.
+
+       THE LABEL HAS TO COME FROM JAVASCRIPT because CSS cannot read another element's text, and
+       the cells are generated by DataTables rather than written in a view. This copies each
+       column's heading onto its cells as `data-ss-label`, and the stylesheet renders it.
+
+       AND THE ARIA ROLES ARE NOT OPTIONAL. `display: block` on a table DESTROYS its implicit
+       semantics -- a screen reader stops announcing rows and columns entirely. Stating the roles
+       explicitly keeps the table a table whatever the CSS does with its boxes. This is the part
+       that is easy to leave out and is the reason the pattern has a bad reputation.
+
+       RE-APPLIED ON EVERY REDRAW. DataTables replaces the tbody on sort, search and paging, so a
+       one-shot pass would label the first page and nothing after it. The observer below watches
+       each table's own subtree and only touches cells that are missing the attribute, so a redraw
+       costs one pass over the new rows and nothing else.
+    */
+    function labelTableCells(table) {
+        var headings = [];
+        var head = table.querySelector('thead tr');
+
+        if (!head) {
+            return;
+        }
+
+        Array.prototype.forEach.call(head.children, function (th) {
+            headings.push((th.textContent || '').trim());
+            th.setAttribute('role', 'columnheader');
+        });
+
+        table.setAttribute('role', 'table');
+
+        var rows = table.querySelectorAll('thead tr, tbody tr');
+
+        Array.prototype.forEach.call(rows, function (row) {
+            row.setAttribute('role', 'row');
+
+            Array.prototype.forEach.call(row.children, function (cell, i) {
+                if (cell.tagName === 'TD') {
+                    cell.setAttribute('role', 'cell');
+                }
+
+                if (cell.hasAttribute('data-ss-label')) {
+                    return;
+                }
+
+                /* An empty heading -- the select-all column -- gets an empty label rather than
+                   none, so the stylesheet can tell "no heading" from "not processed yet".
+
+                   AND A COLSPAN CELL IS NOT A COLUMN. The heading list is indexed by child
+                   position, which assumes one cell per column; an `@empty` row is a single
+                   `td colspan="10"` sitting at index 0, so it was taking the FIRST column's
+                   heading. Measured consequence on `/finance` with no rows: the empty-state
+                   sentence rendered as a card whose label column read "ID" and whose message was
+                   broken character-by-character into the remaining 55%. It gets the empty label
+                   instead, which the stylesheet already renders full width with no label at all. */
+                var spans = parseInt(cell.getAttribute('colspan') || '1', 10) > 1;
+
+                cell.setAttribute('data-ss-label', spans || headings[i] === undefined ? '' : headings[i]);
+            });
+        });
+    }
+
+    /* BOTH STACKED FAMILIES, which is why this is no longer called observeDataTables. Wave 28
+       stacked the host's DataTables inside `.ss-dt-card-body`; Wave 29 converged the design
+       system's own `.ss-table--stack` onto the same mechanism, and a static table needs the
+       labels and the roles just as much -- more, in fact, since it has no column-visibility
+       control to fall back on. A static table never redraws, so its observer simply never
+       fires; the cost of attaching one is a few bytes and it removes a special case. */
+    function observeStackedTables() {
+        var tables = document.querySelectorAll('.ss-dt-card-body table, .ss-table--stack');
+
+        if (!tables.length) {
+            return;
+        }
+
+        Array.prototype.forEach.call(tables, function (table) {
+            labelTableCells(table);
+
+            if (typeof MutationObserver !== 'function') {
+                return;
+            }
+
+            new MutationObserver(function () {
+                labelTableCells(table);
+            }).observe(table, { childList: true, subtree: true });
+        });
+    }
+
     function init() {
         Array.prototype.forEach.call(
             document.querySelectorAll('form[data-ss-dirty-track]'),
@@ -1632,6 +1847,12 @@
         updateNotificationBadge();
         // P2-06-7. Delegated on the document, so it is wired once and survives re-render.
         wireFavouriteToggle();
+        // P2.5-WAVE-22. Wires the bars that already exist and watches for the ones DataTables
+        // builds after this point.
+        observeTableControlBars();
+        // P2.5-WAVE-28/29. Copies each column's heading onto its cells, and states the ARIA roles
+        // that `display: block` would otherwise destroy.
+        observeStackedTables();
     }
 
     if (document.readyState === 'loading') {
@@ -1931,6 +2152,12 @@
         clearFormErrors: clearFormErrors,
         // P2-06-6. ColReorder is pointer-only; this is the keyboard path, built on
         // its own `colReorder.move()` so there is one mover and two ways to reach it.
-        wireColumnReorderKeys: wireColumnReorderKeys
+        wireColumnReorderKeys: wireColumnReorderKeys,
+        // P2.5-WAVE-22. Exposed so a screen that builds a DataTable from its own script can wire
+        // the control-bar disclosure without waiting for the observer.
+        wireTableControlDisclosure: wireTableControlDisclosure,
+        // P2.5-WAVE-28. Exposed so a screen that builds a table from its own script can label it
+        // without waiting for the observer.
+        labelTableCells: labelTableCells
     };
 })();

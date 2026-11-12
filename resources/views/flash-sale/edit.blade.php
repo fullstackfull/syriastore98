@@ -1,37 +1,37 @@
 {{ Form::model($flashsale, ['route' => ['flash-sale.update', $flashsale->id], 'method' => 'PUT', 'enctype' => 'multipart/form-data']) }}
 <div class="row">
     <div class="form-group col-md-12">
-        {!! Form::label('', __('Name'), ['class' => 'form-label']) !!}
+        {!! Form::label('name', __('Name'), ['class' => 'form-label']) !!}
         {!! Form::text('name', null, ['class' => 'form-control', 'required']) !!}
     </div>
     <div class="form-group col-md-6">
-        {!! Form::label('', __('Start Date'), ['class' => 'form-label']) !!}
+        {!! Form::label('start_date', __('Start Date'), ['class' => 'form-label']) !!}
         {!! Form::date('start_date', null, ['class' => 'form-control', 'required']) !!}
     </div>
     <div class="form-group col-md-6">
-        {!! Form::label('', __('End Date'), ['class' => 'form-label']) !!}
+        {!! Form::label('end_date', __('End Date'), ['class' => 'form-label']) !!}
         {!! Form::date('end_date', null, ['class' => 'form-control', 'required']) !!}
     </div>
     <div class="form-group col-md-6">
-        {!! Form::label('', __('Start Time'), ['class' => 'form-label']) !!}
+        {!! Form::label('start_time', __('Start Time'), ['class' => 'form-label']) !!}
         {!! Form::time('start_time', null, ['class' => 'form-control', 'required']) !!}
     </div>
     <div class="form-group col-md-6">
-        {!! Form::label('', __('End Time'), ['class' => 'form-label']) !!}
+        {!! Form::label('end_time', __('End Time'), ['class' => 'form-label']) !!}
         {!! Form::time('end_time', null, ['class' => 'form-control', 'required']) !!}
     </div>
 
     <div class="form-group col-md-6">
-        {!! Form::label('', __('Discount Type'), ['class' => 'form-label']) !!}
+        {!! Form::label('discount_type', __('Discount Type'), ['class' => 'form-label']) !!}
         {!! Form::select(
             'discount_type',
-            ['' => __('Select Discount Type'), 'percentage' => 'Percentage', 'flat' => 'Flat'],
+            ['' => __('Select Discount Type'), 'percentage' => __('Percentage'), 'flat' => __('Flat')],
             null,
             ['class' => 'form-control', 'required',],
         ) !!}
     </div>
     <div class="form-group col-md-6">
-        {!! Form::label('', __('Discount Amount'), ['class' => 'form-label']) !!}
+        {!! Form::label('discount_amount', __('Discount Amount'), ['class' => 'form-label']) !!}
         {!! Form::number('discount_amount', null, ['class' => 'form-control', 'min' => '0', 'step' => '0.01','required']) !!}
     </div>
 
@@ -39,7 +39,12 @@
             <small>{{ __('Note: Override this discount if Sale is set  in another flash deal.') }}</small>
         </div>
         <div class="col-md-12 d-flex justify-content-between align-items-center">
-            {!! Form::label('', __('Apply this Campaign when these conditions are matched:'), ['class' => 'form-label']) !!}
+            {{-- NOT a <label>: this heads the condition repeater and names no single control, so a
+             `for` could only ever dangle. A <span>, not a <p> -- custom.css:4685 scopes
+             `.modal-content p:not([class^="ss-"])` to grey-600 at (0,4,3) and beats the
+             .form-label rule at :4670 (0,3,2), so a <p class="form-label"> would render two
+             contrast tiers lighter than every sibling caption. Mirrored at rtl-custom.css:4677. --}}
+        <span class="form-label mb-0">{{ __('Apply this Campaign when these conditions are matched:') }}</span>
             <a href="#" class="btn btn-sm btn-primary newfield" id="add-field-btn" title="{{ __('Add New Field') }}">
                 <i class="ti ti-plus"></i>
             </a>
@@ -61,6 +66,15 @@
                             data-id="form-group-container{{ $index }}">
                             <div class="col-md-4">
                                 <div class="btn-box">
+                                    {{-- P2.5 a11y -- THE CREATE MODAL HAS THESE LABELS AND THE EDIT MODAL DID NOT.
+                                         `flash-sale/create.blade.php:68,84` carries `aria-label` on both condition selects; this
+                                         file, which renders the same three controls, carried none. Measured by driving the edit
+                                         modal: `select[name=fields[0][condition_option]]` and `select[name=fields[0][condition]]`
+                                         reported as unlabelled in all four language/direction/theme combinations.
+                                    
+                                         A select with no accessible name is read as "combo box" and nothing else, and these two
+                                         decide WHICH PRODUCTS a flash sale applies to. The same translation keys the create modal
+                                         already uses are reused here, so no new string enters the language files. --}}
                                     {!! Form::select(
                                         'fields[' . $index . '][condition_option]',
                                         App\Models\FlashSale::$options,
@@ -68,6 +82,7 @@
                                         [
                                             'class' => 'form-control condition_option',
                                             'id' => 'condition_option_' . $index,
+                                            'aria-label' => __('Condition Option'),
                                             'placeholder' => 'Select option',
                                         ],
                                     ) !!}
@@ -83,6 +98,7 @@
                                                 $item->condition ?? null,
                                                 [
                                                     'class' => 'form-control',
+                                                    'aria-label' => __('Condition'),
                                                     'placeholder' => 'Select option',
                                                 ],
                                             ) !!}
@@ -93,6 +109,7 @@
                                                 $item->condition ?? null,
                                                 [
                                                     'class' => 'form-control',
+                                                    'aria-label' => __('Condition'),
                                                     'placeholder' => 'Select option',
                                                 ],
                                             ) !!}
@@ -149,7 +166,7 @@
                                 @else
                                     <div class="mr-2 col-xl-4 col-lg-2 col-md-6 col-sm-12 col-12">
                                         <div class="btn-box emp_div">
-                                            {{ Form::select('fields[' . $index . '][conditionlist][]', [], null, ['class' => 'sub form-control select project_select multi-select', 'id' => 'options_id_' . $index, 'multiple' => ' ', 'required' => 'required', 'placeholder' => 'Select option']) }}
+                                            {{ Form::select('fields[' . $index . '][conditionlist][]', [], null, ['class' => 'sub form-control select project_select multi-select', 'id' => 'options_id_' . $index, 'multiple' => ' ', 'required' => 'required', 'aria-label' => __('Condition Value'), 'placeholder' => 'Select option']) }}
                                         </div>
                                     </div>
                                 @endif
@@ -171,6 +188,12 @@
                         </div>
                     @endforeach
                 @else
+                    {{-- P2.5 a11y -- THIS BRANCH IS THE ONE A NEW SALE RENDERS, AND IT HAD NO
+                         LABELS EITHER. The populated branch above was labelled first and the
+                         finding did not move, because a flash sale with no stored conditions
+                         falls here instead -- which is the state every newly created sale is in.
+                         Two `Form::select` calls for the same three controls, in two branches of
+                         one file, and only one was ever fixed. --}}
                     @for ($i = 0; $i <= 0; $i++)
                         <div class="mt-2 row filter-row filter-css form-group-container"
                             data-id="form-group-container{{ $i }}">
@@ -179,6 +202,7 @@
                                     {!! Form::select('fields[' . $i . '][condition_option]', App\Models\FlashSale::$options, null, [
                                         'class' => 'form-control condition_option',
                                         'id' => 'condition_option_' . $i, // Added unique ID
+                                        'aria-label' => __('Condition Option'),
                                         'placeholder' => 'Select option',
                                     ]) !!}
                                 </div>
@@ -187,13 +211,14 @@
                                 <div class="btn-box condition">
                                     {!! Form::select('fields[' . $i . '][condition]', App\Models\FlashSale::$condition, null, [
                                         'class' => 'form-control',
+                                        'aria-label' => __('Condition'),
                                         'placeholder' => 'Select option',
                                     ]) !!}
                                 </div>
                             </div>
                             <div class="mr-2 col-xl-4 col-lg-2 col-md-6 col-sm-12 col-12">
                                 <div class="btn-box emp_div">
-                                    {{ Form::select('fields[' . $i . '][conditionlist][]', [], null, ['class' => 'sub form-control select project_select multi-select', 'id' => 'options_id_' . $i, 'multiple' => ' ', 'required' => 'required', 'placeholder' => 'Select option']) }}
+                                    {{ Form::select('fields[' . $i . '][conditionlist][]', [], null, ['class' => 'sub form-control select project_select multi-select', 'id' => 'options_id_' . $i, 'multiple' => ' ', 'required' => 'required', 'aria-label' => __('Condition Value'), 'placeholder' => 'Select option']) }}
                                 </div>
                             </div>
                             <div class="ml-auto form-group col-md-1 text-end">

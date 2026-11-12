@@ -1526,14 +1526,14 @@ if (!function_exists('currency_format_with_sym')) {
         $number = explode('.', $price);
         $length = strlen(trim($number[0]));
 
-        if ($length > 3) {
-            $decimal_separator = isset($company_settings['decimal_separator']) && $company_settings['decimal_separator'] === 'dot' ? '.' : ',';
-            $thousand_separator = isset($company_settings['thousand_separator']) && $company_settings['thousand_separator'] === 'dot' ? '.' : ',';
-        } else {
-            $decimal_separator = isset($company_settings['decimal_separator']) && $company_settings['decimal_separator'] === 'dot' ? '.' : ',';
-
-            $thousand_separator = isset($company_settings['thousand_separator'])  && $company_settings['thousand_separator'] === 'dot' ? '.' : ',';
-        }
+        /* D-42.3. ONE DEFAULT FOR ALL FOUR FORMATTERS -- see App\Support\Money\CurrencySeparators.
+           The two limbs of the `if ($length > 3)` above computed the IDENTICAL pair, so the branch
+           decided nothing; it is gone with the duplication. The old default was a comma for BOTH
+           roles, which rendered an unset store's 1162.50 as `1,162,50` -- the same character twice,
+           a figure that cannot be read back. MEASURED on the running admin's dashboard and on every
+           card of /order-grid. A STORED preference is read exactly as it was. */
+        [$decimal_separator, $thousand_separator] =
+            \App\Support\Money\CurrencySeparators::charsFromSettings($company_settings);
         if (isset($company_settings['site_currency_symbol_position'])) {
             $symbol_position = $company_settings['site_currency_symbol_position'];
         }
@@ -2219,14 +2219,15 @@ if (!function_exists('default_currency_format_with_sym')) {
         $format = '1';
         $number = explode('.', $price);
         $length = strlen(trim($number[0]));
-        if ($length > 3) {
-            $decimal_separator = isset($company_settings['decimal_separator']) && $company_settings['decimal_separator'] === 'dot' ? '.' : ',';
-            $thousand_separator = isset($company_settings['thousand_separator']) && $company_settings['thousand_separator'] === 'dot' ? '.' : ',';
-        } else {
-            $decimal_separator = isset($company_settings['decimal_separator']) == 'dot' ? '.' : ',';
-
-            $thousand_separator = isset($company_settings['thousand_separator']) == 'dot' ? '.' : ',';
-        }
+        /* D-42.3, the same one default -- and this function had a SECOND defect of its own that
+           routing through the shared resolver removes. Its `else` limb read
+           `isset($company_settings['decimal_separator']) == 'dot'`: `isset()` is a bool, PHP casts
+           the string side when comparing a bool with a string, and `'dot'` is truthy -- so that
+           limb answered "dot whenever the row exists", ignoring the merchant's actual choice. A
+           store that chose a comma decimal got a dot here and a comma from the other three
+           formatters. Both limbs computed the same pair anyway, so the branch is gone with it. */
+        [$decimal_separator, $thousand_separator] =
+            \App\Support\Money\CurrencySeparators::charsFromSettings($company_settings);
         if (isset($company_settings['site_currency_symbol_position'])) {
             $symbol_position = $company_settings['site_currency_symbol_position'];
         }
@@ -2291,13 +2292,9 @@ if (!function_exists('order_currency_format_with_sym')) {
         $length = strlen(trim($number[0] ?? '0'));
 
         // نفس منطق الدالة الأصلية بالضبط (كلا الفرعين متطابقين، محافظين على نفس البنية)
-        if ($length > 3) {
-            $decimal_separator = isset($company_settings['decimal_separator']) && $company_settings['decimal_separator'] === 'dot' ? '.' : ',';
-            $thousand_separator = isset($company_settings['thousand_separator']) && $company_settings['thousand_separator'] === 'dot' ? '.' : ',';
-        } else {
-            $decimal_separator = isset($company_settings['decimal_separator']) && $company_settings['decimal_separator'] === 'dot' ? '.' : ',';
-            $thousand_separator = isset($company_settings['thousand_separator']) && $company_settings['thousand_separator'] === 'dot' ? '.' : ',';
-        }
+        /* D-42.3, the same one default. Both limbs computed the identical pair here too. */
+        [$decimal_separator, $thousand_separator] =
+            \App\Support\Money\CurrencySeparators::charsFromSettings($company_settings);
 
         if (isset($company_settings['site_currency_symbol_position'])) {
             $symbol_position = $company_settings['site_currency_symbol_position'];
@@ -2383,14 +2380,72 @@ if (!function_exists('bulkDeleteCloneCheckboxColumn')) {
              * The empty `title` is left as it is: the blank HEADER CELL predates this and
              * changing what that cell renders is a different change with different callers.
              */
+            /*
+             * P2.5-ORD-3. BOTH CHECKBOXES HAVE A NAME NOW, AND NEITHER HAD ONE BEFORE.
+             *
+             * The heading was the bare markup `<input type="checkbox" id="select-all">` and each
+             * row cell the bare `<input type="checkbox" class="select-row" value="...">`: no
+             * `<label>`, no `aria-label`, no `title`. And there is no header text to fall back on,
+             * because the heading cell contains nothing but the input -- `store-syria-ds.js`
+             * records that as a known fact ("An empty heading -- the select-all column -- gets an
+             * empty label rather than none"). So a screen-reader user moving down an order list
+             * heard "checkbox, not checked" once per row with nothing saying which order each one
+             * selected, and the select-all was announced with no name at all.
+             *
+             * THE CONTROL THESE FEED IS BULK DELETE, which destroys records irreversibly. At
+             * 390px the row checkbox is also the only field in the stacked mobile card with no
+             * visible caption, so it is unlabelled for a sighted merchant too.
+             *
+             * THIS COLUMN IS ON EVERY ADMIN TABLE, so the two strings below are 67 tables wide.
+             * They are `__()` because the admin is bilingual: a hard-coded English name is the
+             * same defect in Arabic.
+             *
+             * THE ROW NAME USES `this.id` AND NOTHING ELSE, deliberately. The name is built by
+             * concatenating into an HTML attribute inside a JS string, so any row field that a
+             * SHOPPER writes -- a customer's name, an order reference -- would be an attribute
+             * injection on the merchant's own origin. `id` is the integer primary key, written by
+             * the database.
+             *
+             * TWO LAYERS, FOR TWO DIFFERENT CONTEXTS, AND THE FIRST DRAFT HAD ONLY ONE.
+             * `json_encode` protects the JS SOURCE: `JSON_HEX_APOS` stops the string ending the
+             * PHP single-quoted JS literal. It does NOT protect the HTML ATTRIBUTE the value is
+             * then concatenated into, and an earlier version of this comment claimed it did --
+             * `JSON_HEX_QUOT` emits the JS escape `\u0022`, so at RUNTIME the string holds a
+             * literal `"`, which closes `aria-label="`. A `Select row` translation of
+             * `x" onfocus="alert(1)" tabindex="0` would have rendered an event handler on an
+             * input, on the merchant admin origin, on all 67 tables that carry this column.
+             * Found by the tenant/authz review of this change.
+             *
+             * `e()` is therefore applied FIRST, for the attribute, and the JSON flags after, for
+             * the JS literal. The browser decodes `&quot;` back when it reads the accessible
+             * name, so the announced text is unchanged.
+             *
+             * REACHABILITY, measured rather than assumed: only a writer of
+             * `resources/lang/<locale>.json` can put that string there, which is
+             * `LanguageController::storeLanguageData()` (`file_put_contents`, no escaping) behind
+             * `isAbleTo('Create Language')`. That permission is in `$superadminNewPermission`
+             * (Utility.php:3318) and NOT in `$companyNewPermission`, and it is denylisted in
+             * `config/superadminaccess.php:9`, which `RolePolicy::isGrantableBy()` enforces on the
+             * WRITE path. So no merchant or staff principal can reach it; it takes a deliberate
+             * operator action. Hardening, not a live hole -- but a comment asserting a control
+             * that does not exist is the thing this project refuses.
+             */
+            $ssSelectAllLabel = __('Select all rows');
+            $ssSelectRowLabel = json_encode(
+                e(__('Select row')),
+                JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP
+            );
+
             return Column::computed('checkbox')
-                ->title('<input type="checkbox" id="select-all">')
+                ->title('<input type="checkbox" id="select-all" aria-label="'
+                    . e($ssSelectAllLabel) . '">')
                 ->orderable(false)
                 ->exportable(false)
                 ->printable(false)
                 ->addClass('text-left ss-col-locked')
                 ->render('function() {
-                    return \'<input type="checkbox" class="select-row" value="\' + this.id + \'">\';
+                    return \'<input type="checkbox" class="select-row" aria-label="\' + '
+                    . $ssSelectRowLabel . ' + \' \' + this.id + \'" value="\' + this.id + \'">\';
                 }');
         }
 
@@ -2403,6 +2458,28 @@ if (!function_exists('bulkDeleteForm')) {
     {
         return [
             'text' => '<i class="ti ti-trash" data-bs-toggle="tooltip" title="' . __("Bulk Delete") . '" data-bs-original-title="' . __("Bulk Delete") . '"></i>',
+            /*
+             * THE NAME GOES ON THE BUTTON, NOT ON THE ICON INSIDE IT.
+             *
+             * `text` above puts the tooltip on an `i` element, so the BUTTON -- the thing that is
+             * focusable and clickable -- has no accessible name of its own: measured on the
+             * running admin as `a.btn.btn-light-danger.bulk-delete` with no name, on /customer and
+             * /order. And `drawCallback` below constructs a Bootstrap `Tooltip` for every
+             * `[data-bs-toggle=tooltip]` on each draw, which MOVES `title` into
+             * `data-bs-original-title` and leaves `title` empty -- so even the icon's own name is
+             * gone a moment after it is written.
+             *
+             * `init`, NOT `attr`, AND THAT IS MEASURED. `attr` is DataTables Buttons' documented
+             * hook for attributes on the generated element and this build IGNORES IT: with
+             * `'attr' => ['aria-label' => ...]` the option really is in the page's config --
+             * grepped out of the live HTML -- and the rendered `a.bulk-delete` still had no
+             * `aria-label`. `init` is called with the node after it is built, and this file
+             * already proves raw function strings survive serialisation, because `action` below
+             * is one and it works.
+             */
+            'init' => "function(dt, node, config) {
+                node.attr('aria-label', " . json_encode(__('Bulk Delete')) . ");
+            }",
             'className' => 'btn btn-light-danger bulk-delete',
             'action' => "function(e, dt, button, config) {
                 bulkDelete('{$type}','{$dataTableId}');
@@ -3010,15 +3087,21 @@ if (! function_exists('buildDataTable')) {
      */
     function dataTableEmptyState(string $tableId): array
     {
+        /* THE ICON IS PART OF THE MESSAGE, so it is chosen per list for what the list HOLDS --
+           a package for products, a receipt for orders, people for customers. A single generic
+           glyph on every screen would be decoration; these are the semantics the directive asks
+           for. Each is `aria-hidden` when rendered, because the title says the same thing and a
+           screen reader should not hear it twice. */
         $known = [
-            'product-table'  => [__('No products yet'), __('Add your first product with the button above.')],
-            'order-table'    => [__('No orders yet'), __('Orders appear here as soon as a customer buys something.')],
-            'customer-table' => [__('No customers yet'), __('Customers appear here once someone registers or places an order.')],
-            'category-table' => [__('No categories yet'), __('Add a category to group your products.')],
-            'coupon-table'   => [__('No coupons yet'), __('Create a coupon to offer a discount.')],
+            'product-table'  => ['ti-package',  __('No products yet'), __('Add your first product with the button above.')],
+            'order-table'    => ['ti-receipt',  __('No orders yet'), __('Orders appear here as soon as a customer buys something.')],
+            'customer-table' => ['ti-users',    __('No customers yet'), __('Customers appear here once someone registers or places an order.')],
+            'category-table' => ['ti-category', __('No categories yet'), __('Add a category to group your products.')],
+            'coupon-table'   => ['ti-ticket',   __('No coupons yet'), __('Create a coupon to offer a discount.')],
         ];
 
-        [$title, $hint] = $known[$tableId] ?? [
+        [$icon, $title, $hint] = $known[$tableId] ?? [
+            'ti-inbox',
             __('Nothing here yet'),
             __('Items appear here once you add them.'),
         ];
@@ -3026,10 +3109,30 @@ if (! function_exists('buildDataTable')) {
         /* ONE MESSAGE FOR THE FILTERED CASE, whatever the list, because the cause is the filter
            rather than the screen -- and because the way out is the same everywhere: the filter
            bar's own Clear control from P2-06-5. */
+        /* MARKUP, NOT A SENTENCE. DataTables writes the language string into the cell as HTML,
+           and the two sentences were being concatenated into one undifferentiated grey line --
+           measured 44px tall with no icon and no type scale. Separate elements let the title and
+           the hint be told apart; the styling is in store-syria-ds.css under P2.5-WAVE-2.
+
+           THE FILTERED CASE GETS A DIFFERENT ICON ON PURPOSE. An empty list and a list hidden by
+           a filter look identical today, and they are not the same situation: nothing is wrong
+           with the list, and the way out is the filter bar's own Clear control rather than
+           creating a record. A magnifier says that before the sentence is read. */
+        $render = static function (string $icon, string $title, string $hint): string {
+            return '<span class="ss-dt-empty">'
+                . '<i class="ti ' . $icon . ' ss-dt-empty-icon" aria-hidden="true"></i>'
+                . '<span class="ss-dt-empty-title">' . e($title) . '</span>'
+                . '<span class="ss-dt-empty-hint">' . e($hint) . '</span>'
+                . '</span>';
+        };
+
         return [
-            'emptyTable' => $title . ' ' . $hint,
-            'zeroRecords' => __('Nothing matches your search or filters.') . ' '
-                . __('Clear them to see everything again.'),
+            'emptyTable' => $render($icon, $title, $hint),
+            'zeroRecords' => $render(
+                'ti-zoom-cancel',
+                __('Nothing matches your search or filters.'),
+                __('Clear them to see everything again.')
+            ),
         ];
     }
 
@@ -3041,14 +3144,55 @@ if (! function_exists('buildDataTable')) {
             ->minifiedAjax()
             ->orderBy(0)
             ->language([
-                "paginate" => [
-                    "next" => '<i class="ti ti-chevron-right"></i>',
-                    "previous" => '<i class="ti ti-chevron-left"></i>'
+                /*
+                 * EACH ARROW CARRIES A VISUALLY HIDDEN NAME. Measured on /customer and /order,
+                 * these two rendered as `a.page-link` wrapping nothing but an icon FONT, which
+                 * contributes no text: four controls announced as nothing.
+                 *
+                 * A hidden span rather than `aria-label`, because DataTables writes these values
+                 * as the link's CONTENT and the element is rebuilt on every draw -- content
+                 * survives that, an attribute set afterwards would have to be reapplied. The name
+                 * is `Previous`/`Next` and NOT `Left`/`Right`: DataTables puts `previous` on the
+                 * inline-start side in both directions, so the semantic word is correct in Arabic
+                 * even where the glyph is not.
+                 */
+                /* P2.5-WAVE-8. The translation EXISTED and was not being asked for: ar.json:931
+               carries "Processing": "المعالجة", but with no `processing` entry here DataTables
+               falls back to its own built-in English, so every Arabic page said "Processing...".
+               The ellipsis is appended rather than translated -- it is punctuation, and putting
+               it inside the key would have needed a second entry in both files to say nothing. */
+            "processing" => __('Processing') . '...',
+            "paginate" => [
+                    "next" => '<i class="ti ti-chevron-right"></i><span class="ss-visually-hidden">' . __('Next') . '</span>',
+                    "previous" => '<i class="ti ti-chevron-left"></i><span class="ss-visually-hidden">' . __('Previous') . '</span>'
                 ],
                 'lengthMenu' => "_MENU_" . __('Entries Per Page'),
                 "searchPlaceholder" => __('Search...'),
                 "search" => "",
                 "info" => __("Showing")." _START_ ".__("to"). " _END_ ".__("of")." _TOTAL_ ".__("entries"),
+
+                /* P2.5-WAVE-9. `info` ALONE IS NOT THE INFO LINE. DataTables swaps in a different
+                   key depending on the state of the table, and only one of the three was ever
+                   translated. Measured on the Arabic build:
+
+                       /product  32 rows   sInfo        -> "تظهر 1 إلى 10 من 32 إدخالات"   correct
+                       /coupon    0 rows   sInfoEmpty   -> "Showing 0 to 0 of 0 entries"   ENGLISH
+                       any search           sInfoFiltered -> "(filtered from _MAX_ ...)"   ENGLISH
+
+                   `infoEmpty` is what an EMPTY list shows -- which is the first screen a new
+                   merchant ever sees -- and `infoFiltered` is appended the moment anyone types in
+                   the search box. Both were falling through to the library's built-in English on
+                   a fully Arabic page. `infoEmpty` needs no new translation at all: it is the
+                   same four keys with literal zeroes. */
+                "infoEmpty" => __("Showing")." 0 ".__("to")." 0 ".__("of")." 0 ".__("entries"),
+                "infoFiltered" => "(".__("filtered from")." _MAX_ ".__("total entries").")",
+
+                /* AND `loadingRecords` DEFAULTS TO `zeroRecords` IN DATATABLES ITSELF, which with
+                   P2.5-WAVE-2's richer empty state means a table that is still LOADING announces
+                   "Nothing matches your search or filters. Clear them to see everything again."
+                   -- a filter result, stated before any result exists. Measured: sLoadingRecords
+                   carried the zeroRecords markup verbatim. */
+                "loadingRecords" => __("Loading")."...",
                 // P2-06-11. Without these two, every table showed DataTables' English defaults --
                 // in Arabic too. See dataTableEmptyState() for why they are different messages.
                 "emptyTable" => dataTableEmptyState($tableId)['emptyTable'],
@@ -3206,15 +3350,26 @@ if (! function_exists('buildDataTable')) {
             $bulkdeleteButtonConfig,
             $colvisButtonConfig,
             $densityButtonConfig,
+            /*
+             * `init` CARRIES THE NAME, for the reason recorded at `bulkDeleteForm()`: the tooltip
+             * sits on the `i` INSIDE the button, so the focusable element has no name of its own,
+             * and `drawCallback` below builds a Bootstrap Tooltip for every
+             * `[data-bs-toggle=tooltip]` on each draw -- which moves `title` into
+             * `data-bs-original-title` and empties it. Measured on /customer and /order: both of
+             * these rendered with no accessible name at all. `attr` is the documented hook and
+             * this build ignores it; `init` receives the node after it is built.
+             */
             [
                 'text' => '<i class="ti ti-arrow-back-up" data-bs-toggle="tooltip" title="'.__("Reset").'" data-bs-original-title="'.__("Reset").'"></i>',
                 'extend' => 'reset',
                 'className' => 'btn btn-light-info',
+                'init' => "function(dt, node, config) { node.attr('aria-label', " . json_encode(__('Reset')) . "); }",
             ],
             [
                 'text' => '<i class="ti ti-refresh" data-bs-toggle="tooltip" title="'.__("Reload").'" data-bs-original-title="'.__("Reload").'"></i>',
                 'extend' => 'reload',
                 'className' => 'btn btn-light-warning',
+                'init' => "function(dt, node, config) { node.attr('aria-label', " . json_encode(__('Reload')) . "); }",
             ],
         ]);
 

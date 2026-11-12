@@ -68,7 +68,7 @@ class ProductLabelDataTable extends DataTable
         public function getColumns(): array
     {
         return buildDataTableColumn([
-            'name' => ['title' => __('Name')],
+            'name' => ['title' => __('Name'), 'addClass' => 'ss-dt-ident'],
             'slug' => ['title' => __('Slug')],
             'status' => ['title' => __('Status'), 'addClass' => 'text-capitalize']
         ]);

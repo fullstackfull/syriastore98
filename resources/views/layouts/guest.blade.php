@@ -20,6 +20,44 @@
 
     $favicon = get_file($favicon);
 
+    /* P2.5-DESIGN-B. THE LOGIN SCREEN IS A MERCHANT'S FIRST IMPRESSION AND IT WAS THE WORST
+       SCREEN IN THE PRODUCT. Measured in all four combinations before this change:
+
+           body font-family : "Open Sans", sans-serif   -- and Open Sans is NOT DELIVERED any
+                              more, because P2.5-TYPE removed the runtime Google @import from
+                              assets/css/style.css. So the login page rendered in whatever
+                              generic sans the device had, with no Arabic typeface at all.
+           store-syria-ds   : NOT LOADED. None of the design system, none of the typography.
+           brand image      : naturalWidth 0 in a 49x26 box -- a broken image, from the same
+                              missing uploads/logo/logo-dark.svg the sidebar pointed at.
+           external request : fonts.bunny.net, on every single load.
+           console          : 404 on the logo.
+
+       `get_file()` returns `url($path)` for local storage with no existence check, so a setting
+       naming a file that was never uploaded still yields a well-formed URL to nothing. The two
+       closures below stat it; remote storage (s3 / wasabi) cannot be stat-ed from here and is
+       trusted. */
+    $ssUploadExists = function ($url) {
+        if (empty($url)) {
+            return false;
+        }
+
+        $host = parse_url($url, PHP_URL_HOST);
+
+        if (! empty($host) && $host !== request()->getHost()) {
+            return true;   // remote storage: not stat-able, and a configured upload is there
+        }
+
+        return is_file(public_path(ltrim((string) parse_url($url, PHP_URL_PATH), '/')));
+    };
+    $ssBust = function ($url) {
+        $file = public_path(ltrim((string) parse_url($url, PHP_URL_PATH), '/'));
+
+        return is_file($file) ? '?v=' . filemtime($file) : '';
+    };
+    $ssHasOwnLogo = $ssUploadExists($company_logo);
+    $ssHasOwnFavicon = $ssUploadExists($favicon);
+
     $cust_darklayout = $setting['cust_darklayout'] ?? null;
     if ($cust_darklayout == '' || empty($cust_darklayout)) {
         $cust_darklayout = 'off';
@@ -101,12 +139,21 @@
     }
 @endphp
 <!DOCTYPE html>
+{{-- P2.5-DESIGN-B. TWO ATTRIBUTES THE ADMIN LAYOUT HAS AND THIS ONE DID NOT.
+     `dir` was the empty string in LTR rather than "ltr", so `[dir="rtl"]` and `[dir="ltr"]` rules
+     both missed and the direction was only ever implied by the stylesheet choice. And
+     `data-ss-theme` was absent entirely, so every design-system component rendered its LIGHT
+     variant on the dark login page -- including the brand lockup, whose dark artwork never
+     appeared. Both are set the way layouts/app.blade.php:85-86 sets them. --}}
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}"
-    dir="{{ isset($SITE_RTL) && $SITE_RTL == 'on' ? 'rtl' : '' }}">
+    dir="{{ $SITE_RTL === 'on' ? 'rtl' : 'ltr' }}"
+    @if ($cust_darklayout === 'on') data-ss-theme="dark" data-ss-theme-source="host" @endif>
 
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=0, minimal-ui">
+    {{-- P2.5-WAVE-21 -- see layouts/app.blade.php for the reasoning. This is the sign-in page,
+         where a merchant who needs to magnify a field could not. --}}
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="author" content="WorkDo.io" />
 
@@ -137,15 +184,30 @@
 
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
-    <title>{{ config('app.name', 'Laravel') }}-@yield('page-title')</title>
+    {{-- P2.5-DESIGN-B. `config('app.name', 'Laravel')` put the word **Laravel** in the browser tab
+         of the first page a merchant ever sees, on any deployment whose APP_NAME is unset -- and
+         the admin layout three files away already reads `config('platform.brand_name')` for the
+         same purpose (layouts/app.blade.php:112). One name, one source. `platform.brand_name` IS
+         `env('APP_NAME')` with a product default, so a configured deployment is unaffected; what
+         goes is the literal 'Laravel'. NOTE: on this dev container APP_NAME really is "Laravel",
+         so the tab still reads Laravel here -- that is the .env, not the view. --}}
+    <title>{{ config('platform.brand_name') }} - @yield('page-title')</title>
 
-    <!-- Favicon icon -->
-    <link rel="icon"
-        href="{{ !empty($favicon) ? $favicon . '?timestamp=' . time() : $profile . '/logo-sm.svg' . '?timestamp=' . time() }}"
-        type="image/x-icon" />
-    <!-- Fonts -->
-    <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=figtree:400,500,600&display=swap" rel="stylesheet" />
+    {{-- The fallback was `uploads/logo/logo-sm.svg`, which does not exist, so the tab carried no
+         icon at all. The shipped Store Syria mark takes its place, and `time()` cache-busting is
+         gone: a favicon re-fetched on every page load is the one request a browser should never
+         have to make twice. A merchant's own upload still busts, on the FILE's mtime. --}}
+    <link rel="icon" type="image/png" sizes="64x64"
+          href="{{ $ssHasOwnFavicon ? $favicon . $ssBust($favicon) : asset('assets/images/brand/store-syria-favicon-64.png') }}" />
+    <link rel="apple-touch-icon" sizes="180x180"
+          href="{{ $ssHasOwnFavicon ? $favicon . $ssBust($favicon) : asset('assets/images/brand/store-syria-touch-icon.png') }}" />
+
+    {{-- P2.5-TYPE / P2.5-DESIGN-B. `fonts.bunny.net` (a Google Fonts mirror) served `figtree` here
+         on every load. The owner's typography decision is explicit -- "Do not depend on external
+         Google Fonts requests at runtime" -- and this was the one merchant-facing screen still
+         doing it after assets/css/style.css was cleaned. Nothing referenced the family: `figtree`
+         appears in this repository only in `welcome.blade.php`'s inlined Tailwind preflight, which
+         is a different layout. The self-hosted design-system typeface is linked below instead. --}}
     <link rel="stylesheet" href="{{ asset('assets/fonts/tabler-icons.min.css') }}">
     <link rel="stylesheet" href="{{ asset('assets/fonts/feather.css') }}">
     <link rel="stylesheet" href="{{ asset('assets/fonts/fontawesome.css') }}">
@@ -173,6 +235,14 @@
 
     <link rel="stylesheet" href="{{ asset('css/custom.css') }}{{ '?v=' . time() }}">
     <link rel="stylesheet" href="{{ asset('css/custom-color.css') }}">
+
+    {{-- P2.5-DESIGN-B. THE DESIGN SYSTEM REACHES THE LOGIN SCREEN. It was linked from
+         layouts/app.blade.php only, so every authenticated screen had the typeface, the tokens and
+         the components while the page a merchant sees FIRST had none of them.
+         LAST, AFTER custom.css, and the position is measured rather than tidy: `custom.css:629`
+         carries `.brand_icon { width: 100% !important }`, and linking the design system before it
+         left the lockup in a 61x20 box. --}}
+    <link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}?v={{ \App\Support\DesignSystemAssets::version('css/store-syria-ds.css') }}">
 
     <style>
         :root {
@@ -277,9 +347,22 @@
             <nav class="navbar navbar-expand-md navbar-light default">
                 <div class="container-fluid">
 
-                    <a class="navbar-brand p-0" href="{{ \URL::to('/') }}">
-                        <img src="{{ isset($company_logo) && !empty($company_logo) ? $company_logo . '?timestamp=' . time() : $profile . '/logo-dark.svg' . '?timestamp=' . time() }}"
-                            alt="logo" class="brand_icon" />
+                    {{-- `alt="logo"` on the only content of a link names that link "logo", which
+                         tells nobody anything. The link carries the name now and the images are
+                         decorative, which is the correct pairing. --}}
+                    <a class="navbar-brand p-0 ss-brandmark" href="{{ \URL::to('/') }}"
+                       aria-label="{{ __('Store Syria') }}">
+                        @if ($ssHasOwnLogo)
+                            <img src="{{ $company_logo }}{{ $ssBust($company_logo) }}"
+                                 alt="" class="brand_icon" />
+                        @else
+                            <img src="{{ asset('assets/images/brand/store-syria-lockup.png') }}"
+                                 alt="" width="280" height="92" decoding="async"
+                                 class="brand_icon ss-brandmark__lockup ss-brandmark__lockup--light" />
+                            <img src="{{ asset('assets/images/brand/store-syria-lockup-dark.png') }}"
+                                 alt="" width="280" height="92" decoding="async"
+                                 class="brand_icon ss-brandmark__lockup ss-brandmark__lockup--dark" />
+                        @endif
                     </a>
 
                     <div class="d-flex">
@@ -413,7 +496,9 @@
                         @endif
 
                         {{ date('Y') }}
-                        {{ isset($setting['footer_text']) ? $setting['footer_text'] : config('app.name', 'E-CommerceGo') }}
+                        {{-- Same correction as the <title>: the hardcoded 'E-CommerceGo' fallback
+                             is the vendor's product name, not this one. --}}
+                        {{ $setting['footer_text'] ?? config('platform.brand_name') }}
                     </p>
                 </div>
             </div>

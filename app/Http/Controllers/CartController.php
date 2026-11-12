@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\{ActivityLog, ProductAttributeOption, ProductVariant, Store};
 use App\Models\Utility;
+use App\Services\AbandonedMessageDispatch;
 use App\Models\Cart;
 use App\Models\{Customer, Product, User};
 use App\Models\Coupon;
@@ -1143,13 +1144,51 @@ foreach ($response->data->product_list as $item) {
         }
     }
 
-    public function abandon_carts_show($cartId)
+    /**
+     * The product lines of ONE customer's abandoned cart, for the list's "Show Products" modal.
+     *
+     * THE PARAMETER IS A CUSTOMER ID, and it is now named one. It was `$cartId`, as was the route
+     * placeholder, while the body has always keyed on `customer_id` -- so the view believed the
+     * name, sent `MIN(carts.id)` from the grouped DataTable query, and this method answered
+     * `redirect()->back()` for every row on the screen. The ajax popup then injected that
+     * redirected page into the modal, so the feature showed the sidebar instead of the products
+     * and had never once worked. Renaming both halves is the repair that stops it recurring;
+     * `AbandonedCartShowIdentifierTest` drives the list's own emitted identifier back through the
+     * route so the two halves can no longer disagree silently.
+     *
+     * THE EXISTENCE PROBE NOW CARRIES THE STORE PREDICATE TOO. It had none, and relied on
+     * `Cart`'s global scope -- which does filter, `Cart` being in `config/tenancy.php`'s
+     * `scoped_models`, but `null_tenant => 'open'` means the scope adds NO predicate for a
+     * principal that resolves no tenant, so the scope was the only thing standing between a
+     * storeless caller and a foreign row's existence. The query that selects the lines named
+     * `getCurrentStore()` already; the probe disagreeing with it was the kind of asymmetry that
+     * reads as deliberate later. One resolved store id is used for both, so they cannot drift.
+     *
+     * AND THE STORELESS CALLER IS REFUSED BEFORE EITHER QUERY RUNS, rather than by the predicate.
+     * This guard replaces an argument I got wrong: `where('store_id', null)` does NOT compile to
+     * an unsatisfiable predicate, it compiles to `store_id IS NULL` -- recorded in this codebase
+     * already at `ShippingMethodController:138`. So a storeless caller was refused only because no
+     * `carts` row happens to carry a NULL `store_id`, and `carts.store_id` IS nullable with no
+     * default (2024_01_18_103138). This application writes no such row, but one legacy or imported
+     * row would have been readable by any storeless caller holding `Show Cart`, across every
+     * tenant that contributed one. An explicit refusal does not depend on the contents of the
+     * table, and does not depend on reading `where(null)` correctly either. Found by the
+     * tenant-authz review of this very change.
+     */
+    public function abandon_carts_show($customerId)
     {
         if (auth()->user()->isAbleTo('Show Cart')) {
+            $storeId = getCurrentStore();
 
-            $cart = Cart::where('customer_id', $cartId)->first();
+            // No resolved store means no rows this caller may see -- not "every row with a NULL
+            // store_id". See the docblock: fail closed here, by construction.
+            if (empty($storeId)) {
+                return redirect()->back()->with('error', __('Data not found.'));
+            }
+
+            $cart = Cart::where('customer_id', $customerId)->where('store_id', $storeId)->first();
             if ($cart) {
-                $cart_product = Cart::where('customer_id', $cartId)->where('store_id', getCurrentStore())->get();
+                $cart_product = Cart::where('customer_id', $customerId)->where('store_id', $storeId)->get();
                 return view('cart.show', compact('cart_product'));
             }
             return redirect()->back()->with('error', __('Data not found.'));
@@ -1158,11 +1197,25 @@ foreach ($response->data->product_list as $item) {
         }
     }
 
-    public function abandon_carts_destroy($cart_id)
+    /**
+     * Clear ONE customer's abandoned cart. The parameter is a customer id, and is now named one.
+     *
+     * NO BEHAVIOUR CHANGE HERE -- a rename only. This handler was already correct, because
+     * `cart/action.blade.php` passes `$cart->customer_id`, but it carried the SAME misleading
+     * names as `abandon_carts_show()`: placeholder `{cartId}`, parameter `$cart_id`, body keyed on
+     * `customer_id`. That mismatch is what made the sibling handler's view send a cart id and
+     * broke the products modal for the life of the feature, so the name is corrected here too
+     * rather than left as the one remaining invitation to repeat it.
+     *
+     * The method name is deliberately untouched: `DemoModeMiddleware` gates on the string
+     * "abandon_carts_destroy" (:77), so renaming the METHOD would silently drop this destructive
+     * action out of demo-mode protection. Only the placeholder and the variable change.
+     */
+    public function abandon_carts_destroy($customerId)
     {
         if (auth()->user()->isAbleTo('Delete Cart')) {
             $store = Store::find(getCurrentStore());
-            $carts = Cart::where('customer_id', $cart_id)->where('store_id',$store->id)->get();
+            $carts = Cart::where('customer_id', $customerId)->where('store_id',$store->id)->get();
             foreach ($carts as $cart) {
                 $cart->delete();
             }
@@ -1176,7 +1229,25 @@ foreach ($response->data->product_list as $item) {
     {
 
         if (auth()->user()->isAbleTo('Abandon Cart')) {
-            $cart  = Cart::find($request->cart_id);
+            /*
+             * P2.5-PKG-C. THE STORE PREDICATE, because the global scope is not one for every caller.
+             * The P1-SEC note above is right that `Cart` is allowlisted and that the scope contained
+             * this read -- for a caller who RESOLVES a tenant. `null_tenant => 'open'` means the scope
+             * adds no predicate at all when none resolves, and `getCurrentStore()` is NULL both for a
+             * merchant who has created no store and for any STAFF member with an unset `current_store`
+             * (the fallback keys on `created_by = $user->id`, and staff never created their store).
+             * Measured for that principal, posting another tenant's `cart_id`: `Cart::find()` FOUND the
+             * foreign row, the mail leg 500'd downstream on a null store, and the SMS leg reached
+             * `Utility::SendMsgs()` and was refused by the gateway ONLY for want of credentials -- so on
+             * a configured store it would have texted another tenant's customer about another tenant's
+             * products. Found by the tenant-authz review of the neighbouring identifier repair.
+             */
+            $storeId = getCurrentStore();
+            if (empty($storeId)) {
+                return response()->json(['is_success' => false, 'message' => __('Cart not found.')], 404);
+            }
+
+            $cart  = Cart::where('id', $request->cart_id)->where('store_id', $storeId)->first();
 
             /*
              * P1-SEC-22 (f). `Cart` is allowlisted in config/tenancy.php, so this bare-id read returns
@@ -1190,7 +1261,9 @@ foreach ($response->data->product_list as $item) {
             }
 
             $user_id = $cart->customer_id;
-            $cart_product = Cart::where('customer_id', $user_id)->get();
+            // Keyed on `customer_id`, and customer ids are reused across tenants in a shared
+            // database, so a correctly resolved cart can still collect another store's lines.
+            $cart_product = Cart::where('customer_id', $user_id)->where('store_id', $storeId)->get();
             $email = $cart->UserData->email;
 
             $store = getStoreById(getCurrentStore());
@@ -1199,7 +1272,7 @@ foreach ($response->data->product_list as $item) {
 
 
             try {
-                $dArr = Cart::where('customer_id', $user_id)->get();
+                $dArr = Cart::where('customer_id', $user_id)->where('store_id', $storeId)->get();
 
                 $order_id = 1;
                 $resp  = Utility::sendEmailTemplate('Abandon Cart', $email, $dArr, $owner, $store, $product_id, $user_id);
@@ -1233,7 +1306,22 @@ foreach ($response->data->product_list as $item) {
                 );
             }
         } else {
-            return redirect()->back()->with('error', __('Permission denied.'));
+            /*
+             * P2.5-PKG-C. THIS WAS THE LAST MEMBER OF THE FOUR STILL ANSWERING A REDIRECT TO AN
+             * AJAX POST, and the tenant-authz review caught me claiming otherwise in a comment on
+             * the wishlist side. `redirect()->back()` is a 302; jQuery follows it and receives the
+             * list page's HTML, so this handler's refusal arrived in the SUCCESS branch as a
+             * string -- `response.is_success` undefined, and `cart/index.blade.php` then called
+             * `show_toastr('Error', undefined, 'error')`. A blank error toast. Adding an `error`
+             * leg in the same change did not reach it, because a followed 302 is a 200.
+             *
+             * Its sibling `abandon_carts_messsend` has answered 403 JSON since P1-SEC; the two
+             * disagreed for no reason anyone recorded. The only caller is
+             * `cart/index.blade.php:25`, the route is web-only (nothing in `routes/api.php`
+             * matches `abandon`), and 403 is not 401, so the Flutter force-logout rule is not
+             * engaged on either count.
+             */
+            return response()->json(['is_success' => false, 'message' => __('Permission denied.')], 403);
         }
     }
 
@@ -1251,17 +1339,60 @@ foreach ($response->data->product_list as $item) {
             return response()->json(['is_success' => false, 'message' => __('Permission denied.')], 403);
         }
 
-        $cart = Cart::find($request->cart_id);
+        /*
+         * P2.5-PKG-C. THE STORE PREDICATE, because the global scope is not one for every caller.
+         * The P1-SEC note above is right that `Cart` is allowlisted and that the scope contained
+         * this read -- for a caller who RESOLVES a tenant. `null_tenant => 'open'` means the scope
+         * adds no predicate at all when none resolves, and `getCurrentStore()` is NULL both for a
+         * merchant who has created no store and for any STAFF member with an unset `current_store`
+         * (the fallback keys on `created_by = $user->id`, and staff never created their store).
+         * Measured for that principal, posting another tenant's `cart_id`: `Cart::find()` FOUND the
+         * foreign row, the mail leg 500'd downstream on a null store, and the SMS leg reached
+         * `Utility::SendMsgs()` and was refused by the gateway ONLY for want of credentials -- so on
+         * a configured store it would have texted another tenant's customer about another tenant's
+         * products. Found by the tenant-authz review of the neighbouring identifier repair.
+         */
+        $storeId = getCurrentStore();
+        if (empty($storeId)) {
+            return response()->json(['is_success' => false, 'message' => __('Cart not found.')], 404);
+        }
+
+        $cart = Cart::where('id', $request->cart_id)->where('store_id', $storeId)->first();
 
         if (! $cart) {
             return response()->json(['is_success' => false, 'message' => __('Cart not found.')], 404);
         }
 
         $customer_id = $cart->customer_id;
-        $mobile = $cart->UserData;
+        /*
+         * P2.5-PKG-K. `UserData` IS THE RELATION, SO `->mobile` IS THE PHONE NUMBER.
+         *
+         * This line used to read `$mobile = $cart->UserData`, handing the whole Customer MODEL to
+         * `Utility::SendMsgs()` where it expects `$mobile_no`. It did not throw:
+         * `Eloquent\Model::__toString()` is `toJson()`, so the WhatsApp recipient became
+         *
+         *     +{"first_name":"Nour","last_name":"Saleh","email":"...","mobile":"963900000001",...}
+         *
+         * WhatsApp cannot deliver to that, and on a store with real credentials it POSTs the
+         * shopper's name, e-mail, mobile, address and postcode to graph.facebook.com in the `to`
+         * field. `password`, `remember_token` and `password_otp` are in `$hidden` (P1-SEC-16), so
+         * this is personal data rather than credentials -- stated precisely because the difference
+         * is the difference between a bug and an incident.
+         *
+         * AND IT MAKES THE NUDGE DELIVERABLE FOR THE FIRST TIME, which is a behaviour change worth
+         * saying out loud rather than filing as a bug fix. WhatsApp rejected a JSON `to` field, so
+         * on a configured store this button previously sent nothing to anybody. After this line a
+         * merchant or staff member holding `Abandon Cart` can really message their own shopper,
+         * and the endpoint has no rate limit of its own. The recipient is a customer of the
+         * CALLER'S OWN store -- the unchanged PKG-C predicate above is what keeps it there -- so
+         * this is the feature working, not a boundary moving. Raised by the tenant-authz review.
+         */
+        $mobile = $cart->UserData?->mobile;
 
         try {
-            $dArr = Cart::where('customer_id', $customer_id)->pluck('product_id')->toArray();
+            // See the lookup above: `customer_id` is reused across tenants.
+            $dArr = Cart::where('customer_id', $customer_id)->where('store_id', $storeId)
+                ->pluck('product_id')->toArray();
 
             $product = [];
             foreach ($dArr as $item) {
@@ -1270,30 +1401,59 @@ foreach ($response->data->product_list as $item) {
             $product_name = implode(',', $product);
             $store = getStoreById(getCurrentStore());
             $msg = __("We noticed that you recently visited our $store->name site and added some fantastic items to your shopping cart. We are thrilled that you found products you love! However, it seems like you did not finish your purchase.You finish your order process as soon as possible, Added Product name : $product_name");
-            $resp  = Utility::SendMsgs('Abandon Cart', $mobile, $msg);
 
-            if ($resp == false) {
-                return response()->json(
-                    [
-                        'is_success' => false,
-                        'message' => __("Invalid Auth access token - Cannot parse access token"),
-                    ]
-                );
+            /*
+             * THE OUTCOME IS DERIVED FROM THE STATE, NOT FROM THE RETURN VALUE, because there is
+             * no return value. `Utility::SendMsgs()` has no `return` on any path that does not
+             * throw, so `$resp` was ALWAYS `null`, and `null == false` is true in PHP -- this
+             * handler reported failure 100% of the time, with the hardcoded words "Invalid Auth
+             * access token - Cannot parse access token" whatever the real cause was. Measured: the
+             * response was BYTE-IDENTICAL for a store with no WhatsApp configuration at all and
+             * for one fully configured with an active template.
+             *
+             * `SendMsgs()` ITSELF IS NOT CHANGED. It is called from PaymentService,
+             * PaymentController, ApiController, PayU and AuthorizeNet on the order and stock paths,
+             * and the shared contract is reserved to the owner (direction of 2026-11-08, §3). So
+             * this handler asks the three questions `SendMsgs()` asks silently -- is WhatsApp
+             * configured, is the template on, is there a number -- and names the one that fails.
+             *
+             * AND IT DOES NOT CLAIM DELIVERY. `SendMsgs()` discards the gateway's response, so
+             * once the preconditions hold the honest report is that the message was HANDED TO
+             * WhatsApp. "Sent successfully" would be exactly as untrue as the old failure message,
+             * which is the trap this repair exists to avoid rather than re-create.
+             */
+            $dispatch = app(AbandonedMessageDispatch::class);
+            $blocked = $dispatch->blockedReason('Abandon Cart', $mobile, (int) $storeId);
+
+            if ($blocked !== null) {
+                return response()->json(['is_success' => false, 'message' => $blocked]);
             }
+
+            $dispatch->handOver('Abandon Cart', (string) $mobile, $msg);
 
             return response()->json(
                 [
                     'is_success' => true,
-                    'message' => __('Message send successfully'),
+                    'message' => __('Message queued for WhatsApp delivery.'),
                 ]
             );
         } catch (\Exception $e) {
-            $smtp_error = __('Invalid Auth access token - Cannot parse access token');
+            /*
+             * THE REASON IS REPORTED, NOT REPLACED. The old handler threw away `$e` and announced
+             * a token problem; an SQL error, a null store or a missing template all arrived at the
+             * merchant as "Invalid Auth access token". The message is still generic enough not to
+             * leak internals, and the exception is logged so the real cause is recoverable.
+             */
+            \Log::warning('abandoned-cart WhatsApp nudge failed', [
+                'store_id' => $storeId,
+                'cart_id' => $request->cart_id,
+                'exception' => $e->getMessage(),
+            ]);
 
             return response()->json(
                 [
                     'is_success' => false,
-                    'message' => $smtp_error,
+                    'message' => __('The message could not be prepared. Please try again, and check the WhatsApp settings if it keeps failing.'),
                 ]
             );
         }

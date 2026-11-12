@@ -37,13 +37,13 @@
         <form method="POST" action="{{ route('login') }}" id="form_data">
             @csrf
             <div class="form-group mb-3">
-                <label class="form-label">{{ __('Email') }}</label>
+                <label for="email" class="form-label">{{ __('Email') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                 <input id="email" class="form-control" type="email" name="email" :value="old('email')" placeholder="{{ __('Enter Email') }}" required
                     autofocus />
             </div>
             <div class="form-group mb-3">
                 <div class="d-flex align-items-center justify-content-between mb-2">
-                    <label class="form-label mb-0">{{ __('Password') }}</label>
+                    <label for="password" class="form-label mb-0">{{ __('Password') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                       @if (Route::has('password.request'))
                     <a class="underline  text-primary text-gray-600 hover:text-gray-900" href="{{ route('password.request') }}">
                         {{ __('Forgot your password?') }}

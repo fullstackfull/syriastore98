@@ -3,8 +3,18 @@
    P2-01-20 / WS A7 / F5
    =================================================================================================
 
-   THIS FILE EXISTS FOR ONE REASON: THE HOST THEME SUPPRESSES THE FOCUS RING FOR EVERY ELEMENT ON
-   EVERY ADMIN PAGE.
+   WHAT THIS FILE IS. The one home for accessibility rules that must apply across ALL FOUR theme
+   stylesheets the layout swaps between (`style.css`, `style-dark.css`, `style-rtl.css`,
+   `rtl-style-dark.css`) and in BOTH directions. The layout links it once, after the `@if` that
+   chooses the theme (resources/views/layouts/app.blade.php:185), so one declaration covers all
+   four combinations — which is the property that makes this the correct file and not a preference.
+
+   It began with one case and now carries three. They are numbered so the next addition is a
+   deliberate act rather than a drift into a catch-all.
+
+   -------------------------------------------------------------------------------------------------
+   §1 THE HOST THEME SUPPRESSES THE FOCUS RING FOR EVERY ELEMENT ON EVERY ADMIN PAGE.
+   -------------------------------------------------------------------------------------------------
 
        public/assets/css/style.css:15685   *:focus { outline: none; }
 
@@ -22,22 +32,49 @@
    paints it for keyboard navigation and withholds it for a mouse click. So a pointer user sees
    exactly what they see today, and a keyboard user gets an indicator back.
 
+   -------------------------------------------------------------------------------------------------
+   §2 OFF-SCREEN CHROME THAT STILL TAKES FOCUS.
+   -------------------------------------------------------------------------------------------------
+
+   A ring is no use on an element the merchant cannot see. The theme hides the mobile navigation
+   drawer by moving it out of the viewport, which leaves its whole subtree in the tab order — so
+   §1's indicator paints on a control at x=-255px. §2 is for chrome in that state. The rule is at
+   the foot of this file.
+
+   -------------------------------------------------------------------------------------------------
+   §3 A FILE PICKER WHOSE INPUT IS HIDDEN BEHIND A STYLED LABEL.
+   -------------------------------------------------------------------------------------------------
+
+   Eleven image uploads in the merchant admin hid their `<input type="file">` with `d-none`, which
+   is `display: none !important` (style.css:8212) -- so the input was out of the tab order and out
+   of the accessibility tree, and a `<label for>` does not restore either. They are now
+   `.ss-visually-hidden`, which keeps the input rendered and focusable. §1 then paints the ring on
+   a 1px clipped box, where nobody can see it, so the ring has to be drawn on the styled element
+   the merchant actually looks at. The rule is at the foot of this file.
+
+   -------------------------------------------------------------------------------------------------
+
    WHY NOT IN store-syria-ds.css. That file carries an enforced property —
    `Tests\Unit\Ui\DesignSystemStylesheetScopeTest` asserts that EVERY selector in it is confined by
    an `.ss-` class or a `data-ss-` attribute, so that loading it on all 70 modules cannot reach an
    element the design system does not own. `*:focus-visible` is deliberately unconfined, which is
-   the whole point of it, so it cannot live there without destroying that guarantee.
+   the whole point of it, and `.dash-sidebar` is the host theme's class carrying no `.ss-` token, so
+   neither rule can live there without destroying that guarantee.
 
    WHY ONE FILE AND NOT TWO. `custom.css` and `rtl-custom.css` both load after the theme and would
    have worked — at the cost of two copies of a direction-agnostic rule, which is how two copies of
    one fact drift apart. The layout loads this once, after the `@if` that chooses the theme, so it
-   covers all four combinations with one declaration.
+   covers all four combinations with one declaration. That matters twice over for §2, where the
+   defect is `left: -255px` in two sheets and `right: -255px` in the other two: a `visibility`
+   declaration is direction-agnostic, so one line covers both.
 
    THE TOKENS ARE THE DESIGN SYSTEM'S OWN, so the ring is the same colour and weight a merchant
    already sees on every `.ss-btn`, and it follows the dark-mode override the design system defines
    (`--ss-focus-ring` is redefined for dark at store-syria-ds.css:335 and :371). The fallbacks are
    concrete, so this still paints if the design system is ever not loaded on a page.
    ============================================================================================== */
+
+/* §1 — THE FOCUS RING */
 
 *:focus-visible {
     outline: var(--ss-focus-width, 2px) solid var(--ss-focus-ring, #0f766e);
@@ -51,6 +88,92 @@
 /* Scroll containers that take focus for keyboard scrolling have no visible affordance of their
    own, so the ring is the only thing that tells a keyboard user the container is what moves. */
 [tabindex]:focus-visible {
+    outline: var(--ss-focus-width, 2px) solid var(--ss-focus-ring, #0f766e);
+    outline-offset: var(--ss-focus-offset, 2px);
+}
+
+/* §2 — OFF-SCREEN CHROME THAT STILL TAKES FOCUS */
+
+/* THE MOBILE DRAWER IS HIDDEN GEOMETRICALLY, NOT SEMANTICALLY.
+   public/assets/css/style.css:16689 moves `.dash-sidebar` to `left: -255px` inside
+   `@media (max-width: 1024px)` — mirrored at style-dark.css:16674, and `right: -255px` at
+   style-rtl.css:16646 and rtl-style-dark.css:16637. `position: fixed` with a negative inline
+   offset keeps the element's layout box, so its whole subtree stays in the accessibility tree and
+   in the tab order: 32 controls a merchant on a phone or tablet cannot see. WCAG 2.4.7. The
+   correct mobile entry point is the hamburger `#mobile-collapse`
+   (resources/views/partision/header.blade.php), which is in the header and becomes the first Tab
+   stop after this rule.
+
+   `visibility`, NOT `display: none`: style.css transitions `all 0.15s ease-in-out` on this element
+   and `visibility` is transitionable, with `visible` extending across the duration — so the drawer
+   appears instantly on open and stays visible through the slide-out, with no `transition-delay`.
+   `display: none` would kill that and destroy simplebar's measurements on `.navbar-content`
+   (assets/js/plugins/simplebar.min.js, loaded from partision/footerlink.blade.php). An `inert` or
+   `aria-hidden` ATTRIBUTE is worse still: the drawer is opened by JS adding a CLASS
+   (assets/js/dash.js:118, assets/js/side-dash.js:115, removed by dash.js:476 / side-dash.js:548)
+   and no script would ever remove the attribute, so the drawer would stay hidden from assistive
+   technology even when open. CSS keyed to the class the JS already toggles is the only mechanism
+   that stays in sync.
+
+   THE MEDIA QUERY IS NOT A PREFERENCE. At >= 1025px this is permanent chrome; an unscoped rule
+   here would hide the navigation on every desktop merchant screen.
+
+   NO NEUTRALISER FOR style.css's `visibility: visible !important`. That rule
+   (`.dash-sidebar .collapse-sidebar .dash-item.dash-trigger>.dash-submenu`) sits in
+   `@media screen and (min-width: 1024px)` and so overlaps this block at exactly 1024px — and
+   inherited `visibility: hidden` is escapable by a descendant that re-declares `visible`. But it
+   requires `.collapse-sidebar`, and resources/views/partision/sidebar.blade.php's own inline
+   `removeCollapseClass()` strips that class from `.dash-navbar` whenever
+   `window.innerWidth <= 1024`. So it cannot match here, on any tenant, module active or not. A
+   neutraliser was drafted and dropped for that reason; `OffCanvasSidebarFocusTest` pins the script
+   so that if it ever goes, the neutraliser must come back.
+
+   AND NOT `.dash-sidebar.mob-sidebar-active { visibility: visible }`: dead weight. `visibility` is
+   inherited, nothing in any loaded sheet sets it on `body` or any ancestor of the sidebar, and the
+   open drawer does not match `:not(.mob-sidebar-active)`, so it already inherits `visible`. */
+@media (max-width: 1024px) {
+    .dash-sidebar:not(.mob-sidebar-active) {
+        visibility: hidden;
+    }
+}
+
+/* §3 — THE FOCUS RING FOR A VISUALLY-HIDDEN FILE INPUT */
+
+/* THE INPUT IS FOCUSABLE; ITS RING IS NOT VISIBLE. `.ss-visually-hidden` clips the input to
+   `rect(0, 0, 0, 0)` at 1x1px, so §1's outline is painted on a box with no visible extent. The
+   element the merchant sees and clicks is the styled sibling, and that is where the indicator
+   belongs.
+
+   ONE RELATIONSHIP COVERS ALL THREE MARKUP SHAPES IN THE ADMIN, because in every one of the eleven
+   sites the input is the IMMEDIATE NEXT SIBLING of the clickable element:
+
+       <label for> > div.image-upload + input      category/{create,edit}, product_brand/{create,
+                                                   edit}, testimonial/{create,edit}
+       <label class="image-upload"> + input        blog/{create,edit}
+       label.ss-gateway-image__pick + input        setting/payment_partials/gateway_image
+
+   `:focus-visible` ON THE INPUT, NOT `:focus-within` ON AN ANCESTOR. Clicking a label focuses its
+   input, so `:focus-within` would paint a ring for POINTER users -- the exact regression this
+   file's header and `FocusIndicatorRestorationTest` exist to forbid. And `.image-upload:focus-
+   within` could never match at all: `.image-upload` is the input's PRECEDING SIBLING, never its
+   ancestor. That was the first draft of this rule, and it would have matched zero elements.
+
+   THE COLOUR IS THE DESIGN SYSTEM'S, AND MEASURED RATHER THAN ASSUMED. `--ss-focus-ring` resolves
+   to `--ss-blue-500` `#4f77c0` in light mode (store-syria-ds.css:307), which computes to 4.44:1
+   against the `#ffffff` modal surface by the WCAG relative-luminance formula -- above the 3:1 that
+   SC 1.4.11 asks of a non-text indicator. In dark mode it resolves to `--ss-cyan-400` `#68cbe1`
+   (:443), recorded at 8.27:1 on the host dark page at store-syria-ds.css:114. The ring paints
+   OUTSIDE the box at a 2px offset, so it contrasts against the page, never against
+   `.bg-primary` -- which is `var(--theme-color)` and merchant-configurable.
+
+   ITS OWN RULE BLOCK, so a browser without `:has()` (pre-Chrome 105, pre-Safari 15.4,
+   pre-Firefox 121) drops this and nothing else. The class swap fixes SC 2.1.1 there regardless;
+   only the indicator depends on `:has()`.
+
+   The two declarations are byte-identical to §1's, so the ring cannot drift from the one every
+   other control in the product paints. */
+.image-upload:has(+ input[type="file"]:focus-visible),
+.ss-gateway-image__pick:has(+ input[type="file"]:focus-visible) {
     outline: var(--ss-focus-width, 2px) solid var(--ss-focus-ring, #0f766e);
     outline-offset: var(--ss-focus-offset, 2px);
 }

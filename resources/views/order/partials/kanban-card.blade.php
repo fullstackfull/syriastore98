@@ -26,7 +26,11 @@
 <article class="ss-board__card">
     <a class="ss-board__card-id"
        href="{{ route('order.view', \Illuminate\Support\Facades\Crypt::encrypt($ssOrder->id)) }}">
-        #{{ $ssOrder->product_order_id }}
+        {{-- P2.5-PKG-M (F-M-05). `<bdi>` keeps the `#` ON THE NUMBER. Without it the bidi
+             algorithm moves a leading neutral to the visual end of a Latin run inside an
+             Arabic line, so `#ORD-2043` renders `ORD-2043#`. Seen in the Arabic board capture
+             at 1440 and again in the list at 390, so it is not a width artefact. --}}
+        <bdi>#{{ $ssOrder->product_order_id }}</bdi>
     </a>
 
     <div class="ss-board__card-meta">
@@ -55,8 +59,31 @@
                 <label class="ss-label ss-visually-hidden" for="ss-move-{{ $ssOrder->id }}">
                     {{ __('Move order :ref to', ['ref' => $ssOrder->product_order_id]) }}
                 </label>
-                <select class="ss-select ss-select--sm" id="ss-move-{{ $ssOrder->id }}" name="order_status">
-                    <option value="">{{ __('Move to…') }}</option>
+                {{-- P2.5-R-05. `delivered`, NOT `order_status`. OrderController::order_status_change()
+                     reads `$request->delivered` -- the key the detail page's AJAX caller has always
+                     sent (order/view.blade.php:853). Named `order_status`, every move on this board
+                     was authorised, written to the order-note log, and then discarded, because
+                     `$data['order_status']` was null and the writer matched none of its branches.
+                     OrderKanbanMoveTest asserts BOTH ends of this contract. --}}
+                {{-- P2.5-ORD-12. THE CONTROL CANNOT BE FIRED EMPTY ANY MORE.
+                     `required` on the select plus `disabled selected` on the placeholder is the
+                     pair that works: `disabled` alone still lets the empty option BE the
+                     selection and post; `selected` keeps it the shown default so the control
+                     still reads "Move to…" rather than silently pre-arming a real status; and
+                     `required` is what makes the browser refuse the submit and focus the select.
+                     Removing any one of the three re-opens the defect.
+                     WITHOUT THIS the board was the ONE surface that could post an unset
+                     `delivered` -- no JavaScript anywhere on the screen, submit always enabled,
+                     and three vertically-aligned cards per column whose Move pairs are
+                     pixel-identical, so a click on the button before the select is an ordinary
+                     slip. It cost the BUYER a "Status Change" e-mail and an SMS reading
+                     "Your Order is , !Hi ORD-2043", and put a false line in the order's timeline.
+                     THIS IS NOT THE ONLY GUARD, and it must not be: a request that does not come
+                     from a browser does not run it. OrderController::order_status_change()
+                     refuses an empty `delivered` before the write, and the notification block now
+                     sits inside the success branch. --}}
+                <select class="ss-select ss-select--sm" id="ss-move-{{ $ssOrder->id }}" name="delivered" required>
+                    <option value="" disabled selected>{{ __('Move to…') }}</option>
                     @foreach ($ssOffer as $ssValue => $ssLabel)
                         <option value="{{ $ssValue }}">{{ $ssLabel }}</option>
                     @endforeach

@@ -1,0 +1,47 @@
+<!doctype html>
+<!--
+    P2.5-ORD-3 -- WHAT DOES DataTables DO WITH YAJRA'S WRAPPED ROW RENDERER?
+
+    `Column::render('function() { ... }')` is stored by yajra as
+    `function(data,type,full,meta){return function() { ... };}` -- a function that RETURNS a
+    function. Reading that, it is not obvious that the inner body ever runs, nor what `this` is
+    bound to when it does. `app/Helper/helper.php` relies on `this.id` for BOTH the bulk-delete
+    `value` attribute and (since ORD-3) the checkbox's accessible name, so "it probably works"
+    was not good enough: if `this` were the `<td>`, `value` would be empty and bulk delete would
+    have been broken all along.
+
+    MEASURED, with the repository's OWN jQuery 3.6.0 and jquery.dataTables.min.js, in headless
+    Chromium:
+
+        cells  : <input type="checkbox" class="select-row" aria-label="Select row 4242" value="4242">
+                 <input type="checkbox" class="select-row" aria-label="Select row 77"   value="77">
+        inputs : value=4242 aria="Select row 4242" / value=77 aria="Select row 77"
+        console: no errors
+
+    So `this` is the ROW DATA object, `this.id` is the row's id, the renderer runs, bulk delete's
+    `value` was never broken, and the accessible name is unique per row rather than a constant.
+
+    RUN: node docs/development/phase-2.5/tools/probe-datatables-row-renderer.cjs
+-->
+<html><head><meta charset="utf-8"></head><body>
+<table id="t"><thead><tr><th>cb</th><th>name</th></tr></thead><tbody></tbody></table>
+<script src="../../../../public/js/jquery-3.6.0.min.js"></script>
+<script src="../../../../public/vendor/datatables/jquery.dataTables.min.js"></script>
+<script>
+window.__result = {};
+try {
+  $('#t').DataTable({
+    data: [{id: 4242, name: 'row one'}, {id: 77, name: 'row two'}],
+    columns: [
+      { data: 'checkbox', defaultContent: '', orderable: false,
+        render: function(data,type,full,meta){return function() { return '<input type="checkbox" class="select-row" aria-label="' + "Select row" + ' ' + this.id + '" value="' + this.id + '">'; };} },
+      { data: 'name' }
+    ]
+  });
+  window.__result.cells = $('#t tbody tr').map(function(){ return $(this).find('td').first().html(); }).get();
+  window.__result.inputs = $('#t tbody input.select-row').map(function(){
+     return {value: this.getAttribute('value'), aria: this.getAttribute('aria-label')};
+  }).get();
+} catch (e) { window.__result.error = String(e); }
+</script>
+</body></html>

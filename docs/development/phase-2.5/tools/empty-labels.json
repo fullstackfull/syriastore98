@@ -1,0 +1,146 @@
+[
+ {
+  "file": "resources/views/generate.blade.php",
+  "line": 34,
+  "caption": "Tone",
+  "controls": [],
+  "verdict": "AMBIGUOUS",
+  "why": "no control found before the next label"
+ },
+ {
+  "file": "resources/views/generate.blade.php",
+  "line": 57,
+  "caption": "AI Creativity",
+  "controls": [],
+  "verdict": "AMBIGUOUS",
+  "why": "no control found before the next label"
+ },
+ {
+  "file": "resources/views/generate.blade.php",
+  "line": 67,
+  "caption": "Number of Result",
+  "controls": [],
+  "verdict": "AMBIGUOUS",
+  "why": "no control found before the next label"
+ },
+ {
+  "file": "resources/views/product/create.blade.php",
+  "line": 111,
+  "caption": "Tax Status",
+  "controls": [],
+  "verdict": "AMBIGUOUS",
+  "why": "no control found before the next label"
+ },
+ {
+  "file": "resources/views/product/create.blade.php",
+  "line": 205,
+  "caption": "Stock Management",
+  "controls": [],
+  "verdict": "AMBIGUOUS",
+  "why": "no control found before the next label"
+ },
+ {
+  "file": "resources/views/product/create.blade.php",
+  "line": 210,
+  "caption": "Stock Management",
+  "controls": [],
+  "verdict": "AMBIGUOUS",
+  "why": "no control found before the next label"
+ },
+ {
+  "file": "resources/views/product/edit.blade.php",
+  "line": 247,
+  "caption": "Stock Management",
+  "controls": [],
+  "verdict": "AMBIGUOUS",
+  "why": "no control found before the next label"
+ },
+ {
+  "file": "resources/views/product/edit.blade.php",
+  "line": 252,
+  "caption": "Stock Management",
+  "controls": [],
+  "verdict": "AMBIGUOUS",
+  "why": "no control found before the next label"
+ },
+ {
+  "file": "resources/views/product/show.blade.php",
+  "line": 164,
+  "caption": "Stock Management",
+  "controls": [],
+  "verdict": "AMBIGUOUS",
+  "why": "no control found before the next label"
+ },
+ {
+  "file": "resources/views/product/show.blade.php",
+  "line": 174,
+  "caption": "Stock Status:",
+  "controls": [],
+  "verdict": "AMBIGUOUS",
+  "why": "no control found before the next label"
+ },
+ {
+  "file": "resources/views/product/show.blade.php",
+  "line": 214,
+  "caption": "Allow BackOrders:",
+  "controls": [],
+  "verdict": "AMBIGUOUS",
+  "why": "no control found before the next label"
+ },
+ {
+  "file": "resources/views/product/show.blade.php",
+  "line": 384,
+  "caption": "",
+  "controls": [],
+  "verdict": "AMBIGUOUS",
+  "why": "no control found before the next label"
+ },
+ {
+  "file": "resources/views/product/show.blade.php",
+  "line": 392,
+  "caption": "",
+  "controls": [],
+  "verdict": "AMBIGUOUS",
+  "why": "no control found before the next label"
+ },
+ {
+  "file": "resources/views/store/create.blade.php",
+  "line": 51,
+  "caption": "Theme",
+  "controls": [],
+  "verdict": "AMBIGUOUS",
+  "why": "no control found before the next label"
+ },
+ {
+  "file": "resources/views/taxes-method/create.blade.php",
+  "line": 43,
+  "caption": "Shipping",
+  "controls": [],
+  "verdict": "AMBIGUOUS",
+  "why": "no control found before the next label"
+ },
+ {
+  "file": "resources/views/taxes-method/edit.blade.php",
+  "line": 44,
+  "caption": "Shipping",
+  "controls": [],
+  "verdict": "AMBIGUOUS",
+  "why": "no control found before the next label"
+ },
+ {
+  "file": "resources/views/wishlist/create.blade.php",
+  "line": 27,
+  "caption": "Status",
+  "controls": [],
+  "verdict": "AMBIGUOUS",
+  "why": "no control found before the next label"
+ },
+ {
+  "file": "resources/views/wishlist/edit.blade.php",
+  "line": 28,
+  "caption": "Status",
+  "controls": [],
+  "verdict": "AMBIGUOUS",
+  "why": "no control found before the next label"
+ }
+]

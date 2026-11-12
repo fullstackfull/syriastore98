@@ -709,21 +709,97 @@ class ClaudeConfigurationTest extends TestCase
                 . 'the repository does not contain.');
         }
 
-        // And the three absent skills must not be presented as available. They may be mentioned
-        // -- the explanation is the point -- but not instructed.
-        foreach (['laravel-best-practices', 'ui-ux-pro-max', 'claude-automation-recommender'] as $absent) {
-            if (! str_contains($claude, $absent)) {
+        // And a skill that is NOT in the repository must not be presented as available. It may be
+        // mentioned -- the explanation is the point -- but not instructed.
+        //
+        // CORRECTED 2026-11-03 (Phase 2.5, ledger P2.5-F-02). This list used to name
+        // `ui-ux-pro-max` as absent. It has been committed since Phase 02 -- `git ls-files`
+        // returns `.claude/skills/ui-ux-pro-max/SKILL.md` -- and D-39 makes it one of four
+        // MANDATORY skills, so a control asserting its absence was asserting the opposite of the
+        // truth. The docblock above says, in as many words, "if it has genuinely been committed
+        // to .claude/skills/, say so there and update this test"; this is that update.
+        //
+        // AND THE CHECK ITSELF WAS VACUOUS, which is the worse half and the reason this is not a
+        // one-line edit. It searched the WHOLE of CLAUDE.md for the word "absent" -- so the
+        // sentence about `laravel-best-practices` satisfied the assertion for every other name in
+        // the list. Measured: CLAUDE.md contains "absent" twice, neither occurrence within 150
+        // characters of `ui-ux-pro-max`, and the test passed. A skill could have been deleted from
+        // the repository while CLAUDE.md went on instructing it, and this control would have said
+        // nothing. It is now derived from the FILESYSTEM rather than from a hand-kept list, and
+        // the disclaimer has to sit near the mention it disclaims.
+        $instructedButMissing = [];
+        preg_match_all('/`([a-z0-9-]+)`/i', $claude, $ticked);
+        foreach (array_unique($ticked[1]) as $name) {
+            // Only names that look like a skill AND are presented in a "use this" position.
+            if (! preg_match('/^[a-z][a-z0-9-]{3,}$/', $name)) {
                 continue;
             }
-
-            $this->assertMatchesRegularExpression(
-                '/(does not exist|absent|may be absent|were never|used to claim)/i',
-                $claude,
-                "CLAUDE.md mentions `{$absent}` without anywhere stating that it is absent. It was "
-                . 'instructed as mandatory once and was not installed; if it has genuinely been '
-                . 'committed to .claude/skills/, say so there and update this test.'
-            );
+            // A capability may be committed as a SKILL or as an AGENT. The first draft of this
+            // check looked only in `.claude/skills/` and reported `tenant-authz-reviewer`, which
+            // is committed at `.claude/agents/tenant-authz-reviewer.md` -- a false positive its
+            // own first run caught, and the reason both locations are checked.
+            if (is_dir($this->root() . '/.claude/skills/' . $name)
+                || is_file($this->root() . '/.claude/agents/' . $name . '.md')) {
+                continue;   // committed; nothing to disclaim
+            }
+            if (! preg_match('/`' . preg_quote($name, '/') . '`/', $claude)) {
+                continue;
+            }
+            // Is this name disclaimed NEAR where it is mentioned, rather than anywhere in the file?
+            $disclaimed = false;
+            foreach ($this->offsetsOf($claude, '`' . $name . '`') as $at) {
+                $window = substr($claude, max(0, $at - 220), 440);
+                if (preg_match('/(does not exist|absent|may be absent|were never|used to claim|not installed|rejected|deferred|prohibited|must not be installed)/i', $window)) {
+                    $disclaimed = true;
+                    break;
+                }
+            }
+            if (! $disclaimed && $this->looksLikeASkillName($name)) {
+                $instructedButMissing[] = $name;
+            }
         }
+
+        $this->assertSame([], $instructedButMissing,
+            'CLAUDE.md presents these as available skills, they are not in `.claude/skills/`, and '
+            . 'nothing near the mention says so: ' . implode(', ', $instructedButMissing) . '. '
+            . 'That is exactly the defect #66 was opened to fix. Either commit the skill, or say '
+            . 'beside the mention that it is absent.');
+    }
+
+    /** Every byte offset of $needle in $haystack. */
+    private function offsetsOf(string $haystack, string $needle): array
+    {
+        $out = [];
+        $at  = 0;
+        while (($at = strpos($haystack, $needle, $at)) !== false) {
+            $out[] = $at;
+            $at += strlen($needle);
+        }
+
+        return $out;
+    }
+
+    /**
+     * A backticked lowercase-hyphen token is usually a file, a command or a config key, not a
+     * skill. Only the names this project has ever actually discussed as skills are checked, so the
+     * control cannot be made noisy -- and therefore ignored -- by an unrelated backticked word.
+     */
+    private function looksLikeASkillName(string $name): bool
+    {
+        return in_array($name, [
+            'laravel-best-practices',
+            'claude-automation-recommender',
+            'ui-ux-pro-max',
+            'frontend-design',
+            'design-system',
+            'ui-styling',
+            'banner-design',
+            'test-driven-development',
+            'systematic-debugging',
+            'verification-before-completion',
+            'store-syria-laravel-tenancy',
+            'tenant-authz-reviewer',
+        ], true);
     }
 
     /**

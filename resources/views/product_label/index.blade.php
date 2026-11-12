@@ -13,10 +13,20 @@
                 @include('import-export::export.label_export', ['module' => 'label'])
             @endpermission
         @endif
-        <a href="#" class="btn btn-sm btn-primary add_attribute" data-ajax-popup="true" data-size="md"
-            data-title="{{ __('Add Label') }}" data-url="{{ route('product-label.create') }}" data-bs-toggle="tooltip"
-            title="{{ __('Add Label') }}">
-            <i class="ti ti-plus"></i>
+        {{-- Phase 2.5 / primary-action-named-only-by-title. Same defect and same repair as the
+             brand list: the only name was a `title` that Bootstrap blanks on tooltip init, leaving
+             an unnamed control whose computed name was the Tabler glyph U+EB0B. `.add_attribute`
+             is kept for the mirrored cosmetic rule in public/css/custom.css:1518 and
+             public/css/rtl-custom.css:1530 and to match attributes/index -- no JavaScript binds
+             it. No `aria-label`: the visible <span> is the name (WCAG 2.5.3).
+
+             RESIDUAL, DISCLOSED: with ImportExport active this screen's two module buttons above
+             still carry the same defect; they are vendored, so this screen is PARTIALLY closed. --}}
+        <a href="#" class="ss-btn ss-btn--primary ss-btn--sm add_attribute" data-ajax-popup="true" data-size="md"
+            data-title="{{ __('Add Label') }}" data-url="{{ route('product-label.create') }}"
+            data-bs-placement="top" data-bs-toggle="tooltip" title="{{ __('Add Label') }}">
+            <i class="ti ti-plus" aria-hidden="true"></i>
+            <span>{{ __('Add Label') }}</span>
         </a>
     </div>
     @endpermission
@@ -24,7 +34,7 @@
 @endsection
 
 @section('breadcrumb')
-    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Label') }}</li>
+    <li aria-current="page" class="ss-breadcrumb__item">{{ __('Product Label') }}</li>
 @endsection
 
 @section('content')

@@ -37,7 +37,7 @@
                                                 @permission('Edit Shopify SubCategory')
                                                 <a href="{{ route('shopify_sub_category.edit', $cat_data['id']) }}"
                                                     class="btn btn-sm btn-info" data-title="{{ __('Sync Again') }}" data-bs-toggle="tooltip"
-                                                    title="{{ __('Sync Again') }}">
+                                                    title="{{ __('Sync Again') }}" aria-label="{{ __('Sync Again') }}">
                                                     <i class="ti ti-refresh"></i>
                                                 </a>
                                                 @endpermission
@@ -46,7 +46,7 @@
                                                 <a href="{{ route('shopify_sub_category.show', $cat_data['id']) }}"
                                                     class="btn btn-sm btn-primary" data-title="{{__('Add sub-category')}}"
                                                     data-toggle="tooltip" title="{{ __('Create Sub Category') }}" data-bs-toggle="tooltip"
-                                                    title="{{ __('Add Sub Category') }}">
+                                                    title="{{ __('Add Sub Category') }}" aria-label="{{__('Add sub-category')}}">
                                                     <i class="ti ti-plus"></i>
                                                 </a>
                                                 @endpermission

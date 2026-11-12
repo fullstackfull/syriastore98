@@ -35,7 +35,12 @@
            data-ss-empty-text="{{ __('Nothing found') }}"
            data-ss-error-text="{{ __('Search is unavailable right now.') }}"
            data-ss-searching-text="{{ __('Searching…') }}"
-           data-ss-hint-text="{{ __('Type at least two characters') }}">
+           data-ss-hint-text="{{ __('Type at least two characters') }}"
+           {{-- THE COUNT NEEDS A WORD, and the word has to come from here. The status region
+                announced a BARE NUMBER -- a screen reader said "5" and nothing else -- to the one
+                audience that cannot see the list it is counting. Passed as an attribute like the
+                five above it, so it is translated rather than built in javascript. --}}
+           data-ss-results-label="{{ __('Results') }}">
 
     {{-- `aria-live="polite"`: the result COUNT is announced as it changes, which is the one
          thing a screen-reader user cannot see happening while they type. --}}
@@ -129,7 +134,7 @@
                         <li>
                             <a class="ss-command__shortcut" href="{{ $ssAction['href'] }}"
                                data-ss-quick-action="{{ $ssActionName }}">
-                                <span aria-hidden="true">{{ $ssAction['glyph'] }}</span>
+                                <i class="ti {{ $ssAction['glyph'] }}" aria-hidden="true"></i>
                                 <span class="ss-command__shortcuttitle">{{ $ssAction['title'] }}</span>
                             </a>
                         </li>

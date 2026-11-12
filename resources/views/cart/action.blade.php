@@ -1,9 +1,53 @@
+{{-- P2.5-PKG-I -- THE ACTION COLUMN WAS A HEADER OVER AN EMPTY CELL.
+
+     FOUND BY LOOKING AT A CAPTURE, not by any review. The table renders a column titled «العمل»
+     / "Action", and for a viewer holding none of the three permissions below every cell under it
+     was LITERALLY EMPTY -- not a dash, not a word:
+
+         HEADERS: ["", "العميل", "البريد الإلكتروني", "المنتجات", "العمل"]
+         ROW 0:   ["", "Nour Saleh", "nour.saleh@example.test", "5", ""]
+
+     `@permission` compiles to Laratrust's `hasPermission()`, which has NO super-admin bypass, so
+     the PLATFORM OPERATOR met the same empty column. This is the defect repaired in
+     customer/status.blade.php during PKG-G, one screen over.
+
+     THE REPAIR DOES NOT GRANT ANYBODY ANYTHING. The three gates are untouched and no operator
+     limb is added -- that would be a new permission model, which is not authorised. What changes
+     is that a viewer who can do nothing here is TOLD so, instead of being shown a blank cell
+     under a header that promises an action. --}}
+@php
+    /*
+     * Read-only. Mirrors the three gates below exactly so the fallback cannot disagree with them;
+     * `isAbleTo` is asked the same question `@permission` asks, and nothing else.
+     */
+    $ssUser = auth()->user();
+    $ssMayAbandonCart = $ssUser && $ssUser->isAbleTo('Abandon Cart');
+    $ssMayDeleteCart = $ssUser && $ssUser->isAbleTo('Delete Cart');
+
+    /*
+     * THE DELETE REMOVES THE WHOLE CART, NOT THIS ROW. `CartController::abandon_carts_destroy()`
+     * takes a CUSTOMER id and loops `Cart::where('customer_id', ...)->where('store_id', ...)`,
+     * deleting every row it finds. The old dialog said only "This action can not be undone",
+     * which understates it: a merchant clicking one trash icon drops that shopper's entire
+     * abandoned cart. The count is named in the message so the blast radius is visible BEFORE
+     * the click.
+     *
+     * One query per rendered row, which is what the `product` column beside it already costs.
+     */
+    $ssCartCount = $ssMayDeleteCart
+        ? \App\Models\Cart::where('customer_id', $cart->customer_id)
+            ->where('store_id', getCurrentStore())->count()
+        : 0;
+    $ssCustomerName = optional($cart->UserData)->first_name
+        ? trim(optional($cart->UserData)->first_name . ' ' . optional($cart->UserData)->last_name)
+        : __('this customer');
+@endphp
 <span class="d-flex gap-1 justify-content-end">
 @permission('Abandon Cart')
 <button aria-label="{{ __('Send Mail :thing', ['thing' => __('Cart')]) }}" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--ghost bandoncart"
     data-size="md" data-id ="{{$cart->id}}" data-bs-toggle="tooltip"
     title="{{ __('Send Mail') }}">
-    <i class="fa fa-paper-plane"> </i>
+    <i class="ti ti-send" aria-hidden="true"> </i>
 </button>
 @endpermission
 @permission('Abandon Cart')
@@ -11,16 +55,31 @@
     data-size="md" data-id ="{{$cart->id}}" data-bs-toggle="tooltip"
     title="{{ __('Send Message') }}">
     <i class="">
-        <svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="0 0 448 512"><style>svg{fill:#ffffff}</style><path d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L0 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.3 0 224.1-99.6 224.1-222 0-59.3-25.2-115-67.1-157zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3L72 359.2l-4.4-7c-18.5-29.4-28.2-63.3-28.2-98.2 0-101.7 82.8-184.5 184.6-184.5 49.3 0 95.6 19.2 130.4 54.1 34.8 34.9 56.2 81.2 56.1 130.5 0 101.8-84.9 184.6-186.6 184.6zm101.2-138.2c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.6-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7.9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.6-19.4 19-19.4 46.3 0 27.3 19.9 53.7 22.6 57.4 2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z"/></svg></i>
+        <svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="0 0 448 512" fill="currentColor"><path d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L0 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.3 0 224.1-99.6 224.1-222 0-59.3-25.2-115-67.1-157zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3L72 359.2l-4.4-7c-18.5-29.4-28.2-63.3-28.2-98.2 0-101.7 82.8-184.5 184.6-184.5 49.3 0 95.6 19.2 130.4 54.1 34.8 34.9 56.2 81.2 56.1 130.5 0 101.8-84.9 184.6-186.6 184.6zm101.2-138.2c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.6-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7.9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.6-19.4 19-19.4 46.3 0 27.3 19.9 53.7 22.6 57.4 2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z"/></svg></i>
 </button>
 @endpermission
 @permission('Delete Cart')
 {!! Form::open(['method' => 'DELETE', 'route' => ['carts.destroy', $cart->customer_id], 'class' => 'd-inline']) !!}
-<button aria-label="{{ __('Delete :thing', ['thing' => __('Cart')]) }}" type="button" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm" data-bs-toggle="tooltip" data-confirm="{{ __('Are You Sure?') }}"
-data-text="{{ __('This action can not be undone. Do you want to continue?') }}" data-text-yes="{{ __('Yes') }}" data-text-no="{{ __('No') }}" 
+{{-- `data-text-yes`/`-no` carry PURPOSE-SPECIFIC labels rather than the shared `Yes`/`No`
+     keys. Two reasons. First, ar.json renders those two as «نعم ..» and «لا ..» -- a two-dot
+     artefact unique to them (9 of the other 11 values ending in `..` have `...` in their English
+     key; these two have no dots at all), shown verbatim at the moment of deletion. Second, a
+     destructive dialog reads better naming its action than answering a yes/no question. The
+     shared keys are NOT edited here: public/js/custom.js records 65 `.show_confirm` triggers
+     across 55 views depending on them, so that is a repository-wide change needing its own
+     slice. --}}
+<button aria-label="{{ __('Delete :thing', ['thing' => __('Cart')]) }}" type="button" class="ss-btn ss-btn--sm ss-btn--icon ss-btn--danger-quiet show_confirm" data-bs-toggle="tooltip" data-confirm="{{ __('Delete this abandoned cart?') }}" data-confirm-tone="danger"
+data-text="{{ __('This removes all :count items in :name\'s abandoned cart. It cannot be undone.', ['count' => $ssCartCount, 'name' => $ssCustomerName]) }}" data-text-yes="{{ __('Delete cart') }}" data-text-no="{{ __('Keep it') }}" 
 title="{{ __('Delete') }}">
     <i class="ti ti-trash" aria-hidden="true"></i>
 </button>
 {!! Form::close() !!}
 @endpermission
+@if (! $ssMayAbandonCart && ! $ssMayDeleteCart)
+    {{-- NOT a dash and not a blank: a dash reads as "no data", and the truth is that the data is
+         there and this viewer may not act on it. `ss-visually-hidden` carries the same sentence to
+         assistive technology, which otherwise meets an empty cell with no explanation at all. --}}
+    <span class="ss-scope text-muted" aria-hidden="true">&mdash;</span>
+    <span class="ss-visually-hidden">{{ __('No actions available with your permissions') }}</span>
+@endif
 </span>

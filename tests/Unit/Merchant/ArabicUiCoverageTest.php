@@ -76,6 +76,12 @@ class ArabicUiCoverageTest extends TestCase
         // narrower than the surfaces Phase 02 had grown into, which this file's own comments call
         // out twice as the one way a coverage test quietly stops working.
         'resources/views/partision/*.blade.php',
+        // P2-03-4 / #12. The finance screens -- the wallet-transaction ledger, the
+        // order-financials table and the withdrawal-requests screen -- became a Phase 02
+        // surface when Wave 10 put their tables on the design system. Nothing had ever
+        // scanned them, so measured when this line was added: 45 `__()` strings rendered in
+        // ENGLISH for an Arabic merchant on the screens that show their own money.
+        'resources/views/finance/*.blade.php',
     ];
 
     /**

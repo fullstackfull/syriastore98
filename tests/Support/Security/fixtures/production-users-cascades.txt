@@ -1,0 +1,64 @@
+-- Production foreign-key constraints referencing `users`(`id`), extracted 2026-11-11 from the
+-- trailing ALTER TABLE block of storesyria_ecommercego.sql (blob d3d42e68, sha256 6e54b88f...).
+--
+-- WHY THIS FILE EXISTS. UserDeletionSafetyCoverageTest pins
+-- UserDeletionSafety::CASCADE_DEPENDENCIES and checks it in both directions against production's
+-- real constraints, because in this project the migrations are not the schema. It used to read
+-- the committed dump. P1-SEC-40 untracked that dump, and the test is written to SKIP when it is
+-- absent rather than pass vacuously -- correct behaviour, but it would have silently cost four
+-- cases of real coverage. A security remediation must not delete security coverage. This fixture
+-- is what keeps it.
+--
+-- WHY THE .txt EXTENSION. .gitignore now carries `*.sql` to stop the next dump being committed.
+-- Naming this `.sql` would need `git add -f` on every change and would set a precedent that could
+-- later mask a real dump. The extension is deliberate; the content is SQL.
+--
+-- WHAT IS IN IT. Only `ALTER TABLE` headers and the `ADD CONSTRAINT ... REFERENCES users(id)`
+-- lines beneath them. Verified at extraction to contain zero rows of data: no bcrypt hash, no
+-- email address, no IP address, no INSERT statement. Re-verify with the census in
+-- docs/security/P1-SEC-40-INCIDENT.md section 2 if this file is ever regenerated.
+
+ALTER TABLE `delivery_boys`
+  ADD CONSTRAINT `delivery_boys_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+ALTER TABLE `email_templates`
+  ADD CONSTRAINT `email_templates_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+ALTER TABLE `lynomia_contact_verifications`
+  ADD CONSTRAINT `lynomia_contact_verifications_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+ALTER TABLE `notify_users`
+  ADD CONSTRAINT `notify_users_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+ALTER TABLE `order_refund_settings`
+  ADD CONSTRAINT `order_refund_settings_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+ALTER TABLE `plan_orders`
+  ADD CONSTRAINT `plan_orders_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+ALTER TABLE `plan_requests`
+  ADD CONSTRAINT `plan_requests_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+ALTER TABLE `plan_user_coupons`
+  ADD CONSTRAINT `plan_user_coupons_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+ALTER TABLE `product_brands`
+  ADD CONSTRAINT `product_brands_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+
+ALTER TABLE `product_enquiries`
+  ADD CONSTRAINT `product_enquiries_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+
+ALTER TABLE `product_labels`
+  ADD CONSTRAINT `product_labels_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+
+ALTER TABLE `product_questions`
+  ADD CONSTRAINT `product_questions_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+
+ALTER TABLE `sidemenu_order`
+  ADD CONSTRAINT `sidemenu_order_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+
+ALTER TABLE `stores`
+  ADD CONSTRAINT `stores_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+ALTER TABLE `user_email_templates`
+  ADD CONSTRAINT `user_email_templates_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;

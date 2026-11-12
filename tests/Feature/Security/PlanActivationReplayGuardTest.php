@@ -295,26 +295,44 @@ class PlanActivationReplayGuardTest extends PlanPaymentTestCase
         $cheap = $this->makePlan('10');
         $dear = $this->makePlan('499');
 
-        $translated = (string) trans($paymentType, [], 'ar');
-
         /*
-         * NO SILENT EXEMPTION. The first version returned `assertTrue(true)` here, which would
-         * have voided the case without a sound if `ar.json` ever lost one of these keys. Found by
-         * independent review. All three keys have distinct Arabic values today, so a missing one
-         * is a fact somebody should have to look at.
+         * THE SPELLING IS PINNED HERE, NOT READ FROM `ar.json`.
+         *
+         * This used to be `trans($paymentType, [], 'ar')`, and the premise below correctly
+         * refused to let the case pass vacuously if the key went missing. It then did go missing:
+         * P2.5-SET-03 removed 32 mistranslated brand names, because `Paystack` was rendering as
+         * `كومة الدفع` ("payment pile") and a merchant could not find the gateway. This test went
+         * red, which is exactly what it was built to do, and it caught a real regression — the
+         * guard derived its lookup set from the same files, so the set silently shrank.
+         *
+         * The fix on both sides is to stop asking a presentation file what a HISTORICAL row says.
+         * A `plan_orders` row holds the spelling that was current when it was written; that is a
+         * fact about the past, and `GuardsPlanActivation::HISTORICAL_SPELLINGS` is now where the
+         * application records it. The literal below is the same string, so this case still drives
+         * a genuinely different spelling through the guard — it simply no longer depends on a file
+         * whose job is to change.
          */
-        $this->assertNotSame(
-            '',
-            trim($translated),
-            $paymentType . ' has no Arabic translation, so this case cannot measure the locale '
-            . 'sweep. Add the key to resources/lang/ar.json or retarget this case at a locale '
-            . 'that has it — do not let it pass vacuously.'
+        $historical = [
+            'Paystack' => 'كومة الدفع',
+            'Cashfree' => 'نقدية',
+            'Mollie' => '(مولي)',
+            'Benefit' => 'الميزة',
+        ];
+
+        $this->assertArrayHasKey(
+            $paymentType,
+            $historical,
+            $paymentType . ' has no pinned historical Arabic spelling in this test, so the case '
+            . 'cannot measure the locale sweep. Add it here AND to '
+            . 'GuardsPlanActivation::HISTORICAL_SPELLINGS — do not let it pass vacuously.'
         );
+
+        $translated = $historical[$paymentType];
+
         $this->assertNotSame(
             $paymentType,
             $translated,
-            $paymentType . ' now translates to itself in Arabic, so a canonical-only lookup would '
-            . 'pass this case. Retarget it at a locale whose spelling really differs.'
+            $paymentType . ' is pinned to itself, so a canonical-only lookup would pass this case.'
         );
 
         // Recorded against the CHEAP plan, presented against the DEAR one: a genuine refusal, so

@@ -2,15 +2,15 @@
 <div class="row">
 
     <div class="form-group  col-md-12">
-        {!! Form::label('', __('Title'), ['class' => 'form-label']) !!}
+        {!! Form::label('title', __('Title'), ['class' => 'form-label']) !!}
         {!! Form::text('title', null, ['class' => 'form-control']) !!}
     </div>
     <div class="form-group  col-md-12">
-        {!! Form::label('', __('Description'), ['class' => 'form-label']) !!}
+        {!! Form::label('description', __('Description'), ['class' => 'form-label']) !!}
         {!! Form::textarea('description', null, ['class' => 'form-control autogrow', 'rows' => '3']) !!}
     </div>
     <div class="form-group  col-md-6">
-        <label class="form-label">{{ __('Category') }}</label><span class="text-danger">*</span>
+        <label for="category_id" class="form-label">{{ __('Category') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
         <select name="category_id" class="form-control" data-role="tagsinput" id="category_id">
             <option value="">{{ __('Select Category') }}</option>
             @foreach ($categoryTree as $cat)
@@ -21,13 +21,13 @@
         </select>
     </div>
     <div class="form-group  col-md-6 product_id_div" data_val='{{ $Testimonial->product_id }}'>
-        {!! Form::label('', __('Product'), ['class' => 'form-label']) !!}
+        {!! Form::label('product_id', __('Product'), ['class' => 'form-label']) !!}
         <span>
             {!! Form::select('product_id', $product, null, ['class' => 'form-control', 'data-role' => 'tagsinput', 'id' => 'product_id']) !!}
         </span>
     </div>
     <div class="form-group  col-md-6">
-        {!! Form::label('', __('Rating'), ['class' => 'form-label']) !!}
+        {!! Form::label('rating_no', __('Rating'), ['class' => 'form-label']) !!}
         {!! Form::select('rating_no', ['1' => 1,'2' => 2,'3' => 3,'4' => 4,'5' => 5,], null, ['class' => 'form-control', 'data-role' => 'tagsinput', 'id' => 'rating_no']) !!}
     </div>
 
@@ -37,7 +37,7 @@
     </div>
 
      <div class="form-group col-md-6">
-        {!! Form::label('', __('Avatar'), ['class' => 'form-label']) !!}
+        {!! Form::label('upload_avatar', __('Avatar'), ['class' => 'form-label']) !!}
 
         <div class="row">
             <div class="col-md-12">
@@ -45,7 +45,7 @@
                 <div class="image-upload bg-primary pointer w-100 avatar_update"> <i
                         class="ti ti-upload px-1"></i>{{ __('Choose File Here') }}
                 </div>
-                <input type="file" class="form-control file d-none"
+                <input type="file" class="form-control file ss-visually-hidden"
                     name="avatar" id="upload_avatar"
                     data-filename="avatar_update"
                     onchange="document.getElementById('avatarImage').src = window.URL.createObjectURL(this.files[0])">
@@ -60,10 +60,10 @@
     </div>
 
     <div class="form-group col-md-4">
-        {!! Form::label('', __('Status'), ['class' => 'form-label']) !!}
+        {{-- Caption inside the already-associated label -- see category/create.blade.php:132. --}}
         <div class="form-check form-switch">
             <input type="checkbox" name="status" class="form-check-input input-primary" id="customCheckdef1" value="1" @if($Testimonial->status == '1') checked @endif>
-            <label class="form-check-label" for="customCheckdef1"></label>
+            <label class="form-check-label" for="customCheckdef1">{{ __('Status') }}</label>
         </div>
     </div>
 

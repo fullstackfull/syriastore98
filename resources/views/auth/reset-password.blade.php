@@ -38,18 +38,18 @@ config([
                 @csrf
 
                 <div class="form-group mb-3">
-                    <label class="form-label" for="email">{{ __('Email') }}</label>
+                    <label class="form-label" for="email">{{ __('Email') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                     <x-input id="email" class="form-control" type="email" name="email" :value="old('email', $request->email)" required
                     placeholder="{{ __('Enter Email') }}" autofocus />
                 </div>
 
                 <div class="form-group mb-3">
-                    <label class="form-label" for="password">{{ __('Password') }}</label>
+                    <label class="form-label" for="password">{{ __('Password') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                     <x-input id="password" class="form-control" type="password" name="password"  placeholder="{{ __('Enter Password') }}" required />
                 </div>
 
                 <div class="form-group mb-3">
-                    <label class="form-label" for="password_confirmation">{{ __('Confirm Password') }}</label>
+                    <label class="form-label" for="password_confirmation">{{ __('Confirm Password') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                     <x-input id="password_confirmation" class="form-control" type="password" name="password_confirmation"
                     placeholder="{{ __('Enter Confirm Password') }}" required />
                 </div>

@@ -1,0 +1,642 @@
+<?php
+
+namespace Tests\Feature\Ui;
+
+use App\DataTables\TagDataTable;
+use App\Models\Store;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\Test;
+use Tests\Feature\Security\SecurityTestCase;
+
+/**
+ * THE OWNER'S VISUAL REVIEW OF THE 24 PREMIUM SURFACES, 2026-11-12.
+ *
+ * Twelve bounded corrections were requested. This file pins the ones a test can hold: the
+ * terminology, the display-only mappings, and the Action column. The dark-theme and avatar
+ * corrections are pinned by their own rendered captures instead, because a stylesheet rule is
+ * not evidence that a pixel changed.
+ *
+ * ONE FINDING SHAPES THE WHOLE FILE: SOME OF WHAT THE OWNER SAW WAS A STALE PHOTOGRAPH, NOT A
+ * LIVE DEFECT. The Action column the review found empty on the Tag list renders Edit and Delete
+ * today, because the dev fixture gained `Edit Tag` / `Delete Tag` after that capture was taken;
+ * the merchant footer reading "2026 Laravel" is fixed in source and guarded by
+ * MerchantFooterBrandTest, and only survives in captures taken before the `.env` caught up with
+ * `.env.example`. So every correction below was confirmed against a RENDERED PAGE first, and
+ * the two that were already correct were re-captured rather than "fixed" -- changing code to
+ * repair a photograph would have been the worse outcome.
+ *
+ * What remained true of the Tag list after that correction is the part this file pins: the
+ * column was declared unconditionally while its cells were permission-gated, so a merchant
+ * holding neither permission really did get a column headed "Action" with nothing in it.
+ */
+class VisualAcceptanceCorrectionsTest extends SecurityTestCase
+{
+    use RefreshDatabase;
+
+    /** A merchant with a store, acting, so Laratrust resolves against a real principal. */
+    private function actingMerchant(): array
+    {
+        $merchant = $this->makeMerchant();
+        $store = $this->makeStore($merchant);
+        $merchant->current_store = $store->id;
+        $merchant->save();
+        $this->actingAs($merchant);
+
+        return [$merchant, $store];
+    }
+
+    private function actionColumnIsDeclared(): bool
+    {
+        $titles = array_map(
+            fn ($c): string => (string) ($c->toArray()['data'] ?? ''),
+            (new TagDataTable())->getColumns()
+        );
+
+        return in_array('action', $titles, true);
+    }
+
+    /* ===================================================================================
+     * ITEM 4 — the Action column
+     * =================================================================================== */
+
+    /**
+     * THE DEFECT ITSELF. `tag/action.blade.php` wraps Edit in `@permission('Edit Tag')` and
+     * Delete in `@permission('Delete Tag')`, so a merchant with neither gets two empty cells --
+     * under a column header that was declared unconditionally.
+     */
+    #[Test]
+    public function test_the_tag_action_column_is_not_declared_for_a_merchant_who_can_do_nothing_in_it(): void
+    {
+        $this->actingMerchant();
+
+        $this->assertFalse(
+            $this->actionColumnIsDeclared(),
+            'The Tag list still declares an Action column for a merchant holding neither '
+            . '`Edit Tag` nor `Delete Tag`. Both row controls are `@permission`-gated, so every '
+            . 'cell in that column is empty for this principal -- a header over nothing, which '
+            . 'is exactly what the owner\'s 2026-11-06 capture shows.'
+        );
+    }
+
+    /** The other direction, which is what stops the fix from being "hide it always". */
+    #[Test]
+    public function test_the_tag_action_column_returns_for_a_merchant_who_can_edit(): void
+    {
+        [$merchant] = $this->actingMerchant();
+        $this->grantPermission($merchant, 'Edit Tag');
+        $this->actingAs($merchant->fresh());
+
+        $this->assertTrue(
+            $this->actionColumnIsDeclared(),
+            'A merchant who holds `Edit Tag` has lost the Action column, so the Edit control '
+            . 'has nowhere to render. Hiding the column must depend on the permission, not on '
+            . 'the column being inconvenient.'
+        );
+    }
+
+    /** Delete alone is enough: the predicate is "at least one", not "both". */
+    #[Test]
+    public function test_delete_alone_is_enough_to_keep_the_tag_action_column(): void
+    {
+        [$merchant] = $this->actingMerchant();
+        $this->grantPermission($merchant, 'Delete Tag');
+        $this->actingAs($merchant->fresh());
+
+        $this->assertTrue(
+            $this->actionColumnIsDeclared(),
+            'A merchant who can delete a tag but not edit one lost the column that holds the '
+            . 'delete control. `hasPermission()` takes an array with $requireAll = false; this '
+            . 'must stay an OR.'
+        );
+    }
+
+    /**
+     * THE INVARIANT THAT MATTERS MORE THAN THE COLUMN. The header's predicate must be the
+     * directive's own call, or the two can disagree and the empty column comes back for
+     * whichever principal they answer differently about.
+     */
+    #[Test]
+    public function test_the_header_predicate_is_the_same_call_the_cells_make(): void
+    {
+        $source = file_get_contents(base_path('app/DataTables/TagDataTable.php'));
+
+        $this->assertStringContainsString(
+            "app('laratrust')->hasPermission(['Edit Tag', 'Delete Tag'])",
+            $source,
+            'The Action column is no longer gated on `app(\'laratrust\')->hasPermission()`. '
+            . '`@permission(X)` compiles to exactly that call (LaratrustServiceProvider:102), '
+            . 'so anything else -- `isAbleTo()`, an operator bypass, a policy -- can disagree '
+            . 'with the cells it is supposed to be describing.'
+        );
+
+        $this->assertStringContainsString(
+            '@permission(\'Edit Tag\')',
+            file_get_contents(base_path('resources/views/tag/action.blade.php')),
+            'The Edit control lost its own permission guard. Hiding the column is a tidiness '
+            . 'fix; the cell guard is the control, and it must stay.'
+        );
+
+        // BOTH HALVES, because the cases above only read getColumns(). Independent review found
+        // that reverting the dataTable() guard alone left all four passing: nothing in the suite
+        // exercises that method. It leaks nothing -- the cells are @permission-gated, so the
+        // payload would be an empty span -- but the two sides are meant to agree, and an
+        // assertion that only watches one of them says less than it appears to.
+        $this->assertStringContainsString(
+            'if ($this->mayAct()) {',
+            $source,
+            'TagDataTable::dataTable() builds the action column unconditionally again, so the '
+            . 'server renders a view per row for a column the header does not declare.'
+        );
+    }
+
+    /* ===================================================================================
+     * ITEMS 2, 5, 9, 10 — Arabic terminology
+     * =================================================================================== */
+
+    /**
+     * Each of these was read off a RENDERED Arabic page before it was changed. The old values
+     * are named so the test says what was wrong, not merely what is expected.
+     *
+     * @return array<string, array{0:string, 1:string, 2:string}>
+     */
+    public static function corrected(): array
+    {
+        return [
+            // key                  expected                was                 why the old one was wrong
+            'Slug' => ['Slug', 'المعرّف', 'السناجب'],
+            'Avatar' => ['Avatar', 'الصورة الرمزية', 'الأفتار'],
+            'Rating' => ['Rating', 'التقييم', 'تصنيف'],
+            'Parent Category' => ['Parent Category', 'الفئة الرئيسية', 'فئة الأبوة'],
+            'Trending' => ['Trending', 'رائج', 'اتجاهات'],
+            'Permissions' => ['Permissions', 'الصلاحيات', 'التراخيص'],
+        ];
+    }
+
+    #[Test]
+    #[\PHPUnit\Framework\Attributes\DataProvider('corrected')]
+    public function test_the_arabic_terminology_is_corrected(string $key, string $expected, string $wrong): void
+    {
+        $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
+
+        $this->assertArrayHasKey($key, $ar);
+        $this->assertSame($expected, $ar[$key], "The Arabic for '{$key}' changed again.");
+        $this->assertNotSame(
+            $wrong,
+            $ar[$key],
+            "The Arabic for '{$key}' is back to {$wrong}, which was measured on a rendered page "
+            . 'and rejected by the owner.'
+        );
+    }
+
+    /**
+     * THE COLLISION THAT NEARLY BROKE A DIFFERENT SCREEN, and the reason item 9 added a key
+     * rather than changing one.
+     *
+     * `Terms` has two call sites and they do not mean the same thing:
+     * `ProductAttributeDataTable` used it for a product attribute's terms (commerce values),
+     * and `front_end/sections/payment_list.blade.php:61` uses it for "Terms & Conditions" on
+     * the storefront checkout, where الشروط is exactly right. Translating the shared key to
+     * القيم would have relabelled the legal link "Values".
+     */
+    #[Test]
+    public function test_the_legal_terms_key_was_not_repurposed_for_attribute_values(): void
+    {
+        $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
+        $en = json_decode(file_get_contents(base_path('resources/lang/en.json')), true);
+
+        $this->assertSame('الشروط', $ar['Terms'], 'The legal "Terms & Conditions" wording changed.');
+
+        $this->assertStringContainsString(
+            '__(\'Terms\')',
+            file_get_contents(base_path('resources/views/front_end/sections/payment_list.blade.php')),
+            'The checkout consent line no longer uses the shared Terms key, so this control is '
+            . 'guarding nothing.'
+        );
+
+        $this->assertSame('القيم', $ar['Attribute Terms']);
+        $this->assertSame(
+            'Terms',
+            $en['Attribute Terms'],
+            'The attribute column\'s ENGLISH header must still read exactly "Terms". The new key '
+            . 'exists to fix the Arabic without touching English or the legal string.'
+        );
+
+        $this->assertStringContainsString(
+            "__('Attribute Terms')",
+            file_get_contents(base_path('app/DataTables/ProductAttributeDataTable.php'))
+        );
+    }
+
+    /* ===================================================================================
+     * ITEMS 3, 5, 6, 7 — display-only corrections
+     * =================================================================================== */
+
+    /**
+     * The grid view shipped a hardcoded English ternary while `ProductDataTable:63` -- the LIST
+     * view of the same data -- already went through `__()`. So the same product read "no variant"
+     * in the grid and بلا متغيّرات in the table, on the same Arabic page.
+     */
+    #[Test]
+    public function test_the_product_grid_variant_label_goes_through_the_translator(): void
+    {
+        $blade = file_get_contents(base_path('resources/views/product/list.blade.php'));
+
+        $this->assertStringContainsString(
+            "__('has variant') : __('no variant')",
+            $blade,
+            'The product grid is printing its variant label as a bare English literal again.'
+        );
+        $this->assertStringNotContainsString("? 'has variant' : 'no variant'", $blade);
+
+        $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
+        $this->assertSame('بلا متغيّرات', $ar['no variant'], 'The translation the grid now reaches.');
+    }
+
+    /** The breadcrumb named a different noun from the page title, on the same screen. */
+    #[Test]
+    public function test_the_product_label_breadcrumb_matches_its_own_page_title(): void
+    {
+        $blade = file_get_contents(base_path('resources/views/product_label/index.blade.php'));
+
+        $this->assertStringContainsString("@section('page-title', __('Product Label'))", $blade);
+        $this->assertStringContainsString(
+            "class=\"ss-breadcrumb__item\">{{ __('Product Label') }}</li>",
+            $blade,
+            'The breadcrumb is back to __(\'Label\'), which renders العلامة under a page titled '
+            . 'ملصق المنتج -- two different Arabic nouns for one screen.'
+        );
+    }
+
+    /**
+     * DISPLAY ONLY, AND THE STORED VALUE IS THE POINT. `FlashSaleController:163` and `:418`
+     * branch on `$request->discount_type == 'percentage'`, so the stored strings decide pricing.
+     * The list had no `editColumn` at all and printed them raw.
+     */
+    #[Test]
+    public function test_the_flash_sale_discount_type_is_mapped_for_display_only(): void
+    {
+        $source = file_get_contents(base_path('app/DataTables/FlashSaleDataTable.php'));
+
+        $this->assertStringContainsString("->editColumn('discount_type'", $source);
+        $this->assertStringContainsString("'percentage' => __('Percentage')", $source);
+        $this->assertStringContainsString("'flat'       => __('Flat')", $source);
+        $this->assertStringContainsString(
+            'default      => (string) $flashsale->discount_type,',
+            $source,
+            'An unrecognised discount type must fall through to its own raw text, not to an '
+            . 'empty cell -- a value added later should look untranslated, not missing.'
+        );
+
+        foreach ([base_path('resources/views/flash-sale/create.blade.php'),
+            base_path('resources/views/flash-sale/edit.blade.php')] as $form) {
+            $blade = file_get_contents($form);
+            $this->assertStringContainsString(
+                "'percentage' => __('Percentage'), 'flat' => __('Flat')",
+                $blade,
+                'The form option LABELS are translated; the option VALUES stay percentage/flat.'
+            );
+        }
+
+        $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
+        $this->assertSame('نسبة مئوية', $ar['Percentage']);
+        $this->assertSame('مبلغ ثابت', $ar['Flat']);
+    }
+
+    /** A column headed "Trending" whose cells read Yes/No renders in Arabic as a bare لا. */
+    #[Test]
+    public function test_the_category_trending_cell_names_the_state(): void
+    {
+        $source = file_get_contents(base_path('app/DataTables/CategoryDataTable.php'));
+
+        $this->assertStringContainsString(
+            "__('Trending') : __('Not Trending')",
+            $source,
+            'The Trending column is back to Yes/No.'
+        );
+
+        $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
+        $this->assertSame('غير رائج', $ar['Not Trending']);
+    }
+
+    /* ===================================================================================
+     * ITEM 11 — own profile: a broken avatar and an unreadable active tab
+     * =================================================================================== */
+
+    /**
+     * The fallback was `$profile.'/avatar.png'`, i.e. `/storage/uploads/profile//avatar.png`
+     * (the slash is doubled -- `$profile` already ends in one). Measured 404 in all four
+     * combinations, and it cannot be anything else from a checkout: `.gitignore` carries
+     * `/storage/*`, so that file is runtime data no clone contains, and `public/storage` is a
+     * TRACKED REGULAR FILE holding the vendor's build path as text rather than a symlink.
+     *
+     * That is not only a fixture gap. `RegisteredUserController` writes
+     * `profile_image => 'uploads/profile/avatar.png'` for every new user, so a fresh deployment
+     * has the same hole. The replacement is committed under public/ for exactly that reason.
+     */
+    #[Test]
+    public function test_the_profile_avatar_falls_back_to_an_asset_that_exists(): void
+    {
+        $this->assertFileExists(
+            public_path('images/avatar-placeholder.svg'),
+            'The default avatar asset is gone, so the fallback 404s again.'
+        );
+
+        $blade = file_get_contents(base_path('resources/views/users/profile.blade.php'));
+
+        $this->assertStringContainsString("asset('images/avatar-placeholder.svg')", $blade);
+        $this->assertStringNotContainsString(
+            "\$profile.'/avatar.png'",
+            $blade,
+            'The profile avatar points back at /storage/, which no checkout can serve.'
+        );
+
+        $this->assertStringContainsString(
+            "asset('images/avatar-placeholder.svg')",
+            file_get_contents(base_path('app/DataTables/UserDataTable.php')),
+            'The users list shows three broken images again.'
+        );
+    }
+
+    /**
+     * THE ACTIVE TAB, AND WHY THE FIX IS AN EXCLUSION RATHER THAN AN OVERRIDE.
+     *
+     * Measured on /profile, both languages:  light 6.42:1,  dark 2.09:1.
+     *
+     * `custom.css` lifts every plain anchor inside `.dash-content` to brand ink in dark mode with
+     * `!important`, which is right for the inactive siblings (4.64:1) and wrong for the active
+     * one, because the host puts it on the brand FILL -- brand ink on brand fill. That arm is
+     * (0,6,3) and shouts, so no honest undo arm in the design system could beat it; the
+     * pagination rule immediately below it in the same file reaches the same conclusion and
+     * excludes `.page-item.active` for the same reason.
+     *
+     * Both halves are pinned, because either alone leaves it broken: without the exclusion the
+     * DS rule never applies, and without the DS rule the exclusion only falls back to the host's
+     * own dark active colour.
+     */
+    #[Test]
+    public function test_the_dark_active_tab_is_excluded_from_the_brand_lift_and_given_white_ink(): void
+    {
+        foreach (['custom.css', 'rtl-custom.css'] as $sheet) {
+            $this->assertStringContainsString(
+                ':not(.page-link):not(.list-group-item.active)',
+                file_get_contents(public_path('css/' . $sheet)),
+                "{$sheet}'s dark anchor lift no longer excludes the active list-group item, so it "
+                . 'paints brand ink on the brand fill again -- 2.09:1.'
+            );
+        }
+
+        $this->assertStringContainsString(
+            '[data-ss-theme="dark"] .dash-content .list-group-item-action.active',
+            file_get_contents(public_path('css/store-syria-ds.css')),
+            'The white ink for the active tab is gone; the exclusion alone only hands the item '
+            . "back to the host's own dark active colour."
+        );
+    }
+
+    /* ===================================================================================
+     * ITEMS 1 and 8 — the two create modals
+     * =================================================================================== */
+
+    /**
+     * THE DIALOG IS NOT MADE DARK, AND THAT IS THE POINT.
+     *
+     * The host's Bootstrap modal keeps a WHITE `.modal-content` under `data-ss-theme="dark"`.
+     * P2.5-A-01 accepted that and fixed the INK on it instead, and
+     * `check-dark-form-surfaces-live.cjs` asserts the white modal as a PREMISE -- 20 checks, 0
+     * failed, before and after this change. So "make dark theme styling consistent across the
+     * modal" is satisfied by making the FIELD match the dialog, never the reverse.
+     *
+     * The brand modal was simply never converted: `category/create.blade.php:28` records the
+     * mapping and :45 records why a converted form is wrapped in `data-ss-theme="light"`.
+     * Without that wrapper, design-system components inside the white dialog resolve their DARK
+     * tokens against white, which is the 2.18:1 defect that comment was written about.
+     */
+    #[Test]
+    public function test_both_brand_modals_are_converted_to_the_design_system(): void
+    {
+        foreach (['create', 'edit'] as $half) {
+            $blade = file_get_contents(base_path("resources/views/product_brand/{$half}.blade.php"));
+
+            $this->assertStringContainsString(
+                '<div data-ss-theme="light">',
+                $blade,
+                "product_brand/{$half} lost the light-surface wrapper, so its design-system "
+                . 'fields resolve dark tokens against the host\'s white modal.'
+            );
+            $this->assertStringContainsString("'class' => 'ss-input'", $blade);
+            $this->assertStringContainsString("'class' => 'ss-label'", $blade);
+
+            $this->assertStringNotContainsString(
+                "'class' => 'form-control'",
+                $blade,
+                "product_brand/{$half} has a raw Bootstrap text field again -- the vendor dark "
+                . 'stylesheet paints it navy inside a white dialog, which is what the owner saw.'
+            );
+
+            // The upload input KEEPS form-control: it is ss-visually-hidden and never painted.
+            $this->assertStringContainsString('class="form-control file ss-visually-hidden"', $blade);
+        }
+    }
+
+    /** The placeholder was a bare English literal, so it stayed English on the Arabic modal. */
+    #[Test]
+    public function test_the_brand_name_placeholder_is_translated(): void
+    {
+        foreach (['create', 'edit'] as $half) {
+            $blade = file_get_contents(base_path("resources/views/product_brand/{$half}.blade.php"));
+            $this->assertStringContainsString("'placeholder' => __('Enter Brand Name')", $blade);
+            $this->assertStringNotContainsString("'placeholder' => 'Enter Brand Name'", $blade);
+        }
+
+        $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
+        $en = json_decode(file_get_contents(base_path('resources/lang/en.json')), true);
+        $this->assertSame('أدخل اسم العلامة التجارية', $ar['Enter Brand Name']);
+        $this->assertArrayHasKey('Enter Brand Name', $en);
+    }
+
+    /**
+     * ONE CONCEPT, TWO KEYS, TWO DIFFERENT ARABIC WORDS. The category LIST column is
+     * `Parent Category`; the create/edit MODAL is `Parents Category`, whose Arabic read
+     * فئة الوالدين -- "the parents' category", as in a child's guardians. Both now say
+     * الفئة الرئيسية, so the same field is named the same thing wherever it appears.
+     */
+    #[Test]
+    public function test_the_two_parent_category_keys_agree_in_arabic(): void
+    {
+        $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
+
+        $this->assertSame('الفئة الرئيسية', $ar['Parent Category']);
+        $this->assertSame(
+            'الفئة الرئيسية',
+            $ar['Parents Category'],
+            'The category modal names the parent field differently from the category list.'
+        );
+        $this->assertNotSame('فئة الوالدين', $ar['Parents Category']);
+    }
+
+    /* ===================================================================================
+     * ITEM 12 — roles: localized permission labels, identifiers untouched
+     * =================================================================================== */
+
+    /**
+     * THE INVARIANT IS THAT NOTHING BUT THE PRINTED STRING CHANGED.
+     *
+     * `$permission` comes from `permissions()->pluck('name')` and is the exact string
+     * `isAbleTo()` matches on. Wrapping the PRINT in `__()` cannot alter it: the value is
+     * printed, never compared, assigned or written, and `__()` returns its key unchanged when
+     * no translation exists -- so English renders byte-for-byte as before and an untranslated
+     * permission still shows its own name rather than an empty chip.
+     */
+    #[Test]
+    public function test_the_roles_screen_localises_the_label_and_not_the_identifier(): void
+    {
+        $blade = file_get_contents(base_path('resources/views/roles/permission.blade.php'));
+
+        $this->assertStringContainsString(
+            '{{ __($permission) }}',
+            $blade,
+            'The roles screen prints raw permission identifiers again.'
+        );
+
+        $this->assertStringContainsString(
+            "\$role->permissions()->pluck('name')",
+            $blade,
+            'The chips are no longer driven by the permission NAME, so this test is guarding '
+            . 'something other than what it claims.'
+        );
+
+        // Nothing on this screen may compare, assign or write the value.
+        foreach (['->givePermission(', '->syncPermissions(', '->attachPermission(', '->update('] as $forbidden) {
+            $this->assertStringNotContainsString(
+                $forbidden,
+                $blade,
+                "roles/permission.blade.php now calls {$forbidden} -- a display partial must not "
+                . 'change authorization.'
+            );
+        }
+    }
+
+    /**
+     * ENGLISH IS UNCHANGED, which is what makes this display-only rather than a relabelling.
+     * en.json maps each added permission name to ITSELF, so `__('Manage Order')` is still
+     * exactly "Manage Order".
+     */
+    #[Test]
+    public function test_english_permission_labels_are_identity_mapped(): void
+    {
+        $en = json_decode(file_get_contents(base_path('resources/lang/en.json')), true);
+        $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
+
+        foreach (['Manage Order', 'Create Product', 'Delete Coupon', 'Manage Role', 'Manage Dashboard'] as $name) {
+            $this->assertSame($name, $en[$name], "The ENGLISH label for '{$name}' is no longer itself.");
+            $this->assertArrayHasKey($name, $ar);
+            $this->assertNotSame($name, $ar[$name], "'{$name}' is still untranslated in Arabic.");
+        }
+
+        $this->assertSame('إدارة الطلبات', $ar['Manage Order']);
+        $this->assertSame('إدارة الأدوار', $ar['Manage Role']);
+    }
+
+    /**
+     * THE SIX THAT WERE WRONG IN ANY CONTEXT. Every permission name that already had Arabic is
+     * also a ROW-ACTION label elsewhere, so the existing singular wording was left alone rather
+     * than replaced with a plural permission-list form -- "Edit the coupons" is wrong on a
+     * button. These six were repaired anyway, because reversed word order and a missing verb are
+     * defects wherever they appear, and they took singular forms to suit those buttons.
+     */
+    #[Test]
+    public function test_the_reversed_and_broken_permission_translations_are_repaired(): void
+    {
+        $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
+
+        $repaired = [
+            'Create DeliveryBoy' => ['إنشاء مندوب توصيل', 'إنشاء " فتى التسليم "'],
+            'Delete Menu' => ['حذف القائمة', 'قائمة الحذف'],
+            'Edit Page' => ['تعديل الصفحة', 'صفحة التحرير'],
+            'Edit Plan' => ['تعديل الخطة', 'خطة التحرير'],
+            'Edit Shipping Method' => ['تعديل طريقة الشحن', 'طريقة الشحن'],
+            'Manage Themes' => ['إدارة القوالب', 'إدارة المواضيع'],
+        ];
+
+        foreach ($repaired as $key => [$expected, $wrong]) {
+            $this->assertSame($expected, $ar[$key], "The repaired Arabic for '{$key}' changed.");
+            $this->assertNotSame($wrong, $ar[$key], "'{$key}' is back to its broken translation.");
+        }
+    }
+
+    /**
+     * AND THE ONES DELIBERATELY NOT TOUCHED, so a later sweep does not "finish the job" and
+     * relabel two dozen row-action buttons in the process.
+     */
+    #[Test]
+    public function test_row_action_permission_labels_kept_their_singular_wording(): void
+    {
+        $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
+
+        // Each of these is a tooltip on a per-row Edit control as well as a permission name.
+        $this->assertSame('تحرير القسيمة', $ar['Edit Coupon']);
+        $this->assertSame('تحرير المنتج', $ar['Edit Product']);
+        $this->assertSame('تحرير العلامة', $ar['Edit Tag']);
+        $this->assertSame('تحرير المستخدم', $ar['Edit User']);
+    }
+
+    /* ===================================================================================
+     * ITEM 2 — testimonial terminology, and the content that must NOT be translated
+     * =================================================================================== */
+
+    /**
+     * "شهادة" on its own is a CERTIFICATE -- academic, medical. The commerce sense is a
+     * customer's testimonial. The key is the sidebar entry, the page title, the breadcrumb AND
+     * the delete control's accessible name (`Delete :thing`), so the replacement has to read
+     * correctly in all four; a collective like آراء العملاء would give "delete the customer
+     * opinions" on a button.
+     */
+    #[Test]
+    public function test_the_testimonial_term_is_the_commerce_one(): void
+    {
+        $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
+
+        $this->assertSame('شهادة عميل', $ar['Testimonial']);
+        $this->assertSame('شهادات العملاء', $ar['Testimonials']);
+        $this->assertNotSame('شهادة', $ar['Testimonial'], 'Back to the certificate sense.');
+    }
+
+    /**
+     * THE OWNER'S EXPLICIT BOUNDARY on this surface: "Do not translate merchant-entered
+     * testimonial content." The corrections here are confined to chrome -- column headings, the
+     * page title, the breadcrumb -- and this asserts the obvious failure mode: that someone
+     * "finishes" the Arabic by adding the fixture's own testimonial text to the lang files.
+     */
+    #[Test]
+    public function test_no_merchant_entered_testimonial_content_was_translated(): void
+    {
+        $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
+
+        foreach (['The order arrived in two days and the packaging was beautiful.',
+            'Layla Haddad', 'Damascus Textiles', 'Aleppo Soap Co'] as $content) {
+            $this->assertArrayNotHasKey(
+                $content,
+                $ar,
+                "Merchant- or customer-entered content ('{$content}') has been added to ar.json. "
+                . 'Record data is not UI chrome and must never be translated.'
+            );
+        }
+    }
+
+    /**
+     * THE RATCHET THIS WORK HAD TO RESPECT. Every key added to ar.json needs its en.json twin or
+     * TranslationFileIntegrityTest's orphan count rises; the ceiling was not raised for this.
+     */
+    #[Test]
+    public function test_every_key_added_by_this_work_exists_in_both_files(): void
+    {
+        $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
+        $en = json_decode(file_get_contents(base_path('resources/lang/en.json')), true);
+
+        foreach (['Attribute Terms', 'Flat', 'Percentage', 'Not Trending', 'Enter Brand Name'] as $key) {
+            $this->assertArrayHasKey($key, $ar, "ar.json lost {$key}.");
+            $this->assertArrayHasKey($key, $en, "{$key} is an ar.json orphan -- add it to en.json.");
+        }
+    }
+}

@@ -10,7 +10,7 @@
     @permission('Create Page')
     <div class="text-end d-flex all-button-box justify-content-md-end justify-content-center">
         <a href="#" class="btn btn-sm btn-primary" data-ajax-popup="true" data-size="lg" data-title="{{__('Add Page')}}"
-            data-url="{{ route('pages.create') }}" data-bs-toggle="tooltip" title="{{ __('Add Page') }}">
+            data-url="{{ route('pages.create') }}" data-bs-toggle="tooltip" title="{{ __('Add Page') }}" aria-label="{{__('Add Page')}}">
             <i class="ti ti-plus"></i>
         </a>
     </div>

@@ -106,10 +106,23 @@ class ActionPartialContractTest extends TestCase
          * A FLOOR ON THE COUNT, not just "none unnamed". Deleting every control in all 37 files
          * satisfies "none unnamed" perfectly.
          */
+        // 98 -> 97 on 2026-11-11, and this is the one kind of reason that justifies moving it.
+        //
+        // The delete control was REMOVED from plans/action.blade.php, not left unnamed:
+        // `BankTransferController::destroy()` now refuses every caller, under the owner
+        // instruction "Treat financial-record deletion as prohibited pending an approved retention
+        // and correction policy", so the button could only ever raise a "not permitted" toast.
+        // Leaving a control that looks available and never works would most likely get the
+        // controller re-opened to make it function.
+        //
+        // The floor is lowered by EXACTLY ONE and the removal is named here. Do not lower it to
+        // make a red suite green: its whole purpose is that deleting controls satisfies
+        // "none unnamed" perfectly, so an unexplained decrement is the failure it exists to catch.
         $this->assertGreaterThanOrEqual(
-            98,
+            97,
             $named,
-            'fewer named action controls than the 98 measured after the conversion'
+            'fewer named action controls than the 97 that remain after the prohibited plan-order '
+            . 'delete control was removed (98 were measured after the conversion)'
         );
 
         $this->assertSame(
@@ -379,6 +392,220 @@ class ActionPartialContractTest extends TestCase
             . "Three of these shipped in this slice, because the converter preferred each file's\n"
             . "own `data-title` and in those three that attribute is just the verb.\n  "
             . implode("\n  ", $bare)
+        );
+    }
+
+    /**
+     * NO ACTION PARTIAL MAY CARRY A `<style>`, AND EVERY INLINE SVG ROOT MUST TAKE ITS COLOUR
+     * FROM THE CASCADE. Two measured defects, one markup cause.
+     * ======================================================================================
+     *
+     * WHAT SHIPPED. `cart/action.blade.php` and `wishlist/action.blade.php` each inlined the
+     * WhatsApp glyph as `<svg …><style>svg{fill:#ffffff}</style><path …/></svg>` — no `fill` on
+     * the root and none on the `<path>`, so that one declaration was the only thing colouring the
+     * glyph. It was correct under the ORIGINAL markup: the button was `.btn-primary`, a solid
+     * blue, and `public/css/custom.css:2460`/`:2469` (mirrored `public/css/rtl-custom.css:2480`)
+     * still hold the `.btn-primary:hover svg path { fill:#fff }` rules it was paired with. The
+     * P2-03 conversion to `.ss-btn--ghost` removed `.btn-primary`, orphaned those host rules, and
+     * left the inline `<style>` painting white on a white card.
+     *
+     * DEFECT ONE — THE CONTROL ITSELF, LIGHT MODE ONLY. `.ss-btn--ghost { color:
+     * var(--ss-fg-muted) }` (`public/css/store-syria-ds.css:680`) over `.ss-dt-card-body
+     * { --ss-dt-card-bg: #ffffff }` (:3316). MEASURED with the WCAG 2.x relative-luminance
+     * formula, not quoted: #ffffff on #ffffff = 1.00:1 — an empty box, 10 of them per page
+     * (DataTables' default `pageLength`; `buildDataTable` at app/Helper/helper.php sets only a
+     * `lengthMenu` label). Dark was never affected: the card is #292a33 (:3317) where #ffffff
+     * measures 14.25:1.
+     *
+     * DEFECT TWO — THE WHOLE DOCUMENT. A `<style>` inside an SVG inlined into HTML is NOT scoped
+     * to that SVG; it is a document-level stylesheet. The bare `svg` TYPE selector therefore
+     * repainted every other svg on the page, and an author rule outranks an element's own
+     * presentation attribute, so it beat `fill="none"`. The exposed set is SIX icons, not five:
+     * `resources/views/partision/header.blade.php:59,196,202,243,310` carry `fill="none"` on the
+     * root with every child (`path`, `circle`, `rect`, `polyline`, `line`) inheriting, and :134
+     * carries no `fill` attribute at all. The header is included on every admin page
+     * (`resources/views/layouts/app.blade.php`), and `AbandonCartDataTable::rawColumns()` ships
+     * the `<style>` into the DOM unescaped.
+     *
+     * WHY THIS ASSERTS THE PROPERTY AND NOT THE COLOUR. The repair adds `fill="currentColor"`, so
+     * the glyph inherits `.ss-btn--ghost`'s `color`: `--ss-fg-muted` = `--ss-grey-600` #5b5f66
+     * (store-syria-ds.css:179, :244) = 6.42:1 on #ffffff in light, and #a7abb2 (:402, :450) =
+     * 6.18:1 on #292a33 in dark — both measured here, both clear WCAG 1.4.11's 3:1. Pinning
+     * either number would be the wrong assertion: the point of `currentColor` is that the glyph
+     * has NO colour of its own, so a ratio would redden on a token re-bias the property survives.
+     * Clause (b) pins the inheritance instead.
+     *
+     * BOTH HALVES, OR THE FIX INVERTS THE DEFECT. Deleting the `<style>` and adding nothing falls
+     * back to SVG's initial `fill: black` — #000000 on the dark card #292a33 = 1.47:1, measured,
+     * a WORSE defect in the other theme. So clause (b) refuses a root with no `fill` at all.
+     * Keeping the `<style>` alongside `fill="currentColor"` is equally broken, because an author
+     * rule beats a presentation attribute — clause (a) refuses that.
+     *
+     * `none` IS ALLOWED AND THAT IS NOT A LOOPHOLE. `resources/views/plans/action.blade.php` is
+     * the THIRD partial with an inline svg: a Tabler outline icon, `fill="none"
+     * stroke="currentColor"`, whose unfilled children inherit. Requiring `currentColor` there
+     * would turn an outline glyph into a solid blob — a test that manufactured the defect it
+     * exists to prevent. Both values take their ink from the cascade; a literal colour does not.
+     *
+     * NOT FIXED IN CSS, DELIBERATELY. `DesignSystemStylesheetScopeTest` already refuses a bare
+     * `svg` selector entering `store-syria-ds.css`; a CONFINED `.ss-btn svg { fill: currentColor }`
+     * would pass it and would fix the button, but would leave the document-wide repaint standing.
+     * Because the repair is markup, neither `custom.css` nor `rtl-custom.css` is touched, so the
+     * two-stylesheet LTR/RTL trap does not apply — `fill` is not a directional property.
+     */
+    public function test_no_action_partial_styles_its_icons_with_a_literal_colour(): void
+    {
+        $styleElements = [];
+        $uncascaded = [];
+        $inlineColours = [];
+        $svgRoots = 0;
+        $filesWithSvg = [];
+
+        foreach ($this->partials() as $relative) {
+            $source = $this->sourceWithoutComments($relative);
+
+            /* (a) The `<style>` ELEMENT. This is the clause that kills the page-wide repaint, and
+               it holds whatever variant anyone later gives the button. */
+            if (preg_match('/<style[\s>]/i', $source)) {
+                $styleElements[] = $relative;
+            }
+
+            /* (b) EVERY SVG ROOT. The `/s` modifier is load-bearing: the `plans/` opening tag
+               spans six lines, and a pattern without it sees two of the three files. */
+            preg_match_all('/<svg\b((?:[^<>"\']|"[^"]*"|\'[^\']*\')*?)>/s', $source, $tags, PREG_SET_ORDER);
+
+            foreach ($tags as $tag) {
+                $svgRoots++;
+                $filesWithSvg[$relative] = true;
+
+                if (! preg_match('/\bfill="(currentColor|none)"/', $tag[1])) {
+                    $uncascaded[] = $relative . ': ' . trim(preg_replace('/\s+/', ' ', substr($tag[0], 0, 120)));
+                }
+            }
+
+            /* (c) AND THE DELETED RULE MUST NOT RETURN AS AN ATTRIBUTE. A literal `fill:` or
+               `stroke:` inside an inline `style=` anywhere in an svg block is the same defect
+               wearing different clothes. */
+            preg_match_all('/<svg\b.*?<\/svg>/s', $source, $blocks);
+
+            foreach ($blocks[0] as $block) {
+                preg_match_all('/\bstyle="([^"]*)"/', $block, $inline);
+
+                foreach ($inline[1] as $declaration) {
+                    if (preg_match('/\b(fill|stroke)\s*:/i', $declaration)) {
+                        $inlineColours[] = $relative . ': style="' . $declaration . '"';
+                    }
+                }
+            }
+        }
+
+        /*
+         * (e) THE FLOOR, for the reason documented at the `partials()` premise. A regex that
+         * silently matches nothing passes every "none offending" assertion below, and that is the
+         * live risk here rather than a theoretical one: a first census written as
+         * `grep -o '<svg[^>]*>'` saw two of the three files, because `plans/` writes its opening
+         * tag across six lines.
+         */
+        $this->assertGreaterThanOrEqual(
+            3,
+            $svgRoots,
+            'fewer inline svg roots than the 3 measured in cart/, wishlist/ and plans/ action'
+            . ' partials — the pattern missed a multi-line opening tag, so nothing below is'
+            . ' measuring anything. Saw: ' . implode(', ', array_keys($filesWithSvg))
+        );
+
+        $this->assertSame(
+            [],
+            $styleElements,
+            "an action partial contains a `<style>` element.\n"
+            . "A `<style>` inside an inlined svg is NOT scoped to it — it is a document-level\n"
+            . "stylesheet, and a bare `svg` type selector in it repaints every svg on the page,\n"
+            . "beating `fill=\"none\"` because an author rule outranks a presentation attribute.\n"
+            . "MEASURED: `svg{fill:#ffffff}` here white-filled the six header icons at\n"
+            . "partision/header.blade.php:59,134,196,202,243,310 on every admin page.\n  "
+            . implode("\n  ", $styleElements)
+        );
+
+        $this->assertSame(
+            [],
+            $uncascaded,
+            "an inline svg root declares no `fill=\"currentColor\"` and no `fill=\"none\"`.\n"
+            . "Both take the glyph's ink from the cascade, which is the whole requirement; a\n"
+            . "literal colour, or NO `fill` at all, does not. No `fill` is the inverted defect:\n"
+            . "SVG's initial value is `fill: black`, and #000000 on the dark DataTable card\n"
+            . "#292a33 (store-syria-ds.css:3317) measures 1.47:1. With `currentColor` the glyph\n"
+            . "takes `.ss-btn--ghost`'s `color` — #5b5f66 on #ffffff = 6.42:1 light, #a7abb2 on\n"
+            . "#292a33 = 6.18:1 dark, both above WCAG 1.4.11's 3:1.\n  "
+            . implode("\n  ", $uncascaded)
+        );
+
+        $this->assertSame(
+            [],
+            $inlineColours,
+            "an svg in an action partial hard-codes `fill:` or `stroke:` in an inline `style=`.\n"
+            . "That is the deleted `<style>svg{fill:#ffffff}</style>` returning as an attribute:\n"
+            . "same literal, same failure, and it beats `currentColor` on specificity.\n  "
+            . implode("\n  ", $inlineColours)
+        );
+    }
+
+    /**
+     * THE NEGATIVE CONTROL FOR THE REPAIR ABOVE: it must not take away what the shipped AJAX
+     * depends on. `resources/views/cart/index.blade.php` binds a delegated handler on
+     * `.bandoncartmess` and `resources/views/wishlist/index.blade.php` on `.bandonwishmess`; both
+     * read `$(this).attr('data-id')` OFF THE BUTTON and POST it to `carts.messagesend` /
+     * `wishlist.message.send`. Neither the duplicate-class nor the bootstrap-class method above
+     * covers `data-id`, so a repair that rewrote the button tag while editing the svg inside it
+     * would silently break the send, and every assertion in this file would still pass.
+     *
+     * The attribute is spelled `data-id =` in `cart/` and `data-id=` in `wishlist/` — both are
+     * valid HTML and jQuery reads either, so the pattern tolerates the whitespace rather than
+     * pinning one file's spelling.
+     */
+    public function test_the_abandoned_follow_up_buttons_still_carry_what_their_handler_reads(): void
+    {
+        $handlers = ['bandoncartmess' => 'cart', 'bandonwishmess' => 'wishlist'];
+
+        $broken = [];
+        $found = [];
+
+        foreach ($this->partials() as $relative) {
+            $source = $this->sourceWithoutComments($relative);
+
+            preg_match_all(self::TAG, $source, $tags, PREG_SET_ORDER);
+
+            foreach ($tags as $tag) {
+                foreach ($handlers as $handler => $entity) {
+                    if (! preg_match('/\bclass="[^"]*\b' . $handler . '\b/', $tag[2])) {
+                        continue;
+                    }
+
+                    $found[$handler] = $relative;
+
+                    if (! preg_match('/\bdata-id\s*=\s*"\s*\{\{/', $tag[2])) {
+                        $broken[] = $relative . ' (' . $handler . '): '
+                            . trim(preg_replace('/\s+/', ' ', substr($tag[0], 0, 160)));
+                    }
+                }
+            }
+        }
+
+        /* The premise: both handler buttons still exist to be measured. */
+        $this->assertSame(
+            ['bandoncartmess', 'bandonwishmess'],
+            array_keys($found),
+            'one of the two abandoned follow-up buttons is gone from its action partial, so the'
+            . ' assertion below measures nothing'
+        );
+
+        $this->assertSame(
+            [],
+            $broken,
+            "an abandoned follow-up button lost the `data-id` its delegated handler reads.\n"
+            . "cart/index.blade.php and wishlist/index.blade.php both do\n"
+            . "`\$(this).attr('data-id')` on the BUTTON and POST it; without it the request goes\n"
+            . "out with an empty id and the merchant's follow-up silently sends to nobody.\n  "
+            . implode("\n  ", $broken)
         );
     }
 

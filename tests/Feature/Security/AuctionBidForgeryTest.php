@@ -8,6 +8,7 @@ use App\Models\Store;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -214,24 +215,205 @@ class AuctionBidForgeryTest extends SecurityTestCase
      * So the right assertion is not "no row" but "the row is the attacker's own": the bid is
      * written, attributed to the caller, in the product's store -- and the victim is untouched.
      */
-    public function test_a_customer_cannot_forge_a_bid_for_another_customer_on_another_store(): void
+    /**
+     * ISSUE #136. A BID MUST BELONG TO THE STOREFRONT IT WAS PLACED FROM.
+     * =============================================================================================
+     *
+     * THIS REVERSES A DELIBERATE DESIGN DECISION, and says so rather than quietly changing it.
+     *
+     * `AuctionBidIdentityGuard` used to resolve the product in ANY store on purpose -- its own
+     * comment read "the guard WANTS the product whatever store it belongs to, because bidding
+     * across stores is legitimate. What it must not do is let the caller name the store; the store
+     * comes from the row." The forgery case below asserted a cross-store bid was WRITTEN, calling
+     * it "the module's own design". Under that model the forgery was closed by DERIVING `store_id`
+     * from the product row rather than by refusing the request -- a real protection, still present,
+     * just no longer the only one.
+     *
+     * The owner decided otherwise in issue #136: "Resolve store context from the validated
+     * route/storefront, not a second caller-controlled parameter. Fail closed on missing/mismatched
+     * store/product, and ensure the selected auction and bid target match the store."
+     *
+     * WHY THAT IS SAFE HERE, MEASURED RATHER THAN ASSUMED. The storefront cannot produce such a bid:
+     * `AuctionProductController::product_detail()` resolves the auction product with
+     * `Product::where('slug', $product_slug)->where('store_id', $store_id)->first()`, so a customer
+     * browsing store A is only ever shown store A's auction products, and
+     * `place_bid.blade.php:280` posts to `place_bid.store` with that same store's slug. A
+     * cross-store bid only arrives hand-crafted, so refusing it removes no user journey -- which is
+     * what makes tightening a shipped rule defensible.
+     *
+     * It refuses more and admits nobody who was refused, so it is a tightening, and the amount
+     * rules are untouched.
+     */
+    public function test_a_customer_cannot_bid_on_a_product_outside_the_storefront_they_posted_to(): void
     {
         $this->enableModule();
 
-        [$storeA, ] = $this->storeWithAuctionProduct('store-a');
-        [$storeB, $productB] = $this->storeWithAuctionProduct('store-b');
+        [$storeA, ] = $this->storeWithAuctionProduct('x-store-a');
+        [$storeB, $productB] = $this->storeWithAuctionProduct('x-store-b');
 
-        $attacker = $this->customerIn($storeA);
-        $victim = $this->customerIn($storeB);
+        $bidder = $this->customerIn($storeA);
+
+        $before = DB::table('auction_product_bids')->count();
+
+        $response = $this->actingAs($bidder, 'customers')
+            ->post('/x-store-a/product-bid', [
+                'product_id' => $productB,   // store B's auction product
+                'bid_amount' => 999999,
+            ]);
+
+        fwrite(STDERR, "\nX-STORE  status=" . $response->getStatusCode()
+            . ' bids before=' . $before . ' after=' . DB::table('auction_product_bids')->count() . "\n");
+
+        // A ROW COUNT ALONE IS SATISFIED BY A CRASH. This file's own standard is to assert the
+        // status too (see the errored-file and merchant-session cases), because "no row was
+        // written" is equally true of a 404 from an unloaded module and a 500 from a fatal.
+        // 302 is the form path: deny() returns 403 only for expectsJson().
+        $this->assertNotSame(
+            500,
+            $response->getStatusCode(),
+            'The refusal came from a server error rather than from the guard, so this case would '
+            . 'pass for the wrong reason.'
+        );
+        $this->assertNotSame(
+            404,
+            $response->getStatusCode(),
+            'The route 404d, which means the module was not loaded and nothing was exercised. '
+            . 'enableModule() is what makes this route real -- see the premise case.'
+        );
+
+        $this->assertSame(
+            $before,
+            DB::table('auction_product_bids')->count(),
+            'A bid was written against store B\'s product from store A\'s storefront. Issue #136 '
+            . 'requires the store to come from the validated route and the bid target to match it. '
+            . 'The storefront cannot produce this request -- product_detail() is store-scoped -- so '
+            . 'it only reaches here hand-crafted, and it must fail closed.'
+        );
+    }
+
+    /**
+     * The other half, and the one that matters more: the tightening must not break bidding.
+     */
+    public function test_a_customer_can_still_bid_on_a_product_in_the_storefront_they_posted_to(): void
+    {
+        $this->enableModule();
+
+        [$store, $product] = $this->storeWithAuctionProduct('same-store');
+        $bidder = $this->customerIn($store);
+
+        $response = $this->actingAs($bidder, 'customers')
+            ->post('/same-store/product-bid', [
+                'product_id' => $product,
+                'bid_amount' => 500,     // the fixture's sale_price is 100, so this clears the floor
+            ]);
+
+        $row = DB::table('auction_product_bids')->orderByDesc('id')->first();
+
+        fwrite(STDERR, "\nSAME-STORE  status=" . $response->getStatusCode()
+            . ' row=' . var_export($row !== null, true) . "\n");
+
+        $this->assertNotNull(
+            $row,
+            'The legitimate same-store bid was refused. The #136 tightening must only refuse a '
+            . 'product outside the routed storefront; refusing the ordinary path would break the '
+            . 'auction feature outright. Status ' . $response->getStatusCode()
+            . ', error: ' . var_export(session('error'), true)
+        );
+
+        $this->assertSame((int) $product, (int) $row->product_id, 'wrong product recorded');
+        $this->assertSame((int) $bidder->id, (int) $row->customer_id, 'wrong customer recorded');
+        $this->assertSame((int) $store->id, (int) $row->store_id, 'wrong store recorded');
+        $this->assertSame(
+            500.0,
+            (float) $row->bid_amount,
+            'the bid amount changed, so the tightening touched the pricing rules it must not'
+        );
+    }
+
+    /**
+     * THE SCOPE OF #136, PINNED FROM THE OTHER SIDE.
+     *
+     * The tightening is ROUTE store vs PRODUCT store. It is NOT customer store vs product store,
+     * and that distinction is deliberate: `customers` is one session guard and storefronts are
+     * public, so a customer who registered at store A can genuinely visit store B's storefront and
+     * bid there. Posting to `/store-b/product-bid` for a store-B product is indistinguishable from
+     * a real visit and must keep working.
+     *
+     * Nothing pinned this after the re-basing above -- every remaining accepted-bid case now puts
+     * the bidder in the same store as the product, so a future "tightening" to
+     * `customer->store_id === $routeStore` would break a real flow with no test to notice. Found
+     * by independent review of the #136 change.
+     */
+    public function test_a_customer_registered_elsewhere_may_still_bid_on_the_storefront_they_visit(): void
+    {
+        $this->enableModule();
+
+        [$home, ] = $this->storeWithAuctionProduct('visitor-home');
+        [$host, $product] = $this->storeWithAuctionProduct('visitor-host');
+
+        // Registered at one store, bidding on another store's own storefront.
+        $visitor = $this->customerIn($home);
+
+        $this->assertNotSame((int) $home->id, (int) $host->id, 'premise: two distinct stores');
+
+        $response = $this->actingAs($visitor, 'customers')
+            ->post('/visitor-host/product-bid', [
+                'product_id' => $product,
+                'bid_amount' => 750,
+            ]);
+
+        $row = DB::table('auction_product_bids')->orderByDesc('id')->first();
+
+        fwrite(STDERR, "\nVISITOR  status=" . $response->getStatusCode()
+            . ' row=' . var_export($row !== null, true) . "\n");
+
+        $this->assertNotNull(
+            $row,
+            'A customer registered at another store was refused on the storefront they were '
+            . 'actually visiting. #136 restricts the PRODUCT to the routed store, not the '
+            . 'CUSTOMER -- tightening it that far would refuse a real flow. Status '
+            . $response->getStatusCode() . ', error: ' . var_export(session('error'), true)
+        );
+
+        $this->assertSame((int) $host->id, (int) $row->store_id,
+            'the bid was filed under the wrong store');
+        $this->assertSame((int) $visitor->id, (int) $row->customer_id,
+            'the bid was attributed to the wrong customer');
+    }
+
+    /**
+     * RE-BASED ON A SAME-STORE SETUP, 2026-11-11 (issue #136), and the reason matters.
+     *
+     * This case used to put the attacker in store A and the product in store B, and asserted the
+     * bid WAS written -- "The guard refused a legitimate cross-store bid, which is the module's own
+     * design". #136 reversed that design: a bid must now belong to the storefront it was posted to,
+     * so that request is refused before the forgery is ever evaluated and the case could no longer
+     * test what it exists to test.
+     *
+     * THE FORGERY IS STILL THE SUBJECT. It is simply staged inside one store now: the attacker
+     * names somebody else's `customer_id` and a `store_id` of their choosing, and both must still
+     * be derived rather than taken. Deleting this case because #136 made its old staging
+     * unreachable would have quietly dropped the protection it covers; the cross-store refusal is
+     * covered separately by its own case above.
+     */
+    public function test_a_customer_cannot_forge_a_bid_for_another_customer(): void
+    {
+        $this->enableModule();
+
+        [$store, $productId] = $this->storeWithAuctionProduct('store-a');
+        [$elsewhere, ] = $this->storeWithAuctionProduct('store-b');
+
+        $attacker = $this->customerIn($store);
+        $victim = $this->customerIn($store);
 
         $before = DB::table('auction_product_bids')->count();
 
         $response = $this->actingAs($attacker, 'customers')
             ->post('/store-a/product-bid', [
-                'product_id' => $productB,       // store B's product
+                'product_id' => $productId,
                 'bid_amount' => 999999,
-                'customer_id' => $victim->id,    // somebody else entirely
-                'store_id' => $storeA->id,       // and a store of the attacker's choosing
+                'customer_id' => $victim->id,     // somebody else entirely
+                'store_id' => $elsewhere->id,     // and a store of the attacker's choosing
             ]);
 
         $row = DB::table('auction_product_bids')->orderByDesc('id')->first();
@@ -243,21 +425,21 @@ class AuctionBidForgeryTest extends SecurityTestCase
                 . ' customer_id=' . $row->customer_id
                 . ' store_id=' . var_export($row->store_id, true)
                 . ' bid_amount=' . $row->bid_amount . "\n");
-            fwrite(STDERR, '     (attacker is customer ' . $attacker->id . ' in store ' . $storeA->id
-                . '; victim is customer ' . $victim->id . ' in store ' . $storeB->id . ")\n");
+            fwrite(STDERR, '     (attacker is customer ' . $attacker->id . ', victim is ' . $victim->id
+                . '; the posted store_id was ' . $elsewhere->id . ', the real one is ' . $store->id . ")\n");
         }
 
         $this->assertNotNull($row,
-            'No bid row at all. The guard refused a legitimate cross-store bid, which is the '
-            . "module's own design -- see the docblock. Status " . $response->getStatusCode()
-            . ', error: ' . var_export(session('error'), true));
+            'No bid row at all. This is the LEGITIMATE path -- same store, real product -- with '
+            . 'two forged fields on it, and it must still be accepted. Status '
+            . $response->getStatusCode() . ', error: ' . var_export(session('error'), true));
 
-        // THE FORGERY, CLOSED. Both of these were the attacker's to choose and are now derived.
+        // THE FORGERY, CLOSED. Both of these were the attacker's to choose and are derived.
         $this->assertSame((int) $attacker->id, (int) $row->customer_id,
             'The bid is attributed to the customer named in the REQUEST, not the authenticated '
             . 'one. Console/Auction.php:79 reads this column to decide who wins the auction and '
             . 'gets the order.');
-        $this->assertSame((int) $storeB->id, (int) $row->store_id,
+        $this->assertSame((int) $store->id, (int) $row->store_id,
             "The bid's store came from request input rather than from the product it is a bid on.");
 
         // AND THE VICTIM HAS NOTHING. Making them the winner was the point of the forgery.
@@ -283,17 +465,20 @@ class AuctionBidForgeryTest extends SecurityTestCase
     {
         $this->enableModule();
 
-        [$storeA, ] = $this->storeWithAuctionProduct('top-a');
-        [$storeB, $productB] = $this->storeWithAuctionProduct('top-b');
+        // SAME STORE, for the reason recorded on the forgery case above: since #136 a bid must
+        // belong to the storefront it was posted to, so a cross-store staging would be refused
+        // before the attribution this case is about could be evaluated.
+        [$store, $productB] = $this->storeWithAuctionProduct('top-a');
+        [$elsewhere, ] = $this->storeWithAuctionProduct('top-b');
 
-        $attacker = $this->customerIn($storeA);
-        $victim = $this->customerIn($storeB);
+        $attacker = $this->customerIn($store);
+        $victim = $this->customerIn($store);
 
         DB::table('auction_product_bids')->insert([
             'product_id' => $productB,
             'bid_amount' => 150,
             'customer_id' => $victim->id,
-            'store_id' => $storeB->id,
+            'store_id' => $store->id,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -303,7 +488,7 @@ class AuctionBidForgeryTest extends SecurityTestCase
                 'product_id' => $productB,
                 'bid_amount' => 999999,
                 'customer_id' => $victim->id,   // the forgery attempt
-                'store_id' => $storeA->id,
+                'store_id' => $elsewhere->id,
             ]);
 
         $max = DB::table('auction_product_bids')->where('product_id', $productB)->max('bid_amount');
@@ -685,6 +870,18 @@ class AuctionBidForgeryTest extends SecurityTestCase
     {
         $this->enableModule();
 
+        // POSTS TO err-b, THE PRODUCT'S OWN STORE, and that is load-bearing since #136.
+        //
+        // This case used to post to `/err-a/product-bid` with store B's product. Once the #136
+        // route-store check landed, the guard refused every one of the 28 iterations before the
+        // derivation could be evaluated: the loop took its `continue` each time and the three real
+        // assertions below became DEAD CODE. The case still reported 30 passing assertions -- all
+        // of them the status check and the premise -- so it looked healthy while pinning nothing.
+        // Found by independent review of the #136 change, not by the suite.
+        //
+        // The divergence this case exists to measure is preserved by keeping the POSTED
+        // `store_id` foreign (storeA) while the ROUTE and the product agree (storeB). That is
+        // what makes "derived, not taken" observable.
         [$storeA, ] = $this->storeWithAuctionProduct('err-a');
         [$storeB, $productB] = $this->storeWithAuctionProduct('err-b');
         $attacker = $this->customerIn($storeA);
@@ -700,7 +897,7 @@ class AuctionBidForgeryTest extends SecurityTestCase
 
                 $response = $this->actingAs($attacker, 'customers')->call(
                     'POST',
-                    '/err-a/product-bid',
+                    '/err-b/product-bid',
                     [
                         'product_id' => $productB,
                         'bid_amount' => 1000 + $before,
@@ -914,7 +1111,7 @@ class AuctionBidForgeryTest extends SecurityTestCase
             'Your bid could not be placed.',
             'Please enter a valid bid amount.',
             'Your bid must be higher than the current highest bid.',
-            'That auction product could not be found.',
+            self::OWNERSHIP_REFUSAL,
             'Please sign in to place a bid.',
         ] as $ownMessage) {
             $this->assertNotSame($ownMessage, session('error'),
@@ -956,5 +1153,429 @@ class AuctionBidForgeryTest extends SecurityTestCase
         $this->assertSame((int) $customer->id, (int) $row->customer_id);
         $this->assertSame((int) $store->id, (int) $row->store_id);
         $this->assertSame(250.0, (float) $row->bid_amount);
+    }
+
+    /* =================================================================================
+     * P1-SEC-61 -- the misleading refusal message.
+     * ================================================================================= */
+
+    private const OWNERSHIP_REFUSAL =
+        'We could not confirm this auction on this store, so no bid was placed. Please contact the store.';
+
+    /**
+     * Two products in two stores sharing ONE slug, which is what P1-SEC-61 is about.
+     *
+     * `products.slug` has no unique index (`2023_12_26_092822_create_products_table.php:17` is a
+     * plain nullable string) and `AuctionProductController:205` assigns a merchant-supplied slug
+     * verbatim. The generated path cannot produce this: `Product::slugs()` calls
+     * `getRelatedSlugs()`, which is `DB::table($table)->where('slug','like',$slug.'%')` with NO
+     * store predicate, so auto-slugs are globally unique. Only a typed slug collides -- which is
+     * reachable, because the field is merchant-controlled and nothing validates it.
+     *
+     * @return array{0: Store, 1: int, 2: Store, 3: int, 4: string}
+     */
+    private function twoStoresSharingOneProductSlug(): array
+    {
+        [$storeA, $productA] = $this->storeWithAuctionProduct('collide-a');
+        [$storeB, $productB] = $this->storeWithAuctionProduct('collide-b');
+
+        $shared = 'vintage-watch';
+
+        // Raw writes, matching storeWithAuctionProduct, and the guard reads products through
+        // DB::table too -- so no Cachable read sits between the write and the assertion.
+        DB::table('products')->whereIn('id', [$productA, $productB])->update(['slug' => $shared]);
+
+        // THE LOWEST ID WINS, which is the whole mechanism: `bidingForm:1566` is
+        // `Product::where('slug', $product_slug)->first()` with no store predicate and no order,
+        // so store B's customer is shown store A's row. Assert it rather than assume it.
+        $this->assertLessThan($productB, $productA);
+        $this->assertSame(
+            $productA,
+            (int) DB::table('products')->where('slug', $shared)->value('id'),
+            'The unscoped slug lookup no longer resolves the lower id first, so this fixture no '
+            . 'longer reproduces P1-SEC-61 and the cases below would prove nothing.'
+        );
+
+        return [$storeA, $productA, $storeB, $productB, $shared];
+    }
+
+    /**
+     * THE CONTROL THAT STOPS THE "FIX" FROM BEING A REGRESSION.
+     *
+     * The obvious way to resolve a misleading message is to say which cause fired. That would be
+     * a cross-tenant existence oracle: an attacker walking product ids could separate "no such
+     * id" from "that id exists, in a store that is not this one" and enumerate other tenants'
+     * catalogues. `AuctionBidIdentityGuard` therefore gives all four ownership refusals ONE body,
+     * and this case is what keeps it that way -- it fails if any cause is given its own text.
+     */
+    public function test_every_ownership_refusal_is_indistinguishable(): void
+    {
+        $this->enableModule();
+
+        [$storeA, ] = $this->storeWithAuctionProduct('oracle-a');
+        [, $productB] = $this->storeWithAuctionProduct('oracle-b');
+
+        // A product whose store_id is unusable (0 fails usableId's `<= 0`), so the third
+        // ownership branch is reached rather than inferred.
+        $orphan = (int) DB::table('products')->insertGetId([
+            'name' => 'Orphan',
+            'slug' => 'orphan-no-store',
+            'store_id' => 0,
+            'created_by' => $storeA->created_by,
+            'price' => 100,
+            'sale_price' => 100,
+            'track_stock' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $bidder = $this->customerIn($storeA);
+
+        $causes = [
+            'product_id is not a usable id' => 'not-an-id',
+            'no such product row' => 999999,
+            'the product carries no usable store' => $orphan,
+            'the product belongs to another store' => $productB,
+        ];
+
+        $seen = [];
+
+        foreach ($causes as $label => $productId) {
+            $response = $this->actingAs($bidder, 'customers')
+                ->post('/oracle-a/product-bid', [
+                    'product_id' => $productId,
+                    'bid_amount' => 999999,
+                ]);
+
+            $this->assertNotSame(404, $response->getStatusCode(), "{$label}: the module was not loaded.");
+            $this->assertNotSame(500, $response->getStatusCode(), "{$label}: the refusal was a crash.");
+
+            $seen[$label] = (string) $response->getSession()->get('error');
+        }
+
+        fwrite(STDERR, "\nP1-SEC-61 ORACLE\n");
+        foreach ($seen as $label => $message) {
+            fwrite(STDERR, '  ' . str_pad($label, 40) . ' -> ' . $message . "\n");
+        }
+
+        $this->assertCount(
+            1,
+            array_unique(array_values($seen)),
+            "The four ownership refusals no longer share one message:\n"
+            . json_encode($seen, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n"
+            . 'Distinguishable refusals let a caller separate "no such product id" from "that id '
+            . 'exists in another store", which enumerates other tenants\' catalogues one id at a '
+            . 'time. Diagnosis belongs in the log, not the response.'
+        );
+
+        $this->assertSame(self::OWNERSHIP_REFUSAL, reset($seen));
+    }
+
+    /**
+     * The message itself. The old text asserted something false in the one case a real shopper
+     * reaches -- the product they clicked does exist on the store they are standing in.
+     */
+    public function test_the_refusal_no_longer_claims_the_product_does_not_exist(): void
+    {
+        $this->enableModule();
+
+        [$storeA, $productA, $storeB, , ] = $this->twoStoresSharingOneProductSlug();
+
+        // Store B's customer clicks store B's auction. bidingForm hands the modal store A's row,
+        // so this is the product_id the module's own form posts -- a LEGITIMATE click.
+        $response = $this->actingAs($this->customerIn($storeB), 'customers')
+            ->post('/collide-b/product-bid', [
+                'product_id' => $productA,
+                'bid_amount' => 999999,
+            ]);
+
+        $message = (string) $response->getSession()->get('error');
+
+        $this->assertNotSame('', $message, 'The refusal flashed no message at all.');
+
+        $this->assertStringNotContainsStringIgnoringCase(
+            'could not be found',
+            $message,
+            'The refusal still tells the customer the auction product does not exist. It does: '
+            . 'they are looking at it. The slug collision made bidingForm resolve the other '
+            . 'store\'s row, and this guard correctly refuses the resulting bid -- but the '
+            . 'message must not deny the existence of something on screen. [P1-SEC-61]'
+        );
+
+        $this->assertSame(self::OWNERSHIP_REFUSAL, $message);
+        $this->assertStringContainsString('no bid was placed', $message);
+    }
+
+    /**
+     * WHERE THE DIAGNOSIS GOES. The shopper is told nothing distinguishing; the operator is told
+     * everything, because only the store can rename a colliding slug.
+     */
+    public function test_a_slug_collision_is_diagnosed_for_the_operator(): void
+    {
+        $this->enableModule();
+
+        [, $productA, $storeB, $productB, $shared] = $this->twoStoresSharingOneProductSlug();
+
+        Log::spy();
+
+        $this->actingAs($this->customerIn($storeB), 'customers')
+            ->post('/collide-b/product-bid', [
+                'product_id' => $productA,
+                'bid_amount' => 999999,
+            ]);
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(function (string $message, array $context = []) use ($productA, $productB, $storeB, $shared): bool {
+                return str_contains($message, 'P1-SEC-61')
+                    && str_contains($message, 'collision')
+                    && ($context['slug'] ?? null) === $shared
+                    && ($context['posted_product_id'] ?? null) === $productA
+                    && ($context['storefront_product_id'] ?? null) === $productB
+                    && ($context['storefront_store_id'] ?? null) === $storeB->id;
+            })
+            ->once();
+    }
+
+    /**
+     * The negative control, and the reason the log is worth having: a hand-crafted cross-store
+     * bid must NOT be filed as a slug collision, or the diagnostic becomes noise and the real
+     * collisions are lost in it.
+     */
+    public function test_a_hand_crafted_cross_store_bid_is_not_filed_as_a_collision(): void
+    {
+        $this->enableModule();
+
+        [$storeA, ] = $this->storeWithAuctionProduct('plain-a');
+        [, $productB] = $this->storeWithAuctionProduct('plain-b');
+
+        // Distinct slugs -- storeWithAuctionProduct gives each product 'auction-<store slug>' --
+        // so store A has no twin for store B's product.
+        //
+        // A handler rather than a spy matcher, for the reason measured in
+        // `test_the_first_three_ownership_branches_are_not_logged`: an args-array matcher also
+        // matches on ARITY, which made the first version of that case pass against a live probe.
+        $handler = new \Monolog\Handler\TestHandler();
+        Log::getLogger()->pushHandler($handler);
+
+        $this->actingAs($this->customerIn($storeA), 'customers')
+            ->post('/plain-a/product-bid', [
+                'product_id' => $productB,
+                'bid_amount' => 999999,
+            ]);
+
+        $lines = array_values(array_filter(
+            array_map(
+                fn ($record): array => [
+                    'message' => (string) ($record['message'] ?? ''),
+                    'context' => (array) ($record['context'] ?? []),
+                ],
+                $handler->getRecords()
+            ),
+            fn (array $r): bool => str_contains($r['message'], 'P1-SEC-61')
+        ));
+
+        $this->assertCount(1, $lines, 'Expected exactly one P1-SEC-61 line for this refusal.');
+
+        $this->assertStringContainsString('does not belong to this storefront', $lines[0]['message']);
+
+        $this->assertStringNotContainsString(
+            'collision',
+            $lines[0]['message'],
+            'A hand-crafted cross-store bid was filed as a slug collision. The diagnostic then '
+            . 'becomes noise and the real collisions -- the ones a merchant can actually fix -- '
+            . 'are lost in it.'
+        );
+
+        $this->assertArrayNotHasKey(
+            'storefront_product_id',
+            $lines[0]['context'],
+            'The non-collision line names a storefront product that does not exist.'
+        );
+    }
+
+    /**
+     * P1-SEC-62, AND THE REASON THIS CASE EXISTS AT ALL.
+     *
+     * `test_every_ownership_refusal_is_indistinguishable` checks the RESPONSE, and review pointed
+     * out that it therefore no longer measures the whole of what its name claims: the diagnostic
+     * makes the fourth branch distinguishable from the first three by the presence of a log line,
+     * and while P1-SEC-40 stands a caller can read that line. The honest response is not to delete
+     * the diagnostic but to PIN the differentiation so it is declared and cannot widen -- the first
+     * three branches must stay silent, so the only thing the log ever separates is "this bid
+     * targeted another store" from "it did not".
+     */
+    public function test_the_first_three_ownership_branches_are_not_logged(): void
+    {
+        $this->enableModule();
+
+        [$storeA, ] = $this->storeWithAuctionProduct('quiet-a');
+
+        $orphan = (int) DB::table('products')->insertGetId([
+            'name' => 'Orphan',
+            'slug' => 'orphan-quiet',
+            'store_id' => 0,
+            'created_by' => $storeA->created_by,
+            'price' => 100,
+            'sale_price' => 100,
+            'track_stock' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $bidder = $this->customerIn($storeA);
+
+        // A REAL MONOLOG HANDLER, NOT A SPY MATCHER, AND THE FIRST VERSION OF THIS CASE WAS
+        // VACUOUS WITHOUT IT. It asserted
+        // `Log::shouldNotHaveReceived('warning', [Mockery::pattern('/P1-SEC-61/'), Mockery::any()])`,
+        // which matches on ARITY as well as content: a probe that added
+        // `Log::warning('P1-SEC-61 probe')` -- one argument -- to the missing-product branch left
+        // the case PASSING. Measured, not reasoned: that is how this was found. A handler records
+        // whatever is actually emitted, with any number of arguments.
+        $handler = new \Monolog\Handler\TestHandler();
+        Log::getLogger()->pushHandler($handler);
+
+        foreach (['not-an-id', 999999, $orphan] as $productId) {
+            $this->actingAs($bidder, 'customers')
+                ->post('/quiet-a/product-bid', [
+                    'product_id' => $productId,
+                    'bid_amount' => 999999,
+                ]);
+        }
+
+        $leaked = array_values(array_filter(
+            array_map(
+                fn ($record): string => (string) ($record['message'] ?? '')
+                    . ' ' . json_encode($record['context'] ?? []),
+                $handler->getRecords()
+            ),
+            fn (string $line): bool => str_contains($line, 'P1-SEC-61')
+        ));
+
+        $this->assertSame(
+            [],
+            $leaked,
+            "The first three ownership branches now write a P1-SEC-61 line:\n  "
+            . implode("\n  ", $leaked) . "\n"
+            . 'Only the store-mismatch branch may log. If the other three start logging, the log '
+            . 'separates all four causes rather than one, and while P1-SEC-40 stands that file is '
+            . 'readable by anonymous HTTP -- so the distinction OWNERSHIP_REFUSAL withholds from '
+            . 'the response would be fully reconstructible from it. [P1-SEC-62]'
+        );
+    }
+
+    /**
+     * A DIAGNOSTIC MUST NEVER CHANGE THE DECISION IT DESCRIBES.
+     *
+     * `config/logging.php` sets `ignore_exceptions => false` on the default stack, so a
+     * `Log::warning` that cannot open its stream -- full disk, unwritable storage/logs -- THROWS.
+     * Unwrapped, that throw happens before `deny()` and converts this branch's deliberate
+     * recoverable 302 into a 500: the exact regression `deny()`'s docblock exists to prevent, on
+     * an attacker-paced branch. Raised by review; pinned here.
+     */
+    public function test_a_failing_log_write_cannot_turn_the_refusal_into_an_error(): void
+    {
+        $this->enableModule();
+
+        [, $productA, $storeB, , ] = $this->twoStoresSharingOneProductSlug();
+
+        $before = DB::table('auction_product_bids')->count();
+
+        Log::shouldReceive('warning')->andThrow(new \RuntimeException('could not open stream'));
+
+        $response = $this->actingAs($this->customerIn($storeB), 'customers')
+            ->post('/collide-b/product-bid', [
+                'product_id' => $productA,
+                'bid_amount' => 999999,
+            ]);
+
+        $this->assertNotSame(
+            500,
+            $response->getStatusCode(),
+            'A log write that threw took the whole refusal with it. The customer gets an error '
+            . 'page instead of a recoverable refusal, and the diagnostic -- which exists only to '
+            . 'describe the decision -- has changed its outcome.'
+        );
+
+        $this->assertSame(
+            self::OWNERSHIP_REFUSAL,
+            (string) $response->getSession()->get('error'),
+            'The refusal still has to happen, and with its own message, when the diagnostic fails.'
+        );
+
+        $this->assertSame(
+            $before,
+            DB::table('auction_product_bids')->count(),
+            'A bid was written because the diagnostic threw before the refusal could be returned.'
+        );
+    }
+
+    /**
+     * ONE LINE PER DISTINCT COLLISION. The branch is attacker-paced and the `web` group carries no
+     * throttle, so without this an authenticated caller could append without bound to a file the
+     * live host serves -- and bury the real collisions the diagnostic exists to surface.
+     */
+    public function test_a_repeated_collision_is_logged_once_not_once_per_attempt(): void
+    {
+        $this->enableModule();
+
+        [, $productA, $storeB, , ] = $this->twoStoresSharingOneProductSlug();
+        $bidder = $this->customerIn($storeB);
+
+        Log::spy();
+
+        for ($i = 0; $i < 5; $i++) {
+            $this->actingAs($bidder, 'customers')
+                ->post('/collide-b/product-bid', [
+                    'product_id' => $productA,
+                    'bid_amount' => 999999 + $i,
+                ]);
+        }
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message, array $context = []): bool =>
+                str_contains($message, 'P1-SEC-61'))
+            ->once();
+    }
+
+    /**
+     * THE LOG IS PUBLIC AND MUST BE TREATED AS SUCH. `GET /storage/logs/laravel.log` answered 200
+     * with 3,421,645 bytes of text/plain on the live host on 2026-11-11 (P1-SEC-40, owner-deferred
+     * and UNRESOLVED). Product ids, store ids and a slug are already public storefront data. The
+     * customer id is not, and must not be written into a diagnostic that anonymous HTTP can read.
+     */
+    public function test_the_diagnostic_does_not_log_the_customers_identity(): void
+    {
+        $this->enableModule();
+
+        [, $productA, $storeB, , ] = $this->twoStoresSharingOneProductSlug();
+        $bidder = $this->customerIn($storeB);
+
+        Log::spy();
+
+        $this->actingAs($bidder, 'customers')
+            ->post('/collide-b/product-bid', [
+                'product_id' => $productA,
+                'bid_amount' => 999999,
+            ]);
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(function (string $message, array $context = []) use ($bidder): bool {
+                if (! str_contains($message, 'P1-SEC-61')) {
+                    return false;
+                }
+
+                // THE MESSAGE TOO, not only the context. The first version of this case inspected
+                // `$context` alone, so a customer id interpolated into the message string would
+                // have satisfied it -- found by review, and the kind of gap this file exists to
+                // keep out.
+                $flat = strtolower(
+                    ($message . ' ' . (json_encode($context, JSON_UNESCAPED_SLASHES) ?: ''))
+                );
+
+                return ! str_contains($flat, 'customer')
+                    && ! str_contains($flat, strtolower($bidder->email))
+                    && ! str_contains($flat, (string) $bidder->id . '@');
+            })
+            ->once();
     }
 }

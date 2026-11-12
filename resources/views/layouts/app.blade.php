@@ -22,9 +22,26 @@
         $setting['SITE_RTL'] = 'off';
     }
 
+    /*
+     * P2.5-BR-02 -- the PLATFORM DEFAULT is the Store Syria brand, not theme-3.
+     *
+     * This branch is the one a store takes when it has never chosen a colour, which is every
+     * store until a merchant opens Brand Settings. It used to hand back `theme-3` (#10B77F, a
+     * green at hue 160 degrees) -- 29.5 degrees outside the logo's own 189.4-218.9 gradient. So
+     * the design system's components painted the brand blue while the sidebar, the active nav
+     * item and every .btn-primary beside them stayed green: two identities on one page, which is
+     * worse than either on its own. Measured in the running admin before and after.
+     *
+     * `custom-color` is the host's OWN mechanism for this -- public/css/custom-color.css drives
+     * 39 selectors off `--color-customColor`, the active sidebar item among them -- so nothing in
+     * packages/workdo/ or assets/css/ is edited to achieve it.
+     *
+     * A STORE THAT HAS PICKED A COLOUR IS UNAFFECTED. White-labelling is a product feature; the
+     * two branches below still read $setting['color'] and still win. Only the fallback moves.
+     */
     if (!isset($setting['color'])) {
-        $themeColor = 'theme-3';
-        $color = 'theme-3';
+        $themeColor = 'custom-color';
+        $color = \App\Support\Branding\StoreSyriaBrand::CHROME_DEFAULT;
     } elseif (isset($setting['color_flag']) && $setting['color_flag'] == 'true') {
         $themeColor = 'custom-color';
         $color = $setting['color'];
@@ -69,7 +86,16 @@
     @if (isset($setting['cust_darklayout']) && $setting['cust_darklayout'] == 'on') data-ss-theme="dark" data-ss-theme-source="host" @endif>
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=0, minimal-ui" />
+    {{-- P2.5-WAVE-21. `user-scalable=0` asked the browser to prevent zooming, which is WCAG 2.1
+         SC 1.4.4 Resize Text wherever it is honoured -- Chrome on Android honours it unless the
+         person has turned on "Force enable zoom". Read off the RENDERED page during a phone-width
+         pass, not grepped: the tag reached every merchant screen.
+
+         `minimal-ui` went with it: an iOS 7.1-only token, removed in iOS 8 in 2014.
+
+         Ratchet: Tests\Unit\Ui\ViewportAllowsZoomTest, which also pins the twelve out-of-phase
+         views that still carry the token so the set cannot grow unnoticed. --}}
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="author" content="WorkDo.io" />
     <meta name="base-url" content="{{ URL::to('/') }}">
@@ -96,8 +122,31 @@
     <title>{{ isset($setting['title_text']) ? $setting['title_text'] : config('platform.brand_name') }} - @yield('page-title') </title>
 
     <link rel="stylesheet" href="{{ asset('assets/css/plugins/select2.min.css') }}">
-    <!-- Favicon icon -->
-    <link rel="icon" href="{{ isset($setting['favicon']) ? get_file($setting['favicon']) . '?timestamp=' . time() : asset(Storage::url('uploads/logo/favicon.png')) . '?timestamp=' . time() }}" type="image/x-icon" />
+    {{-- P2.5-DESIGN-B. The fallback was `uploads/logo/favicon.png`, which does not exist, so the
+         browser tab carried no icon at all -- MEASURED as a 404 on every admin screen. The shipped
+         Store Syria mark takes its place. `?timestamp=' . time()` is gone with it: a favicon
+         re-fetched on every page load is the one request a browser should never have to make
+         twice. A merchant's own upload still busts its cache, on the FILE's mtime; and it is
+         stat-ed first, because `get_file()` returns a well-formed URL whether or not the file is
+         there. --}}
+    @php
+        $ssFavicon = isset($setting['favicon']) ? get_file($setting['favicon']) : null;
+        $ssFaviconFile = $ssFavicon
+            ? public_path(ltrim((string) parse_url($ssFavicon, PHP_URL_PATH), '/'))
+            : null;
+        $ssFaviconHost = $ssFavicon ? parse_url($ssFavicon, PHP_URL_HOST) : null;
+        $ssHasFavicon = $ssFavicon && (
+            (! empty($ssFaviconHost) && $ssFaviconHost !== request()->getHost())
+            || is_file($ssFaviconFile)
+        );
+        $ssFaviconBust = ($ssHasFavicon && $ssFaviconFile && is_file($ssFaviconFile))
+            ? '?v=' . filemtime($ssFaviconFile)
+            : '';
+    @endphp
+    <link rel="icon" type="image/png" sizes="64x64"
+          href="{{ $ssHasFavicon ? $ssFavicon . $ssFaviconBust : asset('assets/images/brand/store-syria-favicon-64.png') }}" />
+    <link rel="apple-touch-icon" sizes="180x180"
+          href="{{ $ssHasFavicon ? $ssFavicon . $ssFaviconBust : asset('assets/images/brand/store-syria-touch-icon.png') }}" />
 
     <!-- notification css -->
     <link rel="stylesheet" href="{{ asset('assets/css/plugins/notifier.css') }}">
@@ -222,7 +271,7 @@
          The per-screen include remains and is now a no-op duplicate link on
          those screens; it is kept so a screen outside this layout (guest,
          theme_layout) can still opt in. --}}
-    <link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}?v=p02-7">
+    <link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}?v={{ \App\Support\DesignSystemAssets::version('css/store-syria-ds.css') }}">
     {{-- P2-04-5. The BEHAVIOUR follows the stylesheet into the layout, for the same reason the
          stylesheet was promoted: a screen that uses a design-system component should not also
          have to remember an include. The order list's quick-preview panel is the case that
@@ -233,7 +282,7 @@
          The file guards itself against a second execution, because the opt-in partial is still
          included by dashboard.blade.php and attribute_option/index.blade.php and a repeated
          <script src> runs again rather than being skipped. --}}
-    <script defer src="{{ asset('js/store-syria-ds.js') }}?v=p02-7"></script>
+    <script defer src="{{ asset('js/store-syria-ds.js') }}?v={{ \App\Support\DesignSystemAssets::version('js/store-syria-ds.js') }}"></script>
 
     {{-- P2-A-02. THE DARK-MODE HOOK, in <head> and on every admin page.
 
@@ -331,7 +380,65 @@
 
 </head>
 
-<body class="{{ $themeColor ?? 'theme-3'}}">
+{{-- LOCALISED STRINGS THE PAGE'S SCRIPTS NEED, on the element they are read from.
+     P2.5-WAVE-22 + P2.5-WAVE-6a
+
+     `data-ss-label-table-options` (WAVE-22) was the first: the design-system script builds the
+     DataTables control-bar disclosure, and `.dataTable-top` does not exist in any view, so the
+     label cannot be written where the button is. This comment used to say it was "the one
+     localised string the design-system script needs". IT IS NO LONGER THE ONLY ONE, and leaving
+     that sentence standing would have been a claim that cannot be true -- which this project
+     treats as a defect in its own right.
+
+     `data-ss-dt-*` (WAVE-6a) are the seven simple-datatables labels. Same shape of problem, same
+     answer: the library's `td.dataTables-empty`, its search box and its pager are all created at
+     RUNTIME and exist in no view, so the words cannot be written where they are used. An earlier
+     version of WAVE-6a put them in `<head>` as `<meta name="dt-*">`, reasoning from `base-url`.
+     That was the wrong precedent -- `base-url` and `csrf-token` are transport facts, not
+     user-facing copy -- and the right one was 300 lines below it, here, plus
+     `partision/command-palette.blade.php:35-38`, which carries four translated strings as
+     `data-ss-*-text` on the element that consumes them. Two prefixes in two homes with no rule
+     between them is the kind of debt that is cheap now and expensive later.
+
+     EVERY ONE IS READ WITH A FALLBACK, so a layout that omits them degrades to the library's own
+     English rather than to a blank control. --}}
+{{-- `data-ss-admin` MARKS THE MERCHANT SHELL, and it exists so the design system can reach a
+     host element that is appended to <body> outside every `.ss-` container -- today the notifier
+     toast, which the plugin creates with `document.body.appendChild`.
+
+     IT IS NOT DECORATION AND IT IS NOT A SPARE HOOK. DesignSystemStylesheetScopeTest requires
+     every selector in store-syria-ds.css to be confined by an `.ss-` class or a `data-ss-`
+     attribute, and `data-ss-theme` cannot serve: MEASURED, it is set only in dark mode and reads
+     `null` in light, so a rule hung on it would fix half the themes. The other always-present
+     attribute on this element is `data-ss-label-table-options`, a TRANSLATED LABEL -- hanging a
+     stylesheet's scope on a label string couples the toast's legibility to a translation key that
+     a later author could rename without ever seeing what broke.
+
+     Only this layout carries it. `layouts/guest.blade.php`, `theme_layout.blade.php`, the
+     storefront and the vendored LandingPage do not, which is what keeps `store-syria-ds.css` off
+     checkout and the public website. Pinned by ToastContrastTest. --}}
+<body class="{{ $themeColor ?? 'theme-3'}}" data-ss-admin
+      data-ss-label-table-options="{{ __('Table options') }}"
+      data-ss-dt-no-rows="{{ __('Nothing here yet') }}"
+      data-ss-dt-no-rows-body="{{ __('Records will appear in this table as they are created.') }}"
+      data-ss-dt-no-results="{{ __('No results match your search') }}"
+      data-ss-dt-no-results-body="{{ __('Try a shorter term, or clear the search to see everything.') }}"
+      data-ss-dt-search="{{ __('Search...') }}"
+      data-ss-dt-per-page="{{ __('{select} entries per page') }}"
+      data-ss-dt-info="{{ __('Showing {start} to {end} of {rows} entries') }}"
+      {{-- CHOICES.JS, which ships its own English UI strings and is initialised from
+           `public/js/custom.js` -- a static file that cannot call `__()`. Measured on the Arabic
+           testimonial modal: the remove-X on a multi-select read `Remove item`, and the field's
+           placeholder read `Please Select`. NOTHING IN THIS REPOSITORY SAID EITHER, which is why
+           no translation sweep had found them; the library injects them.
+
+           Carried as data attributes for the same reason the DataTables strings above are: it is
+           the one place a static script can read a translated string from. --}}
+      data-ss-choices-remove="{{ __('Remove item') }}"
+      data-ss-choices-placeholder="{{ __('Please Select') }}"
+      data-ss-choices-no-results="{{ __('No results found') }}"
+      data-ss-choices-no-choices="{{ __('No choices to choose from') }}"
+      data-ss-choices-select="{{ __('Press to select') }}">
     {{-- P2-01-11: restore the collapsed rail BEFORE the sidebar paints.
 
          This is inline and first-in-body rather than in store-syria-nav.js for
@@ -443,28 +550,84 @@
                     '--ss-brand-ontext',
                     'rgb(' + text[0] + ',' + text[1] + ',' + text[2] + ')'
                 );
+
+                /* AND THE SAME THING ON THE DARK PAGE, which the loop above cannot serve.
+                   It darkens against a hard-coded LIGHT page, so for a merchant whose colour is
+                   already dark it exits on its FIRST test and returns the brand UNCHANGED. That
+                   is correct on white and is the entire defect on a dark surface.
+
+                   MEASURED across six merchant screens, reading --theme-color off the live body:
+                   light 0 of 44 brand-as-text sites fail, DARK 34 OF 35 -- /setting contributes
+                   20, its whole tab rail. Store Syria's own #335da8 is 2.22:1 there.
+
+                   custom.css said dark needed no change ("the BRIGHT brand colour is already
+                   compliant there"). That was measured on the DEFAULT theme-3 green, #10B77F at
+                   5.34:1, and is true of it. It is not true of a darker brand, and this product
+                   ships one.
+
+                   LIFTED TOWARDS WHITE, WHICH KEEPS THE HUE, and only until AA is met -- the
+                   mirror of the loop above, not a new idea. Against the CARD surface, not the
+                   page: both were measured (page rgb(34,36,44), card rgb(41,42,51)) and for
+                   light text the LIGHTER one is the harder, so a value that clears the card
+                   clears the page too. Computing against the page would under-shoot every card,
+                   which is where the failing text actually sits.
+
+                   The brand colour itself is untouched, exactly as above: this is a separate
+                   property used only where the brand is TEXT, so every fill, border and badge
+                   keeps the merchant's exact colour. */
+                var DARK_SURFACE = [41, 42, 51];
+                var lift = 0;
+                var dark = rgb;
+                while (lift <= 1) {
+                    dark = rgb.map(function (v) { return Math.round(v + (255 - v) * lift); });
+                    if (ratio(dark, DARK_SURFACE) >= 4.5) { break; }
+                    lift += 0.02;
+                }
+                document.documentElement.style.setProperty(
+                    '--ss-brand-ontext-dark',
+                    'rgb(' + dark[0] + ',' + dark[1] + ',' + dark[2] + ')'
+                );
             } catch (e) {}
         })();
     </script>
 
-    @include('partision.sidebar')
-
-    @include('partision.header')
-
     {{--
         WS A7 / B6 -- THE SKIP LINK, and it is the first focusable element on every merchant
         screen. `.ss-skip-link` has existed in the design system since the beginning
-        (public/css/store-syria-ds.css:1462, commented "first focusable element on a page,
+        (public/css/store-syria-ds.css:1585, commented "first focusable element on a page,
         invisible until focused") and was rendered by NOTHING -- a repo-wide search for call sites
         found zero. So a keyboard user reached the main content only by tabbing through the whole
         sidebar, on all ~150 merchant screens.
 
-        It goes here, immediately before the content container, because that is where it has to be
-        in the tab order: after nothing. `#ss-main` carries `tabindex="-1"` so the browser moves
-        focus there rather than only scrolling, which is the half of a skip link that is usually
-        missed.
+        IT GOES HERE, BEFORE BOTH CHROME INCLUDES, and the first version of this got it wrong: it
+        sat below them, which is why it had to be MOVED rather than merely written. There is no
+        positive `tabindex` in this layout or in the sidebar, header and workspace-chip partials, so
+        tab order IS dom order -- a link emitted after the two includes is reached only after the
+        brand link, the workspace chip, the sidebar search, the rail toggle, every
+        entitlement-gated anchor from `getMenu()` and the header's 25 focusables. It skipped
+        nothing.
+
+        BUT NOT FIRST CHILD OF <body>: the two inline scripts above must stay first-in-body, and
+        for a reason stated at each of them -- the rail-restore runs before paint so the sidebar
+        does not snap, and the on-brand label colour is read off this BODY element. Neither is
+        focusable, so neither costs a Tab stop. "Before the chrome" is the requirement; "first
+        child" is not.
+
+        AND IT HAD TO BE PAINTED IN FRONT, which is the half a markup move alone would have got
+        wrong. `.ss-skip-link` is absolute in the root stacking context and the chrome is fixed at
+        z-index 1026 in the same context, so at the old `--ss-z-sticky` (1020) the first Tab would
+        have focused an element behind an opaque #1c232f panel -- no visible focus indicator at all,
+        in either direction, since `inset-inline-start` mirrors exactly as the fixed sidebar does.
+        `--ss-z-skip-link` (store-syria-ds.css) is the token that clears it.
+
+        `#ss-main` carries `tabindex="-1"` so the browser moves focus there rather than only
+        scrolling, which is the half of a skip link that is usually missed.
     --}}
     <a class="ss-skip-link" href="#ss-main">{{ __('Skip to main content') }}</a>
+
+    @include('partision.sidebar')
+
+    @include('partision.header')
 
     <!-- [ Main Content ] start -->
     <div class="dash-container">
@@ -477,8 +640,39 @@
                                 {{-- `</h2>`, not `</h4>`: the opening tag is h2 and the close
                                      was h4, on every merchant screen. Browsers recover from it,
                                      so nothing broke visibly -- but the DOM a screen reader and
-                                     any heading-order audit walk was malformed. --}}
-                                <h2 class="h3 mb-0 ss-scope">@yield('page-title')</h2>
+                                     any heading-order audit walk was malformed.
+
+                                     PACKAGE A, 2026-11-06. IT IS NOW AN h1, AND THERE WAS NO h1
+                                     ON ANY MERCHANT PAGE BEFORE THIS. Measured on /dashboard: the
+                                     visible heading sequence read
+                                     [3,3,3,3,3,2,2,2,2,2,2,4,4,4,5,4,4,6,...] -- the five sidebar
+                                     zone captions at h3, then the page's own title at h2, then two
+                                     SKIPS, h2->h4 and h4->h6. `grep -rn "<h1"` over the whole
+                                     layout chain returned nothing. So every one of the 152 views
+                                     that set `@section('page-title')` described itself to a screen
+                                     reader and to every heading audit as a SUBSECTION of a document
+                                     that had no subject.
+
+                                     `class="h3"` is kept, so the rendered type scale does not move
+                                     by a pixel: this is an outline change, not a visual one.
+
+                                     AND IT IS NOW CONDITIONAL, which fixes a second defect found
+                                     while making the first. The block was unconditional, so a view
+                                     that sets no page-title rendered an EMPTY heading --
+                                     `notification/index.blade.php` renders its own
+                                     `<x-ss.page-header>` (which correctly emits an h1) and sets no
+                                     section, so it had an empty h2 above a real h1. As an h1 that
+                                     would have been two h1s, one of them blank. `@hasSection` reads
+                                     BOTH `@section('x', 'y')` and `@section('x') … @endsection`,
+                                     verified on the running application rather than assumed: the
+                                     dashboard uses the inline form at dashboard.blade.php:3.
+
+                                     The sidebar's zone captions stay h3 and that is deliberate --
+                                     see the rejected alternative in
+                                     PHASE-2.5-PACKAGE-A-REPORT-AR.md. --}}
+                                @hasSection('page-title')
+                                <h1 class="h3 mb-0 ss-scope ss-page-title">@yield('page-title')</h1>
+                                @endif
                                 {{-- WS C: AN OPT-IN SUBTITLE, and it is opt-in on purpose.
                                      `x-ss.page-header` has carried a `store` prop since P2-01-11
                                      — "the store name is restated here on screens where knowing
@@ -570,7 +764,28 @@
         <h3 class="loader-content"> {{ __('Loading . . .') }} </h3>
     </div>
 
-    @include('partision.settingPopup')
+    {{-- P2.5-PKG-A-02 -- `partision/settingPopup.blade.php` WAS DELETED, NOT MOVED.
+
+         It rendered a 62-line Bootstrap modal into EVERY merchant page, and it was dead on four
+         counts, each one checked rather than assumed:
+
+          - UNREACHABLE. It carried `id="notification-modal"`, and a repository-wide search for
+            that id outside the file itself returns only CSS rules for the class -- no
+            `data-bs-target`, no `data-bs-toggle`, no `new bootstrap.Modal`, nothing in any first-
+            party or WorkDo javascript. No merchant could open it.
+          - NON-FUNCTIONAL. Its five switches had no `name`, sat in no `<form>`, and posted to no
+            action; its "Save changes" button had no handler. Toggling anything did nothing.
+          - UNTRANSLATED, and broken in English as shipped: a heading reading "  settings" with a
+            doubled space and no noun, "you get lettest content at a time when data will updated",
+            "Automaticaly take backup as par schedule". On every page, in Arabic too.
+          - IN THE WAY. `OrderDetailControlNamesTest` had to scope its label census around this
+            partial's labels, and said so in its docblock. It cost real work and returned none.
+
+         It also held three of the five remaining feather icons and squatted on an id the real
+         notifications feature shipped in P2-06-3 would naturally want.
+
+         NOTHING OF VALUE WAS LOST: no function, no data field, no permission, no workflow -- there
+         was none to preserve. Sixty-odd DOM nodes leave every admin page with it. --}}
     {{-- P2-06-2: the global search palette, once per admin page. --}}
     {{-- P2-01-19 — THE "GENERATE WITH AI" SURFACE, AS A SIDE PANEL INSTEAD OF A SECOND MODAL.
 
@@ -616,6 +831,32 @@
             document.documentElement.style.setProperty('--active-theme-border', `var(--bs-${themeColor}-border)`);
         }
         setActiveTheme("{{$themeColor}}");
+
+        /*
+         * SELECT2'S OWN STRINGS, IN THE MERCHANT'S LANGUAGE.
+         *
+         * Measured on the Arabic testimonial modal: the remove-X on a multi-select carried the
+         * title `Remove item` -- Select2's built-in English default, injected into the DOM by
+         * `public/assets/js/plugins/select2.min.js`, not by any view in this repository. Nothing
+         * in the application said it, which is why no translation pass had ever found it.
+         *
+         * Set as DEFAULTS rather than per-init on purpose: eight files call `.select2(...)`, and
+         * patching each would leave the ninth caller English. `defaults.set` applies to every
+         * init on the page, including ones added later.
+         *
+         * The strings come from `__()` so they follow the page's locale rather than being
+         * hardcoded Arabic -- the reverse mistake (Arabic literals with no `.tr`) is one this
+         * project has already had to undo in the Flutter status sheet.
+         */
+        if ($.fn.select2 && $.fn.select2.defaults) {
+            $.fn.select2.defaults.set('language', {
+                removeItem: function () { return @json(__('Remove item')); },
+                noResults: function () { return @json(__('No results found')); },
+                searching: function () { return @json(__('Searching...')); },
+                inputTooShort: function () { return @json(__('Please enter more characters')); },
+            });
+        }
+
         $(document).ready(function(){
             if ($('.select2').length > 0) {
                 $('.select2').select2({
@@ -701,12 +942,36 @@
     $('#sideBarsearch').on('keyup', function () {
         let value = $(this).val().toLowerCase().trim();
 
+        /* P2.5-WAVE-4a. A SEARCH THAT MATCHES NOTHING MUST SAY SO.
+           Measured before this: a non-matching term took `.dash-navbar > .dash-item` from 13
+           visible to 0 and the five zone headings from 5 to 0, leaving the sidebar blank with no
+           message -- indistinguishable from a broken page. The element is rendered server-side in
+           partision/sidebar.blade.php (this script cannot call `__()`), carries
+           role="status" aria-live="polite", and is revealed only when the count really is zero. */
+        let $empty = $('#ss-sidebar-search-empty');
+
+        function announce(matches, term) {
+            if (!$empty.length) { return; }
+
+            if (matches === 0 && term !== "") {
+                /* `.text()`, NOT `.html()`: this is merchant-typed input going back onto the
+                   merchant's own page. */
+                $empty.find('.dash-search-empty__term').text('"' + $('#sideBarsearch').val().trim() + '"');
+                $empty.removeClass('ss-visually-hidden').prop('hidden', false);
+            } else {
+                $empty.addClass('ss-visually-hidden').prop('hidden', true);
+            }
+        }
+
         if (value === "") {
             // If input is empty, show all
             $('.dash-navbar > .dash-item').show();
             $('.dash-submenu').hide();
+            announce(-1, "");
             return;
         }
+
+        let ssMatches = 0;
 
         $('.dash-navbar > .dash-item').each(function () {
             let $item = $(this);
@@ -732,12 +997,15 @@
             });
 
             if (isMatch) {
+                ssMatches++;
                 $item.show();
                 $item.find('.dash-submenu').show();
             } else {
                 $item.hide();
             }
         });
+
+        announce(ssMatches, value);
     });
 </script>
     @if (Session::has('success'))

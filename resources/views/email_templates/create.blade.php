@@ -1,7 +1,7 @@
 {{ Form::open(array('url' => 'email_template','method' =>'post')) }}
 <div class="row">
     <div class="form-group col-md-12">
-        {{Form::label('name',__('Name'))}}
+        {{Form::label('name',__('Name'))}}<span class="ss-label__required" aria-hidden="true">*</span>
         {{Form::text('name',old('name'),array('class'=>'form-control font-style','required'=>'required'))}}
     </div>
     <div class="form-group col-md-12 text-right">

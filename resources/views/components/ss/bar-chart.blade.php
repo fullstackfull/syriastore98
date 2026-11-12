@@ -30,10 +30,58 @@
     different answer. <x-ss.stat> draws the same distinction for a single
     figure.
 
-    @param array  $labels  one per column, already formatted and translated
-    @param array  $values  one per column, integers
-    @param string $title   what the series measures
-    @param string $period  REQUIRED: the span the series covers
+    ─────────────────────────────────────────────────────────────────────
+    THE NUMBERS ARE CARRIED FAITHFULLY, AND MONEY IS FORMATTED AS MONEY
+    ─────────────────────────────────────────────────────────────────────
+
+    D-42.3. This component used to cast every value with
+    `array_map('intval', …)` and then print `number_format($v)` with no
+    decimal places. It is the accessible representation of FIVE MONEY CHARTS,
+    so the table — which IS the content, the bars being a picture of it — was
+    printing a number that was not the merchant's money, in two ways.
+
+    TRUNCATION. An order worth 1234.56 rendered as `1,234`. MEASURED on the
+    real route `/product-order-reports`. Five caller files cast a second time
+    before passing, at eleven sites, but the component's own cast is the one
+    that mattered: removing the callers' wrappers alone left this file
+    truncating.
+
+    FABRICATION, which is worse. `reports/order_category_chart` and
+    `reports/order_brand_chart` are handed an APEXCHARTS SERIES LIST, not a
+    numeric series — `[['name' => 'Shirts', 'data' => [...]], …]`, one entry
+    per CATEGORY against labels that are one per DAY. `intval()` of a
+    non-empty array is `1`, so every row of those two tables read `1`
+    whatever the money was. MEASURED on `/category-order-reports` with one
+    order worth 1234.56: `01-Nov | 1`, `02-Nov | 1`, `Total | 2`.
+
+    So a value this component cannot read as a number makes the series
+    UNBUILDABLE — it falls to the same empty state as an absent series rather
+    than being coerced into a figure. That is a deliberately conservative
+    repair: it refuses to state a false amount, and it does NOT invent a rule
+    for collapsing a per-category series list into a per-day one, because
+    choosing what those two charts plot is a controller fix
+    (`order_category_reports()` and `order_brand_reports()` already compute
+    `$allCategoriesTotal` / `$totalNetSalesAllBrands` and simply never pass
+    them) and this change is display-only.
+
+    `valueDecimals` / `valueDecimals2` DEFAULT TO ZERO, so every caller that
+    passes counts renders byte for byte as before — the dashboard's orders
+    chart, the order-status report, the four top-sales charts, the two
+    customer-report charts and the country report, none of which are money.
+    A money caller passes `2`, which is this project's established money rule:
+    `number_format($x, 2)`, as on the finance screen and in these very report
+    files' own stat cards. The formatting is deliberately NOT locale-derived —
+    one money format in Arabic and in English, and `.ss-num` already carries
+    `unicode-bidi: isolate` so the figure stays one left-to-right run inside
+    an Arabic line.
+
+    @param array  $labels         one per column, already formatted and translated
+    @param array  $values         one per column, numeric; decimals preserved
+    @param string $title          what the series measures
+    @param string $period         REQUIRED: the span the series covers
+    @param int    $valueDecimals  decimal places for series A: 0 for a count, 2 for money
+    @param int    $valueDecimals2 the same, for series B — the two may differ, and on
+                                  `order_product_chart` they do: money against a unit count
 --}}
 @props([
     'labels' => [],
@@ -44,6 +92,8 @@
     'columnLabel' => null,
     'values2' => [],
     'valueLabel2' => null,
+    'valueDecimals' => 0,
+    'valueDecimals2' => 0,
 ])
 
 @php
@@ -58,14 +108,93 @@
        reports hub, where every chart compares customer against guest; the
        single-series path is untouched, so the dashboard's chart renders byte
        for byte as before. */
-    $ssHasB   = is_array($values2) && count($values2) > 0;
+    /* AND THE SAME DEFENCE ON THE FIRST TWO, which `$values2` already had and
+       they did not. A caller that hands this component a SCALAR used to take
+       the whole page down: `count()` on an int is a fatal in PHP 8, not a
+       warning, so the response was a 500 rather than a chart.
+
+       That is not hypothetical. `ReportController::order_reports_chart_data()`
+       initialises `$PurchasedItemTotal = 0` (:1004, :1076, :1136, :1221,
+       :1316) and passes it as `itemSeries`; on the paths where nothing ever
+       appends to it, an int arrives here. The route answered 500 on MySQL for
+       this reason ALONE -- it was recorded in the coverage matrix as blocked by
+       MySQL-only SQL, and that reason was incomplete: the SQL runs fine on
+       MySQL and this is what was left.
+
+       Coercing rather than throwing is the right call for a shared component:
+       `$values = 0` means "no series", and the empty state below already says
+       that honestly. One surface's bad input must not be able to 500 a page. */
+    $labels  = is_array($labels)  ? $labels  : [];
+    $values  = is_array($values)  ? $values  : [];
+    $values2 = is_array($values2) ? $values2 : [];
+
+    $ssHasB   = count($values2) > 0;
     $ssCount  = min(count($labels), count($values));
     if ($ssHasB) {
         $ssCount = min($ssCount, count($values2));
     }
     $ssLabels = array_slice(array_values($labels), 0, $ssCount);
-    $ssValues = array_map('intval', array_slice(array_values($values), 0, $ssCount));
-    $ssValuesB = $ssHasB ? array_map('intval', array_slice(array_values($values2), 0, $ssCount)) : [];
+
+    /* FAITHFUL, OR NOTHING. `null` is returned for a value that is not a
+       number, and the caller below turns that into the empty state.
+
+       null and '' become 0, and a bool becomes 0/1, ONLY because that is what
+       `intval()` did here before — six count callers rely on today's output
+       byte for byte, so this keeps every case that already worked and changes
+       only the cases that were wrong. A numeric STRING is normalised with
+       `+ 0`, which yields an int for "7" and a float for "7.50": four callers
+       pass `pluck()` results, and MySQL hands those back as strings.
+       NAN and INF are refused rather than printed as "nan". */
+    $ssNumber = static function ($v) {
+        if ($v === null || $v === '') {
+            return 0;
+        }
+        if (is_bool($v)) {
+            return (int) $v;
+        }
+        if (is_int($v)) {
+            return $v;
+        }
+        if (is_float($v)) {
+            return is_finite($v) ? $v : null;
+        }
+        if (is_string($v) && is_numeric($v)) {
+            $n = $v + 0;
+
+            return is_float($n) && ! is_finite($n) ? null : $n;
+        }
+
+        return null;
+    };
+
+    $ssReadSeries = static function ($raw, int $count) use ($ssNumber) {
+        if (! is_array($raw)) {
+            return null;
+        }
+        $out = [];
+        foreach (array_slice(array_values($raw), 0, $count) as $v) {
+            $n = $ssNumber($v);
+            if ($n === null) {
+                return null;   /* one unreadable value spoils the series */
+            }
+            $out[] = $n;
+        }
+
+        return $out;
+    };
+
+    $ssValues  = $ssReadSeries($values, $ssCount);
+    $ssValuesB = $ssHasB ? $ssReadSeries($values2, $ssCount) : [];
+
+    /* An unreadable series is UNBUILDABLE, and falls to the same honest empty
+       state as an absent one. It must never become a number: that is the
+       `intval(array) === 1` defect this guard exists to stop. */
+    if ($ssValues === null || $ssValuesB === null) {
+        $ssCount   = 0;
+        $ssLabels  = [];
+        $ssValues  = [];
+        $ssValuesB = [];
+    }
 
     /* ONE SCALE FOR BOTH SERIES. The bars are stacked, so the tallest column
        is the largest SUM, not the largest single value — scaling each series
@@ -73,9 +202,24 @@
     $ssStacks = $ssHasB
         ? array_map(static fn ($a, $b) => $a + $b, $ssValues, $ssValuesB)
         : $ssValues;
-    $ssMax    = $ssCount ? max($ssStacks) : 0;
+    /* FLOORED AT ZERO. A money series can genuinely go negative — the sales
+       report's net series is `final_price - delivery_price - tax_price` — and
+       a negative maximum would invert every height. The table carries the
+       negative; the bars cannot draw one and say so by staying at the
+       baseline. */
+    $ssMax    = $ssCount ? max(0, max($ssStacks)) : 0;
     $ssTotal  = array_sum($ssValues);
     $ssTotalB = array_sum($ssValuesB);
+
+    $ssDecimals  = max(0, (int) $valueDecimals);
+    $ssDecimalsB = max(0, (int) $valueDecimals2);
+    $ssFormat = static fn ($v, int $places) => number_format((float) $v, $places);
+
+    /* `=== 0` was right while every value was an int and is wrong now: a
+       float 0.0 is not identical to int 0, so an exactly-zero money figure
+       would have silently lost its baseline marker. */
+    $ssIsZero = static fn ($v) => (float) $v === 0.0;
+
     $ssValueLabel = $valueLabel ?: $title;
     $ssValueLabelB = $valueLabel2 ?: __('Series 2');
     $ssColumnLabel = $columnLabel ?: __('Day');
@@ -94,21 +238,27 @@
                     /* Height as a percentage of the largest bar. When every
                        value is 0 the max is 0, so guard the division -- and
                        render a flat baseline rather than full-height bars,
-                       which is what `max(1, ...)` would have done. */
-                    $ssPct = $ssMax > 0 ? round($v / $ssMax * 100) : 0;
+                       which is what `max(1, ...)` would have done.
+
+                       CLAMPED AT ZERO at the other end too: a negative value
+                       would emit `block-size: -37%`, which browsers discard,
+                       leaving the bar at its auto height -- a LOSS drawn as
+                       tall as a gain. The negative is in the table, which is
+                       the real content. */
+                    $ssPct = $ssMax > 0 ? max(0, round($v / $ssMax * 100)) : 0;
                 @endphp
                 <div class="ss-chart__col">
                     @if ($ssHasB)
                         @php
-                            $ssPctB = $ssMax > 0 ? round($ssValuesB[$i] / $ssMax * 100) : 0;
+                            $ssPctB = $ssMax > 0 ? max(0, round($ssValuesB[$i] / $ssMax * 100)) : 0;
                         @endphp
                         {{-- Series B sits on top: the column order is bottom-up because
                              `.ss-chart__col` is `flex-direction: column; justify-content:
                              flex-end`, so the LAST child is the lowest. --}}
-                        <div class="ss-chart__bar ss-chart__bar--b @if ($ssValuesB[$i] === 0) ss-chart__bar--zero @endif"
+                        <div class="ss-chart__bar ss-chart__bar--b @if ($ssIsZero($ssValuesB[$i])) ss-chart__bar--zero @endif"
                              style="block-size: {{ $ssPctB }}%"></div>
                     @endif
-                    <div class="ss-chart__bar @if ($v === 0) ss-chart__bar--zero @endif"
+                    <div class="ss-chart__bar @if ($ssIsZero($v)) ss-chart__bar--zero @endif"
                          style="block-size: {{ $ssPct }}%"></div>
                 </div>
             @endforeach
@@ -148,9 +298,9 @@
                         @foreach ($ssLabels as $i => $l)
                             <tr>
                                 <th scope="row">{{ $l }}</th>
-                                <td class="ss-table__num ss-num">{{ number_format($ssValues[$i]) }}</td>
+                                <td class="ss-table__num ss-num">{{ $ssFormat($ssValues[$i], $ssDecimals) }}</td>
                                 @if ($ssHasB)
-                                    <td class="ss-table__num ss-num">{{ number_format($ssValuesB[$i]) }}</td>
+                                    <td class="ss-table__num ss-num">{{ $ssFormat($ssValuesB[$i], $ssDecimalsB) }}</td>
                                 @endif
                             </tr>
                         @endforeach
@@ -158,9 +308,9 @@
                     <tfoot>
                         <tr>
                             <th scope="row">{{ __('Total') }}</th>
-                            <td class="ss-table__num ss-num">{{ number_format($ssTotal) }}</td>
+                            <td class="ss-table__num ss-num">{{ $ssFormat($ssTotal, $ssDecimals) }}</td>
                             @if ($ssHasB)
-                                <td class="ss-table__num ss-num">{{ number_format($ssTotalB) }}</td>
+                                <td class="ss-table__num ss-num">{{ $ssFormat($ssTotalB, $ssDecimalsB) }}</td>
                             @endif
                         </tr>
                     </tfoot>
