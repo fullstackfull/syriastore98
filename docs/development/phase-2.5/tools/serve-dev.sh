@@ -108,4 +108,26 @@ export SESSION_DRIVER=file
 [ -f "$DB_DATABASE" ] || { echo "fixture missing: $DB_DATABASE" >&2; exit 1; }
 
 cd "$(dirname "$0")/../../../.."
+
+# ---------------------------------------------------------------------------------------------
+# PHASE 03: /themes/... MUST RESOLVE, OR EVERY STOREFRONT CAPTURE IS OF AN UNSTYLED PAGE.
+#
+# `themes/` sits at the REPOSITORY ROOT, not under `public/`. On the live host that is fine and
+# needs no rule: the document root IS the repository root (P1-SEC-40 measured this), and the
+# front-controller rewrite is guarded by `RewriteCond %{REQUEST_FILENAME} !-f`, so Apache serves
+# `<root>/themes/stylique/assets/css/all.min.css` directly. Note `themes` is deliberately NOT in
+# .htaccess's `^(css|assets|...|vendor)/` alternation -- it does not need to be.
+#
+# `php artisan serve` serves `public/` ONLY, so in development every one of those files 404s.
+# MEASURED on the storefront before this line existed: 23 images, 6 stylesheets and 4 scripts all
+# present on disk, all 404 over HTTP, and the resulting capture showed a storefront with no theme
+# CSS at all. A baseline taken that way is a photograph of a bug in the harness.
+#
+# The symlink makes development answer what production already answers. It is DEV-ONLY and
+# gitignored: committing it would put a second, redundant path to the same files on the live host.
+# ---------------------------------------------------------------------------------------------
+if [ ! -e public/themes ]; then
+    ln -s ../themes public/themes && echo "dev: linked public/themes -> ../themes (see the note above)"
+fi
+
 exec php artisan serve --host=127.0.0.1 --port=8899

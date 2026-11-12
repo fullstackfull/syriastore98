@@ -118,3 +118,7 @@ __pycache__/
 *.sql.gz
 *.dump
 *.bak
+
+# Phase 03 dev-only: /themes resolves from the repo root in production (docroot == repo root),
+# so this bridge exists for `php artisan serve` alone and must never be committed.
+/public/themes
