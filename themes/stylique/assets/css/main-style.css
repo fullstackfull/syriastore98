@@ -1,11 +1,101 @@
 :root {
+  /* ====================================================================================
+     M2-B. STYLIQUE'S COLOUR CONTRACT.
+
+     Three groups, and the distinction between them is the whole design. Blindly swapping every
+     literal for a theme-following token is how a coral button ends up with near-black text on it.
+
+     1. BRAND -- stylique's identity. DELIBERATELY IDENTICAL IN DARK MODE. The coral and the
+        violet are what make this theme this theme; a storefront that changes brand colour when a
+        shopper flips appearance has lost its identity, which the directive forbids.
+
+     2. INK ON A BRAND FILL -- must NOT follow the theme, for the same reason. The design system's
+        `--ss-fg-onfill` is wrong here: it flips to near-black in dark mode, which is correct for
+        ink on the SYSTEM's accent but unreadable on a fill that stayed coral. `--ss-grey-0` is a
+        primitive and does not flip, which is exactly what is wanted.
+
+     3. SEMANTIC -- surfaces, text and borders. These DO follow `data-ss-theme`, through the
+        design system's own tokens, so the storefront re-themes with everything else on the
+        platform rather than inventing a second palette.
+
+     Every semantic token keeps stylique's ORIGINAL value as the var() fallback, so if the design
+     system ever fails to load the theme looks exactly as it did before M2-B rather than unstyled.
+     ==================================================================================== */
+
+  /* --- 1. brand, unchanged in both appearances --- */
   --primary-color: #f8796c;
-  --secondary-color: #333;
   --accent-color: #6c63ff;
-  --text-color: #333;
-  --white-color: #ffffff;
-  --border-color: #d3d3d3;
+  /* USED TWICE AT :696 AND :702 AND NEVER DEFINED, so both `rgba(var(--primary-color-rgb), .1)`
+     box-shadows were invalid and silently did not render. Measured, and fixed here because it is
+     the same two lines. */
+  --primary-color-rgb: 248, 121, 108;
+
+  /* --- 2. ink on a brand fill: a non-flipping primitive, not --ss-fg-onfill ---
+     RETAINED WITH NO USERS IN THIS SHEET. All five original call sites turned out to sit on the
+     coral and now use `--on-primary-ink`. The definition stays because a `theme_customizes`
+     value, an inline style or a sibling sheet may still reference it, and removing a public
+     custom property is a breaking change for a merchant's saved customisation. */
+  --white-color: var(--ss-grey-0, #ffffff);
+
+  /* INK THAT IS ACTUALLY READABLE ON THE CORAL. MEASURED, and it is a real pre-existing AA
+     failure on this theme's primary call to action:
+     
+         #ffffff on #f8796c  =  2.64:1     AA for normal text needs 4.5:1
+         #1a1d23 on #f8796c  =  6.39:1
+     
+     `.btn-primary` renders at 16px weight 500 -- ordinary text, so the 3:1 large-text relaxation
+     does not apply -- and it is the "Shop Now", "Login", "Apply Filters" and "Browse All
+     Categories" button on every page. `.cart-badge` is worse: 10px.
+     
+     THE CORAL IS KEPT AND THE INK CHANGES, deliberately. The brand colour is what makes this
+     theme recognisable; the ink on it is not. Darkening the coral enough for white to pass would
+     need a luminance below 0.18 against its current 0.33 -- a different colour, not a tweak.
+     
+     This is a VISIBLE CHANGE to every primary button in light and dark alike, which is why it is
+     stated here and captured in the before/after evidence rather than slipped in. */
+  --on-primary-ink: var(--ss-grey-950, #1a1d23);
+
+  /* --- 3. semantic: these follow data-ss-theme --- */
+  /* The PAGE stays stylique's white in light mode -- `--ss-bg` is #f6f7f8, which would have been
+     a visible change to a theme nobody asked to re-colour -- and takes the design system's dark
+     page in dark mode. The override is below this block. */
+  --page-color: #ffffff;
+  --surface-color: var(--ss-surface, #ffffff);
+  --surface-sunken-color: var(--ss-surface-sunken, #f5f5f5);
+  --surface-hover-color: var(--ss-surface-hover, #f5f5f5);
+  --text-color: var(--ss-fg, #333);
+  --secondary-color: var(--ss-fg-muted, #333);
+  --border-color: var(--ss-border, #d3d3d3);
+  --danger-color: var(--ss-danger, #ff0000);
   --border-radius: 0.375rem;
+}
+
+/* M2-B. The page surface in dark mode.
+   
+   BOTH ARMS ARE REQUIRED, and the first draft had only the explicit one -- so a shopper on
+   `auto` with a dark OS got dark surfaces and a WHITE PAGE. Measured: `--surface-color` flipped
+   to #262b33 while `--page-color` stayed #ffffff, because `auto` is the default state and the
+   attribute never reads "dark" unless the shopper picked it.
+   
+   This mirrors the design system's own pattern exactly (`store-syria-ds.css:618-619`): an
+   explicit `[data-ss-theme="dark"]` arm, plus a `prefers-color-scheme` arm scoped to
+   `[data-ss-theme="auto"]` so the system preference applies only where a page opted in. */
+[data-ss-theme="dark"] {
+  --page-color: var(--ss-bg, #1b1f25);
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-ss-theme="auto"] {
+    --page-color: var(--ss-bg, #1b1f25);
+  }
+}
+
+/* M2-B. The storefront page itself had NO background-color at all -- measured
+   `rgba(0, 0, 0, 0)` -- so it inherited the browser default and stayed white however the
+   appearance was set. This is what makes dark mode actually dark. */
+body {
+  background-color: var(--page-color);
+  color: var(--text-color);
 }
 
 a:focus-visible {
@@ -21,7 +111,7 @@ a:focus-visible {
   text-align: center;
   justify-content: center;
   background-color: var(--primary-color);
-  color: var(--white-color);
+  color: var(--on-primary-ink);
   border-radius: var(--border-radius);
   padding: 0.625rem 1.25rem;
   font-weight: 500;
@@ -41,7 +131,7 @@ a:focus-visible {
 
 .btn-outline:hover {
   background-color: var(--primary-color);
-  color: var(--white-color);
+  color: var(--on-primary-ink);
 }
 
 .btn-primary:hover {
@@ -102,7 +192,7 @@ select {
   top: -6px;
   right: -6px;
   background-color: var(--primary-color);
-  color: var(--white-color);
+  color: var(--on-primary-ink);
   border-radius: 50%;
   width: 16px;
   height: 16px;
@@ -180,7 +270,7 @@ select {
   bottom: 0;
   width: 100%;
   max-width: 24rem;
-  background-color: var(--white-color);
+  background-color: var(--surface-color);
   -webkit-box-shadow: -2px 0 10px rgba(0, 0, 0, 0.1);
   box-shadow: -2px 0 10px rgba(0, 0, 0, 0.1);
   -webkit-transform: translateX(100%);
@@ -369,8 +459,8 @@ select {
   right: 0;
   width: 7px;
   height: 7px;
-  border-top: 2px solid #374151;
-  border-left: 2px solid #374151;
+  border-top: 2px solid var(--text-color);
+  border-left: 2px solid var(--text-color);
   transform: translateY(-50%) rotate(225deg);
   -webkit-transform: translateY(-50%) rotate(225deg);
   -moz-transform: translateY(-50%) rotate(225deg);
@@ -394,7 +484,10 @@ select {
 }
 
 .categories-wrap svg path {
-  stroke: var(--white-color);
+  /* MEASURED: this icon sits on `.btn-primary`, i.e. on the coral, so white strokes it at
+     2.64:1 -- below even the 3:1 minimum for a graphical object. All five original
+     `--white-color` sites turned out to be on the coral; none of them was a neutral surface. */
+  stroke: var(--on-primary-ink);
 }
 
 .categories-wrap .category-dropdown {
@@ -425,7 +518,7 @@ select {
 .categories-wrap :is(.category-dropdown, .submenu) {
   position: absolute;
   top: 100%;
-  background-color: var(--white-color);
+  background-color: var(--surface-color);
   -webkit-transform-origin: top;
   -ms-transform-origin: top;
   transform-origin: top;
@@ -465,7 +558,7 @@ select {
 }
 
 .hero-slider .swiper-pagination-bullet {
-  background-color: var(--white-color);
+  background-color: var(--surface-color);
   opacity: 1;
 }
 
@@ -514,7 +607,7 @@ select {
 /**** product-list css  *****/
 .view-toggle.active {
   background: var(--primary-color);
-  color: var(--white-color);
+  color: var(--on-primary-ink);
   border-color: var(--primary-color);
 }
 
@@ -607,7 +700,7 @@ select {
 }
 
 .order-track-page .profile-img {
-  border: 5px solid #f5f5f5;
+  border: 5px solid var(--surface-sunken-color);
 }
 
 .order-track-page #progressbar .active {
@@ -619,7 +712,11 @@ select {
 }
 
 .order-track-page #progressbar .active .progressbar-icon i {
-  color: var(--white);
+  /* M2-B. WAS `var(--white)`, WHICH IS DECLARED NOWHERE -- measured: it resolves to the empty
+     string, so this declaration was invalid at computed-value time and the icon silently
+     inherited its parent's colour instead of being set. The active step is filled with the brand
+     colour, so the icon needs the ink that is readable on it. */
+  color: var(--on-primary-ink);
 }
 
 .order-track-page #progressbar li {
@@ -634,7 +731,7 @@ select {
   content: "";
   width: 100%;
   height: 2px;
-  background: #d3d3d3;
+  background: var(--border-color);
   position: absolute;
   left: 0;
   top: 20px;
@@ -658,16 +755,16 @@ select {
 /* Select2 Custom Styles */
 .select2-container--default .select2-selection--single {
   height: 38px !important;
-  border: 1px solid #e5e7eb !important;
+  border: 1px solid var(--border-color) !important;
   border-radius: 0.375rem !important;
   padding: 0.5rem 0.75rem !important;
-  background-color: #fff !important;
+  background-color: var(--surface-color) !important;
 }
 
 .select2-container--default .select2-selection--single .select2-selection__rendered {
   line-height: 20px !important;
   padding-left: 0 !important;
-  color: #374151 !important;
+  color: var(--text-color) !important;
 }
 
 .select2-container--default .select2-selection--single .select2-selection__arrow {
@@ -679,13 +776,13 @@ select {
 }
 
 .select2-dropdown {
-  border: 1px solid #e5e7eb !important;
+  border: 1px solid var(--border-color) !important;
   border-radius: 0.375rem !important;
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06) !important;
 }
 
 .select2-container--default .select2-search--dropdown .select2-search__field {
-  border: 1px solid #e5e7eb !important;
+  border: 1px solid var(--border-color) !important;
   border-radius: 0.375rem !important;
   padding: 0.5rem !important;
 }
@@ -708,7 +805,7 @@ select {
 
 /* 6-6 */
 .wishlist-btn.active {
-  color: #ff0000;
+  color: var(--danger-color);
 }
 
 .faq-col:last-of-type {
@@ -732,7 +829,11 @@ select {
   padding: 8px;
   border-radius: 0.375rem;
   border: 1px solid var(--border-color);
-  color: var(--black)
+  /* M2-B. WAS `var(--black)`, also declared nowhere and also invalid at computed-value time.
+     These are countdown digits on a translucent grey scrim, so they want ordinary body text --
+     which is what they accidentally inherited in light mode and what they now get on purpose in
+     both. */
+  color: var(--text-color)
 }
 
 #timer {

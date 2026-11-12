@@ -33,6 +33,13 @@
 
 <link rel="stylesheet" href="{{ asset('css/store-syria-ds.css') }}">
 
+{{-- M2-B. The Tailwind utility layer. AFTER the design system, because it consumes its tokens,
+     and shared across all three themes because the mapping is utility -> token and contains
+     nothing theme-specific. Its own header explains why tokenising a theme stylesheet is not
+     enough: the themes' colours live in utility classes that are injected after the theme sheet
+     and win on source order. --}}
+<link rel="stylesheet" href="{{ asset('css/storefront-appearance.css') }}">
+
 @php
     // The resolved store, from the view composer. A storefront page without one cannot render at
     // all (ViewServiceProvider aborts 404), so the `?? 0` is belt-and-braces for a preview route

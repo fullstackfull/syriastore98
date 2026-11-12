@@ -119,6 +119,17 @@ const DEFAULT_PATHS = [
 const PATHS = arg('paths', DEFAULT_PATHS.join(',')).split(',').map((s) => s.trim()).filter(Boolean);
 
 const LOCALES = arg('locales', 'en,ar').split(',').map((s) => s.trim());
+
+/**
+ * M2-B. THE APPEARANCE DIMENSION. `light,dark` doubles the matrix to the four combinations the
+ * directive requires.
+ *
+ * Each is driven the way a SHOPPER produces it, not by a CSS hack: the browser context is opened
+ * with the matching `colorScheme` AND the store-scoped localStorage key is seeded, so the page
+ * takes the same path a real visitor's explicit choice takes. Forcing the attribute by script
+ * would test the stylesheet while skipping the preference mechanism entirely.
+ */
+const APPEARANCES = arg('appearances', 'light,dark').split(',').map((s) => s.trim());
 const VIEWPORTS = {
   desktop: { width: 1440, height: 900 },
   tablet: { width: 834, height: 1112 },
@@ -153,6 +164,15 @@ const PROBE = () => {
     // `themes//assets/...` -- the empty-theme_id collapse.
     brokenThemeAsset: sheets.filter((h) => /\/themes\/\/|\/themes\/assets\//.test(h)),
     themeSheets: sheets.filter((h) => h.includes('/themes/')).length,
+    // The RESOLVED appearance, not the attribute: `auto` is a request, not an answer, so a row
+    // claiming "dark" has to be checked against what the page actually computed.
+    appearance: (() => {
+      const attr = document.documentElement.getAttribute('data-ss-theme');
+      if (attr === 'dark' || attr === 'light') return attr;
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    })(),
+    pageBg: getComputedStyle(document.body).backgroundColor,
+    pageFg: getComputedStyle(document.body).color,
     // Every theme name referenced by any stylesheet, script or image on the page. A correct page
     // names exactly ONE. Two means the layout and the sections disagree; the wrong one means the
     // store's theme did not resolve and the configured fallback rendered instead.
@@ -205,7 +225,12 @@ async function signIn(page, slug, email) {
     const expectDir = locale === 'ar' ? 'rtl' : 'ltr';
 
     for (const vp of WANTED_VIEWPORTS) {
-      const ctx = await browser.newContext({ viewport: VIEWPORTS[vp], deviceScaleFactor: 1 });
+     for (const appearance of APPEARANCES) {
+      const ctx = await browser.newContext({
+        viewport: VIEWPORTS[vp], deviceScaleFactor: 1,
+        // The OS preference, so `auto` resolves the way this row claims.
+        colorScheme: appearance === 'dark' ? 'dark' : 'light',
+      });
 
       const page = await ctx.newPage();
 
@@ -225,7 +250,26 @@ async function signIn(page, slug, email) {
        * cookie AND the session through the framework, so both are encrypted and both are read
        * back. Driving the application's own control is also the more faithful measurement.
        */
+      // Seed the shopper's EXPLICIT choice under the store-scoped key, before the first paint of
+      // the first navigation, so every row exercises the real preference path.
+      await page.addInitScript(([want]) => {
+        try {
+          const m = document.documentElement.getAttribute('data-ss-appearance-key');
+          // The key is not known until a page has rendered once, so derive it the same way the
+          // partial does: it is the only key this origin uses for this store.
+          const k = m || null;
+          if (k) { window.localStorage.setItem(k, want); }
+        } catch (e) { /* blocked storage: the row then measures the `auto` path, which is also valid */ }
+      }, [appearance]);
+
       await page.goto(`${BASE}/${STORE}/home`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+
+      // Now the key IS known, so set it properly and reload once so the choice is in force for
+      // every row below.
+      const apKey = await page.evaluate(() => document.documentElement.getAttribute('data-ss-appearance-key'));
+      if (apKey) {
+        await page.evaluate(([k, v]) => { try { window.localStorage.setItem(k, v); } catch (e) {} }, [apKey, appearance]);
+      }
       await page.goto(`${BASE}/change-language-store/${locale}`, { waitUntil: 'domcontentloaded' }).catch(() => {});
       await page.waitForTimeout(250);
       const consoleErrors = [];
@@ -263,6 +307,12 @@ async function signIn(page, slug, email) {
         // THE THEME THE PAGE ACTUALLY RENDERED. Checked last so the more specific failures above
         // are reported first, but this is the one that decides whether the row is evidence OF
         // ANYTHING in a multi-theme baseline.
+        // THE APPEARANCE MUST HAVE TAKEN. A dark row that actually rendered light is the same
+        // class of mislabelled evidence as a theme that fell back, and answers 200 either way.
+        if (d.appearance !== appearance) {
+          problems.push(`APPEARANCE DID NOT TAKE: data-ss-theme=${d.appearance}, asked for ${appearance}`);
+        }
+
         const seen = d.themesSeen || [];
         if (EXPECT_THEME) {
           if (seen.length === 0) {
@@ -275,7 +325,8 @@ async function signIn(page, slug, email) {
         }
 
         rows.push({
-          store: STORE, path: p, locale, viewport: vp, http: status,
+          store: STORE, path: p, locale, viewport: vp, appearance, http: status,
+          pageBg: d.pageBg, pageFg: d.pageFg,
           dir: d.dir, lang: d.lang, title: (d.title || '').slice(0, 42),
           themeSheets: d.themeSheets, themesSeen: d.themesSeen, expectTheme: EXPECT_THEME,
           text: d.textLength,
@@ -286,11 +337,12 @@ async function signIn(page, slug, email) {
         });
 
         if (SHOT) {
-          const name = `${STORE}${p.replace(/[^a-z0-9]+/gi, '_')}__${locale}_${vp}.png`;
+          const name = `${STORE}${p.replace(/[^a-z0-9]+/gi, '_')}__${locale}_${appearance}_${vp}.png`;
           await page.screenshot({ path: path.join(OUT, name), fullPage: false }).catch(() => {});
         }
       }
       await ctx.close();
+     }
     }
   }
 
@@ -340,7 +392,7 @@ async function signIn(page, slug, email) {
   for (const r of rows) {
     console.log(
       pad(r.store.slice(0, 9), 10) + pad(r.path.slice(0, 15), 16) + pad(r.locale, 4) +
-      pad(r.viewport, 9) + pad(r.http, 5) + pad(r.dir, 5) + pad(r.themeSheets, 4) +
+      pad(r.appearance, 6) + pad(r.viewport, 9) + pad(r.http, 5) + pad(r.dir, 5) + pad(r.themeSheets, 4) +
       pad((r.themesSeen || []).join('+') || '-', 11) +
       pad(`${r.images ? r.images.total : '-'}(${r.images ? r.images.broken : '-'})`, 8) +
       pad(r.text, 6) + (r.premise === 'ok' ? 'ok' : 'PREMISE-FAIL  ' + r.problems.join(' | '))
