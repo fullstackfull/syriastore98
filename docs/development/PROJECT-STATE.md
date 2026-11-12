@@ -88,10 +88,12 @@ Measured 2026-11-11, re-verified against `main` 2026-11-12.
 | 2 | the Phase 2.5 state control does not drive the storefront | **closed** — harness drives `change.languagestore` |
 | 3 | premise checks are merchant-admin shaped | **closed** — storefront-shaped checks |
 | 4 | no harness can sign in as a customer | **closed** |
-| 5 | fixture cannot render a credible storefront (`theme_customizes` has 0 rows) | **partial** |
-| 6 | almost no imagery (2 of 32 products) | **open** |
-| 7 | store 2 is empty | **open** |
+| 5 | fixture cannot render a credible storefront (`theme_customizes` has 0 rows) | **closed** — 20 rows; the two tenants' `/home` now differ by 2,722 lines |
+| 6 | almost no imagery (2 of 32 products) | **closed** — `storefront_image()` + committed placeholders; 710 broken → 0 |
+| 7 | store 2 is empty | **closed** — 3 categories, 2 brands, 8 products, one deliberately out of stock |
 | 8 | storefront RTL unverified | **closed — and it works** |
+
+**Seven of eight closed.** Gap 1 (no storefront dark mode) is M2 work by design.
 
 ### Phase 03 tooling
 
@@ -99,18 +101,37 @@ Measured 2026-11-11, re-verified against `main` 2026-11-12.
   `DevFixtureDatabaseGuard`; refuses to run outside a dev fixture.
 - `phase-3/tools/storefront-matrix.cjs` — customer-authenticated storefront capture across locales
   and viewports, with storefront-shaped premise checks and cross-tenant negatives.
-- `phase-2.5/tools/serve-dev.sh` — the dev server. Creates a **dev-only, gitignored**
-  `public/themes` symlink; production needs none because its document root is the repo root.
+- `phase-2.5/tools/serve-dev.sh` — the dev server. Creates **dev-only, gitignored**
+  `public/themes` and `public/uploads` symlinks; production needs neither because its document root
+  is the repo root. It deliberately does **not** bridge `storage/`, because `public/storage` is a
+  real tracked-regular-file defect and hiding it in development would hide it everywhere.
+- `phase-3/tools/check-cross-store-captures.py` — **new.** Fails if any capture is byte-identical
+  to another *store's* capture. The Phase 2.5 distinctness check cannot answer this: it groups by
+  directory first, which in Phase 2.5 means "a different wave" (benign) and in Phase 03 means "a
+  different store" (the thing to catch). It found 28 such collisions on the first Phase 03 evidence
+  set, all of which every other check passed.
+
+**`phase-2.5/tools/check-distinct-surface-captures.py` now takes an optional evidence root.** It
+had hardcoded the Phase 2.5 path and silently ignored any argument, so running it over Phase 03
+evidence printed a clean Phase 2.5 result. CI calls it with no arguments, so that gate is
+unchanged. `detect-refusal-toast-captures.py` was deliberately **not** repointed — it resolves
+surface names through the Phase 2.5 matrix builder; the storefront harness's own premise checks are
+the equivalent.
 
 ### Open Phase 03 findings
 
 | finding | state |
 |---|---|
-| a product with no image renders `<img src="">` | **open** — storefront behaviour, not only a fixture gap |
-| an unknown store slug answers 200 and serves another tenant's shop | **open** |
-| `theme_customizes` is **not** in `config/tenancy.php` `scoped_models` | **open** — every editor/preview/publish path needs its own store predicate (M3/M4) |
+| a product with no image renders `<img src="">` | **FIXED** — `storefront_image()` at 22 merchant-owned sites; 0 broken, 0 empty across both tenants |
+| an unknown store slug answers 200 and serves another tenant's shop | **FIXED, and the finding was mis-stated.** It never served another tenant: `storeSlug()` was `redirect()->back()`, so the harness was sent back where it came from and photographed it. 10 routes answered 500 or a 302 bounce; all now 404 |
+| empty `stores.theme_id` → base layout, no `dir`, `themes//…` asset path | **FIXED, and worse than recorded** — `/home` could not resolve `main_file` and the other 11 page routes answered **500**, not a degraded layout. Three places now read `config('theme.active')` |
+| `theme_customizes` is **not** in `config/tenancy.php` `scoped_models` | **open** — pinned for the storefront READ (`ThemeCustomizeIsStoreScopedTest`); every editor/preview/publish path still needs its own predicate (M3/M4) |
 | `theme_customizes` has no `status`/`is_draft`/`version`/`published_at`; `landing_page_settings.name` is UNIQUE | **open** — M3 must change the data model before M4's UI |
-| empty `stores.theme_id` skips `Theme::set()` → base layout, no `dir`, `themes//…` asset path | **open, unreproduced** — both fixture stores carry `theme_id='stylique'` |
+| `process-order`, `support-ticket`, `blogs/filter/view` answer **500 for a store that exists** | **open** — pre-existing, found by the 45-route sweep. `process-order` is a payment route and was deliberately not touched |
+| an unknown-slug 404 renders the framework's page, not a branded storefront 404 | **open** — M2 |
+| **every Arabic store name produces the slug `-`** | **OPEN — NEEDS AN OWNER DECISION.** `User::slugs()` tests `empty()` *before* stripping non-ASCII, so the intended `store-<uniqid>` fallback can never fire. `متجر دمشق` → `-`, `صابون حلب` → `-`, `متجر Damascus` → `-damascus`. Shared by `Product`/`Tag`/`ProductBrand`/`ProductLabel`, and reached from the **admin app's** own store-creation path (`Api\DashboardController:7369`). Two lines to repair, but it decides what an Arabic merchant's public URL should be — transliteration or opaque id — so it is escalated, not chosen. Also bears on **P1-SEC-61** (`products.slug` not unique). Full trace: `phase-3/PHASE-03-M0-STOREFRONT-BASELINE.md` §7.5 |
+| `HomeController::wishlist()` does an unscoped `Wishlist::…->get()` | **open, not a leak** — verified: the view never renders `$wishlists` (AJAX-filled) and no theme overrides it. A wasted full-table read |
+| the storefront links to category routes that do not exist (`/{slug}/textiles`, `/{slug}/soaps`, …) and to `/public/js/flipdown.js` | **open** — 5 non-200 references on `/home`, none of them images. M1 inventory |
 
 ---
 
@@ -124,7 +145,7 @@ That is a deferral, not a remediation.** None of the below is fixed.
 | **P1-SEC-40** / #120 | live test host serves `/.git/` and historical credentials | **OWNER-DEFERRED — UNRESOLVED.** Apache deny rules exist but are deliberately dormant in `docs/security/p1-sec-40-apache-deny.conf`; both `.htaccess` files are directive-identical to `main` so a merge cannot arm them |
 | **P1-SEC-61** | `bidingForm` unscoped + `products.slug` not unique | message **closed**; root cause **open** (needs a vendored patch or a `UNIQUE (store_id, slug)` migration) |
 | **P1-SEC-62** | operator diagnostic readable via the publicly served log | **open, accepted, dependent** — closed by remediating P1-SEC-40 |
-| `public/storage` | a **tracked regular file** holding the vendor's build path, not a symlink, so no `/storage/…` URL resolves from a clone | **open** — a concrete Phase 03 dependency for product imagery |
+| `public/storage` | a **tracked regular file** holding the vendor's build path, not a symlink, so no `/storage/…` URL resolves from a clone | **open** — worked around for Phase 03 by committing both placeholders under `public/images/`; the defect itself is untouched and still affects every deployment |
 | user deletion / financial retention | limits recorded in the work queue | open |
 | Phase 01 release gates | outstanding | open |
 
@@ -161,18 +182,39 @@ when one fails, the code changes.
 
 **A 200 is not evidence.** Three of the four ways a storefront capture lies answer 200.
 
+**Independent review is required before committing a change to authorization, tenancy, a route's
+middleware, an order, a payment, or a handler that reads an id from request input** — the
+`tenant-authz-reviewer` subagent. On the M0 fail-closed change it found no authorization defect and
+three real misses, one of them a positive control too weak to detect the single regression that
+change could cause. That pattern holds: the review's value has been in the *evidence*, not only the
+code.
+
 ---
 
 ## 8. Next executable action
 
-Continue M0 in this order, committing and pushing each package:
+M0 is complete apart from its closure gates:
 
-1. ~~canonical project-state document~~ — this file.
-2. **populate `aleppo-soap`** with tenant-owned products, categories, brands and imagery (gaps 6, 7).
-3. **fix `<img src="">`** — a placeholder when no image exists, with regression tests.
-4. **fix unknown-slug resolution** — fail closed with a not-found response, with tenant-isolation tests.
-5. **third fixture store with an empty `theme_id`** — reproduce the fallback, then fix only if reproduced.
-6. **`theme_customizes` fixture rows** (gap 5), then re-run the full matrix over both stores.
-7. **close M0**: gates, gap table, ledger, baseline report.
+1. ~~canonical project-state document~~
+2. ~~populate `aleppo-soap`~~ — 3 categories, 2 brands, 8 products, committed imagery
+3. ~~fix `<img src="">`~~ — `storefront_image()`, 20 tests, 710 broken → 0
+4. ~~fix unknown-slug resolution~~ — 10 routes fail closed, 35 tests, 7 falsifications
+5. ~~third fixture store with an empty `theme_id`~~ — reproduced a crash on 11 of 12 routes; fixed, 32 tests
+6. ~~`theme_customizes` fixture rows~~ — 20 rows, tenants differ by 2,722 lines, 6 tenancy pins
+7. **close M0** — full Feature suite + known-outcome gate, capture-integrity gates, ledger.
 
-Then M1.
+**Then M1: the real storefront baseline** — a defect inventory taken against a fixture that can
+finally render a credible, distinguishable, image-bearing storefront in both languages, on three
+stores including one with no theme.
+
+### The four Phase 03 fixtures a later session will need
+
+| | |
+|---|---|
+| dev server | `docs/development/phase-2.5/tools/serve-dev.sh` → `127.0.0.1:8899`. **Never export its env vars**; it destroys the fixture |
+| fixture | `docs/development/phase-3/tools/seed-storefront-fixture.php`, idempotent, `--remove`, `--report` |
+| capture | `docs/development/phase-3/tools/storefront-matrix.cjs --store <slug>` |
+| stores | `damascus-textiles` (id 1), `aleppo-soap` (id 2), `p3fixt-no-theme` (id 4, `theme_id = ''`) |
+
+The storefront password is `storefront-dev-password` and is not a secret. Every fixture row carries
+a `p3fixt-` prefix or the `P3FIXT` tag.

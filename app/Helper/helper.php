@@ -3540,10 +3540,39 @@ if (! function_exists('getThemeSetting')) {
         $defaultSettings = [];
         $defaultSettingsPath = base_path('themes/'.$theme.'/default_data/settings.php');
 
+        // PHASE 03 M0 -- `stores.theme_id` is NOT NULL (`2023_12_14_090259`), so a store with no
+        // theme chosen carries the empty STRING. This path then became
+        // `themes//default_data/settings.php`, which does not exist, `$defaultSettings` stayed
+        // `[]`, and the merged array below came back WITH NO KEYS AT ALL.
+        //
+        // Every storefront view indexes that array directly -- `$themeSettings['abouts_us_banner_status']`
+        // and ~525 siblings -- and an absent key is a warning, which Laravel's handler promotes to
+        // an ErrorException. MEASURED on a themeless fixture store: `/home` refused and the other
+        // ELEVEN page routes answered 500.
+        //
+        // THE FALLBACK IS EXISTING CONFIGURATION, NOT A NEW RULE. `config/theme.php` already ships
+        // `'active' => 'stylique'`, which is what the theme resolver uses when nothing is set. This
+        // reads that rather than building a path out of an empty string. A store that HAS a theme
+        // never reaches it, and no merchant's stored choice is altered.
+        if (! file_exists($defaultSettingsPath)) {
+            $fallbackTheme = (string) config('theme.active');
+
+            if ($fallbackTheme !== '' && $fallbackTheme !== $theme) {
+                $fallbackPath = base_path('themes/'.$fallbackTheme.'/default_data/settings.php');
+
+                if (file_exists($fallbackPath)) {
+                    $defaultSettingsPath = $fallbackPath;
+                }
+            }
+        }
+
         if (file_exists($defaultSettingsPath)) {
             $defaultSettings = include $defaultSettingsPath;
         }
 
+        // The STORED customisations are deliberately still looked up on the store's OWN `$theme`.
+        // Only the defaults fall back: a themeless store shows the configured theme's defaults, not
+        // settings its merchant once saved against a different theme.
         $themeSettings = ThemeCustomize::where('store_id', $storeId)
                         ->where('theme_id', $theme)
                         ->pluck('value', 'name')

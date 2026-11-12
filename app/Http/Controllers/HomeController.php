@@ -812,12 +812,42 @@ class HomeController extends Controller
 
     private function storeSlug($storeSlug)
     {
-        if (!empty($storeSlug)) {
+        // PHASE 03 M0 -- an unknown store slug must FAIL CLOSED with a not-found response.
+        //
+        // This used to be `if (!empty($storeSlug))`, and `!empty('0')` is FALSE in PHP: a store
+        // whose slug is `0` was unreachable and answered 403 "The Link is not active." An explicit
+        // emptiness test asks the question that was meant.
+        if ($storeSlug !== null && $storeSlug !== '') {
             $store = getStore($storeSlug);
-            if (!view()->exists('main_file') || !$store) {
-                return redirect()->back()->with('error', __("Store Not Found."));
+
+            // THE DEFECT THE PHASE 03 BASELINE MIS-DESCRIBED. This arm was
+            //
+            //     return redirect()->back()->with('error', __("Store Not Found."));
+            //
+            // and `redirect()->back()` reads the `Referer`. The capture harness had navigated from
+            // store A, so an unknown slug sent it BACK to store A and it photographed a real
+            // storefront -- which the baseline recorded as "an unknown slug serves another
+            // tenant's shop". It never did. With no `Referer` the same line redirects to `/`,
+            // which lands a shopper on the MERCHANT login page.
+            //
+            // Either way it is a soft 404: wrong for a crawler, wrong for a typo'd link, and an
+            // evidence-integrity hazard for every harness that trusts the URL it asked for. Seven
+            // of this controller's nine sibling page handlers already `abort(404)` here; this one
+            // is now consistent with them.
+            if (!$store) {
+                abort(404);
             }
-            $store = getStore($storeSlug);
+
+            // A STORE THAT EXISTS BUT WHOSE THEME HAS NO `main_file` IS A DIFFERENT FAILURE and no
+            // longer shares this one's answer. It is the empty-`stores.theme_id` path: `ActiveTheme`
+            // skips `Theme::set()`, so no theme view root is prepended and the lookup misses. That
+            // is a server-side misconfiguration, not a missing store, and answering 404 for it
+            // would tell a merchant their shop does not exist. Kept as a distinct refusal so the
+            // two causes stay separable.
+            if (!view()->exists('main_file')) {
+                abort(503, 'The store theme is not available.');
+            }
+
             $testimonials = Testimonial::where('store_id', $store->id)->where('status', 1)->get();
             $brands = ProductBrand::where('store_id', $store->id)->where('status', 1)->get();
             $categories = Category::where('store_id', $store->id)->where('status', 1)->take(8)->get();
@@ -848,6 +878,14 @@ class HomeController extends Controller
 
     public function about_page(Request $request, $storeSlug)
     {
+        // PHASE 03 M0 (independent review). This handler never looked the store up, so for an
+        // unknown slug its ONLY store check was the `abort(404)` in ViewServiceProvider's composer
+        // -- which is a control one `return response()->json(...)` away from silently vanishing,
+        // with no test noticing. The composer guard stays; this is the handler saying it too.
+        if (! getStore($storeSlug)) {
+            abort(404);
+        }
+
         return view('front_end.pages.about');
     }
 
@@ -1327,8 +1365,10 @@ class HomeController extends Controller
     public function privacy_page(Request $request, $slug)
     {
         $store = getStore($slug);
+        // PHASE 03 M0 -- was `redirect()->back()`, i.e. a 302 to the Referer or, with none, to the
+        // merchant login. A public legal page for a store that does not exist is a 404.
         if (empty($store)) {
-            return redirect()->back();
+            abort(404);
         }
 
         return view('front_end.pages.privacy-policy', compact('slug'));
@@ -1960,8 +2000,11 @@ class HomeController extends Controller
     public function pageError(Request $request, $slug)
     {
         $store = getStore($slug);
+        // PHASE 03 M0 -- was `redirect()->back()`. This route renders a store's OWN themed error
+        // page; for a store that does not exist there is no theme to render it in, so the generic
+        // not-found response is the correct answer rather than a bounce to the referrer.
         if (empty($store)) {
-            return redirect()->back();
+            abort(404);
         }
 
         return view('front_end.pages.error', compact('store'));

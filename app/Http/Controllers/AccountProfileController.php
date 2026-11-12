@@ -545,6 +545,16 @@ public function city_list(Request $request, $slug)
     {
         // if (auth('customers')->user()) {
             $store = getStore($slug);
+
+            // PHASE 03 M0 (independent review). A SIGNED-IN customer on an unknown slug got a 500
+            // here: the query below reads `$store->id`, which runs BEFORE any view, so the
+            // composer's not-found guard could never reach it. A guest took the `collect()` branch
+            // and was refused later by the composer -- so the same URL answered 404 or 500
+            // depending on who asked.
+            if (! $store) {
+                abort(404);
+            }
+
             $filter_order = $request->get('filter_order') !== 'undefined' ?  $request->get('filter_order') : 'all';
 			if (auth('customers')->user()) {
                 $orders = Order::with(['refund'])->where('customer_id', auth('customers')->user()->id)->orderBy('id', 'desc')->where('store_id', $store->id)->paginate(10);

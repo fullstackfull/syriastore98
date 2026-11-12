@@ -81,6 +81,7 @@ $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 
 use App\Models\Customer;
 use App\Models\Store;
+use App\Models\ThemeCustomize;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
@@ -110,6 +111,73 @@ foreach ($stores as $s) {
     printf("  id=%-3s slug=%-20s theme_id=%s\n", $s->id, $s->slug, var_export($s->theme_id, true));
 }
 echo "\n";
+
+/* ------------------------------------------------------------------------------------------- */
+
+/**
+ * A THIRD STORE WITH NO THEME CHOSEN, because neither of the other two can exercise that path.
+ *
+ * Both `damascus-textiles` and `aleppo-soap` carry `theme_id = 'stylique'`. The M0 inventory
+ * recorded "empty `stores.theme_id` skips `Theme::set()` -> base layout, no `dir`, `themes//...`
+ * asset path" as OPEN BUT UNREPRODUCED, and it could not be reproduced without a store that
+ * actually has one.
+ *
+ * `stores.theme_id` is `$table->string('theme_id')` -- NOT nullable -- so the empty case is the
+ * empty STRING, which is why `forceCreate`/a direct assignment is used rather than a factory.
+ *
+ * WHAT IT FOUND, once it existed: not degradation but a crash. `/home` could not resolve
+ * `main_file` and the other ELEVEN page routes answered 500, because `getThemeSetting($id, '')`
+ * built `themes//default_data/settings.php`, found nothing, and returned an array with no keys for
+ * views that index ~525 of them. Fixed in `app/Helper/helper.php`,
+ * `app/Http/Middleware/ActiveTheme.php` and `app/Providers/ViewServiceProvider.php`; pinned by
+ * `tests/Feature/Storefront/EmptyThemeIdFallsBackTest.php`.
+ *
+ * It is created BEFORE the customer loop below so it gets a shopper like the others and can be
+ * captured signed-in.
+ */
+const THEMELESS_SLUG = 'p3fixt-no-theme';
+
+$themeless = Store::withoutGlobalScopes()->where('slug', THEMELESS_SLUG)->first();
+
+if ($remove) {
+    if ($themeless) {
+        Customer::withoutGlobalScopes()->where('store_id', $themeless->id)->delete();
+        $themeless->delete();
+        echo "removed the themeless store (" . THEMELESS_SLUG . ") and its customers\n\n";
+    }
+} else {
+    if ($themeless === null) {
+        $owner = $stores->first()->created_by ?? 1;
+
+        $themeless = new Store();
+        $themeless->name = 'P3 Fixture - No Theme';
+        $themeless->email = 'p3fixt-no-theme@example.test';
+        $themeless->slug = THEMELESS_SLUG;
+        $themeless->theme_id = '';          // the whole point of this row
+        $themeless->created_by = $owner;
+        $themeless->is_active = 1;
+        $themeless->default_language = 'en';
+        $themeless->save();
+
+        printf("  CREATED       themeless store id=%s slug=%s theme_id=''\n", $themeless->id, $themeless->slug);
+    }
+
+    // A PREMISE CHECK, not a formality. If something normalises `''` to a theme name on save, this
+    // row silently stops testing what it is for and every assertion about it becomes vacuous.
+    $fresh = Store::withoutGlobalScopes()->find($themeless->id);
+
+    if ((string) $fresh->theme_id !== '') {
+        fwrite(STDERR, "REFUSING: the themeless store came back with theme_id="
+            . var_export($fresh->theme_id, true) . ", not ''. Something normalises it on save, so\n"
+            . "this row cannot exercise the empty-theme path and must not be relied on.\n");
+        exit(1);
+    }
+
+    echo "  themeless store ready: id={$fresh->id} slug={$fresh->slug} theme_id=''\n\n";
+
+    // Re-read so the loops below include it.
+    $stores = Store::withoutGlobalScopes()->orderBy('id')->get(['id', 'name', 'slug', 'theme_id', 'created_by']);
+}
 
 /* ------------------------------------------------------------------------------------------- */
 
@@ -353,6 +421,157 @@ foreach ($stores as $store) {
 
     printf("  store %-3s (%-20s) can sign in as %s\n", $store->id, $store->slug, $usable->email);
 }
+
+/* ------------------------------------------------------------------------------------------- */
+
+/**
+ * THEME CUSTOMISATIONS, so the storefront stops being a photograph of the THEME's demo content.
+ *
+ * `theme_customizes` had ZERO rows -- measured -- which is M0 gap 5. With none, `getThemeSetting()`
+ * returns the theme's own `default_data/settings.php` verbatim, so both tenants' home pages read
+ * "Shop by Category / Featured Products / Accessorize with Elegance". Two different merchants'
+ * storefronts were therefore BYTE-IDENTICAL above the product grid, which makes a capture useless
+ * for the one thing Phase 03 has to show: that a storefront reflects ITS OWN store.
+ *
+ * Only the 24 keys `main_file.blade.php` actually reads are set, and only the TEXT ones. The
+ * repeaters (`slider_repeater`, `service_repeater`, `logo_repeater`) keep the theme's own images,
+ * which exist on disk; inventing image paths here would re-create the broken-image problem the
+ * previous commit fixed.
+ *
+ * `theme_customizes` is NOT in `config/tenancy.php`'s `scoped_models`, so it adds no store
+ * predicate for anyone. Every row written here carries an explicit `store_id`, and every read in
+ * the editor/preview/publish work of M3 and M4 will have to do the same -- that is recorded as an
+ * open Phase 03 finding, not solved by this fixture.
+ *
+ * Written through Eloquent deliberately: `ThemeCustomize` is `Cachable`, and a raw
+ * `DB::table()->insert()` would leave Eloquent reads -- route-model binding included -- serving the
+ * pre-write state.
+ */
+$CUSTOMISE = [
+    'damascus-textiles' => [
+        // THE HEADER AND FOOTER LOGO. Without these, every store on the platform showed
+        // `themes/stylique/assets/images/logo.png` -- the THEME's logo -- and two different
+        // merchants' pages were BYTE-IDENTICAL screenshots. Measured: 28 of 126 captures collided
+        // across stores, and the 99 differing HTML lines were all csrf-token and og:url, i.e.
+        // nothing visible.
+        //
+        // The storefront behaviour is CORRECT: a merchant who has uploaded no logo should get the
+        // theme's, which is why these images are not forced in from code. It is the FIXTURE that
+        // was unrealistic, so the fixture sets them.
+        'logo'                  => 'uploads/p3fixt/logo-damascus-textiles.png',
+        'header_logo'           => 'uploads/p3fixt/logo-damascus-textiles.png',
+        'footer_logo'           => 'uploads/p3fixt/logo-damascus-textiles.png',
+        'category_title'        => 'Fabrics by the Metre',
+        'category_description'  => 'Damask, brocade and raw silk, cut to length in our Damascus workshop.',
+        'product_title'         => 'This Season\'s Weaves',
+        'product_description'   => 'Hand-finished cloth, photographed as it arrives off the loom.',
+        'bestseller_title'      => 'Most Ordered Cloth',
+        'testimonial_title'     => 'What Our Tailors Say',
+        'testimonial_sub_title' => 'Feedback from the workshops we supply.',
+        'blog_title'            => 'From the Workshop',
+        'blog_sub_title'        => 'Notes on dyeing, weaving and caring for natural cloth.',
+    ],
+    'aleppo-soap' => [
+        'logo'                  => 'uploads/p3fixt/logo-aleppo-soap.png',
+        'header_logo'           => 'uploads/p3fixt/logo-aleppo-soap.png',
+        'footer_logo'           => 'uploads/p3fixt/logo-aleppo-soap.png',
+        'category_title'        => 'Soap by Type',
+        'category_description'  => 'Laurel and olive oil soap, cured the slow way.',
+        'product_title'         => 'Fresh From the Cure',
+        'product_description'   => 'Each batch is stamped, stacked and left to harden for months.',
+        'bestseller_title'      => 'Best-Loved Bars',
+        'testimonial_title'     => 'What Our Customers Say',
+        'testimonial_sub_title' => 'Notes from households and hammams.',
+        'blog_title'            => 'The Curing Room',
+        'blog_sub_title'        => 'How laurel oil, time and air make a bar of soap.',
+    ],
+    // The themeless store gets rows too, keyed on its EMPTY theme_id. `getThemeSetting()` looks
+    // stored customisations up on the store's OWN theme_id by design, so this proves that path is
+    // reachable for a store with no theme -- defaults from the configured theme, overrides from
+    // the store's own rows.
+    THEMELESS_SLUG => [
+        'logo'                  => 'uploads/p3fixt/logo-p3fixt-no-theme.png',
+        'header_logo'           => 'uploads/p3fixt/logo-p3fixt-no-theme.png',
+        'footer_logo'           => 'uploads/p3fixt/logo-p3fixt-no-theme.png',
+        'category_title'        => 'Browse the Shelves',
+        'product_title'         => 'In Stock Today',
+    ],
+];
+
+$written = 0;
+$cleared = 0;
+
+foreach ($CUSTOMISE as $slug => $pairs) {
+    $target = Store::withoutGlobalScopes()->where('slug', $slug)->first();
+
+    if ($target === null) {
+        printf("  theme_customizes: no store with slug %s, skipped\n", $slug);
+        continue;
+    }
+
+    foreach ($pairs as $name => $value) {
+        $existing = ThemeCustomize::withoutGlobalScopes()
+            ->where('store_id', $target->id)
+            ->where('theme_id', (string) $target->theme_id)
+            ->where('name', $name)
+            ->first();
+
+        if ($remove) {
+            if ($existing) {
+                $existing->delete();
+                $cleared++;
+            }
+            continue;
+        }
+
+        if ($existing) {
+            if ((string) $existing->value !== $value) {
+                $existing->value = $value;
+                $existing->save();
+                $written++;
+            }
+            continue;
+        }
+
+        $row = new ThemeCustomize();
+        $row->store_id = $target->id;
+        $row->theme_id = (string) $target->theme_id;
+        $row->name = $name;
+        $row->value = $value;
+        $row->save();
+        $written++;
+    }
+}
+
+if ($remove) {
+    printf("\n  theme_customizes: %d row(s) removed\n", $cleared);
+} else {
+    printf("\n  theme_customizes: %d row(s) written, %d total now\n",
+        $written, ThemeCustomize::withoutGlobalScopes()->count());
+
+    // A PREMISE CHECK. Rows that exist but are not READ prove nothing, and the read goes through a
+    // store_id + theme_id pair that is easy to get wrong.
+    foreach ($CUSTOMISE as $slug => $pairs) {
+        $target = Store::withoutGlobalScopes()->where('slug', $slug)->first();
+        if ($target === null) {
+            continue;
+        }
+
+        $resolved = getThemeSetting($target->id, (string) $target->theme_id);
+        $firstKey = array_key_first($pairs);
+
+        if (($resolved[$firstKey] ?? null) !== $pairs[$firstKey]) {
+            fwrite(STDERR, "REFUSING: wrote theme_customizes for {$slug} but getThemeSetting() "
+                . "returns " . var_export($resolved[$firstKey] ?? null, true) . " for {$firstKey}, "
+                . "not the seeded value. The rows are not being read, so they are not a fixture.\n");
+            exit(1);
+        }
+
+        printf("  %-20s reads its own %s: %s\n", $slug, $firstKey, $resolved[$firstKey]);
+    }
+}
+
+/* ------------------------------------------------------------------------------------------- */
 
 if ($problems !== []) {
     fwrite(STDERR, "\nFIXTURE INCOMPLETE:\n  - " . implode("\n  - ", $problems) . "\n");

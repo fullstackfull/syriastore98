@@ -49,7 +49,18 @@ import re
 import sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
-EVID = os.path.join(ROOT, 'docs/development/phase-2.5/evidence')
+
+# PHASE 03. The evidence root was HARDCODED here, and the tool accepted a path argument by
+# SILENTLY IGNORING IT -- so running it three times over three different Phase 03 capture
+# directories printed the same Phase 2.5 result three times, naming a merchant coupon modal. A
+# "clean" report for evidence the tool had never opened is worse than no report, so the root is now
+# an optional first argument.
+#
+# CI (`.github/workflows/ci.yml:347`) invokes it with NO arguments, so the default is unchanged and
+# the Phase 2.5 gate behaves exactly as before.
+_args = [a for a in sys.argv[1:] if not a.startswith('-')]
+EVID = (os.path.abspath(_args[0]) if _args
+        else os.path.join(ROOT, 'docs/development/phase-2.5/evidence'))
 
 # `_faqs__en_ltr_light.png` -> surface `_faqs__`, combination `en_ltr_light`.
 NAME = re.compile(r'^(?P<surface>.*?)(?P<combo>en_ltr_light|en_ltr_dark|ar_rtl_light|ar_rtl_dark)\.png$')

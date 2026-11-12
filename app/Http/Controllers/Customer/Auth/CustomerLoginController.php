@@ -692,8 +692,16 @@ private function normalizePhone($phone)
     public function showLoginForm($slug)
     {
         $store = getStore($slug);
+        // PHASE 03 M0 -- an unknown store slug on a PUBLIC storefront form is a not-found, not a
+        // bounce. This was `redirect()->back()->with('error', ...)`, which with no `Referer` lands
+        // the visitor on the MERCHANT login page at `/login` -- a different application, on a
+        // different guard, for a different kind of user.
+        //
+        // This is strictly fail-closed: it refuses EARLIER and HARDER than before, grants nothing,
+        // and the `customers` guard, the session and `Utility::CustomerAuthCheck()` below are
+        // untouched. The already-signed-in redirect to `landing_page` still runs for a real store.
         if (empty($store)) {
-            return redirect()->back()->with('error', __('Store not available'));
+            abort(404);
         }
 
         if (Utility::CustomerAuthCheck($slug) == true) {
@@ -890,8 +898,12 @@ private function normalizePhone($phone)
     public function register($slug, $ref = null)
     {
         $store = getStore($slug);
+        // PHASE 03 M0 (independent review). `{slug}/register` is a public storefront GET of exactly
+        // the same shape as showLoginForm/forgotPasswordForm/resetPasswordForm, and was missed in
+        // the first pass because it did not appear in the route sweep's page-route filter. Measured:
+        // 302 to the MERCHANT login for an unknown slug, 200 for a real one.
         if (empty($store)) {
-            return redirect()->back()->with('error', __('Store not available'));
+            abort(404);
         }
         
         $topNavItems = [];
@@ -1018,8 +1030,16 @@ private function normalizePhone($phone)
     public function forgotPasswordForm($slug)
     {
         $store = getStore($slug);
+        // PHASE 03 M0 -- an unknown store slug on a PUBLIC storefront form is a not-found, not a
+        // bounce. This was `redirect()->back()->with('error', ...)`, which with no `Referer` lands
+        // the visitor on the MERCHANT login page at `/login` -- a different application, on a
+        // different guard, for a different kind of user.
+        //
+        // This is strictly fail-closed: it refuses EARLIER and HARDER than before, grants nothing,
+        // and the `customers` guard, the session and `Utility::CustomerAuthCheck()` below are
+        // untouched. The already-signed-in redirect to `landing_page` still runs for a real store.
         if (empty($store)) {
-            return redirect()->back()->with('error', __('Store not available'));
+            abort(404);
         }
        
      
@@ -1099,8 +1119,16 @@ private function normalizePhone($phone)
     public function resetPasswordForm($slug)
     {
         $store = getStore($slug);
+        // PHASE 03 M0 -- an unknown store slug on a PUBLIC storefront form is a not-found, not a
+        // bounce. This was `redirect()->back()->with('error', ...)`, which with no `Referer` lands
+        // the visitor on the MERCHANT login page at `/login` -- a different application, on a
+        // different guard, for a different kind of user.
+        //
+        // This is strictly fail-closed: it refuses EARLIER and HARDER than before, grants nothing,
+        // and the `customers` guard, the session and `Utility::CustomerAuthCheck()` below are
+        // untouched. The already-signed-in redirect to `landing_page` still runs for a real store.
         if (empty($store)) {
-            return redirect()->back()->with('error', __('Store not available'));
+            abort(404);
         }
        
         

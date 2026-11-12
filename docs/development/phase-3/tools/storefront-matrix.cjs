@@ -80,6 +80,9 @@ const PASSWORD = arg('password', 'storefront-dev-password');
 const FIXTURE_CUSTOMER = {
   'damascus-textiles': 'layla.haddad@example.test',
   'aleppo-soap': 'p3-shopper@aleppo-soap.test',
+  // The themeless store: `theme_id = ''`, which no other fixture store can exercise. Before the
+  // M0 fix its /home could not resolve `main_file` and its other eleven page routes answered 500.
+  'p3fixt-no-theme': 'p3-shopper@p3fixt-no-theme.test',
 };
 const CUSTOMER = arg('customer', FIXTURE_CUSTOMER[STORE] || '');
 
