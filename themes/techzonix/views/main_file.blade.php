@@ -7,13 +7,14 @@
     @if (isset($themeSettings['slider_status']) && $themeSettings['slider_status'] == '1')
     <section class="home-banner-sec py-10 lg:py-24 bg-cover bg-primary/10 relative z-[1] overflow-hidden">
         @if (isset($themeSettings['slider_left_image']) && !empty($themeSettings['slider_left_image']))
-        <img src="{{  get_file($themeSettings['slider_left_image'] ?? '') }}" class="absolute left-0 top-10 hidden lg:block">
+        {{-- M2-E a11y: decorative backdrop, empty alt so assistive tech skips it (axe image-alt). --}}
+        <img src="{{  get_file($themeSettings['slider_left_image'] ?? '') }}" alt="" class="absolute left-0 top-10 hidden lg:block">
         @endif
         @if (isset($themeSettings['slider_center_image']) && !empty($themeSettings['slider_center_image']))
-        <img src="{{  get_file($themeSettings['slider_center_image'] ?? '') }}" class="absolute right-0 bottom-10 hidden lg:block">
+        <img src="{{  get_file($themeSettings['slider_center_image'] ?? '') }}" alt="" class="absolute right-0 bottom-10 hidden lg:block">
         @endif
         @if (isset($themeSettings['slider_right_image']) && !empty($themeSettings['slider_right_image']))
-        <img src="{{  get_file($themeSettings['slider_right_image'] ?? '') }}" class="absolute right-[50%] -bottom-10 hidden lg:block">
+        <img src="{{  get_file($themeSettings['slider_right_image'] ?? '') }}" alt="" class="absolute right-[50%] -bottom-10 hidden lg:block">
         @endif
         <div class="swiper home-swiper">
             <div class="swiper-wrapper lg:pb-10 pb-16">
@@ -36,7 +37,8 @@
                                 </div>
                                 <div class="lg:w-1/2 w-full">
                                     <div class="lg:max-w-[70%] sm:max-w-[60%] max-w-[90%] w-full mx-auto relative z-[1] p-8">
-                                        <img src="{{ get_file($slider_repeater['background_image'] ?? '') }}"
+                                        {{-- M2-E a11y: the slide's backdrop behind the product shot, which carries its own alt. --}}
+                                        <img src="{{ get_file($slider_repeater['background_image'] ?? '') }}" alt=""
                                             class="absolute -z-[1] top-[50%] left-[50%]  translate-x-[-50%] translate-y-[-50%] h-full w-full">
                                         <div class="relative pt-[100%]">
                                             <img src="{{ get_file($slider_repeater['image'] ?? '') }}"
@@ -138,7 +140,10 @@
                         @foreach (json_decode($themeSettings['logo_repeater'], true) as $logo)
                             <div class="swiper-slide">
                                 <a href="#" class="block group transition-all duration-300"
-                                   aria-label="Partner Logo">
+                                   {{-- M2-E: untranslated, and the repeater rows hold only `image`,
+                                        so there is no partner name to announce. href="#" too -- see the
+                                        note in greentic's copy of this block. --}}
+                                   aria-label="{{ __('Brands') }}">
                                     <div
                                         class="card bg-white rounded-lg sm:p-6 p-4 h-24 flex items-center justify-center border transition-all duration-300 hover:border-primary">
                                         <div class="w-full h-full relative">

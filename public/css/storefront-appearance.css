@@ -126,6 +126,45 @@
 .text-primary { color: var(--brand-ink-on-surface, currentColor) !important; }
 
 /* ---------------------------------------------------------------------------------------------
+   4c. TAILWIND ARBITRARY-VALUE BRAND CLASSES, WHICH AXE FOUND AND MY OWN PROBE MISSED.
+   
+   This section exists because of a measurement failure worth recording. My contrast probe samples
+   about ten elements per route; axe-core checks EVERY text node. So "0 contrast failures" from the
+   probe meant zero among a small sample, and axe then reported 212 failing nodes across 37 page
+   loads. The probe was not wrong about what it measured -- it measured too little, and I presented
+   it as though it had measured everything.
+   
+   What axe found, all at 2.64:1 on stylique:
+   
+       <button class="addtocart-btn ... bg-[var(--primary-color)] text-white">   white on coral
+       <button class="tab-btn active ... border-[var(--primary-color)]">         coral as text
+       <a class="btn-outline">                                                  coral as text
+   
+   `bg-[var(--primary-color)]` is a Tailwind ARBITRARY-VALUE class. M2-B's rule named
+   `.btn-primary` and `.cart-badge` specifically, so it could not reach a button that gets its fill
+   from an arbitrary-value utility instead -- and the "Add to cart" button on every product card is
+   exactly that.
+   
+   THE INK DIFFERS PER THEME AND MUST NOT BE SHARED: dark on stylique's coral (6.39:1 against
+   2.64:1 for white), white on techzonix's violet (4.53:1 against 3.73:1), white on greentic's
+   deepened green (4.63:1). Each theme declares `--ink-on-brand-fill`; this layer only reads it.
+   --------------------------------------------------------------------------------------------- */
+.bg-\[var\(--primary-color\)\],
+.bg-primary,
+.bg-\[var\(--primary-color\)\].text-white,
+.bg-primary.text-white {
+    color: var(--ink-on-brand-fill, currentColor) !important;
+}
+
+/* The brand used as TEXT, via the classes that carry it as a border/accent colour rather than
+   through `.text-primary`. Same token as section 4b. */
+.btn-outline,
+.tab-btn.active,
+.border-\[var\(--primary-color\)\] {
+    color: var(--brand-ink-on-surface, currentColor);
+}
+
+/* ---------------------------------------------------------------------------------------------
    5. THE `auto` ARM. Required, not optional: `auto` is the DEFAULT state, so a shopper who has
    never touched the control is on `auto` and everything above would miss them entirely. This is
    the mistake the stylique page-background fix made first — dark surfaces and a white page.

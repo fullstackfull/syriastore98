@@ -64,6 +64,12 @@
 
     /* --- ink on the violet: white, because it measures 4.53:1 and dark ink measures 3.73:1 --- */
     --white: #ffffff;
+    /* WHAT GOES ON THIS THEME'S BRAND FILL. The shared layer reads this for the Tailwind
+       arbitrary-value class `bg-[var(--primary-color)]`, which no per-theme rule reaches.
+       The three themes differ, measured: dark ink on stylique's coral (6.39:1 vs 2.64:1 for
+       white), white on techzonix's violet (4.53:1 vs 3.73:1), white on greentic's deepened
+       green (4.63:1). Copying one theme's answer to another would break it. */
+    --ink-on-brand-fill: var(--white);
 
     /* THE VIOLET AS TEXT IS A DIFFERENT COLOUR FROM THE VIOLET AS A FILL, and the measurements
        say so. #9952e0 carries white ink at 4.53:1 as a button -- a pass -- and fails as text on
@@ -73,7 +79,14 @@
        backdrops (4.91:1 on white, 4.70:1 on the sunken surface). The dark-mode value below goes
        the other way, to 70%. Both keep the hue and saturation, so the violet still reads as
        techzonix's violet -- only its lightness moves, and only where it is text. */
-    --brand-ink-on-surface: hsl(270 70% 58%);
+    /* M2-E: was 58% / 70%. Both cleared 4.5:1 on a PLAIN surface and both FAILED on a TINTED one:
+       the countdown on /home sits on `rgba(153 82 224 / 0.1)`, which composites to #f5eefc over
+       white and #322f44 over the dark card. Measured 4.33:1 light and 4.30:1 dark. 56% / 74% give
+       4.69 and 5.06 on the tint, 5.32 and 5.58 on the plain surface. An ink token has to clear
+       every surface the theme puts it on, not just the white one it was chosen against. This only
+       became visible when the fixture's product grid started rendering -- see the product_type
+       note in the M2-E report. */
+    --brand-ink-on-surface: hsl(270 70% 56%);
 
     /* --- semantic: these follow data-ss-theme, with techzonix's own value as the fallback --- */
     /* NOT `var(--white)`, which was the first draft and is the INK token -- it is #ffffff in both
@@ -124,7 +137,7 @@
     --background: 280 16% 13%;
     /* The violet LIGHTENED for text on a dark surface: 5.52:1 on the page, 4.74:1 on the
        card, 5.25:1 on the sunken surface. The FILL is deliberately not changed. */
-    --brand-ink-on-surface: hsl(270 70% 70%);
+    --brand-ink-on-surface: hsl(270 70% 74%);
     --page-color: hsl(280 16% 13%);
     --foreground: 280 12% 92%;
 
@@ -153,7 +166,7 @@
         --background: 280 16% 13%;
         /* The violet LIGHTENED for text on a dark surface: 5.52:1 on the page, 4.74:1 on the
            card, 5.25:1 on the sunken surface. The FILL is deliberately not changed. */
-        --brand-ink-on-surface: hsl(270 70% 70%);
+        --brand-ink-on-surface: hsl(270 70% 74%);
         --page-color: hsl(280 16% 13%);
         --foreground: 280 12% 92%;
 
@@ -932,9 +945,19 @@ select {
     margin-top: 5px;
     line-height: 1;
 }
+/* M2-E. WCAG AA FIX, PRE-EXISTING AND MEASURED.
+   The struck-through pre-discount price was Tailwind grey-400 (#9ca3af) baked in as a literal.
+   On the white product card that is 2.54:1 -- a FAIL for 14px normal text, which needs 4.5:1.
+   Measured identically with the M2 appearance layer blocked, so this predates M2; and it is one
+   rule per theme fed by the SHARED hook resources/views/front_end/hooks/product_price.blade.php,
+   so all three themes carried it. It surfaced only on the two fixture stores whose products hold
+   a discount (aleppo-soap, p3fixt-latakia-green) -- the others simply never render the element.
+   --ss-fg-subtle flips with the appearance: #6b6f76 light = 5.05:1, #9599a0 dark = 4.98:1, both
+   on the real card backdrops. The dark arm is slightly LOWER than the old 5.60:1; that is the
+   price of a token that flips, and it still clears AA. The literal fallback is the light value,
+   because without the design system stylesheet there is no dark mode either. */
 .product_orignal_price{
-    --tw-text-opacity: 1;
-    color: rgb(156 163 175 / var(--tw-text-opacity, 1));
+    color: var(--ss-fg-subtle, #6b7280);
     -webkit-text-decoration-line: line-through;
     text-decoration-line: line-through;
   }

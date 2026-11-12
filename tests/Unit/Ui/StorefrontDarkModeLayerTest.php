@@ -113,7 +113,11 @@ class StorefrontDarkModeLayerTest extends TestCase
         // appearances on techzonix (4.33:1 light, 3.14:1 dark), so the rule has to apply in both.
         // It is theme-agnostic by indirection -- it reads `--brand-ink-on-surface`, which each
         // theme declares for its own palette, and a theme that declares nothing is unaffected.
-        $allowed = ['.cart-badge.text-white', '.btn-primary.text-white', '.text-primary'];
+        $allowed = ['.cart-badge.text-white', '.btn-primary.text-white', '.text-primary',
+            // M2-E: the Tailwind arbitrary-value brand classes axe found and my sampling probe
+            // missed. These fail in BOTH appearances, so the rules apply in both.
+            '.bg-\\[var\\(--primary-color\\)\\]', '.bg-primary', '.btn-outline',
+            '.tab-btn.active', '.border-\\[var\\(--primary-color\\)\\]'];
 
         $unscoped = [];
 

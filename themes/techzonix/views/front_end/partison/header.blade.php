@@ -40,7 +40,8 @@
                             @endforeach
                         </datalist>
 
-                        <button type="submit" class="absolute ltr:right-3 rtl:left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+                        {{-- M2-E a11y: the search submit is an icon only (axe button-name, critical). --}}
+                        <button type="submit" aria-label="{{ __('Search') }}" class="absolute ltr:right-3 rtl:left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
                             <i class="fas fa-search"></i>
                         </button>
                     </div>
@@ -51,6 +52,9 @@
             <ul class="flex items-center sm:gap-3 gap-2">
                 @if(isset($themeSettings['header_search_status']) && $themeSettings['header_search_status'] == 1)
                     <!-- Search Button for Mobile -->
+                    {{-- M2-E a11y: this button was a direct child of the <ul>, which only permits <li>
+                         (axe list, serious). Wrapped; `display:contents` keeps the flex layout identical. --}}
+                    <li style="display: contents;">
                     <button id="search-toggle" class="lg:hidden text-gray-700 hover:text-orange-500">
                         <svg class="w-5 h-5" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
                             <path
@@ -60,16 +64,21 @@
                                 stroke-linecap="round" stroke-linejoin="round"></path>
                         </svg>
                     </button>
+                    </li>
                 @endif
                 @stack('marketPlaceListButton')
 
             {{-- M2-A. The appearance control, OUTSIDE the @auth gate below: a guest shopper needs
-                 it as much as a signed-in one. --}}
+                 it as much as a signed-in one.
+                 M2-E: in THIS theme the surrounding element is the header <ul>, so the control gets
+                 its own <li> (axe list). `display:contents` leaves the flex layout untouched. --}}
+            <li style="display: contents;">
             @include('front_end.partials.appearance-toggle')
+            </li>
                 @if(isset($themeSettings['header_wishlist_status']) && $themeSettings['header_wishlist_status'] == 1)
                     <li>
                         <a href="{{ route('wishlist', $slug) }}"
-                            class="text-gray-600 hover:text-primary-dark transition relative" aria-label="Wishlist">
+                            class="text-gray-600 hover:text-primary-dark transition relative" aria-label="{{ __('Wishlist') }}">
                             <svg class="w-5 h-5" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <path
                                     d="M10.7235 18.291C10.4382 18.3917 9.96839 18.3917 9.68314 18.291C7.25009 17.4604 1.81348 13.9954 1.81348 8.12256C1.81348 5.53011 3.90254 3.43265 6.47822 3.43265C8.00517 3.43265 9.35593 4.17095 10.2033 5.31197C11.0507 4.17095 12.4098 3.43265 13.9284 3.43265C16.5041 3.43265 18.5931 5.53011 18.5931 8.12256C18.5931 13.9954 13.1565 17.4604 10.7235 18.291Z"
@@ -123,7 +132,7 @@
                     <li>
                         <form method="POST" action="{{ route('customer.logout', $slug) }}" id="form_logout">
                             <a href="#" onclick="event.preventDefault(); this.closest('form').submit();"
-                                class="text-gray-600 hover:text-primary-dark transition" aria-label="Account">
+                                class="text-gray-600 hover:text-primary-dark transition" aria-label="{{ __('Log Out') }}">
                                 @csrf
                                 <svg class="w-5 h-5" width="25" height="25" viewBox="0 0 25 25" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <path d="M10.8394 3.46729C11.2536 3.46729 11.5894 3.13149 11.5894 2.71729C11.5894 2.30307 11.2536 1.96729 10.8394 1.96729H5.09327C3.29832 1.96729 1.84326 3.42236 1.84326 5.21729V19.7831C1.84326 21.578 3.29832 23.0331 5.09325 23.0331H10.8394C11.2536 23.0331 11.5894 22.6973 11.5894 22.2831C11.5894 21.8689 11.2536 21.5331 10.8394 21.5331H5.09325C4.12677 21.5331 3.34325 20.7496 3.34325 19.7831L3.34327 5.21729C3.34327 4.25079 4.12677 3.46729 5.09327 3.46729H10.8394Z" fill="#1A1616"></path>
@@ -135,7 +144,8 @@
                 @endauth
                 @guest('customers')
                     <li>
-                        <a href="{{ route('customer.login', $slug) }}">
+                        {{-- M2-E a11y: icon-only link, no accessible name (axe link-name). --}}
+                        <a href="{{ route('customer.login', $slug) }}" aria-label="{{ __('Sign In') }}">
                             <svg class="w-5 h-5" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <path
                                     d="M10.068 10.8998C12.3847 10.8998 14.2629 9.02167 14.2629 6.70488C14.2629 4.38809 12.3847 2.50996 10.068 2.50996C7.75117 2.50996 5.87305 4.38809 5.87305 6.70488C5.87305 9.02167 7.75117 10.8998 10.068 10.8998Z"

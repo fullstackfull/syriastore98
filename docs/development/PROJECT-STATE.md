@@ -71,7 +71,7 @@ Progress: `phase-3/PHASE-03-M0-STOREFRONT-BASELINE.md`.
 |---|---|---|
 | **M0** | storefront harness, fixtures, theme/locale capture, route and tenant verification | **complete** — 7 of 8 gaps closed; gap 1 (no dark mode) is M2 by design |
 | **M1** | measured storefront baseline across all three themes, defect inventory | **complete for rendering; performance and accessibility NOT measured** — see below |
-| M2 | premium storefront across `stylique`, `techzonix`, `greentic` + dark mode | not started |
+| **M2** | premium storefront across `stylique`, `techzonix`, `greentic` + dark mode | **complete (A–E)** — per-store appearance preference, three themes tokenised, **160-load cross-store matrix with 0 axe WCAG A/AA violations**, Core Web Vitals baselined. Not merged, not released. See `phase-3/PHASE-03-M2-PREMIUM-STOREFRONTS.md` |
 | M3 | theme editor data model: draft/publish/version, safe migrations, tenant ownership | not started |
 | M4 | theme editor experience: sections, preview, publish, rollback, permissions | not started |
 | M5 | official Store Syria website on the WorkDo LandingPage foundation | not started |
@@ -115,7 +115,7 @@ Measured 2026-11-11, re-verified against `main` 2026-11-12.
 
 | # | gap | state |
 |---|---|---|
-| 1 | storefront has **no dark mode at all** (0 files reference `cust_darklayout`/`data-ss-theme`/`style-dark`) | **open** → M2 |
+| 1 | storefront has **no dark mode at all** (0 files reference `cust_darklayout`/`data-ss-theme`/`style-dark`) | **closed by M2** — `data-ss-theme` on `<html>` before first paint, three states, per-store key, 160 loads verified |
 | 2 | the Phase 2.5 state control does not drive the storefront | **closed** — harness drives `change.languagestore` |
 | 3 | premise checks are merchant-admin shaped | **closed** — storefront-shaped checks |
 | 4 | no harness can sign in as a customer | **closed** |
@@ -124,7 +124,7 @@ Measured 2026-11-11, re-verified against `main` 2026-11-12.
 | 7 | store 2 is empty | **closed** — 3 categories, 2 brands, 8 products, one deliberately out of stock |
 | 8 | storefront RTL unverified | **closed — and it works** |
 
-**Seven of eight closed.** Gap 1 (no storefront dark mode) is M2 work by design.
+**All eight closed.** Gap 1 was M2 work by design and M2 closed it.
 
 ### Phase 03 tooling
 
@@ -136,6 +136,27 @@ Measured 2026-11-11, re-verified against `main` 2026-11-12.
   `public/themes` and `public/uploads` symlinks; production needs neither because its document root
   is the repo root. It deliberately does **not** bridge `storage/`, because `public/storage` is a
   real tracked-regular-file defect and hiding it in development would hide it everywhere.
+- `phase-3/tools/verify-appearance.cjs` — the appearance-preference contract: 40 browser checks
+  covering storage failure, keyboard operation, the accessible name in both languages, and `auto`
+  re-theming on a live device change without a reload.
+- `phase-3/tools/verify-a11y-matrix.cjs` — the M2-E cross-store matrix. 160 loads over 5 stores x 2
+  locales x **4 appearance states** x 4 routes. `auto` is driven twice, under an OS that says light
+  and one that says dark, because **`auto` is the default state** and sweeping only `light`/`dark`
+  tests the two states fewest shoppers are in. Each load **reads the rendered appearance and text
+  direction back** and exits non-zero if either is not what was asked for — a sweep of a state that
+  never applied is not evidence.
+- `phase-3/tools/verify-performance-a11y.cjs` — Core Web Vitals and an axe pass over 80 loads.
+  **Its axe results were wrong until M2-E:** it clicked the appearance toggle before running axe, so
+  every violation was attributed to the state before the click. It read as 59 contrast nodes where a
+  direct sweep found none. axe now runs first.
+- `phase-3/tools/verify-light-mode-unchanged.cjs` — did a theme's light mode move? Swaps in **both**
+  the committed theme stylesheet and the committed shared layer; reverting only half attributes the
+  layer's changes to the theme. **It only knew two themes until M2-E**, so passing `greentic`
+  injected stylique's stylesheet and reported coral-to-green "regressions"; now one baseline per
+  theme, and an unknown theme exits non-zero.
+- `phase-3/tools/verify-contrast.cjs`, `verify-no-cascade-regression.cjs` — composited contrast
+  (it skips elements whose backdrop is an image or gradient, where a ratio against a colour says
+  nothing) and the cascade-safety comparison.
 - `phase-3/tools/check-cross-store-captures.py` — **new.** Fails if any capture is byte-identical
   to another *store's* capture. The Phase 2.5 distinctness check cannot answer this: it groups by
   directory first, which in Phase 2.5 means "a different wave" (benign) and in Phase 03 means "a
@@ -159,7 +180,8 @@ the equivalent.
 | `theme_customizes` is **not** in `config/tenancy.php` `scoped_models` | **open** — pinned for the storefront READ (`ThemeCustomizeIsStoreScopedTest`); every editor/preview/publish path still needs its own predicate (M3/M4) |
 | `theme_customizes` has no `status`/`is_draft`/`version`/`published_at`; `landing_page_settings.name` is UNIQUE | **open** — M3 must change the data model before M4's UI |
 | `process-order`, `support-ticket`, `blogs/filter/view` answer **500 for a store that exists** | **open** — pre-existing, found by the 45-route sweep. `process-order` is a payment route and was deliberately not touched |
-| an unknown-slug 404 renders the framework's page, not a branded storefront 404 | **open** — M2 |
+| **the fixture seeded `products.product_type = 'simple'`, and `/product-list` was empty for 4 of 5 stores** | **FOUND AND FIXED at M2-E.** `product_type` is `NULL` for an ordinary product; a non-null value names a *module* product (`auction`, `digital`) and ~a dozen queries select `where('product_type', null)`. `HomeController:979` therefore computed a price-range maximum of `0`, the slider rendered `max="0"`, and the page's AJAX call asked for products priced between 0 and 0. Four stores answered 200 with a correct-looking page and no products, so **every Phase 03 measurement of that route since M0 was thinner than its numbers suggested**. Seeder fixed, 24 rows repaired; re-running the matrix on populated pages immediately found two more real defects |
+| an unknown-slug 404 renders the framework's page, not a branded storefront 404 | **STILL OPEN after M2** — M2 was appearance and contrast work and did not add a branded error page. M2-E measured the framework page and it has its own contrast failure (`#a0aec0` on `#f7fafc`, **2.15:1**), so a branded 404 is both a brand gap and an accessibility one. Deferred to M3/M4 with the theme editor, which is what would own a themed error page |
 | `POST api/admin/updateStoreOwnerInfo` validated the raw `store_slug` and stored `Str::slug()` of it, so two stores could hold one slug | **FIXED** — normalised before the uniqueness rule. Cross-tenant storefront mis-resolution (every resolver is `where('slug',…)->first()`, lowest id wins), not a tenancy or data-access defect. `stores.slug` still has **no unique index** and duplicates may already exist in production — adding one needs an audit first |
 | **every Arabic store name produces the slug `-`** | **OPEN, and ALREADY TRACKED — not a new finding.** Pinned as audit **sections 3.1 and 3.2** in `tests/Feature/Platform/StoreSlugIdentityTest.php`, which asserts them as defects on purpose and is gated by the **owner directive of 2026-10-22** (URL format and migration strategy to be documented first). Phase 03 adds one fact the audit does not record: `Str::slug('متجر دمشق')` is `mtgr-dmshk`, so the platform already ships a working transliteration on its API path. See §10.2 and the **correction in §11** — I broke the 3.2 pin with an out-of-scope fix and reverted it. | `User::slugs()` tests `empty()` *before* stripping non-ASCII, so the intended `store-<uniqid>` fallback can never fire. `متجر دمشق` → `-`, `صابون حلب` → `-`, `متجر Damascus` → `-damascus`. Shared by `Product`/`Tag`/`ProductBrand`/`ProductLabel`, and reached from the **admin app's** own store-creation path (`Api\DashboardController:7369`). Two lines to repair, but it decides what an Arabic merchant's public URL should be — transliteration or opaque id — so it is escalated, not chosen. Also bears on **P1-SEC-61** (`products.slug` not unique). Full trace: `phase-3/PHASE-03-M0-STOREFRONT-BASELINE.md` §7.5 |
 | `HomeController::wishlist()` does an unscoped `Wishlist::…->get()` | **open, not a leak** — verified: the view never renders `$wishlists` (AJAX-filled) and no theme overrides it. A wasted full-table read |
@@ -246,20 +268,45 @@ code.
 
 ## 8. Next executable action
 
-M0 is complete apart from its closure gates:
+**M0, M1 and M2 are complete.** M2's five packages:
 
-1. ~~canonical project-state document~~
-2. ~~populate `aleppo-soap`~~ — 3 categories, 2 brands, 8 products, committed imagery
-3. ~~fix `<img src="">`~~ — `storefront_image()`, 20 tests, 710 broken → 0
-4. ~~fix unknown-slug resolution~~ — 10 routes fail closed, 35 tests, 7 falsifications
-5. ~~third fixture store with an empty `theme_id`~~ — reproduced a crash on 11 of 12 routes; fixed, 32 tests
-6. ~~`theme_customizes` fixture rows~~ — 20 rows, tenants differ by 2,722 lines, 6 tenancy pins
-7. **close M0** — full Feature suite + known-outcome gate, capture-integrity gates, ledger.
+| | what | evidence |
+|---|---|---|
+| M2-A | appearance foundation: per-store browser preference, 3 states, pre-paint | 40 browser checks, 0 failures |
+| M2-B | stylique, and the finding that a tokenised stylesheet is **not** sufficient | 84 captures, 4 combinations |
+| M2-C | techzonix, re-hued dark variant, the shared rule that broke two other themes | 84 captures |
+| M2-D | greentic, where **neither ink passed** on the hover and the colour had to move | option A taken, B recorded |
+| M2-E | integrated cross-store verification, contrast, accessibility, Core Web Vitals | **160 loads, 0 axe WCAG A/AA violations**; 80 loads, 0 CWV rows outside "good" |
 
-**M1 is complete for rendering.** Next is **M2: the premium storefront across all three themes,
-including dark mode**, which the owner has scheduled for the Phase 03 theme implementation. M2 is
-the first milestone that changes what a shopper sees, so the 210-row baseline above is the
-before-picture it will be measured against.
+### Next: M3 — the theme editor data model
+
+Draft/publish/version, safe migrations, tenant ownership. The things M2 established that M3 must not
+break:
+
+- **`theme_customizes` is NOT in `config/tenancy.php`'s `scoped_models`,** so it adds no predicate
+  for any principal. M2 pinned this with 6 tenancy assertions; a theme editor writing that table is
+  the first surface where a missing predicate becomes a cross-tenant write.
+- **A theme's brand colour lives in two places** — `--primary-color` in `main-style.css` and
+  Tailwind's `primary` in the theme's JS or layout. The editor has to write both, or move the themes
+  to techzonix's pattern of reading the token through `var(--…)`. Asserted by
+  `StorefrontAccessibleNamesTest::test_no_theme_declares_a_brand_colour_tailwind_can_override`.
+- **Four copies of `front_end/layouts/app.blade.php`** exist (3 themes + the `resources/views`
+  fallback) and the theme's own wins. Every layout-level change in M2 had to be made four times.
+- **~959 declared theme fields** across the three themes' `default_data/settings.php` are what M4's
+  visual editor has to surface.
+
+Do not begin Phases 04–06 early.
+
+### Still owed from M2, recorded rather than fixed
+
+| | |
+|---|---|
+| 4 axe **best-practice** rules | `region` (119), `heading-order` (17), `landmark-unique` (12), `landmark-one-main` (6). Pre-existing and measured; none carries a WCAG tag. Needs landmark/heading restructuring across three vendored themes — its own slice |
+| `front_end/payment/nmi-payment.blade.php` disables zoom | a real WCAG 1.4.4 failure, deliberately left: payment flows are outside an incidental accessibility sweep. Pinned in `ViewportAllowsZoomTest::OUT_OF_PHASE` |
+| the `Logout` key is wrong in Arabic | `إغلاق` = "Close". Used in one non-storefront view and two vendor stubs. Other locales are worse (`it.json` gives `Log Out` as `Iscriviti`, "Sign up"). A 16-locale translation-quality pass is its own work |
+| `p3fixt-no-theme` has **no catalogue** | created in M0 only to prove the empty-`theme_id` layout fallback, which it still does. It contributes 32 of the M2-E matrix's 160 loads, and on `/home` and `/product-list` those are empty-grid pages. **Next fixture task:** give it a catalogue so the matrix is strong on all five stores |
+| no **human** accessibility review | axe automates roughly a third of WCAG. Keyboard order, focus management and whether a label *describes* its control still need a person |
+| Core Web Vitals are **lab** numbers | `php artisan serve` on localhost: no network, TLS, CDN, HTTP/2 or opcache, SQLite not MySQL. A regression baseline for M3, not a user-experience claim. INP is a field metric and is not measured |
 
 ### The four Phase 03 fixtures a later session will need
 

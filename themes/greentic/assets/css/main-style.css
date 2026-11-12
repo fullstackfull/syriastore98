@@ -67,6 +67,12 @@ body {
   /* White, because option A darkened the greens specifically so white passes on them (4.63:1 base,
      5.12:1 hover). It does NOT follow the appearance: the greens do not either. */
   --white: var(--ss-grey-0, #ffffff);
+  /* WHAT GOES ON THIS THEME'S BRAND FILL. The shared layer reads this for the Tailwind
+     arbitrary-value class `bg-[var(--primary-color)]`, which no per-theme rule reaches.
+     The three themes differ, measured: dark ink on stylique's coral (6.39:1 vs 2.64:1 for
+     white), white on techzonix's violet (4.53:1 vs 3.73:1), white on greentic's deepened
+     green (4.63:1). Copying one theme's answer to another would break it. */
+  --ink-on-brand-fill: var(--white);
   /* Dark ink for the ORANGE fills, where white measures 2.16:1 and dark measures 7.83:1. */
   --on-accent-ink: var(--ss-grey-950, #1a1d23);
 
@@ -620,9 +626,19 @@ select {
   font-size: 1.125rem;
   line-height: 1.75rem;
 }
+/* M2-E. WCAG AA FIX, PRE-EXISTING AND MEASURED.
+   The struck-through pre-discount price was Tailwind grey-400 (#9ca3af) baked in as a literal.
+   On the white product card that is 2.54:1 -- a FAIL for 14px normal text, which needs 4.5:1.
+   Measured identically with the M2 appearance layer blocked, so this predates M2; and it is one
+   rule per theme fed by the SHARED hook resources/views/front_end/hooks/product_price.blade.php,
+   so all three themes carried it. It surfaced only on the two fixture stores whose products hold
+   a discount (aleppo-soap, p3fixt-latakia-green) -- the others simply never render the element.
+   --ss-fg-subtle flips with the appearance: #6b6f76 light = 5.05:1, #9599a0 dark = 4.98:1, both
+   on the real card backdrops. The dark arm is slightly LOWER than the old 5.60:1; that is the
+   price of a token that flips, and it still clears AA. The literal fallback is the light value,
+   because without the design system stylesheet there is no dark mode either. */
 .product_orignal_price{
-  --tw-text-opacity: 1;
-  color: rgb(156 163 175 / var(--tw-text-opacity, 1));
+  color: var(--ss-fg-subtle, #6b7280);
   font-size: 0.875rem;
   line-height: 1.25rem;
   -webkit-text-decoration-line: line-through;

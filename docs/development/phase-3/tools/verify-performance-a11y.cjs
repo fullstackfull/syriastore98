@@ -97,7 +97,27 @@ const VITALS_INIT = () => {
 
           const v = await page.evaluate(() => window.__v).catch(() => ({}));
 
-          // NOT INP: the latency of ONE scripted click to the next paint.
+          // M2-E ORDERING FIX, AND IT MATTERED.
+          //
+          // The click below was measured BEFORE axe ran. The appearance control cycles
+          // light -> dark -> auto, so the click left the page in a DIFFERENT appearance from the
+          // one this row is labelled with, and every violation was then attributed to the wrong
+          // state. It read as 59 color-contrast nodes across 19 rows -- including greentic light
+          // /home at 19 nodes, where a direct sweep of that exact combination found none.
+          //
+          // axe now runs on the appearance the row names. The click is last, because it is the
+          // only step that deliberately changes state.
+          await page.evaluate(axeSource);
+          const axeResult = await page.evaluate(async () => {
+            const r = await window.axe.run(document, {
+              runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] },
+              resultTypes: ['violations'],
+            });
+            return r.violations.map((v) => ({ id: v.id, impact: v.impact, nodes: v.nodes.length }));
+          }).catch((e) => [{ id: 'AXE_FAILED', impact: String(e).slice(0, 60), nodes: 0 }]);
+
+          // NOT INP: the latency of ONE scripted click to the next paint. LAST, because it
+          // changes the appearance and would otherwise poison the axe run above.
           let clickLatency = null;
           const hasToggle = await page.locator('[data-ss-appearance-toggle]').count();
           if (hasToggle) {
@@ -109,15 +129,6 @@ const VITALS_INIT = () => {
               return Math.round(performance.now() - t0);
             }).catch(() => null);
           }
-
-          await page.evaluate(axeSource);
-          const axeResult = await page.evaluate(async () => {
-            const r = await window.axe.run(document, {
-              runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] },
-              resultTypes: ['violations'],
-            });
-            return r.violations.map((v) => ({ id: v.id, impact: v.impact, nodes: v.nodes.length }));
-          }).catch((e) => [{ id: 'AXE_FAILED', impact: String(e).slice(0, 60), nodes: 0 }]);
 
           rows.push({
             store: slug, theme, locale, appearance, route,

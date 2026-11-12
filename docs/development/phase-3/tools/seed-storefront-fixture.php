@@ -437,7 +437,23 @@ $seedCatalogue = function (Store $store, string $imgDir, array $spec) {
         $row->status = 1;
         $row->is_active = 1;
         $row->variant_product = 0;
-        $row->product_type = 'simple';
+        // M2-E CORRECTION, AND IT HAD BEEN QUIETLY WRECKING /product-list SINCE M0.
+        //
+        // `product_type` is NULL for an ordinary physical product. A NON-null value names a
+        // MODULE product -- 'auction', 'digital' -- and the whole application reads it that way:
+        // ProductDataTable, HomeController and roughly a dozen ApiController queries all select
+        // `where('product_type', null)`. 'simple' is not a type anything handles.
+        //
+        // WHAT IT LOOKED LIKE. /home rendered the products fine, because those sections do not
+        // filter on it. /product-list rendered an EMPTY GRID for every fixture store except the
+        // vendor-seeded store 1, whose products have NULL. The visible symptom was two steps
+        // away from the cause: HomeController:979 computes the price-range maximum with
+        // `where('product_type', null)`, got nothing, fell back to '0', the slider rendered
+        // max="0", and the AJAX filter then asked for products priced between 0 and 0.
+        //
+        // The cost: four of five stores answered 200 with a correct-looking page and no products,
+        // so every Phase 03 measurement of that route was thinner than its numbers suggested.
+        $row->product_type = null;
         $row->cover_image_path = "{$imgDir}/{$img}.png";
         $row->cover_image_url = "{$imgDir}/{$img}.png";
         $row->description = str_replace('{name}', $name, $spec['blurb']);

@@ -18,7 +18,7 @@
             <label class="d-block block mb-2 font-medium md:text-base text-sm">{{ __('Attachments') }}:<small>({{__('You can select multiple files')}})</small></label>
             <div class="input-group file-select-set">
                 <input type="hidden" class="form-input p-2 rounded" readonly="" placeholder="Choose file" id="attachments">
-                <input type="file" class="form-input file-opc {{ $errors->has('attachments') ? ' is-invalid' : '' }}" name="attachments[]" id="file" aria-label="Upload" multiple=""  data-filename="multiple_file_selection" onchange="document.getElementById('blah').src = window.URL.createObjectURL(this.files[0])">
+                <input type="file" class="form-input file-opc {{ $errors->has('attachments') ? ' is-invalid' : '' }}" name="attachments[]" id="file" aria-label="{{ __('Upload') }}" multiple=""  data-filename="multiple_file_selection" onchange="document.getElementById('blah').src = window.URL.createObjectURL(this.files[0])">
                 <img src="" id="blah" width="20%"/>
                 <div class="invalid-feedback">
                     {{ $errors->first('attachments.*') }}

@@ -137,7 +137,12 @@
                     @foreach ($brands as $brand)
                     <div class="swiper-slide">
                         <a href="javascript:void(0)" class="block group transition-all duration-300"
-                            aria-label="Visit Apple website">
+                            {{-- M2-E: this said `Visit Apple website` for EVERY brand in the loop, so a
+                                 screen reader announced each partner logo as Apple. The brand rows carry no
+                                 name to use and the link has href="javascript:void(0)", so a generic,
+                                 translated label is the honest one. Making these real links, or not links
+                                 at all, belongs to the theme editor (M3/M4). --}}
+                            aria-label="{{ __('Brands') }}">
                             <div
                                 class="card bg-white rounded-lg p-4 md:h-28 h-20 flex items-center justify-center border transition-all duration-300 hover:border-primary">
                                 <div class="md:h-20 md:w-20 h-12 w-12 mx-auto">

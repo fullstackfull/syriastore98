@@ -3724,5 +3724,9 @@
     "Follow device": "Follow device",
     "Light": "Light",
     "Dark": "Dark",
-    "Activate to switch to :mode": "Activate to switch to :mode"
+    "Activate to switch to :mode": "Activate to switch to :mode",
+    "Add to Wishlist": "Add to Wishlist",
+    "Remove from Wishlist": "Remove from Wishlist",
+    "Upload": "Upload",
+    "Social media": "Social media"
 }

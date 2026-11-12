@@ -18,7 +18,9 @@
               <div class="hidden lg:flex flex-1 max-w-xl mx-4">
                 <form class="w-full flex" id="desktop-search-form">
                     <div class="relative">
-                            <select class="border border-gray-300 rounded-l-lg rtl:rounded-r-lg rtl:rounded-l-none">
+                            {{-- M2-E a11y: the search filter had no accessible name (axe select-name). `Select Category`
+                                 is already translated in every locale, so this works in Arabic too. --}}
+                            <select aria-label="{{ __('Select Category') }}" class="border border-gray-300 rounded-l-lg rtl:rounded-r-lg rtl:rounded-l-none">
                                     <option>{{__("All Categories")}}</option>
                                 @foreach ($MainCategoryList as $category)
                                     <option>{{$category->name}}</option>
@@ -27,14 +29,15 @@
                     </div>
 
                     <div class="flex-grow relative search-input">
-                      <input type="text" id="desktop-search-input" class="w-full border-t border-b border-gray-300 px-4 py-2 outline-none" placeholder="{{ __('Search...') }}" aria-label="Search" list="products" name="search_product" id="product">
+                      <input type="text" id="desktop-search-input" class="w-full border-t border-b border-gray-300 px-4 py-2 outline-none" placeholder="{{ __('Search...') }}" aria-label="{{ __('Search') }}" list="products" name="search_product" id="product">
                       <datalist id="products">
                           @foreach ($search_products as $pro_id => $pros)
                               <option value="{{ $pros }}"></option>
                           @endforeach
                       </datalist>
                       </div>
-                      <button type="submit" class="btn-primary px-4 py-2 rounded-l-none rtl:rounded-l-lg rtl:rounded-r-none">
+                      {{-- M2-E a11y: the search submit is an icon only (axe button-name, critical). --}}
+                      <button type="submit" aria-label="{{ __('Search') }}" class="btn-primary px-4 py-2 rounded-l-none rtl:rounded-l-lg rtl:rounded-r-none">
                         <i class="fas fa-search"></i>
                       </button>
                 </form>
@@ -59,7 +62,7 @@
 
             @if(isset($themeSettings['header_login_status']) && $themeSettings['header_login_status'] == 1)
                   @auth('customers')
-                        <a href="{{ route('my-account.index', $slug) }}" class="text-gray-600 hover:text-primary-dark transition" aria-label="Account">
+                        <a href="{{ route('my-account.index', $slug) }}" class="text-gray-600 hover:text-primary-dark transition" aria-label="{{ __('My Account') }}">
                           <svg class="w-5 h-5" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
                               <path d="M10.068 10.8998C12.3847 10.8998 14.2629 9.02167 14.2629 6.70488C14.2629 4.38809 12.3847 2.50996 10.068 2.50996C7.75117 2.50996 5.87305 4.38809 5.87305 6.70488C5.87305 9.02167 7.75117 10.8998 10.068 10.8998Z" stroke="#1A1616" stroke-width="1.23051" stroke-linecap="round" stroke-linejoin="round"></path>
                               <path d="M17.2746 19.2896C17.2746 16.0428 14.0445 13.4167 10.0677 13.4167C6.09092 13.4167 2.86084 16.0428 2.86084 19.2896" stroke="#1A1616" stroke-width="1.23051" stroke-linecap="round" stroke-linejoin="round"></path>
@@ -67,7 +70,8 @@
                         </a>
                   @endauth
                   @guest('customers')
-                  <a href="{{ route('customer.login',$slug) }}" class="relative text-gray-700 hover:text-orange-500">
+                  {{-- M2-E a11y: icon-only link, no text and no label, so it was announced as "link" (axe link-name). --}}
+                  <a href="{{ route('customer.login',$slug) }}" aria-label="{{ __('Sign In') }}" class="relative text-gray-700 hover:text-orange-500">
                     <svg class="w-5 h-5" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M10.068 10.8998C12.3847 10.8998 14.2629 9.02167 14.2629 6.70488C14.2629 4.38809 12.3847 2.50996 10.068 2.50996C7.75117 2.50996 5.87305 4.38809 5.87305 6.70488C5.87305 9.02167 7.75117 10.8998 10.068 10.8998Z" stroke="#1A1616" stroke-width="1.23051" stroke-linecap="round" stroke-linejoin="round"></path>
                         <path d="M17.2746 19.2896C17.2746 16.0428 14.0445 13.4167 10.0677 13.4167C6.09092 13.4167 2.86084 16.0428 2.86084 19.2896" stroke="#1A1616" stroke-width="1.23051" stroke-linecap="round" stroke-linejoin="round"></path>
@@ -108,7 +112,7 @@
             @endif
             @auth('customers')
           <form method="POST" action="{{ route('customer.logout',$slug) }}" id="form_logout" class="relative text-gray-700 hover:text-orange-500">
-                  <a href="#" onclick="event.preventDefault(); this.closest('form').submit();" class="text-gray-600 hover:text-primary-dark transition" aria-label="Account">
+                  <a href="#" onclick="event.preventDefault(); this.closest('form').submit();" class="text-gray-600 hover:text-primary-dark transition" aria-label="{{ __('Log Out') }}">
                     @csrf
                     <svg class="w-5 h-5" width="25" height="25" viewBox="0 0 25 25" fill="none" xmlns="http://www.w3.org/2000/svg">
                       <path d="M10.8394 3.46729C11.2536 3.46729 11.5894 3.13149 11.5894 2.71729C11.5894 2.30307 11.2536 1.96729 10.8394 1.96729H5.09327C3.29832 1.96729 1.84326 3.42236 1.84326 5.21729V19.7831C1.84326 21.578 3.29832 23.0331 5.09325 23.0331H10.8394C11.2536 23.0331 11.5894 22.6973 11.5894 22.2831C11.5894 21.8689 11.2536 21.5331 10.8394 21.5331H5.09325C4.12677 21.5331 3.34325 20.7496 3.34325 19.7831L3.34327 5.21729C3.34327 4.25079 4.12677 3.46729 5.09327 3.46729H10.8394Z" fill="black"></path>

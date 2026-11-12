@@ -10,7 +10,10 @@
                         {!! \App\Models\Product::actionLinks( $store, $product) !!}
                     </a>
                     <div class="pro-btn-wrapper absolute top-4 right-4 flex flex-col gap-3 transition-all duration-300">
-                        <a href="javascript:void(0)" class="wishlist-btn wishbtn-globaly wishlist-btn h-8 w-8 rounded flex items-center justify-center bg-primary hover:bg-primary/80 transition-all duration-300" tabindex="0"
+                        {{-- M2-E a11y: techzonix's wishlist control is an <a>, not a <button> like the
+                             other two themes, so the button-name sweep did not reach it. It only
+                             became visible once the fixture's product grid actually rendered. --}}
+                        <a href="javascript:void(0)" aria-label="{{ $product->in_whishlist ? __('Remove from Wishlist') : __('Add to Wishlist') }}" class="wishlist-btn wishbtn-globaly wishlist-btn h-8 w-8 rounded flex items-center justify-center bg-primary hover:bg-primary/80 transition-all duration-300" tabindex="0"
                             product_id="{{ $product->id }}"
                             in_wishlist="{{ $product->in_whishlist ? 'remove' : 'add' }}">
                             <svg xmlns="http://www.w3.org/2000/svg" width="17" height="15" viewBox="0 0 17 15"
@@ -41,7 +44,7 @@
                         @include('front_end.hooks.product_rating')
                     </div>
                     <div class="border-t p-4">
-                        <button class="w-full btn-primary addtocart-btn btn addcart-btn-globaly" product_id="{{ $product->id }}">
+                        <button aria-label="{{ __('Add to Cart') }}" class="w-full btn-primary addtocart-btn btn addcart-btn-globaly" product_id="{{ $product->id }}">
                             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                     d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z">

@@ -20,9 +20,24 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const S = '/tmp/claude-0/-home-user/c22d1090-9e12-5711-882b-d4cba4c5ce19/scratchpad';
 const B = 'http://127.0.0.1:8899';
-const THEME = process.argv[2];            // techzonix | stylique
+const THEME = process.argv[2];            // stylique | techzonix | greentic
 const SLUG  = process.argv[3];
-const HEAD  = fs.readFileSync(`${S}/${THEME === 'techzonix' ? 'tz' : 'sty'}-head.css`, 'utf8');
+
+// M2-E FIX. This was `THEME === 'techzonix' ? 'tz' : 'sty'`, written when only two themes had been
+// tokenised. Passing `greentic` therefore injected STYLIQUE's committed stylesheet into greentic's
+// page, and the run reported coral-to-green "regressions" plus button geometry changes that no
+// greentic edit could have caused. A verifier that silently compares against the wrong baseline is
+// worse than no verifier: it produces a confident number about nothing. Now one file per theme,
+// and an unknown theme fails loudly instead of defaulting.
+const HEAD_FILE = `${S}/${THEME}-head.css`;
+if (!THEME || !SLUG || !fs.existsSync(HEAD_FILE)) {
+  console.error(`usage: verify-light-mode-unchanged.cjs <theme> <slug>
+  and extract the baseline first:
+    git show HEAD:themes/${THEME || '<theme>'}/assets/css/main-style.css > ${HEAD_FILE}
+    git show HEAD:public/css/storefront-appearance.css > ${S}/layer-head.css`);
+  process.exit(2);
+}
+const HEAD  = fs.readFileSync(HEAD_FILE, 'utf8');
 const LAYER = fs.readFileSync(`${S}/layer-head.css`, 'utf8');
 const PROPS = ['color','backgroundColor','borderColor','borderWidth','fontSize','fontWeight','padding','margin','display','borderRadius','boxShadow'];
 const SAMPLE = () => { const o={}; const sel=['body','header','footer','h1','h2','h3','a','p','input','label','nav','img','ul','li','button:not([data-ss-appearance-toggle])','.card','.input','.form-input','.container','form','span','div','.text-primary'];

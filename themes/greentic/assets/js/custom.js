@@ -1,8 +1,23 @@
+// M2-E. THE BRAND COLOUR WAS DECLARED IN TWO PLACES AND THE OTHER ONE WON.
+//
+// `main-style.css` declares `--primary-color` and `.bg-primary { background: var(--primary-color) }`.
+// This file ALSO declares `primary` to Tailwind, which generates its own `.bg-primary` rule at
+// runtime and INJECTS IT AFTER the theme stylesheet -- so at equal single-class specificity the
+// Tailwind one wins and the CSS token is ignored for every `bg-primary` element.
+//
+// MEASURED: after M2-D deepened `--primary-color` to #39843c so white ink would pass on it, axe
+// still reported 18 `color-contrast` violations on greentic at `#ffffff on #4caf50` -- the OLD
+// green, coming from here. The browser's own cascade shows both rules matching, with this one
+// last. Four themes were clean and only greentic was not, which is what led here.
+//
+// Kept in sync deliberately. A single source would be better and is M3/M4's concern (the theme
+// editor has to write both); duplicating the value with a note is the bounded fix for M2.
 tailwind.config = {
   theme: {
     extend: {
       colors: {
-        primary: '#4caf50',
+        // Must match `--primary-color` in assets/css/main-style.css.
+        primary: '#39843c',
       },
     },
   },

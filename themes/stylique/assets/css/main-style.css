@@ -54,6 +54,12 @@
      This is a VISIBLE CHANGE to every primary button in light and dark alike, which is why it is
      stated here and captured in the before/after evidence rather than slipped in. */
   --on-primary-ink: var(--ss-grey-950, #1a1d23);
+  /* WHAT GOES ON THIS THEME'S BRAND FILL. The shared layer reads this for the Tailwind
+     arbitrary-value class `bg-[var(--primary-color)]`, which no per-theme rule reaches.
+     The three themes differ, measured: dark ink on stylique's coral (6.39:1 vs 2.64:1 for
+     white), white on techzonix's violet (4.53:1 vs 3.73:1), white on greentic's deepened
+     green (4.63:1). Copying one theme's answer to another would break it. */
+  --ink-on-brand-fill: var(--on-primary-ink);
 
   /* THE CORAL USED AS TEXT IS A DIFFERENT COLOUR FROM THE CORAL USED AS A FILL.
      Measured: #f8796c as text is 2.64:1 on white -- a failure M2-B recorded and left open.
@@ -608,7 +614,11 @@ select {
 
 /**** collection-sec css  *****/
 .collection-sec ul li .tab-btn.active {
-  color: var(--primary-color);
+  /* M2-E. WAS `var(--primary-color)` -- the brand colour used as TEXT, which axe measured at
+     2.64:1 on stylique's coral and which the shared layer's lower-specificity `.tab-btn.active`
+     rule could not beat: the browser's own cascade shows this selector at (0,4,0) against (0,2,0).
+     Fixed at source rather than by escalating `!important` in the shared sheet. */
+  color: var(--brand-ink-on-surface, var(--primary-color));
 }
 
 /**** pdp css *****/
@@ -877,9 +887,19 @@ select {
   line-height: 1;
 }
 
+/* M2-E. WCAG AA FIX, PRE-EXISTING AND MEASURED.
+   The struck-through pre-discount price was Tailwind grey-400 (#9ca3af) baked in as a literal.
+   On the white product card that is 2.54:1 -- a FAIL for 14px normal text, which needs 4.5:1.
+   Measured identically with the M2 appearance layer blocked, so this predates M2; and it is one
+   rule per theme fed by the SHARED hook resources/views/front_end/hooks/product_price.blade.php,
+   so all three themes carried it. It surfaced only on the two fixture stores whose products hold
+   a discount (aleppo-soap, p3fixt-latakia-green) -- the others simply never render the element.
+   --ss-fg-subtle flips with the appearance: #6b6f76 light = 5.05:1, #9599a0 dark = 4.98:1, both
+   on the real card backdrops. The dark arm is slightly LOWER than the old 5.60:1; that is the
+   price of a token that flips, and it still clears AA. The literal fallback is the light value,
+   because without the design system stylesheet there is no dark mode either. */
 .product_orignal_price{
-  --tw-text-opacity: 1;
-  color: rgb(156 163 175 / var(--tw-text-opacity, 1));
+  color: var(--ss-fg-subtle, #6b7280);
   -webkit-text-decoration-line: line-through;
   text-decoration-line: line-through;
 }

@@ -87,7 +87,7 @@
 
                                         {{-- Add to Cart Button --}}
                                         <div class="offer-btn-wrapper">
-                                            <button class="btn-primary addtocart-btn btn addcart-btn-globaly" product_id="{{ $product->id }}">
+                                            <button aria-label="{{ __('Add to Cart') }}" class="btn-primary addtocart-btn btn addcart-btn-globaly" product_id="{{ $product->id }}">
                                                 <span>{{ __('Add to cart') }}</span>
                                             </button>
                                         </div>

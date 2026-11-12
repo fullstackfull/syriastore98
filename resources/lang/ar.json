@@ -3720,5 +3720,9 @@
     "Follow device": "حسب الجهاز",
     "Light": "فاتح",
     "Dark": "داكن",
-    "Activate to switch to :mode": "اضغط للتبديل إلى :mode"
+    "Activate to switch to :mode": "اضغط للتبديل إلى :mode",
+    "Add to Wishlist": "إضافة إلى قائمة الأمنيات",
+    "Remove from Wishlist": "إزالة من قائمة الأمنيات",
+    "Upload": "تحميل",
+    "Social media": "وسائل التواصل الاجتماعي"
 }
