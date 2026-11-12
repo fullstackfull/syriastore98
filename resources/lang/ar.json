@@ -1964,7 +1964,7 @@
     "Paid": "مقبوض",
     "PaiementPro": "PaiementPro",
     "Parent Category": "الفئة الرئيسية",
-    "Parents Category": "فئة الوالدين",
+    "Parents Category": "الفئة الرئيسية",
     "parmalink": "برمالينك",
     "Part of the product's web address. Leave it blank and it is generated from the name.": "جزء من عنوان المنتج على الويب. اتركه فارغاً وسيتم إنشاؤه من الاسم.",
     "Partially Paid": "مدفوع جزئياً",
@@ -3530,5 +3530,6 @@
     "Attribute Terms": "القيم",
     "Flat": "مبلغ ثابت",
     "Percentage": "نسبة مئوية",
-    "Not Trending": "غير رائج"
+    "Not Trending": "غير رائج",
+    "Enter Brand Name": "أدخل اسم العلامة التجارية"
 }

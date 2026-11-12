@@ -382,6 +382,87 @@ class VisualAcceptanceCorrectionsTest extends SecurityTestCase
         );
     }
 
+    /* ===================================================================================
+     * ITEMS 1 and 8 — the two create modals
+     * =================================================================================== */
+
+    /**
+     * THE DIALOG IS NOT MADE DARK, AND THAT IS THE POINT.
+     *
+     * The host's Bootstrap modal keeps a WHITE `.modal-content` under `data-ss-theme="dark"`.
+     * P2.5-A-01 accepted that and fixed the INK on it instead, and
+     * `check-dark-form-surfaces-live.cjs` asserts the white modal as a PREMISE -- 20 checks, 0
+     * failed, before and after this change. So "make dark theme styling consistent across the
+     * modal" is satisfied by making the FIELD match the dialog, never the reverse.
+     *
+     * The brand modal was simply never converted: `category/create.blade.php:28` records the
+     * mapping and :45 records why a converted form is wrapped in `data-ss-theme="light"`.
+     * Without that wrapper, design-system components inside the white dialog resolve their DARK
+     * tokens against white, which is the 2.18:1 defect that comment was written about.
+     */
+    #[Test]
+    public function test_both_brand_modals_are_converted_to_the_design_system(): void
+    {
+        foreach (['create', 'edit'] as $half) {
+            $blade = file_get_contents(base_path("resources/views/product_brand/{$half}.blade.php"));
+
+            $this->assertStringContainsString(
+                '<div data-ss-theme="light">',
+                $blade,
+                "product_brand/{$half} lost the light-surface wrapper, so its design-system "
+                . 'fields resolve dark tokens against the host\'s white modal.'
+            );
+            $this->assertStringContainsString("'class' => 'ss-input'", $blade);
+            $this->assertStringContainsString("'class' => 'ss-label'", $blade);
+
+            $this->assertStringNotContainsString(
+                "'class' => 'form-control'",
+                $blade,
+                "product_brand/{$half} has a raw Bootstrap text field again -- the vendor dark "
+                . 'stylesheet paints it navy inside a white dialog, which is what the owner saw.'
+            );
+
+            // The upload input KEEPS form-control: it is ss-visually-hidden and never painted.
+            $this->assertStringContainsString('class="form-control file ss-visually-hidden"', $blade);
+        }
+    }
+
+    /** The placeholder was a bare English literal, so it stayed English on the Arabic modal. */
+    #[Test]
+    public function test_the_brand_name_placeholder_is_translated(): void
+    {
+        foreach (['create', 'edit'] as $half) {
+            $blade = file_get_contents(base_path("resources/views/product_brand/{$half}.blade.php"));
+            $this->assertStringContainsString("'placeholder' => __('Enter Brand Name')", $blade);
+            $this->assertStringNotContainsString("'placeholder' => 'Enter Brand Name'", $blade);
+        }
+
+        $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
+        $en = json_decode(file_get_contents(base_path('resources/lang/en.json')), true);
+        $this->assertSame('أدخل اسم العلامة التجارية', $ar['Enter Brand Name']);
+        $this->assertArrayHasKey('Enter Brand Name', $en);
+    }
+
+    /**
+     * ONE CONCEPT, TWO KEYS, TWO DIFFERENT ARABIC WORDS. The category LIST column is
+     * `Parent Category`; the create/edit MODAL is `Parents Category`, whose Arabic read
+     * فئة الوالدين -- "the parents' category", as in a child's guardians. Both now say
+     * الفئة الرئيسية, so the same field is named the same thing wherever it appears.
+     */
+    #[Test]
+    public function test_the_two_parent_category_keys_agree_in_arabic(): void
+    {
+        $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
+
+        $this->assertSame('الفئة الرئيسية', $ar['Parent Category']);
+        $this->assertSame(
+            'الفئة الرئيسية',
+            $ar['Parents Category'],
+            'The category modal names the parent field differently from the category list.'
+        );
+        $this->assertNotSame('فئة الوالدين', $ar['Parents Category']);
+    }
+
     /**
      * THE RATCHET THIS WORK HAD TO RESPECT. Every key added to ar.json needs its en.json twin or
      * TranslationFileIntegrityTest's orphan count rises; the ceiling was not raised for this.
@@ -392,7 +473,7 @@ class VisualAcceptanceCorrectionsTest extends SecurityTestCase
         $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
         $en = json_decode(file_get_contents(base_path('resources/lang/en.json')), true);
 
-        foreach (['Attribute Terms', 'Flat', 'Percentage', 'Not Trending'] as $key) {
+        foreach (['Attribute Terms', 'Flat', 'Percentage', 'Not Trending', 'Enter Brand Name'] as $key) {
             $this->assertArrayHasKey($key, $ar, "ar.json lost {$key}.");
             $this->assertArrayHasKey($key, $en, "{$key} is an ar.json orphan -- add it to en.json.");
         }
