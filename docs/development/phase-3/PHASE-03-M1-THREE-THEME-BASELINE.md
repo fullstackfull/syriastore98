@@ -236,6 +236,33 @@ change needs this list, and nothing said so before now.
 
 ---
 
+## 5.5 THE GATES, as measured rather than assumed
+
+Run on the committed tree after the observability-inventory correction:
+
+| gate | result |
+|---|---|
+| **Unit** | **1,640 passed**, 12,228 assertions, 1 skip (pre-existing: the production-dump fixture is absent) |
+| **Contract** | **38 passed**, 149 assertions — the Flutter API contract |
+| **Feature** | **8,582 passed**, 43,964 assertions, 2 failed, 1 skipped |
+| **known-outcome gate** | **OK — the observed outcome set matches the manifest exactly:** 2 declared failures, 1 declared skip, 0 errors, nothing undeclared |
+
+The gate's own words are worth keeping: *"This is NOT a statement that the suite is green. It is a
+statement that the suite is failing and skipping exactly the tests the project has recorded, for the
+reasons it has recorded."*
+
+**The gate caught a regression this milestone caused.** The first run reported **3** failures against
+a manifest declaring 2: M0's explanatory comments in `CustomerLoginController` had shifted two
+security log lines, so `P01-OBSERVABILITY-INVENTORY.md` disagreed with the source. Mechanical, and
+the gate said so. The inventory's line numbers are corrected — `770`→`778`, `995`→`1007` — and the
+failure was **not** added to `known-test-outcomes.json`, which records failures the owner has
+accepted with a named root cause, not a list of things currently broken.
+
+That hazard is now recorded in `PROJECT-STATE.md`: **adding a comment above a logged line breaks
+this gate**, and the repair is always the inventory, never the manifest.
+
+---
+
 ## 6. M2 scoping — measured, so the dark-mode work is not guessed at
 
 M1's inventory records "the storefront has no dark mode in any of the three themes" as open. Before

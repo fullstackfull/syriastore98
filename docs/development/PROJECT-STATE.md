@@ -209,6 +209,11 @@ through a Phase 03 merge or deploy.**
 | Contract | green — the Flutter API contract |
 | Feature | **not green and not meant to be**: 2 declared failures + 1 declared skip in `.github/known-test-outcomes.json`. The gate asserts that set **in both directions** |
 
+**Last measured on `feature/phase-03-storefront`, 2026-11-12:** Unit **1,640 passed** / 12,228
+assertions / 1 pre-existing skip · Contract **38 passed** / 149 assertions · Feature **8,582
+passed** / 43,964 assertions / 2 declared failures / 1 declared skip · known-outcome gate **OK —
+observed set matches the manifest exactly, nothing undeclared.**
+
 **Evidence rules, carried forward from Phase 2.5 and not relaxed:** a capture must show the route it
 claims; no redirect, refusal toast, blank fragment, reused file or wrong storefront counts. The two
 capture-integrity gates run over Phase 03 evidence as well. Ratchets are never widened to get green;
