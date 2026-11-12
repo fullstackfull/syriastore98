@@ -109,7 +109,11 @@ class StorefrontDarkModeLayerTest extends TestCase
 
         // The ink-on-brand rule is the one deliberate exception: it repairs a measured 2.64:1 AA
         // failure that existed in LIGHT mode before any of this work.
-        $allowed = ['.cart-badge.text-white', '.btn-primary.text-white'];
+        // `.text-primary` joins the exceptions in M2-C: a brand colour used as TEXT fails in BOTH
+        // appearances on techzonix (4.33:1 light, 3.14:1 dark), so the rule has to apply in both.
+        // It is theme-agnostic by indirection -- it reads `--brand-ink-on-surface`, which each
+        // theme declares for its own palette, and a theme that declares nothing is unaffected.
+        $allowed = ['.cart-badge.text-white', '.btn-primary.text-white', '.text-primary'];
 
         $unscoped = [];
 
@@ -198,6 +202,54 @@ class StorefrontDarkModeLayerTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('{\.text-gray-900[^{]*\{[^}]*var\(--ss-fg-subtle\)}s', $css,
             'text-gray-900 maps to the FAINTEST token, so the most important text is the least '
             . 'readable — the grey ramp was mapped across instead of inverted.');
+    }
+
+    /**
+     * EVERY THEME MUST DECLARE `--brand-ink-on-surface`, AND THIS TEST EXISTS BECAUSE I BROKE
+     * STYLIQUE BY FORGETTING IT.
+     *
+     * The shared layer's `.text-primary` rule reads that variable with `currentColor` as its
+     * fallback. `currentColor` is not a no-op: a theme that does not declare the variable loses
+     * its brand link colour and inherits body text instead. Measured the moment the rule landed —
+     * stylique's eight `.text-primary` nodes went from coral `rgb(248, 121, 108)` to
+     * `rgb(26, 29, 35)`, on a page that otherwise looked completely normal.
+     *
+     * That is the failure mode of a shared layer: a change made for one theme silently alters
+     * another. A new theme that forgets the declaration now fails here instead of shipping.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function themesNeedingBrandInk(): array
+    {
+        return ['stylique' => ['stylique'], 'techzonix' => ['techzonix'], 'greentic' => ['greentic']];
+    }
+
+    #[Test]
+    #[DataProvider('themesNeedingBrandInk')]
+    public function test_every_theme_declares_its_brand_ink_for_both_appearances(string $theme): void
+    {
+        $path = self::root() . "/themes/{$theme}/assets/css/main-style.css";
+
+        if (! is_file($path)) {
+            $this->fail("themes/{$theme} has no main-style.css.");
+        }
+
+        $css = self::css(file_get_contents($path));
+
+        $this->assertStringContainsString('--brand-ink-on-surface', $css,
+            "themes/{$theme} does not declare --brand-ink-on-surface, so the shared layer's "
+            . '`.text-primary` rule falls back to `currentColor` and that theme LOSES its brand '
+            . 'link colour — it inherits body text instead. Measured on stylique: 8 nodes went '
+            . 'from coral to grey on a page that looked entirely normal.');
+
+        // And it must be declared for dark as well, or brand text keeps the light value on a dark
+        // surface — which is where it fails hardest (techzonix measured 3.14:1 on the dark card).
+        $declarations = preg_match_all('{--brand-ink-on-surface\s*:}', $css);
+
+        $this->assertGreaterThanOrEqual(3, $declarations,
+            "themes/{$theme} declares --brand-ink-on-surface {$declarations} time(s). It needs "
+            . 'three: the light value in `:root`, and the dark value in BOTH the explicit '
+            . '`[data-ss-theme="dark"]` arm and the `prefers-color-scheme` + `auto` arm.');
     }
 
     #[Test]

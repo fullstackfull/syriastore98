@@ -6,6 +6,22 @@ body {
   scroll-behavior: smooth;
 }
 :root {
+  /* M2-C REPAIR, NOT M2-D WORK. The shared layer's `.text-primary` rule (added in M2-C for
+     techzonix) reads `--brand-ink-on-surface` with `currentColor` as its fallback, so the moment
+     that rule shipped, EVERY theme that had not declared the variable lost its brand link colour
+     and inherited body text instead. It broke stylique (measured: 8 nodes coral -> grey) and it
+     broke greentic the same way.
+
+     Declaring greentic's values here repairs that regression now rather than leaving the theme
+     visibly wrong until M2-D. It also fixes greentic's own pre-existing failure: #4caf50 as TEXT
+     measures 2.78:1 on white. `hsl(122 39% 35%)` is the first step darker on the same hue and
+     saturation to clear 4.5:1 on every light surface (5.12 / 4.78 / 4.90); the dark value is in
+     the arms below. The FILL stays #4caf50.
+
+     Greentic's full tokenisation -- surfaces, borders and its own dark variant -- is M2-D and is
+     NOT done here. */
+  --brand-ink-on-surface: hsl(122 39% 35%);
+
   --primary-color: #4caf50;
   --primary-dark: #388e3c;
   --primary-light: #4CAF501A;
@@ -16,6 +32,20 @@ body {
   --border-color: #d9d9d9;
   --white: #ffffff;
   --black: #060606;
+}
+
+/* M2-C REPAIR. Only the brand ink, deliberately: greentic's surfaces, borders and HSL variant are
+   M2-D. These two arms exist so the repair above applies in dark mode too, and so M2-D has the
+   right shape to extend rather than a blank file to guess at. */
+[data-ss-theme="dark"] {
+  /* The green LIGHTENED for text on a dark surface: 5.89 / 5.07 / 5.61 / 5.91. */
+  --brand-ink-on-surface: hsl(122 39% 49%);
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-ss-theme="auto"] {
+    --brand-ink-on-surface: hsl(122 39% 49%);
+  }
 }
 ::-webkit-scrollbar {
   width: 6px;

@@ -105,6 +105,27 @@
 .btn-primary.text-white { color: var(--on-primary-ink, #1a1d23) !important; }
 
 /* ---------------------------------------------------------------------------------------------
+   4b. A BRAND COLOUR USED AS TEXT, which is a different question from a brand colour used as a
+   FILL and has to be answered separately.
+   
+   MEASURED on techzonix: its violet #9952e0 carries white ink at 4.53:1 as a BUTTON FILL -- a
+   pass -- and simultaneously fails as TEXT, at 4.33:1 on the light sunken surface and 3.14:1 on
+   the dark card. Same colour, two uses, two different answers.
+   
+   The dark figure is WORSE THAN THE LIGHT ONE BECAUSE THE SURFACE GOT DARKER, which makes this a
+   failure that only becomes observable once dark mode exists. It is not a regression from a
+   working state -- the colour never changed -- but shipping a dark mode whose link text fails is
+   not acceptable either, so it is fixed rather than recorded.
+   
+   THEME-AGNOSTIC BY INDIRECTION. `text-primary` means a different colour in each theme, so this
+   layer cannot name a value. Each theme declares `--brand-ink-on-surface` for its own palette and
+   this rule reads it; a theme that declares nothing keeps `currentColor` and is unaffected.
+   `!important` IS REQUIRED HERE, and leaving it off was the first draft's bug: `.text-primary` is
+   a Tailwind utility injected AFTER this sheet, so at equal single-class specificity it wins on
+   source order and the override measured no change at all. Same lesson as section 1. */
+.text-primary { color: var(--brand-ink-on-surface, currentColor) !important; }
+
+/* ---------------------------------------------------------------------------------------------
    5. THE `auto` ARM. Required, not optional: `auto` is the DEFAULT state, so a shopper who has
    never touched the control is on `auto` and everything above would miss them entirely. This is
    the mistake the stylique page-background fix made first — dark surfaces and a white page.

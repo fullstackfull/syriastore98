@@ -55,6 +55,19 @@
      stated here and captured in the before/after evidence rather than slipped in. */
   --on-primary-ink: var(--ss-grey-950, #1a1d23);
 
+  /* THE CORAL USED AS TEXT IS A DIFFERENT COLOUR FROM THE CORAL USED AS A FILL.
+     Measured: #f8796c as text is 2.64:1 on white -- a failure M2-B recorded and left open.
+     `hsl(6 91% 45%)` is the first step darker on the same hue and saturation to clear 4.5:1 on
+     every light surface this theme uses (5.00 / 4.66 / 4.78). The dark-mode value is below.
+
+     DECLARING THIS IS NOT OPTIONAL. The shared layer's `.text-primary` rule reads
+     `--brand-ink-on-surface` with `currentColor` as its fallback, so a theme that does not
+     declare it loses its brand link colour entirely -- measured on stylique the moment that rule
+     landed: 8 `.text-primary` nodes went from coral to body-text grey. `StorefrontDarkModeLayerTest`
+     now fails if any theme omits it, because the symptom is a quiet colour change rather than a
+     broken page. */
+  --brand-ink-on-surface: hsl(6 91% 45%);
+
   /* --- 3. semantic: these follow data-ss-theme --- */
   /* The PAGE stays stylique's white in light mode -- `--ss-bg` is #f6f7f8, which would have been
      a visible change to a theme nobody asked to re-colour -- and takes the design system's dark
@@ -82,11 +95,15 @@
    `[data-ss-theme="auto"]` so the system preference applies only where a page opted in. */
 [data-ss-theme="dark"] {
   --page-color: var(--ss-bg, #1b1f25);
+  /* The coral LIGHTENED for text on a dark surface: 6.09 / 5.24 / 5.81 / 6.11. */
+  --brand-ink-on-surface: hsl(6 91% 69%);
 }
 
 @media (prefers-color-scheme: dark) {
   [data-ss-theme="auto"] {
     --page-color: var(--ss-bg, #1b1f25);
+    /* The coral LIGHTENED for text on a dark surface: 6.09 / 5.24 / 5.81 / 6.11. */
+    --brand-ink-on-surface: hsl(6 91% 69%);
   }
 }
 

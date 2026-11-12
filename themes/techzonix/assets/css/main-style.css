@@ -24,20 +24,157 @@
     --destructive-foreground: 0 0% 100%;
 
     --border: 280 20% 90%;
-    --input: 280 20% 90%;
+    /* M2-C. WAS `280 20% 90%` (#e7e0eb), which measures 1.29:1 on the white card -- a FORM FIELD
+       BOUNDARY well under the 3:1 minimum for a component boundary, in LIGHT mode, before any of
+       this work. `.input` and `.form-input` both read it, so every text field on the storefront
+       had an edge a shopper could barely see.
+
+       `280 20% 62%` (#a58bb1) is the first lightness on techzonix's own hue and saturation to
+       reach 3:1 (measured 3.03:1), so the field is visible while the theme still looks violet.
+       `--border` itself is left alone: it is the decorative `*` reset and a card divider, where
+       the design system makes the same low-contrast choice deliberately. */
+    --input: 280 20% 62%;
     --ring: 270 70% 60%;
 
     --radius: 0.5rem;
 
+    /* ==============================================================================
+       M2-C. TECHZONIX'S COLOUR CONTRACT.
+
+       This theme ships TWO parallel token systems: the shadcn-style HSL set above, consumed as
+       `hsl(var(--x))`, and this hex set. Both are kept -- 25 of the 37 live `var()` reads in this
+       sheet are `--primary-color`, so collapsing them would be a large change for no benefit.
+
+       THE BRAND DECISION IS THE OPPOSITE OF STYLIQUE'S, and it was measured rather than copied:
+
+           white  on #9952e0  =  4.53:1   PASS
+           #1a1d23 on #9952e0 =  3.73:1   FAIL
+
+       Techzonix's violet is dark enough that WHITE ink is the correct choice and dark ink would
+       be the regression. Stylique's coral needed the reverse. Carrying stylique's conclusion
+       across would have broken this theme, which is why each is measured on its own colours.
+
+       So all six `var(--white)` INK sites keep white. Only `body`'s `background-color:
+       var(--white)` was a surface, and it becomes a page token.
+       ============================================================================== */
+
+    /* --- brand: unchanged in both appearances --- */
     --primary-color: #9952e0;
     --primary-light: rgba(153, 82, 224, 0.1);
-    --text-color: #333333;
-    --text-light: #757575;
-    --bg-color: #ffffff;
-    --bg-light: #f9fafb;
-    --bg-dark: #f0f0f0;
-    --border-color: #e7e0eb;
+
+    /* --- ink on the violet: white, because it measures 4.53:1 and dark ink measures 3.73:1 --- */
     --white: #ffffff;
+
+    /* THE VIOLET AS TEXT IS A DIFFERENT COLOUR FROM THE VIOLET AS A FILL, and the measurements
+       say so. #9952e0 carries white ink at 4.53:1 as a button -- a pass -- and fails as text on
+       techzonix's own surfaces: 4.33:1 on #f9fafb, 3.14:1 on the dark card.
+
+       `hsl(270 70% 58%)` is the first step DARKER on the same hue to clear 4.5:1 on both light
+       backdrops (4.91:1 on white, 4.70:1 on the sunken surface). The dark-mode value below goes
+       the other way, to 70%. Both keep the hue and saturation, so the violet still reads as
+       techzonix's violet -- only its lightness moves, and only where it is text. */
+    --brand-ink-on-surface: hsl(270 70% 58%);
+
+    /* --- semantic: these follow data-ss-theme, with techzonix's own value as the fallback --- */
+    /* NOT `var(--white)`, which was the first draft and is the INK token -- it is #ffffff in both
+       appearances by design, so the page stayed white in dark mode. Measured: `--foreground` and
+       `--card` flipped correctly while `body` did not.
+
+       Techzonix declares `--background: 280 20% 97%` and NEVER READS IT (0 uses), which is
+       presumably why `body` reached for `--white` instead. Using `hsl(var(--background))` would be
+       the idiomatic shadcn answer but would tint the light page #f8f6f9 instead of #ffffff -- a
+       visible change to a theme nobody asked to re-colour. So the page keeps its own token with an
+       explicit dark override below, exactly as stylique does. */
+    --page-color: #ffffff;
+    --text-color: var(--ss-fg, #333333);
+    --text-light: var(--ss-fg-muted, #757575);
+    --bg-color: var(--ss-surface, #ffffff);
+    --bg-light: var(--ss-surface-sunken, #f9fafb);
+    --bg-dark: var(--ss-surface-hover, #f0f0f0);
+    --border-color: var(--ss-border, #e7e0eb);
+}
+
+/* =================================================================================================
+   M2-C. TECHZONIX IN DARK MODE.
+
+   The HSL set above is shadcn-shaped, which means a dark variant is REDEFINING THE SAME TOKENS --
+   the idiomatic thing for this structure, and far less invasive than rewriting declarations.
+
+   THE VALUES ARE THE DESIGN SYSTEM'S LIGHTNESS, RE-HUED TO TECHZONIX'S 280. The platform's dark
+   greys sit around hue 216-219 (a cool blue); techzonix is violet throughout. Taking the design
+   system's saturation and LIGHTNESS -- which is what carries the contrast -- and keeping
+   techzonix's hue gives a dark mode that matches the platform's legibility while still reading as
+   this theme. Measured after re-hueing:
+
+       foreground on page    #ebe8ed on #221b25   13.82:1   (min 4.5)
+       foreground on card    #ebe8ed on #2f2633   11.96:1
+       muted on card         #aea7b2 on #2f2633    6.20:1
+       input border on card  #867d8a on #2f2633    3.72:1   (min 3.0, a component boundary)
+
+   `--primary` and `--primary-foreground` are ABSENT from both blocks on purpose: the violet is
+   techzonix's identity and must not change with the appearance, and white-on-violet is already
+   the measured-correct ink in either mode.
+
+   BOTH ARMS ARE REQUIRED. `auto` is the default state, so a block written only for the explicit
+   choice misses every shopper who has not touched the control -- the mistake stylique's page
+   background made first.
+   ================================================================================================= */
+
+[data-ss-theme="dark"] {
+    --background: 280 16% 13%;
+    /* The violet LIGHTENED for text on a dark surface: 5.52:1 on the page, 4.74:1 on the
+       card, 5.25:1 on the sunken surface. The FILL is deliberately not changed. */
+    --brand-ink-on-surface: hsl(270 70% 70%);
+    --page-color: hsl(280 16% 13%);
+    --foreground: 280 12% 92%;
+
+    --card: 280 15% 17%;
+    --card-foreground: 280 12% 92%;
+
+    --popover: 280 15% 17%;
+    --popover-foreground: 280 12% 92%;
+
+    --secondary: 280 13% 21%;
+    --secondary-foreground: 280 12% 92%;
+
+    --muted: 280 13% 21%;
+    --muted-foreground: 280 7% 68%;
+
+    --accent: 280 13% 21%;
+    --accent-foreground: 280 12% 92%;
+
+    --border: 280 11% 24%;
+    /* The component boundary gets the strong value, as in light mode and for the same reason. */
+    --input: 280 5% 52%;
+}
+
+@media (prefers-color-scheme: dark) {
+    [data-ss-theme="auto"] {
+        --background: 280 16% 13%;
+        /* The violet LIGHTENED for text on a dark surface: 5.52:1 on the page, 4.74:1 on the
+           card, 5.25:1 on the sunken surface. The FILL is deliberately not changed. */
+        --brand-ink-on-surface: hsl(270 70% 70%);
+        --page-color: hsl(280 16% 13%);
+        --foreground: 280 12% 92%;
+
+        --card: 280 15% 17%;
+        --card-foreground: 280 12% 92%;
+
+        --popover: 280 15% 17%;
+        --popover-foreground: 280 12% 92%;
+
+        --secondary: 280 13% 21%;
+        --secondary-foreground: 280 12% 92%;
+
+        --muted: 280 13% 21%;
+        --muted-foreground: 280 7% 68%;
+
+        --accent: 280 13% 21%;
+        --accent-foreground: 280 12% 92%;
+
+        --border: 280 11% 24%;
+        --input: 280 5% 52%;
+    }
 }
 
 
@@ -48,7 +185,8 @@
 }
 
 body {
-    background-color: var(--white);
+    /* M2-C. The only `var(--white)` site that was a SURFACE rather than ink. */
+    background-color: var(--page-color);
     color: hsl(var(--foreground));
     font-family: 'Inter', sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1;
