@@ -8854,6 +8854,40 @@ public function updateStoreOwnerInfo(Request $request)
             return response()->json(['status' => 'error', 'message' => 'Permission denied.', 'data' => null], 403);
         }
 
+        // P3-SEC. THE UNIQUENESS RULE BELOW GUARDED A STRING THAT NEVER REACHED THE COLUMN.
+        //
+        // It validated the RAW `store_slug` while the writer below stored
+        // `Str::slug($validated['store_slug'])`. MEASURED: `Str::slug()` maps 'My Shop', 'MY SHOP',
+        // 'my shop' and 'my-shop' all to 'my-shop'. So a merchant acting legitimately on their OWN
+        // store posted 'My Shop', `unique:stores,slug` compared 'My Shop' against the column, found
+        // nothing, passed -- and 'my-shop' was written beside another store's identical 'my-shop'.
+        //
+        // Every storefront resolver is `where('slug', ...)->first()` (`helper.php:3578` and `:3627`,
+        // `ActiveTheme:21`, and four raw lookups in `ViewServiceProvider` that choose the THEME VIEW
+        // ROOT), so LOWEST ID WINS and one merchant's public URL served the other's shop. Not a
+        // tenancy defect -- `resolveOwnedStore()` and the two permission limbs above all pass
+        // legitimately, nothing in the victim's row is written, and a storefront is public. The
+        // whole defect is validating one value and storing another.
+        //
+        // Normalising first makes the rule guard the value that lands. `Str::slug()` is idempotent
+        // ('my-shop' -> 'my-shop'), so the writer below is unchanged and a merchant resubmitting
+        // their own slug -- what a prefilled form does -- still passes.
+        //
+        // DELIBERATELY NOT CHANGED: an input that normalises to '' (e.g. '!!!') is still silently
+        // skipped by the `!empty()` at the writer. Refusing it would add a new 422 to a path the
+        // shipped admin app calls, which is a user-visible regression of exactly the kind
+        // CLAUDE.md warns about. Recorded instead.
+        //
+        // `stores.slug` has NO UNIQUE INDEX (`2023_12_14_090259_create_stores_table.php:19` is a
+        // bare `$table->string('slug')`), so the database does not backstop this and duplicates may
+        // ALREADY EXIST in production. Adding the index needs an audit first; that is recorded, not
+        // done here.
+        if ($request->filled('store_slug')) {
+            $request->merge([
+                'store_slug' => \Illuminate\Support\Str::slug((string) $request->input('store_slug')),
+            ]);
+        }
+
         $validated = $request->validate([
             'store_name' => 'nullable|string|max:255',
             'store_email' => 'nullable|email|max:255',

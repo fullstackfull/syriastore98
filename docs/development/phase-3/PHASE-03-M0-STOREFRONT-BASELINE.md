@@ -501,3 +501,85 @@ The publicly served `.git` metadata and historical credentials on the test host 
 **OWNER-DEFERRED — UNRESOLVED** (#120, #137). Verified unchanged by this branch: both `.htaccess`
 files are **directive-identical to `origin/main`** — 0 differing non-comment lines — so merging it
 cannot arm the dormant Apache rules, and `DumpAndVcsPathsAreDeniedTest`'s 32 cases still pass.
+
+---
+
+## 10. A second slug writer, found while confirming the escalation — AND IT NARROWS THE DECISION
+
+The review went looking for other writers of `stores.slug` because the owner was being asked what an
+Arabic merchant's URL should be. It found one, with a defect of its own, and measuring it **changed
+what the owner is being asked**.
+
+### 10.1 `POST api/admin/updateStoreOwnerInfo` validated one value and stored another
+
+`Api\DashboardController:8860` asserted uniqueness on the **raw** input:
+
+```php
+'store_slug' => 'nullable|string|max:255|unique:stores,slug,' . $store->id,
+```
+
+and `:8902` stored a **normalised** one:
+
+```php
+$store->slug = \Illuminate\Support\Str::slug($validated['store_slug']);
+```
+
+So the uniqueness rule guarded a string that never reached the column. Measured:
+
+| raw input | `Str::slug()` |
+|---|---|
+| `My Shop` | `my-shop` |
+| `MY SHOP` | `my-shop` |
+| `my shop` | `my-shop` |
+| `my-shop` | `my-shop` |
+
+A merchant acting **legitimately on their own store** posts `store_slug = "My Shop"`; `unique`
+compares `"My Shop"` against the column, finds nothing, passes; `my-shop` is written beside a
+victim's identical `my-shop`. Every storefront resolver is `where('slug', …)->first()` —
+`helper.php:3578` and `:3627`, `ActiveTheme:21`, and **four raw lookups in `ViewServiceProvider`
+that choose the theme view root** — so lowest id wins and one merchant's public URL serves the
+other's catalogue, categories, theme and settings. If the newcomer holds the lower id it is the
+*victim's* shoppers who are carried onto someone else's shop.
+
+**Not a tenancy defect, and that is on the record so nobody re-litigates the handler.**
+`resolveOwnedStore()` is an ownership predicate derived from the principal, and
+`mayChangeOwnerIdentity()` and the `CURRENCY_NAME` limb both pass legitimately — all three carry
+prior P1-SEC review history. Nothing in the victim's row is written and no private data is read; a
+storefront is public. The entire defect is validating one value and storing another.
+
+**Fixed** by normalising before the rule runs. `Str::slug()` is idempotent, so the writer is
+unchanged and a merchant resubmitting their own slug — what a prefilled form does — still passes.
+`AdminApiStoreSlugUniquenessTest`, 6 cases; reverting the pre-normalisation fails three of them.
+The count is asserted **before** the identity, deliberately: asserting only that `->first()` returns
+the victim passes before the fix too, because the victim holds the lower id.
+
+**Two things deliberately not done.** An input that normalises to `''` (e.g. `!!!`) is still silently
+skipped by the writer's `!empty()`; refusing it would add a new 422 to a path the shipped admin app
+calls, the user-visible-regression class `CLAUDE.md` warns about. And `stores.slug` has **no unique
+index** (`2023_12_14_090259:19` is a bare `$table->string('slug')`), so the database never backstopped
+this and **duplicates may already exist in production** — the index needs an audit first.
+
+### 10.2 THE CORRECTION THAT MATTERS: Laravel's own helper already transliterates Arabic
+
+The review expected `Str::slug` to give `''` for Arabic, by analogy with `User::slugs()`. It does
+not. Measured side by side:
+
+| store name | `Str::slug()` — the API writer | `User::slugs()` — the web writer |
+|---|---|---|
+| `متجر دمشق` | **`mtgr-dmshk`** | **`-`** |
+| `صابون حلب` | **`sabon-hlb`** | **`-`** |
+| `متجر Damascus` | `mtgr-damascus` | `-damascus` |
+| `My Shop` | `my-shop` | `my-shop` |
+
+`Str::ascii()` carries Arabic transliteration rows. So **the platform's two slug writers disagree,
+and one of them is already right** — the API path produces usable (if crude) transliterated slugs
+today, while `User::slugs()` produces a bare hyphen because it tests `empty()` *before* stripping
+non-ASCII.
+
+**This materially narrows the owner decision recorded in §7.5.** It is no longer "transliteration
+or opaque id for Arabic merchants" — that choice has effectively already been made, on the API path
+the admin app uses. The question is the much smaller one of whether to **align `User::slugs()` with
+`Str::slug()`**, which the codebase already ships, and whose commented-out
+`transliterator_transliterate` line shows was the original intent. No existing slug changes either
+way; only newly created rows. Still the owner's call, because it also governs product, tag and brand
+URLs — but it is now a consistency decision rather than a product-design one.
