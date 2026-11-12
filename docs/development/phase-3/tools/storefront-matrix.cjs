@@ -83,8 +83,31 @@ const FIXTURE_CUSTOMER = {
   // The themeless store: `theme_id = ''`, which no other fixture store can exercise. Before the
   // M0 fix its /home could not resolve `main_file` and its other eleven page routes answered 500.
   'p3fixt-no-theme': 'p3-shopper@p3fixt-no-theme.test',
+  // M1. One store per theme: `themes/` ships three and every fixture store carried `stylique`, so
+  // the M0 baseline measured ONE theme three times.
+  'p3fixt-homs-tech': 'p3-shopper@p3fixt-homs-tech.test',
+  'p3fixt-latakia-green': 'p3-shopper@p3fixt-latakia-green.test',
+};
+
+/**
+ * WHICH THEME EACH STORE MUST RENDER. A theme name that does not resolve falls back silently to
+ * `config('theme.active')`, so a capture of `techzonix` that actually rendered `stylique` answers
+ * 200, carries the right `dir`, passes every other premise check -- and is mislabelled evidence.
+ * That is the single most important thing to assert in a three-theme baseline.
+ *
+ * `--expect-theme <name>` overrides; `--expect-theme ''` skips the check.
+ */
+const EXPECTED_THEME = {
+  'damascus-textiles': 'stylique',
+  'aleppo-soap': 'stylique',
+  'p3fixt-homs-tech': 'techzonix',
+  'p3fixt-latakia-green': 'greentic',
+  // theme_id = '', so it renders the CONFIGURED fallback. Asserting stylique here is asserting the
+  // M0 fallback fix still works.
+  'p3fixt-no-theme': 'stylique',
 };
 const CUSTOMER = arg('customer', FIXTURE_CUSTOMER[STORE] || '');
+const EXPECT_THEME = arg('expect-theme', EXPECTED_THEME[STORE] ?? '');
 
 /**
  * The customer journey, in the order a shopper walks it. Every one of these is a real route in
@@ -130,6 +153,22 @@ const PROBE = () => {
     // `themes//assets/...` -- the empty-theme_id collapse.
     brokenThemeAsset: sheets.filter((h) => /\/themes\/\/|\/themes\/assets\//.test(h)),
     themeSheets: sheets.filter((h) => h.includes('/themes/')).length,
+    // Every theme name referenced by any stylesheet, script or image on the page. A correct page
+    // names exactly ONE. Two means the layout and the sections disagree; the wrong one means the
+    // store's theme did not resolve and the configured fallback rendered instead.
+    themesSeen: (() => {
+      const urls = [
+        ...[...document.querySelectorAll('link[href],script[src],img[src]')]
+          .map((e) => e.getAttribute('href') || e.getAttribute('src') || ''),
+        ...sheets,
+      ];
+      const names = new Set();
+      for (const u of urls) {
+        const m = /\/themes\/([^/]+)\//.exec(u);
+        if (m) names.add(m[1]);
+      }
+      return [...names].sort();
+    })(),
     textLength: bodyText.trim().length,
     headings: [...document.querySelectorAll('h1,h2')].slice(0, 3).map((e) => e.innerText.trim().slice(0, 48)),
     overflow: document.documentElement.scrollWidth > window.innerWidth + 1,
@@ -221,10 +260,25 @@ async function signIn(page, slug, email) {
         else if (d.dir !== expectDir) problems.push(`dir=${d.dir}, expected ${expectDir}`);
         if ((d.brokenThemeAsset || []).length) problems.push('BROKEN THEME ASSET PATH: ' + d.brokenThemeAsset[0]);
 
+        // THE THEME THE PAGE ACTUALLY RENDERED. Checked last so the more specific failures above
+        // are reported first, but this is the one that decides whether the row is evidence OF
+        // ANYTHING in a multi-theme baseline.
+        const seen = d.themesSeen || [];
+        if (EXPECT_THEME) {
+          if (seen.length === 0) {
+            problems.push(`NO THEME ASSETS AT ALL: expected ${EXPECT_THEME}`);
+          } else if (!seen.includes(EXPECT_THEME)) {
+            problems.push(`WRONG THEME: page rendered ${seen.join('+')}, store declares ${EXPECT_THEME}`);
+          } else if (seen.length > 1) {
+            problems.push(`MIXED THEMES: ${seen.join('+')} on one page`);
+          }
+        }
+
         rows.push({
           store: STORE, path: p, locale, viewport: vp, http: status,
           dir: d.dir, lang: d.lang, title: (d.title || '').slice(0, 42),
-          themeSheets: d.themeSheets, text: d.textLength,
+          themeSheets: d.themeSheets, themesSeen: d.themesSeen, expectTheme: EXPECT_THEME,
+          text: d.textLength,
           images: d.images, overflow: d.overflow, headings: d.headings,
           consoleErrors: consoleErrors.slice(0, 2),
           premise: problems.length === 0 ? 'ok' : 'PREMISE-FAIL',
@@ -287,6 +341,7 @@ async function signIn(page, slug, email) {
     console.log(
       pad(r.store.slice(0, 9), 10) + pad(r.path.slice(0, 15), 16) + pad(r.locale, 4) +
       pad(r.viewport, 9) + pad(r.http, 5) + pad(r.dir, 5) + pad(r.themeSheets, 4) +
+      pad((r.themesSeen || []).join('+') || '-', 11) +
       pad(`${r.images ? r.images.total : '-'}(${r.images ? r.images.broken : '-'})`, 8) +
       pad(r.text, 6) + (r.premise === 'ok' ? 'ok' : 'PREMISE-FAIL  ' + r.problems.join(' | '))
     );

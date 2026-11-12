@@ -181,6 +181,69 @@ if ($remove) {
 
 /* ------------------------------------------------------------------------------------------- */
 
+/**
+ * ONE STORE PER THEME, because M1 has to measure all THREE and two of them had no fixture at all.
+ *
+ * `themes/` ships `stylique`, `techzonix` and `greentic` -- 13, 15 and 16 blade files, each with
+ * its own `default_data/settings.php`. Every fixture store carried `theme_id = 'stylique'`, so the
+ * M0 baseline measured ONE theme three times and said nothing about the other two. A theme is not
+ * a skin here: each has its own `main_file`, its own layout, its own section markup and its own
+ * ~530 default settings, so a defect in one is invisible from the others.
+ *
+ * These two are created with the SAME shape as the existing stores -- a customer, a catalogue,
+ * per-store copy and a logo -- so a difference between captures is a difference between THEMES
+ * rather than between fixtures.
+ */
+const THEME_STORES = [
+    ['p3fixt-homs-tech',      'P3 Fixture - Homs Tech',      'techzonix', 'en'],
+    ['p3fixt-latakia-green',  'P3 Fixture - Latakia Green',  'greentic',  'ar'],
+];
+
+foreach (THEME_STORES as [$slug, $name, $theme, $lang]) {
+    $row = Store::withoutGlobalScopes()->where('slug', $slug)->first();
+
+    if ($remove) {
+        if ($row) {
+            Customer::withoutGlobalScopes()->where('store_id', $row->id)->delete();
+            $row->delete();
+            printf("  removed theme store %s\n", $slug);
+        }
+        continue;
+    }
+
+    if ($row === null) {
+        $row = new Store();
+        $row->slug = $slug;
+        $row->email = $slug . '@example.test';
+        $row->created_by = $stores->first()->created_by ?? 1;
+    }
+
+    $row->name = $name;
+    $row->theme_id = $theme;
+    $row->is_active = 1;
+    // One store defaults to Arabic so an RTL capture exists that did not need the language switch
+    // driven -- the store default and the switch are different code paths.
+    $row->default_language = $lang;
+    $row->save();
+
+    // A PREMISE CHECK. A theme name that does not exist on disk silently falls back to the
+    // configured theme, and the capture would then be of `stylique` under another store's name --
+    // exactly the kind of row that looks like evidence and is not.
+    if (! is_file(base_path("themes/{$theme}/views/main_file.blade.php"))) {
+        fwrite(STDERR, "REFUSING: theme '{$theme}' has no views/main_file.blade.php, so store "
+            . "{$slug} would render the FALLBACK theme and its captures would be mislabelled.\n");
+        exit(1);
+    }
+
+    printf("  theme store ready: %-22s theme=%-10s lang=%s\n", $row->slug, $theme, $lang);
+}
+
+if (! $remove) {
+    $stores = Store::withoutGlobalScopes()->orderBy('id')->get(['id', 'name', 'slug', 'theme_id', 'created_by']);
+}
+
+/* ------------------------------------------------------------------------------------------- */
+
 if ($report) {
     echo "customers per store, and whether each can sign in:\n";
     foreach ($stores as $s) {
@@ -291,112 +354,209 @@ echo "\n{$reset} password(s) set, {$made} customer(s) created.\n";
  * Every row carries `store_id` and a `p3fixt-` slug prefix, which is what makes the set findable,
  * removable, and impossible to confuse with the demo content that ships with WorkDo.
  */
-$second = $stores->firstWhere('slug', 'aleppo-soap') ?? $stores->get(1);
-$IMG = 'uploads/' . $second->id . '/p3fixt';
+/**
+ * ONE CATALOGUE PER STORE, driven from a spec rather than hardcoded to one store.
+ *
+ * This was written against `aleppo-soap` alone. M1 needs three themes with comparable content, so
+ * the loops moved into a function and each store brings its own spec. Three consequences worth
+ * knowing:
+ *
+ *   - PRODUCT NAMES DIFFER PER STORE, so the slugs differ and nothing collides. That matters
+ *     because the lookups below are `where('slug', ...)` with NO store predicate -- `Product` is
+ *     absent from `config/tenancy.php`'s `scoped_models`, so a shared slug would make this tool
+ *     update ANOTHER store's row instead of creating its own.
+ *   - EVERY IMAGE PATH IS `uploads/<store id>/p3fixt/`, AND IT HAS TO BE. The first draft used an
+ *     id-independent `uploads/p3fixt/<store-slug>/` so committed paths could not go stale when the
+ *     fixture is rebuilt in a different order -- and `App\Services\StoredPathPolicy` REFUSED every
+ *     row with "The file path is not accepted." That policy is P1-SEC-28: a stored path's first
+ *     segment under `uploads/` must be the owning store's NUMERIC folder (or a sibling store of the
+ *     same owner), so that a poisoned row cannot name another tenant's file for one of the vendored
+ *     deleters to unlink. The policy is right and the path choice was wrong.
+ *
+ *     The id fragility is therefore real and unavoidable, so it is made LOUD instead of silent: the
+ *     premise check below refuses to seed a catalogue whose image directory is missing, naming the
+ *     directory it wanted. Only the LOGOS stay id-independent, at `uploads/p3fixt/logo-*.png` --
+ *     they are `theme_customizes` values, which no path column policy judges.
+ *   - EACH SPEC KEEPS ONE ZERO-STOCK ROW. An out-of-stock card is a state the storefront has to
+ *     render and a baseline of only happy rows cannot show it.
+ */
+$seedCatalogue = function (Store $store, string $imgDir, array $spec) {
+    $catIds = [];
+    foreach ($spec['categories'] as [$name, $slug, $img, $trending]) {
+        $row = \App\Models\Category::withoutGlobalScopes()->where('slug', $slug)->first();
+        if (! $row) {
+            $row = new \App\Models\Category();
+            $row->slug = $slug;
+        }
+        $row->name = $name;
+        $row->image_path = "{$imgDir}/{$img}.png";
+        $row->image_url = "{$imgDir}/{$img}.png";
+        $row->parent_id = 0;
+        $row->trending = $trending;
+        $row->status = 1;
+        $row->store_id = $store->id;
+        $row->save();
+        $catIds[] = $row->id;
+    }
 
-$CATEGORIES = [
-    ['Soap Bars',   'p3fixt-soap-bars',   'cat-bars',  1],
-    ['Gift Sets',   'p3fixt-gift-sets',   'cat-gifts', 1],
-    ['Hair & Body', 'p3fixt-hair-body',   'cat-care',  0],
+    $brandIds = [];
+    foreach ($spec['brands'] as [$name, $slug, $img, $popular]) {
+        $row = \App\Models\ProductBrand::withoutGlobalScopes()->where('slug', $slug)->first();
+        if (! $row) {
+            $row = new \App\Models\ProductBrand();
+            $row->slug = $slug;
+        }
+        $row->name = $name;
+        $row->logo = "{$imgDir}/{$img}.png";
+        $row->status = 1;
+        $row->is_popular = $popular;
+        $row->store_id = $store->id;
+        $row->created_by = $store->created_by ?? 1;
+        $row->save();
+        $brandIds[] = $row->id;
+    }
+
+    $made = 0;
+    foreach ($spec['products'] as [$name, $slug, $img, $price, $sale, $stock, $ci, $bi]) {
+        $row = \App\Models\Product::withoutGlobalScopes()->where('slug', $slug)->first();
+        if (! $row) {
+            $row = new \App\Models\Product();
+            $row->slug = $slug;
+            $made++;
+        }
+        $row->name = $name;
+        $row->category_id = $catIds[$ci] ?? null;
+        $row->brand_id = $brandIds[$bi] ?? null;
+        $row->price = $price;
+        $row->sale_price = $sale;
+        $row->cost_price = round($price * 0.45, 2);
+        $row->product_stock = $stock;
+        $row->stock_status = $stock > 0 ? 'in_stock' : 'out_of_stock';
+        $row->track_stock = 1;
+        $row->low_stock_threshold = 10;
+        $row->status = 1;
+        $row->is_active = 1;
+        $row->variant_product = 0;
+        $row->product_type = 'simple';
+        $row->cover_image_path = "{$imgDir}/{$img}.png";
+        $row->cover_image_url = "{$imgDir}/{$img}.png";
+        $row->description = str_replace('{name}', $name, $spec['blurb']);
+        $row->detail = 'P3FIXT development fixture row. Not a real product.';
+        $row->store_id = $store->id;
+        $row->created_by = $store->created_by ?? 1;
+        $row->save();
+
+        // A gallery row as well, so the product detail page has more than its cover to show.
+        if (! DB::table('product_images')->where('product_id', $row->id)->exists()) {
+            DB::table('product_images')->insert([
+                'product_id' => $row->id,
+                'image_path' => "{$imgDir}/{$img}.png",
+                'image_url' => "{$imgDir}/{$img}.png",
+                'store_id' => $store->id,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+    }
+
+    printf("  store %-3s %-22s %d categories, %d brands, %d products (%d new)\n",
+        $store->id, $store->slug, count($catIds), count($brandIds), count($spec['products']), $made);
+};
+
+/** slug => [image dir, spec]. `name, slug, image, price, sale, stock, category index, brand index` */
+$CATALOGUES = [
+    'aleppo-soap' => ['uploads/{id}/p3fixt', [
+        'blurb' => 'Traditional {name} from Aleppo, cured slowly and cut by hand.',
+        'categories' => [
+            ['Soap Bars',   'p3fixt-soap-bars',   'cat-bars',  1],
+            ['Gift Sets',   'p3fixt-gift-sets',   'cat-gifts', 1],
+            ['Hair & Body', 'p3fixt-hair-body',   'cat-care',  0],
+        ],
+        'brands' => [
+            ['Aleppo House', 'p3fixt-aleppo-house', 'brand-aleppo-house', 1],
+            ['Levant Co',    'p3fixt-levant-co',    'brand-levant',       0],
+        ],
+        'products' => [
+            ['Classic Aleppo Soap', 'p3fixt-aleppo-classic', 'aleppo-classic', 8.00,  6.50,  48, 0, 0],
+            ['Laurel 20% Bar',      'p3fixt-laurel-20',      'laurel-20',      14.00, 12.00, 26, 0, 0],
+            ['Pure Olive Bar',      'p3fixt-olive-pure',     'olive-pure',     6.50,  6.50,  90, 0, 0],
+            ['Rose Clay Bar',       'p3fixt-rose-clay',      'rose-clay',      9.50,  8.00,  12, 0, 1],
+            ['Black Seed Bar',      'p3fixt-black-seed',     'black-seed',     11.00, 11.00, 0,  0, 1],
+            ['Gift Trio Box',       'p3fixt-gift-trio',      'gift-trio',      29.00, 24.00, 7,  1, 0],
+            ['Travel Tin',          'p3fixt-travel-tin',     'travel-tin',     5.00,  5.00,  64, 1, 1],
+            ['Olive Shampoo Bar',   'p3fixt-shampoo-bar',    'shampoo-bar',    13.00, 10.50, 31, 2, 0],
+        ],
+    ]],
+    'p3fixt-homs-tech' => ['uploads/{id}/p3fixt', [
+        'blurb' => 'A {name} assembled in Homs. Twelve-month warranty.',
+        'categories' => [
+            ['Audio',  'p3fixt-ht-audio',  'cat-audio',  1],
+            ['Power',  'p3fixt-ht-power',  'cat-power',  1],
+            ['Mobile', 'p3fixt-ht-mobile', 'cat-mobile', 0],
+        ],
+        'brands' => [
+            ['Orontes', 'p3fixt-ht-orontes', 'brand-orontes', 1],
+            ['Citadel', 'p3fixt-ht-citadel', 'brand-citadel', 0],
+        ],
+        'products' => [
+            ['Smart Kettle',  'p3fixt-ht-kettle',  'kettle-smart',  42.00, 36.00, 18, 1, 0],
+            ['Desk Lamp',     'p3fixt-ht-lamp',    'lamp-desk',     24.00, 24.00, 55, 1, 1],
+            ['Power Bank',    'p3fixt-ht-bank',    'bank-power',    31.00, 27.50, 40, 1, 0],
+            ['Earbuds Pro',   'p3fixt-ht-buds',    'buds-pro',      68.00, 59.00, 9,  0, 0],
+            ['USB-C Cable',   'p3fixt-ht-cable',   'cable-usbc',    7.00,  7.00,  200, 2, 1],
+            ['7-Port Hub',    'p3fixt-ht-hub',     'hub-seven',     38.00, 33.00, 0,  2, 0],
+            ['Mini Speaker',  'p3fixt-ht-speaker', 'speaker-mini',  29.00, 25.00, 22, 0, 1],
+            ['Phone Stand',   'p3fixt-ht-stand',   'stand-phone',   11.00, 9.50,  76, 2, 1],
+        ],
+    ]],
+    'p3fixt-latakia-green' => ['uploads/{id}/p3fixt', [
+        'blurb' => '{name}, grown on the Latakia coast and potted the week it ships.',
+        'categories' => [
+            ['Herbs', 'p3fixt-lg-herbs', 'cat-herbs', 1],
+            ['Pots',  'p3fixt-lg-pots',  'cat-pots',  0],
+            ['Seeds', 'p3fixt-lg-seeds', 'cat-seeds', 1],
+        ],
+        'brands' => [
+            ['Coast Grown', 'p3fixt-lg-coast',   'brand-coast',   1],
+            ['Terrace',     'p3fixt-lg-terrace', 'brand-terrace', 0],
+        ],
+        'products' => [
+            ['Mint in Pot',    'p3fixt-lg-mint',    'mint-pot',      4.50,  4.00,  120, 0, 0],
+            ['Basil in Pot',   'p3fixt-lg-basil',   'basil-pot',     4.50,  4.50,  85,  0, 0],
+            ['Olive Sapling',  'p3fixt-lg-olive',   'olive-sapling', 22.00, 19.00, 14,  0, 1],
+            ['Jasmine Vine',   'p3fixt-lg-jasmine', 'jasmine-vine',  17.00, 15.00, 0,   0, 1],
+            ['Clay Pot L',     'p3fixt-lg-pot',     'clay-pot-l',    13.00, 13.00, 48,  1, 1],
+            ['Seed Mix',       'p3fixt-lg-seedmix', 'seed-mix',      6.00,  5.00,  160, 2, 0],
+            ['Watering Can',   'p3fixt-lg-can',     'watering-can',  15.00, 12.50, 30,  1, 0],
+            ['Trowel Set',     'p3fixt-lg-trowel',  'trowel-set',    19.00, 16.00, 11,  1, 1],
+        ],
+    ]],
 ];
-$BRANDS = [
-    ['Aleppo House', 'p3fixt-aleppo-house', 'brand-aleppo-house', 1],
-    ['Levant Co',    'p3fixt-levant-co',    'brand-levant',       0],
-];
-// name, slug, image, price, sale, stock, category index, brand index
-$PRODUCTS = [
-    ['Classic Aleppo Soap', 'p3fixt-aleppo-classic', 'aleppo-classic', 8.00,  6.50,  48, 0, 0],
-    ['Laurel 20% Bar',      'p3fixt-laurel-20',      'laurel-20',      14.00, 12.00, 26, 0, 0],
-    ['Pure Olive Bar',      'p3fixt-olive-pure',     'olive-pure',     6.50,  6.50,  90, 0, 0],
-    ['Rose Clay Bar',       'p3fixt-rose-clay',      'rose-clay',      9.50,  8.00,  12, 0, 1],
-    ['Black Seed Bar',      'p3fixt-black-seed',     'black-seed',     11.00, 11.00, 0,  0, 1],
-    ['Gift Trio Box',       'p3fixt-gift-trio',      'gift-trio',      29.00, 24.00, 7,  1, 0],
-    ['Travel Tin',          'p3fixt-travel-tin',     'travel-tin',     5.00,  5.00,  64, 1, 1],
-    ['Olive Shampoo Bar',   'p3fixt-shampoo-bar',    'shampoo-bar',    13.00, 10.50, 31, 2, 0],
-];
 
-$catIds = [];
-foreach ($CATEGORIES as [$name, $slug, $img, $trending]) {
-    $row = \App\Models\Category::withoutGlobalScopes()->where('slug', $slug)->first();
-    if (! $row) {
-        $row = new \App\Models\Category();
-        $row->slug = $slug;
+echo "\ncatalogues:\n";
+foreach ($CATALOGUES as $slug => [$imgDir, $spec]) {
+    $target = Store::withoutGlobalScopes()->where('slug', $slug)->first();
+
+    if ($target === null) {
+        printf("  no store with slug %s, skipped\n", $slug);
+        continue;
     }
-    $row->name = $name;
-    $row->image_path = "{$IMG}/{$img}.png";
-    $row->image_url = "{$IMG}/{$img}.png";
-    $row->parent_id = 0;
-    $row->trending = $trending;
-    $row->status = 1;
-    $row->store_id = $second->id;
-    $row->save();
-    $catIds[] = $row->id;
+
+    $dir = str_replace('{id}', (string) $target->id, $imgDir);
+
+    // THE PREMISE, because the path has to be id-keyed (see above) and ids move. A missing
+    // directory would otherwise seed rows pointing at nothing and the capture would show a page
+    // full of placeholders that looks like a product defect.
+    if (! is_dir(base_path($dir))) {
+        fwrite(STDERR, "REFUSING: store {$target->slug} (id {$target->id}) needs its images at "
+            . "{$dir}, which does not exist. StoredPathPolicy requires the store's own numeric\n"
+            . "folder, so the fixture images must be moved there -- they cannot live under a\n"
+            . "slug-keyed path. Seeding would produce rows pointing at missing files.\n");
+        exit(1);
+    }
+
+    $seedCatalogue($target, $dir, $spec);
 }
-
-$brandIds = [];
-foreach ($BRANDS as [$name, $slug, $img, $popular]) {
-    $row = \App\Models\ProductBrand::withoutGlobalScopes()->where('slug', $slug)->first();
-    if (! $row) {
-        $row = new \App\Models\ProductBrand();
-        $row->slug = $slug;
-    }
-    $row->name = $name;
-    $row->logo = "{$IMG}/{$img}.png";
-    $row->status = 1;
-    $row->is_popular = $popular;
-    $row->store_id = $second->id;
-    $row->created_by = $second->created_by ?? 1;
-    $row->save();
-    $brandIds[] = $row->id;
-}
-
-$prodMade = 0;
-foreach ($PRODUCTS as [$name, $slug, $img, $price, $sale, $stock, $ci, $bi]) {
-    $row = \App\Models\Product::withoutGlobalScopes()->where('slug', $slug)->first();
-    if (! $row) {
-        $row = new \App\Models\Product();
-        $row->slug = $slug;
-        $prodMade++;
-    }
-    $row->name = $name;
-    $row->category_id = $catIds[$ci] ?? null;
-    $row->brand_id = $brandIds[$bi] ?? null;
-    $row->price = $price;
-    $row->sale_price = $sale;
-    $row->cost_price = round($price * 0.45, 2);
-    $row->product_stock = $stock;
-    // ONE DELIBERATE ZERO-STOCK ROW. An out-of-stock card is a state the storefront has to render
-    // and a baseline that contains only happy rows cannot show it.
-    $row->stock_status = $stock > 0 ? 'in_stock' : 'out_of_stock';
-    $row->track_stock = 1;
-    $row->low_stock_threshold = 10;
-    $row->status = 1;
-    $row->is_active = 1;
-    $row->variant_product = 0;
-    $row->product_type = 'simple';
-    $row->cover_image_path = "{$IMG}/{$img}.png";
-    $row->cover_image_url = "{$IMG}/{$img}.png";
-    $row->description = "Traditional {$name} from Aleppo, cured slowly and cut by hand.";
-    $row->detail = "P3FIXT development fixture row. Not a real product.";
-    $row->store_id = $second->id;
-    $row->created_by = $second->created_by ?? 1;
-    $row->save();
-
-    // A gallery row as well, so the product detail page has more than its cover to show.
-    if (! DB::table('product_images')->where('product_id', $row->id)->exists()) {
-        DB::table('product_images')->insert([
-            'product_id' => $row->id,
-            'image_path' => "{$IMG}/{$img}.png",
-            'image_url' => "{$IMG}/{$img}.png",
-            'store_id' => $second->id,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-    }
-}
-
-printf("\n  store %s catalogue: %d categories, %d brands, %d products (%d new)\n",
-    $second->id, count($catIds), count($brandIds), count($PRODUCTS), $prodMade);
 
 /* ------------------------------------------------------------------------------------------- */
 
@@ -484,6 +644,34 @@ $CUSTOMISE = [
         'testimonial_sub_title' => 'Notes from households and hammams.',
         'blog_title'            => 'The Curing Room',
         'blog_sub_title'        => 'How laurel oil, time and air make a bar of soap.',
+    ],
+    'p3fixt-homs-tech' => [
+        'logo'                  => 'uploads/p3fixt/p3fixt-homs-tech/logo.png',
+        'header_logo'           => 'uploads/p3fixt/p3fixt-homs-tech/logo.png',
+        'footer_logo'           => 'uploads/p3fixt/p3fixt-homs-tech/logo.png',
+        'category_title'        => 'Shop by Department',
+        'category_description'  => 'Audio, power and mobile accessories, assembled in Homs.',
+        'product_title'         => 'New This Week',
+        'product_description'   => 'Every unit bench-tested before it leaves the workshop.',
+        'bestseller_title'      => 'Best Sellers',
+        'testimonial_title'     => 'What Our Customers Say',
+        'testimonial_sub_title' => 'Reviews from twelve months of warranty claims and none.',
+        'blog_title'            => 'Workbench Notes',
+        'blog_sub_title'        => 'Teardowns, repairs and what we would buy again.',
+    ],
+    'p3fixt-latakia-green' => [
+        'logo'                  => 'uploads/p3fixt/p3fixt-latakia-green/logo.png',
+        'header_logo'           => 'uploads/p3fixt/p3fixt-latakia-green/logo.png',
+        'footer_logo'           => 'uploads/p3fixt/p3fixt-latakia-green/logo.png',
+        'category_title'        => 'Browse the Nursery',
+        'category_description'  => 'Herbs, pots and seed mixes from the Latakia coast.',
+        'product_title'         => 'Potted This Week',
+        'product_description'   => 'Grown outdoors and potted the week it ships.',
+        'bestseller_title'      => 'Most Planted',
+        'testimonial_title'     => 'From Our Growers',
+        'testimonial_sub_title' => 'Notes from balconies, terraces and courtyards.',
+        'blog_title'            => 'The Growing Year',
+        'blog_sub_title'        => 'When to sow, when to water, when to leave it alone.',
     ],
     // The themeless store gets rows too, keyed on its EMPTY theme_id. `getThemeSetting()` looks
     // stored customisations up on the store's OWN theme_id by design, so this proves that path is
