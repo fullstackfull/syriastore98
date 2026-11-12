@@ -136,6 +136,18 @@ class VisualAcceptanceCorrectionsTest extends SecurityTestCase
             'The Edit control lost its own permission guard. Hiding the column is a tidiness '
             . 'fix; the cell guard is the control, and it must stay.'
         );
+
+        // BOTH HALVES, because the cases above only read getColumns(). Independent review found
+        // that reverting the dataTable() guard alone left all four passing: nothing in the suite
+        // exercises that method. It leaks nothing -- the cells are @permission-gated, so the
+        // payload would be an empty span -- but the two sides are meant to agree, and an
+        // assertion that only watches one of them says less than it appears to.
+        $this->assertStringContainsString(
+            'if ($this->mayAct()) {',
+            $source,
+            'TagDataTable::dataTable() builds the action column unconditionally again, so the '
+            . 'server renders a view per row for a column the header does not declare.'
+        );
     }
 
     /* ===================================================================================
@@ -461,6 +473,155 @@ class VisualAcceptanceCorrectionsTest extends SecurityTestCase
             'The category modal names the parent field differently from the category list.'
         );
         $this->assertNotSame('فئة الوالدين', $ar['Parents Category']);
+    }
+
+    /* ===================================================================================
+     * ITEM 12 — roles: localized permission labels, identifiers untouched
+     * =================================================================================== */
+
+    /**
+     * THE INVARIANT IS THAT NOTHING BUT THE PRINTED STRING CHANGED.
+     *
+     * `$permission` comes from `permissions()->pluck('name')` and is the exact string
+     * `isAbleTo()` matches on. Wrapping the PRINT in `__()` cannot alter it: the value is
+     * printed, never compared, assigned or written, and `__()` returns its key unchanged when
+     * no translation exists -- so English renders byte-for-byte as before and an untranslated
+     * permission still shows its own name rather than an empty chip.
+     */
+    #[Test]
+    public function test_the_roles_screen_localises_the_label_and_not_the_identifier(): void
+    {
+        $blade = file_get_contents(base_path('resources/views/roles/permission.blade.php'));
+
+        $this->assertStringContainsString(
+            '{{ __($permission) }}',
+            $blade,
+            'The roles screen prints raw permission identifiers again.'
+        );
+
+        $this->assertStringContainsString(
+            "\$role->permissions()->pluck('name')",
+            $blade,
+            'The chips are no longer driven by the permission NAME, so this test is guarding '
+            . 'something other than what it claims.'
+        );
+
+        // Nothing on this screen may compare, assign or write the value.
+        foreach (['->givePermission(', '->syncPermissions(', '->attachPermission(', '->update('] as $forbidden) {
+            $this->assertStringNotContainsString(
+                $forbidden,
+                $blade,
+                "roles/permission.blade.php now calls {$forbidden} -- a display partial must not "
+                . 'change authorization.'
+            );
+        }
+    }
+
+    /**
+     * ENGLISH IS UNCHANGED, which is what makes this display-only rather than a relabelling.
+     * en.json maps each added permission name to ITSELF, so `__('Manage Order')` is still
+     * exactly "Manage Order".
+     */
+    #[Test]
+    public function test_english_permission_labels_are_identity_mapped(): void
+    {
+        $en = json_decode(file_get_contents(base_path('resources/lang/en.json')), true);
+        $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
+
+        foreach (['Manage Order', 'Create Product', 'Delete Coupon', 'Manage Role', 'Manage Dashboard'] as $name) {
+            $this->assertSame($name, $en[$name], "The ENGLISH label for '{$name}' is no longer itself.");
+            $this->assertArrayHasKey($name, $ar);
+            $this->assertNotSame($name, $ar[$name], "'{$name}' is still untranslated in Arabic.");
+        }
+
+        $this->assertSame('إدارة الطلبات', $ar['Manage Order']);
+        $this->assertSame('إدارة الأدوار', $ar['Manage Role']);
+    }
+
+    /**
+     * THE SIX THAT WERE WRONG IN ANY CONTEXT. Every permission name that already had Arabic is
+     * also a ROW-ACTION label elsewhere, so the existing singular wording was left alone rather
+     * than replaced with a plural permission-list form -- "Edit the coupons" is wrong on a
+     * button. These six were repaired anyway, because reversed word order and a missing verb are
+     * defects wherever they appear, and they took singular forms to suit those buttons.
+     */
+    #[Test]
+    public function test_the_reversed_and_broken_permission_translations_are_repaired(): void
+    {
+        $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
+
+        $repaired = [
+            'Create DeliveryBoy' => ['إنشاء مندوب توصيل', 'إنشاء " فتى التسليم "'],
+            'Delete Menu' => ['حذف القائمة', 'قائمة الحذف'],
+            'Edit Page' => ['تعديل الصفحة', 'صفحة التحرير'],
+            'Edit Plan' => ['تعديل الخطة', 'خطة التحرير'],
+            'Edit Shipping Method' => ['تعديل طريقة الشحن', 'طريقة الشحن'],
+            'Manage Themes' => ['إدارة القوالب', 'إدارة المواضيع'],
+        ];
+
+        foreach ($repaired as $key => [$expected, $wrong]) {
+            $this->assertSame($expected, $ar[$key], "The repaired Arabic for '{$key}' changed.");
+            $this->assertNotSame($wrong, $ar[$key], "'{$key}' is back to its broken translation.");
+        }
+    }
+
+    /**
+     * AND THE ONES DELIBERATELY NOT TOUCHED, so a later sweep does not "finish the job" and
+     * relabel two dozen row-action buttons in the process.
+     */
+    #[Test]
+    public function test_row_action_permission_labels_kept_their_singular_wording(): void
+    {
+        $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
+
+        // Each of these is a tooltip on a per-row Edit control as well as a permission name.
+        $this->assertSame('تحرير القسيمة', $ar['Edit Coupon']);
+        $this->assertSame('تحرير المنتج', $ar['Edit Product']);
+        $this->assertSame('تحرير العلامة', $ar['Edit Tag']);
+        $this->assertSame('تحرير المستخدم', $ar['Edit User']);
+    }
+
+    /* ===================================================================================
+     * ITEM 2 — testimonial terminology, and the content that must NOT be translated
+     * =================================================================================== */
+
+    /**
+     * "شهادة" on its own is a CERTIFICATE -- academic, medical. The commerce sense is a
+     * customer's testimonial. The key is the sidebar entry, the page title, the breadcrumb AND
+     * the delete control's accessible name (`Delete :thing`), so the replacement has to read
+     * correctly in all four; a collective like آراء العملاء would give "delete the customer
+     * opinions" on a button.
+     */
+    #[Test]
+    public function test_the_testimonial_term_is_the_commerce_one(): void
+    {
+        $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
+
+        $this->assertSame('شهادة عميل', $ar['Testimonial']);
+        $this->assertSame('شهادات العملاء', $ar['Testimonials']);
+        $this->assertNotSame('شهادة', $ar['Testimonial'], 'Back to the certificate sense.');
+    }
+
+    /**
+     * THE OWNER'S EXPLICIT BOUNDARY on this surface: "Do not translate merchant-entered
+     * testimonial content." The corrections here are confined to chrome -- column headings, the
+     * page title, the breadcrumb -- and this asserts the obvious failure mode: that someone
+     * "finishes" the Arabic by adding the fixture's own testimonial text to the lang files.
+     */
+    #[Test]
+    public function test_no_merchant_entered_testimonial_content_was_translated(): void
+    {
+        $ar = json_decode(file_get_contents(base_path('resources/lang/ar.json')), true);
+
+        foreach (['The order arrived in two days and the packaging was beautiful.',
+            'Layla Haddad', 'Damascus Textiles', 'Aleppo Soap Co'] as $content) {
+            $this->assertArrayNotHasKey(
+                $content,
+                $ar,
+                "Merchant- or customer-entered content ('{$content}') has been added to ar.json. "
+                . 'Record data is not UI chrome and must never be translated.'
+            );
+        }
     }
 
     /**

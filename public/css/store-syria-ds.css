@@ -3956,13 +3956,19 @@ a.ss-setup__item:focus-visible {
 
    Only `color` is set, for the reason P2.5-A-01 records about modals: overriding the fill as
    well would remove the only signal that one of these items is selected, which is a worse
-   defect than low contrast and is not what was asked. #ffffff rather than `var(--ss-fg)` because
-   the fill here is a fixed brand colour in BOTH themes, so the ink that belongs on it is fixed
-   too -- `--ss-fg` is theme-switching and would go dark-on-blue in light mode. That is the
-   `--ss-fg` / `--ss-grey-900` trap the handoff warns about, in its other direction. */
+   defect than low contrast and is not what was asked.
+
+   `--ss-onbrand` RATHER THAN `var(--ss-fg)`, and rather than a literal. The fill here is the
+   BRAND colour, not a surface, so the ink that belongs on it is the one custom.css already
+   derives for exactly that job (`custom.css:5073` and two siblings use
+   `var(--ss-onbrand, #fff)` on filled brand controls). `--ss-fg` is theme-switching and would
+   go dark-on-blue in light mode -- the `--ss-fg` / `--ss-grey-900` trap the handoff warns
+   about, in its other direction. A literal `#ffffff` was the first attempt and
+   `DarkPageSurfaceTest` refused it: this block is a token system, and a hex here would be the
+   one value that stops following the merchant's chosen brand. */
 [data-ss-theme="dark"] .dash-content .list-group-item.active,
 [data-ss-theme="dark"] .dash-content .list-group-item-action.active {
-    color: #ffffff;
+    color: var(--ss-onbrand, #fff);
 }
 
 /* AND THE HEADING ON THAT CARD, which the background census could not see. Removing the
