@@ -69,14 +69,45 @@ Progress: `phase-3/PHASE-03-M0-STOREFRONT-BASELINE.md`.
 
 | | milestone | state |
 |---|---|---|
-| **M0** | storefront harness, fixtures, theme/locale capture, route and tenant verification | **in progress** |
-| M1 | measured storefront baseline, defect inventory, performance and accessibility baselines | next |
+| **M0** | storefront harness, fixtures, theme/locale capture, route and tenant verification | **complete** — 7 of 8 gaps closed; gap 1 (no dark mode) is M2 by design |
+| **M1** | measured storefront baseline across all three themes, defect inventory | **complete for rendering; performance and accessibility NOT measured** — see below |
 | M2 | premium storefront across `stylique`, `techzonix`, `greentic` + dark mode | not started |
 | M3 | theme editor data model: draft/publish/version, safe migrations, tenant ownership | not started |
 | M4 | theme editor experience: sections, preview, publish, rollback, permissions | not started |
 | M5 | official Store Syria website on the WorkDo LandingPage foundation | not started |
 | M6 | bilingual documentation centre with working search | not started |
 | M7 | Phase 03 integration, evidence, acceptance package, closure | not started |
+
+### M1 — the three-theme baseline
+
+`phase-3/PHASE-03-M1-THREE-THEME-BASELINE.md`. Evidence:
+`phase-3/evidence/m1-storefront-baseline-2026-11-12/`.
+
+**M0 measured ONE theme three times.** `themes/` ships `stylique`, `techzonix` and `greentic` — 13,
+15 and 16 blade files, each with its own `main_file`, layout, section markup and ~520-key settings
+file — and every M0 fixture store carried `theme_id = 'stylique'`. Five fixture stores now cover all
+three plus the empty-`theme_id` fallback.
+
+| | measured |
+|---|---|
+| rows | **210** (5 stores × 2 locales × 3 viewports × 7 routes) |
+| premise-fail | **0** |
+| images / broken | 2,496 / **0** |
+| horizontal overflow | **0** |
+| `dir="rtl"` on Arabic rows | **105 of 105**, all three themes |
+| cross-store gate | **210 captures, 210 distinct contents, 0 collisions** |
+| route health | **80 of 80** store × route combinations answer 200 |
+| console 404s | 210 — one reference, `/public/js/flipdown.js` (see below) |
+
+**NOT measured and NOT claimed:** performance, accessibility, product-detail and checkout-flow
+captures, and dark mode (there is none to capture). Those are separate instrumentation and belong
+with the theme work that will change the pages anyway.
+
+A theme that fails to resolve falls back silently, so a capture labelled `techzonix` that rendered
+`stylique` would pass every M0 premise check and be mislabelled evidence. The harness now asserts
+the rendered theme against the store's declared one, and
+`tests/Unit/Ui/StorefrontThemeCoverageTest.php` fails if a **fourth theme** is added that the
+harness and fixture do not know about.
 
 ### The eight M0 harness gaps
 
@@ -132,7 +163,9 @@ the equivalent.
 | `POST api/admin/updateStoreOwnerInfo` validated the raw `store_slug` and stored `Str::slug()` of it, so two stores could hold one slug | **FIXED** — normalised before the uniqueness rule. Cross-tenant storefront mis-resolution (every resolver is `where('slug',…)->first()`, lowest id wins), not a tenancy or data-access defect. `stores.slug` still has **no unique index** and duplicates may already exist in production — adding one needs an audit first |
 | **every Arabic store name produces the slug `-`** | **OPEN, and ALREADY TRACKED — not a new finding.** Pinned as audit **sections 3.1 and 3.2** in `tests/Feature/Platform/StoreSlugIdentityTest.php`, which asserts them as defects on purpose and is gated by the **owner directive of 2026-10-22** (URL format and migration strategy to be documented first). Phase 03 adds one fact the audit does not record: `Str::slug('متجر دمشق')` is `mtgr-dmshk`, so the platform already ships a working transliteration on its API path. See §10.2 and the **correction in §11** — I broke the 3.2 pin with an out-of-scope fix and reverted it. | `User::slugs()` tests `empty()` *before* stripping non-ASCII, so the intended `store-<uniqid>` fallback can never fire. `متجر دمشق` → `-`, `صابون حلب` → `-`, `متجر Damascus` → `-damascus`. Shared by `Product`/`Tag`/`ProductBrand`/`ProductLabel`, and reached from the **admin app's** own store-creation path (`Api\DashboardController:7369`). Two lines to repair, but it decides what an Arabic merchant's public URL should be — transliteration or opaque id — so it is escalated, not chosen. Also bears on **P1-SEC-61** (`products.slug` not unique). Full trace: `phase-3/PHASE-03-M0-STOREFRONT-BASELINE.md` §7.5 |
 | `HomeController::wishlist()` does an unscoped `Wishlist::…->get()` | **open, not a leak** — verified: the view never renders `$wishlists` (AJAX-filled) and no theme overrides it. A wasted full-table read |
-| the storefront links to category routes that do not exist (`/{slug}/textiles`, `/{slug}/soaps`, …) and to `/public/js/flipdown.js` | **open** — 5 non-200 references on `/home`, none of them images. M1 inventory |
+| the storefront links to category routes that do not exist (`/{slug}/textiles`, `/{slug}/soaps`, …) | **open** — `<a href>` links, so they do not appear in the console count |
+| `asset('public/…')` — **76 references across 18 files** emit `/public/<path>`, which resolves only if the document root is the repository root | **open, ALREADY TRACKED as P2-A-01 / F16.** Phase 02 fixed the admin layout and deliberately deferred the sweep. Two measurements **disagree** on the live doc root: P2-A-01 measured `/public/…` → 404 against the running application, while P1-SEC-40's `/.git/HEAD` → 200 implies the root IS the repo root. Settling it needs a live-host request the owner's restrictions forbid. **Either way, closing P1-SEC-40 by moving the root to `public/` would break all 76 at that moment** — pinned by `tests/Unit/Security/PublicAssetPrefixCouplingTest.php` |
+| `public/js/theme-custom.js` and `public/images/pos_image1.png` are absent | **open** — ordinary broken assets, both **outside** the storefront (merchant layout and marketplace). Recorded, not fixed |
 
 ---
 
@@ -183,6 +216,14 @@ when one fails, the code changes.
 
 **A 200 is not evidence.** Three of the four ways a storefront capture lies answer 200.
 
+**Adding a COMMENT above a logged line breaks the observability gate.**
+`docs/security/P01-OBSERVABILITY-INVENTORY.md` records each security log line by
+`file:line`, and `SecurityLogInventoryTest` asserts the two agree. M1's explanatory comments in
+`CustomerLoginController` shifted two lines (`770`→`778`, `995`→`1007`) and the known-outcome gate
+reported an undeclared failure. The fix is mechanical — update the inventory's line numbers — and
+the gate's own message says so. **Never add the failure to `known-test-outcomes.json` to get
+green**; that file records failures the owner accepted with a named root cause.
+
 **Before raising a defect, grep `tests/` for it.** This codebase deliberately PINS some known
 defects as passing tests — `tests/Feature/Platform/StoreSlugIdentityTest.php` asserts the Arabic
 slug collapse and the 101st-collision null *as defects*, so that an audit's measurements cannot go
@@ -210,9 +251,10 @@ M0 is complete apart from its closure gates:
 6. ~~`theme_customizes` fixture rows~~ — 20 rows, tenants differ by 2,722 lines, 6 tenancy pins
 7. **close M0** — full Feature suite + known-outcome gate, capture-integrity gates, ledger.
 
-**Then M1: the real storefront baseline** — a defect inventory taken against a fixture that can
-finally render a credible, distinguishable, image-bearing storefront in both languages, on three
-stores including one with no theme.
+**M1 is complete for rendering.** Next is **M2: the premium storefront across all three themes,
+including dark mode**, which the owner has scheduled for the Phase 03 theme implementation. M2 is
+the first milestone that changes what a shopper sees, so the 210-row baseline above is the
+before-picture it will be measured against.
 
 ### The four Phase 03 fixtures a later session will need
 

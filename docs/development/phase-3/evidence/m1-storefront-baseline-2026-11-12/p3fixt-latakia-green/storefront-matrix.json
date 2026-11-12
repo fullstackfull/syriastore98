@@ -1,0 +1,1310 @@
+{
+ "store": "p3fixt-latakia-green",
+ "guest": false,
+ "customer": "p3-shopper@p3fixt-latakia-green.test",
+ "rows": [
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/home",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Home Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 1902,
+   "images": {
+    "total": 31,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Nature Grownne We Care Always",
+    "Pure Taste From Local Farms"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/product-list",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Products",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 556,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "Filters"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/collections",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 402,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/cart",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Cart Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 457,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/wishlist",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Wishlist Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 360,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/track-order",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Track Order Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 539,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/contact-us",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 827,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "Send Us A Message"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/home",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Home Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 1857,
+   "images": {
+    "total": 31,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Nature Grownne We Care Always",
+    "Pure Taste From Local Farms"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/product-list",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Products",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 513,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "Filters"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/collections",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 357,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/cart",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Cart Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 412,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/wishlist",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Wishlist Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 315,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/track-order",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Track Order Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 494,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/contact-us",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 782,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "Send Us A Message"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/home",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Home Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 1850,
+   "images": {
+    "total": 31,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Nature Grownne We Care Always",
+    "Pure Taste From Local Farms"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/product-list",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Products",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 506,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "Filters"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/collections",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 350,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/cart",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Cart Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 405,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/wishlist",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Wishlist Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 308,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/track-order",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Track Order Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 487,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/contact-us",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 775,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "Send Us A Message"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/home",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "الصفحة الرئيسية",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 1897,
+   "images": {
+    "total": 31,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Nature Grownne We Care Always",
+    "Pure Taste From Local Farms"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/product-list",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "المنتجات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 594,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "مرشحات"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/collections",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 400,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/cart",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة السلة",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 447,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/wishlist",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة قائمة الأمنيات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 356,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/track-order",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة ترتيب المسار",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 537,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/contact-us",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 819,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "أرسل لنا رسالة"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/home",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "الصفحة الرئيسية",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 1853,
+   "images": {
+    "total": 31,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Nature Grownne We Care Always",
+    "Pure Taste From Local Farms"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/product-list",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "المنتجات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 552,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "مرشحات"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/collections",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 356,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/cart",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة السلة",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 403,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/wishlist",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة قائمة الأمنيات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 312,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/track-order",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة ترتيب المسار",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 493,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/contact-us",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 775,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "أرسل لنا رسالة"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/home",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "الصفحة الرئيسية",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 1846,
+   "images": {
+    "total": 31,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Nature Grownne We Care Always",
+    "Pure Taste From Local Farms"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/product-list",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "المنتجات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 545,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "مرشحات"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/collections",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 349,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/cart",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة السلة",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 396,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/wishlist",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة قائمة الأمنيات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 305,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/track-order",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة ترتيب المسار",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 486,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-latakia-green",
+   "path": "/contact-us",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "greentic"
+   ],
+   "expectTheme": "greentic",
+   "text": 768,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "أرسل لنا رسالة"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  }
+ ],
+ "negatives": []
+}

@@ -1,0 +1,1310 @@
+{
+ "store": "p3fixt-homs-tech",
+ "guest": false,
+ "customer": "p3-shopper@p3fixt-homs-tech.test",
+ "rows": [
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/home",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Home Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 1856,
+   "images": {
+    "total": 31,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Smart Looks. Smarter Moves.",
+    "Earbuds Superior Sound Quality"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/product-list",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Products",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 603,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "Filters"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/collections",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 455,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/cart",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Cart Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 506,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/wishlist",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Wishlist Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 393,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/track-order",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Track Order Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 588,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/contact-us",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 877,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "Send Us a Message"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/home",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Home Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 1809,
+   "images": {
+    "total": 31,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Smart Looks. Smarter Moves.",
+    "Earbuds Superior Sound Quality"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/product-list",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Products",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 558,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "Filters"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/collections",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 408,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/cart",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Cart Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 459,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/wishlist",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Wishlist Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 346,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/track-order",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Track Order Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 541,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/contact-us",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 830,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "Send Us a Message"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/home",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Home Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 1809,
+   "images": {
+    "total": 31,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Smart Looks. Smarter Moves.",
+    "Earbuds Superior Sound Quality"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/product-list",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Products",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 558,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "Filters"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/collections",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 408,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/cart",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Cart Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 459,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/wishlist",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Wishlist Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 346,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/track-order",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Track Order Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 541,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/contact-us",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 830,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "Send Us a Message"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/home",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "الصفحة الرئيسية",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 1864,
+   "images": {
+    "total": 31,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Smart Looks. Smarter Moves.",
+    "Earbuds Superior Sound Quality"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/product-list",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "المنتجات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 642,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "مرشحات"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/collections",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 454,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/cart",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة السلة",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 497,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/wishlist",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة قائمة الأمنيات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 390,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/track-order",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة ترتيب المسار",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 587,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/contact-us",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 870,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "أرسل لنا رسالة"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/home",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "الصفحة الرئيسية",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 1817,
+   "images": {
+    "total": 31,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Smart Looks. Smarter Moves.",
+    "Earbuds Superior Sound Quality"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/product-list",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "المنتجات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 597,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "مرشحات"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/collections",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 407,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/cart",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة السلة",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 450,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/wishlist",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة قائمة الأمنيات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 343,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/track-order",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة ترتيب المسار",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 540,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/contact-us",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 823,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "أرسل لنا رسالة"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/home",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "الصفحة الرئيسية",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 1817,
+   "images": {
+    "total": 31,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Smart Looks. Smarter Moves.",
+    "Earbuds Superior Sound Quality"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/product-list",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "المنتجات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 597,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "مرشحات"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/collections",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 407,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/cart",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة السلة",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 450,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/wishlist",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة قائمة الأمنيات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 343,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/track-order",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة ترتيب المسار",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 540,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "p3fixt-homs-tech",
+   "path": "/contact-us",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "techzonix"
+   ],
+   "expectTheme": "techzonix",
+   "text": 823,
+   "images": {
+    "total": 3,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "أرسل لنا رسالة"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  }
+ ],
+ "negatives": []
+}

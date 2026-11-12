@@ -98,3 +98,138 @@ themes M0 never measured.
 
 That is a floor, not a result. **A 200 is not evidence** — the per-theme rendering measurements are
 in §4.
+
+---
+
+## 4. The measured baseline
+
+`storefront-matrix.cjs`, five stores, signed in as each store's own customer, 2 locales × 3
+viewports × 7 journey routes = **210 rows**.
+
+| store | theme rendered | rows | premise-fail | images | broken | overflow | console 404s |
+|---|---|---|---|---|---|---|---|
+| `damascus-textiles` | `stylique` | 42 | **0** | 1,026 | **0** | **0** | 42 |
+| `aleppo-soap` | `stylique` | 42 | **0** | 528 | **0** | **0** | 42 |
+| `p3fixt-homs-tech` | **`techzonix`** | 42 | **0** | 324 | **0** | **0** | 42 |
+| `p3fixt-latakia-green` | **`greentic`** | 42 | **0** | 324 | **0** | **0** | 42 |
+| `p3fixt-no-theme` | `stylique` (fallback) | 42 | **0** | 294 | **0** | **0** | 42 |
+| | | **210** | **0** | **2,496** | **0** | **0** | **210** |
+
+Every row renders, in both languages, with the correct `dir`, at desktop, tablet and mobile, in
+the theme its store declares. **`dir="rtl"` on all 105 Arabic rows, including both themes M0 never
+measured.** No horizontal overflow anywhere. No broken image anywhere.
+
+### Capture integrity
+
+| gate | result |
+|---|---|
+| cross-store (`check-cross-store-captures.py`) | **210 captures, 210 distinct contents, 0 collisions** |
+| distinctness (`check-distinct-surface-captures.py`) | **0 groups of identical files** |
+| theme premise (in-harness) | every row rendered exactly one theme, and the right one |
+
+M0's first pass had **28 cross-store collisions**; this has none, and **every one of the 210 files
+is byte-unique** — so no capture in this set can be mistaken for another store's, another locale's
+or another viewport's.
+
+---
+
+## 5. What is actually wrong — and the one finding that matters
+
+### 5.1 The 210 console 404s are one reference, and it is ALREADY TRACKED — with my first reading wrong
+
+One per row, on every theme, identical: `/public/js/flipdown.js` → 404. The file **exists**, at
+`public/js/flipdown.js`. The reference is `resources/views/front_end/jQueryRoute.blade.php:178`:
+
+```php
+<script src="{{ asset('public/js/flipdown.js') }}"></script>
+```
+
+**MY FIRST CONCLUSION WAS THAT THIS IS A DEV-ENVIRONMENT ARTEFACT. It is recorded here because it
+was wrong, or at least unproven, and the correction is the useful part.**
+
+I reasoned: `asset()` builds a URL from the document root; under `php artisan serve` the root is
+`public/`, so `/public/js/…` doubles and 404s; on the live host the root **is the repository root**
+— which P1-SEC-40 established, because that is the only way `GET /.git/HEAD` answers 200 — so the
+same URL resolves and production is fine.
+
+**Phase 02 measured the opposite, directly.** `resources/views/layouts/app.blade.php:168-188`
+(P2-A-01) says, of the sibling reference on the dark RTL stylesheet:
+
+> `asset('public/assets/css/rtl-style-dark.css')` resolves to `/public/assets/css/rtl-style-dark.css`,
+> and the docroot already IS `public/`, so the segment is doubled and the request 404s. **MEASURED
+> against the running application:** that url answers 404 while `/assets/css/rtl-style-dark.css`
+> answers 200, and the file is on disk at `public/assets/css/rtl-style-dark.css`.
+
+That is a measurement of a real request; mine was an inference from a different host's behaviour.
+**The two cannot both describe the same server**, and I cannot settle it: resolving it needs a
+request against the live host, which the owner's standing restrictions forbid me from making.
+
+So the honest statement is: **`/public/js/flipdown.js` 404s in at least the development
+environment, and on the evidence of P2-A-01 very likely in production too.** It is not dismissed as
+a dev artefact, and it is not asserted as a production defect either. **What it needs is one
+measurement against the live host that I am not permitted to take.**
+
+### 5.2 AND THE WIDER PATTERN WAS FOUND, SCOPED AND DEFERRED IN PHASE 02
+
+This is the second time in Phase 03 that I reported something already tracked, so the correction
+goes here rather than in a footnote.
+
+The same `layouts/app.blade.php` note continues:
+
+> **THE WIDER PATTERN IS NOT FIXED HERE.** `asset('public/...')` appears about 100 times across 32
+> view files — payment pages, theme layouts, the marketplace — and a sweep of those is a different
+> blast radius with different callers to verify. **Recorded in the ledger.** What is fixed is the
+> admin layout, which is this phase's own surface.
+
+It is **P2-A-01 / F16**, carried in `phase-2/PHASE-02-HANDOFF.md` and in the Arabic acceptance
+report. Phase 02 fixed the admin layout — the surface it owned — and deliberately deferred the
+sweep. Phase 03 has now hit the storefront end of the same deferral, which is what a scoped
+deferral looks like working correctly.
+
+**My own count was also wrong, in the same way as two tests earlier in this milestone.** The first
+scan reported 88 references across 32 files and ten missing targets. Five of those matches were
+inside Blade **comments** — three view files carry `{{-- … asset('public/…') … --}}` notes
+*describing* this very pattern, so the scan counted the documentation as code. Stripping comments
+gives the real figures:
+
+| | first scan | measured |
+|---|---|---|
+| references | 88 | **76** |
+| files | 32 (Phase 02's estimate) | **18** |
+| statically-resolvable missing targets | 10 | **2** |
+
+Of the two genuinely absent, **neither is on a storefront**: `public/js/theme-custom.js`
+(`layouts/theme_layout.blade.php:207`, reached from the merchant layout) and
+`public/images/pos_image1.png` (`marketplace/landing.blade.php:1093`). A third,
+`public/market_assets/images/dash-banner`, was a false positive — the path is concatenated
+*outside* the `asset()` call and the real file `dash-banner-image.png` exists.
+
+`tests/Unit/Security/PublicAssetPrefixCouplingTest.php` now pins all of it: the count cannot grow,
+every resolvable target must exist, the two known-absent must stay absent (or the list is stale),
+and the `flipdown` reference that surfaced it is named so the trail is not lost.
+
+**The coupling is still worth stating, whichever way the doc-root question resolves.** If the live
+root is `public/`, these 76 references are latent 404s awaiting a sweep. If it is the repository
+root, they work — and then **closing P1-SEC-40 by moving the root to `public/`, the standard
+remediation, breaks all 76 at the moment it closes the exposure.** Either way, whoever takes that
+change needs this list, and nothing said so before now.
+
+### 5.3 Carried forward from M0, unchanged and still open
+
+| finding | state |
+|---|---|
+| the storefront has **no dark mode in any of the three themes** | **open — Phase 03 theme implementation.** 0 files in `themes/` reference `cust_darklayout`, `data-ss-theme` or `style-dark` |
+| the hero/slider copy is still each theme's demo content | open — theme implementation |
+| an unknown-slug 404 is the framework's page, not a branded storefront 404 | open — theme implementation |
+| `process-order`, `support-ticket`, `blogs/filter/view` answer **500 for a store that exists** | open, pre-existing; `process-order` is a payment route and untouched |
+| four category links on `/home` point at routes that do not exist | open — they are `<a href>`, not sub-resources, so they do not appear in the console count |
+| `theme_customizes` is absent from `scoped_models` | open — M3/M4 editor paths each need their own predicate |
+| Arabic store names produce the slug `-` | **already pinned** as audit 3.1/3.2, gated by the owner directive of 2026-10-22 |
+
+### 5.4 What this baseline does NOT establish
+
+- **No performance or accessibility numbers.** Neither was measured; neither is claimed. They are
+  separate instrumentation and belong with the theme work that will change the pages anyway.
+- **No product-detail or checkout-flow capture.** `/product/{slug}` needs a per-store product slug
+  the harness does not yet thread through; the 16-route HTTP sweep covers their status only.
+- **No dark mode**, because there is none to capture.

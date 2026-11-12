@@ -1,0 +1,1310 @@
+{
+ "store": "damascus-textiles",
+ "guest": false,
+ "customer": "layla.haddad@example.test",
+ "rows": [
+  {
+   "store": "damascus-textiles",
+   "path": "/home",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Home Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 3218,
+   "images": {
+    "total": 83,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Accessorize with Elegance",
+    "Discover the New Summer Collection"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/product-list",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Products",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 1735,
+   "images": {
+    "total": 23,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "Filters"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/collections",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 491,
+   "images": {
+    "total": 17,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/cart",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Cart Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 564,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/wishlist",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Wishlist Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 514,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/track-order",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Track Order Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 596,
+   "images": {
+    "total": 11,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/contact-us",
+   "locale": "en",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 886,
+   "images": {
+    "total": 11,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "Send Us a Message"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/home",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Home Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 3130,
+   "images": {
+    "total": 83,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Accessorize with Elegance",
+    "Discover the New Summer Collection"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/product-list",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Products",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 1651,
+   "images": {
+    "total": 23,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "Filters"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/collections",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 405,
+   "images": {
+    "total": 17,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/cart",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Cart Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 478,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/wishlist",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Wishlist Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 428,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/track-order",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Track Order Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 510,
+   "images": {
+    "total": 11,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/contact-us",
+   "locale": "en",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 800,
+   "images": {
+    "total": 11,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "Send Us a Message"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/home",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Home Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 3140,
+   "images": {
+    "total": 83,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Accessorize with Elegance",
+    "Discover the New Summer Collection"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/product-list",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Products",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 1651,
+   "images": {
+    "total": 23,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "Filters"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/collections",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 405,
+   "images": {
+    "total": 17,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/cart",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Cart Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 478,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/wishlist",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Wishlist Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 428,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/track-order",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Track Order Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 510,
+   "images": {
+    "total": 11,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/contact-us",
+   "locale": "en",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 800,
+   "images": {
+    "total": 11,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "Send Us a Message"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/home",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "الصفحة الرئيسية",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 3282,
+   "images": {
+    "total": 83,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Accessorize with Elegance",
+    "Discover the New Summer Collection"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/product-list",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "المنتجات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 1814,
+   "images": {
+    "total": 23,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "مرشحات"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/collections",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 481,
+   "images": {
+    "total": 17,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/cart",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة السلة",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 553,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/wishlist",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة قائمة الأمنيات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 515,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/track-order",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة ترتيب المسار",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 586,
+   "images": {
+    "total": 11,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/contact-us",
+   "locale": "ar",
+   "viewport": "desktop",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 870,
+   "images": {
+    "total": 11,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "أرسل لنا رسالة"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/home",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "الصفحة الرئيسية",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 3217,
+   "images": {
+    "total": 83,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Accessorize with Elegance",
+    "Discover the New Summer Collection"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/product-list",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "المنتجات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 1739,
+   "images": {
+    "total": 23,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "مرشحات"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/collections",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 404,
+   "images": {
+    "total": 17,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/cart",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة السلة",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 476,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/wishlist",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة قائمة الأمنيات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 438,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/track-order",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة ترتيب المسار",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 509,
+   "images": {
+    "total": 11,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/contact-us",
+   "locale": "ar",
+   "viewport": "tablet",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 793,
+   "images": {
+    "total": 11,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "أرسل لنا رسالة"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/home",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "الصفحة الرئيسية",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 3211,
+   "images": {
+    "total": 83,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Accessorize with Elegance",
+    "Discover the New Summer Collection"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/product-list",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "المنتجات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 1739,
+   "images": {
+    "total": 23,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "مرشحات"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/collections",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 404,
+   "images": {
+    "total": 17,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/cart",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة السلة",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 476,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/wishlist",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة قائمة الأمنيات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 438,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/track-order",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة ترتيب المسار",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 509,
+   "images": {
+    "total": 11,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "damascus-textiles",
+   "path": "/contact-us",
+   "locale": "ar",
+   "viewport": "mobile",
+   "http": 200,
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 793,
+   "images": {
+    "total": 11,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "أرسل لنا رسالة"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  }
+ ],
+ "negatives": []
+}

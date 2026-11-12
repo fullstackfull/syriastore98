@@ -179,8 +179,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/RefusesDeferredGateway.php:130` | Paid plan checkout refused before any charge: this gateway is deferred from Phase 02. |
 | `app/Http/Controllers/Concerns/RefusesDeferredGateway.php:180` | Paid plan activation refused: this gateway is deferred from Phase 02 and its payment evidence cannot be verified. |
 | `app/Http/Controllers/Concerns/ResolvesPendingPartialPayment.php:135` | Pending partial payment lookup failed; the payment is refused. |
-| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:770` | customer login: refused a social row still holding its module-assigned password |
-| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:995` | Newsletter subscription failed during customer registration |
+| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:778` | customer login: refused a social row still holding its module-assigned password |
+| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:1007` | Newsletter subscription failed during customer registration |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:95` | Delivery Syria status webhook: invalid credentials. |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:179` | Zid store not found for order status sync. |
 | `app/Http/Controllers/ESewaPaymentController.php:196` | Plan payment return rejected: claimed amount does not match the plan price. |
