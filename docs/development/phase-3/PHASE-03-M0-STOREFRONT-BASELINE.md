@@ -583,3 +583,50 @@ the admin app uses. The question is the much smaller one of whether to **align `
 `transliterator_transliterate` line shows was the original intent. No existing slug changes either
 way; only newly created rows. Still the owner's call, because it also governs product, tag and brand
 URLs — but it is now a consistency decision rather than a product-design one.
+
+---
+
+## 11. CORRECTION — the Arabic-slug finding was not new, and I over-reached on it
+
+§7.5 and §10.2 present the Arabic-slug problem as something this milestone escalated. **It was
+already measured, already pinned, and already gated by an owner directive**, and I should have
+looked before raising it.
+
+`tests/Feature/Platform/StoreSlugIdentityTest.php` holds both halves as deliberate defect pins:
+
+| | |
+|---|---|
+| **audit section 3.1** | an Arabic store name collapses to `-`, so Arabic-named stores *contend* for one slug — `assertSame('-', sanitise('متجر الشام'))`, and a second Arabic store gets `--1`, so the public URL is decided by signup order and carries no trace of the merchant's name |
+| **audit section 3.2** | the generator returns **null** after 100 collisions, and combined with 3.1 the threshold is 101 *Arabic-named* stores, not 101 identically-named ones |
+
+That file states its own policy plainly: *"when the audit's stage 4 fixes land, these tests FAIL and
+must be rewritten to the corrected expectation — which is the intended signal, not an accident"* —
+and *"the owner directive of 2026-10-22 requires the URL format and migration strategy to be
+documented before domain routing is touched"*.
+
+**I added a terminal `return` to `User::slugs()` before finding any of that, and it broke the 3.2
+pin.** The test did exactly what it was built to do. The change is **reverted**: it is stage-4 work
+behind an explicit owner gate, the defect was already tracked, and a second assertion of it from
+another file would only have created a contradiction. My duplicate 101-collision test is removed
+and replaced with a cross-reference.
+
+Two things follow, and they are worth more than the finding was:
+
+**The escalation is smaller than §7.5 claims.** The owner is not being asked to decide something
+new. There is a documented audit position, a directive gating it, and a pinned measurement. What
+§10.2's measurement genuinely adds is one fact the audit does not record: `Str::slug` already
+transliterates Arabic (`متجر دمشق` → `mtgr-dmshk`), so the platform *already ships a working answer
+on its API path*. That is useful input to stage 4, not a new decision.
+
+**A pinned defect is invisible to a sweep that greps the code.** I found `User::slugs()` by reading
+the generator, measured it, and reported it — without checking whether a test already asserted it.
+The pin is in `tests/Feature/Platform/`, not in `docs/security/`, and nothing in the work queue
+pointed at it. **Before raising a defect in this codebase, grep `tests/` for it**: a deliberate pin
+reads exactly like an unnoticed bug until you find the file that owns it.
+
+### What this milestone's slug work actually contributes
+
+Only the API validator, which those pins do not cover: `POST api/admin/updateStoreOwnerInfo`
+validated the raw `store_slug` and stored `Str::slug()` of it, so two stores could hold one slug
+(§10.1). That is fixed, and its own regression file now carries the cross-reference above so the
+next reader does not repeat my mistake.

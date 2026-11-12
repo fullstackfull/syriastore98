@@ -172,6 +172,80 @@ class AdminApiStoreSlugUniquenessTest extends SecurityTestCase
             . 'never reaches the column. That is the defect this file exists for.');
     }
 
+    /* =================================================================================
+     * The two things the review asked me to settle by reading my own diff
+     * ================================================================================= */
+
+    /**
+     * A LEGACY SLUG THAT NORMALISES TO EMPTY MUST NOT BE BLANKED by a prefilled-form resubmit.
+     *
+     * `Str::slug()` trims its separator, so `Str::slug('-') === ''` and
+     * `Str::slug('-damascus') === 'damascus'` -- measured. The `-` rows that `User::slugs()`
+     * currently produces for every Arabic-only store name are therefore NOT fixed points of the
+     * writer, and the gate above it is `if (!empty($validated['store_slug']))`.
+     *
+     * Which way that falls depends on where the normalisation lands, and the review was right that
+     * I should settle it by measurement rather than by reading my own fix:
+     *
+     *   - normalisation in `$validated` (what `$request->merge()` before `validate()` does):
+     *     `$validated['store_slug']` is '', the gate SKIPS, the row is left alone.
+     *   - normalisation only in the uniqueness rule: the gate sees '-', passes, and '' is written --
+     *     blanking an Arabic merchant's storefront URL because they saved an unrelated field.
+     *
+     * This asserts the first. It is inherited behaviour rather than something the fix states, which
+     * is exactly why it needs an assertion: nothing else in the suite names it, and a later
+     * refactor that validated a copy instead of the request would flip it silently.
+     */
+    #[Test]
+    public function test_a_legacy_hyphen_slug_is_left_alone_rather_than_blanked(): void
+    {
+        [, $newcomerStore, $token] = $this->twoStores();
+
+        // The state `User::slugs()` produces for every Arabic-only store name today.
+        $newcomerStore->slug = '-';
+        $newcomerStore->save();
+
+        $this->assertSame('', \Illuminate\Support\Str::slug('-'),
+            "Str::slug('-') is no longer '', so this test is about something else.");
+
+        // A prefilled form resubmits the stored slug alongside an unrelated change.
+        $response = $this->callEndpoint($token, $newcomerStore, [
+            'store_slug' => '-',
+            'store_name' => 'Renamed By Owner',
+        ]);
+
+        $response->assertStatus(200);
+
+        $after = Store::withoutGlobalScopes()->find($newcomerStore->id);
+
+        $this->assertSame('-', (string) $after->slug,
+            'A prefilled resubmit BLANKED the slug. An empty slug is unreachable by path (Laravel '
+            . 'filters zero-length route parameter matches) and 403s on a custom domain, so this '
+            . "would take an Arabic merchant's storefront offline for saving an unrelated field.");
+
+        // ...and the unrelated field still saved, so this is not "the handler refused everything".
+        $this->assertSame('Renamed By Owner', (string) $after->name,
+            'The rest of the update was dropped, so the slug surviving proves nothing.');
+    }
+
+    /**
+     * THE 101st-COLLISION NULL AND THE ARABIC `-` COLLAPSE ARE NOT TESTED HERE, DELIBERATELY.
+     *
+     * The review raised both, and both turned out to be ALREADY MEASURED AND ALREADY PINNED:
+     * `tests/Feature/Platform/StoreSlugIdentityTest.php` holds them as audit sections 3.1
+     * (an Arabic name collapses to `-`, so Arabic stores contend for one slug) and 3.2 (the
+     * generator returns null after 100 collisions). That file asserts them AS DEFECTS on purpose,
+     * and says so: "when the audit's stage 4 fixes land, these tests FAIL and must be rewritten to
+     * the corrected expectation -- which is the intended signal, not an accident."
+     *
+     * I added a terminal `return` to `User::slugs()` before finding that, and it broke the 3.2 pin.
+     * It is reverted. Stage 4 is gated by the owner directive of 2026-10-22, which requires the URL
+     * format and migration strategy to be documented before this is touched, and a second
+     * assertion of the same defect from a different file would only create a contradiction.
+     *
+     * What belongs here is the API validator, which those pins do not cover.
+     */
+
     /** Bounded by brace depth: an unbounded regex across a method boundary makes a pin vacuous. */
     private static function methodBody(string $source, string $method): string
     {

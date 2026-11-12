@@ -130,7 +130,7 @@ the equivalent.
 | `process-order`, `support-ticket`, `blogs/filter/view` answer **500 for a store that exists** | **open** — pre-existing, found by the 45-route sweep. `process-order` is a payment route and was deliberately not touched |
 | an unknown-slug 404 renders the framework's page, not a branded storefront 404 | **open** — M2 |
 | `POST api/admin/updateStoreOwnerInfo` validated the raw `store_slug` and stored `Str::slug()` of it, so two stores could hold one slug | **FIXED** — normalised before the uniqueness rule. Cross-tenant storefront mis-resolution (every resolver is `where('slug',…)->first()`, lowest id wins), not a tenancy or data-access defect. `stores.slug` still has **no unique index** and duplicates may already exist in production — adding one needs an audit first |
-| **every Arabic store name produces the slug `-`** | **OPEN — NEEDS AN OWNER DECISION, now a narrower one.** Measured: `Str::slug('متجر دمشق')` is **`mtgr-dmshk`** — Laravel's helper *does* transliterate Arabic, and the admin API already uses it. So the two writers disagree and one is already right; the question is whether to align `User::slugs()` with `Str::slug()`, not what scheme to invent. §7.5 and §10.2.| `User::slugs()` tests `empty()` *before* stripping non-ASCII, so the intended `store-<uniqid>` fallback can never fire. `متجر دمشق` → `-`, `صابون حلب` → `-`, `متجر Damascus` → `-damascus`. Shared by `Product`/`Tag`/`ProductBrand`/`ProductLabel`, and reached from the **admin app's** own store-creation path (`Api\DashboardController:7369`). Two lines to repair, but it decides what an Arabic merchant's public URL should be — transliteration or opaque id — so it is escalated, not chosen. Also bears on **P1-SEC-61** (`products.slug` not unique). Full trace: `phase-3/PHASE-03-M0-STOREFRONT-BASELINE.md` §7.5 |
+| **every Arabic store name produces the slug `-`** | **OPEN, and ALREADY TRACKED — not a new finding.** Pinned as audit **sections 3.1 and 3.2** in `tests/Feature/Platform/StoreSlugIdentityTest.php`, which asserts them as defects on purpose and is gated by the **owner directive of 2026-10-22** (URL format and migration strategy to be documented first). Phase 03 adds one fact the audit does not record: `Str::slug('متجر دمشق')` is `mtgr-dmshk`, so the platform already ships a working transliteration on its API path. See §10.2 and the **correction in §11** — I broke the 3.2 pin with an out-of-scope fix and reverted it. | `User::slugs()` tests `empty()` *before* stripping non-ASCII, so the intended `store-<uniqid>` fallback can never fire. `متجر دمشق` → `-`, `صابون حلب` → `-`, `متجر Damascus` → `-damascus`. Shared by `Product`/`Tag`/`ProductBrand`/`ProductLabel`, and reached from the **admin app's** own store-creation path (`Api\DashboardController:7369`). Two lines to repair, but it decides what an Arabic merchant's public URL should be — transliteration or opaque id — so it is escalated, not chosen. Also bears on **P1-SEC-61** (`products.slug` not unique). Full trace: `phase-3/PHASE-03-M0-STOREFRONT-BASELINE.md` §7.5 |
 | `HomeController::wishlist()` does an unscoped `Wishlist::…->get()` | **open, not a leak** — verified: the view never renders `$wishlists` (AJAX-filled) and no theme overrides it. A wasted full-table read |
 | the storefront links to category routes that do not exist (`/{slug}/textiles`, `/{slug}/soaps`, …) and to `/public/js/flipdown.js` | **open** — 5 non-200 references on `/home`, none of them images. M1 inventory |
 
@@ -182,6 +182,12 @@ capture-integrity gates run over Phase 03 evidence as well. Ratchets are never w
 when one fails, the code changes.
 
 **A 200 is not evidence.** Three of the four ways a storefront capture lies answer 200.
+
+**Before raising a defect, grep `tests/` for it.** This codebase deliberately PINS some known
+defects as passing tests — `tests/Feature/Platform/StoreSlugIdentityTest.php` asserts the Arabic
+slug collapse and the 101st-collision null *as defects*, so that an audit's measurements cannot go
+stale silently. A pin reads exactly like an unnoticed bug until you find the file that owns it, and
+"fixing" one breaks it. Phase 03 M0 did precisely that and had to revert.
 
 **Independent review is required before committing a change to authorization, tenancy, a route's
 middleware, an order, a payment, or a handler that reads an id from request input** — the
