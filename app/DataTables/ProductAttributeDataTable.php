@@ -78,7 +78,7 @@ class ProductAttributeDataTable extends DataTable
         return buildDataTableColumn([
             'name' => ['title' => __('Name')],
             'slug' => ['title' => __('Slug')],
-            'terms' => ['title' => __('Terms')]
+            'terms' => ['title' => __('Attribute Terms')]
         ]);
     }
 

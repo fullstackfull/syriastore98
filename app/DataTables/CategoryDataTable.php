@@ -28,7 +28,7 @@ class CategoryDataTable extends DataTable
                 return view('category.action', compact('category'));
             })
             ->editColumn('trending', function (Category $category) {
-                $trending = $category->trending == 1 ? __('Yes') : __('No');
+                $trending = $category->trending == 1 ? __('Trending') : __('Not Trending');
                     return $trending;
             })
             /*

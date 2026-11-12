@@ -23,6 +23,26 @@ class FlashSaleDataTable extends DataTable
     {
         return (new EloquentDataTable($query))
         ->addIndexColumn()
+        /*
+         * DISPLAY ONLY. `flash_sales.discount_type` stores 'percentage' or 'flat' and MUST keep
+         * storing exactly that -- FlashSaleController:163 and :418 branch on
+         * `$request->discount_type == 'percentage'`, so a changed value would change pricing.
+         * This maps the stored value to a translated label at render time and nothing else.
+         *
+         * The column previously had no editColumn at all: it printed the raw stored value, and
+         * the `text-capitalize` class on it (see the column definition below) made 'flat' look
+         * like a deliberate English label "Flat" on an Arabic page.
+         *
+         * An UNKNOWN value falls through to its own raw text rather than to an empty cell, so a
+         * value added later is visible and obviously untranslated instead of silently missing.
+         */
+        ->editColumn('discount_type', function (FlashSale $flashsale) {
+            return match ($flashsale->discount_type) {
+                'percentage' => __('Percentage'),
+                'flat'       => __('Flat'),
+                default      => (string) $flashsale->discount_type,
+            };
+        })
         ->addColumn('status', function (FlashSale $flashsale) {
             return view('flash-sale.status', compact('flashsale'));
         })

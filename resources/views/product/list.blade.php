@@ -91,7 +91,7 @@ $admin = getAdminAllSetting();
                     <div class="card-body p-2">
                         <div class="row">
                             <div class="col-6">
-                                <h6 >{{ $product->variant_product == 1 ? 'has variant' : 'no variant' }}</h6>
+                                <h6 >{{ $product->variant_product == 1 ? __('has variant') : __('no variant') }}</h6>
                                 <p class="text-muted text-sm mb-0">{{ __('Variant') }}</p>
                             </div>
                             <div class="col-6 text-end">

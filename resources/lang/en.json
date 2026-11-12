@@ -3530,5 +3530,9 @@
     "Please sign in to place a bid.": "Please sign in to place a bid.",
     "Your bid could not be placed.": "Your bid could not be placed.",
     "Please enter a valid bid amount.": "Please enter a valid bid amount.",
-    "Your bid must be higher than the current highest bid.": "Your bid must be higher than the current highest bid."
+    "Your bid must be higher than the current highest bid.": "Your bid must be higher than the current highest bid.",
+    "Attribute Terms": "Terms",
+    "Flat": "Flat",
+    "Percentage": "Percentage",
+    "Not Trending": "Not Trending"
 }

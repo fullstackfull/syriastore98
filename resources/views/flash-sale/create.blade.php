@@ -24,7 +24,7 @@
         {!! Form::label('discount_type', __('Discount Type'), ['class' => 'form-label']) !!}
         {!! Form::select(
             'discount_type',
-            ['' => __('Select Discount Type'), 'percentage' => 'Percentage', 'flat' => 'Flat'],
+            ['' => __('Select Discount Type'), 'percentage' => __('Percentage'), 'flat' => __('Flat')],
             old('discount_type'),
             ['class' => 'form-control', 'required'],
         ) !!}
