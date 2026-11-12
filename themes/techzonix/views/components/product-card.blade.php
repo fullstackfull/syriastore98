@@ -5,7 +5,7 @@
         
                 <div class="relative h-48 bg-gray-100">
                     <a href="{{ url($store->slug . '/product/' . $product->slug) }}">
-                        <img src="{{ get_file($product->cover_image_path) }}" alt="Ultra HD Smart Watch Pro"
+                        <img src="{{ storefront_image($product->cover_image_path) }}" alt="Ultra HD Smart Watch Pro"
                             class="w-full h-full object-contain p-4">
                         {!! \App\Models\Product::actionLinks( $store, $product) !!}
                     </a>

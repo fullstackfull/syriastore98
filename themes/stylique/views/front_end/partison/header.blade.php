@@ -149,7 +149,7 @@
                   @foreach ($MainCategoryList as $category)
                     <li class="relative">
                       <a href="{{ url($slug . '/' . $category->slug) }}" class="flex no-wrap" id="MainCategory_preview" tabindex="0">
-                        <img src="{{ get_file($category->icon_path) }}" width="18" height="18" alt="category-img" loading="lazy" />
+                        <img src="{{ storefront_image($category->icon_path) }}" width="18" height="18" alt="category-img" loading="lazy" />
                         {{ $category->name }}
                       </a>
                     </li>

@@ -105,7 +105,7 @@
                     <div class="grid md:grid-cols-2 gap-6">
                     @foreach (collect($MainCategoryList)->reverse()->take(2) as $category)
                                 <div class="relative rounded-lg overflow-hidden group">
-                                    <img src="{{ get_file($category->image_path)}}"
+                                    <img src="{{ storefront_image($category->image_path)}}"
                                         alt="{{ $category->name }}"
                                         loading="lazy" width="200" height="200"
                                         class="w-full md:h-96 h-64 object-cover transition-transform duration-500 group-hover:scale-105 rtl:scale-x-[-1] rtl:group-hover:[--tw-scale-x:-1.05]"
@@ -176,7 +176,7 @@
                         @foreach (collect($MainCategoryList)->take(3) as $category)
                             <div class="group relative rounded-lg overflow-hidden transition-transform duration-300 hover:scale-105">
                                 <img
-                                    src="{{ get_file($category->image_path) }}"
+                                    src="{{ storefront_image($category->image_path) }}"
                                     alt="{{ $category->name }}"
                                     width="400" height="400"
                                     loading="lazy"
@@ -313,7 +313,7 @@
                                         <!-- Reviewer Info -->
                                         <div class="flex items-center gap-4">
                                             <img
-                                            src="{{ get_file($review->avatar) }}"
+                                            src="{{ storefront_image($review->avatar, 'images/avatar-placeholder.svg') }}"
                                                 alt="Customer"
                                                 class="w-12 h-12 rounded-full object-cover"
                                             />

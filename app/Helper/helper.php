@@ -3978,3 +3978,56 @@ if (!function_exists('getAiModelName')) {
 | right question per context; the resolver did not change its answer.
 |
 */
+
+if (! function_exists('storefront_image')) {
+    /**
+     * A STOREFRONT IMAGE URL THAT IS NEVER THE EMPTY STRING.
+     * =============================================================================================
+     *
+     * PHASE 03 M0. Measured on `damascus-textiles/home`: 83 `<img>` elements, 60 of them broken,
+     * and every one of those sixty had `src=""` -- not a wrong path, not a 404, an EMPTY STRING.
+     * A browser draws that as a broken-image icon, and the storefront produced it for every
+     * product, category and brand without an uploaded picture. 30 of the 32 products in the dev
+     * fixture have none, which is why the count was so high, but the fixture only explains the
+     * COUNT: the behaviour is the storefront's own, and a real merchant mid-upload gets exactly
+     * the same page.
+     *
+     * The cause is `get_file()`'s contract, not a bug in it. It takes a stored path and returns a
+     * URL; given nothing, it correctly returns nothing, and its own `catch` returns `''` too.
+     * Callers that care already guard the INPUT -- `!empty($favicon) ? get_file($favicon) : ...`
+     * appears in three theme layouts and in `ProductController` six times. The storefront's
+     * product, category and brand images simply never got that guard.
+     *
+     * WHY THIS IS NOT A CHANGE TO `get_file()`. Measured before choosing: NO caller anywhere tests
+     * `get_file()`'s RESULT for emptiness -- the guards are all on the argument -- so returning a
+     * placeholder from it would break nothing. It would still be wrong. `get_file()` serves
+     * avatars, invoices, logos, email attachments and remote-storage paths; a product placeholder
+     * is the right answer for exactly one of those. The decision about what a MISSING picture
+     * should look like belongs to the surface that renders it.
+     *
+     * The placeholder is committed under `public/` for the reason the Phase 2.5 avatar placeholder
+     * is: `.gitignore` carries `/storage/*`, `public/storage` is a tracked regular file holding a
+     * vendor build path rather than a symlink, and a fallback that cannot resolve from a clone is
+     * not a fallback.
+     *
+     * @param  string|null  $path     the stored path, as held on the model
+     * @param  string       $fallback a public/ asset to use when there is no image
+     */
+    function storefront_image($path, string $fallback = 'images/product-placeholder.png'): string
+    {
+        $path = is_string($path) ? trim($path) : '';
+
+        if ($path !== '') {
+            $url = (string) get_file($path);
+
+            // `get_file()` returns '' from its own catch as well as for an empty argument, so the
+            // result is re-checked rather than the argument trusted. A stored path that cannot be
+            // resolved must still not reach the browser as src="".
+            if (trim($url) !== '') {
+                return $url;
+            }
+        }
+
+        return asset($fallback);
+    }
+}

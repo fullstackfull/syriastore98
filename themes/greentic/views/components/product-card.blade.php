@@ -6,7 +6,7 @@
         
         <a href="{{ route('page.product', [$store->slug, $product->slug]) }}" class="relative">
             <div class="h-60 relative overflow-hidden product-img p-3">
-                <img src="{{ get_file($product->cover_image_path) }}" alt="Fresh Organic Onion"
+                <img src="{{ storefront_image($product->cover_image_path) }}" alt="Fresh Organic Onion"
                     class="w-full h-full object-contain group-hover:scale-105 transition duration-500">
                 @if(isset($product->label) && !empty($product->label))
                     <div class="absolute top-4 left-4 flex flex-col gap-2">

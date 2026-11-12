@@ -28,7 +28,7 @@
           <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
             @foreach($topCategories as $category)
             <div class="relative group overflow-hidden rounded-xl collection-card">
-              <img src="{{ get_file($category->image_path) }}" alt="{{ $category->name }}"
+              <img src="{{ storefront_image($category->image_path) }}" alt="{{ $category->name }}"
                 class="w-full h-80 object-cover transition duration-500 transform group-hover:scale-105" />
               <div
                 class="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex flex-col justify-end sm:p-6 p-4 text-white">
@@ -59,7 +59,7 @@
             <a href="{{ url($store->slug . '/' . $category->slug) }}" class="group border shadow-md rounded-xl overflow-hidden relative">
               <div class="relative overflow-hidden collection-card">
                 <div class="overflow-hidden">
-                  <img src="{{ get_file($category->image_path) }}" alt="{{ $category->name }}"
+                  <img src="{{ storefront_image($category->image_path) }}" alt="{{ $category->name }}"
                     class="w-full h-60 object-cover transition duration-500 transform group-hover:scale-105" />
                 </div>
               </div>

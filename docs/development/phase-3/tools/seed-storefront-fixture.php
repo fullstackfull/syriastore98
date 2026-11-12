@@ -24,6 +24,11 @@
  *
  * WHAT IT DOES, and all of it is store-scoped because the login is:
  *
+ *   0. Populates the SECOND tenant's catalogue. `aleppo-soap` had no products, categories or
+ *      brands at all, so there was nothing to lay out, nothing to compare against store 1 and no
+ *      way to show that one storefront renders only its own rows. Its imagery is generated and
+ *      committed under `uploads/2/p3fixt/` -- deliberately synthetic tiles, because a fixture must
+ *      never be mistaken for a real product photograph.
  *   1. Gives every P3 fixture customer the same known development password. `CustomerLoginController`
  *      resolves by `email` AND `store_id` (`:104`, `:139`), so the same address in two stores is two
  *      different principals -- which is exactly what the cross-tenant negative tests need.
@@ -127,6 +132,23 @@ if ($report) {
 /* ------------------------------------------------------------------------------------------- */
 
 if ($remove) {
+    // Catalogue first: products reference categories and brands.
+    foreach ([\App\Models\Product::class => 'products',
+              \App\Models\ProductBrand::class => 'product_brands',
+              \App\Models\Category::class => 'categories'] as $model => $table) {
+        $ids = DB::table($table)->where('slug', 'like', 'p3fixt-%')->pluck('id');
+        if ($ids->isEmpty()) {
+            continue;
+        }
+        DB::table('product_images')->whereIn('product_id', $ids)->delete();
+        // Eloquent, not DB::table: every one of these models is Cachable, and a raw delete leaves
+        // Eloquent reads -- route-model binding included -- serving rows that are gone.
+        foreach ($model::withoutGlobalScopes()->whereIn('id', $ids)->get() as $row) {
+            $row->delete();
+        }
+        echo "  removed {$ids->count()} row(s) from {$table}\n";
+    }
+
     $gone = 0;
     foreach (Customer::withoutGlobalScopes()->where('register_type', TAG)->get() as $c) {
         // Eloquent delete, not DB::table: Customer is Cachable, and a raw delete leaves every
@@ -187,6 +209,126 @@ foreach ($stores as $store) {
 }
 
 echo "\n{$reset} password(s) set, {$made} customer(s) created.\n";
+
+/* ------------------------------------------------------------------------------------------- */
+
+/**
+ * THE SECOND TENANT'S CATALOGUE.
+ *
+ * Measured before this: `aleppo-soap` had 0 products, 0 categories and 0 brands, while
+ * `damascus-textiles` had 32 / 4 / 3. A storefront with nothing in it cannot be laid out, cannot
+ * be compared, and -- the part that matters for Phase 03 -- cannot show that store A's storefront
+ * renders ONLY store A's rows. Its zero broken images were not health; there was nothing to break.
+ *
+ * Every row carries `store_id` and a `p3fixt-` slug prefix, which is what makes the set findable,
+ * removable, and impossible to confuse with the demo content that ships with WorkDo.
+ */
+$second = $stores->firstWhere('slug', 'aleppo-soap') ?? $stores->get(1);
+$IMG = 'uploads/' . $second->id . '/p3fixt';
+
+$CATEGORIES = [
+    ['Soap Bars',   'p3fixt-soap-bars',   'cat-bars',  1],
+    ['Gift Sets',   'p3fixt-gift-sets',   'cat-gifts', 1],
+    ['Hair & Body', 'p3fixt-hair-body',   'cat-care',  0],
+];
+$BRANDS = [
+    ['Aleppo House', 'p3fixt-aleppo-house', 'brand-aleppo-house', 1],
+    ['Levant Co',    'p3fixt-levant-co',    'brand-levant',       0],
+];
+// name, slug, image, price, sale, stock, category index, brand index
+$PRODUCTS = [
+    ['Classic Aleppo Soap', 'p3fixt-aleppo-classic', 'aleppo-classic', 8.00,  6.50,  48, 0, 0],
+    ['Laurel 20% Bar',      'p3fixt-laurel-20',      'laurel-20',      14.00, 12.00, 26, 0, 0],
+    ['Pure Olive Bar',      'p3fixt-olive-pure',     'olive-pure',     6.50,  6.50,  90, 0, 0],
+    ['Rose Clay Bar',       'p3fixt-rose-clay',      'rose-clay',      9.50,  8.00,  12, 0, 1],
+    ['Black Seed Bar',      'p3fixt-black-seed',     'black-seed',     11.00, 11.00, 0,  0, 1],
+    ['Gift Trio Box',       'p3fixt-gift-trio',      'gift-trio',      29.00, 24.00, 7,  1, 0],
+    ['Travel Tin',          'p3fixt-travel-tin',     'travel-tin',     5.00,  5.00,  64, 1, 1],
+    ['Olive Shampoo Bar',   'p3fixt-shampoo-bar',    'shampoo-bar',    13.00, 10.50, 31, 2, 0],
+];
+
+$catIds = [];
+foreach ($CATEGORIES as [$name, $slug, $img, $trending]) {
+    $row = \App\Models\Category::withoutGlobalScopes()->where('slug', $slug)->first();
+    if (! $row) {
+        $row = new \App\Models\Category();
+        $row->slug = $slug;
+    }
+    $row->name = $name;
+    $row->image_path = "{$IMG}/{$img}.png";
+    $row->image_url = "{$IMG}/{$img}.png";
+    $row->parent_id = 0;
+    $row->trending = $trending;
+    $row->status = 1;
+    $row->store_id = $second->id;
+    $row->save();
+    $catIds[] = $row->id;
+}
+
+$brandIds = [];
+foreach ($BRANDS as [$name, $slug, $img, $popular]) {
+    $row = \App\Models\ProductBrand::withoutGlobalScopes()->where('slug', $slug)->first();
+    if (! $row) {
+        $row = new \App\Models\ProductBrand();
+        $row->slug = $slug;
+    }
+    $row->name = $name;
+    $row->logo = "{$IMG}/{$img}.png";
+    $row->status = 1;
+    $row->is_popular = $popular;
+    $row->store_id = $second->id;
+    $row->created_by = $second->created_by ?? 1;
+    $row->save();
+    $brandIds[] = $row->id;
+}
+
+$prodMade = 0;
+foreach ($PRODUCTS as [$name, $slug, $img, $price, $sale, $stock, $ci, $bi]) {
+    $row = \App\Models\Product::withoutGlobalScopes()->where('slug', $slug)->first();
+    if (! $row) {
+        $row = new \App\Models\Product();
+        $row->slug = $slug;
+        $prodMade++;
+    }
+    $row->name = $name;
+    $row->category_id = $catIds[$ci] ?? null;
+    $row->brand_id = $brandIds[$bi] ?? null;
+    $row->price = $price;
+    $row->sale_price = $sale;
+    $row->cost_price = round($price * 0.45, 2);
+    $row->product_stock = $stock;
+    // ONE DELIBERATE ZERO-STOCK ROW. An out-of-stock card is a state the storefront has to render
+    // and a baseline that contains only happy rows cannot show it.
+    $row->stock_status = $stock > 0 ? 'in_stock' : 'out_of_stock';
+    $row->track_stock = 1;
+    $row->low_stock_threshold = 10;
+    $row->status = 1;
+    $row->is_active = 1;
+    $row->variant_product = 0;
+    $row->product_type = 'simple';
+    $row->cover_image_path = "{$IMG}/{$img}.png";
+    $row->cover_image_url = "{$IMG}/{$img}.png";
+    $row->description = "Traditional {$name} from Aleppo, cured slowly and cut by hand.";
+    $row->detail = "P3FIXT development fixture row. Not a real product.";
+    $row->store_id = $second->id;
+    $row->created_by = $second->created_by ?? 1;
+    $row->save();
+
+    // A gallery row as well, so the product detail page has more than its cover to show.
+    if (! DB::table('product_images')->where('product_id', $row->id)->exists()) {
+        DB::table('product_images')->insert([
+            'product_id' => $row->id,
+            'image_path' => "{$IMG}/{$img}.png",
+            'image_url' => "{$IMG}/{$img}.png",
+            'store_id' => $second->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+}
+
+printf("\n  store %s catalogue: %d categories, %d brands, %d products (%d new)\n",
+    $second->id, count($catIds), count($brandIds), count($PRODUCTS), $prodMade);
 
 /* ------------------------------------------------------------------------------------------- */
 

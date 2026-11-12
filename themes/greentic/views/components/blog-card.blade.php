@@ -2,7 +2,7 @@
 
 <div class="card h-full flex flex-col">
     <a href="{{ route('page.article', [$store->slug, $blog->slug]) }}">
-        <img src="{{ get_file($blog->cover_image_path) }}"
+        <img src="{{ storefront_image($blog->cover_image_path) }}"
             alt="Seasonal Eating: Why It Matters for Your Health and the Planet" class="w-full h-60 object-cover"
             loading="lazy" />
     </a>

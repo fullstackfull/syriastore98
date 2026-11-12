@@ -77,7 +77,7 @@
                         class="p-6 flex flex-col items-center justify-center text-center h-full">
                             <div class="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center mb-4 p-3">
                                 @if($category->icon_path)
-                                    <img src="{{ get_file($category->icon_path) }}" alt="{{ $category->name }}"
+                                    <img src="{{ storefront_image($category->icon_path) }}" alt="{{ $category->name }}"
                                         class="h-full w-full object-contain">                            
                                 @endif
                             </div>
@@ -111,7 +111,7 @@
                             $extraClasses = $index === 1 ? 'lg:row-span-2 lg:col-span-1 sm:pt-24 pt-20' : 'lg:pt-24 pt-20';
                         @endphp
                         <div class="collection-box flex items-end relative z-[1] h-full w-full p-4 {{ $extraClasses }} rounded-lg overflow-hidden">
-                            <img src="{{ get_file($category->image_path) ?? asset('assets/images/default-category.png')}}"
+                            <img src="{{ storefront_image($category->image_path) ?? asset('assets/images/default-category.png')}}"
                                 class="absolute top-0 left-0 h-full w-full z-[-1] object-cover rtl:scale-x-[-1]" alt="collection-image">
                             <div class="content-box">
                                 <h3 class="font-medium text-xl mb-3">{{ $category->name }}</h3>
@@ -209,7 +209,7 @@
 
                                 <div class="flex items-center mb-4">
                                   
-                                    <img src="{{ get_file($testimonial->avatar ?? 'avatar.png') }}"
+                                    <img src="{{ storefront_image($testimonial->avatar, 'images/avatar-placeholder.svg') }}"
                                         alt="User Avatar"
                                         class="w-16 h-16 rounded-full object-cover border-4 border-primary/10">
 

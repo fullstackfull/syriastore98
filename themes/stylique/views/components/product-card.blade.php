@@ -4,7 +4,7 @@
         {!! \App\Models\Product::productSalesPage( $store->slug, $product->id, false) !!}
         <div class="relative">
             <a href="{{ url($store->slug . '/product/' . $product->slug) }}">
-                <img src="{{ get_file($product->cover_image_path)}}"
+                <img src="{{ storefront_image($product->cover_image_path)}}"
                 width="400" height="400"
                 alt="{{ $product->name }}"
                 loading="lazy"
