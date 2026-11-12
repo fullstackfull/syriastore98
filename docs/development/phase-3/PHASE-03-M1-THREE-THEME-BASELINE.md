@@ -233,3 +233,83 @@ change needs this list, and nothing said so before now.
 - **No product-detail or checkout-flow capture.** `/product/{slug}` needs a per-store product slug
   the harness does not yet thread through; the 16-route HTTP sweep covers their status only.
 - **No dark mode**, because there is none to capture.
+
+---
+
+## 6. M2 scoping — measured, so the dark-mode work is not guessed at
+
+M1's inventory records "the storefront has no dark mode in any of the three themes" as open. Before
+starting M2 that was measured rather than estimated, because the obvious fear — three themes with
+107–138 KB of CSS each — would make it a very large job.
+
+**It is not. Two of the three pieces already exist.**
+
+### What is already built
+
+`public/css/store-syria-ds.css` carries **146 dark-mode rules**, driven by `data-ss-theme="dark"` on
+`<html>` or on any container, with `data-ss-theme="auto"` following `prefers-color-scheme`. Its own
+note explains the posture: only the subtree carrying the attribute re-themes, and `auto` applies
+only where a page asks for it, "so a merchant on a dark OS never gets a surprise dark admin."
+
+The merchant admin shows the pattern working: `resources/views/layouts/app.blade.php:86` sets
+`data-ss-theme="dark" data-ss-theme-source="host"` on `<html>` from the store's `cust_darklayout`
+setting, alongside a 594 KB `style-dark.css`.
+
+### What the storefront is missing
+
+| | measured |
+|---|---|
+| `data-ss-theme` anywhere in `themes/` or `front_end/` | **0 references** |
+| shopper-side toggle or preference of any kind | **none** — no `localStorage`, no toggle markup |
+| hardcoded colours, `stylique` | 26 hex + 32 `rgb()` + 4 named — **14 distinct hex** |
+| hardcoded colours, `techzonix` | 30 hex + 29 `rgb()` + 8 named — **18 distinct hex** |
+| hardcoded colours, `greentic` | 27 hex + 30 `rgb()` + 4 named — **20 distinct hex** |
+
+**14–20 distinct colours per theme is a tokenisable surface**, not an open-ended rewrite. The CSS is
+large because of layout and component rules, not because of colour sprawl.
+
+### The one genuine decision in it
+
+The merchant's dark mode is a **server-side store setting** — a merchant choosing how their admin
+looks. A shopper's preference is a different thing: it belongs to the viewer, not the store, and
+there is no mechanism for it at all today.
+
+The conventional answer is per-viewer browser storage, which needs no schema change and no tenant
+consideration. That is the default M2 will take unless the owner says otherwise, and it is recorded
+here rather than decided silently, because the alternative — a `customers` column — would be a
+schema change on a tenant-scoped table and a different conversation.
+
+### THE STOREFRONT DOES NOT LOAD THE DESIGN SYSTEM AT ALL
+
+Measured: **zero** references to `store-syria-ds.css` in `themes/*/views/` or
+`resources/views/front_end/`. So those 146 dark-mode rules are not available to the storefront
+today, and loading the sheet is M2's first step, not an optional extra.
+
+`CLAUDE.md` says the design system is confined by a `.ss-` class or a `data-ss-` attribute, with no
+physical edges. That claim decides whether loading it on the storefront is safe, so it was
+**measured rather than trusted**: of **708 selectors, 705** are scoped by `.ss-` or `data-ss-`.
+The three that are not are Bootstrap/DataTables class names:
+
+| selector | on the storefront? |
+|---|---|
+| `.dataTables_processing` | **no** — 0 storefront views, 0 at runtime |
+| `.invalid-tooltip` | **no** — 0 storefront views |
+| `.invalid-feedback` | **3 views** (`add_tickets`, `support_ticket_edit`, both in the authenticated customer area); 0 at runtime on `/login`, `/register`, `/contact-us` |
+
+And the one rule that reaches them is `color: var(--ss-danger)` and nothing else — deliberately, with
+its own note explaining that overriding the theme's `display: none` "would show every message on
+every form at all times." So the whole blast radius of loading the design system on the storefront is
+**the colour of validation text on two support-ticket views.**
+
+That is the property that makes M2 low-risk, and it is now a measurement rather than an assurance.
+
+### What M2 therefore has to do
+
+1. set `data-ss-theme` on each theme's `<html>`, from a shopper preference;
+2. replace each theme's 14–20 distinct colours with tokens that flip under `[data-ss-theme="dark"]`;
+3. add the toggle and its persistence;
+4. re-capture the 210-row baseline in **four** combinations rather than two, which is what makes a
+   dark-mode claim checkable at all — the Phase 2.5 contrast failure (option names at 1.00:1
+   white-on-white) was found by exactly that capture, not by reading CSS.
+
+The 210-row M1 baseline is the before-picture M2 is measured against.
