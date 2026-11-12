@@ -29,6 +29,12 @@
  *
  * Last run: stylique 0 failures (13 skipped), techzonix 0 failures (7 skipped).
  */
+
+const { chromium } = require('playwright');
+
+// The store to measure, so another theme needs an argument rather than a copy of this file.
+// A sed-ed copy is how the first version of this tool lost its own `require` line.
+const SLUG = process.argv[2] || 'damascus-textiles';
 const lum = (r,g,b) => { const f=c=>{c/=255; return c<=0.03928?c/12.92:Math.pow((c+0.055)/1.055,2.4);};
   return 0.2126*f(r)+0.7152*f(g)+0.0722*f(b); };
 const parse = s => (s.match(/\d+(\.\d+)?/g)||[0,0,0]).slice(0,3).map(Number);
@@ -43,7 +49,7 @@ const ratio = (a,b) => { const la=lum(...parse(a)), lb=lum(...parse(b));
     const p = await ctx.newPage();
     console.log(`\n  ===== os=${scheme} =====`);
     for (const route of ['/home','/product-list','/cart','/login']) {
-      await p.goto(`http://127.0.0.1:8899/damascus-textiles${route}`, {waitUntil:'domcontentloaded'});
+      await p.goto(`http://127.0.0.1:8899/${SLUG}${route}`, {waitUntil:'domcontentloaded'});
       const rows = await p.evaluate(() => {
         const out = [];
         // A ratio against a COLOUR is meaningless when the real backdrop is an IMAGE or a

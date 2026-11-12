@@ -1,0 +1,2864 @@
+{
+ "store": "aleppo-soap",
+ "guest": false,
+ "customer": "p3-shopper@aleppo-soap.test",
+ "rows": [
+  {
+   "store": "aleppo-soap",
+   "path": "/home",
+   "locale": "en",
+   "viewport": "desktop",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Home Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 1275,
+   "images": {
+    "total": 35,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Accessorize with Elegance",
+    "Discover the New Summer Collection"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/product-list",
+   "locale": "en",
+   "viewport": "desktop",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Products",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 640,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "Filters"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/collections",
+   "locale": "en",
+   "viewport": "desktop",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 501,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/cart",
+   "locale": "en",
+   "viewport": "desktop",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Cart Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 523,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/wishlist",
+   "locale": "en",
+   "viewport": "desktop",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Wishlist Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 426,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/track-order",
+   "locale": "en",
+   "viewport": "desktop",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Track Order Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 605,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/contact-us",
+   "locale": "en",
+   "viewport": "desktop",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 895,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "Send Us a Message"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/home",
+   "locale": "en",
+   "viewport": "desktop",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Home Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 1274,
+   "images": {
+    "total": 35,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Accessorize with Elegance",
+    "Discover the New Summer Collection"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/product-list",
+   "locale": "en",
+   "viewport": "desktop",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Products",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 639,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "Filters"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/collections",
+   "locale": "en",
+   "viewport": "desktop",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 500,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/cart",
+   "locale": "en",
+   "viewport": "desktop",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Cart Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 522,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/wishlist",
+   "locale": "en",
+   "viewport": "desktop",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Wishlist Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 425,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/track-order",
+   "locale": "en",
+   "viewport": "desktop",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Track Order Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 604,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/contact-us",
+   "locale": "en",
+   "viewport": "desktop",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 894,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "Send Us a Message"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/home",
+   "locale": "en",
+   "viewport": "tablet",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Home Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 1198,
+   "images": {
+    "total": 35,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Accessorize with Elegance",
+    "Discover the New Summer Collection"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/product-list",
+   "locale": "en",
+   "viewport": "tablet",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Products",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 565,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "Filters"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/collections",
+   "locale": "en",
+   "viewport": "tablet",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 424,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/cart",
+   "locale": "en",
+   "viewport": "tablet",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Cart Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 446,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/wishlist",
+   "locale": "en",
+   "viewport": "tablet",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Wishlist Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 349,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/track-order",
+   "locale": "en",
+   "viewport": "tablet",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Track Order Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 528,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/contact-us",
+   "locale": "en",
+   "viewport": "tablet",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 818,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "Send Us a Message"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/home",
+   "locale": "en",
+   "viewport": "tablet",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Home Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 1197,
+   "images": {
+    "total": 35,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Accessorize with Elegance",
+    "Discover the New Summer Collection"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/product-list",
+   "locale": "en",
+   "viewport": "tablet",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Products",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 564,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "Filters"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/collections",
+   "locale": "en",
+   "viewport": "tablet",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 423,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/cart",
+   "locale": "en",
+   "viewport": "tablet",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Cart Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 445,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/wishlist",
+   "locale": "en",
+   "viewport": "tablet",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Wishlist Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 348,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/track-order",
+   "locale": "en",
+   "viewport": "tablet",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Track Order Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 527,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/contact-us",
+   "locale": "en",
+   "viewport": "tablet",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 817,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "Send Us a Message"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/home",
+   "locale": "en",
+   "viewport": "mobile",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Home Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 1198,
+   "images": {
+    "total": 35,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Accessorize with Elegance",
+    "Discover the New Summer Collection"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/product-list",
+   "locale": "en",
+   "viewport": "mobile",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Products",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 565,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "Filters"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/collections",
+   "locale": "en",
+   "viewport": "mobile",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 424,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/cart",
+   "locale": "en",
+   "viewport": "mobile",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Cart Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 446,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/wishlist",
+   "locale": "en",
+   "viewport": "mobile",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Wishlist Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 349,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/track-order",
+   "locale": "en",
+   "viewport": "mobile",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Track Order Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 528,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/contact-us",
+   "locale": "en",
+   "viewport": "mobile",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 818,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "Send Us a Message"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/home",
+   "locale": "en",
+   "viewport": "mobile",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Home Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 1197,
+   "images": {
+    "total": 35,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Accessorize with Elegance",
+    "Discover the New Summer Collection"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/product-list",
+   "locale": "en",
+   "viewport": "mobile",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Products",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 564,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "Filters"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/collections",
+   "locale": "en",
+   "viewport": "mobile",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 423,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/cart",
+   "locale": "en",
+   "viewport": "mobile",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Cart Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 445,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/wishlist",
+   "locale": "en",
+   "viewport": "mobile",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Wishlist Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 348,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/track-order",
+   "locale": "en",
+   "viewport": "mobile",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Track Order Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 527,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/contact-us",
+   "locale": "en",
+   "viewport": "mobile",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "ltr",
+   "lang": "en",
+   "title": "Collections Page",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 817,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "Send Us a Message"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/home",
+   "locale": "ar",
+   "viewport": "desktop",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "الصفحة الرئيسية",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 1268,
+   "images": {
+    "total": 35,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Accessorize with Elegance",
+    "Discover the New Summer Collection"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/product-list",
+   "locale": "ar",
+   "viewport": "desktop",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "المنتجات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 665,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "مرشحات"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/collections",
+   "locale": "ar",
+   "viewport": "desktop",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 486,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/cart",
+   "locale": "ar",
+   "viewport": "desktop",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة السلة",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 500,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/wishlist",
+   "locale": "ar",
+   "viewport": "desktop",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة قائمة الأمنيات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 409,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/track-order",
+   "locale": "ar",
+   "viewport": "desktop",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة ترتيب المسار",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 590,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/contact-us",
+   "locale": "ar",
+   "viewport": "desktop",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 874,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "أرسل لنا رسالة"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/home",
+   "locale": "ar",
+   "viewport": "desktop",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "الصفحة الرئيسية",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 1268,
+   "images": {
+    "total": 35,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Accessorize with Elegance",
+    "Discover the New Summer Collection"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/product-list",
+   "locale": "ar",
+   "viewport": "desktop",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "المنتجات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 665,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "مرشحات"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/collections",
+   "locale": "ar",
+   "viewport": "desktop",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 486,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/cart",
+   "locale": "ar",
+   "viewport": "desktop",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة السلة",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 500,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/wishlist",
+   "locale": "ar",
+   "viewport": "desktop",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة قائمة الأمنيات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 409,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/track-order",
+   "locale": "ar",
+   "viewport": "desktop",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة ترتيب المسار",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 590,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/contact-us",
+   "locale": "ar",
+   "viewport": "desktop",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 874,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "أرسل لنا رسالة"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/home",
+   "locale": "ar",
+   "viewport": "tablet",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "الصفحة الرئيسية",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 1200,
+   "images": {
+    "total": 35,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Accessorize with Elegance",
+    "Discover the New Summer Collection"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/product-list",
+   "locale": "ar",
+   "viewport": "tablet",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "المنتجات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 599,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "مرشحات"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/collections",
+   "locale": "ar",
+   "viewport": "tablet",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 418,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/cart",
+   "locale": "ar",
+   "viewport": "tablet",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة السلة",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 432,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/wishlist",
+   "locale": "ar",
+   "viewport": "tablet",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة قائمة الأمنيات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 341,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/track-order",
+   "locale": "ar",
+   "viewport": "tablet",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة ترتيب المسار",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 522,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/contact-us",
+   "locale": "ar",
+   "viewport": "tablet",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 806,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "أرسل لنا رسالة"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/home",
+   "locale": "ar",
+   "viewport": "tablet",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "الصفحة الرئيسية",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 1200,
+   "images": {
+    "total": 35,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Accessorize with Elegance",
+    "Discover the New Summer Collection"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/product-list",
+   "locale": "ar",
+   "viewport": "tablet",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "المنتجات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 599,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "مرشحات"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/collections",
+   "locale": "ar",
+   "viewport": "tablet",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 418,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/cart",
+   "locale": "ar",
+   "viewport": "tablet",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة السلة",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 432,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/wishlist",
+   "locale": "ar",
+   "viewport": "tablet",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة قائمة الأمنيات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 341,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/track-order",
+   "locale": "ar",
+   "viewport": "tablet",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة ترتيب المسار",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 522,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/contact-us",
+   "locale": "ar",
+   "viewport": "tablet",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 806,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "أرسل لنا رسالة"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/home",
+   "locale": "ar",
+   "viewport": "mobile",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "الصفحة الرئيسية",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 1200,
+   "images": {
+    "total": 35,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Accessorize with Elegance",
+    "Discover the New Summer Collection"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/product-list",
+   "locale": "ar",
+   "viewport": "mobile",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "المنتجات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 599,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "مرشحات"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/collections",
+   "locale": "ar",
+   "viewport": "mobile",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 418,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/cart",
+   "locale": "ar",
+   "viewport": "mobile",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة السلة",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 432,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/wishlist",
+   "locale": "ar",
+   "viewport": "mobile",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة قائمة الأمنيات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 341,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/track-order",
+   "locale": "ar",
+   "viewport": "mobile",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة ترتيب المسار",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 522,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/contact-us",
+   "locale": "ar",
+   "viewport": "mobile",
+   "appearance": "light",
+   "http": 200,
+   "pageBg": "rgb(255, 255, 255)",
+   "pageFg": "rgb(26, 29, 35)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 806,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "أرسل لنا رسالة"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/home",
+   "locale": "ar",
+   "viewport": "mobile",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "الصفحة الرئيسية",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 1200,
+   "images": {
+    "total": 35,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Accessorize with Elegance",
+    "Discover the New Summer Collection"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/product-list",
+   "locale": "ar",
+   "viewport": "mobile",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "المنتجات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 599,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Product List",
+    "مرشحات"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/collections",
+   "locale": "ar",
+   "viewport": "mobile",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 418,
+   "images": {
+    "total": 13,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Collection List",
+    "Featured Collections"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/cart",
+   "locale": "ar",
+   "viewport": "mobile",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة السلة",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 432,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Cart Details",
+    "Order Summary"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/wishlist",
+   "locale": "ar",
+   "viewport": "mobile",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة قائمة الأمنيات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 341,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Wishlist",
+    ""
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/track-order",
+   "locale": "ar",
+   "viewport": "mobile",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة ترتيب المسار",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 522,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Track Order",
+    "Track Your Order"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  },
+  {
+   "store": "aleppo-soap",
+   "path": "/contact-us",
+   "locale": "ar",
+   "viewport": "mobile",
+   "appearance": "dark",
+   "http": 200,
+   "pageBg": "rgb(27, 31, 37)",
+   "pageFg": "rgb(232, 234, 237)",
+   "dir": "rtl",
+   "lang": "ar",
+   "title": "صفحة المجموعات",
+   "themeSheets": 3,
+   "themesSeen": [
+    "stylique"
+   ],
+   "expectTheme": "stylique",
+   "text": 806,
+   "images": {
+    "total": 8,
+    "broken": 0
+   },
+   "overflow": false,
+   "headings": [
+    "",
+    "Contact Us",
+    "أرسل لنا رسالة"
+   ],
+   "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+   ],
+   "premise": "ok",
+   "problems": []
+  }
+ ],
+ "negatives": []
+}
