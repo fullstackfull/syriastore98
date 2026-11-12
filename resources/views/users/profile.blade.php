@@ -94,7 +94,8 @@
                                                         <div class=" setting-card">
                                                             <h4>{{__('Picture')}}</h4>
                                                             <div class="logo-content mt-4 d-flex justify-content-center">
-                                                                    <img src="{{(!empty($userDetail->profile_image)) && file_exists($userDetail->profile_image) ? get_file($userDetail->profile_image ) : $profile.'/avatar.png'}}"
+                                                                    <img src="{{(!empty($userDetail->profile_image)) && file_exists($userDetail->profile_image) ? get_file($userDetail->profile_image ) : asset('images/avatar-placeholder.svg')}}"
+                                                                    alt="{{ __('Profile picture') }}"
                                                                     class=" rounded-circle-avatar" id="blah" width="100px">
                                                             </div>
                                                             <div class="choose-files mt-4">

@@ -5467,7 +5467,19 @@ html[data-ss-theme="dark"] body .text-primary,
 html[data-ss-theme="dark"] body .btn-outline-primary,
 html[data-ss-theme="dark"] body .nav-link:not(.active),
 html[data-ss-theme="dark"] body .nex-prev-btn-wrp .btn,
-html[data-ss-theme="dark"] body .dash-content a:not(.btn):not(.ss-btn):not(.nav-link):not(.page-link) {
+/* >> AND THE ACTIVE LIST-GROUP ITEM, excluded 2026-11-12 for the owner's visual review.
+   >> EXACTLY THE SHAPE OF THE PAGINATION SPLIT DIRECTLY BELOW, and found the same way -- by
+   >> measuring. The profile sidebar's tabs are plain anchors inside `.dash-content`
+   >> (`users/profile.blade.php:65`), so the arm above paints them brand ink; the ACTIVE one sits
+   >> on the brand FILL the host gives `.list-group-item.active`, which is brand ink on brand
+   >> fill. Measured on /profile in dark, both languages: 2.09:1, against 6.42:1 for the same
+   >> tab in light. The inactive siblings measure 4.64:1 and keep the lift, which is what this
+   >> arm is for.
+   >> Excluded here rather than undone in store-syria-ds.css because this arm is (0,6,3) and
+   >> carries `!important`: no honest undo arm beats it, and the pagination case immediately
+   >> below records the same conclusion. The white ink that belongs on that fill is supplied by
+   >> store-syria-ds.css, which can win once this stops shouting. */
+html[data-ss-theme="dark"] body .dash-content a:not(.btn):not(.ss-btn):not(.nav-link):not(.page-link):not(.list-group-item.active) {
     color: var(--ss-brand-ontext-dark, var(--theme-color)) !important;
 }
 

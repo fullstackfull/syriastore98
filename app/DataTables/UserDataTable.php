@@ -40,7 +40,7 @@ class UserDataTable extends DataTable
              * because this cell is built by concatenation inside a raw column.
              */
             ->editColumn('avatar', function (User $user) {
-                $avatarUrl = check_file($user->profile_image) ? get_file($user->profile_image) : get_file('storage/uploads/avatar.png');
+                $avatarUrl = check_file($user->profile_image) ? get_file($user->profile_image) : asset('images/avatar-placeholder.svg');
 
                 return '<img src="' . e($avatarUrl) . '" class="img-fluid rounded-circle card-avatar" width="35" alt="" aria-hidden="true">';
             })

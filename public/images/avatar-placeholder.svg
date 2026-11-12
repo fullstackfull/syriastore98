@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128"
+     role="img" aria-label="No profile picture">
+  <!--
+    The default avatar, served from public/ ON PURPOSE.
+
+    The fallback it replaces was `/storage/uploads/profile/avatar.png`, which cannot resolve
+    from a checkout: `.gitignore` carries `/storage/*`, so that file is runtime data and is in
+    no clone. `public/storage` is itself a TRACKED REGULAR FILE containing the vendor's build
+    path as text, not a symlink, so `/storage/...` does not resolve through it either.
+
+    Self-contained greys rather than currentColor or a CSS variable: an <img> does not inherit
+    either, and this has to read on both the light and the dark merchant themes. The disc is
+    light enough to sit on a dark surface and dark enough to sit on a white card.
+  -->
+  <circle cx="64" cy="64" r="64" fill="#CBD5E1"/>
+  <circle cx="64" cy="48" r="22" fill="#F1F5F9"/>
+  <path d="M64 78c-22.1 0-40 14.3-40 32v18h80v-18c0-17.7-17.9-32-40-32z" fill="#F1F5F9"/>
+</svg>

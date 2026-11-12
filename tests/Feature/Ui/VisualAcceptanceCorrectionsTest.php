@@ -307,6 +307,81 @@ class VisualAcceptanceCorrectionsTest extends SecurityTestCase
         $this->assertSame('غير رائج', $ar['Not Trending']);
     }
 
+    /* ===================================================================================
+     * ITEM 11 — own profile: a broken avatar and an unreadable active tab
+     * =================================================================================== */
+
+    /**
+     * The fallback was `$profile.'/avatar.png'`, i.e. `/storage/uploads/profile//avatar.png`
+     * (the slash is doubled -- `$profile` already ends in one). Measured 404 in all four
+     * combinations, and it cannot be anything else from a checkout: `.gitignore` carries
+     * `/storage/*`, so that file is runtime data no clone contains, and `public/storage` is a
+     * TRACKED REGULAR FILE holding the vendor's build path as text rather than a symlink.
+     *
+     * That is not only a fixture gap. `RegisteredUserController` writes
+     * `profile_image => 'uploads/profile/avatar.png'` for every new user, so a fresh deployment
+     * has the same hole. The replacement is committed under public/ for exactly that reason.
+     */
+    #[Test]
+    public function test_the_profile_avatar_falls_back_to_an_asset_that_exists(): void
+    {
+        $this->assertFileExists(
+            public_path('images/avatar-placeholder.svg'),
+            'The default avatar asset is gone, so the fallback 404s again.'
+        );
+
+        $blade = file_get_contents(base_path('resources/views/users/profile.blade.php'));
+
+        $this->assertStringContainsString("asset('images/avatar-placeholder.svg')", $blade);
+        $this->assertStringNotContainsString(
+            "\$profile.'/avatar.png'",
+            $blade,
+            'The profile avatar points back at /storage/, which no checkout can serve.'
+        );
+
+        $this->assertStringContainsString(
+            "asset('images/avatar-placeholder.svg')",
+            file_get_contents(base_path('app/DataTables/UserDataTable.php')),
+            'The users list shows three broken images again.'
+        );
+    }
+
+    /**
+     * THE ACTIVE TAB, AND WHY THE FIX IS AN EXCLUSION RATHER THAN AN OVERRIDE.
+     *
+     * Measured on /profile, both languages:  light 6.42:1,  dark 2.09:1.
+     *
+     * `custom.css` lifts every plain anchor inside `.dash-content` to brand ink in dark mode with
+     * `!important`, which is right for the inactive siblings (4.64:1) and wrong for the active
+     * one, because the host puts it on the brand FILL -- brand ink on brand fill. That arm is
+     * (0,6,3) and shouts, so no honest undo arm in the design system could beat it; the
+     * pagination rule immediately below it in the same file reaches the same conclusion and
+     * excludes `.page-item.active` for the same reason.
+     *
+     * Both halves are pinned, because either alone leaves it broken: without the exclusion the
+     * DS rule never applies, and without the DS rule the exclusion only falls back to the host's
+     * own dark active colour.
+     */
+    #[Test]
+    public function test_the_dark_active_tab_is_excluded_from_the_brand_lift_and_given_white_ink(): void
+    {
+        foreach (['custom.css', 'rtl-custom.css'] as $sheet) {
+            $this->assertStringContainsString(
+                ':not(.page-link):not(.list-group-item.active)',
+                file_get_contents(public_path('css/' . $sheet)),
+                "{$sheet}'s dark anchor lift no longer excludes the active list-group item, so it "
+                . 'paints brand ink on the brand fill again -- 2.09:1.'
+            );
+        }
+
+        $this->assertStringContainsString(
+            '[data-ss-theme="dark"] .dash-content .list-group-item-action.active',
+            file_get_contents(public_path('css/store-syria-ds.css')),
+            'The white ink for the active tab is gone; the exclusion alone only hands the item '
+            . "back to the host's own dark active colour."
+        );
+    }
+
     /**
      * THE RATCHET THIS WORK HAD TO RESPECT. Every key added to ar.json needs its en.json twin or
      * TranslationFileIntegrityTest's orphan count rises; the ceiling was not raised for this.

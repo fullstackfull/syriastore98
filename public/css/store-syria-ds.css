@@ -3939,6 +3939,32 @@ a.ss-setup__item:focus-visible {
     color: var(--ss-fg-subtle);
 }
 
+/* AND THE ACTIVE STATE, which the resting-state rule above does not reach -- the same shape as
+   the `:disabled` restoration immediately above it, found by the owner's visual review of the
+   24 premium surfaces rather than by the census.
+
+   MEASURED on /profile, where the sidebar tabs are `.list-group-item-action` and the page's own
+   script adds `.active` to the first on load:
+
+       light   #ffffff            on rgb(51,93,168)   6.42:1   passes
+       dark    rgb(120,148,198)   on rgb(51,93,168)   2.09:1   FAILS
+
+   So the active tab is legible in English light and barely visible in dark, in both languages.
+   The host keeps its brand-blue FILL for the active item in dark mode -- that is deliberate and
+   is what distinguishes the active tab from its siblings -- and only the INK is wrong: it stays
+   the muted blue used for resting links, on a background of nearly the same hue.
+
+   Only `color` is set, for the reason P2.5-A-01 records about modals: overriding the fill as
+   well would remove the only signal that one of these items is selected, which is a worse
+   defect than low contrast and is not what was asked. #ffffff rather than `var(--ss-fg)` because
+   the fill here is a fixed brand colour in BOTH themes, so the ink that belongs on it is fixed
+   too -- `--ss-fg` is theme-switching and would go dark-on-blue in light mode. That is the
+   `--ss-fg` / `--ss-grey-900` trap the handoff warns about, in its other direction. */
+[data-ss-theme="dark"] .dash-content .list-group-item.active,
+[data-ss-theme="dark"] .dash-content .list-group-item-action.active {
+    color: #ffffff;
+}
+
 /* AND THE HEADING ON THAT CARD, which the background census could not see. Removing the
    `bg-white` utility from `/finance` took away a 1145x55 white block and left its heading dark on
    a dark card -- a regression the measurement caught at 1.10:1. Measuring the family then showed
