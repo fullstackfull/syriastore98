@@ -43,8 +43,21 @@ class ThemePublishedVersion extends Model
             ->first();
     }
 
-    public function version()
+    /**
+     * THE LIVE VERSION, RESOLVED BY THE FULL TRIPLE -- never by a bare id.
+     *
+     * This replaces a `belongsTo(ThemeVersion::class, 'version_id')`, which compiles to
+     * `where id = version_id` and was the one surviving bare-id dereference in M3-C. It was safe,
+     * but only because the composite foreign key `tpv_version_identity_foreign` makes a mismatched
+     * pointer un-INSERTable -- the ENGINE was the control, not the model. Two reasons that is not
+     * good enough to leave: a row can land with foreign-key checks off, and a relation in a model
+     * is a PRECEDENT that gets copied into a handler where no such constraint exists.
+     *
+     * `ThemePublicationEvent` already refused to define the equivalent relation for this reason and
+     * says so in its own docblock; this now agrees with it instead of contradicting it.
+     */
+    public function liveVersion(): ?ThemeVersion
     {
-        return $this->belongsTo(ThemeVersion::class, 'version_id');
+        return ThemeVersion::ownedBy((int) $this->store_id, (string) $this->theme_id, (int) $this->version_id);
     }
 }

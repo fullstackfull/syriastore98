@@ -77,6 +77,12 @@ use Illuminate\Support\Facades\Auth;
 final class ThemeEditorGate
 {
     /** Either of these entitles a user; neither exists in the fixture, hence `ownsStore()` below. */
+    /**
+     * The permission names this surface is nominally associated with, kept as a RECORD and not as a
+     * control -- nothing reads it to decide anything, deliberately. Measured at M3-A: `Manage
+     * Themes` is held by no role and no user, and `Edit Theme` does not exist as a permission row.
+     * `allows()` explains why a limb that checked them was unreachable and was deleted.
+     */
     public const PERMISSIONS = ['Manage Themes', 'Edit Theme'];
 
     /** Why a request was refused, for the caller to log or surface. Never shown to a shopper. */
@@ -198,14 +204,32 @@ final class ThemeEditorGate
             return true;
         }
 
-        foreach (self::PERMISSIONS as $permission) {
-            if (method_exists($user, 'isAbleTo') && $user->isAbleTo($permission)) {
-                return true;
-            }
-        }
-
-        $this->reason = 'this principal neither owns the store nor holds '
-            . implode(' or ', self::PERMISSIONS);
+        /*
+         * THERE IS NO PERMISSION LIMB HERE, AND THAT IS THE HONEST SHAPE.
+         *
+         * An earlier version looped `self::PERMISSIONS` after this point and the class docblock
+         * claimed those permissions "still gate STAFF". An adversarial re-verification showed the
+         * loop was UNREACHABLE and the sentence false, so it has been deleted rather than left to
+         * read as a control:
+         *
+         *   - `allows()` is only reached with a store `resolveStore()` already returned;
+         *   - for a non-operator that required `tenantRootIsAMerchant($root)` AND
+         *     `stores.created_by = $root` -- which is exactly what `ownsStore()` re-tests above;
+         *   - so a non-operator that gets past `resolveStore()` always satisfies `ownsStore()`,
+         *     and an operator returned earlier.
+         *
+         * Dead code shaped like an authorization check is worse than no code: the next reader
+         * believes `Manage Themes` restricts something. It restricts nothing -- measured at M3-A,
+         * no role and no user holds it, and `Edit Theme` is not a permission row at all.
+         *
+         * WHAT ACTUALLY ENTITLES, stated plainly: tenant-root resolution. A merchant and EVERY user
+         * they created -- staff included, with no permission of any kind -- may edit that tenant's
+         * theme configuration. That is not a regression (before M3-C this handler had no check at
+         * all) and the validator constrains what any of them can store, but it is a deliberate
+         * choice and belongs in the open. Narrowing it to a permission nobody holds would lock
+         * every merchant out of their own editor, which is the worse failure.
+         */
+        $this->reason = 'this principal does not own the store';
 
         return false;
     }

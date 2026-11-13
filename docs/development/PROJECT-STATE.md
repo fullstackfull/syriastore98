@@ -311,6 +311,17 @@ unguarded writers in the same controller — `makeActiveTheme()` and `updateOrde
 check of any kind and both reachable by a direct POST from any authenticated user — now closed
 through the same gate.
 
+**And the sharpest find was a production 500 that no test could see.** `theme_customize_orders` has
+no `theme_id` column, yet both the section-order read and write filtered on it — M3-C's first fix
+carried the inherited predicate forward. Measured on MariaDB: `ERROR 1054 Unknown column 'theme_id'
+in 'WHERE'`. **SQLite does not error** — it treats the unresolvable identifier as a string literal,
+matches nothing, and the handler carries on — so a Feature test driving the route passes with the
+defect in place, and one did. Both predicates removed; section order is consequently keyed on
+(store, page) and **shared across themes**, and adding the column is a migration against live data,
+so it is recorded as an owner decision rather than taken. Guarded by
+`tests/Unit/Theme/ThemeCustomizeOrderColumnsExistTest`, which compares the SOURCE to the MIGRATION,
+because a database assertion inherits the same engine blindness.
+
 **A fourth false green, and this one generalises beyond the theme editor.**
 `App\Http\Middleware\XSS::handle():56-78` redirects ANY `super admin` to the installer's updater
 before the controller runs, whenever it finds one unrecorded migration — and in a test run it always

@@ -450,4 +450,76 @@ class ThemeConfigurationServiceTest extends TestCase
         $this->assertArrayNotHasKey('footer_description', $this->projection($this->storeA),
             'A refused value was written anyway.');
     }
+
+    /**
+     * `liveVersion()` RESOLVES BY THE TRIPLE, so a cross-tenant pointer yields NOTHING.
+     *
+     * This replaced a `belongsTo(ThemeVersion::class, 'version_id')` -- `where id = version_id` --
+     * which was safe only because the composite FK makes a mismatched pointer un-INSERTable. That
+     * put the control in the ENGINE, and this test asks what happens when the engine is not there.
+     *
+     * MEASURED, AND NOT WHAT I ASSUMED. A first version of this test simply inserted the bad row,
+     * on the theory that SQLite ignores foreign keys without `PRAGMA foreign_keys = ON`. It does
+     * not here: this suite enables them, and the insert failed with "FOREIGN KEY constraint
+     * failed" -- so the composite key holds on BOTH engines, which is good news and makes the
+     * hazard unreachable by an ordinary write. The constraint is therefore switched off for exactly
+     * one statement, which is the only way to ask the question this test is for: if a row ever
+     * lands without the engine's help -- a restore, an import, `SET FOREIGN_KEY_CHECKS = 0` -- does
+     * the MODEL still refuse it?
+     */
+    #[Test]
+    public function test_the_live_version_resolver_refuses_a_cross_tenant_pointer(): void
+    {
+        $mine = ThemeVersion::create([
+            'store_id' => $this->storeA->id, 'theme_id' => 'stylique', 'version_no' => 1,
+            'status' => ThemeVersion::STATUS_PUBLISHED, 'payload' => '{}',
+            'payload_hash' => str_repeat('a', 64),
+        ]);
+
+        $theirs = ThemeVersion::create([
+            'store_id' => $this->storeB->id, 'theme_id' => 'greentic', 'version_no' => 1,
+            'status' => ThemeVersion::STATUS_PUBLISHED, 'payload' => '{}',
+            'payload_hash' => str_repeat('b', 64),
+        ]);
+
+        /*
+         * THE POINTER IS NOT PERSISTED, AND THAT IS THE ONLY WAY TO ASK THIS. Two measured dead
+         * ends first:
+         *
+         *   1. Inserting the bad row plainly fails -- this suite DOES enforce SQLite foreign keys,
+         *      so the composite key holds on both engines and an ordinary write cannot create the
+         *      hazard. Good news, and it means the row cannot be made the normal way.
+         *   2. `PRAGMA foreign_keys = OFF` does not help either: SQLite documents it as a NO-OP
+         *      inside a transaction, and `RefreshDatabase` wraps every test in one. It failed with
+         *      the same "FOREIGN KEY constraint failed".
+         *
+         * So the resolver is exercised on an UNSAVED model carrying the mismatched triple. That is
+         * exactly what a row restored, imported, or written under `SET FOREIGN_KEY_CHECKS = 0`
+         * would look like once read back, and it isolates the thing under test -- the model's own
+         * refusal -- from the engine that currently makes the case unreachable.
+         */
+        $pointer = new ThemePublishedVersion([
+            'store_id' => $this->storeA->id,
+            'theme_id' => 'stylique',
+            'version_id' => $theirs->id,
+        ]);
+
+        $this->assertSame($theirs->id, (int) $pointer->version_id,
+            'PREMISE: the pointer must really carry the other tenant\'s version id, or the '
+            . 'assertion below passes vacuously.');
+
+        $this->assertNull($pointer->liveVersion(),
+            "liveVersion() handed back ANOTHER STORE'S version. Resolving by bare `version_id` -- "
+            . 'which is what the `belongsTo` this replaced compiled to -- is the defect.');
+
+        /* And the honest pointer still resolves, so the refusal is not simply "always null". */
+        $honest = new ThemePublishedVersion([
+            'store_id' => $this->storeA->id,
+            'theme_id' => 'stylique',
+            'version_id' => $mine->id,
+        ]);
+
+        $this->assertSame($mine->id, $honest->liveVersion()?->id,
+            'The resolver must still find the version that genuinely belongs to this store.');
+    }
 }

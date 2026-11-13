@@ -1084,10 +1084,12 @@ A merchant who demotes their own `type` through the product — `UserPolicy`'s d
 as supported, since `RolePolicy::RESERVED_NAMES` blocks only the `admin`/`super admin` spellings —
 drops to `creatorId() = 1` and matches it.
 
-**The test that was supposed to catch this could not fail.** It asserted only that the demoted
-merchant could not reach `storeB`, whose `created_by` is merchant B's id — a store no root-of-1
-predicate could ever match. It never created a store with `created_by = 1`, which is the only case
-the claim was about.
+**The test that was supposed to catch this could not distinguish the defect from the fix.** It
+asserted only that the demoted merchant could not reach `storeB`, whose `created_by` is merchant B's
+id — a store no root-of-1 predicate could ever match. It never created a store with
+`created_by = 1`, which is the only case the claim was about. (Precisely: it is not *incapable* of
+failing — it would fail against a gate with no ownership predicate at all, so it is a real if weaker
+pin. Measured: it passes against both the defect and the fix, which is the property that matters.)
 
 The fix reuses the predicate the house already built for exactly this collapse (it was an account
 takeover once: `docs/security/P0-USER-DELETION-CASCADE.md` §7) rather than writing a second one:
@@ -1117,6 +1119,21 @@ Both sit in the `['auth','xss','setlocate','verified']` group with no permission
 direct POST from any authenticated verified user is the live path. The GET sibling `changeOrder()`
 *does* check `isAbleTo('Manage Themes')` — the same inverted guard M3-A measured on this controller,
 the read locked and the write open.
+
+**Two severity corrections, from an independent re-verification that measured both handlers
+end to end.**
+
+*It narrows one way.* `getCurrentStore()` is not caller-supplied: `users.current_store` is already
+constrained to owned stores (`StoreController:873-883`, `Api\DashboardController:4895-4899`, both
+R4-03 fixes). So this is **not** a merchant-to-merchant crossing. For staff it is a *permission*
+failure — a sub-user with no role and no permission rewriting their employer's storefront — not a
+tenancy one.
+
+*And it confirms the one limb that is cross-tenant.* Driven on a fully migrated install, as the
+platform operator with `current_store` NULL: `POST theme-preview/make-active` with
+`theme_id=operator-wrote-this` set **store 1's `theme_id`** to that value, with store 1's
+`created_by` asserted to be a merchant in the same test. The operator named no store. The same
+principal also wrote a `theme_customize_orders` row for that merchant's store.
 
 Both now resolve through `ThemeEditorGate` and validate `theme_id` against
 `ThemeFieldCatalog::themes()`. The unvalidated `theme_id` was not cosmetic: `stores.theme_id` is
@@ -1159,6 +1176,35 @@ computation to record those migrations, which is narrower than disabling `xss`, 
 premise test — `test_the_operator_actually_reaches_the_controller` — that fails loudly if the
 redirect ever returns.
 
+### 10.4b `theme_customize_orders` has no `theme_id` column, and both paths answered 500 on MySQL
+
+The sharpest thing the re-verification found, and **M3-C's first fix carried the defect forward.**
+
+The table is `id, page_slug, orders, store_id, created_at, updated_at` and nothing else
+(`2025_05_23_043026_create_theme_customize_orders_table.php`). Both the read in `changeOrder()` and
+the write in `updateOrder()` filtered on `theme_id`. Measured on MariaDB 10.11.14, against the table
+built from that migration:
+
+```
+SELECT * FROM theme_customize_orders WHERE theme_id = 'stylique' AND page_slug = 'home' ...
+ERROR 1054 (42S22): Unknown column 'theme_id' in 'WHERE'
+```
+
+So section ordering — read **and** write — has been answering **500 in production**, and the suite
+could never have seen it. **SQLite does not error:** it reinterprets the unresolvable identifier as a
+string literal, compares `'theme_id' = 'stylique'`, matches nothing, and the handler carries on. A
+Feature test driving the route passes with the defect in place — one was written here and did
+exactly that. This is the SQLite-hides-MySQL hazard CLAUDE.md records, caught by an engine rather
+than by a test.
+
+Both predicates are removed. **The consequence is stated rather than hidden: section order is keyed
+on (store, page) and is therefore SHARED ACROSS THEMES.** Keying it per theme needs a new column,
+which needs a migration against live data — an owner decision, so it is recorded here and not taken.
+
+The guard is `tests/Unit/Theme/ThemeCustomizeOrderColumnsExistTest`, which compares the **source**
+to the **migration** rather than to a database, because a database assertion inherits the same
+engine blindness. Falsified: restoring `theme_id` fails it with the file and line.
+
 ### 10.5 The image-filename regression M3-C introduced
 
 Confirmed. The stored name is built from the **raw client filename**
@@ -1166,7 +1212,18 @@ Confirmed. The stored name is built from the **raw client filename**
 `IMAGE_PATTERN` allows only `[A-Za-z0-9._/-]`. So `my logo.png` — **or any Arabic filename, in a
 bilingual product** — was written to disk and then reported as "not saved".
 
-Fixed by slugging at both construction sites rather than widening the path rule. Measured:
+Two corrections to that description, from an adversarial re-verification of the finding itself:
+
+- **"silently" is wrong.** The refusal *is* named — "The following settings were not saved:
+  header_logo" — but it is shown **beside** "Setting Saved Successfully." and **after** the file is
+  already on disk. The defect is the contradictory pair, not silence.
+- **"a space or non-ASCII" understates it.** `IMAGE_PATTERN` is `~^[A-Za-z0-9._/-]*$~`, so a
+  parenthesis, an ampersand, a comma or a plus sign is refused too — `Logo (final).png` fails.
+
+And **there were three construction sites, not two.** The first pass slugged `image` in the repeater
+branch and the direct `_image`/`_logo`/`_favicon` branch, and missed `background_image` inside the
+repeater — its sibling two lines above was fixed while it was not. Found only by re-verification.
+Fixed by slugging at all three rather than widening the path rule. Measured:
 
 | input | `Str::slug()` |
 |---|---|
@@ -1188,7 +1245,7 @@ asserted in both directions.
 
 | finding | disposition |
 |---|---|
-| `allows()`'s permission limb is unreachable, and the docblock's "the named permissions still gate STAFF" is false | **Accurate.** Staff are admitted by OWNERSHIP, since `creatorId()` resolves them to their employer. Not a regression — before M3-C the handler had no check at all — and the validator constrains content. The sentence is wrong and the limb is defence-in-depth for a store with `created_by IS NULL`. |
-| `ThemePublishedVersion::version()` is a bare-id dereference | **Accurate**, and safe only because the composite FK makes a mismatched pointer un-INSERTable. The engine is the control, not the model. Worth `liveVersion()` in M3-D. |
+| `allows()`'s permission limb is unreachable, and the docblock's "the named permissions still gate STAFF" is false | **Accurate, and the limb is now DELETED along with the sentence.** Re-verification showed the gap I had claimed for it — a store with `created_by IS NULL` — is closed too, because `tenantRootIsAMerchant()` makes `ownsStore()`'s extra conjuncts automatically true for anything that gets past `resolveStore()`. Dead code shaped like an authorization check is worse than no code: the next reader believes `Manage Themes` restricts something, and it restricts nothing. What actually entitles is stated plainly in its place — **tenant-root resolution, so a merchant and every user they created, staff included, with no permission of any kind.** `PERMISSIONS` is kept as a record that nothing reads. |
+| `ThemePublishedVersion::version()` is a bare-id dereference | **Accurate, and now replaced** by `liveVersion()`, which resolves through `ThemeVersion::ownedBy()` on the full triple. Not deferred to M3-D: a relation in a model is a precedent that gets copied into a handler where no composite key exists. Pinned and falsified — reverting it to `ThemeVersion::find($this->version_id)` fails the test. Measured along the way: this suite **does** enforce SQLite foreign keys, so the bad row cannot be inserted at all, and `PRAGMA foreign_keys = OFF` is a documented **no-op inside a transaction**, which `RefreshDatabase` always has open. The test therefore exercises an unsaved pointer carrying the mismatched triple — what a restored or imported row looks like when read back. |
 | `isOperator()` used `trim` where `UserPolicy` deliberately uses `rtrim` | **Accurate and acted on.** `trim` is WIDER than MySQL's PAD SPACE collation: `' super admin'` is the operator to `trim` and to no SQL query. Latent, but a cross-tenant gate is the worst place to be wider than the engine. Now delegates to `UserPolicy::isOperator()`; the divergence from CLAUDE.md's wording is deliberate and recorded. Both directions pinned. |
 | the raw-query ratchet might be matching its own comment | **Refuted by the reviewer itself** — `codeLines()` skips `*` continuation lines, so the counts are right. |

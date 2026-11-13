@@ -103,8 +103,13 @@ class ThemeCustomizeController extends Controller
                             }
                         }
                         if (! empty($value['background_image']) && gettype($value['background_image']) == 'object') {
+                            /* THE THIRD SITE. Missed by the first pass and found by an adversarial
+                             * re-verification: `image` beside it was slugged and this one was not.
+                             * Harmless only while this leaf is validated as free text rather than
+                             * as a stored path -- which is an asymmetry, not a guarantee. */
                             $filenameWithExt = $value['background_image']->getClientOriginalName();
-                            $filename = pathinfo($filenameWithExt, PATHINFO_FILENAME);
+                            $filename = \Illuminate\Support\Str::slug(pathinfo($filenameWithExt, PATHINFO_FILENAME));
+                            $filename = $filename !== '' ? $filename : 'image';
                             $extension = $value['background_image']->getClientOriginalExtension();
                             $fileNameToStore = $filename.'_'.time().'.'.$extension;
 
@@ -264,7 +269,26 @@ class ThemeCustomizeController extends Controller
             }
 
             $orders = null;
-            $theme_order = ThemeCustomizeOrder::where('theme_id', $theme)->where('store_id', getCurrentStore())->where('page_slug', $slug)->first();
+            /*
+             * NO `theme_id` PREDICATE: THE COLUMN DOES NOT EXIST. Measured on MariaDB 10.11.14
+             * against the table built from its own migration
+             * (`2025_05_23_043026_create_theme_customize_orders_table.php` -- id, page_slug,
+             * orders, store_id, timestamps, and nothing else):
+             *
+             *     SELECT * FROM theme_customize_orders WHERE theme_id = 'stylique' ...
+             *     ERROR 1054 (42S22): Unknown column 'theme_id' in 'WHERE'
+             *
+             * So this line answered **500 in production**, and the suite could never see it:
+             * SQLite reinterprets the unresolvable identifier as a STRING LITERAL, compares
+             * 'theme_id' = 'stylique', finds no rows, and carries on. A pre-existing defect that
+             * only a real engine reveals -- the exact hazard CLAUDE.md records about SQLite.
+             *
+             * CONSEQUENCE, stated rather than hidden: section order is keyed on (store, page) and
+             * is therefore SHARED ACROSS THEMES. Keying it per theme needs a column, which needs a
+             * migration against live data -- an owner decision, so it is recorded in
+             * `PHASE-03-M3-THEME-VERSIONING.md` and not taken here.
+             */
+            $theme_order = ThemeCustomizeOrder::where('store_id', getCurrentStore())->where('page_slug', $slug)->first();
             if (! empty($theme_order)) {
                 $orders = $theme_order->orders;
             }
@@ -300,8 +324,13 @@ class ThemeCustomizeController extends Controller
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 
+        /*
+         * `theme_id` IS NOT A COLUMN OF THIS TABLE -- see `changeOrder()` above for the measurement.
+         * The M3-C fix originally kept the inherited predicate, which would have answered 500 on
+         * MySQL while passing on SQLite; an adversarial re-verification of the review caught it.
+         */
         ThemeCustomizeOrder::updateOrCreate(
-            ['theme_id' => $theme, 'page_slug' => $request->page_slug, 'store_id' => $storeId],
+            ['page_slug' => $request->page_slug, 'store_id' => $storeId],
             ['orders' => $request->orders]
         );
 
