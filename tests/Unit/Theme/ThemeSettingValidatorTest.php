@@ -265,4 +265,72 @@ class ThemeSettingValidatorTest extends TestCase
             . 'validator has no rule for it and would refuse every value of that type. Add a rule '
             . 'and decide whether that type can reach an unescaped output before allowing it.');
     }
+
+    /* ============================ the scheme rules refuse attacks and not ordinary copy */
+
+    /**
+     * REGRESSION PIN, from a review finding against this file's own first version.
+     *
+     * The scheme rule was `~(?:javascript|vbscript|data)\s*:~i` -- no left word boundary and no
+     * context -- so it refused `metadata:` (the `data` inside a longer word) and `Big data: our
+     * approach`. The class docblock promises it refuses MARKUP AND SCHEMES, not words, and S-09 is
+     * the cautionary tale about word lists eating merchant copy.
+     *
+     * Both directions are asserted, because narrowing a security rule is only safe if the attack
+     * cases still fail.
+     */
+    #[Test]
+    public function test_ordinary_copy_mentioning_data_is_not_refused(): void
+    {
+        foreach ([
+            'Big data: our approach to analytics',
+            'Our metadata: see the table below',
+            'Data: 2024 sales figures',
+            'Shop our javascripts collection',
+        ] as $copy) {
+            $v = new ThemeSettingValidator();
+            $accepted = $v->validate('stylique', ['footer_description' => $copy]);
+
+            $this->assertSame(['footer_description' => $copy], $accepted,
+                "Legitimate shop copy was refused as an executable scheme: {$copy}. That is the "
+                . 'S-09 failure mode -- a word list damaging ordinary text while stopping no XSS.');
+        }
+    }
+
+    #[Test]
+    public function test_a_scheme_in_a_url_position_is_still_refused(): void
+    {
+        foreach ([
+            '<a href="javascript:alert(1)">click</a>',
+            '<a href = "javascript:alert(1)">spaced</a>',
+            '<img src=data:text/html;base64,PHN2Zz4=>',
+            'style="background:url(data:text/html,x)"',
+            'data:text/html;base64,PHN2Zz4=',
+            'vbscript:msgbox(1)',
+        ] as $attack) {
+            $v = new ThemeSettingValidator();
+            $accepted = $v->validate('stylique', ['footer_description' => $attack]);
+
+            $this->assertSame([], $accepted,
+                "An executable scheme in a URL position was ACCEPTED: {$attack}");
+            $this->assertArrayHasKey('footer_description', $v->errors());
+        }
+    }
+
+    /**
+     * REGRESSION PIN for the image-filename defect: the stored path rule is what makes slugging the
+     * upload filename necessary, so it must keep refusing a raw one.
+     */
+    #[Test]
+    public function test_a_raw_client_filename_is_refused_as_a_stored_path(): void
+    {
+        foreach (['uploads/stylique/my logo_1731.png', 'uploads/stylique/\u0634\u0639\u0627\u0631_1731.png'] as $raw) {
+            $v = new ThemeSettingValidator();
+
+            $this->assertSame([], $v->validate('stylique', ['footer_logo' => $raw]),
+                "A stored path containing a space or non-ASCII was accepted: {$raw}. The controller "
+                . 'slugs the client filename precisely because this rule refuses it; if this rule '
+                . 'stops refusing, the slugging looks optional and will be removed.');
+        }
+    }
 }

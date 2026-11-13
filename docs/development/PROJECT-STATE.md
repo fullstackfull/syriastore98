@@ -300,6 +300,26 @@ only, and flushes the model cache after commit. The Flutter `updateStoreOwnerInf
 went through it with its status codes, response shape and `updated_fields` list unchanged, which is
 what fixes the measured defect where a merchant's saved links never reached the storefront.
 
+**M3-C's independent review found a real tenant hole in the gate itself**, and §10 of that document
+records it: the gate treated a resolved root of `1` as a tenant, and the shipped installer creates
+the OPERATOR'S own store with `created_by = 1`, so a merchant who demotes their own `type` through
+the product reached it. The test meant to catch that could not fail — it asserted against a store no
+root-of-1 predicate could ever match. Fixed by reusing `UserPolicy::tenantRootIsAMerchant()` (now
+public) at both sites. **Unverified against production**: `SELECT id FROM stores WHERE created_by =
+1` would settle whether that seeded store still exists there. The same review found two MORE
+unguarded writers in the same controller — `makeActiveTheme()` and `updateOrder()`, both with no
+check of any kind and both reachable by a direct POST from any authenticated user — now closed
+through the same gate.
+
+**A fourth false green, and this one generalises beyond the theme editor.**
+`App\Http\Middleware\XSS::handle():56-78` redirects ANY `super admin` to the installer's updater
+before the controller runs, whenever it finds one unrecorded migration — and in a test run it always
+does, because it walks `Module::allModules()` with a RELATIVE path that resolves from the project
+root while no WorkDo module migration ever runs. Measured: the operator's POST answered 302 to
+`/update` with the row untouched, so an operator assertion written against the completely unguarded
+controller PASSED. **Any test asserting a platform operator is refused on a `web` + `xss` route may
+be measuring that redirect rather than the control it names.**
+
 **Two things M3-C established that are worth carrying forward.** First, **CI has never run on
 `feature/phase-03-storefront`** — `ci.yml` triggers only on `pull_request` and pushes to
 `main`/`master`, so the Unit/Contract/Feature/known-outcome gate has covered no Phase 03 commit at

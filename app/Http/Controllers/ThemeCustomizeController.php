@@ -78,8 +78,18 @@ class ThemeCustomizeController extends Controller
                 if (strpos($key, '_repeater') !== false && is_array($values)) { // Check if key ends with _repeater and is an array
                     foreach ($values as $subKey => $value) {
                         if (! empty($value['image']) && gettype($value['image']) == 'object') {
+                            /*
+                             * SLUG THE CLIENT FILENAME. `getClientOriginalName()` is attacker- and
+                             * merchant-controlled, and M3-C's validator refuses a stored path that
+                             * is not `[A-Za-z0-9._/-]`. Without this the file is WRITTEN and the
+                             * setting is then refused -- "my logo.png" or any Arabic filename, in a
+                             * bilingual product, uploads successfully and silently does not apply.
+                             * Measured: Str::slug('shaaar almtgr') transliterates rather than
+                             * blanking, and 'etcpasswd' for '../../etc/passwd'.
+                             */
                             $filenameWithExt = $value['image']->getClientOriginalName();
-                            $filename = pathinfo($filenameWithExt, PATHINFO_FILENAME);
+                            $filename = \Illuminate\Support\Str::slug(pathinfo($filenameWithExt, PATHINFO_FILENAME));
+                            $filename = $filename !== '' ? $filename : 'image';
                             $extension = $value['image']->getClientOriginalExtension();
                             $fileNameToStore = $filename.'_'.time().'.'.$extension;
 
@@ -113,8 +123,11 @@ class ThemeCustomizeController extends Controller
 
                 if ((strpos($key, '_image') !== false || strpos($key, '_logo') !== false || strpos($key, '_favicon') !== false) && is_object($values)) { // Check if key ends with _repeater and is an array
                     $image_data = $key;
+                    /* Same reason as the repeater branch above: slug before storing, or the file
+                     * lands on disk and the setting is refused. */
                     $filenameWithExt = $request->$image_data->getClientOriginalName();
-                    $filename = pathinfo($filenameWithExt, PATHINFO_FILENAME);
+                    $filename = \Illuminate\Support\Str::slug(pathinfo($filenameWithExt, PATHINFO_FILENAME));
+                    $filename = $filename !== '' ? $filename : 'image';
                     $extension = $request->$image_data->getClientOriginalExtension();
                     $fileNameToStore = $filename.'_'.time().'.'.$extension;
 
@@ -262,18 +275,76 @@ class ThemeCustomizeController extends Controller
         }
     }
 
+    /**
+     * PHASE 03 M3-C. Was an unguarded write: no permission check, no ownership check, and the store
+     * from `getCurrentStore()`. Reached by ANY authenticated verified user with a POST to
+     * `theme-customize/{theme}/order/update` (`routes/web.php:1447`, group
+     * `['auth','xss','setlocate','verified']`) -- so zero-permission staff could reorder their
+     * employer's storefront sections, and a platform operator with an empty `current_store` would
+     * write to the literal store 1, which belongs to a merchant.
+     *
+     * The GET sibling `changeOrder()` DOES check `isAbleTo('Manage Themes')`, which no role and no
+     * user holds -- the same inverted guard M3-A measured on this controller: the read locked, the
+     * write open. The gate entitles by store OWNERSHIP so the merchant is not locked out.
+     */
     public function updateOrder(Request $request, $theme)
-    {      
-        ThemeCustomizeOrder::updateOrCreate(['theme_id' => $theme, 'page_slug' => $request->page_slug, 'store_id' => getCurrentStore()], ['orders' => $request->orders]);
+    {
+        $gate = new \App\Support\Theme\ThemeEditorGate();
+        $storeId = $gate->storeIdForSelfService();
+
+        if ($storeId === null || ! $gate->allows($storeId)) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        if (! in_array($theme, \App\Support\Theme\ThemeFieldCatalog::themes(), true)) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        ThemeCustomizeOrder::updateOrCreate(
+            ['theme_id' => $theme, 'page_slug' => $request->page_slug, 'store_id' => $storeId],
+            ['orders' => $request->orders]
+        );
+
         return redirect()->back()->with('success', __('Order change successfully.'));
     }
 
+    /**
+     * PHASE 03 M3-C. The third unguarded writer, and the one the M3-B migration already named:
+     * *"`makeActiveTheme` needs the same predicate. One check closes both."*
+     * (`2026_11_13_000100_create_theme_versions_table.php:119-121`).
+     *
+     * It wrote `stores.theme_id` for `getCurrentStore()` with NO permission check, NO ownership
+     * check and `$request->theme_id` behind nothing but `isset()`. Two consequences, both measured
+     * elsewhere in this phase:
+     *
+     *   - an operator with an empty `current_store` gets the literal store 1, so the POST re-points
+     *     a MERCHANT'S LIVE STOREFRONT to another theme;
+     *   - an unvalidated `theme_id` is why `ThemeConfigurationService::resolveThemeId()` refuses to
+     *     trust the stored column. `stores.theme_id` is `varchar(191)` while the request field is
+     *     not length-checked, so a long value TRUNCATES SILENTLY on MySQL, and any unknown value
+     *     makes `getThemeSetting()` fall back to `config('theme.active')`'s defaults -- the
+     *     storefront silently renders someone else's theme.
+     *
+     * Validated against the shipped catalog, not against a pattern: an installation ships the themes
+     * it ships.
+     */
     public function makeActiveTheme(Request $request)
     {
+        $gate = new \App\Support\Theme\ThemeEditorGate();
+        $storeId = $gate->storeIdForSelfService();
 
-        if (isset($request->theme_id)) {
-            Store::where('id', getCurrentStore())->update(['theme_id' => $request->theme_id]);
+        if ($storeId === null || ! $gate->allows($storeId)) {
+            return redirect()->back()->with('error', __('Permission denied.'));
         }
+
+        $themeId = (string) $request->input('theme_id', '');
+
+        if (! in_array($themeId, \App\Support\Theme\ThemeFieldCatalog::themes(), true)) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        Store::where('id', $storeId)->update(['theme_id' => $themeId]);
+
         return redirect()->back()->with('success', __('Theme active set successfully'));
     }
 }

@@ -77,8 +77,26 @@ final class ThemeSettingValidator
             => 'contains an HTML tag that can execute or exfiltrate (<script>, <iframe>, <style> and similar)',
         '~<[a-z][^>]*\son[a-z]+\s*=~i'
             => 'contains an inline event handler attribute (onclick, onerror and similar)',
-        '~(?:javascript|vbscript|data)\s*:~i'
-            => 'contains an executable URL scheme (javascript:, vbscript:, data:)',
+        /*
+         * `javascript:` and `vbscript:` are never legitimate shop copy, so they are refused
+         * wherever they appear. `\b` on the left so a word ENDING in them is not caught.
+         */
+        '~\b(?:javascript|vbscript)\s*:~i'
+            => 'contains an executable URL scheme (javascript: or vbscript:)',
+
+        /*
+         * `data:` IS legitimate prose, and the first version of this rule refused it anywhere --
+         * so "Big data: our approach" and even "metadata: see below" were rejected as XSS. That
+         * had no left word boundary either, which is how `metadata` matched. A word list is what
+         * S-09 is; a word list that eats ordinary copy is worse.
+         *
+         * A `data:` URL is only dangerous once it is an attribute or a CSS url(), which is a
+         * context this can test for. Two precise rules replace one blunt one:
+         */
+        '~(?:=\s*["\']?|url\s*\(\s*["\']?)\s*data\s*:~i'
+            => 'contains a data: URL in an attribute or url() position',
+        '~^\s*data\s*:(?!\s)~i'
+            => 'is itself a data: URL',
         '~&\#x?0*(?:6a|106|74|116)[;\s]~i'
             => 'contains a numeric character reference that decodes to a scheme prefix',
         '~\x00~'

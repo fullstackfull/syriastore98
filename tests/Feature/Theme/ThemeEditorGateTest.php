@@ -40,6 +40,7 @@ class ThemeEditorGateTest extends TestCase
     private User $staffA;
     private Store $storeA;
     private Store $storeB;
+    private Store $operatorStore;
 
     protected function setUp(): void
     {
@@ -72,6 +73,23 @@ class ThemeEditorGateTest extends TestCase
         $this->storeB = Store::create([
             'name' => 'Gate B', 'email' => 'gate-store-b@example.test', 'slug' => 'gate-store-b',
             'theme_id' => 'greentic', 'created_by' => $this->merchantB->id,
+            'is_active' => 1, 'default_language' => 'en',
+        ]);
+
+        /*
+         * THE OPERATOR'S OWN STORE, built exactly as the shipped installer builds it:
+         * `database/seeders/PermissionTableSeeder.php:41-47` creates it with
+         * `'created_by' => $superadmin->id`, and the super admin is the FIRST user created, so in a
+         * fresh install this store has `created_by = 1`. `$this->operator` is likewise the first
+         * user created in this setUp, so it holds id 1 here for the same reason.
+         *
+         * This store is the whole point of the demotion test below. Without it that test asserts
+         * against `storeB`, whose `created_by` is merchant B's id -- a store no root-of-1 predicate
+         * could ever match -- so it passed no matter what the gate did.
+         */
+        $this->operatorStore = Store::create([
+            'name' => 'my-store', 'email' => 'gate-op-store@example.test', 'slug' => 'gate-op-store',
+            'theme_id' => 'stylique', 'created_by' => $this->operator->id,
             'is_active' => 1, 'default_language' => 'en',
         ]);
 
@@ -217,22 +235,49 @@ class ThemeEditorGateTest extends TestCase
 
     /* ======================================================= THE OPERATOR STRING IS NORMALISED */
 
+    /**
+     * THE OPERATOR SPELLINGS, PINNED TO WHAT THE DATABASE ACTUALLY THINKS.
+     *
+     * The gate delegates to `UserPolicy::isOperator()`, which strips TRAILING spaces only, because
+     * `utf8mb4_unicode_ci` is PAD SPACE: it folds case and a trailing space, and does NOT fold a
+     * leading one. `UserPolicy`'s docblock carries the side-by-side measurement.
+     *
+     * So this asserts BOTH directions. The first three spellings are the operator to the engine and
+     * must be the operator here. `' super admin'` is **not** the operator to any SQL query, and a
+     * predicate that accepted it would be wider than the database -- granting cross-tenant access to
+     * a value the engine refuses. An earlier version of this gate used `trim()` and did exactly that.
+     */
     #[Test]
-    public function test_an_operator_recorded_with_odd_casing_is_still_the_operator(): void
+    public function test_the_operator_spellings_match_what_the_engine_treats_as_equal(): void
     {
-        foreach (['Super Admin', 'SUPER ADMIN', ' super admin '] as $spelling) {
+        $operatorToTheEngine = ['Super Admin', 'SUPER ADMIN', 'super admin '];
+        $notOperatorToTheEngine = [' super admin', 'superadmin', 'super  admin'];
+
+        foreach ($operatorToTheEngine as $spelling) {
             $odd = User::forceCreate([
                 'name' => 'Odd ' . $spelling, 'email' => 'odd-' . md5($spelling) . '@example.test',
                 'password' => bcrypt('x'), 'type' => $spelling,
                 'created_by' => 1, 'email_verified_at' => now(),
             ]);
 
-            $gate = $this->gate();
+            $this->assertNotNull($this->gate()->resolveStore($this->storeA->id, $odd),
+                "An operator recorded as '{$spelling}' was treated as a merchant. The engine folds "
+                . 'case and a trailing space, so every SQL query already calls this row the '
+                . 'operator; refusing it here locks them out of their own dashboard.');
+        }
 
-            $this->assertNotNull($gate->resolveStore($this->storeA->id, $odd),
-                "An operator recorded as '{$spelling}' was treated as a merchant. Every type "
-                . 'predicate in this phase normalises with strtolower(trim()); helper.php uses a '
-                . 'bare `==` and is the odd one out.');
+        foreach ($notOperatorToTheEngine as $spelling) {
+            $odd = User::forceCreate([
+                'name' => 'Odd ' . $spelling, 'email' => 'notop-' . md5($spelling) . '@example.test',
+                'password' => bcrypt('x'), 'type' => $spelling,
+                'created_by' => 1, 'email_verified_at' => now(),
+            ]);
+
+            $this->assertNull($this->gate()->resolveStore($this->storeA->id, $odd),
+                "'{$spelling}' was treated as the operator and handed another tenant's store. No "
+                . 'SQL query in this codebase considers that value the operator, so accepting it '
+                . 'here is WIDER THAN THE ENGINE -- the one direction a cross-tenant gate must '
+                . 'never be.');
         }
     }
 
@@ -254,7 +299,60 @@ class ThemeEditorGateTest extends TestCase
         $gate = $this->gate();
 
         $this->assertNull($gate->resolveStore($this->storeB->id, $this->merchantA->fresh()),
-            "A demoted merchant resolved another tenant's store. A root of 1 is store 1's owner at "
-            . 'most, never a universal tenant.');
+            "A demoted merchant resolved another tenant's store.");
+    }
+
+    /**
+     * THE CASE THE TEST ABOVE CANNOT REACH, AND THE DEFECT IT HID.
+     *
+     * The predicate compares `stores.created_by` to the resolved root -- not `stores.id` -- and the
+     * installer creates the OPERATOR'S OWN store with `created_by = 1`
+     * (`PermissionTableSeeder.php:41-47`). So a merchant who demotes their own `type` through the
+     * product, which `UserPolicy`'s docblock records as a supported action (create a role named
+     * anything outside `RolePolicy::RESERVED_NAMES`, then `PUT /users/{self}` with it), drops to a
+     * root of 1 and matches every store the operator created.
+     *
+     * The gate's docblock used to argue this was harmless because "store 1 is one store". That
+     * confused `id` with `created_by`, and the one store it hands over is the platform operator's.
+     *
+     * The fix is the predicate the house already has: `UserPolicy::tenantRootIsAMerchant()` -- a
+     * tenant root must be a **type-`admin`** row, which excludes both the operator (type
+     * `super admin`) and the demoted user themselves.
+     */
+    #[Test]
+    public function test_a_merchant_demoted_to_a_root_of_one_does_not_gain_the_operators_store(): void
+    {
+        $this->assertSame(1, (int) $this->operator->id,
+            'PREMISE: this test models a fresh install, where the operator is user 1 and owns a '
+            . 'store created with created_by = 1. If the operator is not user 1 the demotion below '
+            . 'does not collapse onto their store and the assertion proves nothing.');
+
+        $this->merchantA->type = 'staff';
+        $this->merchantA->save();
+
+        $demoted = $this->merchantA->fresh();
+
+        $this->assertSame(1, (int) $demoted->creatorId(),
+            'PREMISE: the demotion is supposed to drop creatorId() to created_by = 1.');
+
+        $gate = $this->gate();
+
+        $this->assertNull($gate->resolveStore($this->operatorStore->id, $demoted),
+            "A demoted merchant resolved the PLATFORM OPERATOR'S store. `created_by` is not `id`: a "
+            . 'root of 1 matches every store the operator created, and the installer creates one.');
+        $this->assertFalse($gate->allows($this->operatorStore->id, $demoted));
+    }
+
+    /**
+     * And the operator themselves must still reach their own store -- the fix must not lock the
+     * operator out, which is the failure mode the narrow-permission approach would have had.
+     */
+    #[Test]
+    public function test_the_operator_still_reaches_their_own_store(): void
+    {
+        $gate = $this->gate();
+
+        $this->assertNotNull($gate->resolveStore($this->operatorStore->id, $this->operator));
+        $this->assertTrue($gate->allows($this->operatorStore->id, $this->operator));
     }
 }

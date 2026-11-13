@@ -3,6 +3,7 @@
 namespace App\Support\Theme;
 
 use App\Models\Store;
+use App\Policies\UserPolicy;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Auth;
 
@@ -129,9 +130,40 @@ final class ThemeEditorGate
         $query = Store::query()->where('id', (int) $storeId);
 
         if (! $this->isOperator($user)) {
-            /* The house predicate. `creatorId()` is the tenant root: `$this->id` for a type-admin
-             * row, else `created_by`. */
-            $query->where('created_by', $user->creatorId());
+            /*
+             * THE TENANT ROOT MUST BE A MERCHANT, NOT MERELY A NUMBER -- the correction a review
+             * found here, and a real one.
+             *
+             * `creatorId()` returns `$this->id` for a type-`admin` row and `created_by` otherwise,
+             * and EVERY merchant has `created_by = 1`. A merchant who demotes their own `type`
+             * through the product -- `UserPolicy`'s docblock records this as a supported action,
+             * since `RolePolicy::RESERVED_NAMES` blocks only the `admin`/`super admin` spellings --
+             * therefore drops to a root of 1.
+             *
+             * This predicate compares `stores.created_by`, NOT `stores.id`. An earlier docblock here
+             * argued a root of 1 was harmless because "store 1 is one store"; that confused the two
+             * columns, and the one store it hands over is the PLATFORM OPERATOR'S: the installer
+             * creates it with `'created_by' => $superadmin->id`
+             * (`database/seeders/PermissionTableSeeder.php:41-47`), and the super admin is the first
+             * user created. Measured in `ThemeEditorGateTest::
+             * test_a_merchant_demoted_to_a_root_of_one_does_not_gain_the_operators_store`, which
+             * fails without the guard below.
+             *
+             * `UserPolicy::tenantRootIsAMerchant()` is the predicate the house already built for
+             * exactly this, after the same collapse was an account takeover
+             * (`docs/security/P0-USER-DELETION-CASCADE.md` §7): a tenant root must be a type-`admin`
+             * row, which excludes the operator AND the demoted user. It is reused rather than
+             * copied, so there is one rule.
+             */
+            $root = $user->creatorId();
+
+            if (! UserPolicy::tenantRootIsAMerchant($root)) {
+                $this->reason = 'this principal resolves to no merchant tenant root';
+
+                return null;
+            }
+
+            $query->where('created_by', $root);
         }
 
         $store = $query->first();
@@ -231,10 +263,23 @@ final class ThemeEditorGate
         return $owned?->id;
     }
 
-    /** Normalised, matching PlatformOperatorOnly::handle():61 and both resolveOwnedStore() siblings. */
+    /**
+     * ONE OPERATOR TEST, and it is the house's -- not a local copy.
+     *
+     * This used `strtolower(trim(...))`, which CLAUDE.md prescribes. `UserPolicy::isOperator()`
+     * deliberately uses `rtrim` instead, and its docblock shows the measurement: MySQL's
+     * `utf8mb4_unicode_ci` is PAD SPACE, so it folds a TRAILING space but not a LEADING one.
+     * `' super admin'` is therefore NOT the operator to any SQL query, while `trim()` would have
+     * said it was -- **wider than the engine**, in the direction that grants rather than refuses.
+     *
+     * Latent either way, because no write path produces that value. But this gate is the single
+     * worst place to be wider than the database, since what it grants is cross-tenant access to
+     * every store. The narrower, engine-matching predicate is used here, and the divergence from
+     * CLAUDE.md's wording is deliberate and recorded rather than silent.
+     */
     private function isOperator(Authenticatable $user): bool
     {
-        return strtolower(trim((string) ($user->type ?? ''))) === 'super admin';
+        return UserPolicy::isOperator($user);
     }
 
     /**
@@ -255,6 +300,10 @@ final class ThemeEditorGate
     {
         $root = method_exists($user, 'creatorId') ? (int) $user->creatorId() : 0;
 
-        return $root > 0 && (int) $store->created_by === $root;
+        /* The same merchant-root requirement as `resolveStore()`. Both sites, or neither: a caller
+         * that reached `allows()` by another route must not get a weaker rule. */
+        return $root > 0
+            && UserPolicy::tenantRootIsAMerchant($root)
+            && (int) $store->created_by === $root;
     }
 }

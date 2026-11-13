@@ -123,7 +123,14 @@ class UserPolicy
      * turn this read into `null` and hand back "yes". A root that cannot be read at all is NOT a
      * merchant, which is the refusing direction.
      */
-    protected static function tenantRootIsAMerchant(int|string $actorTenant): bool
+    /*
+     * PUBLIC since Phase 03 M3-C, for the same reason `isOperator()` below is public: a second copy
+     * of a tenant-root rule is a second thing to get wrong. `App\Support\Theme\ThemeEditorGate`
+     * calls it, after a review found that gate treating a root of `1` as a tenant -- which hands a
+     * demoted merchant the platform operator's own store, because the installer creates it with
+     * `created_by = 1` (`PermissionTableSeeder:41-47`). The behaviour here is unchanged.
+     */
+    public static function tenantRootIsAMerchant(int|string $actorTenant): bool
     {
         $root = User::withoutGlobalScopes()->whereKey($actorTenant)->first();
 

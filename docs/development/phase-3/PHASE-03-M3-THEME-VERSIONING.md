@@ -1059,3 +1059,136 @@ evidence. This is the project's standing rule and it caught three defects in thi
 | the cache priming in that contract test | the raw write **passes** — the test was measuring the absence of a cache |
 | `DB::afterCommit` in the service, `MODEL_CACHE_STORE=file` | harness check 4 **fails** |
 | `DB::afterCommit` in the service, model cache on the database store | harness check 4 **passes** — see §9.5 |
+
+---
+
+## 10. M3-C review response — a real tenant hole, two writers the package missed, and a test that could not fail
+
+An independent tenant-authorization review of §9 found six things. Five were right. Each was
+re-measured here before acting, because a reviewer's claim is not evidence either.
+
+### 10.1 The finding that mattered: `creatorId() == 1` was treated as a tenant root
+
+**Confirmed, and it was mine.** The gate's predicate compares `stores.created_by` to the caller's
+resolved root. The docblock argued a demoted merchant was harmless because *"store 1 is one store"* —
+which **confused `created_by` with `id`**, and the store that satisfies it is the platform
+operator's own:
+
+```php
+// database/seeders/PermissionTableSeeder.php:41-47  (the shipped installer)
+$superAdminStore = Store::create([ ... 'created_by' => $superadmin->id ]);
+```
+
+The super admin is the first user created, so in a fresh install that store has `created_by = 1`.
+A merchant who demotes their own `type` through the product — `UserPolicy`'s docblock records this
+as supported, since `RolePolicy::RESERVED_NAMES` blocks only the `admin`/`super admin` spellings —
+drops to `creatorId() = 1` and matches it.
+
+**The test that was supposed to catch this could not fail.** It asserted only that the demoted
+merchant could not reach `storeB`, whose `created_by` is merchant B's id — a store no root-of-1
+predicate could ever match. It never created a store with `created_by = 1`, which is the only case
+the claim was about.
+
+The fix reuses the predicate the house already built for exactly this collapse (it was an account
+takeover once: `docs/security/P0-USER-DELETION-CASCADE.md` §7) rather than writing a second one:
+`UserPolicy::tenantRootIsAMerchant()` requires a tenant root to be a **type-`admin`** row, which
+excludes both the operator and the demoted user. It was `protected`; it is now `public`, for the
+same reason `isOperator()` already is. Applied at **both** sites — `resolveStore()` and
+`ownsStore()` — so a caller reaching `allows()` by another route cannot get a weaker rule.
+
+Measured: the new test fails before the fix and passes after, and `the operator still reaches their
+own store` guards against over-correcting into a lockout.
+
+**Not verified against production.** `SELECT id FROM stores WHERE created_by = 1` would settle
+whether the operator's seeded store still exists there. Live in any freshly seeded environment.
+
+### 10.2 Two more unguarded writers, in the file the package had already edited
+
+§9 said the two writers were closed. Two *others* sat in the same controller, below the fix, and the
+M3-B migration had already named one: *"`makeActiveTheme` needs the same predicate. One check closes
+both."*
+
+| route | method | what it had |
+|---|---|---|
+| `POST theme-preview/make-active` (`web.php:1448`) | `makeActiveTheme()` | **no check of any kind**; `Store::where('id', getCurrentStore())->update(['theme_id' => $request->theme_id])`, `theme_id` behind only `isset()` |
+| `POST theme-customize/{theme}/order/update` (`web.php:1447`) | `updateOrder()` | **no check of any kind**; `store_id => getCurrentStore()` |
+
+Both sit in the `['auth','xss','setlocate','verified']` group with no permission middleware, so a
+direct POST from any authenticated verified user is the live path. The GET sibling `changeOrder()`
+*does* check `isAbleTo('Manage Themes')` — the same inverted guard M3-A measured on this controller,
+the read locked and the write open.
+
+Both now resolve through `ThemeEditorGate` and validate `theme_id` against
+`ThemeFieldCatalog::themes()`. The unvalidated `theme_id` was not cosmetic: `stores.theme_id` is
+`varchar(191)`, a longer value **truncates silently** on MySQL, and any unknown value makes
+`getThemeSetting()` fall back to `config('theme.active')` — the storefront renders a theme nobody
+chose.
+
+### 10.3 No test drove the web routes at all
+
+Also confirmed: nothing in the suite drove `POST theme-customize/{theme}/update`. Reverting the
+controller left the **entire M3-C suite green**. `tests/Feature/Theme/ThemeCustomizeWebRoutesTest`
+now drives all three write routes over HTTP. Falsified against the pre-M3-C controller: **6 of 11
+fail**, including all three operator cases, while the merchant and staff positives pass either way —
+which is the correct shape.
+
+### 10.4 And the environment artefact that made the first version of that test worthless
+
+Writing it surfaced a fourth false green, of a kind worth recording beyond this package.
+
+**`App\Http\Middleware\XSS::handle():56-78` redirects ANY `super admin` to the installer's updater
+(`/update`) when it finds a single unrecorded migration — before the controller runs.** The first
+version of the file asserted *"an operator cannot repoint a merchant's active theme"* and **passed
+against the completely unguarded controller**. Measured side by side:
+
+| principal | status | redirect | row after |
+|---|---|---|---|
+| operator | 302 | `http://localhost/update` | **unchanged** |
+| merchant | 302 | `http://localhost` | changed |
+
+The operator never reached the code. And the pending migration is not one of this repository's:
+`database/migrations/*.php` is fully recorded in a test run (**measured: 0 pending**). The
+middleware also walks `Module::allModules()` and merges
+`"packages/workdo/{$module->name}/src/Database/Migrations"` — a **relative** path, which
+`File::exists()` resolves against the working directory, so the files are found — and no WorkDo
+module migration ever runs in a test, so every one of them is pending forever.
+
+**Any test that asserts a platform operator is refused on a `web` + `xss` route may be measuring
+this redirect rather than the control it names.** The test now replicates the middleware's own
+computation to record those migrations, which is narrower than disabling `xss`, and carries a
+premise test — `test_the_operator_actually_reaches_the_controller` — that fails loudly if the
+redirect ever returns.
+
+### 10.5 The image-filename regression M3-C introduced
+
+Confirmed. The stored name is built from the **raw client filename**
+(`pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)`), while the new validator's
+`IMAGE_PATTERN` allows only `[A-Za-z0-9._/-]`. So `my logo.png` — **or any Arabic filename, in a
+bilingual product** — was written to disk and then reported as "not saved".
+
+Fixed by slugging at both construction sites rather than widening the path rule. Measured:
+
+| input | `Str::slug()` |
+|---|---|
+| `my logo` | `my-logo` |
+| `شعار المتجر` | `shaaar-almtgr` |
+| `صابون حلب` | `sabon-hlb` |
+| `../../etc/passwd` | `etcpasswd` |
+| `🎉` | `''` → falls back to `image` |
+
+### 10.6 The scheme rule refused ordinary copy
+
+Confirmed. `~(?:javascript|vbscript|data)\s*:~i` had no left word boundary and no context, so it
+refused `metadata:` and `Big data: our approach` — the S-09 failure mode this class exists to avoid.
+Split into three precise rules: `javascript:`/`vbscript:` anywhere (never legitimate prose), `data:`
+only in an attribute or `url()` position, and `data:` when the value *is* a data URL. Ten cases
+asserted in both directions.
+
+### 10.7 Findings recorded without a code change
+
+| finding | disposition |
+|---|---|
+| `allows()`'s permission limb is unreachable, and the docblock's "the named permissions still gate STAFF" is false | **Accurate.** Staff are admitted by OWNERSHIP, since `creatorId()` resolves them to their employer. Not a regression — before M3-C the handler had no check at all — and the validator constrains content. The sentence is wrong and the limb is defence-in-depth for a store with `created_by IS NULL`. |
+| `ThemePublishedVersion::version()` is a bare-id dereference | **Accurate**, and safe only because the composite FK makes a mismatched pointer un-INSERTable. The engine is the control, not the model. Worth `liveVersion()` in M3-D. |
+| `isOperator()` used `trim` where `UserPolicy` deliberately uses `rtrim` | **Accurate and acted on.** `trim` is WIDER than MySQL's PAD SPACE collation: `' super admin'` is the operator to `trim` and to no SQL query. Latent, but a cross-tenant gate is the worst place to be wider than the engine. Now delegates to `UserPolicy::isOperator()`; the divergence from CLAUDE.md's wording is deliberate and recorded. Both directions pinned. |
+| the raw-query ratchet might be matching its own comment | **Refuted by the reviewer itself** — `codeLines()` skips `*` continuation lines, so the counts are right. |
