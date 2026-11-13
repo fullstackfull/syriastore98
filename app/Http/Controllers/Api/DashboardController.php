@@ -9029,15 +9029,38 @@ public function updateStoreOwnerInfo(Request $request)
                 }
 
                 if (!empty($socialData)) {
-                    \DB::table('theme_customizes')->updateOrInsert(
-                        [
-                            'store_id' => $storeId,
-                            'theme_id' => $store->theme_id,
-                            'name' => 'footer_repeater',
-                        ],
-                        ['value' => json_encode($socialData)]
-                    );
-                    $updatedFields[] = 'social_media';
+                    /*
+                     * PHASE 03 M3-C. This was a RAW `\DB::table('theme_customizes')->updateOrInsert()`
+                     * and it DID NOT REACH THE STOREFRONT. `App\Models\ThemeCustomize` is `Cachable`,
+                     * a raw write does not invalidate that cache, and the storefront reads through
+                     * `getThemeSetting()` which is Eloquent. MEASURED on MariaDB with
+                     * `CACHE_STORE=database` -- production's setting, not the suite's `array`:
+                     *
+                     *     BEFORE the save   storefront: old links   flutter: old links
+                     *     AFTER  the save   storefront: OLD LINKS   flutter: new links
+                     *     after flushCache  storefront: new links
+                     *
+                     * The merchant saw the app confirm the save, because the app's own read is also
+                     * raw, while the footer kept rendering the old links indefinitely.
+                     *
+                     * It now goes through the one controlled write path, which validates the value
+                     * against the theme's declared taxonomy (`footer_repeater` is declared `slider`
+                     * -- a repeater -- in all three shipped themes) and flushes the model cache
+                     * AFTER COMMIT. The HTTP contract is unchanged: same condition, same
+                     * `$updatedFields[] = 'social_media'`, same request and response shape. Only the
+                     * internal write path moved, so the shipped Flutter app is unaffected.
+                     */
+                    $written = app(\App\Services\Theme\ThemeConfigurationService::class)
+                        ->writeSettings(
+                            $storeId,
+                            (string) $store->theme_id,
+                            ['footer_repeater' => json_encode($socialData)],
+                            $adminUser
+                        );
+
+                    if (!empty($written)) {
+                        $updatedFields[] = 'social_media';
+                    }
                 }
             }
 

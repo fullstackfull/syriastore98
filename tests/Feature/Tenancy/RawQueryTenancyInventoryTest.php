@@ -394,7 +394,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
          * its result only selects which of two operator log messages is written. Counted here
          * because every raw site is counted here, not because it is an exposure.
          */
-        $this->assertSame(['app' => 177, 'packages' => 45], $perDir,
+        // 176, DOWN FROM 177. P3-M3-C removed the raw `DB::table('theme_customizes')
+        // ->updateOrInsert()` from Api/DashboardController (the Flutter admin app's social-links
+        // save) and routed it through App\Services\Theme\ThemeConfigurationService, which writes
+        // through Eloquent. The raw write did not invalidate the Cachable model, so the save never
+        // reached the storefront -- measured on MariaDB with CACHE_STORE=database. One fewer raw
+        // entry point is the point, not a side effect.
+        $this->assertSame(['app' => 176, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -472,7 +478,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // ServiceLayerRawQueryInventoryTest::STORE_LESS_BY_DESIGN; see the per-directory note.
         // 221 -> 222 [2026-11-11, P1-SEC-61]: the logSlugCollision twin lookup (177 + 45). It
         // carries a `store_id` predicate, so the UNSCOPED sum below does not move.
-        $this->assertSame(222, array_sum($perDir));
+        // 221, DOWN FROM 222: one raw theme_customizes WRITE removed by P3-M3-C. See the
+        // per-directory note above.
+        $this->assertSame(221, array_sum($perDir));
     }
 
     /**
@@ -654,7 +662,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // owns, because one it misses is one the delete destroys.
             'stores' => [24, 23],    // P1-SEC-10 (DeliverySyriaCredential: stores created by a matched owner), P1-SEC-04 (Duo setting rule) and the P0 deletion guard; the Zid controller's own stores read is gone.
                                      // 20 -> 23 and 20 -> 22 with ModuleStorefrontInputGuard: two slug resolutions (no store_id to predicate on yet) and the thread read's by-id lookup, whose statement names `store_id` because the id comes from the body and is compared, not trusted
-            'theme_customizes' => [2, 0],
+            // [1, 0], DOWN FROM [2, 0]. The remaining raw statement is the READ at
+            // Api/DashboardController::extractSocialMediaLinks(), which constrains store_id,
+            // theme_id AND name. The raw WRITE is gone -- see the note on the per-directory total.
+            'theme_customizes' => [1, 0],
             'user_email_templates' => [1, 1], // P1-SEC-04: ModuleAdministrativeRouteGuard::ownsEmailTemplate (the row named in the body)
             'users' => [5, 5],
             'zid_events' => [2, 2],
@@ -744,7 +755,8 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // 171 -> 172 [2026-11-11, P1-SEC-61]: AuctionBidIdentityGuard::logSlugCollision()'s twin
         // lookup names `products` as a literal, so it is attributable and lands in the per-table
         // count rather than the remainder. 172 literal-table sites of the 222 entry points.
-        $this->assertSame(172, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        // 171, DOWN FROM 172: same single removed raw write.
+        $this->assertSame(171, array_sum(array_map(fn ($r) => $r[0], $actual)),
             '[2026-11-02] 167 -> 170 AND the remainder 52 -> 49, with NOTHING IN app/ CHANGED. '
             . 'Three entry points were counted by RAW_ENTRY_POINT_PATTERN and NOT attributed to '
             . 'their table, because they write `DB::table(` on one line and the name on the next: '

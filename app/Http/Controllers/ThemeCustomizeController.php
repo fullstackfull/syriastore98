@@ -128,8 +128,97 @@ class ThemeCustomizeController extends Controller
                 }
             }
 
-            foreach ($data as $key => $value) {
-                ThemeCustomize::updateOrCreate(['theme_id' => $theme, 'name' => $key, 'store_id' => getCurrentStore()], ['value' => $value]);
+            /*
+             * PHASE 03 M3-C. One controlled write instead of a per-key loop into the table.
+             *
+             * WHAT THIS REPLACES, measured at M3-A and recorded as
+             * docs/discovery/03-FEATURE-MATRIX.md:223 (HIGH/P0, *Theme settings write
+             * authorization*):
+             *
+             *   - the `isAbleTo('Edit Theme')` check at the top of this method is COMMENTED OUT,
+             *     while all four READ actions in this controller check -- an INVERTED guard, the
+             *     reads locked and the writes open. Uncommenting it is not the fix: `Edit Theme`
+             *     does not exist as a permission and `Manage Themes` is held by no role and no user
+             *     in the fixture, so the naive repair locks every merchant out of their own editor.
+             *   - there was no allowlist, so `$key` could be any request key and `$value` any
+             *     string, and 43 settings reach the storefront through unescaped `{!! !!}` output.
+             *   - the store came from `getCurrentStore()`, which hands a platform operator the
+             *     literal store 1 -- which belongs to a MERCHANT.
+             *
+             * `ThemeEditorGate` tests the operator first (Laratrust's `isAbleTo()` alone REFUSES
+             * the operator), proves store ownership, and refuses an operator who has named no
+             * store. `ThemeSettingValidator` checks each value against the type the theme itself
+             * declares and REJECTS rather than silently rewriting. The cache is flushed after
+             * commit.
+             */
+            /*
+             * THE FORM'S CONTROL KEYS ARE NOT SETTINGS, and writing them was a latent defect of its
+             * own. `resources/views/theme_customize/customize.blade.php` posts five bare names
+             * alongside the real fields:
+             *
+             *     slug              :192  a hidden field carrying the section key
+             *     image             :289, :294, :341, :345  the file inputs' own names
+             *     background_image  :356  the same
+             *     menu, button_link       sub-inputs of composite field types
+             *
+             * None is a composed `{section}_{setting}` name, so none is a declared setting. Before
+             * M3-C the per-key loop wrote them into `theme_customizes` as junk rows, which
+             * `getThemeSetting()` would then merge into `$themeSettings['slug']` and friends. The
+             * fixture has none only because it was seeded by script rather than through the form.
+             *
+             * They are dropped here rather than rejected, because reporting five "settings not
+             * saved" on every save would be noise that teaches a merchant to ignore the warning
+             * that matters.
+             */
+            $data = collect($data)
+                ->except(['slug', 'image', 'background_image', 'menu', 'button_link'])
+                ->all();
+
+            $service = app(\App\Services\Theme\ThemeConfigurationService::class);
+            $gate = new \App\Support\Theme\ThemeEditorGate();
+
+            $written = $service->writeSettings(
+                $gate->storeIdForSelfService(),
+                (string) $theme,
+                $data
+            );
+
+            if ($written === null) {
+                /*
+                 * The refusal reason is LOGGED, not shown. It is written for an engineer ("'x' is
+                 * not a theme this installation ships"), it is English-only in a bilingual admin,
+                 * and appending it to a translated string would hand an Arabic merchant a
+                 * half-Arabic sentence. It also says more about the installation than a refused
+                 * caller needs to know.
+                 */
+                \Log::warning('theme settings write refused', [
+                    'reason' => $service->refusal(),
+                    'theme' => $theme,
+                    'user_id' => auth()->id(),
+                ]);
+
+                return redirect()->back()->with('error', __('Permission denied.'));
+            }
+
+            $rejected = $service->rejected();
+
+            if ($rejected !== []) {
+                /*
+                 * Partial success is reported as such. Saying "Setting Saved Successfully" while
+                 * silently dropping fields is how a merchant comes to believe a value is stored
+                 * when it is not -- the same shape as the stale Flutter social-links defect.
+                 */
+                /*
+                 * `__()` with a key present in BOTH en.json and ar.json, not `trans_choice` with an
+                 * inline string. An inline `trans_choice` argument is not a translation key, so it
+                 * renders in English for an Arabic merchant -- and `trans_choice` appears nowhere
+                 * else in app/. The phrasing carries no count, which also sidesteps Arabic plural
+                 * agreement rather than getting it wrong.
+                 */
+                return redirect()->back()
+                    ->with('success', __('Setting Saved Successfully.'))
+                    ->with('error', __('The following settings were not saved: :fields',
+                        ['fields' => implode(', ', array_keys($rejected))]));
             }
 
             return redirect()->back()->with('success', __('Setting Saved Successfully.'));

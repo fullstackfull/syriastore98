@@ -893,3 +893,169 @@ passing.
 
 No database dump, credential or customer data is committed; the corpus is synthetic and lives only
 in the throwaway server.
+
+---
+
+## 9. M3-C — the one controlled write path, and the four false greens it took to prove it
+
+M3-B put the tables in place. M3-C puts a single authorised, validated, cache-correct writer in front
+of them, and routes the two existing writers through it. **No storefront read changed**, and the
+merchant form and the Flutter endpoint keep their exact HTTP contracts.
+
+### 9.0 The outstanding M3-B evidence — resolved, and the answer is not the expected one
+
+The directive asked to verify *"the second Feature suite and known-outcome gate covering commit
+`6f22f667`"*, noting that the gate on `f2e033a5` was not sufficient evidence for the later schema
+changes. **Both runs are absent, and not because one was missed.**
+
+| | |
+|---|---|
+| `.github/workflows/ci.yml` triggers | `pull_request:` and `push: branches: [main, master]` — **and nothing else** |
+| CI runs on `feature/phase-03-storefront` | **0**, for every commit on the branch |
+| what *does* run on each push | `Security attestation (push)` only |
+| `f2e033a5` attestation | `cancelled` |
+| `6f22f667` attestation | `success` |
+
+The CI `tests` job is the only thing that runs the Unit, Contract and Feature suites and the
+known-outcome gate, and it cannot fire on this branch while no pull request is open. So the gate has
+never covered **any** Phase 03 commit, `f2e033a5` and `6f22f667` included. This is a structural gap
+in the evidence trail, not a flaky run, and no amount of re-reading GitHub will produce the missing
+artefact.
+
+What replaces it, for this package, is the same three suites plus the same gate script executed
+locally on the final tree — recorded in §9.6. Opening a pull request would make CI cover the branch,
+and that is an owner decision (the branch is not authorised to merge), so it is **raised, not taken**.
+
+### 9.1 What was there before
+
+Two writers that agreed about nothing:
+
+| | `ThemeCustomizeController::themeCustomizeUpdate()` | `Api\DashboardController` (`updateStoreOwnerInfo`) |
+|---|---|---|
+| mechanism | Eloquent `updateOrCreate`, one row per posted key | **raw** `DB::table()->updateOrInsert()` |
+| authorization | `isAbleTo('Edit Theme')` **commented out** | store id from the request |
+| allowlist | none — `name` from arbitrary request keys | none |
+| theme id | straight from the route | `stores.theme_id`, unchecked |
+| cache | flushed by the Eloquent lifecycle | **never flushed** |
+
+The raw write is the one that shipped a user-visible defect: `ThemeCustomize` is `Cachable`, so the
+merchant's social links were saved, read back correctly by the app (its own read is also raw), and
+**never appeared on the storefront**.
+
+### 9.2 The pieces
+
+| file | what it is | notes |
+|---|---|---|
+| `app/Support/Theme/ThemeEditorGate.php` | the authorization boundary | operator first, then ownership, then permissions |
+| `app/Support/Theme/ThemeSettingValidator.php` | type-aware validation over the M3-A taxonomy | refuses an unknown type **before** dispatch |
+| `app/Support/Theme/ThemePayload.php` | canonical serialisation + `sha256` | key-order independent; values never re-encoded |
+| `app/Services/Theme/ThemeConfigurationService.php` | the single write path | upsert only; post-commit flush |
+| `app/Models/ThemeVersion.php` | drafts | `ownedBy()` is the only safe lookup |
+| `app/Models/ThemePublishedVersion.php` | the publish pointer | `liveFor()` |
+| `app/Models/ThemePublicationEvent.php` | the audit row | no `belongsTo`; resolved by the store/theme/version triple |
+
+None of the three new models is `Cachable` and none is in `config/tenancy.php`'s `scoped_models`, so
+**every** predicate is explicit. The census tests were updated with a written classification for each.
+
+### 9.3 The eight requirements, and where each is proved
+
+| # | requirement | where |
+|---|---|---|
+| 1 | published configuration stays key-complete | `ThemeConfigurationServiceTest::test_a_write_upserts_named_keys_and_destroys_nothing_else` — the service **upserts named keys only** and is structurally incapable of a wholesale replacement |
+| 2 | do not rely on the XSS middleware | `ThemeSettingValidatorTest` — 47 cases; refusals are structural patterns (tags, inline handlers, URL schemes, numeric character references, NUL), not a word list |
+| 3 | operator-first, explicit ownership, fail-closed | `ThemeEditorGateTest` — 13 cases incl. the literal-store-1 trap and a demoted merchant |
+| 4 | flush after commit | **`verify-theme-cache-flush-after-commit-on-mysql.php`** — see §9.5 |
+| 5 | Flutter write through the service, contract preserved | `StoreOwnerInfoThemeWriteContractTest` — 6 cases |
+| 6 | canonical serialisation and hashing | `ThemePayloadTest` — 18 cases |
+| 7 | publish stored values directly | the service writes values it holds; nothing is re-POSTed through a web route, so `XSS`'s non-idempotent `htmlspecialchars_decode` is never applied twice |
+| 8 | reject unknown field types before dispatch | `ThemeSettingValidator::validate()` refuses a `null` type with a reason, and `assertTypeIsKnown()` throws; the `match` has **no default branch** |
+
+### 9.4 The six residual risks
+
+| risk | disposition |
+|---|---|
+| Super Admin inheriting store 1 via `getCurrentStore()` | the gate never calls it; `storeIdForSelfService()` reproduces only the merchant branch. Pinned by two tests. |
+| retrieving another tenant's version by bare id | `ThemeVersion::ownedBy($storeId, $themeId, $versionId)` is the only lookup; the composite foreign key refuses it at the engine too |
+| deletion using weaker predicates | `deleteVersion()` resolves through the same gate and the same `ownedBy()`, and additionally refuses a published version |
+| Flutter-written `footer_repeater` destroyed by a web write | `test_a_web_write_preserves_the_flutter_written_footer_repeater` |
+| unknown active theme | `resolveThemeId()` validates against `ThemeFieldCatalog::themes()`; `makeActiveTheme()` writes `stores.theme_id` behind only `isset()`, so the stored column is not trusted |
+| publication events unscoped | resolved by the (store, theme, version) triple, never by version id alone |
+
+### 9.5 Requirement 4 — four measurements, three of them wrong
+
+This is the finding worth keeping, because the control nearly shipped unproven.
+
+**The claim.** The `Cachable` lifecycle flush fires on the model's `saved` event, *inside* the
+transaction. A concurrent reader on another connection can re-cache the pre-commit state in the
+window before the commit, and then serve it indefinitely. `DB::afterCommit()` closes that window.
+
+**Attempt 1 — single process.** Deleting the post-commit flush left every assertion green. A reader
+on the *same* connection sees the uncommitted row, so it caches the NEW value; the stale state is
+unreachable.
+
+**Attempt 2 — two processes, no caching premise.** 4 checks, 0 failed **with the flush deleted**.
+Reading `OLD` proves the write is invisible; it does *not* prove anything was *cached*. With nothing
+cached there is no stale entry to clear, so the checks pass either way.
+
+**Attempt 3 — proving the cache by mutating a second key.** Wrong, and it produced two failures
+describing a cache problem that never happened: `updateOrCreate` takes next-key locks over the index
+range it scans, so the parent's `UPDATE` on a *different* row blocked on the child's transaction, the
+child hit its own timeout and **rolled back**. A harness that touches the table the other process has
+open is measuring the lock manager.
+
+**Attempt 4 — and the real finding.** Proving the cache by *query count* (a repeat read must issue no
+`theme_customizes` SELECT) made the premise sound, and the checks **still** passed with the flush
+deleted. Instrumenting the parent showed why: **5 cache rows before the child's commit, 0 after.**
+
+> `flushCache()` on a non-taggable store is `Cache::flush()`. On the **database** store that is
+> `DELETE FROM cache` — a statement which **joins the open transaction**. It is invisible to other
+> connections until the commit, and when it lands it also deletes whatever a concurrent reader cached
+> in the meantime. With `CACHE_STORE=database` and `MODEL_CACHE_STORE` unset — the shipped production
+> combination — the in-transaction flush already behaves like a post-commit flush, and the race
+> cannot occur.
+
+The race is real on **every other store**: file, redis, memcached, array. Those flushes are immediate
+and outside the transaction. Re-running with `MODEL_CACHE_STORE=file` gives the discrimination the
+requirement needs:
+
+| build | result |
+|---|---|
+| `DB::afterCommit(...)` present | **4 checks, 0 failed, 0 inconclusive** |
+| `DB::afterCommit(...)` removed, flush inside the transaction only | **check 4 FAILS** — the storefront read serves `OLD` after the commit |
+
+So the control is **not** load-bearing on today's production configuration, and **is** load-bearing
+the moment `MODEL_CACHE_STORE` is set — which `config/laravel-model-caching.php` exists to allow.
+It keeps that a configuration choice rather than a correctness one. Both the service docblock and the
+harness record this; neither claims more.
+
+A matching correction was made to `ThemeConfigurationServiceTest`: its cache test proves the
+raw-vs-service contrast, which is the regression that actually shipped, and explicitly does **not**
+claim the post-commit guarantee, which is proved only by the two-process harness.
+
+### 9.6 Evidence
+
+| gate | result |
+|---|---|
+| `php artisan test --testsuite=Unit` | 1788 passed, 1 skipped |
+| `php artisan test --testsuite=Contract` | 44 passed |
+| `tests/Unit/Theme/ThemePayloadTest` | 18 passed |
+| `tests/Unit/Theme/ThemeSettingValidatorTest` | 47 passed |
+| `tests/Feature/Theme/ThemeEditorGateTest` | 13 passed |
+| `tests/Feature/Theme/ThemeConfigurationServiceTest` | 19 passed |
+| `tests/Contract/StoreOwnerInfoThemeWriteContractTest` | 6 passed |
+| `verify-theme-version-concurrency-on-mysql.php` | 7 passed, 0 failed, 0 inconclusive |
+| `verify-theme-cache-flush-after-commit-on-mysql.php` | 4 checks, 0 failed, 0 inconclusive; **check 4 fails when the control is removed** |
+
+The Feature suite and known-outcome gate result for this tree is recorded in §9.7.
+
+### 9.7 Falsification log for this package
+
+Every control below was removed and the suite re-run, because a green test that cannot fail is not
+evidence. This is the project's standing rule and it caught three defects in this package alone.
+
+| control removed | what happened |
+|---|---|
+| the service in `Api\DashboardController` (back to the raw write) | `the links land in the projection and reach the storefront read` **fails**, and `a service refusal does not change the status code` **fails** |
+| the cache priming in that contract test | the raw write **passes** — the test was measuring the absence of a cache |
+| `DB::afterCommit` in the service, `MODEL_CACHE_STORE=file` | harness check 4 **fails** |
+| `DB::afterCommit` in the service, model cache on the database store | harness check 4 **passes** — see §9.5 |

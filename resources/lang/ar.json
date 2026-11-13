@@ -3724,5 +3724,6 @@
     "Add to Wishlist": "إضافة إلى قائمة الأمنيات",
     "Remove from Wishlist": "إزالة من قائمة الأمنيات",
     "Upload": "تحميل",
-    "Social media": "وسائل التواصل الاجتماعي"
+    "Social media": "وسائل التواصل الاجتماعي",
+    "The following settings were not saved: :fields": "لم يتم حفظ الإعدادات التالية: :fields"
 }

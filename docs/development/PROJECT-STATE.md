@@ -72,7 +72,7 @@ Progress: `phase-3/PHASE-03-M0-STOREFRONT-BASELINE.md`.
 | **M0** | storefront harness, fixtures, theme/locale capture, route and tenant verification | **complete** — 7 of 8 gaps closed; gap 1 (no dark mode) is M2 by design |
 | **M1** | measured storefront baseline across all three themes, defect inventory | **complete for rendering; performance and accessibility NOT measured** — see below |
 | **M2** | premium storefront across `stylique`, `techzonix`, `greentic` + dark mode | **complete (A–E)** — per-store appearance preference, three themes tokenised, **160-load cross-store matrix with 0 axe WCAG A/AA violations**, Core Web Vitals baselined. Not merged, not released. See `phase-3/PHASE-03-M2-PREMIUM-STOREFRONTS.md` |
-| **M3** | theme editor data model: draft/publish/version, safe migrations, tenant ownership | **A and B complete** — inventory + derived allowlist (`2abc369b`), four additive migrations with engine-enforced integrity including a **composite** key that makes cross-tenant publication impossible, rollback proved on MySQL, **21/21** constraint checks under production's `sql_mode`. Independently reviewed; six findings applied. C/D/E next, with a measured residual-risk list. See `phase-3/PHASE-03-M3-THEME-VERSIONING.md` |
+| **M3** | theme editor data model: draft/publish/version, safe migrations, tenant ownership | **A, B and C complete** — inventory + derived allowlist (`2abc369b`), four additive migrations with engine-enforced integrity including a **composite** key that makes cross-tenant publication impossible, rollback proved on MySQL, **21/21** constraint checks under production's `sql_mode`, then **one controlled write path** (gate, type-aware validator, canonical payload hash, post-commit cache flush) with the merchant form and the Flutter endpoint routed through it and their HTTP contracts unchanged. Independently reviewed at B and C. **D (atomic publish/rollback) and E (integration) next.** See `phase-3/PHASE-03-M3-THEME-VERSIONING.md` §9 |
 | M4 | theme editor experience: sections, preview, publish, rollback, permissions | not started |
 | M5 | official Store Syria website on the WorkDo LandingPage foundation | not started |
 | M6 | bilingual documentation centre with working search | not started |
@@ -282,13 +282,33 @@ code.
 | M2-D | greentic, where **neither ink passed** on the hover and the colour had to move | option A taken, B recorded |
 | M2-E | integrated cross-store verification, contrast, accessibility, Core Web Vitals | **160 loads, 0 axe WCAG A/AA violations**; 80 loads, 0 CWV rows outside "good" |
 
-### M3 is under way — A and B are done, C/D/E remain
+### M3 is under way — A, B and C are done, D/E remain
 
 The M3 design, its evidence and the five findings that corrected it are in
 `phase-3/PHASE-03-M3-THEME-VERSIONING.md`. The shape: **`theme_customizes` keeps its exact schema and
 becomes the published projection**, three additive tables carry versions, the live pointer and an
 append-only publication log, and drafts live only in `theme_versions` — which no storefront path
 reads, so a draft cannot leak to the storefront. Measured: 111 routes carry `storeSlug` and **75 of them carry no auth middleware**, all 75 running `ActiveTheme` + `ThemeLanguage`.
+
+**M3-C closed the two unauthorised writers** (§9 of that document). `ThemeConfigurationService` is now
+the only writer to `theme_customizes` in `app/` — verified by grep across `app/` and `packages/`; the
+one other writer in the repository is `docs/development/phase-3/tools/seed-storefront-fixture.php`, a
+development fixture tool that writes directly by design. It resolves the store through `ThemeEditorGate` (operator
+first, then explicit ownership, then permissions — never `getCurrentStore()`, which hands an operator
+the literal store 1), validates each value against the theme's own declared type, upserts named keys
+only, and flushes the model cache after commit. The Flutter `updateStoreOwnerInfo` social-links write
+went through it with its status codes, response shape and `updated_fields` list unchanged, which is
+what fixes the measured defect where a merchant's saved links never reached the storefront.
+
+**Two things M3-C established that are worth carrying forward.** First, **CI has never run on
+`feature/phase-03-storefront`** — `ci.yml` triggers only on `pull_request` and pushes to
+`main`/`master`, so the Unit/Contract/Feature/known-outcome gate has covered no Phase 03 commit at
+all; the suites are run locally per package instead, and opening a PR is an owner decision. Second,
+the model cache's flush is `Cache::flush()`, and on the **database** store that is a `DELETE FROM
+cache` which **joins the open transaction** — so on today's production configuration the
+in-transaction flush already behaves like a post-commit one, and the post-commit control only becomes
+load-bearing if `MODEL_CACHE_STORE` is ever set. Both directions are measured by
+`verify-theme-cache-flush-after-commit-on-mysql.php`.
 
 The things M2 established that M3 must not break:
 

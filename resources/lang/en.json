@@ -3728,5 +3728,6 @@
     "Add to Wishlist": "Add to Wishlist",
     "Remove from Wishlist": "Remove from Wishlist",
     "Upload": "Upload",
-    "Social media": "Social media"
+    "Social media": "Social media",
+    "The following settings were not saved: :fields": "The following settings were not saved: :fields"
 }
