@@ -93,10 +93,32 @@ return new class extends Migration
 
             /*
              * 191, not 255: this project's established ceiling for an indexed string under utf8mb4
-             * (4 bytes/char against InnoDB's 3072-byte key limit). `stores.theme_id` is
-             * varchar(255), but the longest shipped theme name is 9 characters ("techzonix"), so
-             * 191 is twenty times the observed maximum. A version belongs to ONE theme: a store
-             * that switches theme keeps a separate, intact history for each.
+             * (4 bytes/char against InnoDB's 3072-byte key limit). A version belongs to ONE theme,
+             * so a store that switches theme keeps a separate, intact history for each.
+             *
+             * THE WIDTH IS RIGHT; THE OBVIOUS JUSTIFICATION FOR IT IS NOT. An earlier draft of this
+             * comment argued "the longest shipped theme name is 9 characters, so 191 is twenty times
+             * the observed maximum". `makeActiveTheme()` disproves the premise:
+             * `ThemeCustomizeController.php:185-187` writes `$request->theme_id` straight into
+             * `stores.theme_id` (varchar 255) guarded only by `isset()` -- no length check, no
+             * allowlist, and an EMPTY STRING passes `isset`. So `theme_id` is merchant-writable free
+             * text, not a value drawn from the shipped set.
+             *
+             * That matters because production runs `'strict' => false` (config/database.php:55).
+             * MEASURED on MariaDB 10.11, 200 characters into varchar(191):
+             *
+             *     sql_mode=STRICT_TRANS_TABLES,...   ERROR 1406, refused
+             *     sql_mode=NO_ENGINE_SUBSTITUTION    ACCEPTED, SILENTLY truncated to 191
+             *
+             * So an over-length `theme_id` would be kept in full by `stores.theme_id` and truncated
+             * here, and `getThemeSetting()` would then read the projection under the untruncated
+             * value while the version history lived under the truncated one -- permanently
+             * disagreeing. Two theme ids sharing a 191-character prefix would also collide in
+             * `tv_store_theme_version_unique`.
+             *
+             * The fix is NOT a wider column. M3-C validates `theme_id` against
+             * `App\Support\Theme\ThemeFieldCatalog::themes()` on every write path, and
+             * `makeActiveTheme` needs the same predicate. One check closes both.
              */
             $table->string('theme_id', 191);
 

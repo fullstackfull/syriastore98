@@ -92,13 +92,40 @@ return new class extends Migration
             $table->index(['store_id', 'theme_id', 'id'], 'tpe_store_theme_id_index');
             $table->index('version_id', 'tpe_version_id_index');
 
-            /* The store cascade is kept: a deleted store's audit rows contain that merchant's own
-             * content and must go with it. */
-            $table->foreign('store_id', 'tpe_store_id_foreign')
-                ->references('id')->on('stores')->onDelete('cascade');
+            /* The FK used to provide this read path; now it is declared explicitly. */
+            $table->index('actor_id', 'tpe_actor_id_index');
 
-            $table->foreign('actor_id', 'tpe_actor_id_foreign')
-                ->references('id')->on('users')->nullOnDelete();
+            /*
+             * NO FOREIGN KEYS AT ALL -- and the first draft of this migration got that wrong.
+             *
+             * It gave `store_id` ON DELETE CASCADE and `actor_id` ON DELETE SET NULL, with the
+             * comment "a deleted store's audit rows contain that merchant's own content and must go
+             * with it". A review caught the contradiction: this table's own docblock argues that an
+             * audit log the audited thing can delete is not an audit log, and cites `audit_logs` --
+             * so the cascade destroyed exactly the record the table exists to keep, one paragraph
+             * after arguing it must not.
+             *
+             * The stated justification was also FACTUALLY WRONG about this table. MEASURED against
+             * the column list above: it holds `store_id`, `theme_id`, `version_id`,
+             * `from_version_id`, `action`, `payload_hash`, `actor_id` and `created_at`. There is no
+             * payload here and no setting value -- **no merchant content whatsoever**, only
+             * identifiers, a verb and a digest. The content lives in `theme_versions.payload`, which
+             * does cascade with the store, and that is the right place for it to.
+             *
+             * `audit_logs` is the house precedent and it carries no foreign keys either. MEASURED,
+             * `SHOW CREATE TABLE audit_logs`: four plain KEYs (`idx_audit_store_created`,
+             * `idx_audit_subject`, `idx_audit_user`, `idx_audit_action`) and not one CONSTRAINT.
+             *
+             * `actor_id` loses its FK for the same reason: `nullOnDelete` would blank WHO performed
+             * a publication when that user is deleted, and `users` rows do get deleted here (see
+             * docs/security/P0-USER-DELETION-CASCADE.md). "Someone published version 7" is not an
+             * audit trail.
+             *
+             * The cost, stated rather than hidden: a row here may name a store, a version or a user
+             * that no longer exists. `store_id`, `theme_id` and `payload_hash` are carried precisely
+             * so an event stays interpretable when that happens, and the indexes below give the same
+             * read paths a foreign key would have.
+             */
         });
     }
 

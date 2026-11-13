@@ -45,6 +45,22 @@ use Illuminate\Support\Facades\File;
  * AND there is no allowlist). `readableKeys()` is the wider space a published snapshot may carry,
  * because the storefront legitimately reads ~200 keys per theme that the editor does not offer.
  *
+ * THE CALLER CONTRACT, because failing closed inside this class is not enough.
+ *
+ * An independent review named a caller shape that turns "unknown field" back into "allow anything",
+ * and it is the shape M3-C's TYPE-AWARE validation naturally reaches for:
+ *
+ *     match (ThemeFieldCatalog::typeOf($theme, $name)) {
+ *         'text', 'textarea' => $this->sanitise($value),
+ *         default            => $value,      // <-- null lands here, UNSANITISED
+ *     }
+ *
+ * `typeOf()` returns NULL for a field no theme declares, so a permissive `default` stores the raw
+ * value for every unknown name, reinstating the audited hole through the validator meant to close
+ * it. REJECT ON `typeOf() === null` BEFORE DISPATCHING ON THE TYPE. Never write a `default` arm that
+ * passes a value through. The same applies to `if ($allow && ! isset($allow[$name]))`, where an
+ * empty allowlist reads as "no opinion".
+ *
  * This class performs NO authorization and NO tenancy check. It answers "is this a real field of
  * this theme, and of what type" and nothing else. The caller still has to establish who is asking
  * and which store they may write to.
@@ -92,7 +108,23 @@ class ThemeFieldCatalog
 
         $dir = base_path('themes/' . $theme . '/theme_json');
 
-        if ($theme === '' || ! is_dir($dir)) {
+        /*
+         * CONTAINMENT BEFORE REACHABILITY. `is_dir()` answers "does this directory exist", NOT "is it
+         * under themes/". `$theme` arrives from merchant-writable input: the `{theme}` route
+         * parameter (routes/web.php:1443-1448) and `stores.theme_id`, which `makeActiveTheme()`
+         * writes from `$request->theme_id` with no validation at all. `basename()` rejects every
+         * separator and every `..`, so a name that is not one path segment is refused before it
+         * builds a path.
+         *
+         * `readableKeys()` is why this is not tidiness: it INCLUDES
+         * `themes/<theme>/default_data/settings.php`, and a PHP `include` on a path built from
+         * merchant input should not rest on "no one has found a way to plant a file there yet".
+         */
+        if ($theme === '' || basename($theme) !== $theme) {
+            return self::$memo[$theme] = [];
+        }
+
+        if (! is_dir($dir)) {
             return self::$memo[$theme] = [];
         }
 
@@ -183,7 +215,12 @@ class ThemeFieldCatalog
         $defaults = [];
         $path     = base_path('themes/' . $theme . '/default_data/settings.php');
 
-        if ($theme !== '' && is_file($path)) {
+        /* The same containment check as editableFields(): this method INCLUDES the file. */
+        if ($theme === '' || basename($theme) !== $theme) {
+            return [];
+        }
+
+        if (is_file($path)) {
             $loaded = include $path;
 
             if (is_array($loaded)) {

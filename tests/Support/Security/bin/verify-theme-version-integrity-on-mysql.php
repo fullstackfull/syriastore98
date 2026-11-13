@@ -172,6 +172,27 @@ try {
     $db = new PDO(dsn($opt, $name), $opt['user'], $opt['pass'],
         [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 
+    /*
+     * MEASURE THE ENGINE PRODUCTION ACTUALLY RUNS, NOT THE ONE THIS SERVER DEFAULTS TO.
+     *
+     * A raw PDO connection inherits the SERVER's sql_mode -- on a stock MariaDB 10.11 that is
+     * `STRICT_TRANS_TABLES,...`. Production sets `'strict' => false` (config/database.php:55), which
+     * Laravel's MySqlConnector turns into `SET SESSION sql_mode='NO_ENGINE_SUBSTITUTION'` -- i.e.
+     * MySQL COERCES a bad value instead of refusing it.
+     *
+     * Without this line the script asserts STRICT behaviour while all three migration docblocks are
+     * justified by NON-STRICT coercion, so it would pass for reasons production does not share. It
+     * is the P01-SEC-13 lesson one layer up: there SQLite's affinity hid a MySQL defect; here strict
+     * mode hides a non-strict one. Two things it changes:
+     *   - "a version owned by no store" is refused by NOT NULL (1048) under strict, but under
+     *     production NULL coerces to 0 and the FOREIGN KEY refuses it (1452) instead;
+     *   - an over-length `theme_id` ERRORS under strict and SILENTLY TRUNCATES in production, which
+     *     a strict-mode harness is structurally unable to observe.
+     */
+    $db->exec("SET SESSION sql_mode='NO_ENGINE_SUBSTITUTION'");
+    printf("  sql_mode: %s   (production's, per config/database.php:55 'strict' => false)\n",
+        $db->query('SELECT @@SESSION.sql_mode')->fetchColumn());
+
     /* ---------------------------------------------------------------- premise: the tables exist */
     foreach (['theme_versions', 'theme_published_versions', 'theme_publication_events'] as $t) {
         $n = (int) $db->query("SELECT COUNT(*) FROM information_schema.TABLES
@@ -259,10 +280,43 @@ try {
          VALUES ({$storeA},'greentic',{$vA1},NOW(),NOW(),NOW())",
         '23000', 'tpv_version_identity_foreign');
 
-    refuses($db, 'a version owned by no store',
+    /*
+     * A SINGLE-ROW explicit NULL is refused by NOT NULL in BOTH sql_modes. That was measured rather
+     * than assumed, because a review predicted production's non-strict mode would coerce it to 0 and
+     * let the FOREIGN KEY catch it instead. It does not:
+     *
+     *     sql_mode=STRICT_TRANS_TABLES,...   INSERT ... VALUES (NULL)      ERROR 1048
+     *     sql_mode=NO_ENGINE_SUBSTITUTION    INSERT ... VALUES (NULL)      ERROR 1048
+     *
+     * Non-strict mode downgrades it only for a MULTI-ROW insert -- which is checked next, because
+     * that is the shape a publish actually uses.
+     */
+    refuses($db, 'a version owned by no store (single row)',
         "INSERT INTO theme_versions (store_id,theme_id,version_no,status,payload,payload_hash,created_at,updated_at)
          VALUES (NULL,'stylique',9,'draft','{}'," . $db->quote(str_repeat('e', 64)) . ",NOW(),NOW())",
         '23000', '');
+
+    /*
+     * THE SHAPE A PUBLISH ACTUALLY USES, AND THE ONE WHERE THE TWO MODES DISAGREE.
+     *
+     *     sql_mode=STRICT_TRANS_TABLES,...   INSERT ... VALUES (1),(NULL)  ERROR 1048
+     *     sql_mode=NO_ENGINE_SUBSTITUTION    INSERT ... VALUES (1),(NULL)  ACCEPTED, NULL -> 0
+     *
+     * Production runs the second. A publish writes a snapshot's rows in ONE multi-row insert, so a
+     * null store id in that batch is COERCED rather than refused -- and on `theme_versions` the
+     * foreign key is then the only thing that catches it, because no store has id 0. This asserts
+     * that it does.
+     *
+     * It matters beyond this table: `theme_customizes`, which the publish projects into, has a
+     * NULLABLE `store_id`, so the same coercion there produces a row owned by nobody that no
+     * constraint objects to. That hop is guarded by the handler alone -- see the inherited
+     * requirements in docs/development/phase-3/PHASE-03-M3-THEME-VERSIONING.md.
+     */
+    refuses($db, 'a MULTI-ROW publish carrying a null store id',
+        "INSERT INTO theme_versions (store_id,theme_id,version_no,status,payload,payload_hash,created_at,updated_at)
+         VALUES ({$storeB},'greentic',77,'draft','{}'," . $db->quote(str_repeat('i', 64)) . ",NOW(),NOW()),
+                (NULL,'greentic',78,'draft','{}'," . $db->quote(str_repeat('j', 64)) . ",NOW(),NOW())",
+        '23000', 'tv_store_id_foreign');
 
     refuses($db, 'a version for a store that does not exist',
         "INSERT INTO theme_versions (store_id,theme_id,version_no,status,payload,payload_hash,created_at,updated_at)
@@ -322,10 +376,33 @@ try {
         'events'   => (int) $db->query("SELECT COUNT(*) FROM theme_publication_events WHERE store_id={$storeA}")->fetchColumn(),
     ];
 
+    /*
+     * EVENTS MUST *SURVIVE*; versions and pointers must go.
+     *
+     * An earlier version of this script asserted all three cascade away, which passed against the
+     * first draft of the migration -- and that draft was wrong. `theme_publication_events` is the
+     * append-only audit, so a store deletion erasing it is the defect, not the expectation. It now
+     * carries no foreign keys (matching `audit_logs`, which carries none either), and holds no
+     * merchant content to require removal: only identifiers, an action verb and a digest.
+     *
+     * This is the check that would have caught the contradiction, so it is written as the opposite
+     * of what it used to say.
+     */
+    $expectation = ['versions' => 0, 'pointers' => 0, 'events' => $before['events']];
+
     foreach ($after as $what => $n) {
-        if ($n === 0) {
+        $want = $expectation[$what];
+
+        if ($n === $want && $what !== 'events') {
             printf("  ok    %-52s cascaded away (%d -> 0)\n", "deleting the store removed its {$what}", $before[$what]);
             $pass++;
+        } elseif ($n === $want) {
+            printf("  ok    %-52s SURVIVED the store deletion (%d rows)\n", 'the append-only audit', $n);
+            $pass++;
+        } elseif ($what === 'events') {
+            printf("  FAIL  %-52s %d of %d rows DESTROYED -- an audit log the audited thing can delete\n",
+                'the append-only audit', $before[$what] - $n, $before[$what]);
+            $fail++;
         } else {
             printf("  FAIL  %-52s %d row(s) left behind\n", "deleting the store removed its {$what}", $n);
             $fail++;

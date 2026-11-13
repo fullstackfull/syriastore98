@@ -470,20 +470,23 @@ Four additive migrations. **No existing column is altered and no existing row is
 
 ### 6.1 The constraints were proved, not asserted
 
-`tests/Support/Security/bin/verify-theme-version-integrity-on-mysql.php` — **20 passed, 0 failed,
-0 inconclusive** on MariaDB 10.11.14. It creates its own throwaway database, migrates, checks, and
+`tests/Support/Security/bin/verify-theme-version-integrity-on-mysql.php` — **21 passed, 0 failed,
+0 inconclusive** on MariaDB 10.11.14, **under production's `sql_mode`** (see §6.5). It creates its own throwaway database, migrates, checks, and
 drops it.
 
 Each refusal is checked for its **SQLSTATE and the constraint's NAME**, because "it threw" is not
 evidence that the intended constraint fired:
 
 ```
-  ok  a duplicate (store, theme, version_no)          refused (23000, tv_store_theme_version_unique)
-  ok  a SECOND live version for the same store+theme  refused (23000, tpv_store_theme_unique)
-  ok  deleting the version that is LIVE               refused (23000, tpv_version_id_foreign)
-  ok  a version owned by no store                     refused (23000, NOT NULL)
-  ok  a version for a store that does not exist       refused (23000, tv_store_id_foreign)
-  ok  a pointer to a version that does not exist      refused (23000, tpv_version_id_foreign)
+  ok  a duplicate (store, theme, version_no)                refused (23000, tv_store_theme_version_unique)
+  ok  a SECOND live version for the same store+theme (own)  refused (23000, tpv_store_theme_unique)
+  ok  deleting the version that is LIVE                     refused (23000, tpv_version_identity_foreign)
+  ok  store B publishing store A's version                  refused (23000, tpv_version_identity_foreign)
+  ok  the WRONG THEME of the right store publishing it      refused (23000, tpv_version_identity_foreign)
+  ok  a version owned by no store (single row)              refused (23000, NOT NULL)
+  ok  a MULTI-ROW publish carrying a null store id          refused (23000, tv_store_id_foreign)
+  ok  a version for a store that does not exist             refused (23000, tv_store_id_foreign)
+  ok  a pointer to a version that does not exist            refused (23000, tpv_version_identity_foreign)
 ```
 
 ### 6.1.1 The cross-tenant hole the first draft left, and the key that closes it
@@ -515,7 +518,8 @@ expectations were updated to the composite key, not the assertions weakened.
 and six legitimate operations are asserted to **succeed**, because a constraint that blocks real work
 is also a defect: the same `version_no` for a different store, the same for a different theme of the
 same store, a second theme's live version for one store, deleting a version that is *not* live, an
-append-only event, and an event naming a version that has since been pruned.
+append-only event, and an event naming a version that has since been pruned. The remaining six checks
+cover the store cascade (§6.6) and the new index.
 
 **Why the script reads the ids back instead of assuming them.** The first hand-run of these checks
 was wrong in both directions and that is why the script exists. Rows were inserted and then
@@ -589,6 +593,72 @@ expected DDL *before* it checks `hasTable()`, so a migration wrapping it in a `c
 Stated plainly: **there is no production-measured schema for any theme table.** For these tables the
 project's "the migrations are not the schema" rule cuts the other way — the migration is currently
 the only description that exists, and production is unmeasurable from here.
+
+### 6.5 The harness was measuring the wrong engine
+
+A raw PDO connection inherits the **server's** `sql_mode` — on a stock MariaDB 10.11 that is
+`STRICT_TRANS_TABLES,…`. Production sets `'strict' => false` (`config/database.php:55`), which
+Laravel turns into `SET SESSION sql_mode='NO_ENGINE_SUBSTITUTION'`: MySQL **coerces** a bad value
+instead of refusing it. So the first version of the harness asserted strict behaviour while all three
+migration docblocks are justified by *non-strict coercion*. It now sets production's mode explicitly
+and prints it.
+
+That changed what the checks prove, and one prediction turned out to be **wrong**:
+
+| | strict | production (`NO_ENGINE_SUBSTITUTION`) |
+|---|---|---|
+| single-row `INSERT … VALUES (NULL)` into `NOT NULL` | ERROR 1048 | **ERROR 1048** — still refused |
+| **multi-row** insert containing a NULL | ERROR 1048 | **ACCEPTED, NULL → 0** |
+| 200 chars into `varchar(191)` | ERROR 1406 | **ACCEPTED, silently truncated to 191** |
+
+A review predicted the single-row NULL would coerce to 0 and be caught by the foreign key. Measured:
+it is refused by `NOT NULL` in **both** modes. Non-strict downgrades it only for a **multi-row**
+insert — which is exactly the shape a publish uses, writing a snapshot's rows in one statement. A
+check for that was added, and the foreign key is what catches it:
+
+```
+  ok  a version owned by no store (single row)          refused (23000, NOT NULL)
+  ok  a MULTI-ROW publish carrying a null store id      refused (23000, tv_store_id_foreign)
+```
+
+It matters past this table: **`theme_customizes` has a NULLABLE `store_id`**, so the same coercion
+there yields a row owned by nobody that no constraint objects to. That hop is guarded by the handler
+alone.
+
+### 6.6 The contradiction inside the new design, found by a critic rather than by a test
+
+`theme_publication_events`'s docblock argues that *an audit log the audited thing can delete is not
+an audit log*, and cites `audit_logs` as precedent. The first draft then gave `store_id`
+**ON DELETE CASCADE** — destroying exactly the record the table exists to keep, one paragraph after
+arguing it must not.
+
+The justification was also **factually wrong about the table**. Measured against its own column list,
+it holds `store_id`, `theme_id`, `version_id`, `from_version_id`, `action`, `payload_hash`,
+`actor_id`, `created_at`: no payload, no setting value, **no merchant content at all** — only
+identifiers, a verb and a digest. The content lives in `theme_versions.payload`, which does cascade
+with the store, and that is where it belongs.
+
+And the precedent says so plainly. `SHOW CREATE TABLE audit_logs`: four plain `KEY`s and **not one
+`CONSTRAINT`**.
+
+Both foreign keys are dropped. `actor_id` went for the same reason — `nullOnDelete` would blank *who*
+published when that user is deleted, and `users` rows do get deleted here. "Someone published version
+7" is not an audit trail.
+
+The harness check was **inverted**, because it had been asserting the defect:
+
+```
+  ok  deleting the store removed its versions   cascaded away (2 -> 0)
+  ok  deleting the store removed its pointers   cascaded away (2 -> 0)
+  ok  the append-only audit                     SURVIVED the store deletion (2 rows)
+```
+
+Falsified: restoring the cascade makes it report *"2 of 2 rows DESTROYED — an audit log the audited
+thing can delete"* and fail; removing it returns to 21 of 21.
+
+This also settles the cascade/`RESTRICT` ordering question a review raised. With no foreign key on
+the events table, a store deletion cascades only into `theme_versions` and `theme_published_versions`
+— and it is **measured** to succeed with a live pointer in place, which is the risky configuration.
 
 ---
 
@@ -721,6 +791,65 @@ reads, so this is structural rather than a filter that could be forgotten.
 4. **Flush the model cache after commit, not inside the transaction** (§4.5).
 5. **Route the Flutter `updateStoreOwnerInfo` write through the same service** (§1.3), keeping the
    HTTP contract byte-identical, which also fixes the stale-storefront defect.
+6. **Define a CANONICAL form for `payload_hash` before anything relies on it.** Three claims rest on
+   it — immutability evidence, an independent record of what was published, and an O(1)
+   "is this draft identical to what is live" check — and key order, unicode/slash escaping and
+   numeric-string normalisation are all currently unspecified, so logically identical payloads can
+   hash differently.
+7. **Publish must write the stored values directly, never re-POST a payload through the web route.**
+   `htmlspecialchars_decode` is not idempotent, so entities progressively unescape across cycles and
+   the hash drifts for content nobody changed — on top of the substring sweep of §7.2.
+8. **Reject on `ThemeFieldCatalog::typeOf() === null` BEFORE dispatching on the type.** A
+   `match (…) { 'text','textarea' => sanitise($v), default => $v }` stores the raw value for every
+   unknown field, reinstating the audited hole through the validator meant to close it. The contract
+   is now in the class docblock.
+
+### Residual risk the schema cannot reach — for M3-D, in priority order
+
+The three new tables are the best-constrained in the codebase. **The table they project into is the
+least.** `theme_customizes` is `store_id` NULLABLE, `theme_id` NULLABLE, no unique key, `Cachable`,
+unscoped, absent from `scoped_models`, and read by 75 anonymous routes. Everything the composite key
+wins is handed off at that boundary to a hand-written predicate.
+
+| | what the engine cannot stop | what M3-D must do |
+|---|---|---|
+| 1 | `getCurrentStore()` returns the literal **`1`** for an operator with an empty `current_store`, and store 1 belongs to a *merchant*. Every constraint is satisfied while the operator writes into a merchant's history and re-points their live theme. See the quoted source below. | derive `store_id` from the principal, refuse an operator without an explicit store, and use the operator-first ordering `CLAUDE.md` §1 prescribes |
+| 2 | **Cross-tenant READ by bare id.** `ThemeVersion::find($request->version_id)` returns another tenant's 31–35 KB payload. The composite key is a *write* constraint and does nothing here. | never a bare `find()` — always the triple `where('store_id')->where('theme_id')->where('id')`, which `tv_identity_unique` indexes exactly, so the safe lookup is also the fast one |
+| 3 | **Cross-tenant DELETE of a non-live version.** `RESTRICT` protects only the version a pointer references; another tenant's *draft* is deletable by bare id. | the same triple predicate on every delete |
+| 4 | **Publish is delete-then-insert, so any key absent from the payload is destroyed** — including `footer_repeater`, which the Flutter app writes outside the version system. | requirement 5 above is what prevents a publish from wiping a merchant's social links |
+| 5 | **"What is live" is a join with `stores.theme_id`, and nothing constrains it.** `makeActiveTheme` writes it from raw request input with no permission check, no allowlist and no foreign key; switch to a theme with no published version and the storefront silently renders defaults while a pointer row still exists for the old one. | validate `theme_id` against `ThemeFieldCatalog::themes()` on every write path *and* in `makeActiveTheme` |
+| 6 | **Dereferencing an event's `version_id`** crosses tenants with no engine backstop at all, by design (§6.6). | the event row carries its own `store_id` and `theme_id` — dereference with the same triple |
+
+Row 1 verbatim, `app/Helper/helper.php`:
+
+```php
+$storeId = $user->current_store;
+if (! empty($storeId)) {
+    return $storeId;
+} else {
+    if ($user->type == 'super admin') {
+        return 1; // Default store for super admin
+    } else {
+        $store = Store::where('created_by', $user->id)->first();
+        return $store ? $store->id : null;
+    }
+}
+// and if $user is falsy the function returns NOTHING -- an implicit null
+```
+
+Three things, all measured from that: the operator gets a **merchant's** store; a non-operator with
+no owned store gets **null**, and `where('store_id', null)` compiles to `store_id IS NULL`, i.e. one
+shared bucket; and an unauthenticated caller gets an implicit null by falling off the end. Note too
+that `$user->type == 'super admin'` is a **loose, un-normalised** comparison, where `CLAUDE.md` §1
+prescribes `strtolower(trim(…)) === 'super admin'` — so an operator recorded as `Super Admin` takes
+the merchant branch instead.
+
+**When the models land, they are the cleanest `scoped_models` candidates in the codebase** — §7.5
+keeps drafts out of every storefront read path, which is the condition that disqualifies most models.
+Worth noting in the config comment if it is done: the scope is inert for a customer or driver Sanctum
+token and for staff with an empty `current_store`, and `StoreScope::resolveTenant()` returns
+`MODE_SUPER_ADMIN` with no predicate — so it is defence in depth against a merchant, **not** the
+control of record, and does nothing about row 1.
 
 ### The census tests M3-C must update deliberately
 

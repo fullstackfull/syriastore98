@@ -43,9 +43,15 @@
  *   php tests/Support/Security/bin/report-theme-customize-duplicates.php --sqlite=database/p2dev.sqlite
  *
  * EXIT CODES
- *   0  no duplicates: a unique key would succeed here
- *   1  duplicates found: a unique key would FAIL here, and they are listed
+ *   0  CLEAN: no duplicates and no NULL-owner rows -- a unique key would succeed here
+ *   1  NOT CLEAN: duplicates (listed), or rows with a NULL store_id/theme_id, or both
  *   2  could not inspect (no server, no such table, bad arguments)
+ *
+ * Note the NULL case deliberately exits 1 while printing "NO DUPLICATES". Both statements are true:
+ * a unique key would not FAIL on those rows, because MySQL treats NULLs as DISTINCT in a unique
+ * index -- but it would not fix them either, and rows the application cannot tell apart are not a
+ * clean database. An earlier version of this header described exit 1 as "duplicates found ... and
+ * they are listed", which contradicted the code in exactly that case.
  */
 
 $opt = [
