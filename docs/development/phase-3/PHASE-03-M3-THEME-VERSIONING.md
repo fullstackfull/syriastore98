@@ -457,15 +457,301 @@ them is the owner's call, not a migration's.
 
 ---
 
-## 6. Packages
+## 6. M3-B — the migrations, and what running the rollback found
 
-| | | state |
+Four additive migrations. **No existing column is altered and no existing row is touched.**
+
+| | table | what the engine enforces |
 |---|---|---|
-| M3-A | verified schema inventory and migration design — this document | **complete** |
-| M3-B | additive migrations, integrity constraints, GATE-F-style guards, the reconciliation reporter | next |
-| M3-C | versioned storage model and backward-compatible configuration reads | |
-| M3-D | draft/published state, publication integrity, rollback semantics, post-commit cache flush | |
-| M3-E | tenancy and concurrency regression tests, legacy-upgrade validation on MySQL, closure | |
+| `2026_11_13_000100` | `theme_versions` | `UNIQUE (store_id, theme_id, version_no)`; FK to `stores` CASCADE; FKs to `users` SET NULL |
+| `2026_11_13_000200` | `theme_published_versions` | **`UNIQUE (store_id, theme_id)`** — at most one live version; a **COMPOSITE** FK on `(store_id, theme_id, version_id)` → `theme_versions (store_id, theme_id, id)`, **RESTRICT** |
+| `2026_11_13_000300` | `theme_publication_events` | append-only; `created_at` only, no `updated_at`; deliberately **no FK** to `theme_versions` |
+| `2026_11_13_000400` | `theme_customizes` | one **non-unique** index `(store_id, theme_id)` |
+
+### 6.1 The constraints were proved, not asserted
+
+`tests/Support/Security/bin/verify-theme-version-integrity-on-mysql.php` — **20 passed, 0 failed,
+0 inconclusive** on MariaDB 10.11.14. It creates its own throwaway database, migrates, checks, and
+drops it.
+
+Each refusal is checked for its **SQLSTATE and the constraint's NAME**, because "it threw" is not
+evidence that the intended constraint fired:
+
+```
+  ok  a duplicate (store, theme, version_no)          refused (23000, tv_store_theme_version_unique)
+  ok  a SECOND live version for the same store+theme  refused (23000, tpv_store_theme_unique)
+  ok  deleting the version that is LIVE               refused (23000, tpv_version_id_foreign)
+  ok  a version owned by no store                     refused (23000, NOT NULL)
+  ok  a version for a store that does not exist       refused (23000, tv_store_id_foreign)
+  ok  a pointer to a version that does not exist      refused (23000, tpv_version_id_foreign)
+```
+
+### 6.1.1 The cross-tenant hole the first draft left, and the key that closes it
+
+The pointer's foreign key was originally on `version_id` **alone**. That proves the version *exists*
+— not that it belongs to the store doing the publishing. Since the only isolation the M3-C/D handlers
+will have is hand-written `where('store_id', ...)` predicates (no global scope, not in
+`scoped_models`, `null_tenant => 'open'`), and this project has already produced **four separate
+defects** from a tenant predicate built out of caller-supplied input, that was a cross-tenant
+publication primitive sitting in the schema waiting for one forgotten predicate.
+
+The fix is a **composite** foreign key: `theme_versions` gains `UNIQUE (store_id, theme_id, id)` as a
+referenceable identity, and the pointer references it on all three columns. Measured on MariaDB
+10.11 before adopting it, and now asserted by the harness:
+
+```
+  ok  store B publishing store A's version            refused (23000, tpv_version_identity_foreign)
+  ok  the WRONG THEME of the right store publishing it refused (23000, tpv_version_identity_foreign)
+  ok  store A publishing its OWN version               accepted
+```
+
+The engine refuses it. No handler cooperation is required, which is the point.
+
+When that key replaced the single-column one, **two previously-passing checks failed** — they
+expected `tpv_version_id_foreign`, which no longer exists. That is the harness working as intended:
+it asserts the constraint's NAME, so a silently renamed or removed constraint cannot pass. The
+expectations were updated to the composite key, not the assertions weakened.
+
+and six legitimate operations are asserted to **succeed**, because a constraint that blocks real work
+is also a defect: the same `version_no` for a different store, the same for a different theme of the
+same store, a second theme's live version for one store, deleting a version that is *not* live, an
+append-only event, and an event naming a version that has since been pruned.
+
+**Why the script reads the ids back instead of assuming them.** The first hand-run of these checks
+was wrong in both directions and that is why the script exists. Rows were inserted and then
+referenced by assumed ids. Auto-increment had not restarted, so "a SECOND live version" was refused
+with `1452` (FOREIGN KEY) rather than `1062` (DUPLICATE KEY) — it looked like a pass but the unique
+key was never reached — and "deleting the version that is LIVE" was **accepted**, which read as a
+missing `RESTRICT` when it had merely deleted a row that did not exist. A false refusal and a false
+acceptance from one mistake. Every check now asserts its premise first and reports INCONCLUSIVE
+rather than passing when the premise fails.
+
+### 6.2 THE ROLLBACK TRAP — found by running it, not by reasoning about it
+
+`(store_id, theme_id)` has `store_id` as its leftmost column, so InnoDB can use it to enforce the
+existing foreign key — and on adding it **MariaDB silently drops the FK's own single-column index**
+as redundant. Measured, `SHOW CREATE TABLE` after `up()`:
+
+```sql
+  PRIMARY KEY (`id`),
+  KEY `theme_customizes_store_theme_index` (`store_id`,`theme_id`),   -- the only one left
+  CONSTRAINT `theme_customizes_store_id_foreign` FOREIGN KEY (`store_id`) ...
+```
+
+The foreign key now depends on *this migration's* index, so the obvious `down()` fails — and fails
+mid-batch:
+
+```
+  SQLSTATE[HY000]: General error: 1553 Cannot drop index
+  'theme_customizes_store_theme_index': needed in a foreign key constraint
+```
+
+A `down()` that looks obviously safe and is not is the same shape as the GATE F drafts that dropped
+a column *because* it existed and destroyed 45 real `cost_price` values. `down()` now restores the
+foreign key's own index **first** and only then drops the composite one.
+
+Full cycle on a legacy-shaped database (3 stores, one themeless, rows containing markup and a JSON
+repeater), with the data fingerprinted as `COUNT(*)` plus a CRC over every row:
+
+| step | migrations | `theme_customizes` indexes | data fingerprint |
+|---|---|---|---|
+| pre-M3 | — | `PRIMARY(id)`, `store_id_foreign(store_id)` | `4\|9300402612` |
+| upgrade | 4 applied | `PRIMARY(id)`, `store_theme_index(store_id,theme_id)` | `4\|9300402612` **identical** |
+| rollback | 4 reverted | `PRIMARY(id)`, `store_id_foreign(store_id)` — **restored exactly** | `4\|9300402612` **identical** |
+| re-apply | 4 applied | composite again | `4\|9300402612` **identical** |
+
+M3 tables remaining after rollback: **0**. No merchant row was read, written or altered at any step.
+
+`ALGORITHM=INPLACE, LOCK=NONE` was verified by executing it, so adding the index does not block
+concurrent reads or writes. **That is the measurement, not permission to run it anywhere.**
+
+### 6.3 The duplicate question, answered read-only instead of by a constraint
+
+`tests/Support/Security/bin/report-theme-customize-duplicates.php` issues no DDL and no writes. It
+reports whether a UNIQUE key on `(store_id, theme_id, name)` would succeed on a given database, and
+it also counts rows with a NULL `store_id` or `theme_id` separately — MySQL treats NULLs as DISTINCT
+in a unique index, so those rows would **not** collide even though the application cannot tell them
+apart, and a unique key does not fix them.
+
+Falsified before being trusted: injecting two duplicate pairs and one NULL-tenant row made it report
+both groups with their id ranges, flag the NULL row, and exit 1; restoring the corpus returned it to
+clean and exit 0. Against the development fixture (53 rows) and the legacy corpus (8 rows) it reports
+no duplicates.
+
+### 6.4 `GateFSchemaGuard` could not be used here, and that was checked
+
+`GateFProductionSchema::ddlFor('theme_customizes')` **throws `InvalidArgumentException`** — GATE F
+knows exactly 15 tables and none is theme-related. `GateFSchemaGuard::differences()` resolves the
+expected DDL *before* it checks `hasTable()`, so a migration wrapping it in a `catch
+(GateFSchemaMismatch)` would swallow the wrong exception type. The M3 migrations therefore guard with
+`Schema::hasTable()` and an explicit, driver-aware index-existence check instead.
+
+Stated plainly: **there is no production-measured schema for any theme table.** For these tables the
+project's "the migrations are not the schema" rule cuts the other way — the migration is currently
+the only description that exists, and production is unmeasurable from here.
+
+---
+
+## 7. Findings that correct or constrain §1–§4
+
+Five measurements made after the design was first written change it. They are recorded here rather
+than silently folded in, because two of them refute something stated above.
+
+### 7.1 A published configuration must stay KEY-COMPLETE — a constraint on publishing, not on storage
+
+§3.1 concluded a version stores the **override set**. That stands, but it comes with a condition that
+was not stated. Storefront views index ~520 keys per theme **with no guard**, and an absent key
+raises `ErrorException: Undefined array key`, which Laravel turns into a 500 — which is precisely
+the M0 defect, where a themeless store's empty defaults array produced 500s on eleven routes.
+
+`getThemeSetting()` itself never fails: a nonexistent store, an unknown theme and a null store id
+each return the full merged default array. Key-completeness comes from the **defaults merge**, not
+from the stored rows. So the override-set design is safe **only while publishing writes overrides
+into `theme_customizes` and leaves the merge intact**.
+
+> **M3-C/M3-D must therefore never publish a snapshot as the whole settings array.** A publish that
+> replaced the merged result with a sparse version payload would be a 500 generator. This is a test
+> to write, not a comment to trust.
+
+### 7.2 "Byte-exact round-trip" is already impossible on the save path — and the cause is tracked
+
+§3 said repeater JSON "has to round-trip byte-exactly". That is true of the **version store** and
+false of the **save path**, and the difference matters.
+
+`app/Http/Middleware/XSS.php:35` deletes four substrings from every string in every request:
+
+```php
+public const STRIPPED_SUBSTRINGS = ['&lt;', '&gt;', 'javascript', 'alert'];
+```
+
+Measured through the real middleware on theme-setting field names:
+
+| posted | stored |
+|---|---|
+| `Smart alerts for shoppers` | `Smart s for shoppers` |
+| `Get javascript tips weekly` | `Get  tips weekly` |
+| `Alert & Co <b>Bold</b>` | **unchanged** |
+| `Alerta Roja` | **unchanged** |
+
+The sweep is **case-sensitive**, so it corrupts ordinary lowercase merchant copy while leaving
+`Alert`, `JavaScript:` and `<b>Bold</b>` untouched. Only password fields are exempt
+(`XSS::CREDENTIAL_KEYS`), and the docblock at `:85` records that exemption being added after the
+same sweep mangled passwords.
+
+**This is already tracked**, and is cited rather than claimed: `docs/discovery/11-RELEASE-READINESS.md`
+**S-09** — *"The 'XSS middleware' provides no XSS protection and silently corrupts passwords."* The
+theme-settings consequence is the part M3 adds to that record.
+
+Two consequences for M3:
+
+1. **M3's write validation cannot delegate to the `xss` middleware** for the directive's "no
+   arbitrary executable HTML or JavaScript" requirement. That middleware demonstrably provides none.
+   The type-aware allowlist in `ThemeFieldCatalog` is the real control.
+2. A version payload must be byte-identical to **what was stored**, not to what the merchant typed.
+   `payload_hash` therefore certifies the stored state and nothing upstream of it.
+
+### 7.3 The themes' own shipped defaults are not all valid
+
+`terms_condition_policy_repeater` is invalid JSON in all three themes, `team_slider` ships a PHP
+array where a JSON string is declared, and `privacy_policy_create_date` ships a human-readable string
+against a declared `date` type. **A strictly typed, validating version store would reject the themes'
+own defaults.** M3-C validates what a merchant *writes*; it does not retro-validate shipped defaults,
+and must not fail a publish because a default it never touched is malformed.
+
+### 7.4 The authorization picture is INVERTED, and worse than §4.6 recorded
+
+Measured across the seven theme routes:
+
+| | actions | guard |
+|---|---|---|
+| **reads** | `index`, `themePages`, `themeCustomize`, `changeOrder` | `isAbleTo('Manage Themes')` — **held by no role and no user in the fixture**, so the editor refuses every principal including the operator |
+| **writes** | `themeCustomizeUpdate`, `updateOrder`, `makeActiveTheme` | **no permission check at all** — only `auth` + `verified` |
+
+So the four actions that only *read* are locked and the three that *write* are open. "Uncomment line
+74" is not the fix: `Edit Theme` does not exist as a permission, and `Manage Themes` is held by
+nobody — so both the naive uncomment and the naive copy produce a surface that refuses everyone.
+
+Three further measured traps for M3-C/D's write paths:
+
+- **`getCurrentStore()` returns the literal `1` for an operator** with an empty `current_store`, and
+  store 1 belongs to a *merchant*. A publish or rollback performed by the operator would overwrite a
+  tenant's live theme while appearing to act on their own.
+- **`where('store_id', null)` compiles to `store_id IS NULL`**, so drafts from different unresolved
+  principals would silently share one bucket. A new write path must refuse a null store rather than
+  pass it to the predicate.
+- **A bare `isAbleTo('Manage Themes')` refuses the platform operator** — `users.type = 'super admin'`
+  measured false. Every check needs the operator-first ordering `CLAUDE.md` §1 prescribes.
+
+### 7.5 Why drafts must stay out of `theme_customizes` — now with a number
+
+`getThemeSetting()` plucks every row for a `(store_id, theme_id)` pair **with no published filter**,
+and they are reached through `ViewServiceProvider:65`.
+
+**The number needed correcting.** A measurement agent reported "111 anonymous storefront routes" and
+that figure was repeated here before being checked. Re-measured from `route:list --json`: **111
+routes carry `storeSlug`** — the parameter is `{storeSlug?}`, optional, which a first regex missed
+entirely and reported as zero — and of those **75 carry no auth middleware**, 47 of them answering
+GET, while 36 are auth-gated. All 75 run `ActiveTheme` + `ThemeLanguage`, so they are theme-rendering
+routes. 111 is the storefront surface; 75 is the anonymous one.
+
+A draft row written into `theme_customizes` under an existing key — however it were flagged — would
+be public the instant it landed. The design in §4.1 keeps drafts in `theme_versions`, which no storefront path
+reads, so this is structural rather than a filter that could be forgotten.
+
+---
+
+## 8. Packages
+
+| | | state | commit |
+|---|---|---|---|
+| M3-A | verified schema inventory, the derived allowlist, `ThemeFieldCatalog` + 13 tests | **complete** | `2abc369b` |
+| M3-B | four additive migrations, engine-enforced integrity, the rollback trap and its fix, the duplicate reporter | **complete** | this change |
+| M3-C | versioned storage model, backward-compatible reads, type-aware write validation (§7.2, §7.3) | next | |
+| M3-D | draft/published state, atomic publish, rollback semantics, **post-commit** cache flush (§4.5) | | |
+| M3-E | tenancy and concurrency regression tests, legacy-upgrade validation, closure | | |
+
+### What M3-C inherits as hard requirements
+
+1. **Never publish a snapshot as the whole settings array** (§7.1) — key-completeness comes from the
+   defaults merge, and a sparse replacement is a 500 generator.
+2. **Do not delegate value safety to the `xss` middleware** (§7.2) — it provides none, and corrupts
+   lowercase `alert` and `javascript` in ordinary merchant copy.
+3. **Operator-first authorization ordering**, a refusal on a null store, and no reliance on the
+   tenancy scope (§7.4).
+4. **Flush the model cache after commit, not inside the transaction** (§4.5).
+5. **Route the Flutter `updateStoreOwnerInfo` write through the same service** (§1.3), keeping the
+   HTTP contract byte-identical, which also fixes the stale-storefront defect.
+
+### The census tests M3-C must update deliberately
+
+Three tenancy census tests assert **exact sets and totals**, so M3-C's new models and queries break
+them *before they do anything wrong*. Each is designed to require a conscious re-classification, not
+a number bump — verified verbatim on this tree:
+
+| test | pin | what trips it |
+|---|---|---|
+| `tests/Feature/Tenancy/TenantModelClassificationTest.php:207` | `assertSame(95, $total)` over `glob(app/Models/*.php)` | **any** new model file — `ThemeVersion`, `ThemePublishedVersion`, `ThemePublicationEvent` |
+| `tests/Feature/Tenancy/RawQueryTenancyInventoryTest.php:657` | `'theme_customizes' => [2, 0]` | the two raw Flutter statements; routing them through a service changes this row |
+| same, `:475`, `:747`, `:799` | `assertSame(222, …)`, `assertSame(172, …)`, `assertSame(81, …)` | any new or removed raw `DB::table()` statement anywhere |
+
+**There is no deliberate-defect pin anywhere in the theme surface** — all nine test files that touch
+theme configuration pin *correct* behaviour — so M3 cannot break a pinned defect by fixing something.
+That was checked before anything was changed, as this project requires.
+
+### One architectural question M3 does NOT settle
+
+Two pins disagree about whether `ThemeCustomize` should be in `scoped_models`:
+
+- `tests/Feature/Storefront/ThemeCustomizeIsStoreScopedTest` asserts it is **not** in `scoped_models`
+  and says *"That is not wrong, but this file asserts the EXPLICIT store predicate is what isolates
+  the read — re-read it before relying on the scope instead."*
+- `TenantModelClassificationTest::test_no_public_storefront_model_is_enforced` holds that scoping it
+  would be **wrong**, with a measured storefront-blanking rationale.
+
+M3's design needs neither answer: it adds no model to `scoped_models` and isolates every new query
+with an explicit predicate plus the engine-level composite key of §6.1.1. **The question is recorded,
+not resolved** — it is an owner/architecture decision, not something a milestone should decide in
+passing.
 
 ### Validation environment, already prepared
 
