@@ -1046,7 +1046,35 @@ claim the post-commit guarantee, which is proved only by the two-process harness
 | `verify-theme-version-concurrency-on-mysql.php` | 7 passed, 0 failed, 0 inconclusive |
 | `verify-theme-cache-flush-after-commit-on-mysql.php` | 4 checks, 0 failed, 0 inconclusive; **check 4 fails when the control is removed** |
 
-The Feature suite and known-outcome gate result for this tree is recorded in §9.7.
+### 9.6b The closing gate run — `6bd3e4d2`
+
+```
+Tests:  2 failed, 1 skipped, 8628 passed (44101 assertions)
+
+KNOWN-OUTCOME GATE
+testcases observed   : 8631  (manifest floor 1000)
+failures observed    : 2  (manifest declares 2)
+errors observed      : 0  (always expected: 0)
+skips observed       : 1  (manifest declares 1)
+
+OK: the observed outcome set matches the manifest exactly -- 2 declared failures,
+    1 declared skips, 0 errors, and nothing undeclared.
+gate exit=0
+```
+
+Quoting the gate's own closing words, because they are the right caveat and not a formality:
+*"This is NOT a statement that the suite is green. It is a statement that the suite is failing and
+skipping exactly the tests the project has recorded, for the reasons it has recorded."* The two
+declared failures are `RegistrationTest::test_new_users_can_register` and
+`ProfileTest::test_profile_page_is_displayed`. **No entry was added to the manifest at any point in
+this package** — the one undeclared failure that appeared, the observability inventory row, was
+fixed rather than declared.
+
+Five Feature runs were made. Three were discarded and the reason is recorded in §10.4c: the
+inventory is line-absolute and the log line moved under me. One was lost to a container restart.
+This is the fifth, on the committed tree, with nothing edited while it ran.
+
+Everything above was re-measured after that restart rather than carried over.
 
 ### 9.7 Falsification log for this package
 
