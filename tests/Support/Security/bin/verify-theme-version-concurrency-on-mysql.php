@@ -45,6 +45,26 @@ foreach (array_slice($argv, 1) as $arg) {
     exit(2);
 }
 
+/*
+ * AUTO-DETECT THE UNIX SOCKET WHEN NONE WAS NAMED, exactly as the sibling
+ * `verify-theme-cache-flush-after-commit-on-mysql.php` does.
+ *
+ * Without this the default is TCP to 127.0.0.1, and on a server using `unix_socket` auth that
+ * answers "Access denied for user 'root'@'localhost'" -- which this script then reports as
+ * "No MySQL/MariaDB server reachable". MEASURED after a container restart: the server WAS running
+ * and the harness said there was none. A harness that reports the absence of a server when a
+ * server is present is the false reading this whole package has been chasing, one layer out.
+ */
+if ($opt['socket'] === null) {
+    foreach (['/run/mysqld/mysqld.sock', '/var/run/mysqld/mysqld.sock', '/tmp/mysql.sock'] as $candidate) {
+        if (file_exists($candidate)) {
+            $opt['socket'] = $candidate;
+            echo "  using the unix socket at {$candidate}\n";
+            break;
+        }
+    }
+}
+
 $root = dirname(__DIR__, 4);
 $name = 'p3m3c_concurrency_' . getmypid();
 
