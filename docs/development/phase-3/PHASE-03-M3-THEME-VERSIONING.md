@@ -1205,6 +1205,32 @@ The guard is `tests/Unit/Theme/ThemeCustomizeOrderColumnsExistTest`, which compa
 to the **migration** rather than to a database, because a database assertion inherits the same
 engine blindness. Falsified: restoring `theme_id` fails it with the file and line.
 
+### 10.4c The observability inventory is LINE-ABSOLUTE, and I tripped it three times
+
+Worth recording because the cause looked mysterious twice and is not mysterious at all.
+
+`docs/security/P01-OBSERVABILITY-INVENTORY.md` keys each security log line by `file:line`, and
+`SecurityLogInventoryTest` compares that to a census of the source. **Every edit above a logged line
+moves it and invalidates the row.** The `\Log::warning('theme settings write refused', ...)` added
+in §9 moved three times as this package grew:
+
+| tree | line |
+|---|---|
+| `0c9fec6b` | 194 |
+| `54bd178e` | 207 |
+| `5ded186a` | **212** |
+
+Two Feature runs were discarded as having read a mid-edit working tree, and one of them was
+described here as unreproducible. **That was wrong, and the correction belongs in the record:** the
+runs were reading real trees whose line numbers had already drifted past the row I had written by
+hand. Nothing was racing; I was editing above a logged line and not re-syncing.
+
+The repository already ships the right mechanism, and it is the one to use rather than editing the
+row: `python3 docs/development/phase-1/tools/resync-observability-inventory.py --write` re-points
+rows by `(file, message)` and **refuses** to write when a line was added or deleted rather than
+moved — so it cannot be used to paper over a genuinely new log line. Here it reported `rows
+re-pointed: 1, rows unchanged: 223`.
+
 ### 10.5 The image-filename regression M3-C introduced
 
 Confirmed. The stored name is built from the **raw client filename**
