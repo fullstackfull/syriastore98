@@ -198,5 +198,8 @@ three reserved-slug guards had to fail **separately** to prove a one-writer fix 
 - **Zero axe violations is not an accessibility pass.** axe automates roughly a third of WCAG.
 - **The vitals are lab numbers**, from `artisan serve` on localhost with no TLS, CDN, HTTP/2 or
   opcache, against SQLite rather than MySQL, with no INP at all.
+- **An Arabic page is heavier than an English one by about 178 KB**, because the design system
+  self-hosts four Arabic font weights alongside four Latin. Measured, recorded, and a
+  design-system question rather than an M7 one.
 - **No production deployment, migration, seed, key rotation or history rewrite was performed**, and
   none is implied.

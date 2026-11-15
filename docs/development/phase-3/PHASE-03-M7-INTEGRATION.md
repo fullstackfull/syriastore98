@@ -126,9 +126,13 @@ the URL and a string on the page that follows.
 - **The vitals are lab numbers.** `artisan serve` on localhost: no network, no TLS, no CDN, no
   HTTP/2, no opcache, SQLite rather than MySQL. INP is a field metric and is absent. A regression
   baseline, with the same caveat M2-E records.
-- **650 KB is dominated by `store-syria-ds.css`** (365 KB uncompressed), which the platform site
-  loads whole for a handful of components, and `artisan serve` does not compress. Trimming it is a
-  design-system question, recorded rather than done.
+- **The heaviest page is 650,917 bytes across 11 resources, and it is the ARABIC one.** Measured,
+  not estimated: 365 KB design system, 28 KB platform stylesheet, and **257 KB of self-hosted
+  woff2** — four Arabic weights plus four Latin. An English page carries 79 KB of font instead, so
+  Arabic readers pay roughly 178 KB more for the same page. The design system is loaded whole for
+  a handful of components and `artisan serve` does not compress it; woff2 is already compressed, so
+  that 257 KB is real in production too. Both are design-system questions, recorded rather than
+  done. Nothing is fetched from a font CDN, which is why the off-origin count is zero.
 - **The capture is of the `p2dev` fixture**, not of production data.
 
 ## 8. Engineering gates at M7 close

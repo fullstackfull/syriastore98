@@ -7,7 +7,7 @@
     "brokenLinks": 0,
     "inPageAnchorsChecked": 32,
     "brokenAnchors": 0,
-    "worstLcpMs": 224,
+    "worstLcpMs": 212,
     "worstCls": 0.0234
   },
   "journeys": [
@@ -677,134 +677,134 @@
     {
       "locale": "en",
       "surface": "/platform",
-      "lcp": 212,
-      "cls": 0.0025
-    },
-    {
-      "locale": "en",
-      "surface": "/platform/features",
-      "lcp": 204,
+      "lcp": 192,
       "cls": 0.0056
     },
     {
       "locale": "en",
+      "surface": "/platform/features",
+      "lcp": 180,
+      "cls": 0.0034
+    },
+    {
+      "locale": "en",
       "surface": "/platform/pricing",
-      "lcp": 208,
-      "cls": 0.0234
+      "lcp": 176,
+      "cls": 0.0182
     },
     {
       "locale": "en",
       "surface": "/platform/getting-started",
-      "lcp": 168,
-      "cls": 0.013
+      "lcp": 144,
+      "cls": 0.0034
     },
     {
       "locale": "en",
       "surface": "/platform/faq",
-      "lcp": 176,
-      "cls": 0.0114
+      "lcp": 196,
+      "cls": 0.0007
     },
     {
       "locale": "en",
       "surface": "/platform/contact",
-      "lcp": 224,
-      "cls": 0.0106
+      "lcp": 156,
+      "cls": 0.0047
     },
     {
       "locale": "en",
       "surface": "/platform/legal",
-      "lcp": 216,
-      "cls": 0.0115
+      "lcp": 160,
+      "cls": 0.0105
     },
     {
       "locale": "en",
       "surface": "/platform/docs",
       "lcp": 168,
-      "cls": 0.01
+      "cls": 0.0081
     },
     {
       "locale": "en",
       "surface": "/platform/docs/your-storefront",
-      "lcp": 208,
+      "lcp": 168,
       "cls": 0.0023
     },
     {
       "locale": "en",
       "surface": "/platform/docs/your-storefront/edit-your-theme",
-      "lcp": 176,
-      "cls": 0.0046
+      "lcp": 164,
+      "cls": 0.0078
     },
     {
       "locale": "en",
       "surface": "/platform/docs/search?q=theme",
-      "lcp": 164,
+      "lcp": 140,
       "cls": 0.0022
     },
     {
       "locale": "ar",
       "surface": "/platform",
-      "lcp": 180,
+      "lcp": 160,
       "cls": 0.0113
     },
     {
       "locale": "ar",
       "surface": "/platform/features",
-      "lcp": 184,
-      "cls": 0.0056
+      "lcp": 172,
+      "cls": 0.0092
     },
     {
       "locale": "ar",
       "surface": "/platform/pricing",
-      "lcp": 196,
-      "cls": 0.0189
+      "lcp": 148,
+      "cls": 0.0234
     },
     {
       "locale": "ar",
       "surface": "/platform/getting-started",
-      "lcp": 176,
-      "cls": 0.0034
+      "lcp": 204,
+      "cls": 0.0146
     },
     {
       "locale": "ar",
       "surface": "/platform/faq",
-      "lcp": 184,
+      "lcp": 168,
       "cls": 0.0114
     },
     {
       "locale": "ar",
       "surface": "/platform/contact",
-      "lcp": 188,
-      "cls": 0.0106
+      "lcp": 156,
+      "cls": 0.0055
     },
     {
       "locale": "ar",
       "surface": "/platform/legal",
-      "lcp": 180,
-      "cls": 0.0174
+      "lcp": 212,
+      "cls": 0.0115
     },
     {
       "locale": "ar",
       "surface": "/platform/docs",
-      "lcp": 160,
-      "cls": 0.0098
+      "lcp": 144,
+      "cls": 0.0069
     },
     {
       "locale": "ar",
       "surface": "/platform/docs/your-storefront",
-      "lcp": 172,
-      "cls": 0.0014
+      "lcp": 168,
+      "cls": 0.0023
     },
     {
       "locale": "ar",
       "surface": "/platform/docs/your-storefront/edit-your-theme",
-      "lcp": 196,
-      "cls": 0.0046
+      "lcp": 164,
+      "cls": 0.006
     },
     {
       "locale": "ar",
       "surface": "/platform/docs/search?q=%D9%82%D8%A7%D9%84%D8%A8",
-      "lcp": 180,
-      "cls": 0.005
+      "lcp": 196,
+      "cls": 0.0021
     }
   ]
 }

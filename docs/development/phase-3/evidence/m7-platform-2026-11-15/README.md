@@ -102,7 +102,9 @@ is present, correct and invisible. The journeys use `:visible`.
 - **The vitals are lab numbers.** `artisan serve` on localhost: no network, no TLS, no CDN, no
   HTTP/2, no opcache, SQLite rather than MySQL. INP is a field metric and is not measured. They are
   a regression baseline, the same thing M2-E's numbers are, with the same caveat.
-- **650 KB is dominated by `store-syria-ds.css`** (365 KB uncompressed), which the platform site
-  loads whole for a handful of components. Compression is not in play under `artisan serve`;
-  production serves it gzipped. Trimming it is a design-system question, not an M7 one, and is
-  recorded rather than done.
+- **The heaviest page is 650,917 bytes over 11 resources, and it is the ARABIC one** — 365 KB
+  design system, 28 KB platform stylesheet, **257 KB of self-hosted woff2** (four Arabic weights
+  plus four Latin). English carries 79 KB of font instead, so an Arabic reader fetches about
+  178 KB more. The stylesheet is uncompressed under `artisan serve` and gzipped in production;
+  woff2 already is, so that part is real either way. Nothing comes from a font CDN, which is why
+  the off-origin count is zero. Trimming either is a design-system question, not an M7 one.

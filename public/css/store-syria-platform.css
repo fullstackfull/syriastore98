@@ -38,9 +38,21 @@
    dark-mode correct by construction and cannot drift from the admin palette.
 
    EGRESS
-   No @import, no url() to another origin, no web font. The platform site must
-   render with no outbound request at all; PlatformAssetsAreLocalTest fails the
-   build if a view or this file reaches off-origin.
+   No @import and no url() to another origin. The platform site must render with
+   no request to anyone else, and the M7 matrix measured exactly that across 44
+   loads: zero off-origin requests.
+
+   IT IS NOT A FONTLESS PAGE, and an earlier version of this note said "no web
+   font", which was a claim about this file read as a claim about the page.
+   store-syria-ds.css loads SELF-HOSTED woff2 files from /fonts/store-syria/ --
+   measured: four Latin weights (79 KB) in English, and four Arabic weights
+   alongside them (178 KB more) in Arabic, so an Arabic page carries 257 KB of
+   font. Self-hosted is the point: nothing is fetched from a font CDN, so no
+   third party learns who read the company's website. This file declares no font
+   of its own.
+
+   PlatformSiteAssetsAreLocalTest fails the build if a view or this file reaches
+   off-origin.
    ========================================================================== */
 
 /* --------------------------------------------------------------------------

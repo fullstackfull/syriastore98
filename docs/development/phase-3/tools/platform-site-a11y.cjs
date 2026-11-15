@@ -82,11 +82,19 @@ const BEST_PRACTICE_ONLY = new Set(['region', 'landmark-one-main', 'landmark-uni
 
             for (const url of URLS[locale]) {
                 const page = await context.newPage();
-                let bytes = 0;
-                page.on('response', async (r) => {
+
+                /* KEYED BY URL RATHER THAN SUMMED PER EVENT, so a response that fires twice is
+                   counted once. THE TOTAL DID NOT CHANGE when this was corrected, and that is the
+                   useful part of the record: 650,917 bytes across 11 resources on the heaviest
+                   page was already the honest figure, and a hand-check that disagreed had simply
+                   measured the ENGLISH page, which loads four fewer font files. The number is
+                   365 KB of design system, 28 KB of platform stylesheet and 257 KB of
+                   self-hosted woff2 -- four Arabic weights and four Latin. */
+                const bySize = new Map();
+                page.on('response', (r) => {
                     try {
                         const len = r.headers()['content-length'];
-                        if (len) bytes += Number(len);
+                        bySize.set(r.url(), len ? Number(len) : 0);
                     } catch { /* a response that cannot report its size is not worth failing over */ }
                 });
 
@@ -121,7 +129,8 @@ const BEST_PRACTICE_ONLY = new Set(['region', 'landmark-one-main', 'landmark-uni
                     bestPracticeViolations: bestPractice,
                     wcagCount: wcag.reduce((n, v) => n + v.n, 0),
                     bestPracticeCount: bestPractice.reduce((n, v) => n + v.n, 0),
-                    transferredBytes: bytes,
+                    transferredBytes: [...bySize.values()].reduce((a, b) => a + b, 0),
+                    resources: bySize.size,
                 });
 
                 await page.close();
