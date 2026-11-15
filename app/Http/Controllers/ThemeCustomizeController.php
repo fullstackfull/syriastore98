@@ -586,9 +586,45 @@ class ThemeCustomizeController extends Controller
          * every theme that has not been reordered yet. Nothing is migrated in place, so a rollback
          * of the column loses the attribution and keeps every `orders` value.
          */
+        /*
+         * PHASE 03 M4-9 — THE POSTED VALUES ARE VALIDATED AGAINST THE THEME, not trusted.
+         *
+         * `page_slug` and `orders` came straight from hidden inputs the client filled
+         * (`order.blade.php:54-55`) and went into the row unexamined, so any authorised merchant
+         * could store an arbitrary page name and arbitrary ordering content.
+         *
+         * WHAT IS VALIDATED, AND WHAT DELIBERATELY IS NOT. The page must be one the theme declares
+         * AND marks `is_order` -- ordering applies to orderable pages only. The tokens are checked
+         * against a UNION rather than against the section keys, and that is the whole subtlety:
+         *
+         *     MEASURED 2026-11-15
+         *     stylique/home   declared 9   sections 10   phantom [top_category, article, logos]
+         *                                                missing [logo, collection, blog, service]
+         *     techzonix/home  declared 9   sections  9   phantom [top_category, bestseller, logos]
+         *                                                missing [collections, logo, offer]
+         *     greentic        declares NO orderable page at all
+         *
+         * The shipped `orders` strings DO NOT MATCH the real section keys. Validating tokens
+         * against the sections would therefore reject each theme's own default ordering -- the
+         * merchant's first reorder would be refused by the product's own data. So the accepted set
+         * is "what the theme declares in `orders`" UNION "the sections that really exist", which
+         * takes every legitimate value and still refuses an invented one.
+         */
+        $page = $this->orderablePage($theme, (string) $request->input('page_slug'));
+
+        if ($page === null) {
+            return redirect()->back()->with('error', __('Theme page not found.'));
+        }
+
+        $orders = $this->acceptableOrdering($theme, $page, (string) $request->input('orders'));
+
+        if ($orders === null) {
+            return redirect()->back()->with('error', __('That ordering is not valid for this page.'));
+        }
+
         ThemeCustomizeOrder::updateOrCreate(
-            ['store_id' => $storeId, 'theme_id' => $theme, 'page_slug' => $request->page_slug],
-            ['orders' => $request->orders]
+            ['store_id' => $storeId, 'theme_id' => $theme, 'page_slug' => $page['slug']],
+            ['orders' => $orders]
         );
 
         return redirect()->back()->with('success', __('Order change successfully.'));
@@ -632,5 +668,85 @@ class ThemeCustomizeController extends Controller
         Store::where('id', $storeId)->update(['theme_id' => $themeId]);
 
         return redirect()->back()->with('success', __('Theme active set successfully'));
+    }
+
+    /**
+     * The `pages.json` entry for a page this theme declares AND marks orderable, or null.
+     *
+     * @return array<string,mixed>|null
+     */
+    private function orderablePage(string $theme, string $slug): ?array
+    {
+        if ($slug === '' || basename($slug) !== $slug) {
+            return null;
+        }
+
+        foreach ((array) $this->readThemeJson($theme, 'pages') as $entry) {
+            if (is_array($entry)
+                && ($entry['slug'] ?? null) === $slug
+                && ! empty($entry['is_order'])) {
+                return $entry;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The posted ordering, normalised, or null if it names anything the theme does not know.
+     *
+     * Duplicates are collapsed and order is preserved -- reordering is a permutation, so a repeated
+     * token is a client bug rather than an intent to render a section twice.
+     *
+     * @param array<string,mixed> $page the `pages.json` entry
+     */
+    private function acceptableOrdering(string $theme, array $page, string $posted): ?string
+    {
+        $tokens = array_values(array_filter(array_map('trim', explode(',', $posted)), static fn ($t) => $t !== ''));
+
+        if ($tokens === []) {
+            return null;
+        }
+
+        $declared = array_filter(array_map('trim', explode(',', (string) ($page['orders'] ?? ''))));
+        $sections = [];
+
+        foreach ((array) $this->readThemeJson($theme, (string) $page['slug']) as $node) {
+            foreach ($this->sectionKeys($node) as $key) {
+                $sections[] = $key;
+            }
+        }
+
+        $acceptable = array_unique(array_merge($declared, $sections));
+        $seen = [];
+
+        foreach ($tokens as $token) {
+            if (! in_array($token, $acceptable, true)) {
+                return null;
+            }
+
+            $seen[$token] = true;
+        }
+
+        return implode(',', array_keys($seen));
+    }
+
+    /** Section keys anywhere under a decoded page node; mirrors ThemeFieldCatalog's walker. */
+    private function sectionKeys(mixed $node): array
+    {
+        $out = [];
+
+        if (is_array($node)) {
+            if (isset($node['settings']) && is_array($node['settings'])
+                && (array_key_exists('key', $node) || array_key_exists('slug', $node))) {
+                $out[] = (string) ($node['key'] ?? $node['slug']);
+            }
+
+            foreach ($node as $value) {
+                $out = array_merge($out, $this->sectionKeys($value));
+            }
+        }
+
+        return $out;
     }
 }

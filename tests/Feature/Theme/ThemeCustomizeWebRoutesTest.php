@@ -349,14 +349,32 @@ class ThemeCustomizeWebRoutesTest extends TestCase
             . "isAbleTo('Manage Themes'); this POST checked nothing at all.");
     }
 
+    /**
+     * THE PAYLOAD CHANGED AT M4-9, AND THE OLD ONE WAS THE POINT. This posted
+     * `'orders' => 'banner,footer'` for the HOME page, and it was stored -- because `updateOrder()`
+     * took both hidden inputs unexamined. Measured: neither `banner` nor `footer` is a token
+     * stylique's home page has. The acceptable set is its declared ordering UNION its real
+     * sections:
+     *
+     *     article, bestseller, blog, category, collection, logo, logos, more_offer, product,
+     *     service, slider, testimonial, top_category
+     *
+     * So the old assertion proved the row was written and simultaneously demonstrated that it could
+     * be written with content the theme does not know. It now posts real tokens, and
+     * `ThemeOrderValidationTest` covers the refusals.
+     */
     #[Test]
     public function test_a_merchant_can_reorder_their_own_sections(): void
     {
         $this->actingAs($this->merchant)->post('/theme-customize/stylique/order/update', [
-            'page_slug' => 'home', 'orders' => 'banner,footer',
+            'page_slug' => 'home', 'orders' => 'category,slider',
         ])->assertRedirect();
 
         $this->assertSame(1, ThemeCustomizeOrder::withoutGlobalScopes()
             ->where('store_id', $this->merchantStore->id)->count());
+
+        $this->assertSame('category,slider', ThemeCustomizeOrder::withoutGlobalScopes()
+            ->where('store_id', $this->merchantStore->id)->value('orders'),
+            'The ordering was stored but not as posted.');
     }
 }
