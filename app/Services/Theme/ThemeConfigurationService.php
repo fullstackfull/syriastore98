@@ -101,6 +101,53 @@ class ThemeConfigurationService
      * @param  array<string,mixed>  $settings  name => value, as posted
      * @return array<string,string>|null       the settings actually written, or null on refusal
      */
+    /**
+     * PHASE 03 M4-3 — THE KEY-COMPLETE READ, WITH AN AUTHORIZATION CHECK.
+     *
+     * The only key-complete read of live configuration today is the global helper
+     * `getThemeSetting($storeId, $theme)` (`app/Helper/helper.php:3538`), which takes NO user and
+     * performs NO authorization at all -- it is the storefront's reader, and the storefront is
+     * anonymous by design. An editor form that initialises from it is initialising from an
+     * unauthorised read and relying entirely on whatever gate the route happened to apply.
+     *
+     * This is the same merge, behind the same rule as every other read on this surface. `allows()`
+     * and not `allowsManagement()` deliberately: READING your own tenant's live configuration is
+     * tenant-membership work, which is what the owner's delegation requirement needs -- staff
+     * prepare drafts against what is live. Only the WRITE is restricted.
+     *
+     * Returns null on refusal with `refusal()` set; never an empty array, which `writeSettings()`
+     * uses to mean "nothing was accepted" and would be ambiguous here.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function liveSettings(
+        mixed $storeId,
+        string $themeId,
+        ?Authenticatable $user = null
+    ): ?array {
+        $this->rejected = [];
+        $this->refusal = null;
+
+        $user ??= Auth::user();
+        $store = $this->gate->resolveStore($storeId, $user);
+
+        if (! $store || ! $this->gate->allows($store->id, $user)) {
+            $this->refusal = $this->gate->reason() ?? 'not permitted';
+
+            return null;
+        }
+
+        $themeId = $this->resolveThemeId($themeId, (string) $store->theme_id);
+
+        if ($themeId === null) {
+            return null;
+        }
+
+        /* The storefront's own reader, so the editor and the shop cannot disagree about what is
+         * live. Key-completeness comes from its defaults merge, not from anything added here. */
+        return getThemeSetting((int) $store->id, $themeId);
+    }
+
     public function writeSettings(
         mixed $storeId,
         string $themeId,
