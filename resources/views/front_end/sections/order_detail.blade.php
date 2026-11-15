@@ -38,7 +38,7 @@
                                         <a href="{{ route('shippinglabel.pdf', \Illuminate\Support\Facades\Crypt::encrypt($order['id'])) }}"
                                             target="_blank" class="btn btn-sm btn-primary btn-icon align-items-center"
                                             data-bs-toggle="tooltip" data-bs-placement="top" title="Print"
-                                            aria-label="Print">
+                                            aria-label="{{ __('Print') }}">
                                             <i class="ti ti-printer" style="font-size:20px"></i>
                                         </a>
                                     @endif

@@ -118,3 +118,22 @@ __pycache__/
 *.sql.gz
 *.dump
 *.bak
+
+# Phase 03 dev-only: /themes resolves from the repo root in production (docroot == repo root),
+# so this bridge exists for `php artisan serve` alone and must never be committed.
+/public/themes
+
+# PHASE 03 M3-D. The storefront fixture's 44 synthetic tiles, same pattern as `/uploads/1/` above
+# and for the same reason. They WERE committed under the repository-root `uploads/` tree, and the
+# first Phase 03 CI run refused them: `.htaccess:33-36` rewrites `/uploads/...` to
+# `public/uploads/...` only when the file does NOT exist at the root, so a committed one is served
+# directly by the webserver with no application and no authorisation (P1-OWN-10, owner decision 11).
+#
+# The bytes now live in `docs/development/phase-3/fixtures/media/` -- outside anything served -- and
+# `docs/development/phase-3/tools/seed-storefront-fixture.php` copies them here when a developer
+# seeds. Note `public/uploads` is a SYMLINK to this same directory (see the top of this file), so
+# these rules cover both spellings of the destination.
+/uploads/p3fixt/
+/uploads/2/p3fixt/
+/uploads/5/p3fixt/
+/uploads/6/p3fixt/

@@ -50,8 +50,10 @@
                     $price_step = ($max_price - $min_price) / 5;
                     @endphp
                     <div class="mb-4 md:mb-6">
-                        <h3 class="font-semibold mb-2 md:mb-3">{{ __('Price Range') }}</h3>
-                        <input type="range" min="{{ $min_price }}" max="{{ $max_price }}"
+                        <h3 class="font-semibold mb-2 md:mb-3" id="priceRangeLabel">{{ __('Price Range') }}</h3>
+                        {{-- M2-E a11y: the slider had no accessible name (axe label, critical). It is
+                             labelled by the heading above it, which is already translated. --}}
+                        <input type="range" aria-labelledby="priceRangeLabel" min="{{ $min_price }}" max="{{ $max_price }}"
                             value="{{ $selected_max_price ?? $max_price }}" step="1" class="w-full accent-primary"
                             id="priceRangeSlider" />
                         <div class="flex justify-between mt-1 md:mt-2 text-sm text-gray-600">
@@ -103,10 +105,13 @@
                     <div class="flex flex-1 gap-3 sm:justify-end w-full">
                         <!-- View Toggle -->
                         <div class="flex border rounded-md overflow-hidden">
-                            <button id="grid-view-btn" class="view-toggle p-1 px-3 active">
+                            {{-- M2-E a11y: the two layout toggles were icon-only with no name (axe button-name).
+                                 `aria-pressed` is correct here and NOT on the appearance control: these two are
+                                 binary, that one cycles light/dark/auto. --}}
+                            <button id="grid-view-btn" aria-label="{{ __('Grid View') }}" aria-pressed="true" class="view-toggle p-1 px-3 active">
                                 <i class="fas fa-th-large"></i>
                             </button>
-                            <button id="list-view-btn" class="view-toggle p-1 px-3 sm:block hidden">
+                            <button id="list-view-btn" aria-label="{{ __('List View') }}" aria-pressed="false" class="view-toggle p-1 px-3 sm:block hidden">
                                 <i class="fas fa-list"></i>
                             </button>
                         </div>

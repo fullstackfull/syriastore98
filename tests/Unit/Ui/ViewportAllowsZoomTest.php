@@ -60,8 +60,14 @@ class ViewportAllowsZoomTest extends TestCase
         'plans/cybersourcerequest.blade.php',
         'plans/request.blade.php',
 
-        // Phase 03 — storefront.
-        'front_end/layouts/app.blade.php',
+        // Phase 03 — storefront. `front_end/layouts/app.blade.php` WAS here and is now FIXED
+        // (P3-M2-E): it carried `maximum-scale=1`, axe flagged meta-viewport critical on every
+        // storefront page, and the three theme copies under themes/*/views carried the same line.
+        // All four are fixed and the theme copies are asserted below.
+        //
+        // The NMI hand-off stays. It was considered in M2-E and deliberately left: it is a payment
+        // gateway's own page, and the owner's standing restrictions put payment flows outside an
+        // incidental accessibility sweep. It is a real WCAG 1.4.4 failure and it is still owed.
         'front_end/payment/nmi-payment.blade.php',
 
         // Vendored payment-gateway hand-off pages, each a standalone document with its own
@@ -75,6 +81,88 @@ class ViewportAllowsZoomTest extends TestCase
         // ZERO views extend layouts.main. Deleting dead code is a different slice.
         'partision/head.blade.php',
     ];
+
+    /**
+     * P3-M2-E. The theme copies are the ones a shopper actually loads.
+     *
+     * `stores.theme_id` drives `Theme::set()`, which `prependLocation()`s the theme's own view
+     * directory, so `front_end/layouts/app.blade.php` resolves to the THEME's copy and the one in
+     * `resources/views` is only the fallback for a store whose theme is empty. All four existed
+     * with `maximum-scale=1`. The scan below covers `resources/views` only, so without this the
+     * three theme copies could be re-broken and nothing would notice.
+     */
+    private const STOREFRONT_LAYOUTS = [
+        'themes/stylique/views/front_end/layouts/app.blade.php',
+        'themes/techzonix/views/front_end/layouts/app.blade.php',
+        'themes/greentic/views/front_end/layouts/app.blade.php',
+        'resources/views/front_end/layouts/app.blade.php',
+    ];
+
+    public function test_premise_every_storefront_layout_declares_a_viewport(): void
+    {
+        foreach (self::STOREFRONT_LAYOUTS as $layout) {
+            $this->assertMatchesRegularExpression(
+                '/<meta\s+name="viewport"/i', $this->read($layout),
+                $layout . ' no longer declares a viewport at all, so the assertions below are '
+                . 'vacuous.');
+        }
+    }
+
+    public function test_no_storefront_layout_disables_zoom(): void
+    {
+        foreach (self::STOREFRONT_LAYOUTS as $layout) {
+            $tag = $this->viewportTag($layout);
+
+            $this->assertDoesNotMatchRegularExpression('/user-scalable\s*=\s*(0|no)/i', $tag,
+                $layout . ': the storefront viewport asks the browser to disable zoom. Tag: ' . $tag);
+
+            $this->assertDoesNotMatchRegularExpression('/maximum-scale\s*=\s*1(\.0)?\b/i', $tag,
+                $layout . ': `maximum-scale=1` caps zoom at 100%. This is what axe reported as '
+                . 'meta-viewport (critical) on every storefront page. Tag: ' . $tag);
+        }
+    }
+
+    public function test_every_storefront_layout_keeps_a_responsive_viewport(): void
+    {
+        foreach (self::STOREFRONT_LAYOUTS as $layout) {
+            $tag = $this->viewportTag($layout);
+
+            $this->assertMatchesRegularExpression('/width\s*=\s*device-width/i', $tag,
+                $layout . ': the viewport no longer sets width=device-width.');
+            $this->assertMatchesRegularExpression('/initial-scale\s*=\s*1/i', $tag,
+                $layout . ': the viewport no longer sets initial-scale=1.');
+        }
+    }
+
+    /** No theme view may reintroduce the token the merchant shell and the storefront shed. */
+    public function test_no_theme_view_disables_zoom(): void
+    {
+        $root  = dirname(__DIR__, 3) . '/themes';
+        $found = [];
+
+        $it = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS));
+
+        foreach ($it as $file) {
+            if (! $file->isFile() || ! str_ends_with($file->getFilename(), '.blade.php')) {
+                continue;
+            }
+
+            $source = preg_replace('/\{\{--.*?--\}\}/s', '', (string) file_get_contents($file->getPathname()));
+
+            if (preg_match('/<meta[^>]*name="viewport"[^>]*>/i', $source, $m)
+                && preg_match('/user-scalable\s*=\s*(0|no)|maximum-scale\s*=\s*1(\.0)?\b/i', $m[0])) {
+                $found[] = str_replace($root . '/', '', $file->getPathname());
+            }
+        }
+
+        sort($found);
+
+        $this->assertSame([], $found,
+            "A theme view disables pinch-zoom. The three storefront layouts were fixed in M2-E; "
+            . "this is a regression or a new theme that copied the old line.\n  found: "
+            . implode(', ', $found));
+    }
 
     public function test_premise_both_merchant_layouts_declare_a_viewport(): void
     {

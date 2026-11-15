@@ -34,7 +34,7 @@
                             @endphp
                             <li class="nav-item">
                                 <a href="{{ route('theme.customize.order', [$theme, $page['slug']]) }}"
-                                    class="nav-link {{ $page['slug'] == $slug ? 'active' : '' }}">{{ $page['title'] }}</a>
+                                    class="nav-link {{ $page['slug'] == $slug ? 'active' : '' }}">{{ __($page['title']) }}</a>
                             </li>
                             @endif
                             @endforeach
@@ -86,7 +86,12 @@
 @endsection
 
 @push('scripts')
-<script src="https://demo.workdo.io/vcardgo-saas/custom/libs/jquery-ui/jquery-ui.js"></script>
+{{-- PHASE 03 M4-9. This loaded jquery-ui from the VENDOR'S PUBLIC DEMO SITE
+     (demo.workdo.io/vcardgo-saas/...) -- a third party serving executable JavaScript into an
+     authenticated merchant's admin page, on every view of this screen. The identical library
+     ships locally at public/js/jquery-ui.min.js and the sibling view in this very directory,
+     customize-script.blade.php:1, already loads it correctly. --}}
+<script src="{{ asset('js/jquery-ui.min.js') }}"></script>
 <script>
    $(function() {
        $(".sortable").sortable();

@@ -7,13 +7,14 @@
     @if (isset($themeSettings['slider_status']) && $themeSettings['slider_status'] == '1')
     <section class="home-banner-sec py-10 lg:py-24 bg-cover bg-primary/10 relative z-[1] overflow-hidden">
         @if (isset($themeSettings['slider_left_image']) && !empty($themeSettings['slider_left_image']))
-        <img src="{{  get_file($themeSettings['slider_left_image'] ?? '') }}" class="absolute left-0 top-10 hidden lg:block">
+        {{-- M2-E a11y: decorative backdrop, empty alt so assistive tech skips it (axe image-alt). --}}
+        <img src="{{  get_file($themeSettings['slider_left_image'] ?? '') }}" alt="" class="absolute left-0 top-10 hidden lg:block">
         @endif
         @if (isset($themeSettings['slider_center_image']) && !empty($themeSettings['slider_center_image']))
-        <img src="{{  get_file($themeSettings['slider_center_image'] ?? '') }}" class="absolute right-0 bottom-10 hidden lg:block">
+        <img src="{{  get_file($themeSettings['slider_center_image'] ?? '') }}" alt="" class="absolute right-0 bottom-10 hidden lg:block">
         @endif
         @if (isset($themeSettings['slider_right_image']) && !empty($themeSettings['slider_right_image']))
-        <img src="{{  get_file($themeSettings['slider_right_image'] ?? '') }}" class="absolute right-[50%] -bottom-10 hidden lg:block">
+        <img src="{{  get_file($themeSettings['slider_right_image'] ?? '') }}" alt="" class="absolute right-[50%] -bottom-10 hidden lg:block">
         @endif
         <div class="swiper home-swiper">
             <div class="swiper-wrapper lg:pb-10 pb-16">
@@ -36,7 +37,8 @@
                                 </div>
                                 <div class="lg:w-1/2 w-full">
                                     <div class="lg:max-w-[70%] sm:max-w-[60%] max-w-[90%] w-full mx-auto relative z-[1] p-8">
-                                        <img src="{{ get_file($slider_repeater['background_image'] ?? '') }}"
+                                        {{-- M2-E a11y: the slide's backdrop behind the product shot, which carries its own alt. --}}
+                                        <img src="{{ get_file($slider_repeater['background_image'] ?? '') }}" alt=""
                                             class="absolute -z-[1] top-[50%] left-[50%]  translate-x-[-50%] translate-y-[-50%] h-full w-full">
                                         <div class="relative pt-[100%]">
                                             <img src="{{ get_file($slider_repeater['image'] ?? '') }}"
@@ -77,7 +79,7 @@
                         class="p-6 flex flex-col items-center justify-center text-center h-full">
                             <div class="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center mb-4 p-3">
                                 @if($category->icon_path)
-                                    <img src="{{ get_file($category->icon_path) }}" alt="{{ $category->name }}"
+                                    <img src="{{ storefront_image($category->icon_path) }}" alt="{{ $category->name }}"
                                         class="h-full w-full object-contain">                            
                                 @endif
                             </div>
@@ -111,7 +113,7 @@
                             $extraClasses = $index === 1 ? 'lg:row-span-2 lg:col-span-1 sm:pt-24 pt-20' : 'lg:pt-24 pt-20';
                         @endphp
                         <div class="collection-box flex items-end relative z-[1] h-full w-full p-4 {{ $extraClasses }} rounded-lg overflow-hidden">
-                            <img src="{{ get_file($category->image_path) ?? asset('assets/images/default-category.png')}}"
+                            <img src="{{ storefront_image($category->image_path) ?? asset('assets/images/default-category.png')}}"
                                 class="absolute top-0 left-0 h-full w-full z-[-1] object-cover rtl:scale-x-[-1]" alt="collection-image">
                             <div class="content-box">
                                 <h3 class="font-medium text-xl mb-3">{{ $category->name }}</h3>
@@ -138,7 +140,10 @@
                         @foreach (json_decode($themeSettings['logo_repeater'], true) as $logo)
                             <div class="swiper-slide">
                                 <a href="#" class="block group transition-all duration-300"
-                                   aria-label="Partner Logo">
+                                   {{-- M2-E: untranslated, and the repeater rows hold only `image`,
+                                        so there is no partner name to announce. href="#" too -- see the
+                                        note in greentic's copy of this block. --}}
+                                   aria-label="{{ __('Brands') }}">
                                     <div
                                         class="card bg-white rounded-lg sm:p-6 p-4 h-24 flex items-center justify-center border transition-all duration-300 hover:border-primary">
                                         <div class="w-full h-full relative">
@@ -209,7 +214,7 @@
 
                                 <div class="flex items-center mb-4">
                                   
-                                    <img src="{{ get_file($testimonial->avatar ?? 'avatar.png') }}"
+                                    <img src="{{ storefront_image($testimonial->avatar, 'images/avatar-placeholder.svg') }}"
                                         alt="User Avatar"
                                         class="w-16 h-16 rounded-full object-cover border-4 border-primary/10">
 

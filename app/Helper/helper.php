@@ -3537,13 +3537,60 @@ if (! function_exists('getWebNavMenu')) {
 if (! function_exists('getThemeSetting')) {
     function getThemeSetting($storeId, $theme)
     {
+        /*
+         * PHASE 03 M4-5 — THE DRAFT PREVIEW SEAM, and it is here for a measured reason rather than
+         * convenience. A draft cannot be handed in from a controller: `ViewServiceProvider:23`
+         * composes the storefront layout and at `:65` RECOMPUTES `$themeSettings` by calling this
+         * function, so controller data is silently overwritten. Below this line is the only place
+         * nothing can overwrite.
+         *
+         * It is armed only by `ThemeDraftPreviewController` after authorization, for exactly one
+         * `(store, theme)` pair, and the context is bound `scoped` so it cannot survive the
+         * request. Every other caller -- the 75 anonymous storefront routes included -- gets null
+         * back and reads the live projection exactly as before.
+         */
+        $preview = app(\App\Support\Theme\ThemePreviewContext::class)->settingsFor($storeId, $theme);
+
+        if ($preview !== null) {
+            return $preview;
+        }
+
         $defaultSettings = [];
         $defaultSettingsPath = base_path('themes/'.$theme.'/default_data/settings.php');
+
+        // PHASE 03 M0 -- `stores.theme_id` is NOT NULL (`2023_12_14_090259`), so a store with no
+        // theme chosen carries the empty STRING. This path then became
+        // `themes//default_data/settings.php`, which does not exist, `$defaultSettings` stayed
+        // `[]`, and the merged array below came back WITH NO KEYS AT ALL.
+        //
+        // Every storefront view indexes that array directly -- `$themeSettings['abouts_us_banner_status']`
+        // and ~525 siblings -- and an absent key is a warning, which Laravel's handler promotes to
+        // an ErrorException. MEASURED on a themeless fixture store: `/home` refused and the other
+        // ELEVEN page routes answered 500.
+        //
+        // THE FALLBACK IS EXISTING CONFIGURATION, NOT A NEW RULE. `config/theme.php` already ships
+        // `'active' => 'stylique'`, which is what the theme resolver uses when nothing is set. This
+        // reads that rather than building a path out of an empty string. A store that HAS a theme
+        // never reaches it, and no merchant's stored choice is altered.
+        if (! file_exists($defaultSettingsPath)) {
+            $fallbackTheme = (string) config('theme.active');
+
+            if ($fallbackTheme !== '' && $fallbackTheme !== $theme) {
+                $fallbackPath = base_path('themes/'.$fallbackTheme.'/default_data/settings.php');
+
+                if (file_exists($fallbackPath)) {
+                    $defaultSettingsPath = $fallbackPath;
+                }
+            }
+        }
 
         if (file_exists($defaultSettingsPath)) {
             $defaultSettings = include $defaultSettingsPath;
         }
 
+        // The STORED customisations are deliberately still looked up on the store's OWN `$theme`.
+        // Only the defaults fall back: a themeless store shows the configured theme's defaults, not
+        // settings its merchant once saved against a different theme.
         $themeSettings = ThemeCustomize::where('store_id', $storeId)
                         ->where('theme_id', $theme)
                         ->pluck('value', 'name')
@@ -3978,3 +4025,56 @@ if (!function_exists('getAiModelName')) {
 | right question per context; the resolver did not change its answer.
 |
 */
+
+if (! function_exists('storefront_image')) {
+    /**
+     * A STOREFRONT IMAGE URL THAT IS NEVER THE EMPTY STRING.
+     * =============================================================================================
+     *
+     * PHASE 03 M0. Measured on `damascus-textiles/home`: 83 `<img>` elements, 60 of them broken,
+     * and every one of those sixty had `src=""` -- not a wrong path, not a 404, an EMPTY STRING.
+     * A browser draws that as a broken-image icon, and the storefront produced it for every
+     * product, category and brand without an uploaded picture. 30 of the 32 products in the dev
+     * fixture have none, which is why the count was so high, but the fixture only explains the
+     * COUNT: the behaviour is the storefront's own, and a real merchant mid-upload gets exactly
+     * the same page.
+     *
+     * The cause is `get_file()`'s contract, not a bug in it. It takes a stored path and returns a
+     * URL; given nothing, it correctly returns nothing, and its own `catch` returns `''` too.
+     * Callers that care already guard the INPUT -- `!empty($favicon) ? get_file($favicon) : ...`
+     * appears in three theme layouts and in `ProductController` six times. The storefront's
+     * product, category and brand images simply never got that guard.
+     *
+     * WHY THIS IS NOT A CHANGE TO `get_file()`. Measured before choosing: NO caller anywhere tests
+     * `get_file()`'s RESULT for emptiness -- the guards are all on the argument -- so returning a
+     * placeholder from it would break nothing. It would still be wrong. `get_file()` serves
+     * avatars, invoices, logos, email attachments and remote-storage paths; a product placeholder
+     * is the right answer for exactly one of those. The decision about what a MISSING picture
+     * should look like belongs to the surface that renders it.
+     *
+     * The placeholder is committed under `public/` for the reason the Phase 2.5 avatar placeholder
+     * is: `.gitignore` carries `/storage/*`, `public/storage` is a tracked regular file holding a
+     * vendor build path rather than a symlink, and a fallback that cannot resolve from a clone is
+     * not a fallback.
+     *
+     * @param  string|null  $path     the stored path, as held on the model
+     * @param  string       $fallback a public/ asset to use when there is no image
+     */
+    function storefront_image($path, string $fallback = 'images/product-placeholder.png'): string
+    {
+        $path = is_string($path) ? trim($path) : '';
+
+        if ($path !== '') {
+            $url = (string) get_file($path);
+
+            // `get_file()` returns '' from its own catch as well as for an empty argument, so the
+            // result is re-checked rather than the argument trusted. A stored path that cannot be
+            // resolved must still not reach the browser as src="".
+            if (trim($url) !== '') {
+                return $url;
+            }
+        }
+
+        return asset($fallback);
+    }
+}

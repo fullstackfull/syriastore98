@@ -17,7 +17,7 @@
               @endif
             <div class="flex gap-4 mt-4">
               @foreach (json_decode($themeSettings['footer_repeater']) as $social)
-                <a href="{{ $social->link ?? '#' }}" class="text-gray-400 hover:text-white" aria-label="SocialLink">
+                <a href="{{ $social->link ?? '#' }}" class="text-gray-400 hover:text-white" aria-label="{{ __('Social media') }}">
                   <i class="{{ $social->icon ?? '#' }}"></i>
                 </a>
               @endforeach
@@ -54,7 +54,8 @@
                   <div class="flex">
                   <input name="email" type="email" placeholder="{{ __('Your email address') }}"
                       class="px-4 py-2 w-full rounded-l-lg rtl:rounded-r-lg rtl:rounded-l-none outline-none text-gray-900" />
-                  <button type="submit" class="bg-[var(--primary-color)] px-4 py-2 rounded-r-lg rtl:rounded-l-lg rtl:rounded-r-none hover:bg-opacity-90">
+                  {{-- M2-E a11y: newsletter submit, icon only (axe button-name, critical). --}}
+                  <button type="submit" aria-label="{{ __('Subscribe') }}" class="bg-[var(--primary-color)] px-4 py-2 rounded-r-lg rtl:rounded-l-lg rtl:rounded-r-none hover:bg-opacity-90">
                       <i class="fas fa-paper-plane rtl:scale-x-[-1]"></i>
                   </button>
                   </div>

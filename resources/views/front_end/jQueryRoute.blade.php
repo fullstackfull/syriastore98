@@ -21,7 +21,8 @@
             <a href="{{ route('landing_page', $slug) }}" class="block max-w-[110px] w-full">
                 <img src="{{ get_file($themeSettings['header_logo'] ?? '') }}" alt="logo" class="logo-img">
             </a>
-            <button id="close-mobile-menu" class="text-gray-500 hover:text-green-800 transition-colors">
+            {{-- M2-E a11y: icon-only, no accessible name (axe button-name, critical). --}}
+            <button id="close-mobile-menu" aria-label="{{ __('Close') }}" class="text-gray-500 hover:text-green-800 transition-colors">
                 <i class="fas fa-times text-xl"></i>
             </button>
             </div>

@@ -3,7 +3,7 @@
 <div class="card flex flex-col h-full">
     <div class="relative h-48 bg-gray-100">
         <a href="{{ route('page.article', [$store->slug, $blog->slug]) }}">
-            <img src="{{ get_file($blog->cover_image_path) }}" alt="5G Technology" class="w-full h-full object-cover">
+            <img src="{{ storefront_image($blog->cover_image_path) }}" alt="5G Technology" class="w-full h-full object-cover">
         </a>
     </div>
     <div class="flex flex-col h-full p-4">

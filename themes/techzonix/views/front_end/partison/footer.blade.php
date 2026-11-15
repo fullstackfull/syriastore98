@@ -17,7 +17,7 @@
           </p>
           <div class="flex gap-4">
             @foreach (json_decode($themeSettings['footer_repeater']) ?? [] as $social)
-              <a href="{{ $social->link ?? '#' }}" class="text-gray-400 hover:text-white transition-colors" aria-label="Social">
+              <a href="{{ $social->link ?? '#' }}" class="text-gray-400 hover:text-white transition-colors" aria-label="{{ __('Social media') }}">
                 <i class="{{ $social->icon ?? '' }} md:text-xl text-lg"></i>
               </a>
             @endforeach

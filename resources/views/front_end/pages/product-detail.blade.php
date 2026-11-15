@@ -28,7 +28,7 @@
                                 @else
                                     <div class="swiper-slide">
                                         <div class="relative pt-[65%] border bg-gray-100 rounded-lg overflow-hidden">
-                                        <img src="{{ get_file($product->cover_image_path) }}" alt="Organic Vegetable Box"
+                                        <img src="{{ storefront_image($product->cover_image_path) }}" alt="Organic Vegetable Box"
                                             class="w-full h-full absolute top-0 left-0 object-contain" />
                                         </div>
                                     </div>
@@ -58,7 +58,7 @@
                                 @else
                                 <div class="swiper-slide">
                                     <div class="relative pt-[90%] thumb-image rounded-lg overflow-hidden border bg-gray-100 cursor-pointer">
-                                    <img src="{{ get_file($product->cover_image_path) }}" alt="Organic Vegetable Box - View 2"
+                                    <img src="{{ storefront_image($product->cover_image_path) }}" alt="Organic Vegetable Box - View 2"
                                         class="absolute top-0 left-0 w-full h-full object-contain" />
                                     </div>
                                 </div>

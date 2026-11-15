@@ -1,0 +1,197 @@
+/* =================================================================================================
+   STOREFRONT APPEARANCE — THE TAILWIND UTILITY LAYER.                        Phase 03 M2-B
+   =================================================================================================
+
+   WHY THIS FILE EXISTS, and it is the central finding of M2-B.
+
+   Tokenising a theme's `main-style.css` is necessary and NOT SUFFICIENT. The storefront themes
+   load `tailwind.js` — the runtime JIT CDN build — and their Blade markup carries the colours as
+   UTILITY CLASSES: `bg-white`, `text-black`, `text-gray-600`, `border-gray-200`. Those utilities
+   are generated with fixed palette values and are injected into the document AFTER the theme
+   stylesheet, so they win on source order and no amount of `:root` token work reaches them.
+
+   MEASURED on stylique after its stylesheet was fully tokenised — 25 contrast failures across
+   four routes and two appearances, of which 18 were dark-mode-only and every one traced to a
+   utility class:
+
+       bg-white panels staying #ffffff while text became #e8eaed    1.21:1   (min 4.5)
+       text-black on the dark page #1b1f25                          1.27:1
+       text-gray-600 on the dark page                               2.19:1
+       bg-gray-50 panels staying #f9fafb                            1.15:1
+
+   So the page re-themed and the components did not. That is what "dark mode does not work" looks
+   like when only the stylesheet was tokenised.
+
+   SHARED, NOT PER-THEME, ON PURPOSE. The mapping is from a Tailwind utility to a design-system
+   token; it contains nothing specific to stylique, and all three themes load the same
+   `tailwind.js`. Duplicating it three times would guarantee the copies drift.
+
+   SCOPE. Every rule is inside `[data-ss-theme="dark"]` or the `prefers-color-scheme` arm scoped to
+   `[data-ss-theme="auto"]` — the same two-arm pattern `store-syria-ds.css:618` uses. LIGHT MODE IS
+   NOT TOUCHED BY ANY RULE IN THIS FILE, which is what lets the before/after comparison show zero
+   light-mode differences outside the deliberate ones.
+
+   `!important` is used deliberately and only where a Tailwind utility must be beaten: the
+   utilities themselves ship as single-class selectors, and matching their specificity is not
+   enough when they are injected later in the document.
+   ================================================================================================= */
+
+/* ---------------------------------------------------------------------------------------------
+   0. `color-scheme` — THE ONE DECLARATION THAT NO UTILITY MAPPING CAN REPLACE.
+   
+   After every utility above was mapped, two elements were still painted #ffffff on a dark page:
+   `<input id="desktop-search-input">` and the mobile search field. Neither carries a background
+   utility. They were white because the BROWSER'S OWN stylesheet paints form controls from the
+   `Field` system colour, and that stays light until the document declares which scheme it is in.
+   
+   `color-scheme` is what tells it. It also re-themes scrollbars, the canvas behind a short page,
+   spin buttons, date pickers and the autofill tint — none of which any class-based override can
+   reach. `light dark` on the `auto` state lets the UA follow the OS directly, so no media query
+   is needed for this one.
+   --------------------------------------------------------------------------------------------- */
+[data-ss-theme="light"] { color-scheme: light; }
+[data-ss-theme="dark"]  { color-scheme: dark; }
+[data-ss-theme="auto"]  { color-scheme: light dark; }
+
+/* With the scheme declared, form controls inherit a UA dark grey that does not match the design
+   system's surfaces. These give them the real tokens, scoped so light mode is untouched. */
+[data-ss-theme="dark"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+[data-ss-theme="dark"] select,
+[data-ss-theme="dark"] textarea {
+    background-color: var(--ss-surface) !important;
+    color: var(--ss-fg) !important;
+    border-color: var(--ss-border) !important;
+}
+
+/* ---------------------------------------------------------------------------------------------
+   1. SURFACES. A panel that stays white under a dark page is the single most visible failure.
+   --------------------------------------------------------------------------------------------- */
+[data-ss-theme="dark"] .bg-white      { background-color: var(--ss-surface) !important; }
+[data-ss-theme="dark"] .bg-gray-50    { background-color: var(--ss-surface-sunken) !important; }
+[data-ss-theme="dark"] .bg-gray-100   { background-color: var(--ss-surface-sunken) !important; }
+[data-ss-theme="dark"] .bg-gray-200   { background-color: var(--ss-surface-hover) !important; }
+
+/* ---------------------------------------------------------------------------------------------
+   2. FOREGROUNDS. Tailwind's grey ramp runs dark-to-light, so it has to be INVERTED rather than
+   mapped straight across: `text-gray-900` is the strongest ink in light mode and must become the
+   strongest ink in dark mode, which is the LIGHTEST value, not the darkest.
+   --------------------------------------------------------------------------------------------- */
+[data-ss-theme="dark"] .text-black,
+[data-ss-theme="dark"] .text-gray-900 { color: var(--ss-fg) !important; }
+[data-ss-theme="dark"] .text-gray-800,
+[data-ss-theme="dark"] .text-gray-700 { color: var(--ss-fg) !important; }
+[data-ss-theme="dark"] .text-gray-600,
+[data-ss-theme="dark"] .text-gray-500 { color: var(--ss-fg-muted) !important; }
+[data-ss-theme="dark"] .text-gray-400 { color: var(--ss-fg-subtle) !important; }
+
+/* ---------------------------------------------------------------------------------------------
+   3. BORDERS. Tailwind's light-grey borders vanish entirely on a dark surface.
+   --------------------------------------------------------------------------------------------- */
+[data-ss-theme="dark"] .border-gray-100,
+[data-ss-theme="dark"] .border-gray-200,
+[data-ss-theme="dark"] .border-gray-300 { border-color: var(--ss-border) !important; }
+
+/* ---------------------------------------------------------------------------------------------
+   4. INK ON A BRAND FILL, IN BOTH APPEARANCES — the one block here that is NOT dark-only.
+   
+   `.cart-badge` carries BOTH the theme's own rule and Tailwind's `text-white`, and the utility
+   was winning: measured 2.64:1 white-on-coral at 10–12px, in LIGHT mode, before any of this work.
+   A two-class selector beats a one-class utility, so no `!important` is needed.
+   
+   This is the only rule in this file that changes light mode, and it changes it from an AA
+   failure to a pass. Stated rather than hidden.
+   --------------------------------------------------------------------------------------------- */
+.cart-badge.text-white,
+.btn-primary.text-white { color: var(--on-primary-ink, #1a1d23) !important; }
+
+/* ---------------------------------------------------------------------------------------------
+   4b. A BRAND COLOUR USED AS TEXT, which is a different question from a brand colour used as a
+   FILL and has to be answered separately.
+   
+   MEASURED on techzonix: its violet #9952e0 carries white ink at 4.53:1 as a BUTTON FILL -- a
+   pass -- and simultaneously fails as TEXT, at 4.33:1 on the light sunken surface and 3.14:1 on
+   the dark card. Same colour, two uses, two different answers.
+   
+   The dark figure is WORSE THAN THE LIGHT ONE BECAUSE THE SURFACE GOT DARKER, which makes this a
+   failure that only becomes observable once dark mode exists. It is not a regression from a
+   working state -- the colour never changed -- but shipping a dark mode whose link text fails is
+   not acceptable either, so it is fixed rather than recorded.
+   
+   THEME-AGNOSTIC BY INDIRECTION. `text-primary` means a different colour in each theme, so this
+   layer cannot name a value. Each theme declares `--brand-ink-on-surface` for its own palette and
+   this rule reads it; a theme that declares nothing keeps `currentColor` and is unaffected.
+   `!important` IS REQUIRED HERE, and leaving it off was the first draft's bug: `.text-primary` is
+   a Tailwind utility injected AFTER this sheet, so at equal single-class specificity it wins on
+   source order and the override measured no change at all. Same lesson as section 1. */
+.text-primary { color: var(--brand-ink-on-surface, currentColor) !important; }
+
+/* ---------------------------------------------------------------------------------------------
+   4c. TAILWIND ARBITRARY-VALUE BRAND CLASSES, WHICH AXE FOUND AND MY OWN PROBE MISSED.
+   
+   This section exists because of a measurement failure worth recording. My contrast probe samples
+   about ten elements per route; axe-core checks EVERY text node. So "0 contrast failures" from the
+   probe meant zero among a small sample, and axe then reported 212 failing nodes across 37 page
+   loads. The probe was not wrong about what it measured -- it measured too little, and I presented
+   it as though it had measured everything.
+   
+   What axe found, all at 2.64:1 on stylique:
+   
+       <button class="addtocart-btn ... bg-[var(--primary-color)] text-white">   white on coral
+       <button class="tab-btn active ... border-[var(--primary-color)]">         coral as text
+       <a class="btn-outline">                                                  coral as text
+   
+   `bg-[var(--primary-color)]` is a Tailwind ARBITRARY-VALUE class. M2-B's rule named
+   `.btn-primary` and `.cart-badge` specifically, so it could not reach a button that gets its fill
+   from an arbitrary-value utility instead -- and the "Add to cart" button on every product card is
+   exactly that.
+   
+   THE INK DIFFERS PER THEME AND MUST NOT BE SHARED: dark on stylique's coral (6.39:1 against
+   2.64:1 for white), white on techzonix's violet (4.53:1 against 3.73:1), white on greentic's
+   deepened green (4.63:1). Each theme declares `--ink-on-brand-fill`; this layer only reads it.
+   --------------------------------------------------------------------------------------------- */
+.bg-\[var\(--primary-color\)\],
+.bg-primary,
+.bg-\[var\(--primary-color\)\].text-white,
+.bg-primary.text-white {
+    color: var(--ink-on-brand-fill, currentColor) !important;
+}
+
+/* The brand used as TEXT, via the classes that carry it as a border/accent colour rather than
+   through `.text-primary`. Same token as section 4b. */
+.btn-outline,
+.tab-btn.active,
+.border-\[var\(--primary-color\)\] {
+    color: var(--brand-ink-on-surface, currentColor);
+}
+
+/* ---------------------------------------------------------------------------------------------
+   5. THE `auto` ARM. Required, not optional: `auto` is the DEFAULT state, so a shopper who has
+   never touched the control is on `auto` and everything above would miss them entirely. This is
+   the mistake the stylique page-background fix made first — dark surfaces and a white page.
+   --------------------------------------------------------------------------------------------- */
+@media (prefers-color-scheme: dark) {
+    [data-ss-theme="auto"] .bg-white      { background-color: var(--ss-surface) !important; }
+    [data-ss-theme="auto"] .bg-gray-50    { background-color: var(--ss-surface-sunken) !important; }
+    [data-ss-theme="auto"] .bg-gray-100   { background-color: var(--ss-surface-sunken) !important; }
+    [data-ss-theme="auto"] .bg-gray-200   { background-color: var(--ss-surface-hover) !important; }
+
+    [data-ss-theme="auto"] .text-black,
+    [data-ss-theme="auto"] .text-gray-900 { color: var(--ss-fg) !important; }
+    [data-ss-theme="auto"] .text-gray-800,
+    [data-ss-theme="auto"] .text-gray-700 { color: var(--ss-fg) !important; }
+    [data-ss-theme="auto"] .text-gray-600,
+    [data-ss-theme="auto"] .text-gray-500 { color: var(--ss-fg-muted) !important; }
+    [data-ss-theme="auto"] .text-gray-400 { color: var(--ss-fg-subtle) !important; }
+
+    [data-ss-theme="auto"] .border-gray-100,
+    [data-ss-theme="auto"] .border-gray-200,
+    [data-ss-theme="auto"] .border-gray-300 { border-color: var(--ss-border) !important; }
+
+    [data-ss-theme="auto"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    [data-ss-theme="auto"] select,
+    [data-ss-theme="auto"] textarea {
+        background-color: var(--ss-surface) !important;
+        color: var(--ss-fg) !important;
+        border-color: var(--ss-border) !important;
+    }
+}

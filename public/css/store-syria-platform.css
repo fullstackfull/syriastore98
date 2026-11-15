@@ -1,0 +1,1079 @@
+/* ==========================================================================
+   Store Syria — Official platform website (Phase 03 / M5)
+   ==========================================================================
+
+   WHAT THIS IS
+   The marketing surfaces of storesyria.com itself: the public pages that
+   explain the platform, not a merchant's storefront and not the merchant
+   admin. It is an ADDITIVE companion to store-syria-ds.css and depends on it
+   for every colour, radius, space and type value — there is not one literal
+   colour below.
+
+   WHY A SECOND FILE RATHER THAN MORE OF THE FIRST
+   store-syria-ds.css is the ADMINISTRATION design system; it is loaded on
+   every admin page and its own header states that rule. A hero, a pricing
+   table and a site footer are never rendered there, so putting them in that
+   file would ship ~8 KB to every merchant screen that can never use them.
+   This file is loaded by the platform site's layout and by nothing else.
+
+   NAMING
+   Every class is `.ss-ps-*` ("ss" design system, "ps" platform site). That is
+   inside the `.ss-` namespace the design system reserves, and `-ps-` cannot
+   collide with any of its 146 existing classes. As there, no bare element
+   selector is ever styled, so adding the <link> to a page cannot restyle
+   markup that does not opt in. The two exceptions are descendant-scoped and
+   named where they appear.
+
+   RTL
+   There is no `-rtl` counterpart to this file and there must never be one.
+   Every directional rule uses logical properties (margin-inline-*,
+   padding-inline-*, border-inline-*, inset-inline-*, text-align: start/end),
+   so the same bytes lay out correctly under dir="rtl" and dir="ltr". The one
+   place a physical direction is unavoidable — the disclosure marker rotation —
+   is expressed with a transform that is mirrored by the [dir] attribute.
+
+   DARK MODE
+   Nothing here declares a dark value. Every colour is a semantic token that
+   store-syria-ds.css redefines under [data-ss-theme="dark"], so this file is
+   dark-mode correct by construction and cannot drift from the admin palette.
+
+   EGRESS
+   No @import and no url() to another origin. The platform site must render with
+   no request to anyone else, and the M7 matrix measured exactly that across 44
+   loads: zero off-origin requests.
+
+   IT IS NOT A FONTLESS PAGE, and an earlier version of this note said "no web
+   font", which was a claim about this file read as a claim about the page.
+   store-syria-ds.css loads SELF-HOSTED woff2 files from /fonts/store-syria/ --
+   measured: four Latin weights (79 KB) in English, and four Arabic weights
+   alongside them (178 KB more) in Arabic, so an Arabic page carries 257 KB of
+   font. Self-hosted is the point: nothing is fetched from a font CDN, so no
+   third party learns who read the company's website. This file declares no font
+   of its own.
+
+   PlatformSiteAssetsAreLocalTest fails the build if a view or this file reaches
+   off-origin.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Page shell
+   -------------------------------------------------------------------------- */
+
+.ss-ps {
+    background: var(--ss-bg);
+    color: var(--ss-fg);
+    font-family: var(--ss-font-sans);
+    line-height: var(--ss-leading-normal);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.ss-ps-main {
+    flex: 1 1 auto;
+}
+
+.ss-ps-wrap {
+    width: 100%;
+    max-width: 1140px;
+    margin-inline: auto;
+    padding-inline: var(--ss-space-5);
+}
+
+/* --------------------------------------------------------------------------
+   2. Site header
+   -------------------------------------------------------------------------- */
+
+.ss-ps-header {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: var(--ss-surface);
+    border-block-end: 1px solid var(--ss-border);
+}
+
+.ss-ps-header__bar {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-4);
+    min-height: 64px;
+    padding-block: var(--ss-space-2);
+}
+
+.ss-ps-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ss-space-2);
+    font-size: var(--ss-text-lg);
+    font-weight: var(--ss-weight-bold);
+    color: var(--ss-fg);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.ss-ps-brand:hover,
+.ss-ps-brand:focus-visible {
+    color: var(--ss-brand);
+}
+
+.ss-ps-brand__mark {
+    display: inline-grid;
+    place-items: center;
+    inline-size: 32px;
+    block-size: 32px;
+    border-radius: var(--ss-radius-md);
+    background: var(--ss-brand-gradient);
+    color: var(--ss-fg-onfill);
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-bold);
+}
+
+.ss-ps-grow {
+    flex: 1 1 auto;
+}
+
+.ss-ps-nav {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-1);
+    flex-wrap: wrap;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ss-ps-nav__link {
+    display: inline-block;
+    padding: var(--ss-space-2) var(--ss-space-3);
+    border-radius: var(--ss-radius-md);
+    color: var(--ss-fg-muted);
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-medium);
+    text-decoration: none;
+}
+
+.ss-ps-nav__link:hover {
+    background: var(--ss-surface-hover);
+    color: var(--ss-fg);
+}
+
+.ss-ps-nav__link[aria-current="page"] {
+    color: var(--ss-brand);
+    background: var(--ss-brand-subtle);
+}
+
+/* The mobile disclosure. A <details> element, so the header needs no JavaScript
+   at all and keyboard and screen-reader behaviour are the browser's. */
+.ss-ps-burger {
+    display: none;
+}
+
+.ss-ps-burger > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: var(--ss-space-2) var(--ss-space-3);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-md);
+    color: var(--ss-fg);
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-medium);
+}
+
+.ss-ps-burger > summary::-webkit-details-marker {
+    display: none;
+}
+
+/* The open panel is positioned against .ss-ps-header, which is `position: sticky` and therefore
+   already a containing block for absolute descendants. That is what lets the disclosure live
+   inside the flex bar while its panel spans the full header width -- without it the panel would
+   be a flex item and squeeze the brand. */
+.ss-ps-burger__panel {
+    position: absolute;
+    inset-inline: 0;
+    inset-block-start: 100%;
+    padding: var(--ss-space-3) var(--ss-space-5) var(--ss-space-4);
+    background: var(--ss-surface);
+    border-block-start: 1px solid var(--ss-border);
+    box-shadow: var(--ss-shadow-md);
+}
+
+.ss-ps-burger__panel .ss-ps-nav {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.ss-ps-burger__panel .ss-ps-nav__link {
+    padding-block: var(--ss-space-3);
+}
+
+.ss-ps-burger__cta {
+    display: block;
+    margin-block-start: var(--ss-space-3);
+}
+
+/* --------------------------------------------------------------------------
+   3. Buttons and links
+   -------------------------------------------------------------------------- */
+
+.ss-ps-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--ss-space-2);
+    padding: var(--ss-space-3) var(--ss-space-5);
+    border: 1px solid transparent;
+    border-radius: var(--ss-radius-md);
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-semibold);
+    line-height: var(--ss-leading-tight);
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color var(--ss-duration-fast) var(--ss-ease),
+                color var(--ss-duration-fast) var(--ss-ease);
+}
+
+.ss-ps-btn--primary {
+    background: var(--ss-brand);
+    color: var(--ss-fg-onfill);
+}
+
+.ss-ps-btn--primary:hover {
+    background: var(--ss-brand-hover);
+    color: var(--ss-fg-onfill);
+}
+
+.ss-ps-btn--quiet {
+    background: transparent;
+    border-color: var(--ss-border-strong);
+    color: var(--ss-fg);
+}
+
+.ss-ps-btn--quiet:hover {
+    background: var(--ss-surface-hover);
+    color: var(--ss-fg);
+}
+
+.ss-ps-btn--lg {
+    padding: var(--ss-space-4) var(--ss-space-6);
+    font-size: var(--ss-text-base);
+}
+
+/* Focus is never removed, only replaced, and it is identical on every
+   interactive element on the site. */
+.ss-ps a:focus-visible,
+.ss-ps button:focus-visible,
+.ss-ps summary:focus-visible,
+.ss-ps [tabindex]:focus-visible {
+    outline: var(--ss-focus-width) solid var(--ss-focus-ring);
+    outline-offset: var(--ss-focus-offset);
+    border-radius: var(--ss-radius-sm);
+}
+
+.ss-ps-skip {
+    position: absolute;
+    inset-inline-start: var(--ss-space-4);
+    inset-block-start: calc(var(--ss-space-4) * -8);
+    z-index: 50;
+    padding: var(--ss-space-3) var(--ss-space-4);
+    background: var(--ss-surface);
+    border: 1px solid var(--ss-border-strong);
+    border-radius: var(--ss-radius-md);
+    color: var(--ss-fg);
+    text-decoration: none;
+}
+
+.ss-ps-skip:focus {
+    inset-block-start: var(--ss-space-4);
+}
+
+/* --------------------------------------------------------------------------
+   4. Hero and sections
+   -------------------------------------------------------------------------- */
+
+.ss-ps-hero {
+    padding-block: clamp(var(--ss-space-10), 8vw, var(--ss-space-16));
+    background:
+        radial-gradient(ellipse at top, var(--ss-brand-subtle), transparent 70%);
+}
+
+.ss-ps-hero__inner {
+    max-width: 48rem;
+}
+
+.ss-ps-eyebrow {
+    display: inline-block;
+    margin-block-end: var(--ss-space-3);
+    padding: var(--ss-space-1) var(--ss-space-3);
+    border-radius: var(--ss-radius-pill);
+    background: var(--ss-brand-subtle);
+    color: var(--ss-brand);
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-semibold);
+    letter-spacing: 0.04em;
+}
+
+.ss-ps-hero__title {
+    margin: 0 0 var(--ss-space-4);
+    font-size: clamp(1.9rem, 1.2rem + 3vw, 3.25rem);
+    font-weight: var(--ss-weight-bold);
+    line-height: var(--ss-leading-tight);
+    color: var(--ss-fg);
+}
+
+.ss-ps-lede {
+    margin: 0 0 var(--ss-space-6);
+    font-size: clamp(var(--ss-text-base), 0.95rem + 0.4vw, var(--ss-text-lg));
+    line-height: var(--ss-leading-loose);
+    color: var(--ss-fg-muted);
+}
+
+.ss-ps-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ss-space-3);
+}
+
+.ss-ps-section {
+    padding-block: clamp(var(--ss-space-8), 5vw, var(--ss-space-12));
+    border-block-start: 1px solid var(--ss-border);
+}
+
+.ss-ps-section--plain {
+    border-block-start: 0;
+}
+
+.ss-ps-section__head {
+    max-width: 44rem;
+    margin-block-end: var(--ss-space-8);
+}
+
+.ss-ps-h2 {
+    margin: 0 0 var(--ss-space-3);
+    font-size: clamp(1.4rem, 1.1rem + 1.2vw, 2rem);
+    font-weight: var(--ss-weight-bold);
+    line-height: var(--ss-leading-tight);
+    color: var(--ss-fg);
+}
+
+.ss-ps-h3 {
+    margin: 0 0 var(--ss-space-2);
+    font-size: var(--ss-text-md);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg);
+}
+
+.ss-ps-body {
+    margin: 0;
+    color: var(--ss-fg-muted);
+    line-height: var(--ss-leading-loose);
+}
+
+/* --------------------------------------------------------------------------
+   5. Grids and cards
+   -------------------------------------------------------------------------- */
+
+.ss-ps-grid {
+    display: grid;
+    gap: var(--ss-space-5);
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+}
+
+.ss-ps-grid--2 {
+    grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+}
+
+.ss-ps-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ss-space-2);
+    padding: var(--ss-space-5);
+    background: var(--ss-surface);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-lg);
+}
+
+.ss-ps-card__icon {
+    display: inline-grid;
+    place-items: center;
+    inline-size: 36px;
+    block-size: 36px;
+    margin-block-end: var(--ss-space-1);
+    border-radius: var(--ss-radius-md);
+    background: var(--ss-brand-subtle);
+    color: var(--ss-brand);
+    font-size: var(--ss-text-base);
+    font-weight: var(--ss-weight-bold);
+}
+
+/* --------------------------------------------------------------------------
+   6. Numbered steps (onboarding)
+   -------------------------------------------------------------------------- */
+
+.ss-ps-steps {
+    display: grid;
+    gap: var(--ss-space-5);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: ss-ps-step;
+}
+
+.ss-ps-step {
+    counter-increment: ss-ps-step;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--ss-space-4);
+    align-items: start;
+}
+
+.ss-ps-step::before {
+    content: counter(ss-ps-step);
+    display: grid;
+    place-items: center;
+    inline-size: 2.25rem;
+    block-size: 2.25rem;
+    border-radius: var(--ss-radius-pill);
+    background: var(--ss-brand);
+    color: var(--ss-fg-onfill);
+    font-weight: var(--ss-weight-bold);
+}
+
+/* --------------------------------------------------------------------------
+   7. Plans
+   -------------------------------------------------------------------------- */
+
+.ss-ps-plans {
+    display: grid;
+    gap: var(--ss-space-5);
+    grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+    align-items: start;
+}
+
+.ss-ps-plan {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ss-space-4);
+    padding: var(--ss-space-6);
+    background: var(--ss-surface);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-xl);
+}
+
+.ss-ps-plan__name {
+    margin: 0;
+    font-size: var(--ss-text-lg);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg);
+}
+
+.ss-ps-plan__price {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--ss-space-2);
+}
+
+.ss-ps-plan__amount {
+    font-size: clamp(1.6rem, 1.3rem + 1vw, 2.25rem);
+    font-weight: var(--ss-weight-bold);
+    color: var(--ss-fg);
+    font-variant-numeric: tabular-nums;
+}
+
+.ss-ps-plan__period {
+    font-size: var(--ss-text-sm);
+    color: var(--ss-fg-muted);
+}
+
+.ss-ps-plan__list {
+    display: grid;
+    gap: var(--ss-space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--ss-text-sm);
+}
+
+.ss-ps-plan__item {
+    display: grid;
+    grid-template-columns: 1.25rem 1fr;
+    gap: var(--ss-space-2);
+    align-items: start;
+    color: var(--ss-fg-muted);
+}
+
+.ss-ps-plan__state {
+    font-weight: var(--ss-weight-bold);
+    line-height: var(--ss-leading-normal);
+}
+
+.ss-ps-plan__state--yes {
+    color: var(--ss-success-fg);
+}
+
+.ss-ps-plan__state--no,
+.ss-ps-plan__state--unknown {
+    color: var(--ss-fg-subtle);
+}
+
+/* --------------------------------------------------------------------------
+   8. FAQ — native <details>, so no script and no ARIA to get wrong
+   -------------------------------------------------------------------------- */
+
+.ss-ps-faq {
+    display: grid;
+    gap: var(--ss-space-3);
+}
+
+.ss-ps-faq__item {
+    background: var(--ss-surface);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-lg);
+}
+
+.ss-ps-faq__q {
+    display: flex;
+    align-items: center;
+    gap: var(--ss-space-3);
+    padding: var(--ss-space-4) var(--ss-space-5);
+    cursor: pointer;
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg);
+    list-style: none;
+}
+
+.ss-ps-faq__q::-webkit-details-marker {
+    display: none;
+}
+
+.ss-ps-faq__sign {
+    margin-inline-start: auto;
+    color: var(--ss-fg-muted);
+    font-weight: var(--ss-weight-bold);
+}
+
+.ss-ps-faq__item[open] .ss-ps-faq__sign {
+    color: var(--ss-brand);
+}
+
+.ss-ps-faq__a {
+    padding: 0 var(--ss-space-5) var(--ss-space-5);
+    margin: 0;
+    color: var(--ss-fg-muted);
+    line-height: var(--ss-leading-loose);
+}
+
+/* --------------------------------------------------------------------------
+   9. Definition rows (contact, legal)
+   -------------------------------------------------------------------------- */
+
+.ss-ps-rows {
+    display: grid;
+    gap: var(--ss-space-4);
+    margin: 0;
+}
+
+.ss-ps-row {
+    padding: var(--ss-space-5);
+    background: var(--ss-surface);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-lg);
+}
+
+.ss-ps-note {
+    padding: var(--ss-space-4) var(--ss-space-5);
+    border: 1px solid var(--ss-border-strong);
+    border-inline-start: 4px solid var(--ss-brand);
+    border-radius: var(--ss-radius-md);
+    background: var(--ss-surface-sunken);
+    color: var(--ss-fg);
+}
+
+.ss-ps-tag {
+    display: inline-block;
+    padding: var(--ss-space-1) var(--ss-space-2);
+    border-radius: var(--ss-radius-sm);
+    background: var(--ss-surface-sunken);
+    border: 1px solid var(--ss-border);
+    color: var(--ss-fg-muted);
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-medium);
+}
+
+.ss-ps-after {
+    margin-block-start: var(--ss-space-6);
+    margin-block-end: 0;
+}
+
+.ss-ps-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ss-space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* --------------------------------------------------------------------------
+   10. Footer
+   -------------------------------------------------------------------------- */
+
+.ss-ps-footer {
+    margin-block-start: var(--ss-space-12);
+    padding-block: var(--ss-space-10) var(--ss-space-6);
+    background: var(--ss-surface-sunken);
+    border-block-start: 1px solid var(--ss-border);
+    color: var(--ss-fg-muted);
+    font-size: var(--ss-text-sm);
+}
+
+.ss-ps-footer__cols {
+    display: grid;
+    gap: var(--ss-space-8);
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+}
+
+.ss-ps-footer__title {
+    margin: 0 0 var(--ss-space-3);
+    color: var(--ss-fg);
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-semibold);
+}
+
+.ss-ps-footer__list {
+    display: grid;
+    gap: var(--ss-space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ss-ps-footer__list a {
+    color: var(--ss-fg-muted);
+    text-decoration: none;
+}
+
+.ss-ps-footer__list a:hover {
+    color: var(--ss-fg);
+    text-decoration: underline;
+}
+
+.ss-ps-footer__base {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ss-space-3);
+    align-items: center;
+    margin-block-start: var(--ss-space-8);
+    padding-block-start: var(--ss-space-5);
+    border-block-start: 1px solid var(--ss-border);
+}
+
+/* --------------------------------------------------------------------------
+   11. Responsive and motion
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 860px) {
+    .ss-ps-header__nav {
+        display: none;
+    }
+
+    .ss-ps-burger {
+        display: block;
+    }
+
+    .ss-ps-header__cta {
+        display: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ss-ps-btn {
+        transition: none;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   12. Documentation centre (Phase 03 / M6)
+   --------------------------------------------------------------------------
+   Same rules as everything above: `.ss-ps-*` only, every value a `--ss-*`
+   token, every directional property a logical one, no off-origin request.
+   The prose block is the one place a bare element selector is used, and it is
+   descendant-scoped under `.ss-ps-prose` so it cannot reach markup that did
+   not opt in — the content is rendered Markdown, which has no classes of its
+   own to hook.
+   -------------------------------------------------------------------------- */
+
+.ss-ps-docs {
+    display: grid;
+    gap: var(--ss-space-8);
+    grid-template-columns: 17rem minmax(0, 1fr);
+    align-items: start;
+}
+
+.ss-ps-docs__main {
+    min-width: 0;
+}
+
+.ss-ps-docs__aside {
+    position: sticky;
+    top: 5rem;
+    max-height: calc(100vh - 7rem);
+    overflow-y: auto;
+    padding-inline-end: var(--ss-space-3);
+}
+
+/* The narrow-screen disclosure; the aside is hidden there and this takes over. */
+.ss-ps-docnav-disclosure {
+    display: none;
+    margin-block-end: var(--ss-space-5);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-lg);
+    background: var(--ss-surface);
+}
+
+.ss-ps-docnav-disclosure > summary {
+    padding: var(--ss-space-3) var(--ss-space-4);
+    cursor: pointer;
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg);
+    list-style: none;
+}
+
+.ss-ps-docnav-disclosure > summary::-webkit-details-marker {
+    display: none;
+}
+
+.ss-ps-docnav-disclosure__panel {
+    padding: 0 var(--ss-space-4) var(--ss-space-4);
+    border-block-start: 1px solid var(--ss-border);
+}
+
+.ss-ps-docnav__group {
+    margin-block-end: var(--ss-space-5);
+}
+
+.ss-ps-docnav__title {
+    margin: 0 0 var(--ss-space-2);
+    font-size: var(--ss-text-sm);
+    font-weight: var(--ss-weight-semibold);
+    color: var(--ss-fg);
+}
+
+.ss-ps-docnav__title a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.ss-ps-docnav__list {
+    display: grid;
+    gap: var(--ss-space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-inline-start: 2px solid var(--ss-border);
+}
+
+.ss-ps-docnav__link {
+    display: block;
+    padding: var(--ss-space-2) var(--ss-space-3);
+    margin-inline-start: -2px;
+    border-inline-start: 2px solid transparent;
+    color: var(--ss-fg-muted);
+    font-size: var(--ss-text-sm);
+    text-decoration: none;
+}
+
+.ss-ps-docnav__link:hover {
+    color: var(--ss-fg);
+}
+
+.ss-ps-docnav__link[aria-current="page"] {
+    border-inline-start-color: var(--ss-brand);
+    color: var(--ss-brand);
+    font-weight: var(--ss-weight-medium);
+}
+
+/* Breadcrumbs. The separator is generated content and is hidden from assistive
+   technology, because "chevron" read between every crumb is noise. */
+.ss-ps-breadcrumb {
+    margin-block-end: var(--ss-space-5);
+    font-size: var(--ss-text-sm);
+    color: var(--ss-fg-muted);
+}
+
+.ss-ps-breadcrumb ol {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ss-space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ss-ps-breadcrumb li + li::before {
+    content: "/";
+    margin-inline-end: var(--ss-space-2);
+    color: var(--ss-fg-subtle);
+}
+
+.ss-ps-breadcrumb a {
+    color: var(--ss-fg-muted);
+}
+
+.ss-ps-breadcrumb [aria-current="page"] {
+    color: var(--ss-fg);
+}
+
+.ss-ps-toc {
+    margin-block: var(--ss-space-6);
+    padding: var(--ss-space-4) var(--ss-space-5);
+    background: var(--ss-surface-sunken);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-lg);
+}
+
+.ss-ps-toc__title {
+    margin: 0 0 var(--ss-space-2);
+    font-size: var(--ss-text-xs);
+    font-weight: var(--ss-weight-semibold);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ss-fg-muted);
+}
+
+.ss-ps-toc ul {
+    display: grid;
+    gap: var(--ss-space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--ss-text-sm);
+}
+
+.ss-ps-toc__item--l3 {
+    padding-inline-start: var(--ss-space-4);
+}
+
+.ss-ps-toc a {
+    color: var(--ss-fg-muted);
+    text-decoration: none;
+}
+
+.ss-ps-toc a:hover {
+    color: var(--ss-brand);
+    text-decoration: underline;
+}
+
+.ss-ps-docsearch {
+    display: flex;
+    gap: var(--ss-space-2);
+    flex-wrap: wrap;
+    margin-block: var(--ss-space-5);
+}
+
+.ss-ps-docsearch__input {
+    flex: 1 1 16rem;
+    min-width: 0;
+    padding: var(--ss-space-3) var(--ss-space-4);
+    background: var(--ss-surface);
+    border: 1px solid var(--ss-border-strong);
+    border-radius: var(--ss-radius-md);
+    color: var(--ss-fg);
+    font: inherit;
+}
+
+.ss-ps-docsearch__input::placeholder {
+    color: var(--ss-fg-subtle);
+}
+
+.ss-ps-doclist {
+    display: grid;
+    gap: var(--ss-space-2);
+    margin: var(--ss-space-3) 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--ss-text-sm);
+}
+
+.ss-ps-doclist a {
+    color: var(--ss-fg-muted);
+    text-decoration: none;
+}
+
+.ss-ps-doclist a:hover {
+    color: var(--ss-brand);
+    text-decoration: underline;
+}
+
+.ss-ps-doccards {
+    display: grid;
+    gap: var(--ss-space-4);
+    margin: var(--ss-space-6) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ss-ps-link-plain {
+    color: inherit;
+    text-decoration: none;
+}
+
+.ss-ps-link-plain:hover {
+    color: var(--ss-brand);
+}
+
+.ss-ps-help {
+    margin-block-start: var(--ss-space-6);
+    color: var(--ss-fg-subtle);
+    font-size: var(--ss-text-sm);
+}
+
+.ss-ps-pager {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ss-space-4);
+    margin-block-start: var(--ss-space-8);
+    padding-block-start: var(--ss-space-5);
+    border-block-start: 1px solid var(--ss-border);
+}
+
+.ss-ps-pager__link {
+    display: grid;
+    gap: var(--ss-space-1);
+    flex: 1 1 14rem;
+    padding: var(--ss-space-4);
+    border: 1px solid var(--ss-border);
+    border-radius: var(--ss-radius-lg);
+    background: var(--ss-surface);
+    color: var(--ss-fg);
+    text-decoration: none;
+}
+
+.ss-ps-pager__link--next {
+    text-align: end;
+}
+
+.ss-ps-pager__label {
+    font-size: var(--ss-text-xs);
+    color: var(--ss-fg-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+/* --------------------------------------------------------------------------
+   13. Rendered Markdown
+   --------------------------------------------------------------------------
+   Descendant-scoped under `.ss-ps-prose`. The content is CommonMark output and
+   carries no classes, so these are the one place bare element selectors are
+   used; nothing outside a prose block can match them.
+   -------------------------------------------------------------------------- */
+
+.ss-ps-prose {
+    max-width: 44rem;
+    color: var(--ss-fg);
+    line-height: var(--ss-leading-loose);
+}
+
+.ss-ps-prose h2 {
+    margin-block: var(--ss-space-8) var(--ss-space-3);
+    font-size: var(--ss-text-xl);
+    font-weight: var(--ss-weight-semibold);
+    scroll-margin-block-start: 5rem;
+}
+
+.ss-ps-prose h3 {
+    margin-block: var(--ss-space-6) var(--ss-space-2);
+    font-size: var(--ss-text-md);
+    font-weight: var(--ss-weight-semibold);
+    scroll-margin-block-start: 5rem;
+}
+
+.ss-ps-prose p,
+.ss-ps-prose ul,
+.ss-ps-prose ol {
+    margin-block: 0 var(--ss-space-4);
+}
+
+.ss-ps-prose ul,
+.ss-ps-prose ol {
+    padding-inline-start: var(--ss-space-6);
+}
+
+.ss-ps-prose li {
+    margin-block-end: var(--ss-space-2);
+}
+
+.ss-ps-prose a {
+    color: var(--ss-brand);
+}
+
+.ss-ps-prose strong {
+    font-weight: var(--ss-weight-semibold);
+}
+
+.ss-ps-prose code {
+    padding: 0.1em 0.35em;
+    border-radius: var(--ss-radius-sm);
+    background: var(--ss-surface-sunken);
+    border: 1px solid var(--ss-border);
+    font-family: var(--ss-font-mono);
+    font-size: 0.9em;
+}
+
+.ss-ps-prose pre {
+    padding: var(--ss-space-4);
+    overflow-x: auto;
+    border-radius: var(--ss-radius-md);
+    background: var(--ss-surface-sunken);
+    border: 1px solid var(--ss-border);
+}
+
+.ss-ps-prose pre code {
+    padding: 0;
+    border: 0;
+    background: none;
+}
+
+.ss-ps-prose blockquote {
+    margin-inline: 0;
+    padding-inline-start: var(--ss-space-4);
+    border-inline-start: 3px solid var(--ss-brand);
+    color: var(--ss-fg-muted);
+}
+
+@media (max-width: 960px) {
+    .ss-ps-docs {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .ss-ps-docs__aside {
+        display: none;
+    }
+
+    .ss-ps-docnav-disclosure {
+        display: block;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   ACCESSIBILITY CORRECTION — M7, measured by axe over 44 loads
+   --------------------------------------------------------------------------
+   `--ss-brand-accent` was used for small brand-coloured TEXT (the hero eyebrow,
+   the current-page navigation link, the documentation sidebar's current item).
+   In LIGHT mode that token resolves to #138ba5, and on `--ss-brand-subtle`
+   (#f4f5f8) the measured ratio is 3.64:1 — below the 4.5:1 WCAG AA needs for
+   text that is not large. 12px at weight 600 is not large text.
+
+   Every one of those is now `--ss-brand`, which measures 5.85:1 on the same
+   background in light and 7.18:1 in dark.
+
+   THAT LEAVES `--ss-brand-accent` UNUSED IN THIS FILE — nine uses replaced,
+   zero remaining, counted rather than assumed. An earlier draft of this note
+   said the token was "kept for borders and icon fills"; it is not kept for
+   anything here. It stays a perfectly good token for the admin design system,
+   which is where it is defined.
+
+   This was invisible until the pages were rendered: the token pair looks
+   deliberate in the stylesheet and the colours look fine to an eye that is not
+   measuring. It is the reason M7 runs axe rather than reading CSS.
+   -------------------------------------------------------------------------- */

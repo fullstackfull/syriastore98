@@ -12,7 +12,7 @@
                                     <div class="h-full lg:w-auto w-full flex items-center justify-center bg-gray-100 p-3">
                                         <a href="{{ url($slug . '/product/' . $item->slug) }}"
                                             class="max-w-[250px] w-full block">
-                                            <img src="{{ get_file($item->cover_image_path) }}"
+                                            <img src="{{ storefront_image($item->cover_image_path) }}"
                                                 class="object-contain h-full w-full" alt="offer-image">
                                         </a>
                                     </div>

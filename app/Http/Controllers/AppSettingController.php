@@ -610,6 +610,21 @@ $oldCustomDomainEnabled = ($settings['enable_domain'] ?? 'off') === 'on';
                     ->withInput($request->except(['_token', 'password', 'password_confirmation']));
             }
 
+            /* PHASE 03 M5/M6. A SECOND WRITER OF `stores.slug`, FOUND BY AN INDEPENDENT REVIEW.
+               `User::slugs()` reserves `platform` on the MINT path, and a comment there used to
+               claim it was the only place a store slug is set. It is not: this line assigns one
+               straight from request input, and so does the Flutter store-settings endpoint. A
+               merchant who renamed their store to `platform` would be served at the platform's own
+               namespace -- and `routes/customer.php` declares `{storeSlug?}/login` and
+               `{storeSlug?}/register`, so their CUSTOMER sign-in and registration forms would
+               answer at `/platform/login` and `/platform/register`, which a visitor reads as ours.
+               Refused rather than suffixed, because a merchant typing a name should be told. */
+            if (Store::slugIsReserved($request->store_slug)) {
+                return redirect()->back()
+                    ->with('error', __('This store slug is reserved by the platform. Please choose another.'))
+                    ->withInput($request->except(['_token', 'password', 'password_confirmation']));
+            }
+
             $store_slug_exists = Store::where('slug', $request->store_slug)->first();
             if ($store_slug_exists && ($store_slug_exists->slug != $store->slug)) {
                 return redirect()->back()->with('error', __('This store slug already exists in another store.'));

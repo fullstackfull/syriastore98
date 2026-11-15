@@ -1,0 +1,745 @@
+<?php
+
+namespace App\Services\Theme;
+
+use App\Models\ThemeCustomize;
+use App\Models\ThemePublishedVersion;
+use App\Models\ThemeVersion;
+use App\Models\ThemePublicationEvent;
+use App\Support\Theme\ThemeEditorGate;
+use App\Support\Theme\ThemeFieldCatalog;
+use App\Support\Theme\ThemePayload;
+use App\Support\Theme\ThemeSettingValidator;
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * PHASE 03 M3-C — THE ONE CONTROLLED PATH THAT WRITES A STORE'S THEME CONFIGURATION.
+ * ================================================================================================
+ *
+ * WHY EVERYTHING FUNNELS THROUGH HERE
+ * ------------------------------------------------------------------------------------------------
+ * Before M3-C there were two writers and they disagreed about almost everything:
+ *
+ *   - `ThemeCustomizeController::themeCustomizeUpdate()` -- Eloquent `updateOrCreate` per key, its
+ *     `isAbleTo('Edit Theme')` check COMMENTED OUT, no allowlist against `theme_json`, `theme_id`
+ *     taken straight from the route and `name` from arbitrary request keys.
+ *   - `Api\DashboardController` (the Flutter admin app, `POST api/admin/updateStoreOwnerInfo`) --
+ *     a RAW `DB::table()->updateOrInsert()` of `footer_repeater`, which does not invalidate the
+ *     `Cachable` model and so **never reaches the storefront**: measured on MariaDB with
+ *     `CACHE_STORE=database`, the app reads the new social links back while the storefront footer
+ *     keeps rendering the old ones.
+ *
+ * One service, one authorization boundary, one validator, one cache-invalidation rule.
+ *
+ * THE FOUR RULES THIS CLASS EXISTS TO ENFORCE
+ * ------------------------------------------------------------------------------------------------
+ * 1. **KEY-COMPLETENESS IS NOT THIS CLASS'S JOB AND MUST NOT BECOME IT.** `getThemeSetting()`
+ *    merges the theme's `default_data/settings.php` UNDER the stored rows, and ~520 keys per theme
+ *    are indexed by storefront views with no guard -- an absent key is `ErrorException: Undefined
+ *    array key`, which Laravel turns into a 500. That is the M0 defect. The projection therefore
+ *    holds the merchant's OVERRIDES and the merge supplies the rest. `writeSettings()` below is an
+ *    UPSERT of the named keys and never a wholesale replacement, so it cannot produce a sparse
+ *    projection. M3-D's publish has the harder version of this problem and inherits the rule.
+ *
+ * 2. **THE CACHE IS FLUSHED AFTER COMMIT.** Measured: an Eloquent `delete()` or `save()` flushes as
+ *    part of its own lifecycle -- INSIDE the transaction. That is not sufficient. Between that
+ *    flush and the commit a concurrent storefront request can re-populate the cache from the
+ *    still-committed OLD rows and then serve them after the new ones land. `DB::afterCommit()` is
+ *    used so the flush happens when the data is actually visible.
+ *
+ * 3. **STORED VALUES ARE WRITTEN DIRECTLY, NEVER RE-SUBMITTED THROUGH A WEB ROUTE.**
+ *    `App\Http\Middleware\XSS` runs `htmlspecialchars_decode` over every request string, and that is
+ *    NOT IDEMPOTENT: entities progressively unescape on each pass, so a publish implemented by
+ *    re-POSTing a saved payload would mutate content nobody touched and drift its `payload_hash`.
+ *    The same middleware deletes `javascript` and `alert` as substrings (S-09), which is why
+ *    validation here is type-aware and does not delegate to it.
+ *
+ * 4. **NO TENANT PREDICATE IS EVER BUILT FROM REQUEST INPUT.** The store is resolved by
+ *    `ThemeEditorGate` from an explicitly named id whose ownership is then proved; `getCurrentStore()`
+ *    is not consulted, because it hands a platform operator the literal store 1, which belongs to a
+ *    merchant.
+ */
+class ThemeConfigurationService
+{
+    private ThemeEditorGate $gate;
+    private ThemeSettingValidator $validator;
+
+    /** Field-level refusals from the last call, as `name => why`. */
+    private array $rejected = [];
+
+    /** Why a whole call was refused, when it was. */
+    private ?string $refusal = null;
+
+    public function __construct(?ThemeEditorGate $gate = null, ?ThemeSettingValidator $validator = null)
+    {
+        $this->gate = $gate ?? new ThemeEditorGate();
+        $this->validator = $validator ?? new ThemeSettingValidator();
+    }
+
+    /** @return array<string,string> */
+    public function rejected(): array
+    {
+        return $this->rejected;
+    }
+
+    public function refusal(): ?string
+    {
+        return $this->refusal;
+    }
+
+    /* ====================================================================== the projection write */
+
+    /**
+     * Upsert validated settings into the PUBLISHED PROJECTION for a store's theme.
+     *
+     * This is the operation both the merchant form and the Flutter endpoint now use. It writes the
+     * live configuration directly -- there is no draft indirection -- because that is what both of
+     * those surfaces already did and changing their semantics is M3-D's business, not a side effect
+     * of routing them through one service.
+     *
+     * @param  array<string,mixed>  $settings  name => value, as posted
+     * @return array<string,string>|null       the settings actually written, or null on refusal
+     */
+    /**
+     * PHASE 03 M4-3 — THE KEY-COMPLETE READ, WITH AN AUTHORIZATION CHECK.
+     *
+     * The only key-complete read of live configuration today is the global helper
+     * `getThemeSetting($storeId, $theme)` (`app/Helper/helper.php:3538`), which takes NO user and
+     * performs NO authorization at all -- it is the storefront's reader, and the storefront is
+     * anonymous by design. An editor form that initialises from it is initialising from an
+     * unauthorised read and relying entirely on whatever gate the route happened to apply.
+     *
+     * This is the same merge, behind the same rule as every other read on this surface. `allows()`
+     * and not `allowsManagement()` deliberately: READING your own tenant's live configuration is
+     * tenant-membership work, which is what the owner's delegation requirement needs -- staff
+     * prepare drafts against what is live. Only the WRITE is restricted.
+     *
+     * Returns null on refusal with `refusal()` set; never an empty array, which `writeSettings()`
+     * uses to mean "nothing was accepted" and would be ambiguous here.
+     *
+     * @return array<string, mixed>|null
+     */
+    /**
+     * PHASE 03 M4-4 — THE FIRST VERSION A STORE EVER OWNS, CAPTURED LAZILY.
+     * =============================================================================================
+     *
+     * THE SEQUENCING PROBLEM THIS SOLVES. `2026_11_13_000100_create_theme_versions_table` creates
+     * the table and **backfills nothing** -- verified: it contains no `insert` and no
+     * `ThemeVersion::`. So every store on the platform owns ZERO versions, and `publish()`,
+     * `rollback()`, `history()` and `preview()` are all inert until one exists: there is nothing to
+     * publish, nothing to roll back to, and an empty history that looks like a bug.
+     *
+     * A BACKFILL MIGRATION IS THE OBVIOUS FIX AND IS NOT AVAILABLE. It would be a persistent
+     * migration writing rows for every store on the production database, which CLAUDE.md §2
+     * reserves for the owner. So the baseline is captured lazily, per store and per theme, the
+     * first time anyone opens the editor or saves a draft -- no migration, no bulk write, and
+     * stores that never touch their theme never gain a row.
+     *
+     * WHAT THE PAYLOAD IS, AND WHY NOT THE OBVIOUS THING. It is the STORED `theme_customizes` rows
+     * for this `(store, theme)` -- NOT the key-complete merge that `liveSettings()` returns.
+     * Key-completeness would put ~500 keys in the snapshot, and since publish is an UPSERT of every
+     * key it holds, a later rollback to this baseline would materialise every theme DEFAULT as an
+     * explicit stored row. That is a large, silent write of values the merchant never chose, and it
+     * would permanently detach them from the theme's own defaults: change the theme and those rows
+     * would keep the old values. Storing only the overrides means a rollback restores exactly what
+     * was stored and the defaults keep coming from the merge, which is what "what was live" means.
+     *
+     * NOTHING IS VALIDATED ON THE WAY IN, deliberately. This records what IS, not a change anyone
+     * proposed. The legacy corpus already contains markup -- M3's §4.6 measured
+     * `footer_description` holding `<p>Legacy <b>HTML</b></p>` -- and running the allowlist over it
+     * here would either refuse to capture a baseline for those stores or silently rewrite published
+     * merchant content, both worse than recording it faithfully.
+     *
+     * IDEMPOTENT, and the check is the live POINTER rather than "are there any versions": a store
+     * mid-draft owns versions and no pointer, and must still get its baseline.
+     *
+     * Gated by `allows()` -- tenant membership -- because opening the editor is what triggers it
+     * and staff may do that. It creates a version; it does not change what shoppers see.
+     */
+    public function ensureBaseline(
+        mixed $storeId,
+        string $themeId,
+        ?Authenticatable $user = null
+    ): ?ThemeVersion {
+        $this->rejected = [];
+        $this->refusal = null;
+
+        $user ??= Auth::user();
+        $store = $this->gate->resolveStore($storeId, $user);
+
+        if (! $store || ! $this->gate->allows($store->id, $user)) {
+            $this->refusal = $this->gate->reason() ?? 'not permitted';
+
+            return null;
+        }
+
+        $themeId = $this->resolveThemeId($themeId, (string) $store->theme_id);
+
+        if ($themeId === null) {
+            return null;
+        }
+
+        $storeKey = (int) $store->id;
+
+        $live = ThemePublishedVersion::liveFor($storeKey, $themeId);
+
+        if ($live !== null) {
+            return $live->liveVersion();
+        }
+
+        $stored = ThemeCustomize::withoutGlobalScopes()
+            ->where('store_id', $storeKey)
+            ->where('theme_id', $themeId)
+            ->pluck('value', 'name')
+            ->map(static fn ($v) => (string) $v)
+            ->all();
+
+        $payload = ThemePayload::encode($stored);
+        $version = null;
+
+        DB::transaction(function () use (&$version, $storeKey, $themeId, $stored, $payload, $user) {
+            /* Re-read INSIDE the transaction: two editor opens can race here, and the unique index
+             * on the live pointer is the arbiter. */
+            $raced = ThemePublishedVersion::liveFor($storeKey, $themeId);
+
+            if ($raced !== null) {
+                $version = $raced->liveVersion();
+
+                return;
+            }
+
+            $version = ThemeVersion::create([
+                'store_id'     => $storeKey,
+                'theme_id'     => $themeId,
+                'version_no'   => 1 + (int) ThemeVersion::query()
+                    ->where('store_id', $storeKey)->where('theme_id', $themeId)->max('version_no'),
+                'status'       => ThemeVersion::STATUS_PUBLISHED,
+                'label'        => 'Baseline — configuration already live',
+                'payload'      => $payload,
+                'payload_hash' => ThemePayload::hash($stored),
+                'created_by'   => $user->id ?? null,
+                'published_by' => $user->id ?? null,
+                'published_at' => now(),
+            ]);
+
+            ThemePublishedVersion::create([
+                'store_id'     => $storeKey,
+                'theme_id'     => $themeId,
+                'version_id'   => $version->id,
+                'published_at' => now(),
+                'published_by' => $user->id ?? null,
+            ]);
+
+            ThemePublicationEvent::create([
+                'store_id'        => $storeKey,
+                'theme_id'        => $themeId,
+                'version_id'      => $version->id,
+                'from_version_id' => null,
+                'action'          => ThemePublicationEvent::ACTION_BASELINE,
+                'payload_hash'    => ThemePayload::hash($stored),
+                'actor_id'        => $user->id ?? null,
+            ]);
+        });
+
+        return $version;
+    }
+
+    public function liveSettings(
+        mixed $storeId,
+        string $themeId,
+        ?Authenticatable $user = null
+    ): ?array {
+        $this->rejected = [];
+        $this->refusal = null;
+
+        $user ??= Auth::user();
+        $store = $this->gate->resolveStore($storeId, $user);
+
+        if (! $store || ! $this->gate->allows($store->id, $user)) {
+            $this->refusal = $this->gate->reason() ?? 'not permitted';
+
+            return null;
+        }
+
+        $themeId = $this->resolveThemeId($themeId, (string) $store->theme_id);
+
+        if ($themeId === null) {
+            return null;
+        }
+
+        /* The storefront's own reader, so the editor and the shop cannot disagree about what is
+         * live. Key-completeness comes from its defaults merge, not from anything added here. */
+        return getThemeSetting((int) $store->id, $themeId);
+    }
+
+    public function writeSettings(
+        mixed $storeId,
+        string $themeId,
+        array $settings,
+        ?Authenticatable $user = null
+    ): ?array {
+        $this->rejected = [];
+        $this->refusal = null;
+
+        $user ??= Auth::user();
+        $store = $this->gate->resolveStore($storeId, $user);
+
+        /*
+         * PHASE 03 M4-2 — THE MANAGEMENT RULE, NOT MEMBERSHIP, BECAUSE THIS WRITES THE LIVE
+         * PROJECTION. Found by independent review after M4-2 landed: the web route was behind the
+         * `theme.editor` middleware, but this service was still gated on `allows()` (tenant
+         * membership), and its SECOND production caller is the Flutter admin endpoint
+         * `POST api/admin/updateStoreOwnerInfo` (`Api\DashboardController:9054`), which carries no
+         * such middleware. So the exact principal the owner's decision names -- same-tenant,
+         * zero-permission staff -- was refused at `/theme-customize/{theme}/update` and still
+         * rewrote `footer_repeater` on the live storefront through the shipped app.
+         *
+         * Closing it at the service rather than at the API route is deliberate: this is the ONE
+         * controlled write path, so the rule belongs where every caller passes.
+         *
+         * THE HTTP CONTRACT IS UNCHANGED. A refusal returns null, the caller's
+         * `if (! empty($written))` simply does not append `social_media` to `updated_fields`, and
+         * no new status code is introduced -- which matters because the shipped Flutter app forces
+         * a logout on any 401.
+         *
+         * DRAFTS DELIBERATELY KEEP `allows()`. `saveDraft()`, `updateDraft()` and `deleteVersion()`
+         * below remain tenant-membership work, because the owner requires that tenant-authorised
+         * staff be able to prepare drafts WITHOUT publishing. That separation is the point, not an
+         * oversight.
+         */
+        if (! $store || ! $this->gate->allowsManagement($store->id, $user)) {
+            $this->refusal = $this->gate->reason() ?? 'not permitted';
+
+            return null;
+        }
+
+        $themeId = $this->resolveThemeId($themeId, (string) $store->theme_id);
+
+        if ($themeId === null) {
+            return null;
+        }
+
+        $accepted = $this->validator->validate($themeId, $settings);
+        $this->rejected = $this->validator->errors();
+
+        if ($accepted === []) {
+            /*
+             * Not an error in itself -- a form can legitimately post only unchanged values -- but a
+             * call where EVERY field was rejected is reported so a caller does not treat a silent
+             * no-op as a successful save.
+             */
+            if ($this->rejected !== []) {
+                $this->refusal = 'every posted field was rejected';
+            }
+
+            return [];
+        }
+
+        $storeKey = (int) $store->id;
+
+        DB::transaction(function () use ($accepted, $storeKey, $themeId) {
+            foreach ($accepted as $name => $value) {
+                /*
+                 * Eloquent, not DB::table(): `ThemeCustomize` is `Cachable`, and a raw write leaves
+                 * the storefront's own read serving the pre-write row. That is the measured defect
+                 * on the Flutter path this service replaces.
+                 *
+                 * updateOrCreate on the triple the application already treats as a key. There is no
+                 * UNIQUE index behind it (deliberately -- see migration 2026_11_13_000400), so a
+                 * pre-existing duplicate group resolves to its FIRST row here while the storefront
+                 * reader keeps the LAST. `report-theme-customize-duplicates.php` answers whether a
+                 * given database has any.
+                 */
+                /*
+                 * EVERY ROW OF THE NAME, NOT JUST THE FIRST. Same defect, same measurement, as the
+                 * publish path -- see `ThemePublishingService::apply()` for the full note.
+                 *
+                 * `theme_customizes` has no unique index on `(store_id, theme_id, name)`, the
+                 * storefront's `pluck('value','name')` takes the LAST row of a duplicate group and
+                 * `updateOrCreate` took the FIRST, so a write into a duplicated group reported
+                 * success while the storefront kept rendering the other row. Measured on the
+                 * publish path and fixed in both, because this method writes the same table through
+                 * the same assumption.
+                 *
+                 * Nothing is deleted: the duplicate stays visible to
+                 * `report-theme-customize-duplicates.php` rather than being tidied away by a
+                 * destructive write this service did not cause.
+                 */
+                $affected = ThemeCustomize::query()
+                    ->where('store_id', $storeKey)
+                    ->where('theme_id', $themeId)
+                    ->where('name', $name)
+                    ->update(['value' => $value]);
+
+                if ($affected === 0) {
+                    ThemeCustomize::create([
+                        'store_id' => $storeKey,
+                        'theme_id' => $themeId,
+                        'name'     => $name,
+                        'value'    => $value,
+                    ]);
+                }
+            }
+        });
+
+        $this->flushProjectionCacheAfterCommit();
+
+        return $accepted;
+    }
+
+    /* ============================================================================ draft versions */
+
+    /**
+     * Save a draft. This writes ONLY `theme_versions` and cannot change the live storefront, by
+     * construction: no storefront path reads that table.
+     *
+     * @param  array<string,mixed>  $settings
+     */
+    public function saveDraft(
+        mixed $storeId,
+        string $themeId,
+        array $settings,
+        ?string $label = null,
+        ?Authenticatable $user = null
+    ): ?ThemeVersion {
+        $this->rejected = [];
+        $this->refusal = null;
+
+        $user ??= Auth::user();
+        $store = $this->gate->resolveStore($storeId, $user);
+
+        if (! $store || ! $this->gate->allows($store->id, $user)) {
+            $this->refusal = $this->gate->reason() ?? 'not permitted';
+
+            return null;
+        }
+
+        $themeId = $this->resolveThemeId($themeId, (string) $store->theme_id);
+
+        if ($themeId === null) {
+            return null;
+        }
+
+        $accepted = $this->validator->validate($themeId, $settings);
+        $this->rejected = $this->validator->errors();
+
+        if ($this->rejected !== [] && $accepted === []) {
+            $this->refusal = 'every posted field was rejected';
+
+            return null;
+        }
+
+        $storeKey = (int) $store->id;
+        $payload = ThemePayload::encode($accepted);
+        $hash = hash('sha256', $payload);
+        $actor = $user && isset($user->id) ? (int) $user->id : null;
+
+        /*
+         * THE VERSION NUMBER IS ALLOCATED OPTIMISTICALLY, AND THE EARLIER PESSIMISTIC LOCK WAS A
+         * MEASURED DEFECT IN THIS METHOD.
+         *
+         * It used to read `max(version_no)` with `lockForUpdate()` inside the transaction, so that
+         * two concurrent draft saves could not both read the same "max + 1". That reasoning was
+         * right about two draft saves and wrong about everything else, because the lock is over the
+         * `theme_versions` rows of a (store, theme) -- the SAME rows `ThemePublishingService`
+         * updates when it marks a version published, and holds until its own commit.
+         *
+         * MEASURED by `verify-theme-publish-concurrency-on-mysql.php`, scenario 3, which exists
+         * because the M3-D directive asked for "draft save vs publish":
+         *
+         *     SQLSTATE[HY000]: General error: 1205 Lock wait timeout exceeded
+         *     select max(`version_no`) ... where store_id = ? and theme_id = ? for update
+         *
+         * So a merchant pressing "Save draft" while a publish was open waited out
+         * `innodb_lock_wait_timeout` -- fifty seconds by default -- and then got a 500. A draft save
+         * has no business contending with a publish at all: it only needs a free number.
+         *
+         * `tv_store_theme_version_unique` was ALWAYS the real arbiter; the lock merely avoided ever
+         * meeting it. Meeting it and retrying is correct, takes no lock on the range, and cannot
+         * block on an unrelated operation. The attempt limit is finite rather than `while (true)`:
+         * an unbounded retry against a persistent collision is a hang, which is the failure this
+         * change is removing.
+         */
+        $attempts = 0;
+
+        while (true) {
+            $attempts++;
+
+            $next = 1 + (int) ThemeVersion::query()
+                ->where('store_id', $storeKey)
+                ->where('theme_id', $themeId)
+                ->max('version_no');
+
+            try {
+                return DB::transaction(static fn (): ThemeVersion => ThemeVersion::create([
+                    'store_id'     => $storeKey,
+                    'theme_id'     => $themeId,
+                    'version_no'   => $next,
+                    'status'       => ThemeVersion::STATUS_DRAFT,
+                    'label'        => $label,
+                    'payload'      => $payload,
+                    'payload_hash' => $hash,
+                    'created_by'   => $actor,
+                ]));
+            } catch (\Illuminate\Database\QueryException $e) {
+                /* Someone else took this number. Read the new maximum and try again. */
+                if (! $this->isUniqueViolation($e) || $attempts >= 5) {
+                    throw $e;
+                }
+            }
+        }
+    }
+
+    /**
+     * Is this a duplicate-key violation rather than some other integrity failure?
+     *
+     * EXACT ON MySQL/MariaDB, COARSE ON SQLITE -- and an earlier version of this note claimed the
+     * distinction held on both, which a review disproved.
+     *
+     *   MySQL/MariaDB  1062 duplicate key, 1452 foreign key, 1048 NOT NULL -- distinct codes, so
+     *                  this really does tell a duplicate from an integrity failure that must NOT
+     *                  be retried.
+     *   SQLite         pdo_sqlite reports the PRIMARY result code `SQLITE_CONSTRAINT = 19` with
+     *                  SQLSTATE 23000 for EVERY constraint class. The extended codes (2067 unique,
+     *                  787 foreign key, 1299 NOT NULL) do not reach `errorInfo[1]`, so on the
+     *                  engine the suite runs on this cannot distinguish them.
+     *
+     * WHAT ACTUALLY BOUNDS THE RETRY, therefore: the attempt cap in `saveDraft()`, not this
+     * classification. A misclassified foreign-key failure there would be retried up to five times
+     * and then rethrown unchanged -- wasteful, not a hang, and not an infinite loop.
+     *
+     * AND A TEST OF THAT DISTINCTION BELONGS IN THE MySQL HARNESS, not the suite: a SQLite test
+     * written to prove "an FK violation is rethrown rather than retried" would pass for the wrong
+     * reason, because every constraint class arrives as 19.
+     */
+    private function isUniqueViolation(\Illuminate\Database\QueryException $e): bool
+    {
+        return ($e->errorInfo[0] ?? null) === '23000'
+            && in_array((int) ($e->errorInfo[1] ?? 0), [1062, 19], true);
+    }
+
+    /**
+     * REVISE AN EXISTING DRAFT IN PLACE. Requirement 1 of the M3-D directive is "create **and
+     * update** drafts", and only the first half existed.
+     *
+     * WHY IT HAS TO EXIST RATHER THAN BEING SATISFIED BY `saveDraft()`. Every `saveDraft()` call
+     * allocates a new `version_no`, so a merchant who edits and saves five times leaves five
+     * versions, and the version history -- which is meant to be a record of what was PUBLISHED --
+     * fills up with keystrokes. An editor needs one working draft it can revise until it is
+     * published.
+     *
+     * AND WHAT IT REFUSES, which is the part that keeps versions meaningful: **only a version whose
+     * status is `draft` can be revised.** A published or archived version is immutable, because the
+     * publication event records its `payload_hash` as evidence of what went live -- editing it
+     * afterwards would make that record a lie, and `hashIsIntact()` would still say the payload
+     * matched, since the hash is rewritten with it. So the refusal is not tidiness; it is what makes
+     * the audit trail worth having.
+     *
+     * The live pointer is checked too, belt and braces: a version the pointer names must not be
+     * editable even if its status column somehow disagrees.
+     */
+    public function updateDraft(
+        mixed $storeId,
+        string $themeId,
+        int $versionId,
+        array $settings,
+        ?string $label = null,
+        ?Authenticatable $user = null
+    ): ?ThemeVersion {
+        $this->rejected = [];
+        $this->refusal = null;
+
+        $user ??= Auth::user();
+        $store = $this->gate->resolveStore($storeId, $user);
+
+        if (! $store || ! $this->gate->allows($store->id, $user)) {
+            $this->refusal = $this->gate->reason() ?? 'not permitted';
+
+            return null;
+        }
+
+        $themeId = $this->resolveThemeId($themeId, (string) $store->theme_id);
+
+        if ($themeId === null) {
+            return null;
+        }
+
+        $storeKey = (int) $store->id;
+        $version = ThemeVersion::ownedBy($storeKey, $themeId, $versionId);
+
+        if ($version === null) {
+            $this->refusal = 'no such version for this store and theme';
+
+            return null;
+        }
+
+        if ($version->status !== ThemeVersion::STATUS_DRAFT) {
+            $this->refusal = sprintf(
+                'version %d is %s, not a draft; a published or archived version is immutable '
+                . 'because a publication event records its hash as evidence of what went live',
+                $version->version_no, $version->status);
+
+            return null;
+        }
+
+        $live = ThemePublishedVersion::liveFor($storeKey, $themeId);
+
+        if ($live && (int) $live->version_id === (int) $version->id) {
+            /* Unreachable through this service -- publishing sets the status -- but a row written by
+             * an import or a restore could disagree, and the pointer is the authority on what is
+             * live. */
+            $this->refusal = 'that version is currently published and cannot be edited';
+
+            return null;
+        }
+
+        $accepted = $this->validator->validate($themeId, $settings);
+        $this->rejected = $this->validator->errors();
+
+        if ($this->rejected !== [] && $accepted === []) {
+            $this->refusal = 'every posted field was rejected';
+
+            return null;
+        }
+
+        $payload = ThemePayload::encode($accepted);
+
+        /*
+         * The hash is recomputed with the payload. A draft has no publication event vouching for
+         * it, so there is nothing for the two to drift from -- which is exactly why only a draft may
+         * take this path.
+         */
+        $version->payload = $payload;
+        $version->payload_hash = hash('sha256', $payload);
+
+        if ($label !== null) {
+            $version->label = $label;
+        }
+
+        $version->save();
+
+        return $version->fresh();
+    }
+
+    /**
+     * Delete a draft, with the SAME ownership predicates as every read.
+     *
+     * A bare `ThemeVersion::destroy($id)` would delete another tenant's draft, and `RESTRICT`
+     * protects only the version a publish pointer references -- so a draft has no engine backstop
+     * at all. This is the predicate that stands in for one.
+     */
+    public function deleteVersion(
+        mixed $storeId,
+        string $themeId,
+        int $versionId,
+        ?Authenticatable $user = null
+    ): bool {
+        $this->refusal = null;
+        $user ??= Auth::user();
+
+        $store = $this->gate->resolveStore($storeId, $user);
+
+        if (! $store || ! $this->gate->allows($store->id, $user)) {
+            $this->refusal = $this->gate->reason() ?? 'not permitted';
+
+            return false;
+        }
+
+        $themeId = $this->resolveThemeId($themeId, (string) $store->theme_id);
+
+        if ($themeId === null) {
+            return false;
+        }
+
+        $version = ThemeVersion::ownedBy((int) $store->id, $themeId, $versionId);
+
+        if (! $version) {
+            $this->refusal = 'no such version for this store and theme';
+
+            return false;
+        }
+
+        $live = ThemePublishedVersion::liveFor((int) $store->id, $themeId);
+
+        if ($live && (int) $live->version_id === (int) $version->id) {
+            /* The database would refuse this too (RESTRICT). Refusing here gives a usable message
+             * instead of a 500, and keeps the two layers agreeing. */
+            $this->refusal = 'that version is currently published; unpublish before deleting it';
+
+            return false;
+        }
+
+        return (bool) $version->delete();
+    }
+
+    /* ================================================================================== helpers */
+
+    /**
+     * Which theme a write is for.
+     *
+     * The caller may name one, but it is VALIDATED against the theme catalog rather than trusted:
+     * `makeActiveTheme()` writes `stores.theme_id` from `$request->theme_id` with nothing but
+     * `isset()`, so neither the route parameter nor the stored column is a trustworthy source. An
+     * unknown theme has no declared fields, so every write against it would be rejected anyway --
+     * but it is refused here with a clear reason rather than as 300 field errors.
+     *
+     * Falls back to the store's own theme when the caller names none, which is what the Flutter
+     * endpoint does.
+     */
+    private function resolveThemeId(string $requested, string $storeTheme): ?string
+    {
+        $candidate = $requested !== '' ? $requested : $storeTheme;
+
+        if ($candidate === '') {
+            $this->refusal = 'the store has no theme selected and none was named';
+
+            return null;
+        }
+
+        if (! in_array($candidate, ThemeFieldCatalog::themes(), true)) {
+            $this->refusal = "'{$candidate}' is not a theme this installation ships";
+
+            return null;
+        }
+
+        return $candidate;
+    }
+
+    /**
+     * RULE 2. Flush when the data is actually visible, not when the write was merely queued.
+     *
+     * Inside a transaction the Eloquent lifecycle has already flushed once -- `Cachable` fires
+     * `flushCache()` on the model's `saved` event, synchronously, with the transaction still open.
+     * That flush races a concurrent reader, which can re-cache the pre-commit state in the window
+     * before the commit and then serve it indefinitely. `afterCommit` runs the callback once the
+     * OUTERMOST transaction commits, and immediately when there is none.
+     *
+     * PROVED, in both directions, by
+     * `tests/Support/Security/bin/verify-theme-cache-flush-after-commit-on-mysql.php`: two real
+     * processes, a shared model cache, and a reader on a second connection that genuinely cannot
+     * see the uncommitted row. Delete the `DB::afterCommit` below and its check 4 fails.
+     *
+     * WHEN THIS CONTROL IS LOAD-BEARING, AND WHEN IT IS NOT -- measured, because the answer is not
+     * the obvious one and three earlier versions of that harness reported a false green.
+     * `flushCache()` on a non-taggable store is `Cache::flush()`. On the DATABASE store that is
+     * `DELETE FROM cache`, a statement which JOINS THE OPEN TRANSACTION: it is invisible to other
+     * connections until the commit, and when it lands it also deletes whatever a concurrent reader
+     * cached in the meantime. So with `CACHE_STORE=database` and `MODEL_CACHE_STORE` unset -- the
+     * shipped production combination -- the in-transaction flush already behaves like a post-commit
+     * flush and the race cannot occur.
+     *
+     * It occurs on EVERY OTHER STORE: file, redis, memcached, array. Those flushes are immediate
+     * and outside the transaction, so the window is real. `config/laravel-model-caching.php` exists
+     * precisely so that store is a recorded decision, and `MODEL_CACHE_STORE` may be set at any
+     * time without touching this class. This flush is what keeps that a configuration choice rather
+     * than a correctness one.
+     */
+    private function flushProjectionCacheAfterCommit(): void
+    {
+        DB::afterCommit(static function (): void {
+            (new ThemeCustomize())->flushCache();
+        });
+    }
+}

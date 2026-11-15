@@ -17,7 +17,10 @@
                 </svg>
             </span>
         @else
+            {{-- M2-E a11y: the pagination arrows are icon-only, so they had no accessible name
+                 (axe button-name, critical). The page-NUMBER buttons already carry their digit. --}}
             <button onclick="product_page_filter({{ $products->currentPage() - 1 }})"
+                aria-label="{{ __('Previous') }}"
                 class="p-1 h-8 w-8 flex items-center justify-center rounded-md border border-gray-300 text-gray-500 hover:bg-gray-50">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
@@ -76,6 +79,7 @@
         {{-- Next Button --}}
         @if($products->hasMorePages())
             <button onclick="product_page_filter({{ $products->currentPage() + 1 }})"
+                aria-label="{{ __('Next') }}"
                 class="p-1 h-8 w-8 flex items-center justify-center rounded-md border border-gray-300 text-gray-500 hover:bg-gray-50">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"

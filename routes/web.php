@@ -36,6 +36,8 @@ use App\Http\Controllers\XenditPaymentController;
 use App\Http\Controllers\MidtransController;
 use App\Http\Controllers\EmailTemplateController;
 use App\Http\Controllers\HomeController;
+use App\Http\Controllers\PlatformDocsController;
+use App\Http\Controllers\PlatformSiteController;
 use App\Http\Controllers\ShippingController;
 use App\Http\Controllers\ShippingZoneController;
 use App\Http\Controllers\ShippingMethodController;
@@ -124,6 +126,7 @@ use App\Http\Controllers\PowertranzPaymentController;
 use App\Http\Controllers\SSLCommerzPaymentController;
 use App\Http\Controllers\PaymentSettingController;
 use App\Http\Controllers\ThemeCustomizeController;
+use App\Http\Controllers\ThemeVersionController;
 use App\Http\Controllers\DeliverySyriaController;
 use App\Http\Controllers\OtpIntegrationController;
 use App\Http\Controllers\StoreFinanceController;
@@ -402,6 +405,58 @@ Route::middleware(['web'])->group(function () {
   // module page before login
   Route::get('add-on', [HomeController::class, 'Software'])->name('apps.software');
   Route::any('/', [HomeController::class, 'Landing'])->name('start')->middleware('setlocate');
+
+  /*
+  |--------------------------------------------------------------------------
+  | PHASE 03 M5 — the official Store Syria website
+  |--------------------------------------------------------------------------
+  |
+  | The platform's own public pages: what Store Syria is, what it does, what it costs, how to
+  | start, and how to reach us. The merchant's STOREFRONT is a different thing entirely and lives
+  | under `{storeSlug}/...` in routes/customer.php.
+  |
+  | WHY THEY ARE DECLARED HERE AND NOT IN A GROUP FURTHER DOWN. `routes/customer.php` is required
+  | at the foot of this file and declares `{storeSlug?}/faq`, `{storeSlug?}/contact-us` and the
+  | rest. Laravel matches in declaration order, so `/platform/faq` must be registered before those
+  | patterns or the storefront would answer for the platform's own page. `PlatformSiteRoutesTest`
+  | pins it by resolving each URL through the real router and asserting the controller.
+  |
+  | `setlocate` only — the same middleware the root route carries. These pages are public by
+  | design, read no request input, touch no tenant and write nothing, so there is nothing here for
+  | `auth`, `xss` or `verified` to protect.
+  |
+  | The LandingPage module still owns `/`. Nothing here replaces it or duplicates its builder.
+  */
+  Route::middleware('setlocate')->prefix('platform')->name('platform.')->group(function () {
+      Route::get('/', [PlatformSiteController::class, 'home'])->name('home');
+      Route::get('features', [PlatformSiteController::class, 'features'])->name('features');
+      Route::get('pricing', [PlatformSiteController::class, 'pricing'])->name('pricing');
+      Route::get('getting-started', [PlatformSiteController::class, 'onboarding'])->name('onboarding');
+      Route::get('faq', [PlatformSiteController::class, 'faq'])->name('faq');
+      Route::get('contact', [PlatformSiteController::class, 'contact'])->name('contact');
+      Route::get('legal', [PlatformSiteController::class, 'legal'])->name('legal');
+
+      /*
+       * PHASE 03 M6 — the bilingual documentation centre.
+       *
+       * NOT `/api-docs`, which is `packages/workdo/Api/src/routes/web.php:18`, sits behind the
+       * merchant auth stack and documents the HTTP API rather than the product.
+       *
+       * `docs/search` IS DECLARED BEFORE `docs/{category}` and the order is load-bearing: both are
+       * two-segment GETs, so the later pattern would otherwise swallow `/platform/docs/search` and
+       * answer it with a 404 for a category named "search". `PlatformDocsRoutesTest` resolves the
+       * URL through the real router and asserts the controller method, which is the only check
+       * that can tell those two 404s apart.
+       *
+       * There is no `/{locale}/` segment. `setlocate` has already resolved the reader's language
+       * and the site chrome's switch already works; a locale in the path would give every article
+       * two addresses that disagree with the header.
+       */
+      Route::get('docs', [PlatformDocsController::class, 'index'])->name('docs.index');
+      Route::get('docs/search', [PlatformDocsController::class, 'search'])->name('docs.search');
+      Route::get('docs/{category}', [PlatformDocsController::class, 'category'])->name('docs.category');
+      Route::get('docs/{category}/{article}', [PlatformDocsController::class, 'article'])->name('docs.article');
+  });
   Route::get('pricing', [HomeController::class, 'Pricing'])->name('apps.pricing');
 
   // Session Save Addon Routes
@@ -1438,14 +1493,87 @@ Route::get(
     Route::get('/currency/{id}/edit', [CurrencyController::class, 'edit'])->name('currency.edit');
 
     /** Themes Setting Route */
-    Route::get('theme-customize', [ThemeCustomizeController::class, 'index'])->name('theme.index');
-    Route::get('theme-customize/{theme}/pages', [ThemeCustomizeController::class, 'themePages'])->name('theme.pages');
-    Route::get('theme-customize/{theme}/page/{slug?}/{sub_slug?}', [ThemeCustomizeController::class, 'themeCustomize'])->name('theme.customize');
-    Route::post('theme-customize/{theme}/update', [ThemeCustomizeController::class, 'themeCustomizeUpdate'])->name('theme.customize.update');
-    Route::post('theme-customize/file-get', [ThemeCustomizeController::class, 'imageFileGet'])->name('theme.file.get');
-    Route::get('theme-customize/{theme}/pages/order/{slug?}/{sub_slug?}', [ThemeCustomizeController::class, 'changeOrder'])->name('theme.customize.order');
-    Route::post('theme-customize/{theme}/order/update', [ThemeCustomizeController::class, 'updateOrder'])->name('theme.customize.update.order');
-    Route::post('theme-preview/make-active', [ThemeCustomizeController::class, 'makeActiveTheme'])->name('theme-preview.make-active');
+    /*
+     * PHASE 03 M4-2 -- OWNER DECISION 2026-11-15. ONE BOUNDARY, ALL EIGHT ROUTES, BOTH VERBS.
+     *
+     * Before this group existed the two verbs disagreed: the four GETs each opened with
+     * `isAbleTo('Manage Themes')` while the three POSTs carried NO permission middleware and were
+     * entitled by store ownership alone, so a `type`-`staff` user with no role and no permission
+     * could not open the editor and COULD drive every write in it by direct POST
+     * (`ThemeCustomizeWebRoutesTest.php:177-186`). `theme.file.get` had no authorization of ANY
+     * kind: any authenticated verified user posted a path and got back a URL minted from the super
+     * admin's storage configuration.
+     *
+     * `theme.editor` resolves the store through the gate -- never `getCurrentStore()`, never a
+     * `{store}` parameter from the caller -- and admits the operator naming a store explicitly, the
+     * verified tenant owner, or a same-tenant holder of `Manage Themes`. The controller's own
+     * `isAbleTo()` checks are LEFT IN PLACE: defence in depth, and deleting them on the strength of
+     * a middleware line is how a guard goes missing when a route is later moved out of a group.
+     */
+    Route::middleware(['theme.editor'])->group(function () {
+        Route::get('theme-customize', [ThemeCustomizeController::class, 'index'])->name('theme.index');
+        Route::get('theme-customize/{theme}/pages', [ThemeCustomizeController::class, 'themePages'])->name('theme.pages');
+        Route::get('theme-customize/{theme}/page/{slug?}/{sub_slug?}', [ThemeCustomizeController::class, 'themeCustomize'])->name('theme.customize');
+        Route::post('theme-customize/{theme}/update', [ThemeCustomizeController::class, 'themeCustomizeUpdate'])->name('theme.customize.update');
+        Route::post('theme-customize/file-get', [ThemeCustomizeController::class, 'imageFileGet'])->name('theme.file.get');
+        Route::get('theme-customize/{theme}/pages/order/{slug?}/{sub_slug?}', [ThemeCustomizeController::class, 'changeOrder'])->name('theme.customize.order');
+        Route::post('theme-customize/{theme}/order/update', [ThemeCustomizeController::class, 'updateOrder'])->name('theme.customize.update.order');
+        Route::post('theme-preview/make-active', [ThemeCustomizeController::class, 'makeActiveTheme'])->name('theme-preview.make-active');
+
+        /*
+         * PHASE 03 M4-6 -- PUBLISH, ROLLBACK AND HISTORY. `ThemePublishingService` has existed
+         * since M3-D with NO production caller; this is its front door, inside the same
+         * `theme.editor` boundary as every other theme route.
+         *
+         * NO `theme-preview/` PREFIX, deliberately. `theme-preview/make-active` above already owns
+         * part of it and the vendored WorkDo `ThemeCustomizer` owns `theme-preview/{theme?}/
+         * change-style` and `theme-preview-content/{theme?}`. A later declaration REPLACES an
+         * earlier one for the same method+URI and silently drops its middleware -- and no WorkDo
+         * module loads in a test run without an `add_on_managers` row, so a collision there is
+         * invisible in CI and live in production.
+         */
+        Route::post('theme-version/{theme}/publish', [ThemeVersionController::class, 'publish'])->name('theme.version.publish');
+        Route::post('theme-version/{theme}/rollback', [ThemeVersionController::class, 'rollback'])->name('theme.version.rollback');
+        Route::get('theme-version/{theme}/history', [ThemeVersionController::class, 'history'])->name('theme.version.history');
+    });
+
+    /*
+     * PHASE 03 M4-5 -- THE AUTHENTICATED DRAFT PREVIEW, and the first authenticated route in this
+     * codebase that renders a STOREFRONT view. It sits OUTSIDE the `theme.editor` group because its
+     * rule is different by design: previewing a draft is tenant-membership work, so staff may do it,
+     * while publishing stays on the management rule. `theme.draft.preview` owns that check.
+     *
+     * The URL carries neither a `{theme}` parameter nor a `themes` segment, and does not use the
+     * `theme-preview/` prefix -- see `ThemeDraftPreview`'s docblock for what each of those three
+     * would switch on. The version id carries the theme.
+     *
+     * IT DOES CARRY `{storeSlug}`, AND THAT IS NOT OPTIONAL. MEASURED: without it the page answers
+     * 404 even though the controller returns a View, because `ViewServiceProvider`'s composer
+     * resolves `$store` from `request()->route('storeSlug')` and `abort(404)`s when it is null --
+     * the same composer that recomputes `$themeSettings`, one layer deeper than the settings seam
+     * reaches. Naming the parameter `storeSlug` puts the request on the composer's SAFE branch
+     * (`:50-51`), the one that looks the store up by slug; the dangerous branch at `:52-55` is
+     * keyed on `{theme}`, which this route does not have.
+     *
+     * The slug is caller-supplied, so `ThemeDraftPreview` refuses unless it is the slug of the
+     * store the GATE resolved. A predicate built from request input is not a tenant check.
+     */
+    /*
+     * PHASE 03 M4-7 -- SAVING A DRAFT IS NOT A LIVE WRITE, so it sits behind the WIDER boundary.
+     * Inside `theme.editor` it was unreachable for the principal it exists for: measured, staff
+     * holding no permission were refused by the middleware before the handler's own membership
+     * check ran. Drafts live in `theme_versions`, which no storefront path reads.
+     */
+    Route::middleware(['theme.draft'])->group(function () {
+        Route::post('theme-version/{theme}/draft', [ThemeVersionController::class, 'saveDraft'])
+            ->name('theme.version.draft');
+    });
+
+    Route::middleware(['theme.draft.preview'])->group(function () {
+        Route::get('theme-draft/{storeSlug}/{version}/preview', [ThemeVersionController::class, 'preview'])
+            ->whereNumber('version')
+            ->name('theme.draft.preview');
+    });
 
   // ===================================================================
   // SEC-F2 / NEW-public-mutating-routes / NEW-order-payment-status.

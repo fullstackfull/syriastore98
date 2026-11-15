@@ -3,7 +3,9 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+  {{-- M2-E a11y: `maximum-scale=1` blocked pinch-zoom (WCAG 1.4.4, axe meta-viewport,
+       critical, every storefront page). Removed; nothing in the themes depends on it. --}}
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="author" content="{{ config('app.name') ?? Greentic}}">
   <meta name="base-url" content="{{ URL::to('/') }}">
   <meta name="csrf-token" content="{{ csrf_token() }}">
@@ -14,6 +16,11 @@
     rel="stylesheet">
   <link rel="stylesheet" href="{{ asset('themes/' . $currentTheme . '/assets/css/all.min.css') }}">
   <link rel="stylesheet" href="{{ asset('themes/' . $currentTheme . '/assets/css/swiper-bundle.min.css') }}" />
+
+  {{-- M2-A. The design system + the pre-paint appearance script. Deliberately BEFORE the theme
+       sheet: the DS declares `--ss-*` on `:root`, so a theme that wants to override a token can,
+       and the inline script sets `data-ss-theme` before anything paints. --}}
+  @include('front_end.partials.appearance')
  
     <link rel="stylesheet" href="{{ asset('themes/' . $currentTheme . '/assets/css/main-style.css') }}">
 

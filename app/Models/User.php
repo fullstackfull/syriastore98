@@ -138,12 +138,36 @@ class User extends Authenticatable implements LaratrustUser, MustVerifyEmail, \L
         $table = with(new Store)->getTable();
         $allSlugs = self::getRelatedSlugs($table, $slug ,$id = 0);
 
-        if (!$allSlugs->contains('slug', $slug)) {
+        /* PHASE 03 M5/M6. A RESERVED SLUG IS TREATED EXACTLY LIKE A TAKEN ONE.
+           ----------------------------------------------------------------------------------
+           Why `platform` may not be a store's slug is explained once, on the model that owns the
+           column: `Store::RESERVED_SLUGS`. Here is the MINT path, and it SUFFIXES rather than
+           refuses -- the merchant gets `platform-1`, exactly what already happens when the name
+           they chose is taken -- because nobody is watching a registration form's slug derivation
+           and failing it would block the sign-up.
+
+           THE CALLER INVENTORY, CORRECTED AFTER AN INDEPENDENT REVIEW OF M5. An earlier version of
+           this comment called this "the ONE place store slugs are minted (StoreController :134,
+           :283 and :563)". Both halves were wrong. It is not the only writer of `stores.slug` --
+           `AppSettingController::store()` and the Flutter store-settings endpoint in
+           `Api\DashboardController` each assign one straight from request input, which is why the
+           reserved list is on the model and those two consult it as a VALIDATION rule. And the
+           inventory was incomplete: `Auth\RegisteredUserController` calls this at :137 and :273
+           for merchant self-registration. (`ShopifyProductController` :252 and :537 also call it,
+           but for a `ProductAttribute` slug, not a store's -- the suffix is cosmetic there because
+           `product_attributes.slug` is not routed.)
+
+           `PlatformSiteRoutesTest` and `ReservedStoreSlugTest` drive the halves: `/platform`
+           resolves to the platform controller through the real router, a store named "Platform"
+           does not get the bare slug here, and neither rename path accepts it. */
+        if (! Store::slugIsReserved($slug) && !$allSlugs->contains('slug', $slug)) {
             return $slug;
         }
         for ($i = 1; $i <= 100; $i++) {
             $newSlug = $slug . '-' . $i;
-            if (!$allSlugs->contains('slug', $newSlug)) {
+            /* `platform-1` is not itself reserved today, so this check cannot currently be false.
+               It is kept so that adding a two-word reserved slug later cannot be handed out here. */
+            if (! Store::slugIsReserved($newSlug) && !$allSlugs->contains('slug', $newSlug)) {
                 return $newSlug;
 
             }

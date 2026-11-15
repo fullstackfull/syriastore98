@@ -51,7 +51,7 @@
               <!-- Featured Image -->
               <div class="rounded-xl overflow-hidden max-h-[450px] h-full mb-6">
                 <img
-                  src="{{get_file($blog->cover_image_path) ?? 'assets/images/article-banner-1.png' }}"
+                  src="{{storefront_image($blog->cover_image_path) ?? 'assets/images/article-banner-1.png' }}"
                   alt="article-banner"
                   class="w-full h-full object-cover" />
               </div>

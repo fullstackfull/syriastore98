@@ -37,6 +37,24 @@ class ActiveTheme
             $themeName = $store->theme_id;
         } else {
             $themeName = $this->getThemeNameFromUrl($request);
+
+            // PHASE 03 M0 -- A STORE THAT EXISTS BUT HAS NO THEME CHOSEN still has to render.
+            //
+            // The condition above is `$store && $store->theme_id`, and `stores.theme_id` is NOT
+            // NULL, so a store with no theme carries the empty STRING -- which is falsy. Control
+            // fell here, `getThemeNameFromUrl()` returns null for an ordinary storefront URL (it
+            // only reads a `themes/<name>/...` preview path), so `Theme::set()` was never called.
+            // With no theme view root prepended, `view()->exists('main_file')` is false and the
+            // storefront cannot resolve its own layout.
+            //
+            // `config('theme.active')` is the platform's own configured theme -- what the resolver
+            // falls back to anyway -- so this sets explicitly what the rest of the stack already
+            // assumes. A `themes/<name>/...` preview URL still wins, and a request for a store
+            // that does not exist is untouched: `$themeName` stays null and the storefront's own
+            // not-found handling runs.
+            if (empty($themeName) && $store) {
+                $themeName = config('theme.active');
+            }
         }
         if (!empty($themeName)) {
             Theme::set($themeName);

@@ -12,7 +12,7 @@
             </a>
         
             <div class="absolute top-4 right-4">
-                <button class="wishlist-btn wishbtn-globaly {{ $product->in_whishlist ? 'active' : ''}} relative flex bg-white rounded p-2 border" 
+                <button aria-label="{{ $product->in_whishlist ? __('Remove from Wishlist') : __('Add to Wishlist') }}" class="wishlist-btn wishbtn-globaly {{ $product->in_whishlist ? 'active' : ''}} relative flex bg-white rounded p-2 border" 
                         product_id="{{ $product->id }}"
                         in_wishlist="{{ $product->in_whishlist ? 'remove' : 'add' }}">
                         <i class="ti ti-heart text-gray-600"></i>
@@ -41,7 +41,7 @@
                     <ins>{{ __('In Variant') }}</ins>
                 </span>
                 @endif
-                <button class="addtocart-btn btn addcart-btn-globaly bg-[var(--primary-color)] text-white px-3 py-1 rounded hover:bg-opacity-90 transition-colors duration-300"
+                <button aria-label="{{ __('Add to Cart') }}" class="addtocart-btn btn addcart-btn-globaly bg-[var(--primary-color)] text-white px-3 py-1 rounded hover:bg-opacity-90 transition-colors duration-300"
                 tabindex="0"
                 product_id="{{ $product->id }}"
                 variant_id="0"

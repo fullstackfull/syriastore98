@@ -135,6 +135,32 @@ class TenantModelClassificationTest extends TestCase
     public static function doNotScopeDespiteHavingTheColumn(): array
     {
         return [
+            // P3-M3-C. The three theme-versioning models. Their tables all carry `store_id`
+            // and every read and write in App\Services\Theme\ThemeConfigurationService and in the
+            // models' own ownedBy()/liveFor()/historyFor() helpers carries an EXPLICIT
+            // `where('store_id', ...)` -- derived from App\Support\Theme\ThemeEditorGate, which
+            // requires the store to be named and then proves ownership, never from request input
+            // and never from getCurrentStore() (which hands an operator the literal store 1).
+            //
+            // They are left out of `scoped_models` DELIBERATELY rather than by omission, and the
+            // reasoning is the one already recorded for FavouritePages below: `null_tenant =>
+            // 'open'` means the global scope adds NO predicate when no tenant resolves, so a second
+            // implicit predicate would mask a missing explicit one rather than back it up. It is
+            // also inert for a customer or driver Sanctum token and for staff with an empty
+            // `current_store`, and StoreScope::resolveTenant() returns MODE_SUPER_ADMIN with no
+            // predicate at all -- which is exactly the principal whose store resolution is the
+            // residual risk M3-D has to close. Defence in depth against a merchant; not the control
+            // of record.
+            //
+            // The control of record is engine-level: `tv_identity_unique` plus the COMPOSITE
+            // foreign key `(store_id, theme_id, version_id)` on theme_published_versions, which
+            // makes publishing another tenant's version impossible rather than merely unlikely
+            // (measured: ERROR 1452). theme_publication_events deliberately has no foreign keys at
+            // all, so its references are scoped by the same explicit triple in resolveVersion().
+            \App\Models\ThemeVersion::class => 'P3-M3-C: explicit (store_id, theme_id, id) predicates plus engine-level composite FK; the scope would add only a weaker implicit half.',
+            \App\Models\ThemePublishedVersion::class => 'P3-M3-C: UNIQUE(store_id, theme_id) and a composite FK to theme_versions already enforce ownership in the engine.',
+            \App\Models\ThemePublicationEvent::class => 'P3-M3-C: append-only audit with no FKs by design; references are resolved through the explicit triple, never a bare id.',
+
             // app/Models/Utility.php:289 and :896 both run `Setting::where('store_id', 1)` with a
             // HARDCODED literal while configuring file storage. A current-store scope compiles
             // that to `store_id = 1 AND store_id = <current>` -> zero rows -> storage
@@ -204,7 +230,13 @@ class TenantModelClassificationTest extends TestCase
         // its reads carry `store_id` AND `created_by`, and it is NOT allowlisted for enforcement
         // because the scope would supply only the weaker half of that pair. This assertion
         // existing is what forced the classification to be written rather than assumed.
-        $this->assertSame(95, $total, 'The model count changed. Re-run the classification and '
+        // 98, UP FROM 95. P3-M3-C added the three theme-versioning models:
+        // App\Models\ThemeVersion, App\Models\ThemePublishedVersion and
+        // App\Models\ThemePublicationEvent. All three tables carry `store_id`, so all three are
+        // tenant-discriminated, and all three are recorded in doNotScopeDespiteHavingTheColumn()
+        // with their reason -- they are NOT allowlisted for scope enforcement. That classification
+        // is the review this assertion exists to force, and it was written before the count moved.
+        $this->assertSame(98, $total, 'The model count changed. Re-run the classification and '
             . 'review the new model before anything is allowlisted: ' . implode(', ', $this->eloquentModels()));
     }
 
@@ -240,8 +272,11 @@ class TenantModelClassificationTest extends TestCase
         // a predicate that matches nothing, or matches by coincidence, while looking like
         // isolation. `StoreScope::isActiveFor()` would also short-circuit for them anyway, since
         // they are not in config/tenancy.php's `scoped_models`.
+        // 68, UP FROM 65: theme_versions, theme_published_versions and theme_publication_events all
+        // carry `store_id` (P3-M3-C). The column is real and the rows are tenant-owned; what
+        // changed is the count, not the classification rule.
         $this->assertCount(
-            65,
+            68,
             $this->tenantDiscriminated,
             "The set of models whose table carries a `store_id` column changed.\nMeasured now:\n  "
             . implode("\n  ", $this->tenantDiscriminated)

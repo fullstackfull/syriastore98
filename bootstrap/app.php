@@ -26,6 +26,17 @@ return Application::configure(basePath: dirname(__DIR__))
             'guest' => \App\Http\Middleware\RedirectIfAuthenticated::class,
             '2fa' => \PragmaRX\Google2FALaravel\Middleware::class,
             'demo_mode' => \App\Http\Middleware\DemoModeMiddleware::class,
+            // PHASE 03 M4-2. One authorization boundary for every theme-editing route, both verbs.
+            // Closes the measured inversion in which the four GETs required `Manage Themes` while
+            // the three POSTs required nothing, so zero-permission staff could not open the editor
+            // and could drive every write in it by direct POST.
+            'theme.editor' => \App\Http\Middleware\ThemeEditorAccess::class,
+            // PHASE 03 M4-5. Authorises a draft preview, injects it below the view composer, sets
+            // the theme BEFORE any view is resolved, and marks the response no-store.
+            'theme.draft.preview' => \App\Http\Middleware\ThemeDraftPreview::class,
+            // PHASE 03 M4-7. The WIDER draft boundary: tenant membership, so staff may prepare and
+            // preview drafts they cannot publish. See ThemeDraftAccess for why it is separate.
+            'theme.draft' => \App\Http\Middleware\ThemeDraftAccess::class,
             // Finance route guard. Routes through the `finance` gate, which has a
             // super-admin path that does not depend on a seeded permission row --
             // see App\Http\Middleware\FinancePermission for why neither

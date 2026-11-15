@@ -108,4 +108,43 @@ export SESSION_DRIVER=file
 [ -f "$DB_DATABASE" ] || { echo "fixture missing: $DB_DATABASE" >&2; exit 1; }
 
 cd "$(dirname "$0")/../../../.."
+
+# ---------------------------------------------------------------------------------------------
+# PHASE 03: /themes/... MUST RESOLVE, OR EVERY STOREFRONT CAPTURE IS OF AN UNSTYLED PAGE.
+#
+# `themes/` sits at the REPOSITORY ROOT, not under `public/`. On the live host that is fine and
+# needs no rule: the document root IS the repository root (P1-SEC-40 measured this), and the
+# front-controller rewrite is guarded by `RewriteCond %{REQUEST_FILENAME} !-f`, so Apache serves
+# `<root>/themes/stylique/assets/css/all.min.css` directly. Note `themes` is deliberately NOT in
+# .htaccess's `^(css|assets|...|vendor)/` alternation -- it does not need to be.
+#
+# `php artisan serve` serves `public/` ONLY, so in development every one of those files 404s.
+# MEASURED on the storefront before this line existed: 23 images, 6 stylesheets and 4 scripts all
+# present on disk, all 404 over HTTP, and the resulting capture showed a storefront with no theme
+# CSS at all. A baseline taken that way is a photograph of a bug in the harness.
+#
+# The symlink makes development answer what production already answers. It is DEV-ONLY and
+# gitignored: committing it would put a second, redundant path to the same files on the live host.
+# ---------------------------------------------------------------------------------------------
+# MEASURED, not guessed: of the ten directories .htaccess names in its rewrite alternation
+# (`^(css|assets|market_assets|images|landing|uploads|storage|installer|js|vendor)/`), seven already
+# live under public/ and resolve in development unchanged. Two do not:
+#
+#   themes/   265 files at the repository root -- every theme stylesheet, script and image
+#   uploads/  908 files at the repository root -- every product, category and brand image
+#
+# Both are served by production directly, for the reason above. Both 404 under `artisan serve`,
+# which is why a storefront capture taken without these links shows an unstyled page with broken
+# product imagery and no indication that the cause is the harness rather than the product.
+#
+# `storage/` is DELIBERATELY NOT BRIDGED. `public/storage` is a TRACKED REGULAR FILE containing the
+# vendor's absolute build path instead of a symlink -- a real, recorded defect that affects every
+# deployment, not only this container. Linking around it here would hide the one thing a developer
+# most needs to see. It stays broken in development because it is broken everywhere.
+for _d in themes uploads; do
+    if [ ! -e "public/$_d" ]; then
+        ln -s "../$_d" "public/$_d" && echo "dev: linked public/$_d -> ../$_d (see the note above)"
+    fi
+done
+
 exec php artisan serve --host=127.0.0.1 --port=8899

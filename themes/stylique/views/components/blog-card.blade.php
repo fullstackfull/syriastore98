@@ -3,7 +3,7 @@
 <div class="h-full flex flex-col bg-white rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300">
     <div class="relative">
         <a href="{{ route('page.article', [$store->slug, $blog->slug]) }}">
-            <img src="{{ get_file($blog->cover_image_path) ?? asset('assets/images/blog-image1.png') }}"
+            <img src="{{ storefront_image($blog->cover_image_path) ?? asset('assets/images/blog-image1.png') }}"
             width="400" height="400" alt="Blog post image" class="w-full h-60 object-cover object-top"/>
         </a>
     </div>

@@ -29,7 +29,7 @@
                             <div class="col-xl-7">
                                 <div
                                     class=" d-flex all-button-box justify-content-md-end justify-content-end text-end">
-                                    <button type="submit" onclick="saveAsPDF();" title="Print" aria-label="Print"
+                                    <button type="submit" onclick="saveAsPDF();" title="Print" aria-label="{{ __('Print') }}"
                                         class="btn continue-btn  ">
                                         <i class="ti ti-printer" style="font-size:20px"> </i>
                                         <span class="btn-inner--text text-white">{{ __('Print') }}</span>

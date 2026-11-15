@@ -45,7 +45,7 @@ entirely pre-existing third-party-integration failure reporting, `info` (22) and
 diagnostics; none of them is a security signal and enumerating them would bury the ones that are.
 
 
-### `critical` — 27 lines
+### `critical` — 31 lines
 
 > **[2026-11-01] THIS COUNT WAS STALE, AND NOT BY THIS CHANGE'S DOING.** It read **21** against a
 > table of **28** rows before F241 and F263 added two more; the `warning` heading read **166**
@@ -90,7 +90,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 192 lines
+### `warning` — 197 lines
 
 > **[2026-11-02, second edit] 186 -> 190, and BOTH HEADINGS WERE STALE BEFORE IT.** Measured
 > against `app/` with the test's own regex: **27 `critical`, 190 `warning`, 217 total** — which is
@@ -115,6 +115,11 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 
 | line | message |
 |---|---|
+| `app/Http/Controllers/ThemeCustomizeController.php:407` | theme settings write refused |
+| `app/Http/Controllers/ThemeCustomizeController.php:138` | Theme editor read refused. |
+| `app/Http/Controllers/ThemeVersionController.php:333` | Theme publication refused. |
+| `app/Http/Middleware/ThemeEditorAccess.php:59` | Theme editor access refused. |
+| `app/Http/Middleware/ThemeDraftAccess.php:56` | Theme draft access refused. |
 | `app/Http/Controllers/Api/ApiController.php:6252` | shipping quote refused a cart line naming another store |
 | `app/Models/Cart.php:1200` | flat-rate shipping refused a cart line naming another store |
 | `app/Http/Controllers/PaymentCallbackController.php:106` | Paytm plan callback refused: no usable order reference. |
@@ -179,8 +184,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/RefusesDeferredGateway.php:130` | Paid plan checkout refused before any charge: this gateway is deferred from Phase 02. |
 | `app/Http/Controllers/Concerns/RefusesDeferredGateway.php:180` | Paid plan activation refused: this gateway is deferred from Phase 02 and its payment evidence cannot be verified. |
 | `app/Http/Controllers/Concerns/ResolvesPendingPartialPayment.php:135` | Pending partial payment lookup failed; the payment is refused. |
-| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:770` | customer login: refused a social row still holding its module-assigned password |
-| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:995` | Newsletter subscription failed during customer registration |
+| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:778` | customer login: refused a social row still holding its module-assigned password |
+| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:1007` | Newsletter subscription failed during customer registration |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:95` | Delivery Syria status webhook: invalid credentials. |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:179` | Zid store not found for order status sync. |
 | `app/Http/Controllers/ESewaPaymentController.php:196` | Plan payment return rejected: claimed amount does not match the plan price. |
@@ -512,6 +517,56 @@ fired.
 
 **Neither is reachable by an anonymous caller**: both sit behind a slug-resolved store and, on the
 API path, `resolveStoreCustomer()`.
+
+### The three rows added 2026-11-15 (Phase 03 M4), with their destination and reader
+
+**All three are theme-editor refusals, and they exist because M4 narrowed who may change a live
+storefront.** The owner's decision of 2026-11-15 restricts live theme writes, publishing and
+rollback to the verified tenant owner, a same-tenant holder of `Manage Themes`, or the platform
+operator naming a store explicitly. A refusal is therefore the normal consequence of a merchant who
+has delegated editing without granting the permission — and also what an attempt to act on another
+tenant's store looks like. The three are deliberately distinguishable by which layer refused.
+
+- **`ThemeEditorAccess::handle()` — "Theme editor access refused.", `warning`.** The middleware on
+  all eight theme routes, so this is the **outermost** refusal and the one that fires most often.
+  Read by support when a merchant says "I cannot open the theme editor": the usual answer is that
+  they or their staff member holds no `Manage Themes` and does not own the store. It logs the route
+  name, the HTTP method, the user id and the gate's reason — no store settings, no payload, no
+  credential. **A burst from one user id is a misconfigured role; a burst from many is a seeding or
+  migration problem with that permission**, which matters because `Manage Themes` is granted by
+  `Utility::addNewData()` on login rather than by a migration.
+
+- **`ThemeCustomizeController::editorStoreId()` — "Theme editor read refused.", `warning`.** The
+  same question asked again inside the handler, as defence in depth. **It should be rare**, because
+  the middleware refuses first: a line here means a request reached the controller that the
+  middleware admitted, so it is worth reading as a possible gap between the two rather than as an
+  ordinary permission failure. Logs the action, the user id and the reason.
+
+- **`ThemeVersionController::refuseWithAudit()` — "Theme publication refused.", `warning`,
+  alongside an `audit_logs` row.** The one that **matters most to read**, because publishing and
+  rollback change what shoppers see. It fires for a stale optimistic-concurrency expectation — two
+  people with the editor open — as well as for an authorization refusal, so a single line is
+  usually two merchants colliding and **a repeated line for one store is worth asking about**.
+  Logs the action, the store id, the theme and the reason; the paired audit row carries the actor,
+  the version id and the same reason.
+
+**The store id in all three comes from `ThemeEditorGate`, never `getCurrentStore()`** — that
+resolver returns the literal `1` for an operator whose `current_store` is empty, so logging through
+it would attribute an operator's refusal to whichever store happens to be 1. The audit row is
+written directly for the same reason rather than through `AuditLog::record()`, which does use it.
+
+**A fourth was added 2026-11-15 with M4-7**, and its rarity is the point.
+`ThemeDraftAccess::handle()` — **"Theme draft access refused.", `warning`.** It guards the WIDER
+draft boundary (tenant membership) rather than the narrow publish one, so it refuses only a
+principal who is not a member of the tenant at all. **A merchant or staff member should never
+produce this line**: the ones who legitimately cannot publish are admitted here and refused later by
+`theme.editor`. So unlike its editor-access sibling, a line here is not the ordinary
+"staff lacks `Manage Themes`" case — it means someone reached a draft endpoint for a store they do
+not belong to, and is worth reading as such. Same fields: route, user id, gate reason.
+
+**None is reachable anonymously**: every theme route sits behind `auth` and the `theme.editor`
+middleware, and the middleware redirects an unauthenticated caller to sign-in before any of this
+runs.
 
 ## 2. Where these lines actually go
 

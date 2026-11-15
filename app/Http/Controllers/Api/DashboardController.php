@@ -8854,10 +8854,73 @@ public function updateStoreOwnerInfo(Request $request)
             return response()->json(['status' => 'error', 'message' => 'Permission denied.', 'data' => null], 403);
         }
 
+        // P3-SEC. THE UNIQUENESS RULE BELOW GUARDED A STRING THAT NEVER REACHED THE COLUMN.
+        //
+        // It validated the RAW `store_slug` while the writer below stored
+        // `Str::slug($validated['store_slug'])`. MEASURED: `Str::slug()` maps 'My Shop', 'MY SHOP',
+        // 'my shop' and 'my-shop' all to 'my-shop'. So a merchant acting legitimately on their OWN
+        // store posted 'My Shop', `unique:stores,slug` compared 'My Shop' against the column, found
+        // nothing, passed -- and 'my-shop' was written beside another store's identical 'my-shop'.
+        //
+        // Every storefront resolver is `where('slug', ...)->first()` (`helper.php:3578` and `:3627`,
+        // `ActiveTheme:21`, and four raw lookups in `ViewServiceProvider` that choose the THEME VIEW
+        // ROOT), so LOWEST ID WINS and one merchant's public URL served the other's shop. Not a
+        // tenancy defect -- `resolveOwnedStore()` and the two permission limbs above all pass
+        // legitimately, nothing in the victim's row is written, and a storefront is public. The
+        // whole defect is validating one value and storing another.
+        //
+        // Normalising first makes the rule guard the value that lands. `Str::slug()` is idempotent
+        // ('my-shop' -> 'my-shop'), so the writer below is unchanged and a merchant resubmitting
+        // their own slug -- what a prefilled form does -- still passes.
+        //
+        // DELIBERATELY NOT CHANGED: an input that normalises to '' (e.g. '!!!') is still silently
+        // skipped by the `!empty()` at the writer. Refusing it would add a new 422 to a path the
+        // shipped admin app calls, which is a user-visible regression of exactly the kind
+        // CLAUDE.md warns about. Recorded instead.
+        //
+        // `stores.slug` has NO UNIQUE INDEX (`2023_12_14_090259_create_stores_table.php:19` is a
+        // bare `$table->string('slug')`), so the database does not backstop this and duplicates may
+        // ALREADY EXIST in production. Adding the index needs an audit first; that is recorded, not
+        // done here.
+        if ($request->filled('store_slug')) {
+            $request->merge([
+                'store_slug' => \Illuminate\Support\Str::slug((string) $request->input('store_slug')),
+            ]);
+        }
+
         $validated = $request->validate([
             'store_name' => 'nullable|string|max:255',
             'store_email' => 'nullable|email|max:255',
-            'store_slug' => 'nullable|string|max:255|unique:stores,slug,' . $store->id,
+            /* PHASE 03 M5/M6. The THIRD writer of `stores.slug`, and the one a merchant reaches
+               from the shipped Flutter app -- found by an independent review of M5 after a comment
+               in `User::slugs()` had claimed the mint path was the only one. See
+               `Store::RESERVED_SLUGS` for why `platform` cannot belong to a store.
+
+               THE VALUE THIS RULE SEES IS ALREADY NORMALISED. The `$request->merge()` immediately
+               above runs `Str::slug()` over the input for the P3-SEC reason documented there, so
+               `Platform` has already become `platform` by the time the rule runs. The `Str::slug()`
+               inside the closure is therefore idempotent, and it is kept so the rule stays correct
+               on its own if that merge is ever moved.
+
+               IT IS A VALIDATION RULE RATHER THAN A HAND-WRITTEN REFUSAL so that the response is
+               identical in shape to the `unique` failure beside it -- the 422 the shipped app
+               already handles for a slug it cannot have. A new response SHAPE on a path a client
+               calls is a contract change; a new reason for an existing shape is not.
+
+               THE TRADE, STATED. The note above deliberately did NOT refuse an input that
+               normalises to '' because that would be a new 422 on a path the app calls. This adds
+               one -- for exactly one word, which no merchant can legitimately want and which no
+               store can currently hold. A refusal that says why is better than a rename that
+               silently hands a merchant the platform's own namespace. */
+            'store_slug' => [
+                'nullable', 'string', 'max:255',
+                'unique:stores,slug,' . $store->id,
+                static function ($attribute, $value, $fail) {
+                    if (\App\Models\Store::slugIsReserved(\Illuminate\Support\Str::slug((string) $value))) {
+                        $fail(__('This store slug is reserved by the platform. Please choose another.'));
+                    }
+                },
+            ],
             'custom_store_url' => 'nullable|url|max:255',
 
             'owner_name' => 'nullable|string|max:255',
@@ -8995,15 +9058,38 @@ public function updateStoreOwnerInfo(Request $request)
                 }
 
                 if (!empty($socialData)) {
-                    \DB::table('theme_customizes')->updateOrInsert(
-                        [
-                            'store_id' => $storeId,
-                            'theme_id' => $store->theme_id,
-                            'name' => 'footer_repeater',
-                        ],
-                        ['value' => json_encode($socialData)]
-                    );
-                    $updatedFields[] = 'social_media';
+                    /*
+                     * PHASE 03 M3-C. This was a RAW `\DB::table('theme_customizes')->updateOrInsert()`
+                     * and it DID NOT REACH THE STOREFRONT. `App\Models\ThemeCustomize` is `Cachable`,
+                     * a raw write does not invalidate that cache, and the storefront reads through
+                     * `getThemeSetting()` which is Eloquent. MEASURED on MariaDB with
+                     * `CACHE_STORE=database` -- production's setting, not the suite's `array`:
+                     *
+                     *     BEFORE the save   storefront: old links   flutter: old links
+                     *     AFTER  the save   storefront: OLD LINKS   flutter: new links
+                     *     after flushCache  storefront: new links
+                     *
+                     * The merchant saw the app confirm the save, because the app's own read is also
+                     * raw, while the footer kept rendering the old links indefinitely.
+                     *
+                     * It now goes through the one controlled write path, which validates the value
+                     * against the theme's declared taxonomy (`footer_repeater` is declared `slider`
+                     * -- a repeater -- in all three shipped themes) and flushes the model cache
+                     * AFTER COMMIT. The HTTP contract is unchanged: same condition, same
+                     * `$updatedFields[] = 'social_media'`, same request and response shape. Only the
+                     * internal write path moved, so the shipped Flutter app is unaffected.
+                     */
+                    $written = app(\App\Services\Theme\ThemeConfigurationService::class)
+                        ->writeSettings(
+                            $storeId,
+                            (string) $store->theme_id,
+                            ['footer_repeater' => json_encode($socialData)],
+                            $adminUser
+                        );
+
+                    if (!empty($written)) {
+                        $updatedFields[] = 'social_media';
+                    }
                 }
             }
 
