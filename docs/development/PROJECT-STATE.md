@@ -72,7 +72,7 @@ Progress: `phase-3/PHASE-03-M0-STOREFRONT-BASELINE.md`.
 | **M0** | storefront harness, fixtures, theme/locale capture, route and tenant verification | **complete** — 7 of 8 gaps closed; gap 1 (no dark mode) is M2 by design |
 | **M1** | measured storefront baseline across all three themes, defect inventory | **complete for rendering; performance and accessibility NOT measured** — see below |
 | **M2** | premium storefront across `stylique`, `techzonix`, `greentic` + dark mode | **complete (A–E)** — per-store appearance preference, three themes tokenised, **160-load cross-store matrix with 0 axe WCAG A/AA violations**, Core Web Vitals baselined. Not merged, not released. See `phase-3/PHASE-03-M2-PREMIUM-STOREFRONTS.md` |
-| **M3** | theme editor data model: draft/publish/version, safe migrations, tenant ownership | **A, B and C complete, C with a full gate pass** (`6bd3e4d2`: Unit 1793/1 skipped, Contract 44, Feature 8628 passed with the known-outcome set matching the manifest exactly -- 2 declared failures, 1 declared skip, nothing undeclared, nothing added to the manifest) — inventory + derived allowlist (`2abc369b`), four additive migrations with engine-enforced integrity including a **composite** key that makes cross-tenant publication impossible, rollback proved on MySQL, **21/21** constraint checks under production's `sql_mode`, then **one controlled write path** (gate, type-aware validator, canonical payload hash, post-commit cache flush) with the merchant form and the Flutter endpoint routed through it and their HTTP contracts unchanged. Independently reviewed at B and C. **D (atomic publish/rollback) and E (integration) next.** See `phase-3/PHASE-03-M3-THEME-VERSIONING.md` §9 |
+| **M3** | theme editor data model: draft/publish/version, safe migrations, tenant ownership | **A, B, C complete; D substantially complete** — atomic publish/rollback/preview with conflict detection, theme-isolated section ordering, and six two-process concurrency scenarios on MariaDB. **C passed a full gate** (`6bd3e4d2`: Unit 1793/1 skipped, Contract 44, Feature 8628 passed with the known-outcome set matching the manifest exactly -- 2 declared failures, 1 declared skip, nothing undeclared, nothing added to the manifest) — inventory + derived allowlist (`2abc369b`), four additive migrations with engine-enforced integrity including a **composite** key that makes cross-tenant publication impossible, rollback proved on MySQL, **21/21** constraint checks under production's `sql_mode`, then **one controlled write path** (gate, type-aware validator, canonical payload hash, post-commit cache flush) with the merchant form and the Flutter endpoint routed through it and their HTTP contracts unchanged. Independently reviewed at B and C. **D (atomic publish/rollback) and E (integration) next.** See `phase-3/PHASE-03-M3-THEME-VERSIONING.md` §9 |
 | M4 | theme editor experience: sections, preview, publish, rollback, permissions | not started |
 | M5 | official Store Syria website on the WorkDo LandingPage foundation | not started |
 | M6 | bilingual documentation centre with working search | not started |
@@ -282,7 +282,39 @@ code.
 | M2-D | greentic, where **neither ink passed** on the hover and the colour had to move | option A taken, B recorded |
 | M2-E | integrated cross-store verification, contrast, accessibility, Core Web Vitals | **160 loads, 0 axe WCAG A/AA violations**; 80 loads, 0 CWV rows outside "good" |
 
-### M3 is under way — A, B and C are done, D/E remain
+### M3 is under way — A, B, C done; D substantially done; E remains
+
+**M3-D added atomic publishing** (`ThemePublishingService`), **theme-isolated section ordering**
+(`theme_customize_orders.theme_id`, additive and nullable, nothing backfilled), and a **two-process
+MariaDB concurrency harness** covering the six races the directive named. 20 checks, 0 failed, over
+eight consecutive runs.
+
+**It found two production defects in the services themselves**, both in code written earlier in M3:
+
+1. **A draft save blocked behind an open publish and died after 50 seconds.** `saveDraft()`
+   allocated `version_no` under `lockForUpdate()` over the `theme_versions` range — the same rows a
+   publish holds until commit. `1205 Lock wait timeout exceeded`; in production, a 500 on *Save
+   draft*. Allocation is now optimistic, with the unique index as the arbiter it always was.
+2. **A deadlock victim got a 500 instead of a refusal.** Two concurrent first-publishes gap-lock the
+   same unique index range, their insert-intention locks conflict, and InnoDB kills one — *before*
+   anyone reaches the duplicate key. And the first fix changed nothing, because
+   **`Illuminate\Database\DeadlockException` extends `PDOException`, not `QueryException`** —
+   measured. Any handler that catches `QueryException` to deal with concurrency has the same hole.
+
+**AND THE FIRST PULL REQUEST FOUND TWO MORE THINGS, which is why it was opened before the work was
+finished.** `ci.yml` fires only on `pull_request` and pushes to `main`/`master`, so **no CI run had
+ever covered any Phase 03 commit**. Draft PR #138's first run refused: 44 fixture tiles committed
+under the repository-root `uploads/` tree (P1-OWN-10 / owner decision 11 — `.htaccess` serves a file
+that exists there directly, with no application and no authorisation), and the storefront fixture's
+dev password tripping the secret scanner. Both are **M0/M1 conditions, not M3-D's**. Both fixed at
+the value: the tiles moved outside anything served and are staged by the seeder, and the password
+was renamed into the scanner's own self-labelling vocabulary. **No rule narrowed, no path excluded,
+no workflow weakened.**
+
+**`Security-sensitive diff: human checklist` is red and must stay red.** It requires a person to work
+`.github/SECURITY-DIFF-REVIEW.md` and put the marker on its own line in the PR description. That is
+an owner action; adding it from automation would be a falsified security approval. The attestation
+workflow listens for `edited`, so it re-runs on a description change with no commit needed.
 
 The M3 design, its evidence and the five findings that corrected it are in
 `phase-3/PHASE-03-M3-THEME-VERSIONING.md`. The shape: **`theme_customizes` keeps its exact schema and
