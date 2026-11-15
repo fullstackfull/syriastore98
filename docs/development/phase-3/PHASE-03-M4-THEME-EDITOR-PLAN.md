@@ -307,3 +307,32 @@ Plus: `order.blade.php:89` pulls jQuery UI from a third-party demo host while th
 **Q2 — Does "sections" mean grouped editing, or reordering?** Section-grouped *editing* is clearly in scope and is what the theme JSON's page → section → field structure already supports and the storefront already renders. Section *reordering* is a different thing: no theme reads `theme_customize_orders`, version snapshots cannot restore an ordering, the shipped `orders` strings do not match the real section keys, and greentic declares no ordering at all. Building the drag-and-drop editor without first making three storefront templates order-aware produces a control the merchant can watch save and that changes nothing. My recommendation is grouped editing in M4, correctness fixes to the existing order screen, and reordering deferred until the storefront consumes it — but the owner's word "sections" is ambiguous enough to confirm.
 
 I am **not** asking about operator access: the code already settles it. `ThemeEditorGate::allows()` admits the operator on every write and `storeIdForSelfService()` refuses to guess a store, so the intended shape is "the operator may act but must name the store, and must be attributed". M4-2 implements that and M4-6 adds the attribution.
+
+---
+
+## Appendix — M4-0 evidence, and a correction to commit `7f7cfd14`'s message
+
+`tests/Feature/Theme/ThemeEditorReadRoutesTest` — **7 tests, 38 assertions**, falsified both ways:
+
+| mutation | result |
+|---|---|
+| remove the `Addon` seeding | the gallery test **alone** fails — the empty-gallery-at-200 trap |
+| delete `isAbleTo('Manage Themes')` from `index()` | the **three** refusal tests fail; the render tests correctly stay green |
+
+**The surrounding-suite figure in `7f7cfd14`'s commit message is wrong.** It says "theme suites
+overall 384 passed". Measured, on the same tree:
+
+```
+php artisan test --filter='Theme'                                            345 passed (4289 assertions)
+php artisan test --filter='Theme|BulkDeleteAuthorization|Ratchet|Observability|RawQueryTenancy'
+                                                                             388 passed (4569 assertions)
+```
+
+Neither is 384. The number was arrived at by adding this file's 7 tests to **377**, a figure from an
+earlier run that used a *different* filter set — an arithmetic extrapolation written into a commit
+message as though it were a measurement, in a run whose own output said `345` three lines earlier.
+
+Recorded here rather than rewritten, because history is not rewritten on this branch, and because
+the failure is worth more as a record than as a deleted line: it is the same shape as every defect
+this phase has logged — a number that was *derived* presented as a number that was *observed*. The
+test counts above are observed.
