@@ -79,9 +79,12 @@ final class ThemeEditorGate
     /** Either of these entitles a user; neither exists in the fixture, hence `ownsStore()` below. */
     /**
      * The permission names this surface is nominally associated with, kept as a RECORD and not as a
-     * control -- nothing reads it to decide anything, deliberately. Measured at M3-A: `Manage
-     * Themes` is held by no role and no user, and `Edit Theme` does not exist as a permission row.
-     * `allows()` explains why a limb that checked them was unreachable and was deleted.
+     * control -- nothing reads it to decide anything, deliberately. `Edit Theme` does not exist as
+     * a permission row at all. `Manage Themes` DOES exist and is LIVE in production, granted to the
+     * shared global `admin` role by `Utility::addNewData()` on login -- the M3-A measurement that
+     * said it "is held by no role and no user" was of the TEST FIXTURE, and `allows()` at :225-235
+     * carries the retraction in full. `allows()` also explains why a limb that checked these names
+     * was unreachable and was deleted.
      */
     public const PERMISSIONS = ['Manage Themes', 'Edit Theme'];
 

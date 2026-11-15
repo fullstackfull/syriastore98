@@ -25,10 +25,19 @@ use Tests\TestCase;
  * THE OTHER HALF IS AS IMPORTANT AND EASIER TO GET WRONG. Laratrust runs with
  * `permissions_as_gates => false`, so `@can()` and `$user->can()` are ALWAYS false and `isAbleTo()`
  * alone REFUSES the operator — a bare permission check is dead on arrival for the one principal most
- * likely to need a support rollback. And measured at M3-A, `Manage Themes` is held by NO role and NO
- * user, while `Edit Theme` does not exist as a permission at all. A gate narrowed to those would
- * lock every merchant out of their own editor, which is a worse failure than the one being fixed.
- * So ownership of the store entitles, permissions gate staff, and the operator is tested first.
+ * likely to need a support rollback. `Edit Theme` does not exist as a permission at all, so a gate
+ * narrowed to it would lock every merchant out of their own editor -- a worse failure than the one
+ * being fixed. So ownership of the store entitles, permissions gate staff, and the operator is
+ * tested first.
+ *
+ * THIS NOTE USED TO ADD THAT `Manage Themes` IS HELD BY "NO ROLE AND NO USER", citing M3-A. That
+ * measurement was of the TEST FIXTURE, and stating it unqualified makes the permission look inert.
+ * It is not: `Utility::addNewData()` grants it to the shared global `admin` role
+ * (`Utility.php:3259`, granted at `:3287-3292`) and runs on login, so in production it is LIVE.
+ * `ThemeEditorGate.php:225-235` carries the full measurement. This was the THIRD copy of the
+ * retracted claim -- the correction was made in the gate's own code at M3-C and propagated to
+ * neither this file nor `ThemeCustomizeController:333`, which is how a retraction quietly loses to
+ * the two places that still assert the original.
  */
 class ThemeEditorGateTest extends TestCase
 {
