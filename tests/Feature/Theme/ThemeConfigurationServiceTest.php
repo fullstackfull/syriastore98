@@ -522,4 +522,47 @@ class ThemeConfigurationServiceTest extends TestCase
         $this->assertSame($mine->id, $honest->liveVersion()?->id,
             'The resolver must still find the version that genuinely belongs to this store.');
     }
+
+    /**
+     * A WRITE INTO A DUPLICATED PROJECTION REACHES THE STOREFRONT.
+     *
+     * The same defect the publish path was measured with, pinned on this method too because it
+     * writes the same table through the same assumption. `theme_customizes` has no unique index on
+     * `(store_id, theme_id, name)`; the storefront's `pluck('value','name')` takes the LAST row of a
+     * duplicate group and `updateOrCreate` took the FIRST, so the write reported success and the
+     * storefront went on rendering the other row.
+     */
+    #[Test]
+    public function test_a_write_into_a_duplicated_projection_reaches_the_storefront(): void
+    {
+        foreach (['FIRST ROW', 'LAST ROW'] as $value) {
+            \Illuminate\Support\Facades\DB::table('theme_customizes')->insert([
+                'store_id' => $this->storeA->id, 'theme_id' => 'stylique',
+                'name' => 'footer_description', 'value' => $value,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        $this->assertSame('LAST ROW',
+            getThemeSetting($this->storeA->id, 'stylique')['footer_description'] ?? null,
+            'PREMISE: the reader is supposed to take the LAST row of a duplicate group.');
+
+        $written = $this->service()->writeSettings(
+            $this->storeA->id, 'stylique', ['footer_description' => 'WRITTEN VALUE'], $this->merchantA);
+
+        $this->assertSame(['footer_description' => 'WRITTEN VALUE'], $written);
+
+        $this->assertSame('WRITTEN VALUE',
+            getThemeSetting($this->storeA->id, 'stylique')['footer_description'] ?? null,
+            'The write reported success and the STOREFRONT still shows the old value, because the '
+            . 'write took the first row of the duplicate group and the read takes the last.');
+
+        /* And nothing was deleted -- the duplicate is still there to be reported on. */
+        $this->assertSame(2, \Illuminate\Support\Facades\DB::table('theme_customizes')
+            ->where('store_id', $this->storeA->id)->where('theme_id', 'stylique')
+            ->where('name', 'footer_description')->count(),
+            'The duplicate group was collapsed. Deleting merchant rows to work around a data '
+            . 'problem this service did not create would hide it from '
+            . 'report-theme-customize-duplicates.php instead of fixing it.');
+    }
 }

@@ -636,4 +636,75 @@ class ThemePublishingServiceTest extends TestCase
             ThemeVersion::ownedBy($this->storeA->id, 'stylique', $v2->id)?->status,
             'The version that failed to publish was left marked published.');
     }
+
+    /* ================================= 11. a DUPLICATE published projection, named by the directive */
+
+    /**
+     * PUBLISHING INTO A PROJECTION THAT ALREADY CARRIES A DUPLICATE KEY.
+     *
+     * THE HAZARD, recorded at M3-B and not invented here. `theme_customizes` has NO unique index on
+     * `(store_id, theme_id, name)` -- deliberately, because a unique index meets the first duplicate
+     * pair and fails the migration mid-run on the table every storefront page reads, and whether
+     * production has such a pair cannot be measured from here. So the application's assumption of
+     * uniqueness is an assumption, and the two sides disagree about which row of a duplicate group
+     * wins:
+     *
+     *     READ   `helper.php` getThemeSetting() ...->pluck('value', 'name')  -- the LAST row wins
+     *     WRITE  `updateOrCreate(...)`                                      -- the FIRST match wins
+     *
+     * Which means a publish into a duplicated group could update one row while the storefront keeps
+     * rendering the other: a publish that reports success and changes nothing a shopper can see.
+     * That is the exact shape of the Flutter defect M3-C fixed, arriving by a different route.
+     *
+     * This test MEASURES what actually happens rather than asserting what should. Nothing in the
+     * product creates a duplicate today, but a partially-applied import or a restored backup would,
+     * and `report-theme-customize-duplicates.php` exists so the owner can find out.
+     */
+    #[Test]
+    public function test_publishing_into_a_duplicated_projection_leaves_the_storefront_consistent(): void
+    {
+        /* Two rows for the same (store, theme, name) -- raw, because the application has no way to
+         * create this and the point is that the table permits it. */
+        foreach (['FIRST ROW', 'LAST ROW'] as $value) {
+            DB::table('theme_customizes')->insert([
+                'store_id' => $this->storeA->id, 'theme_id' => 'stylique',
+                'name' => 'footer_description', 'value' => $value,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        $duplicates = DB::table('theme_customizes')
+            ->where('store_id', $this->storeA->id)->where('theme_id', 'stylique')
+            ->where('name', 'footer_description')->count();
+
+        $this->assertSame(2, $duplicates,
+            'PREMISE: the duplicate group must exist for this test to be about anything. If the '
+            . 'table has gained a unique index, this test is obsolete and should be deleted rather '
+            . 'than relaxed.');
+
+        $this->assertSame('LAST ROW',
+            getThemeSetting($this->storeA->id, 'stylique')['footer_description'] ?? null,
+            'PREMISE: the storefront reader is supposed to take the LAST row of a duplicate group. '
+            . 'If it takes the first, the disagreement this test is about does not exist here.');
+
+        $version = $this->draftA(['footer_description' => 'PUBLISHED VALUE']);
+
+        $result = $this->service()->publish(
+            $this->storeA->id, 'stylique', $version->id, $this->merchantA);
+
+        $this->assertNotNull($result, 'Publish refused: ' . var_export($this->service()->refusal(), true));
+
+        /*
+         * THE ASSERTION THAT MATTERS: whatever the publish did to the rows, the STOREFRONT must end
+         * up showing the published value. A merchant who publishes and sees no change has no way to
+         * tell the difference between that and the publish having failed.
+         */
+        $this->assertSame('PUBLISHED VALUE',
+            getThemeSetting($this->storeA->id, 'stylique')['footer_description'] ?? null,
+            'The publish reported success and the STOREFRONT still shows the old value. The write '
+            . 'took the FIRST row of the duplicate group and the read takes the LAST, so the two '
+            . 'sides of a duplicate disagree -- the publish is invisible. This is why '
+            . 'report-theme-customize-duplicates.php exists, and why a duplicate group is a '
+            . 'correctness problem and not merely untidy data.');
+    }
 }

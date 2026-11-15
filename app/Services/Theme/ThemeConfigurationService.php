@@ -156,10 +156,35 @@ class ThemeConfigurationService
                  * reader keeps the LAST. `report-theme-customize-duplicates.php` answers whether a
                  * given database has any.
                  */
-                ThemeCustomize::updateOrCreate(
-                    ['store_id' => $storeKey, 'theme_id' => $themeId, 'name' => $name],
-                    ['value' => $value]
-                );
+                /*
+                 * EVERY ROW OF THE NAME, NOT JUST THE FIRST. Same defect, same measurement, as the
+                 * publish path -- see `ThemePublishingService::apply()` for the full note.
+                 *
+                 * `theme_customizes` has no unique index on `(store_id, theme_id, name)`, the
+                 * storefront's `pluck('value','name')` takes the LAST row of a duplicate group and
+                 * `updateOrCreate` took the FIRST, so a write into a duplicated group reported
+                 * success while the storefront kept rendering the other row. Measured on the
+                 * publish path and fixed in both, because this method writes the same table through
+                 * the same assumption.
+                 *
+                 * Nothing is deleted: the duplicate stays visible to
+                 * `report-theme-customize-duplicates.php` rather than being tidied away by a
+                 * destructive write this service did not cause.
+                 */
+                $affected = ThemeCustomize::query()
+                    ->where('store_id', $storeKey)
+                    ->where('theme_id', $themeId)
+                    ->where('name', $name)
+                    ->update(['value' => $value]);
+
+                if ($affected === 0) {
+                    ThemeCustomize::create([
+                        'store_id' => $storeKey,
+                        'theme_id' => $themeId,
+                        'name'     => $name,
+                        'value'    => $value,
+                    ]);
+                }
             }
         });
 

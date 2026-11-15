@@ -1508,3 +1508,45 @@ deadlock, lock-wait timeout, or duplicate key refuse; everything else is rethrow
 A deadlock is **not** retried automatically: the caller holds an expectation about which version is
 live, and a silent retry would re-run the publish against a world that just changed underneath it.
 The optimistic check would usually catch that, and "usually" is not a property to build a publish on.
+
+### 11.3 A duplicate published projection made a publish INVISIBLE — measured, not predicted
+
+The directive's negative-test list names "duplicate or partial published projections". The partial
+half was covered by §11.2's all-or-nothing rule. **The duplicate half was not covered, and writing
+the test found a real defect.**
+
+`theme_customizes` has **no unique index** on `(store_id, theme_id, name)` — an M3-B decision, taken
+because a unique index meets the first duplicate pair and fails the migration mid-run on the table
+every storefront page reads, and whether production holds such a pair cannot be measured from here.
+So uniqueness is an *assumption*, and the two sides of the application disagree about which row of a
+duplicate group wins:
+
+| | which row wins |
+|---|---|
+| READ — `getThemeSetting()` → `pluck('value', 'name')` | the **last** |
+| WRITE — `updateOrCreate(...)` | the **first** |
+
+Measured, with two rows for one name:
+
+```
+publish reported: ACCEPTED, written = ['footer_description' => 'PUBLISHED VALUE']
+storefront shows: 'LAST ROW'
+```
+
+**The publish was invisible** — indistinguishable, to the merchant, from the publish having failed.
+That is the Flutter defect of M3-C arriving by a different route, and it would have shipped.
+
+**Fixed in both writers** — the publish path and `writeSettings()`, since both write that table
+through the same assumption — by updating **every** row of the name, so whichever one the reader
+takes carries the new value.
+
+**Nothing is deleted.** Collapsing the duplicate group would be a destructive write against merchant
+content to work around a data problem these services did not create, and it would hide the duplicate
+from `report-theme-customize-duplicates.php` instead of fixing it. A test asserts the group is still
+two rows after the write.
+
+One consequence worth stating: a builder `update()` fires no model events, so the `Cachable`
+lifecycle flush no longer happens on either path. That is not a regression — it makes the
+**post-commit flush the only invalidation**, which is the one that is actually correct under
+concurrency. Re-falsified after the change: removing `DB::afterCommit` still fails the cache
+harness's check 4, and the publish concurrency harness is 20/0/0 over four further runs.

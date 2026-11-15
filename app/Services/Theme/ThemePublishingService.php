@@ -366,10 +366,50 @@ class ThemePublishingService
                  * serving the pre-write row -- the measured Flutter defect M3-C fixed.
                  */
                 foreach ($accepted as $name => $value) {
-                    ThemeCustomize::updateOrCreate(
-                        ['store_id' => $storeKey, 'theme_id' => $theme, 'name' => $name],
-                        ['value' => $value]
-                    );
+                /*
+                 * EVERY ROW OF THE NAME IS WRITTEN, NOT JUST THE FIRST -- and this replaced an
+                 * `updateOrCreate` that left a measured defect.
+                 *
+                 * `theme_customizes` has NO unique index on `(store_id, theme_id, name)`, by a
+                 * deliberate M3-B decision: a unique index meets the first duplicate pair and fails
+                 * the migration mid-run on the table every storefront page reads, and whether
+                 * production holds such a pair cannot be measured from here. So uniqueness is an
+                 * ASSUMPTION, and the two sides of the application disagree about which row of a
+                 * duplicate group wins:
+                 *
+                 *     READ   getThemeSetting() ... ->pluck('value', 'name')   -- the LAST row wins
+                 *     WRITE  updateOrCreate(...)                             -- the FIRST match wins
+                 *
+                 * MEASURED: with two rows for one name, a publish reported success, updated the
+                 * first, and the storefront went on rendering the second. The publish was INVISIBLE
+                 * -- indistinguishable, to the merchant, from the publish having failed. That is the
+                 * Flutter defect of M3-C arriving by another route.
+                 *
+                 * The fix updates every row of the name, so whichever one the reader takes carries
+                 * the published value. NOTHING IS DELETED: collapsing the group would be a
+                 * destructive write against merchant content to work around a data problem this
+                 * service did not create, and the duplicate stays visible to
+                 * `report-theme-customize-duplicates.php` instead of being quietly tidied away.
+                 *
+                 * A builder `update()` fires no model events, so the `Cachable` lifecycle flush no
+                 * longer happens here. That is not a regression: it makes the post-commit flush the
+                 * ONLY invalidation, which is the one that is actually correct under concurrency,
+                 * and the concurrency harness's scenario 5 is what proves it still fires.
+                 */
+                $affected = ThemeCustomize::query()
+                    ->where('store_id', $storeKey)
+                    ->where('theme_id', $theme)
+                    ->where('name', $name)
+                    ->update(['value' => $value]);
+
+                if ($affected === 0) {
+                    ThemeCustomize::create([
+                        'store_id' => $storeKey,
+                        'theme_id' => $theme,
+                        'name'     => $name,
+                        'value'    => $value,
+                    ]);
+                }
                 }
 
                 /* The previously live version is ARCHIVED, never deleted: history is preserved. */
