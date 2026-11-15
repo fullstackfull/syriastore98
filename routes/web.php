@@ -1504,6 +1504,17 @@ Route::get(
      * The slug is caller-supplied, so `ThemeDraftPreview` refuses unless it is the slug of the
      * store the GATE resolved. A predicate built from request input is not a tenant check.
      */
+    /*
+     * PHASE 03 M4-7 -- SAVING A DRAFT IS NOT A LIVE WRITE, so it sits behind the WIDER boundary.
+     * Inside `theme.editor` it was unreachable for the principal it exists for: measured, staff
+     * holding no permission were refused by the middleware before the handler's own membership
+     * check ran. Drafts live in `theme_versions`, which no storefront path reads.
+     */
+    Route::middleware(['theme.draft'])->group(function () {
+        Route::post('theme-version/{theme}/draft', [ThemeVersionController::class, 'saveDraft'])
+            ->name('theme.version.draft');
+    });
+
     Route::middleware(['theme.draft.preview'])->group(function () {
         Route::get('theme-draft/{storeSlug}/{version}/preview', [ThemeVersionController::class, 'preview'])
             ->whereNumber('version')

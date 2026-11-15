@@ -90,7 +90,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 196 lines
+### `warning` — 197 lines
 
 > **[2026-11-02, second edit] 186 -> 190, and BOTH HEADINGS WERE STALE BEFORE IT.** Measured
 > against `app/` with the test's own regex: **27 `critical`, 190 `warning`, 217 total** — which is
@@ -115,10 +115,11 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 
 | line | message |
 |---|---|
-| `app/Http/Controllers/ThemeCustomizeController.php:377` | theme settings write refused |
+| `app/Http/Controllers/ThemeCustomizeController.php:407` | theme settings write refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:138` | Theme editor read refused. |
-| `app/Http/Controllers/ThemeVersionController.php:274` | Theme publication refused. |
+| `app/Http/Controllers/ThemeVersionController.php:333` | Theme publication refused. |
 | `app/Http/Middleware/ThemeEditorAccess.php:59` | Theme editor access refused. |
+| `app/Http/Middleware/ThemeDraftAccess.php:56` | Theme draft access refused. |
 | `app/Http/Controllers/Api/ApiController.php:6252` | shipping quote refused a cart line naming another store |
 | `app/Models/Cart.php:1200` | flat-rate shipping refused a cart line naming another store |
 | `app/Http/Controllers/PaymentCallbackController.php:106` | Paytm plan callback refused: no usable order reference. |
@@ -553,6 +554,15 @@ tenant's store looks like. The three are deliberately distinguishable by which l
 resolver returns the literal `1` for an operator whose `current_store` is empty, so logging through
 it would attribute an operator's refusal to whichever store happens to be 1. The audit row is
 written directly for the same reason rather than through `AuditLog::record()`, which does use it.
+
+**A fourth was added 2026-11-15 with M4-7**, and its rarity is the point.
+`ThemeDraftAccess::handle()` — **"Theme draft access refused.", `warning`.** It guards the WIDER
+draft boundary (tenant membership) rather than the narrow publish one, so it refuses only a
+principal who is not a member of the tenant at all. **A merchant or staff member should never
+produce this line**: the ones who legitimately cannot publish are admitted here and refused later by
+`theme.editor`. So unlike its editor-access sibling, a line here is not the ordinary
+"staff lacks `Manage Themes`" case — it means someone reached a draft endpoint for a store they do
+not belong to, and is worth reading as such. Same fields: route, user id, gate reason.
 
 **None is reachable anonymously**: every theme route sits behind `auth` and the `theme.editor`
 middleware, and the middleware redirects an unauthenticated caller to sign-in before any of this

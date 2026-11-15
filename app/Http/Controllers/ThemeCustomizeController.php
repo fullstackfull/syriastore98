@@ -214,7 +214,37 @@ class ThemeCustomizeController extends Controller
             $sub_slug = $theme_json['sections'][0]['slug'] ?? null;
         }
 
-        return view('theme_customize.customize', compact('theme', 'slug', 'sub_slug', 'theme_json', 'page_json', 'settings'));
+        /*
+         * PHASE 03 M4-7 -- THE VERSION CONTEXT THE EDITOR NEEDS TO SHOW DRAFT AND LIVE STATE.
+         *
+         * The baseline is ensured here rather than lazily on first publish, because this is the
+         * first moment a merchant can SEE the versioning: without it the panel would show "nothing
+         * published yet" for a store whose storefront has been live for months, and the history
+         * would be empty in a way that reads as a bug. It is idempotent and writes nothing after
+         * the first call.
+         */
+        $configuration = new \App\Services\Theme\ThemeConfigurationService();
+        $configuration->ensureBaseline($storeId, $theme);
+
+        $publishing = new \App\Services\Theme\ThemePublishingService();
+        $liveVersion = $publishing->liveVersion($storeId, $theme);
+
+        /* A fresh instance: `liveVersion()` and `history()` reset `refusal` but NOT `rejected`. */
+        $history = (new \App\Services\Theme\ThemePublishingService())->history($storeId, $theme);
+
+        $latestDraft = \App\Models\ThemeVersion::query()
+            ->where('store_id', $storeId)
+            ->where('theme_id', $theme)
+            ->where('status', \App\Models\ThemeVersion::STATUS_DRAFT)
+            ->orderByDesc('version_no')
+            ->first();
+
+        $storeSlug = \App\Models\Store::query()->whereKey($storeId)->value('slug');
+
+        return view('theme_customize.customize', compact(
+            'theme', 'slug', 'sub_slug', 'theme_json', 'page_json', 'settings',
+            'liveVersion', 'latestDraft', 'history', 'storeSlug'
+        ));
     }
 
     public function themeCustomizeUpdate(Request $request, $theme)

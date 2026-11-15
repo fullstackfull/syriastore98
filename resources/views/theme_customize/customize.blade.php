@@ -88,13 +88,15 @@
                 </div>
             </div>
             <div class="col-xxl-8 col-12">
+                {{-- PHASE 03 M4-7. Draft state, preview, publish, history and rollback. --}}
+                @includeWhen(isset($liveVersion) || isset($latestDraft), 'theme_customize._version-panel')
                 @if (isset($theme_json['slug']) && $theme_json['slug'] == $slug)
                 {!! Form::open(['route' => ['theme.customize.update', $theme], 'enctype' => 'multipart/form-data', 'id'
                 => 'setting-form']) !!}
                 @csrf
                 <div class="card mb-0" id="settings-card">
                     <div class="card-header p-3 d-flex justify-content-between align-items-center">
-                        <h4 class="mb-0">{{ $theme_json['title'] }} {{ _('Settings') }}</h4>
+                        <h4 class="mb-0">{{ $theme_json['title'] }} {{ __('Settings') }}</h4>
                         <button type="submit" class="btn btn-sm btn-primary">{{ __('Save') }}</button>
                     </div>
                     <div class="card-body p-3">

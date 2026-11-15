@@ -113,6 +113,65 @@ class ThemeVersionController extends Controller
     }
 
     /**
+     * PHASE 03 M4-7 — SAVE THE EDITOR'S CURRENT VALUES AS A DRAFT, instead of publishing them.
+     *
+     * The existing `theme.customize.update` writes the LIVE projection directly; this is the same
+     * form posted to a different verb of the same idea, and it is what makes the editor a draft
+     * editor rather than a live one. Draft work is tenant-membership work -- `saveDraft()` gates on
+     * `allows()` -- so staff may prepare changes they cannot publish, which is the delegation the
+     * owner required.
+     */
+    public function saveDraft(Request $request, $theme)
+    {
+        $theme = (string) $theme;
+        $gate = new ThemeEditorGate();
+        $storeId = $gate->storeIdForSelfService();
+
+        if ($storeId === null || ! $gate->allows($storeId) || ! $this->themeIsShipped($theme)) {
+            return $this->refuse($request, __('Permission denied.'));
+        }
+
+        /* The form's own control keys are not settings. `writeSettings()` has the same exclusion;
+         * duplicating the LIST would drift, so this mirrors its shape and the validator refuses
+         * anything else anyway. */
+        $settings = collect($request->except(['_token', '_method', 'label', 'page_slug']))
+            ->filter(static fn ($v) => is_scalar($v) || $v === null)
+            ->map(static fn ($v) => (string) $v)
+            ->all();
+
+        $service = new ThemeConfigurationService();
+
+        $draft = $service->saveDraft(
+            $storeId, $theme, $settings,
+            (string) ($request->input('label') ?: __('Draft')), null
+        );
+
+        if ($draft === null) {
+            return $this->refuse($request, $service->refusal() ?? __('Permission denied.'));
+        }
+
+        $rejected = $service->rejected();
+
+        $message = __('Draft saved.');
+
+        if ($rejected !== []) {
+            $message .= ' ' . trans_choice(
+                '{1}One field was not accepted.|[2,*]:count fields were not accepted.',
+                count($rejected), ['count' => count($rejected)]
+            );
+        }
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'status' => 1, 'message' => $message,
+                'data' => ['version_id' => $draft->id, 'rejected' => array_keys($rejected)],
+            ]);
+        }
+
+        return back()->with('success', $message)->with('theme_draft_id', $draft->id);
+    }
+
+    /**
      * PHASE 03 M4-5 — the draft, rendered as the storefront renders it.
      *
      * Everything that makes this safe happens in `ThemeDraftPreview` middleware: authorization, the
