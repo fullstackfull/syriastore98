@@ -776,9 +776,9 @@ reads, so this is structural rather than a filter that could be forgotten.
 |---|---|---|---|
 | M3-A | verified schema inventory, the derived allowlist, `ThemeFieldCatalog` + 13 tests | **complete** | `2abc369b` |
 | M3-B | four additive migrations, engine-enforced integrity, the rollback trap and its fix, the duplicate reporter | **complete** | this change |
-| M3-C | versioned storage model, backward-compatible reads, type-aware write validation (§7.2, §7.3) | next | |
-| M3-D | draft/published state, atomic publish, rollback semantics, **post-commit** cache flush (§4.5) | | |
-| M3-E | tenancy and concurrency regression tests, legacy-upgrade validation, closure | | |
+| M3-C | versioned storage model, backward-compatible reads, type-aware write validation (§7.2, §7.3) | **complete** | `6bd3e4d2`, §9–§10 |
+| M3-D | draft/published state, atomic publish, rollback semantics, **post-commit** cache flush (§4.5) | **complete** | §11 |
+| M3-E | tenancy and concurrency regression tests, legacy-upgrade validation, closure | **complete** | §12 |
 
 ### What M3-C inherits as hard requirements
 
@@ -1721,3 +1721,170 @@ repaired**.
 The stale number in `RawQueryTenancyInventoryTest`'s method *name* is left alone deliberately and
 now says why: the name is an identity the known-outcome tooling matches on, so renaming it to chase
 the figure would change that identity for no behavioural gain.
+
+---
+
+### 12.2 The service was verified alone and then used nested — so "after commit" had to be re-measured
+
+M3-C's fourth hard requirement is *"flush the model cache after commit, not inside the
+transaction"*, and §9 proved it with a two-process MariaDB harness. That proof was taken with
+`writeSettings()` **owning its transaction**.
+
+**Its one production caller does not call it that way.** `Api\DashboardController` opens
+`\DB::beginTransaction()` at `:8922`, calls `writeSettings()` at `:9054` and commits at `:9067`.
+So the service's own `DB::transaction(...)` is a **savepoint**, not a transaction, and every word of
+the M3-C guarantee had to be re-asked under that shape. A guarantee measured in isolation and then
+used nested is not the same guarantee.
+
+Measured 2026-11-15 (framework semantics, SQLite — this is `DB::afterCommit` behaviour, not an
+engine behaviour):
+
+| | |
+|---|---|
+| callback registered inside an open transaction | does **not** run |
+| a nested `DB::transaction()` releasing its savepoint | does **not** run |
+| the **outermost** commit | runs, at transaction level `0` |
+| the outermost `rollBack()` | **never** runs |
+
+**The nesting is safe.** The flush defers to the controller's commit, which is what was wanted.
+`tests/Feature/Theme/ThemeWriteUnderCallerTransactionTest` keeps it that way, because the two ways
+to break it — a direct `flushCache()` in place of `DB::afterCommit()`, or a stray `DB::commit()` in
+the service — would break the *caller* and nothing else in the suite would notice.
+**Falsified:** the service made to commit work it does not own fails both tests; restored, both
+pass.
+
+#### The first draft of that test failed, and the probe was wrong, not the service
+
+Written against Eloquent, `test_a_rolled_back_caller_transaction_discards_the_theme_write` failed.
+Both values read at the same instant after the rollback:
+
+```
+RAW TABLE  NULL                          <- the database rolled back correctly
+ELOQUENT   'THIS SAVE MUST NOT SURVIVE'  <- Cachable serving a row that is now gone
+```
+
+`ThemeCustomize` is `Cachable`; the in-transaction read re-populated the model cache with
+uncommitted data, and the rollback did not take the cache with it. **An Eloquent assertion here
+answers "what does the cache hold", never "did the database roll back".** This is the fourth time
+this phase that a theme test read the cache and believed it was reading the table. The assertion
+reads the raw table, and says so in the file.
+
+#### A consequence for a decision that has not been taken yet
+
+That staleness **cannot reach production today**: `MODEL_CACHE_STORE` is unset, so the model cache
+is on `CACHE_STORE=database` — the same connection — and its rows roll back with the transaction.
+
+**Both opt-in stores offered by D-28a break that.** `model_cache` can take a separate connection
+(`MODEL_CACHE_DB_CONNECTION`) and `model_cache_file` is a file store; neither rolls back. And since
+`afterCommit` never fires on a rollback, no flush repairs it — the phantom value is served until
+something else evicts the key. Recorded in
+`docs/development/phase-2/F194-MODEL-CACHE-ISOLATION-RUNBOOK.md` §10 as a property of **that
+decision**, with an added post-activation check, rather than patched here.
+
+#### And two cautions for anyone re-testing this
+
+- **`flushCache()` is tag-scoped.** An untagged `Cache::put()` sentinel survives it, so the obvious
+  "did the flush fire" probe passes whether or not it did. Measured: `plain sentinel after
+  flushCache: 'ALIVE'`.
+- **No `afterCommit` callback runs anywhere in this suite.** `RefreshDatabase` wraps every test in a
+  transaction that is never committed, so the level never returns to `0`. Cache-invalidation
+  evidence has to be taken across two processes against a real store —
+  `verify-theme-cache-flush-after-commit-on-mysql.php`.
+
+### 12.3 The integration sweep — who else writes the configuration
+
+M3's premise is **one controlled write path**. That is a claim about the whole repository, so it was
+measured across `app/` and `packages/` rather than asserted.
+
+| | |
+|---|---|
+| writers of `theme_customizes` | **only** `ThemeConfigurationService` and `ThemePublishingService` |
+| readers | **one** — `helper.php:3576`, inside `getThemeSetting()` |
+| `ViewServiceProvider` | imports `ThemeCustomize` and **never uses it** — a dead import, not a path |
+| `Api\DashboardController:9033` | the former raw `DB::table()->updateOrInsert()`, now routed through the service; the comment is the record of the defect |
+| vendored `store_theme_customize` | a **different table**, in `packages/workdo/ThemeCustomizer`, read by nothing outside that module. Not part of the published-config path and not bypassing anything |
+
+**Publish does not drop what it does not know about.** `ThemePublishingService::apply()` is an
+UPSERT: keys live in the projection but absent from the snapshot are collected into
+`keysNotInSnapshot` and **returned, never deleted** — pinned by a test on the directive's own named
+example, `footer_repeater`. This is what makes requirement 5 ("retain independently managed
+settings such as Flutter-written social links") true by construction rather than by care.
+
+#### One latent storefront 500, recorded and deliberately not fixed here
+
+`packages/workdo/ProductCompare/src/resources/views/pages/compare.blade.php:9` indexes
+`$themeSettings['compare_banner_status']` **with no `??` guard** — while the very next line guards
+`compare_banner_image` with one. Measured: `compare_banner_status` is declared in **no**
+`theme_json`, written by **no** handler, and read in exactly that one place. So the
+key-completeness merge, which draws on the *theme's own* declared keys, can never supply it.
+
+This is **pre-existing and not caused by M3** — the legacy path would 500 on that page identically.
+It is in vendored `packages/workdo/`, which CLAUDE.md puts out of bounds, and the compare page is
+not an M3 surface. Recorded for M4, where the editor's own key handling is in scope.
+
+### 12.4 The directive's ten negative tests — the requirement-to-test trace
+
+The M3-D directive named ten negative cases by hand. A claim that they are "covered" is worth
+nothing unless it can be checked, so here is each one against the method that drives it. All ten
+resolve; none is covered only by a positive test asserting the happy path.
+
+| # | the directive's words | the test(s) |
+|---|---|---|
+| 1 | cross-tenant version reads | `test_owned_by_refuses_a_version_belonging_to_another_store_or_theme`, `test_the_live_version_resolver_refuses_a_cross_tenant_pointer` |
+| 2 | cross-tenant publication | `test_a_merchant_cannot_publish_another_tenants_version`, `test_a_version_of_another_store_cannot_be_published_into_this_one` |
+| 3 | cross-tenant rollback | `test_a_merchant_cannot_roll_back_another_tenants_theme` |
+| 4 | unauthorized draft deletion | `test_a_merchant_cannot_delete_another_tenants_draft`, `test_a_published_version_is_refused_for_deletion` |
+| 5 | invalid active-theme selection | `test_a_theme_the_installation_does_not_ship_is_refused`, `test_an_unknown_theme_is_refused`, `test_an_operator_cannot_repoint_a_merchants_active_theme` |
+| 6 | null-store access | `test_a_zero_or_empty_store_id_is_refused`, `test_a_non_positive_store_id_resolves_nothing_rather_than_the_null_bucket`, `test_a_store_that_does_not_exist_is_refused` |
+| 7 | demoted merchant access | `test_a_demoted_merchant_cannot_publish`, `test_a_merchant_demoted_to_a_root_of_one_does_not_gain_every_store`, `…_does_not_gain_the_operators_store` |
+| 8 | operator acting without explicit store context | `test_an_operator_cannot_write_without_naming_a_store`, `test_an_operator_without_an_explicit_store_is_refused`, `test_an_operator_with_no_store_named_is_refused_and_does_not_get_store_one`, `test_the_self_service_resolver_refuses_an_operator_without_a_current_store` |
+| 9 | audit-event dereferencing | `test_a_publication_event_resolves_its_version_with_its_own_store_and_theme`, `test_a_publication_event_resolves_its_versions_only_within_its_own_tenant` |
+| 10 | duplicate or partial published projections | `test_a_write_into_a_duplicated_projection_reaches_the_storefront`, `test_publishing_into_a_duplicated_projection_leaves_the_storefront_consistent`, `test_a_failure_mid_publish_leaves_projection_pointer_and_history_untouched` |
+
+Row 8 is the one worth reading twice. `getCurrentStore()` returns a literal `1` for an operator
+whose `current_store` is empty, **and store 1 belongs to a merchant** — so "the operator is refused"
+and "the operator does not silently get store 1" are different assertions, and only the second one
+catches the bug. Both are present, which is why the method name says so.
+
+### 12.5 M3 closure evidence
+
+M3-E changed **no production code** — `git show --name-only 2ff0731c` is one test file and one
+runbook — so M3-D's measurements still describe the shipped behaviour rather than needing to be
+taken again. They were re-run anyway, because "still passes" is cheap to establish and "should still
+pass" is not evidence.
+
+**The four MariaDB harnesses, re-run at closure (2026-11-15):**
+
+| harness | result |
+|---|---|
+| `verify-theme-publish-concurrency-on-mysql.php` | **20 checks, 0 failed, 0 inconclusive** |
+| `verify-theme-order-theme-id-migration-on-mysql.php` | **20 checks, 0 failed, 0 inconclusive** |
+| `verify-interrupted-theme-migration-on-mysql.php` | **6 checks, 0 failed, 0 inconclusive** |
+| `verify-theme-cache-flush-after-commit-on-mysql.php` | **4 checks, 0 failed, 0 inconclusive** |
+| | **50 checks, 0 failed** |
+
+**The suites, locally:** Unit **1797 passed, 1 skipped** (15609 assertions); Contract **44 passed**
+(179 assertions); the theme suites specifically **338 passed** (4251 assertions).
+
+**And the gate in CI, which is the one that counts.** Local runs are not evidence that CI passes —
+that was the whole reason PR #138 was opened. On `ad996a46` the four blocking steps of the required
+`tests` job each reported `success`:
+
+```
+success    Unit suite -- BLOCKING
+success    Contract suite -- BLOCKING
+success    Feature suite -- BLOCKING on the known-outcome SET
+success    The Feature outcome set must match the record -- BLOCKING
+```
+
+The fourth is the one worth naming: it asserts the declared outcome **set in both directions**, so
+it would have failed on an undeclared failure *and* on a declared failure that had started passing.
+**No entry was added to the manifest on this branch** — `git diff main...HEAD` on
+`.github/known-test-outcomes.json` is empty — so the 2 accepted failures and 1 accepted skip are
+exactly the ones `main` already declared.
+
+**What closure does NOT mean.** M3 engineering is closed; nothing here is released, accepted, or
+applied to production. `Security-sensitive diff: human checklist` fails by design and only a person
+can clear it. The `theme_customize_orders.theme_id` migration remains development/test only. And the
+`created_by = 1` production question stays **UNVERIFIED** — the authorization logic refuses that case
+either way, which is why it never blocked the work.

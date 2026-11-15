@@ -72,7 +72,7 @@ Progress: `phase-3/PHASE-03-M0-STOREFRONT-BASELINE.md`.
 | **M0** | storefront harness, fixtures, theme/locale capture, route and tenant verification | **complete** — 7 of 8 gaps closed; gap 1 (no dark mode) is M2 by design |
 | **M1** | measured storefront baseline across all three themes, defect inventory | **complete for rendering; performance and accessibility NOT measured** — see below |
 | **M2** | premium storefront across `stylique`, `techzonix`, `greentic` + dark mode | **complete (A–E)** — per-store appearance preference, three themes tokenised, **160-load cross-store matrix with 0 axe WCAG A/AA violations**, Core Web Vitals baselined. Not merged, not released. See `phase-3/PHASE-03-M2-PREMIUM-STOREFRONTS.md` |
-| **M3** | theme editor data model: draft/publish/version, safe migrations, tenant ownership | **A, B, C complete; D substantially complete** — atomic publish/rollback/preview with conflict detection, theme-isolated section ordering, and six two-process concurrency scenarios on MariaDB. **C passed a full gate** (`6bd3e4d2`: Unit 1793/1 skipped, Contract 44, Feature 8628 passed with the known-outcome set matching the manifest exactly -- 2 declared failures, 1 declared skip, nothing undeclared, nothing added to the manifest) — inventory + derived allowlist (`2abc369b`), four additive migrations with engine-enforced integrity including a **composite** key that makes cross-tenant publication impossible, rollback proved on MySQL, **21/21** constraint checks under production's `sql_mode`, then **one controlled write path** (gate, type-aware validator, canonical payload hash, post-commit cache flush) with the merchant form and the Flutter endpoint routed through it and their HTTP contracts unchanged. Independently reviewed at B and C. **D (atomic publish/rollback) and E (integration) next.** See `phase-3/PHASE-03-M3-THEME-VERSIONING.md` §9 |
+| **M3** | theme editor data model: draft/publish/version, safe migrations, tenant ownership | **complete (A–E)** — atomic publish/rollback/preview with conflict detection, theme-isolated section ordering, and six two-process concurrency scenarios on MariaDB. **C passed a full gate** (`6bd3e4d2`: Unit 1793/1 skipped, Contract 44, Feature 8628 passed with the known-outcome set matching the manifest exactly -- 2 declared failures, 1 declared skip, nothing undeclared, nothing added to the manifest) — inventory + derived allowlist (`2abc369b`), four additive migrations with engine-enforced integrity including a **composite** key that makes cross-tenant publication impossible, rollback proved on MySQL, **21/21** constraint checks under production's `sql_mode`, then **one controlled write path** (gate, type-aware validator, canonical payload hash, post-commit cache flush) with the merchant form and the Flutter endpoint routed through it and their HTTP contracts unchanged. Independently reviewed at B and C. **E closed the integration question the earlier milestones left open:** the one-controlled-write-path claim measured across `app/` and `packages/` (two writers, one reader, one dead import, and a vendored `store_theme_customize` that is a different table nothing else reads), and M3-C's post-commit cache flush **re-measured under its real caller**, which nests the service inside its own transaction and so turns that transaction into a savepoint. The nesting is safe and now pinned. See `phase-3/PHASE-03-M3-THEME-VERSIONING.md` §9–§12 |
 | M4 | theme editor experience: sections, preview, publish, rollback, permissions | not started |
 | M5 | official Store Syria website on the WorkDo LandingPage foundation | not started |
 | M6 | bilingual documentation centre with working search | not started |
@@ -282,7 +282,7 @@ code.
 | M2-D | greentic, where **neither ink passed** on the hover and the colour had to move | option A taken, B recorded |
 | M2-E | integrated cross-store verification, contrast, accessibility, Core Web Vitals | **160 loads, 0 axe WCAG A/AA violations**; 80 loads, 0 CWV rows outside "good" |
 
-### M3 is under way — A, B, C done; D substantially done; E remains
+### M3 — A, B, C, D and E complete; engineering closed, not released
 
 **M3-D added atomic publishing** (`ThemePublishingService`), **theme-isolated section ordering**
 (`theme_customize_orders.theme_id`, additive and nullable, nothing backfilled), and a **two-process
@@ -372,6 +372,37 @@ cache` which **joins the open transaction** — so on today's production configu
 in-transaction flush already behaves like a post-commit one, and the post-commit control only becomes
 load-bearing if `MODEL_CACHE_STORE` is ever set. Both directions are measured by
 `verify-theme-cache-flush-after-commit-on-mysql.php`.
+
+**M3-E closed the integration question**, which is the one the earlier milestones could not ask of
+themselves.
+
+*The "one controlled write path" claim is about the whole repository, so it was measured across
+`app/` and `packages/`:* two writers (the two services), **one** reader (`helper.php:3576`, inside
+`getThemeSetting()`), a dead `ThemeCustomize` import in `ViewServiceProvider` that is not a path,
+and a vendored `store_theme_customize` that turns out to be a **different table** nothing outside
+`packages/workdo/ThemeCustomizer` reads. Publish is an UPSERT that **reports** keys absent from a
+snapshot and never deletes them — which is what makes "retain Flutter-written social links and
+`footer_repeater`" true by construction.
+
+*And M3-C's post-commit cache flush was re-measured under its real caller.*
+`Api\DashboardController` wraps `writeSettings()` in its own transaction (`:8922` → `:9054` →
+`:9067`), so the service's `DB::transaction()` is a **savepoint** and M3-C's isolated proof did not
+cover the shape production actually runs. Measured: a nested savepoint release does **not** fire
+`afterCommit`; the outermost commit does, at level `0`; a rollback **never** does. The nesting is
+safe, and `ThemeWriteUnderCallerTransactionTest` now fails if anyone replaces `DB::afterCommit()`
+with a direct `flushCache()` or adds a stray `DB::commit()`.
+
+*That test's first draft failed, and the probe was wrong, not the service* — Eloquent returned the
+rolled-back value while the raw table was already `NULL`, because `ThemeCustomize` is `Cachable`.
+The fourth time this phase a theme test read the cache and thought it was reading the table. A
+consequence for **D-28a**: both opt-in model-cache stores would keep that phantom value after a
+rollback, and no flush repairs it, so `F194-MODEL-CACHE-ISOLATION-RUNBOOK.md` §10 now carries it
+with an added post-activation check.
+
+*Recorded, not fixed:* `ProductCompare/.../compare.blade.php:9` indexes
+`$themeSettings['compare_banner_status']` unguarded, and that key is declared in no `theme_json` and
+written by no handler — a pre-existing latent 500 in vendored code, out of bounds here, carried to
+M4.
 
 The things M2 established that M3 must not break:
 
