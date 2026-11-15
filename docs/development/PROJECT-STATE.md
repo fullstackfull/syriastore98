@@ -399,10 +399,13 @@ consequence for **D-28a**: both opt-in model-cache stores would keep that phanto
 rollback, and no flush repairs it, so `F194-MODEL-CACHE-ISOLATION-RUNBOOK.md` §10 now carries it
 with an added post-activation check.
 
-*Recorded, not fixed:* `ProductCompare/.../compare.blade.php:9` indexes
-`$themeSettings['compare_banner_status']` unguarded, and that key is declared in no `theme_json` and
-written by no handler — a pre-existing latent 500 in vendored code, out of bounds here, carried to
-M4.
+*Recorded, not fixed, and corrected after measuring:*
+`ProductCompare/.../pages/compare.blade.php:9` indexes `$themeSettings['compare_banner_status']`
+unguarded, and that key is declared in no `theme_json` and written by no handler. I first wrote this
+up as a reachable latent 500; **it is not**. A repo-wide grep for renderers finds four compare views
+in use and `pages.compare` is not among them — the similar-looking one is `pages.product_compare`,
+a different file. So it is **dead code carrying a trap**, a hazard only for whoever first wires that
+view up, which could be M4. Vendored, so out of bounds here either way.
 
 The things M2 established that M3 must not break:
 

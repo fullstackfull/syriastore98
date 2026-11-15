@@ -1810,17 +1810,41 @@ UPSERT: keys live in the projection but absent from the snapshot are collected i
 example, `footer_repeater`. This is what makes requirement 5 ("retain independently managed
 settings such as Flutter-written social links") true by construction rather than by care.
 
-#### One latent storefront 500, recorded and deliberately not fixed here
+#### A trap in dead code -- and a correction to how I first recorded it
 
 `packages/workdo/ProductCompare/src/resources/views/pages/compare.blade.php:9` indexes
-`$themeSettings['compare_banner_status']` **with no `??` guard** — while the very next line guards
-`compare_banner_image` with one. Measured: `compare_banner_status` is declared in **no**
-`theme_json`, written by **no** handler, and read in exactly that one place. So the
-key-completeness merge, which draws on the *theme's own* declared keys, can never supply it.
+`$themeSettings['compare_banner_status']` **with no `??` guard**, while the very next line guards
+`compare_banner_image` with one. And `compare_banner_status` is declared in **no** `theme_json` and
+written by **no** handler, so the key-completeness merge -- which draws on the *theme's own*
+declared keys -- could never supply it.
 
-This is **pre-existing and not caused by M3** — the legacy path would 500 on that page identically.
-It is in vendored `packages/workdo/`, which CLAUDE.md puts out of bounds, and the compare page is
-not an M3 surface. Recorded for M4, where the editor's own key handling is in scope.
+**I first recorded that as a reachable latent 500. That was wrong, and the check I had skipped was
+reachability.** The view is rendered by nothing:
+
+```
+$ grep -rn --include='*.php' --include='*.blade.php' -E "view\(\s*['\"][^'\"]*compare" . | grep -v /vendor/
+ProductCompare/.../ViewComposer.php:30   view('product-compare::product-compare.compare-button', ...)
+ProductCompare/.../ViewComposer.php:42   view('product-compare::admin.comparebutton', ...)
+ProductCompare/.../ProductCompareController.php:60
+                                         view('product-compare::pages.product_compare', ...)
+$ grep -rn --include='*.blade.php' -E "@(include|extends)\(\s*['\"][^'\"]*compare" . | grep -v /vendor/
+resources/views/front_end/hooks/action_link.blade.php:16
+                                         @include('product-compare::pages.button', ...)
+```
+
+Four compare views are rendered; `pages.compare` is not one of them, and the one that looks like it
+at a glance is `pages.product_**compare**` with an underscore -- a different file. So this is **dead
+code carrying a trap**, not a page that answers 500 today.
+
+The distinction matters for what happens next. As a live defect it would belong in the storefront
+defect log; as dead code it is only a hazard for whoever first wires the view up, which could be M4.
+Recorded there as a note. Nothing is changed here either way: it is vendored
+`packages/workdo/`, which CLAUDE.md puts out of bounds.
+
+**Why this is in the record at all.** The project's rule is that a claim about absence needs the
+search that establishes it. This was the mirror of that -- a claim about the *presence* of a defect,
+made from reading one line, without asking whether anything reaches it. The grep above is thirty
+seconds of work and it inverted the finding.
 
 ### 12.4 The directive's ten negative tests — the requirement-to-test trace
 
