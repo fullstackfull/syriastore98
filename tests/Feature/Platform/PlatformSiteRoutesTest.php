@@ -210,6 +210,50 @@ class PlatformSiteRoutesTest extends TestCase
         $this->assertSame(0, $filtered, 'a module named by the registry has been removed from the repository');
     }
 
+    /**
+     * THE PUBLIC SITE FOLLOWS THE VISITOR, NOT THE MERCHANT ADMIN'S SETTING.
+     *
+     * Found during M7 integration. The layout first read `cust_darklayout` — the merchant ADMIN's
+     * dark-layout preference — so a visitor on a dark OS got a light marketing page unless the
+     * operator had switched the admin to dark, which has nothing to do with them. The default is
+     * now the design system's own `auto`, which follows `prefers-color-scheme`
+     * (`store-syria-ds.css:555`, `:618-619`); the operator's setting is kept as an explicit
+     * override.
+     */
+    #[Test]
+    public function the_site_follows_the_visitors_appearance_preference_by_default(): void
+    {
+        $html = $this->get('/platform')->getContent();
+
+        $this->assertStringContainsString('data-ss-theme="auto"', $html);
+        $this->assertStringContainsString('data-ss-theme-source="visitor"', $html);
+    }
+
+    #[Test]
+    public function the_operator_can_still_force_the_site_dark(): void
+    {
+        $operator = User::forceCreate([
+            'name' => 'Operator', 'email' => 'op@example.test', 'password' => bcrypt('x'),
+            'type' => 'super admin', 'created_by' => 1, 'email_verified_at' => now(),
+            'current_store' => 1,
+        ]);
+
+        \App\Models\Setting::create([
+            'name' => 'cust_darklayout', 'value' => 'on',
+            'created_by' => $operator->id, 'store_id' => 1,
+        ]);
+
+        /* `getSuperAdminAllSetting()` memoises the operator for an hour and several handlers read
+           `admin_details`; CLAUDE.md records both as causes of a test seeing the pre-fixture row. */
+        \Illuminate\Support\Facades\Cache::forget('super_admin_details');
+        \Illuminate\Support\Facades\Cache::forget('admin_details');
+
+        $html = $this->get('/platform')->getContent();
+
+        $this->assertStringContainsString('data-ss-theme="dark"', $html);
+        $this->assertStringContainsString('data-ss-theme-source="host"', $html);
+    }
+
     #[Test]
     public function the_pages_render_for_an_installation_with_no_super_admin_and_no_settings(): void
     {

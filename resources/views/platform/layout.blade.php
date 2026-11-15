@@ -55,7 +55,20 @@
         $siteSettings = [];
     }
 
-    $dark = ($siteSettings['cust_darklayout'] ?? 'off') === 'on';
+    /* PHASE 03 M7. THE PUBLIC SITE FOLLOWS THE VISITOR'S OWN PREFERENCE, NOT THE OPERATOR'S ADMIN
+       SETTING — corrected during M7 integration, where the mismatch became visible.
+
+       As first written this page read `cust_darklayout`, which is the MERCHANT ADMIN's dark-layout
+       preference (`Utility.php:45` seeds it 'off'; `helper.php:1419` reads it for the admin
+       chrome). A visitor to the company's marketing site has no account and no such row, so on a
+       dark OS they got a light page unless the operator happened to have switched the ADMIN to
+       dark — a setting that has nothing to do with them.
+
+       `data-ss-theme="auto"` is the design system's own name for "follow prefers-color-scheme"
+       (`store-syria-ds.css:555`, `:618-619`), so this needs no script, no cookie and no new CSS.
+       The operator's setting is kept as an explicit OVERRIDE rather than discarded: where they
+       have chosen dark, the public site is dark for everyone. */
+    $theme = ($siteSettings['cust_darklayout'] ?? 'off') === 'on' ? 'dark' : 'auto';
 
     /* The documentation centre is Phase 03 M6. Until its route exists the navigation must not
        call route() on a name the registry does not hold -- that is a RouteNotFoundException, not
@@ -79,7 +92,8 @@
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', $locale) }}"
       dir="{{ $isRtl ? 'rtl' : 'ltr' }}"
-      @if ($dark) data-ss-theme="dark" data-ss-theme-source="host" @endif>
+      data-ss-theme="{{ $theme }}"
+      data-ss-theme-source="{{ $theme === 'dark' ? 'host' : 'visitor' }}">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">

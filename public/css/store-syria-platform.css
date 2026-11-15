@@ -146,7 +146,7 @@
 }
 
 .ss-ps-nav__link[aria-current="page"] {
-    color: var(--ss-brand-accent);
+    color: var(--ss-brand);
     background: var(--ss-brand-subtle);
 }
 
@@ -294,7 +294,7 @@
     padding: var(--ss-space-1) var(--ss-space-3);
     border-radius: var(--ss-radius-pill);
     background: var(--ss-brand-subtle);
-    color: var(--ss-brand-accent);
+    color: var(--ss-brand);
     font-size: var(--ss-text-xs);
     font-weight: var(--ss-weight-semibold);
     letter-spacing: 0.04em;
@@ -388,7 +388,7 @@
     margin-block-end: var(--ss-space-1);
     border-radius: var(--ss-radius-md);
     background: var(--ss-brand-subtle);
-    color: var(--ss-brand-accent);
+    color: var(--ss-brand);
     font-size: var(--ss-text-base);
     font-weight: var(--ss-weight-bold);
 }
@@ -541,7 +541,7 @@
 }
 
 .ss-ps-faq__item[open] .ss-ps-faq__sign {
-    color: var(--ss-brand-accent);
+    color: var(--ss-brand);
 }
 
 .ss-ps-faq__a {
@@ -777,7 +777,7 @@
 
 .ss-ps-docnav__link[aria-current="page"] {
     border-inline-start-color: var(--ss-brand);
-    color: var(--ss-brand-accent);
+    color: var(--ss-brand);
     font-weight: var(--ss-weight-medium);
 }
 
@@ -848,7 +848,7 @@
 }
 
 .ss-ps-toc a:hover {
-    color: var(--ss-brand-accent);
+    color: var(--ss-brand);
     text-decoration: underline;
 }
 
@@ -889,7 +889,7 @@
 }
 
 .ss-ps-doclist a:hover {
-    color: var(--ss-brand-accent);
+    color: var(--ss-brand);
     text-decoration: underline;
 }
 
@@ -907,7 +907,7 @@
 }
 
 .ss-ps-link-plain:hover {
-    color: var(--ss-brand-accent);
+    color: var(--ss-brand);
 }
 
 .ss-ps-help {
@@ -992,7 +992,7 @@
 }
 
 .ss-ps-prose a {
-    color: var(--ss-brand-accent);
+    color: var(--ss-brand);
 }
 
 .ss-ps-prose strong {
@@ -1042,3 +1042,26 @@
         display: block;
     }
 }
+
+/* --------------------------------------------------------------------------
+   ACCESSIBILITY CORRECTION — M7, measured by axe over 44 loads
+   --------------------------------------------------------------------------
+   `--ss-brand-accent` was used for small brand-coloured TEXT (the hero eyebrow,
+   the current-page navigation link, the documentation sidebar's current item).
+   In LIGHT mode that token resolves to #138ba5, and on `--ss-brand-subtle`
+   (#f4f5f8) the measured ratio is 3.64:1 — below the 4.5:1 WCAG AA needs for
+   text that is not large. 12px at weight 600 is not large text.
+
+   Every one of those is now `--ss-brand`, which measures 5.85:1 on the same
+   background in light and 7.18:1 in dark.
+
+   THAT LEAVES `--ss-brand-accent` UNUSED IN THIS FILE — nine uses replaced,
+   zero remaining, counted rather than assumed. An earlier draft of this note
+   said the token was "kept for borders and icon fills"; it is not kept for
+   anything here. It stays a perfectly good token for the admin design system,
+   which is where it is defined.
+
+   This was invisible until the pages were rendered: the token pair looks
+   deliberate in the stylesheet and the colours look fine to an eye that is not
+   measuring. It is the reason M7 runs axe rather than reading CSS.
+   -------------------------------------------------------------------------- */

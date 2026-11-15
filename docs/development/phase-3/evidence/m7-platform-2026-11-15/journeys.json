@@ -1,0 +1,810 @@
+{
+  "summary": {
+    "base": "http://127.0.0.1:8899",
+    "journeys": 3,
+    "journeysFailed": 0,
+    "internalLinksFollowed": 64,
+    "brokenLinks": 0,
+    "inPageAnchorsChecked": 32,
+    "brokenAnchors": 0,
+    "worstLcpMs": 224,
+    "worstCls": 0.0234
+  },
+  "journeys": [
+    {
+      "name": "I want to know what this costs",
+      "ok": true,
+      "trace": [
+        {
+          "step": "open /platform",
+          "url": "http://127.0.0.1:8899/platform",
+          "ok": true
+        },
+        {
+          "step": "click a[href$=\"/platform/pricing\"]",
+          "url": "http://127.0.0.1:8899/platform/pricing",
+          "ok": true,
+          "why": null
+        },
+        {
+          "step": "click a[href$=\"/platform/faq\"]",
+          "url": "http://127.0.0.1:8899/platform/faq",
+          "ok": true,
+          "why": null
+        }
+      ]
+    },
+    {
+      "name": "I am stuck on publishing a theme",
+      "ok": true,
+      "trace": [
+        {
+          "step": "open /platform",
+          "url": "http://127.0.0.1:8899/platform",
+          "ok": true
+        },
+        {
+          "step": "click a[href$=\"/platform/docs\"]",
+          "url": "http://127.0.0.1:8899/platform/docs",
+          "ok": true,
+          "why": null
+        },
+        {
+          "step": "click a[href$=\"/platform/docs/your-storefront\"]",
+          "url": "http://127.0.0.1:8899/platform/docs/your-storefront",
+          "ok": true,
+          "why": null
+        },
+        {
+          "step": "click a[href$=\"/preview-and-publish\"]",
+          "url": "http://127.0.0.1:8899/platform/docs/your-storefront/preview-and-publish",
+          "ok": true,
+          "why": null
+        }
+      ]
+    },
+    {
+      "name": "I am deciding whether to sign up",
+      "ok": true,
+      "trace": [
+        {
+          "step": "open /platform",
+          "url": "http://127.0.0.1:8899/platform",
+          "ok": true
+        },
+        {
+          "step": "click a[href$=\"/platform/getting-started\"]",
+          "url": "http://127.0.0.1:8899/platform/getting-started",
+          "ok": true,
+          "why": null
+        },
+        {
+          "step": "click a[href$=\"/platform/contact\"]",
+          "url": "http://127.0.0.1:8899/platform/contact",
+          "ok": true,
+          "why": null
+        },
+        {
+          "step": "click a[href$=\"/platform/legal\"]",
+          "url": "http://127.0.0.1:8899/platform/legal",
+          "ok": true,
+          "why": null
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "locale": "en",
+      "from": "/platform",
+      "href": "/platform",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform",
+      "href": "/platform/features",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform",
+      "href": "/platform/pricing",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform",
+      "href": "/platform/getting-started",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform",
+      "href": "/platform/faq",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform",
+      "href": "/platform/contact",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform",
+      "href": "/platform/docs",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform",
+      "href": "/login",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform",
+      "href": "/platform/legal",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform",
+      "href": "/change-languages/en",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform",
+      "href": "/change-languages/ar",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/getting-started",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/getting-started/create-your-account",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/getting-started/choose-a-plan",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/getting-started/create-your-first-store",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/your-storefront",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/your-storefront/choose-a-theme",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/your-storefront/edit-your-theme",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/your-storefront/preview-and-publish",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/your-storefront/restore-an-earlier-version",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/products",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/products/add-a-product",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/products/variants-and-options",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/products/stock-and-availability",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/products/import-from-a-file",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/orders",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/orders/how-an-order-moves",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/orders/payment-and-delivery",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/your-account",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/your-account/staff-and-what-they-can-do",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/your-account/plan-limits",
+      "status": 200
+    },
+    {
+      "locale": "en",
+      "from": "/platform/docs",
+      "href": "/platform/docs/your-account/keeping-your-account-safe",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform",
+      "href": "/platform",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform",
+      "href": "/platform/features",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform",
+      "href": "/platform/pricing",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform",
+      "href": "/platform/getting-started",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform",
+      "href": "/platform/faq",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform",
+      "href": "/platform/contact",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform",
+      "href": "/platform/docs",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform",
+      "href": "/login",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform",
+      "href": "/platform/legal",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform",
+      "href": "/change-languages/en",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform",
+      "href": "/change-languages/ar",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/getting-started",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/getting-started/create-your-account",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/getting-started/choose-a-plan",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/getting-started/create-your-first-store",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/your-storefront",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/your-storefront/choose-a-theme",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/your-storefront/edit-your-theme",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/your-storefront/preview-and-publish",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/your-storefront/restore-an-earlier-version",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/products",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/products/add-a-product",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/products/variants-and-options",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/products/stock-and-availability",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/products/import-from-a-file",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/orders",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/orders/how-an-order-moves",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/orders/payment-and-delivery",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/your-account",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/your-account/staff-and-what-they-can-do",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/your-account/plan-limits",
+      "status": 200
+    },
+    {
+      "locale": "ar",
+      "from": "/platform/docs",
+      "href": "/platform/docs/your-account/keeping-your-account-safe",
+      "status": 200
+    }
+  ],
+  "anchors": [
+    {
+      "locale": "en",
+      "surface": "/platform",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/features",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/pricing",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/getting-started",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/faq",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/contact",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/legal",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/docs",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/docs/your-storefront",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/docs/your-storefront/edit-your-theme",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/docs/your-storefront/edit-your-theme",
+      "anchor": "أين-المحر-ر",
+      "ok": true
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/docs/your-storefront/edit-your-theme",
+      "anchor": "ما-يمكنك-تغييره",
+      "ok": true
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/docs/your-storefront/edit-your-theme",
+      "anchor": "لا-شيء-تكتبه-يصبح-مباشرا-فورا",
+      "ok": true
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/docs/your-storefront/edit-your-theme",
+      "anchor": "الصلاحيات",
+      "ok": true
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/docs/your-storefront/edit-your-theme",
+      "anchor": "إن-حر-ر-شخصان-في-الوقت-نفسه",
+      "ok": true
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/docs/search?q=theme",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/features",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/pricing",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/getting-started",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/faq",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/contact",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/legal",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/docs",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/docs/your-storefront",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/docs/your-storefront/edit-your-theme",
+      "anchor": "ss-ps-main",
+      "ok": true
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/docs/your-storefront/edit-your-theme",
+      "anchor": "أين-المحر-ر",
+      "ok": true
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/docs/your-storefront/edit-your-theme",
+      "anchor": "ما-يمكنك-تغييره",
+      "ok": true
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/docs/your-storefront/edit-your-theme",
+      "anchor": "لا-شيء-تكتبه-يصبح-مباشرا-فورا",
+      "ok": true
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/docs/your-storefront/edit-your-theme",
+      "anchor": "الصلاحيات",
+      "ok": true
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/docs/your-storefront/edit-your-theme",
+      "anchor": "إن-حر-ر-شخصان-في-الوقت-نفسه",
+      "ok": true
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/docs/search?q=%D9%82%D8%A7%D9%84%D8%A8",
+      "anchor": "ss-ps-main",
+      "ok": true
+    }
+  ],
+  "vitals": [
+    {
+      "locale": "en",
+      "surface": "/platform",
+      "lcp": 212,
+      "cls": 0.0025
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/features",
+      "lcp": 204,
+      "cls": 0.0056
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/pricing",
+      "lcp": 208,
+      "cls": 0.0234
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/getting-started",
+      "lcp": 168,
+      "cls": 0.013
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/faq",
+      "lcp": 176,
+      "cls": 0.0114
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/contact",
+      "lcp": 224,
+      "cls": 0.0106
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/legal",
+      "lcp": 216,
+      "cls": 0.0115
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/docs",
+      "lcp": 168,
+      "cls": 0.01
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/docs/your-storefront",
+      "lcp": 208,
+      "cls": 0.0023
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/docs/your-storefront/edit-your-theme",
+      "lcp": 176,
+      "cls": 0.0046
+    },
+    {
+      "locale": "en",
+      "surface": "/platform/docs/search?q=theme",
+      "lcp": 164,
+      "cls": 0.0022
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform",
+      "lcp": 180,
+      "cls": 0.0113
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/features",
+      "lcp": 184,
+      "cls": 0.0056
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/pricing",
+      "lcp": 196,
+      "cls": 0.0189
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/getting-started",
+      "lcp": 176,
+      "cls": 0.0034
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/faq",
+      "lcp": 184,
+      "cls": 0.0114
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/contact",
+      "lcp": 188,
+      "cls": 0.0106
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/legal",
+      "lcp": 180,
+      "cls": 0.0174
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/docs",
+      "lcp": 160,
+      "cls": 0.0098
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/docs/your-storefront",
+      "lcp": 172,
+      "cls": 0.0014
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/docs/your-storefront/edit-your-theme",
+      "lcp": 196,
+      "cls": 0.0046
+    },
+    {
+      "locale": "ar",
+      "surface": "/platform/docs/search?q=%D9%82%D8%A7%D9%84%D8%A8",
+      "lcp": 180,
+      "cls": 0.005
+    }
+  ]
+}

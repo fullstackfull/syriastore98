@@ -17,6 +17,11 @@
     </div>
 </details>
 
-<aside class="ss-ps-docs__aside">
+{{-- A PLAIN <div>, NOT AN <aside>. Measured by axe in M7: an `<aside>` inside `<main>` trips
+     `landmark-complementary-is-top-level` on every documentation page, in all four combinations.
+     The element is not complementary content in the first place -- `_nav.blade.php` renders a
+     real `<nav aria-label>` inside it, which is the landmark that belongs here. The wrapper only
+     ever existed to hold the grid column. --}}
+<div class="ss-ps-docs__aside">
     @include('platform.docs._nav', ['categories' => $categories, 'current' => $current ?? null])
-</aside>
+</div>
