@@ -254,7 +254,11 @@ class ThemePublishingService
         $this->rejected = [];
 
         $user ??= Auth::user();
-        $resolved = $this->resolve($storeId, $themeId, $user);
+
+        /* PUBLISH AND ROLLBACK ONLY. Both reach this shared helper, and both change what shoppers
+         * see, so this is the site that takes the stricter rule. `preview()`, `liveVersion()` and
+         * `history()` call `resolve()` without it, deliberately. */
+        $resolved = $this->resolve($storeId, $themeId, $user, true);
 
         if ($resolved === null) {
             return null;
@@ -533,12 +537,24 @@ class ThemePublishingService
      *
      * @return array{0: \App\Models\Store, 1: string}|null
      */
-    private function resolve(mixed $storeId, string $themeId, ?Authenticatable $user = null): ?array
+    /**
+     * @param bool $requiresManagement TRUE for publish and rollback, which change what shoppers
+     *        see; FALSE for preview, liveVersion and history, which do not. The owner's decision of
+     *        2026-11-15 restricts the former to the tenant owner, a same-tenant `Manage Themes`
+     *        holder, or the operator naming a store -- and requires the latter to stay reachable by
+     *        tenant-authorised staff, so that drafts can be prepared and previewed without
+     *        publishing. One parameter, because the two questions share every other step.
+     */
+    private function resolve(mixed $storeId, string $themeId, ?Authenticatable $user = null, bool $requiresManagement = false): ?array
     {
         $user ??= Auth::user();
         $store = $this->gate->resolveStore($storeId, $user);
 
-        if (! $store || ! $this->gate->allows($store->id, $user)) {
+        $permitted = $store && ($requiresManagement
+            ? $this->gate->allowsManagement($store->id, $user)
+            : $this->gate->allows($store->id, $user));
+
+        if (! $permitted) {
             $this->refusal = $this->gate->reason() ?? 'not permitted';
 
             return null;

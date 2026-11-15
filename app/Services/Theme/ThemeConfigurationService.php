@@ -113,7 +113,30 @@ class ThemeConfigurationService
         $user ??= Auth::user();
         $store = $this->gate->resolveStore($storeId, $user);
 
-        if (! $store || ! $this->gate->allows($store->id, $user)) {
+        /*
+         * PHASE 03 M4-2 — THE MANAGEMENT RULE, NOT MEMBERSHIP, BECAUSE THIS WRITES THE LIVE
+         * PROJECTION. Found by independent review after M4-2 landed: the web route was behind the
+         * `theme.editor` middleware, but this service was still gated on `allows()` (tenant
+         * membership), and its SECOND production caller is the Flutter admin endpoint
+         * `POST api/admin/updateStoreOwnerInfo` (`Api\DashboardController:9054`), which carries no
+         * such middleware. So the exact principal the owner's decision names -- same-tenant,
+         * zero-permission staff -- was refused at `/theme-customize/{theme}/update` and still
+         * rewrote `footer_repeater` on the live storefront through the shipped app.
+         *
+         * Closing it at the service rather than at the API route is deliberate: this is the ONE
+         * controlled write path, so the rule belongs where every caller passes.
+         *
+         * THE HTTP CONTRACT IS UNCHANGED. A refusal returns null, the caller's
+         * `if (! empty($written))` simply does not append `social_media` to `updated_fields`, and
+         * no new status code is introduced -- which matters because the shipped Flutter app forces
+         * a logout on any 401.
+         *
+         * DRAFTS DELIBERATELY KEEP `allows()`. `saveDraft()`, `updateDraft()` and `deleteVersion()`
+         * below remain tenant-membership work, because the owner requires that tenant-authorised
+         * staff be able to prepare drafts WITHOUT publishing. That separation is the point, not an
+         * oversight.
+         */
+        if (! $store || ! $this->gate->allowsManagement($store->id, $user)) {
             $this->refusal = $this->gate->reason() ?? 'not permitted';
 
             return null;

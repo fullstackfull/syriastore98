@@ -369,3 +369,81 @@ Recorded here rather than rewritten, because history is not rewritten on this br
 the failure is worth more as a record than as a deleted line: it is the same shape as every defect
 this phase has logged — a number that was *derived* presented as a number that was *observed*. The
 test counts above are observed.
+
+---
+
+## M4-2 independent review — one live divergence, found where no route could show it
+
+The `tenant-authz-reviewer` subagent read the gate, the middleware, the routes, the controller and
+the matrix. Its verdict on the question it was asked: **no cross-tenant read or write is reachable**
+through the eight theme routes, the middleware, or the gate called directly, and the ordering is
+correct at every site. What it found instead was the **same live write enforced by a weaker rule on
+surfaces outside the eight routes.**
+
+### The one that was live
+
+`ThemeConfigurationService::writeSettings()` gated on `allows()` — tenant membership — not
+`allowsManagement()`. M4-2 put every *web* theme route behind `theme.editor`, so a same-tenant
+zero-permission staff member was refused at `POST /theme-customize/{theme}/update`. But that service
+has a **second production caller**: `Api\DashboardController:9054`, reached by
+`POST api/admin/updateStoreOwnerInfo` (`routes/api.php:282`), whose middleware is
+`['custom.auth','AdminApiLog']` — and `AdminApiLog` only logs.
+
+So the exact principal the owner's decision names went on rewriting `footer_repeater` — the
+storefront footer's social links — on the live storefront through the shipped Flutter app.
+
+**Fixed at the service, not at the API route.** It is the one controlled write path, so the rule
+belongs where every caller passes; a fix applied at the web route is what let this one survive in
+the first place. The HTTP contract is unchanged — still 200, still `status: 1`, `social_media`
+simply absent from `updated_fields`, and specifically no new 401, because the shipped app forces a
+logout on one. Pinned by
+`StoreOwnerInfoThemeWriteContractTest::test_zero_permission_staff_no_longer_write_the_live_theme_setting`,
+falsified by reverting the predicate.
+
+### The split that came out of it
+
+| path | rule | why |
+|---|---|---|
+| `writeSettings()` | **`allowsManagement()`** | writes the live projection |
+| `ThemePublishingService` publish / rollback | **`allowsManagement()`** | changes what shoppers see |
+| `saveDraft()`, `updateDraft()`, `deleteVersion()` | `allows()` | draft work |
+| `preview()`, `liveVersion()`, `history()` | `allows()` | reading your own tenant's drafts |
+
+That is the owner's "deliberately separated draft/preview authorization", made concrete:
+`resolve()` takes a `$requiresManagement` flag and only the shared publish/rollback helper passes
+it. Pinned in both directions — `test_zero_permission_staff_may_still_draft_and_preview` fails if
+the strict rule ever leaks into the draft path and takes delegation with it.
+
+### Latent, fixed now because M4-3 would have inherited it
+
+`ThemeCustomizeController`'s in-handler second layer used `allows()` on the **writes** while using
+`allowsManagement()` on the reads — so had any route left the middleware group, the writes would
+have silently reverted to pre-M4-2 behaviour. `makeActiveTheme()` is the sharp one: it re-points
+`stores.theme_id`, which *is* a publish. Both now use the management rule.
+
+The controller's own lesson — *defence in depth must restate the SAME rule* — was written about a
+check that was **stricter** (the owner lockout). This was the inverse case, and the inverse is the
+one with a security direction.
+
+### What the review disputed, and was right about
+
+It challenged this document's claim that `isTenantOwner()` is simply redundant. It is redundant
+*cross-tenant*, but **not within a tenant**: `User::creatorId()` compares `type` case-**sensitively**
+while `tenantRootIsAMerchant()` case-**folds**, so a row typed `'Admin'` or `'admin '` whose
+`created_by` is a real merchant would be owner-equivalent under the relaxed form — a staff-to-owner
+escalation inside a tenant. Not constructible through the product today (`UserController:148`
+refuses any role name that case-folds into `RolePolicy::RESERVED_NAMES`), but it means the strict
+form is the actual control for non-canonically-typed members, not merely belt-and-braces.
+
+### Recorded, not actioned
+
+- **`theme.file.get` has no check of its own.** Now inside the boundary. The review confirmed
+  `get_file()` returns a *public* URL, never signed, so there is no cross-tenant file read — what
+  leaked was the operator's bucket and endpoint configuration.
+- **The vendored `ThemeCustomizer` module** (`packages/workdo/`) has no `verified`, no permission
+  and no ownership check, and writes keyed on `getCurrentStore()` — the exact store-1 trap M4 closed
+  on the first-party routes. Different table, vendored, out of bounds. **Ledger item.**
+- **"Naming a store explicitly" is sticky state**, not per-request intent: it reads
+  `users.current_store`, and the refusal only fires when that column is *empty*. A seeded operator
+  has it set to store 1 already, so they reach store 1 through a different door. Benign on a clean
+  seed, where store 1 is the operator's own; unverified on production, as recorded.

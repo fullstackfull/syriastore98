@@ -41,6 +41,7 @@ class StoreOwnerInfoThemeWriteContractTest extends TestCase
 
     private User $merchant;
     private Store $store;
+    private User $staff;
 
     protected function setUp(): void
     {
@@ -60,6 +61,22 @@ class StoreOwnerInfoThemeWriteContractTest extends TestCase
 
         $this->merchant->current_store = $this->store->id;
         $this->merchant->save();
+
+        $this->staff = User::forceCreate([
+            'name' => 'Contract Staff', 'email' => 'contract-staff@example.test',
+            'password' => bcrypt('x'), 'type' => 'staff',
+            'created_by' => $this->merchant->id, 'email_verified_at' => now(),
+        ]);
+        $this->staff->current_store = $this->store->id;
+        $this->staff->save();
+    }
+
+    /** Same shape as callEndpoint(), for a principal other than the owning merchant. */
+    private function callEndpointAs(User $user, array $payload): \Illuminate\Testing\TestResponse
+    {
+        return $this
+            ->withHeader('Authorization', 'Bearer ' . $user->createToken('auth_token')->plainTextToken)
+            ->postJson('/api/admin/updateStoreOwnerInfo', $payload);
     }
 
     /**
@@ -77,6 +94,54 @@ class StoreOwnerInfoThemeWriteContractTest extends TestCase
         return $this
             ->withHeader('Authorization', 'Bearer ' . $this->merchant->createToken('auth_token')->plainTextToken)
             ->postJson('/api/admin/updateStoreOwnerInfo', $payload);
+    }
+
+    /* ====================================== M4-2: the second caller the web middleware cannot see */
+
+    /**
+     * THE DIVERGENCE INDEPENDENT REVIEW FOUND AFTER M4-2 LANDED, and the reason it was invisible.
+     *
+     * M4-2 put every WEB theme route behind the `theme.editor` middleware, so a same-tenant,
+     * zero-permission staff member was refused at `POST /theme-customize/{theme}/update`. This
+     * endpoint is the SECOND production caller of the same service and carries no such middleware
+     * (`routes/api.php:282`, `['custom.auth','AdminApiLog']`, and `AdminApiLog` only logs). The
+     * service itself was still gated on `allows()` -- tenant membership -- so the exact principal
+     * the owner's decision names went on rewriting `footer_repeater` on the live storefront
+     * through the shipped app.
+     *
+     * Closing it in `ThemeConfigurationService::writeSettings()` rather than on this route is the
+     * point: it is the ONE controlled write path, so the rule belongs where every caller passes.
+     * A fix applied at the web route would have left this one open, which is how it got here.
+     *
+     * THE CONTRACT IS UNCHANGED, which is why this test lives in the Contract suite: the response
+     * is still HTTP 200, `status` is still 1, and the only difference is that `social_media` is
+     * absent from `updated_fields`. No new status code, and specifically no 401 -- the shipped app
+     * forces a logout on any 401.
+     */
+    #[Test]
+    public function test_zero_permission_staff_no_longer_write_the_live_theme_setting(): void
+    {
+        $before = ThemeCustomize::withoutGlobalScopes()
+            ->where('store_id', $this->store->id)->where('name', 'footer_repeater')->value('value');
+
+        $response = $this->callEndpointAs($this->staff, [
+            'store_id' => $this->store->id,
+            'social_media' => [
+                ['platform' => 'twitter', 'link' => 'https://x.com/by-staff'],
+            ],
+        ]);
+
+        $response->assertStatus(200);
+
+        $after = ThemeCustomize::withoutGlobalScopes()
+            ->where('store_id', $this->store->id)->where('name', 'footer_repeater')->value('value');
+
+        $this->assertSame($before, $after,
+            'Zero-permission staff rewrote the live storefront footer through the Flutter admin '
+            . 'endpoint. M4-2 closed the web route; this is the caller it could not see.');
+
+        $this->assertNotContains('social_media', $response->json('data.updated_fields') ?? [],
+            'The refused write was still reported to the app as an updated field.');
     }
 
     /* ======================================================= the happy path, unchanged */

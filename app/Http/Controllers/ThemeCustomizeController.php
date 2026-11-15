@@ -134,7 +134,7 @@ class ThemeCustomizeController extends Controller
         $gate = new \App\Support\Theme\ThemeEditorGate();
         $storeId = $gate->storeIdForSelfService();
 
-        if ($storeId === null || ! $gate->allows($storeId)) {
+        if ($storeId === null || ! $gate->allowsManagement($storeId)) {
             \Log::warning('Theme editor read refused.', [
                 'action'  => $action,
                 'user_id' => auth()->id(),
@@ -219,6 +219,23 @@ class ThemeCustomizeController extends Controller
 
     public function themeCustomizeUpdate(Request $request, $theme)
     {
+        /*
+         * PHASE 03 M4-2 HARDENING, found by independent review. `$theme` goes into
+         * `'uploads/'.$theme` below and was only checked against the shipped catalogue LATER, deep
+         * inside `writeSettings()` -> `resolveThemeId()`. That is precisely the asymmetry M4-1
+         * removed from the three READ handlers and did not remove from the writer.
+         *
+         * CONTAINED ALREADY, so this is hardening and not a hole: `{theme}` cannot contain `/`
+         * under the default route regex, the upload goes through `Storage::disk('theme')` whose
+         * Flysystem v3 normaliser rejects `..`, the mimes rule blocks PHP uploads, and the caller
+         * is an authorised theme manager by the time they arrive. Hoisted anyway, because "the
+         * identifier is checked before the path is built" should be true of every handler in this
+         * controller rather than most of them.
+         */
+        if (! $this->themeIsShipped((string) $theme)) {
+            return redirect()->back()->with('error', __('Theme not found.'));
+        }
+
         // if (auth()->user() && auth()->user()->isAbleTo('Edit Theme')) {
             $data = $request->except('_token');
           
@@ -487,12 +504,17 @@ class ThemeCustomizeController extends Controller
              * MERCHANT.
              *
              * It was LATENT rather than live, and the reason is worth knowing because it is not in
-             * this handler: the `isAbleTo('Manage Themes')` check above is what currently keeps the
-             * operator out, since the super-admin role is not granted that permission by
-             * `Utility::addNewData()` (`$superadminNewPermission` does not contain it). So the only
-             * thing standing between a support engineer and a merchant's section ordering was an
-             * entry missing from a SEED LIST -- grant that permission, or give a support user the
-             * `admin` role, and this line would have resolved store 1 immediately.
+             * this handler: the permission check above was what kept the operator out, since the
+             * super-admin role is not granted `Manage Themes` by `Utility::addNewData()`
+             * (`$superadminNewPermission` does not contain it). So the only thing standing between
+             * a support engineer and a merchant's section ordering was an entry missing from a SEED
+             * LIST.
+             *
+             * SUPERSEDED BY M4-2, and this paragraph is kept only as the record of why the gate
+             * call below exists. The check above is now `mayManageThemes()`, which admits the
+             * operator deliberately once they have named a store -- so the latency argument no
+             * longer holds, and the gate call is what does the work rather than a seed-list
+             * accident.
              *
              * A tenant boundary that depends on a seed list is not a tenant boundary. The gate
              * proves ownership of whatever it returns and refuses an operator who has named no
@@ -503,7 +525,7 @@ class ThemeCustomizeController extends Controller
         $orderStoreId = $gate->storeIdForSelfService();
         $theme_order = null;
 
-        if ($orderStoreId !== null && $gate->allows($orderStoreId)) {
+        if ($orderStoreId !== null && $gate->allowsManagement($orderStoreId)) {
             $theme_order = ThemeCustomizeOrder::resolveFor($orderStoreId, $theme, $slug);
         }
         if (! empty($theme_order)) {
@@ -524,9 +546,11 @@ class ThemeCustomizeController extends Controller
      * where `PermissionTableSeeder.php:40-50` gives store 1 to the OPERATOR; see
      * `ThemeEditorGate::storeIdForSelfService()`. The refusal does not depend on the answer.)
      *
-     * The GET sibling `changeOrder()` DOES check `isAbleTo('Manage Themes')` -- the same inverted
-     * guard M3-A measured on this controller: the read locked, the write open. The gate entitles by
-     * store OWNERSHIP so the merchant is not locked out.
+     * The GET sibling `changeOrder()` used to check `isAbleTo('Manage Themes')` and this one
+     * checked nothing -- the inverted guard M3-A measured on this controller: the read locked, the
+     * write open. M4-2 CLOSED THAT: both now resolve through `ThemeEditorGate::allowsManagement()`,
+     * the read via `mayManageThemes()` and the write via the `theme.editor` middleware plus the
+     * gate call below, so the two verbs can no longer disagree.
      *
      * THIS NOTE USED TO SAY `Manage Themes` IS HELD BY "no role and no user". That is true of the
      * TEST FIXTURE ONLY, and stating it unqualified invites the next reader to delete the check as
@@ -540,7 +564,7 @@ class ThemeCustomizeController extends Controller
         $gate = new \App\Support\Theme\ThemeEditorGate();
         $storeId = $gate->storeIdForSelfService();
 
-        if ($storeId === null || ! $gate->allows($storeId)) {
+        if ($storeId === null || ! $gate->allowsManagement($storeId)) {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 
@@ -595,7 +619,7 @@ class ThemeCustomizeController extends Controller
         $gate = new \App\Support\Theme\ThemeEditorGate();
         $storeId = $gate->storeIdForSelfService();
 
-        if ($storeId === null || ! $gate->allows($storeId)) {
+        if ($storeId === null || ! $gate->allowsManagement($storeId)) {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 

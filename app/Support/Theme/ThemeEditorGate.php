@@ -234,9 +234,12 @@ final class ThemeEditorGate
          * registration. So every merchant on that role holds it, and the four GET theme actions
          * that check it are a live surface, not dead code.
          *
-         * The distinction matters because `ThemeCustomizeController::changeOrder()` is guarded by
-         * that permission and by nothing else: a reader who deleted the check as "dead" would open
-         * it. `Edit Theme` genuinely is not a permission row.
+         * The distinction mattered because `ThemeCustomizeController::changeOrder()` was guarded by
+         * that permission and by nothing else: a reader who deleted the check as "dead" would have
+         * opened it. SUPERSEDED BY M4-2 -- `changeOrder()` now goes through `mayManageThemes()` and
+         * the `theme.editor` middleware, so the permission is no longer the single thing holding
+         * that route. The sentence is corrected rather than removed because it is cited in the
+         * review record. `Edit Theme` genuinely is not a permission row.
          *
          * WHAT ACTUALLY ENTITLES, stated plainly: tenant-root resolution. A merchant and EVERY user
          * they created -- staff included, with no permission of any kind -- may edit that tenant's

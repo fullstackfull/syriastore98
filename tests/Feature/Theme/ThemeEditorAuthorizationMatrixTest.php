@@ -128,6 +128,23 @@ class ThemeEditorAuthorizationMatrixTest extends TestCase
             Addon::create(['theme_id' => $theme, 'status' => '1']);
         }
 
+        /*
+         * TWO IDENTITY PREMISES, PINNED RATHER THAN ASSUMED — raised by independent review.
+         *
+         * `test_a_demoted_merchant_cannot_write` only means "the root collapsed to the OPERATOR"
+         * if the operator is user 1, and `test_the_operator_without_an_explicit_store_writes_nothing`
+         * only discriminates the `getCurrentStore()` fallback if the store under test IS store 1.
+         * Both hold today — no migration inserts a `users` or `stores` row and `TestCase` runs no
+         * seeders — but they held by accident of ordering, and an added fixture upstream would have
+         * turned two security assertions into assertions about nothing, silently.
+         */
+        $this->assertSame(1, (int) $this->operator->id,
+            'PREMISE: the operator must be user 1, since a demoted merchant\'s creatorId() '
+            . 'collapses to created_by = 1 and the test asserts that root is not a merchant.');
+        $this->assertSame(1, (int) $this->store->id,
+            'PREMISE: the store under test must be store 1, or the operator-fallback row proves '
+            . 'nothing about getCurrentStore() returning the literal 1.');
+
         $this->letTheOperatorReachTheController();
     }
 
@@ -431,20 +448,36 @@ class ThemeEditorAuthorizationMatrixTest extends TestCase
             . '`Manage Themes` and refuse them.');
     }
 
+    /**
+     * ASSERTS THE REFUSAL, NOT MERELY THE ABSENCE OF THE VALUE — strengthened after independent
+     * review. The first version checked only that the sentinel was not in the body, which a 302, a
+     * 404, a 500 or an empty response all satisfy: the content-side form of "the row did not change
+     * because the endpoint is broken for everyone".
+     */
     #[Test]
     public function test_zero_permission_staff_cannot_open_the_editor(): void
     {
         $response = $this->actingAs($this->plainStaff)->get('/theme-customize/stylique/page/footer');
 
+        $response->assertRedirect();
+
         $this->assertStringNotContainsString(self::BEFORE, (string) $response->getContent(),
             'Zero-permission staff were served the tenant\'s stored theme settings.');
     }
 
+    /**
+     * THE FOREIGN MERCHANT IS NOT LOCKED OUT, THEY ARE SCOPED — which is a different claim, and the
+     * one worth asserting. They open their OWN editor successfully and see their OWN value; what
+     * they must never see is this store's. A refusal assertion here would have been wrong: they are
+     * entitled to the editor, just not to this tenant's data.
+     */
     #[Test]
-    public function test_another_tenants_merchant_cannot_open_this_stores_editor(): void
+    public function test_another_tenants_merchant_sees_only_their_own_store(): void
     {
         $response = $this->actingAs($this->otherMerchant)
             ->get('/theme-customize/stylique/page/footer');
+
+        $response->assertOk();
 
         $this->assertStringNotContainsString(self::BEFORE, (string) $response->getContent(),
             'Another tenant\'s merchant was served this store\'s stored settings.');

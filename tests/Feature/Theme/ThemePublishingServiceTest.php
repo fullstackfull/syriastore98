@@ -535,14 +535,68 @@ class ThemePublishingServiceTest extends TestCase
     /* ================================================= 8. staff of the merchant may publish */
 
     #[Test]
-    public function test_staff_of_the_merchant_may_publish(): void
+    public function test_staff_without_the_permission_may_no_longer_publish(): void
     {
         $versionA = $this->draftA(['footer_description' => 'published by staff']);
 
-        $this->assertNotNull(
+        $this->assertNull(
             $this->service()->publish($this->storeA->id, 'stylique', $versionA->id, $this->staffA),
-            'Staff resolve to their employer as tenant root and are entitled by ownership. '
-            . 'Narrowing this to a permission no role holds would lock out every merchant team.');
+            'Zero-permission staff published their employer\'s live storefront. Under the owner '
+            . 'decision of 2026-11-15 publishing requires the verified tenant owner, a same-tenant '
+            . 'holder of `Manage Themes`, or the operator naming a store.');
+    }
+
+    /**
+     * THE POSITIVE CONTROL, and without it the test above is satisfied by publishing being broken
+     * for everyone. Same principal, same tenant, same draft -- differing only in the grant.
+     */
+    #[Test]
+    public function test_staff_holding_manage_themes_may_still_publish(): void
+    {
+        $permission = \App\Models\Permission::firstOrCreate(
+            ['name' => 'Manage Themes'], ['display_name' => 'Manage Themes']
+        );
+        $role = \App\Models\Role::forceCreate([
+            'name' => 'pub-staff-role', 'display_name' => 'Pub Staff', 'guard_name' => 'web',
+            'created_by' => $this->staffA->creatorId(), 'store_id' => $this->staffA->current_store,
+        ]);
+        $role->givePermission($permission);
+        $this->staffA->addRole($role);
+        $this->staffA->flushCache();
+
+        $staff = $this->staffA->fresh();
+
+        $this->assertTrue($staff->isAbleTo('Manage Themes'),
+            'PREMISE: the grant did not take, so the assertion below would prove nothing.');
+
+        $versionA = $this->draftA(['footer_description' => 'published by entitled staff']);
+
+        $this->assertNotNull(
+            $this->service()->publish($this->storeA->id, 'stylique', $versionA->id, $staff),
+            'A same-tenant staff member holding `Manage Themes` could not publish. The decision '
+            . 'restricts publishing; it does not close delegation.');
+    }
+
+    /**
+     * THE SEPARATION THE OWNER REQUIRED, asserted rather than assumed: the SAME zero-permission
+     * staff member who may not publish MAY still prepare and preview a draft. If this ever fails,
+     * the stricter publish rule has leaked into the draft path and taken delegation with it.
+     */
+    #[Test]
+    public function test_zero_permission_staff_may_still_draft_and_preview(): void
+    {
+        $draft = (new \App\Services\Theme\ThemeConfigurationService())->saveDraft(
+            $this->storeA->id, 'stylique',
+            ['footer_description' => 'drafted by staff'], 'staff draft', $this->staffA
+        );
+
+        $this->assertNotNull($draft,
+            'Zero-permission staff could not save a draft. The owner requires draft preparation to '
+            . 'stay available to tenant-authorised staff; only publishing is restricted.');
+
+        $this->assertNotNull(
+            $this->service()->preview($this->storeA->id, 'stylique', $draft->id, $this->staffA),
+            'Zero-permission staff could not preview the draft they just saved.');
     }
 
     /* ======================================================= 9. audit event dereferencing */
