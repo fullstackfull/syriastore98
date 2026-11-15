@@ -61,7 +61,7 @@
                         <ul class="nav nav-pills flex-column gap-1">
                             @foreach ($page_json as $page)
                             <li class="nav-item"><a href="{{ route('theme.customize', [$theme, $page['slug']]) }}"
-                                    class="nav-link {{ $page['slug'] == $slug ? 'active' : '' }}">{{ $page['title'] }}</a>
+                                    class="nav-link {{ $page['slug'] == $slug ? 'active' : '' }}">{{ __($page['title']) }}</a>
                             </li>
                             @endforeach
                         </ul>
@@ -79,7 +79,7 @@
                             @foreach ($theme_json['sections'] as $json_setting)
                             <li class="nav-item"><a
                                     href="{{ route('theme.customize', [$theme, $theme_json['slug'], $json_setting['slug']]) }}"
-                                    class="nav-link {{ $json_setting['slug'] == $sub_slug ? 'active' : '' }}">{{ $json_setting['title'] }}</a>
+                                    class="nav-link {{ $json_setting['slug'] == $sub_slug ? 'active' : '' }}">{{ __($json_setting['title']) }}</a>
                             </li>
                             @endforeach
                             @endif
@@ -96,11 +96,11 @@
                 @csrf
                 <div class="card mb-0" id="settings-card">
                     <div class="card-header p-3 d-flex justify-content-between align-items-center">
-                        <h4 class="mb-0">{{ $theme_json['title'] }} {{ __('Settings') }}</h4>
+                        <h4 class="mb-0">{{ __($theme_json['title']) }} {{ __('Settings') }}</h4>
                         <button type="submit" class="btn btn-sm btn-primary">{{ __('Save') }}</button>
                     </div>
                     <div class="card-body p-3">
-                        <p class="text-muted mb-4">{{ $theme_json['detail'] }}</p>
+                        <p class="text-muted mb-4">{{ __($theme_json['detail']) }}</p>
                         
                         <div class="settings-container">
                             @foreach ($theme_json['sections'] as $json_setting)
@@ -112,7 +112,7 @@
                                 <div class="d-flex flex-column">
                                     <div class="form-group mb-2">
                                         <div class="section-title mb-2">
-                                            <h4 class="h5">{{ $json_setting['title'] }}</h4>
+                                            <h4 class="h5">{{ __($json_setting['title']) }}</h4>
                                         </div>
                                         <div class="form-group-wrp d-flex gap-3">
                                             <div class="form-check radio-btn p-0 m-0 d-flex align-items-center gap-2">
@@ -142,7 +142,7 @@
 
                             @case('textarea')
                             <div class="form-group mb-2">
-                                {!! Form::label($json_setting['key'] . '_' . $fields['key'], $fields['label'], [
+                                {!! Form::label($json_setting['key'] . '_' . $fields['key'], __($fields['label']), [
                                 'class' => 'form-label',
                                 ]) !!}
                                 {!! Form::textarea( $json_setting['key'] . '_' . $fields['key'],
@@ -157,7 +157,7 @@
 
                             @case('text')
                             <div class="form-group mb-2">
-                                {!! Form::label($json_setting['key'] . '_' . $fields['key'], $fields['label'], [
+                                {!! Form::label($json_setting['key'] . '_' . $fields['key'], __($fields['label']), [
                                 'class' => 'form-label',
                                 ]) !!}
                                 {!! Form::text(
@@ -176,7 +176,7 @@
 
                             @case('image')
                             <div class="form-group">
-                                <label class="form-label mb-2">{{ $fields['label'] }}</label>
+                                <label class="form-label mb-2">{{ __($fields['label']) }}</label>
                                 <div class="choose-files mt-2">
                                     <img src="{{ isset($settings[$json_setting['key'] . '_' . $fields['key']])
                                     ? get_file($settings[$json_setting['key'] . '_' . $fields['key']])
@@ -201,7 +201,7 @@
                             @endphp
                             <div class="form-group mb-0">
                                 <label for="{{ $json_setting['key'] . '_' . $fields['key'] }}"
-                                    class="form-label">{{ $fields['label'] }}</label>
+                                    class="form-label">{{ __($fields['label']) }}</label>
                                 <select id="{{ $json_setting['key'] . '_' . $fields['key'] }}" class="form-control"
                                     name="{{ $json_setting['key'] . '_' . $fields['key'] }}">
                                     @foreach ($menus as $menu)
@@ -217,7 +217,7 @@
 
                             @case('icon')
                             <div class="form-group mb-0">
-                                {!! Form::label($json_setting['key'] . '_' . $fields['key'], $fields['label'], [
+                                {!! Form::label($json_setting['key'] . '_' . $fields['key'], __($fields['label']), [
                                 'class' => 'form-label',
                                 ]) !!}
                                 <div class="form-group">
@@ -261,7 +261,7 @@
                                 </div>
                                 @if (isset($fields['text']))
                                 {!! Form::label($json_setting['key'] . '_' . $fields['key'] . '_text',
-                                $fields['label'] . ' ' . __('Text'), [
+                                __($fields['label']) . ' ' . __('Text'), [
                                 'class' => 'form-label',
                                 ]) !!}
                                 {!! Form::text(
@@ -519,7 +519,7 @@
 
                             @case('select_category')
                             <div class="form-group mb-2">
-                                {!! Form::label($json_setting['key'] . '_' . $fields['key'], $fields['label'], [
+                                {!! Form::label($json_setting['key'] . '_' . $fields['key'], __($fields['label']), [
                                 'class' => 'form-label',
                                 ]) !!}
                                 @php $is_multiple = ($fields['multiple']) ? '[]' : ''; @endphp
@@ -545,7 +545,7 @@
 
                             @case('meta_keywords')
                             <div class="form-group mb-0">
-                                {!! Form::label($json_setting['key'] . '_' . $fields['key'], $fields['label'], [
+                                {!! Form::label($json_setting['key'] . '_' . $fields['key'], __($fields['label']), [
                                 'class' => 'form-label',
                                 ]) !!}
                                 @php $is_multiple = ($fields['multiple']) ? '[]' : ''; @endphp
@@ -565,7 +565,7 @@
                             @break
                             @case('date')
                             <div class="form-group mb-0">
-                                {!! Form::label($json_setting['key'] . '_' . $fields['key'], $fields['label'], [
+                                {!! Form::label($json_setting['key'] . '_' . $fields['key'], __($fields['label']), [
                                     'class' => 'form-label',
                                 ]) !!}
 

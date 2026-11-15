@@ -25,8 +25,8 @@
             <div class="col-xxl-4 col-sm-6 col-12">
                 <div class="card mb-0 h-100 p-3">
                     <div class="card-header p-0 border-0 mb-4">
-                        <h2 class="h4">{{ $page['title'] }}</h2>
-                        <p class="fs-5 text-muted mb-0">{{ $page['detail'] }}</p>
+                        <h2 class="h4">{{ __($page['title']) }}</h2>
+                        <p class="fs-5 text-muted mb-0">{{ __($page['detail']) }}</p>
                     </div>
                     <div class="card-body p-0 d-flex align-items-center justify-content-between">
                         <div class="card-icon-wrp flex-1 position-relative">

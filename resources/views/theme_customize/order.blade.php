@@ -34,7 +34,7 @@
                             @endphp
                             <li class="nav-item">
                                 <a href="{{ route('theme.customize.order', [$theme, $page['slug']]) }}"
-                                    class="nav-link {{ $page['slug'] == $slug ? 'active' : '' }}">{{ $page['title'] }}</a>
+                                    class="nav-link {{ $page['slug'] == $slug ? 'active' : '' }}">{{ __($page['title']) }}</a>
                             </li>
                             @endif
                             @endforeach
