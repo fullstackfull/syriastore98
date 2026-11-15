@@ -5,6 +5,7 @@ namespace App\Services\Theme;
 use App\Models\ThemeCustomize;
 use App\Models\ThemePublishedVersion;
 use App\Models\ThemeVersion;
+use App\Models\ThemePublicationEvent;
 use App\Support\Theme\ThemeEditorGate;
 use App\Support\Theme\ThemeFieldCatalog;
 use App\Support\Theme\ThemePayload;
@@ -120,6 +121,131 @@ class ThemeConfigurationService
      *
      * @return array<string, mixed>|null
      */
+    /**
+     * PHASE 03 M4-4 — THE FIRST VERSION A STORE EVER OWNS, CAPTURED LAZILY.
+     * =============================================================================================
+     *
+     * THE SEQUENCING PROBLEM THIS SOLVES. `2026_11_13_000100_create_theme_versions_table` creates
+     * the table and **backfills nothing** -- verified: it contains no `insert` and no
+     * `ThemeVersion::`. So every store on the platform owns ZERO versions, and `publish()`,
+     * `rollback()`, `history()` and `preview()` are all inert until one exists: there is nothing to
+     * publish, nothing to roll back to, and an empty history that looks like a bug.
+     *
+     * A BACKFILL MIGRATION IS THE OBVIOUS FIX AND IS NOT AVAILABLE. It would be a persistent
+     * migration writing rows for every store on the production database, which CLAUDE.md §2
+     * reserves for the owner. So the baseline is captured lazily, per store and per theme, the
+     * first time anyone opens the editor or saves a draft -- no migration, no bulk write, and
+     * stores that never touch their theme never gain a row.
+     *
+     * WHAT THE PAYLOAD IS, AND WHY NOT THE OBVIOUS THING. It is the STORED `theme_customizes` rows
+     * for this `(store, theme)` -- NOT the key-complete merge that `liveSettings()` returns.
+     * Key-completeness would put ~500 keys in the snapshot, and since publish is an UPSERT of every
+     * key it holds, a later rollback to this baseline would materialise every theme DEFAULT as an
+     * explicit stored row. That is a large, silent write of values the merchant never chose, and it
+     * would permanently detach them from the theme's own defaults: change the theme and those rows
+     * would keep the old values. Storing only the overrides means a rollback restores exactly what
+     * was stored and the defaults keep coming from the merge, which is what "what was live" means.
+     *
+     * NOTHING IS VALIDATED ON THE WAY IN, deliberately. This records what IS, not a change anyone
+     * proposed. The legacy corpus already contains markup -- M3's §4.6 measured
+     * `footer_description` holding `<p>Legacy <b>HTML</b></p>` -- and running the allowlist over it
+     * here would either refuse to capture a baseline for those stores or silently rewrite published
+     * merchant content, both worse than recording it faithfully.
+     *
+     * IDEMPOTENT, and the check is the live POINTER rather than "are there any versions": a store
+     * mid-draft owns versions and no pointer, and must still get its baseline.
+     *
+     * Gated by `allows()` -- tenant membership -- because opening the editor is what triggers it
+     * and staff may do that. It creates a version; it does not change what shoppers see.
+     */
+    public function ensureBaseline(
+        mixed $storeId,
+        string $themeId,
+        ?Authenticatable $user = null
+    ): ?ThemeVersion {
+        $this->rejected = [];
+        $this->refusal = null;
+
+        $user ??= Auth::user();
+        $store = $this->gate->resolveStore($storeId, $user);
+
+        if (! $store || ! $this->gate->allows($store->id, $user)) {
+            $this->refusal = $this->gate->reason() ?? 'not permitted';
+
+            return null;
+        }
+
+        $themeId = $this->resolveThemeId($themeId, (string) $store->theme_id);
+
+        if ($themeId === null) {
+            return null;
+        }
+
+        $storeKey = (int) $store->id;
+
+        $live = ThemePublishedVersion::liveFor($storeKey, $themeId);
+
+        if ($live !== null) {
+            return $live->liveVersion();
+        }
+
+        $stored = ThemeCustomize::withoutGlobalScopes()
+            ->where('store_id', $storeKey)
+            ->where('theme_id', $themeId)
+            ->pluck('value', 'name')
+            ->map(static fn ($v) => (string) $v)
+            ->all();
+
+        $payload = ThemePayload::encode($stored);
+        $version = null;
+
+        DB::transaction(function () use (&$version, $storeKey, $themeId, $stored, $payload, $user) {
+            /* Re-read INSIDE the transaction: two editor opens can race here, and the unique index
+             * on the live pointer is the arbiter. */
+            $raced = ThemePublishedVersion::liveFor($storeKey, $themeId);
+
+            if ($raced !== null) {
+                $version = $raced->liveVersion();
+
+                return;
+            }
+
+            $version = ThemeVersion::create([
+                'store_id'     => $storeKey,
+                'theme_id'     => $themeId,
+                'version_no'   => 1 + (int) ThemeVersion::query()
+                    ->where('store_id', $storeKey)->where('theme_id', $themeId)->max('version_no'),
+                'status'       => ThemeVersion::STATUS_PUBLISHED,
+                'label'        => 'Baseline — configuration already live',
+                'payload'      => $payload,
+                'payload_hash' => ThemePayload::hash($stored),
+                'created_by'   => $user->id ?? null,
+                'published_by' => $user->id ?? null,
+                'published_at' => now(),
+            ]);
+
+            ThemePublishedVersion::create([
+                'store_id'     => $storeKey,
+                'theme_id'     => $themeId,
+                'version_id'   => $version->id,
+                'published_at' => now(),
+                'published_by' => $user->id ?? null,
+            ]);
+
+            ThemePublicationEvent::create([
+                'store_id'        => $storeKey,
+                'theme_id'        => $themeId,
+                'version_id'      => $version->id,
+                'from_version_id' => null,
+                'action'          => ThemePublicationEvent::ACTION_BASELINE,
+                'payload_hash'    => ThemePayload::hash($stored),
+                'actor_id'        => $user->id ?? null,
+            ]);
+        });
+
+        return $version;
+    }
+
     public function liveSettings(
         mixed $storeId,
         string $themeId,

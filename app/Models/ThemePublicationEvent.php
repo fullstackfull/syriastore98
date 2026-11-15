@@ -29,7 +29,24 @@ class ThemePublicationEvent extends Model
     public const ACTION_PUBLISH  = 'publish';
     public const ACTION_ROLLBACK = 'rollback';
 
-    public const ACTIONS = [self::ACTION_PUBLISH, self::ACTION_ROLLBACK];
+    /**
+     * PHASE 03 M4-4. The first version a store ever owns, captured from what was ALREADY live.
+     *
+     * It is not a `publish`, and recording it as one would be a small lie with a real cost: a
+     * merchant who has never published would open their history and see a publication they did not
+     * make. `from_version_id` is null for it, which is the other half of saying "there was nothing
+     * before this".
+     *
+     * Eight characters, inside the column's `varchar(16)`. The length matters because the column is
+     * a plain string by deliberate M3-B choice (an enum would need a migration to extend) and
+     * production runs NON-STRICT sql_mode, where an over-long value is TRUNCATED rather than
+     * refused -- so a longer action name would be silently corrupted, not rejected.
+     * `ThemePublishingService:271` guards membership of ACTIONS, which is why adding the constant
+     * is not optional.
+     */
+    public const ACTION_BASELINE = 'baseline';
+
+    public const ACTIONS = [self::ACTION_PUBLISH, self::ACTION_ROLLBACK, self::ACTION_BASELINE];
 
     /** `created_at` only: a row here is never updated, so there is no `updated_at` to invite one. */
     public const UPDATED_AT = null;
