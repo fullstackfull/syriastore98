@@ -255,3 +255,55 @@ the rollback.
 solved. F186, F216's unreleased claim and §7's list are untouched by this. The activation closes
 **one** route by which a replay claim disappears — the one that fires on every model save — and that
 is worth doing on its own terms.
+
+---
+
+## 10. A consequence found later, during Phase 03 M3-E (2026-11-15)
+
+Activating either isolated store introduces a failure mode the **default** store does not have, and
+it is recorded here because it is a property of *this decision*, not of the code that trips over it.
+
+**A rolled-back transaction does not roll back the model cache.**
+
+`Cachable` populates on READ. A read taken inside a transaction therefore caches **uncommitted**
+data. What happens next depends entirely on which store the model cache is on:
+
+| model cache store | cache write is… | after the transaction rolls back |
+|---|---|---|
+| **default** (`CACHE_STORE=database`, `MODEL_CACHE_STORE` unset) | on the **same connection**, inside the transaction | rolled back with it — **consistent** |
+| `model_cache` with `MODEL_CACHE_DB_CONNECTION` set | on a **separate** connection | **survives** — serves a row that no longer exists |
+| `model_cache_file` | a file store, no transaction at all | **survives** — same |
+
+Nothing repairs it on its own: `DB::afterCommit()` callbacks **do not fire on a rollback**
+(measured — see below), so the post-commit flush that the theme write path relies on never runs,
+and the phantom value is served until something else evicts that key.
+
+Measured 2026-11-15 on the suite's array store, which has the same non-rolling-back property:
+
+```
+RAW TABLE after rollback:  NULL                         <- the database rolled back correctly
+ELOQUENT  after rollback:  'THIS SAVE MUST NOT SURVIVE' <- Cachable serving the discarded row
+```
+
+**This does not block activation.** The window needs a transaction that writes, reads its own write
+and then rolls back, and the roll-backs in the theme path are failure branches. But §9.5's
+post-activation verification should gain a step: exercise a handler that *fails* mid-transaction
+(not only one that succeeds) and confirm the admin screen does not then show the abandoned value.
+
+The framework semantics the theme services depend on, measured at the same time, for reference:
+
+| | |
+|---|---|
+| callback registered inside an open transaction | does **not** run |
+| a nested `DB::transaction()` releasing its savepoint | does **not** run |
+| the **outermost** commit | runs, at transaction level `0` |
+| the outermost `rollBack()` | **never** runs |
+
+That is why `Api\DashboardController` wrapping `writeSettings()` in its own transaction is safe, and
+`tests/Feature/Theme/ThemeWriteUnderCallerTransactionTest` is what keeps it so.
+
+**A caution for anyone testing this.** `flushCache()` is **tag-scoped**: an untagged
+`Cache::put()` sentinel survives it, so the obvious "did the flush fire" probe passes either way.
+And `RefreshDatabase` never returns the transaction level to `0`, so **no `afterCommit` callback
+runs anywhere in the suite**. Cache-invalidation evidence has to be taken across two processes
+against a real store — `tests/Support/Security/bin/verify-theme-cache-flush-after-commit-on-mysql.php`.
