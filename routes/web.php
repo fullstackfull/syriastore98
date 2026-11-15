@@ -1483,6 +1483,33 @@ Route::get(
         Route::get('theme-version/{theme}/history', [ThemeVersionController::class, 'history'])->name('theme.version.history');
     });
 
+    /*
+     * PHASE 03 M4-5 -- THE AUTHENTICATED DRAFT PREVIEW, and the first authenticated route in this
+     * codebase that renders a STOREFRONT view. It sits OUTSIDE the `theme.editor` group because its
+     * rule is different by design: previewing a draft is tenant-membership work, so staff may do it,
+     * while publishing stays on the management rule. `theme.draft.preview` owns that check.
+     *
+     * The URL carries neither a `{theme}` parameter nor a `themes` segment, and does not use the
+     * `theme-preview/` prefix -- see `ThemeDraftPreview`'s docblock for what each of those three
+     * would switch on. The version id carries the theme.
+     *
+     * IT DOES CARRY `{storeSlug}`, AND THAT IS NOT OPTIONAL. MEASURED: without it the page answers
+     * 404 even though the controller returns a View, because `ViewServiceProvider`'s composer
+     * resolves `$store` from `request()->route('storeSlug')` and `abort(404)`s when it is null --
+     * the same composer that recomputes `$themeSettings`, one layer deeper than the settings seam
+     * reaches. Naming the parameter `storeSlug` puts the request on the composer's SAFE branch
+     * (`:50-51`), the one that looks the store up by slug; the dangerous branch at `:52-55` is
+     * keyed on `{theme}`, which this route does not have.
+     *
+     * The slug is caller-supplied, so `ThemeDraftPreview` refuses unless it is the slug of the
+     * store the GATE resolved. A predicate built from request input is not a tenant check.
+     */
+    Route::middleware(['theme.draft.preview'])->group(function () {
+        Route::get('theme-draft/{storeSlug}/{version}/preview', [ThemeVersionController::class, 'preview'])
+            ->whereNumber('version')
+            ->name('theme.draft.preview');
+    });
+
   // ===================================================================
   // SEC-F2 / NEW-public-mutating-routes / NEW-order-payment-status.
   //

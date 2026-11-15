@@ -810,7 +810,25 @@ class HomeController extends Controller
     }
 
 
-    private function storeSlug($storeSlug)
+    /**
+     * PHASE 03 M4-5 — MADE PUBLIC, AND NOTHING ELSE ABOUT IT CHANGED.
+     *
+     * This is the real storefront renderer: it resolves the store, loads the page's data and
+     * returns `main_file`. The draft preview needs exactly this and nothing else, so it calls it
+     * rather than growing a second renderer that would have to be kept in step with three themes --
+     * and the first time the two diverged, the merchant would be previewing a page no shopper ever
+     * sees, which is worse than having no preview at all.
+     *
+     * `landing_page()` cannot be reused for that: it re-derives the store from `url()->full()` and
+     * the request's host settings rather than from its argument, so from any path other than a
+     * storefront URL it resolves the wrong store or none. Measured -- calling it from
+     * `/theme-draft/{id}/preview` answered 404.
+     *
+     * Widening the visibility adds no caller that could not already reach the same rendering
+     * through `landing_page()`, and the preview's own authorization happens in middleware before
+     * this runs.
+     */
+    public function storeSlug($storeSlug)
     {
         // PHASE 03 M0 -- an unknown store slug must FAIL CLOSED with a not-found response.
         //

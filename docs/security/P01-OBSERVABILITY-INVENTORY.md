@@ -117,7 +117,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 |---|---|
 | `app/Http/Controllers/ThemeCustomizeController.php:377` | theme settings write refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:138` | Theme editor read refused. |
-| `app/Http/Controllers/ThemeVersionController.php:246` | Theme publication refused. |
+| `app/Http/Controllers/ThemeVersionController.php:274` | Theme publication refused. |
 | `app/Http/Middleware/ThemeEditorAccess.php:59` | Theme editor access refused. |
 | `app/Http/Controllers/Api/ApiController.php:6252` | shipping quote refused a cart line naming another store |
 | `app/Models/Cart.php:1200` | flat-rate shipping refused a cart line naming another store |

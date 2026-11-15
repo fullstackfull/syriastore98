@@ -112,6 +112,34 @@ class ThemeVersionController extends Controller
         return back()->with('theme_history', $events);
     }
 
+    /**
+     * PHASE 03 M4-5 — the draft, rendered as the storefront renders it.
+     *
+     * Everything that makes this safe happens in `ThemeDraftPreview` middleware: authorization, the
+     * draft injection, the theme switch (which must precede any view resolution because
+     * `FileViewFinder` memoises) and the no-store headers. By the time this runs, `getThemeSetting()`
+     * already answers with the draft for this one `(store, theme)` pair and with the live projection
+     * for every other.
+     *
+     * IT DELEGATES TO THE REAL STOREFRONT HANDLER rather than re-implementing it. A preview that
+     * rendered its own approximation of the shop would be a second renderer to keep in step with
+     * three themes -- and the first time they diverged, the merchant would be previewing something
+     * no shopper ever sees, which is worse than having no preview.
+     */
+    public function preview(Request $request, $storeSlug, $version)
+    {
+        $gate = new ThemeEditorGate();
+        $storeId = $gate->storeIdForSelfService();
+
+        $store = $storeId === null ? null : \App\Models\Store::find($storeId);
+
+        if (! $store || $store->slug === null || $store->slug === '') {
+            abort(404);
+        }
+
+        return app(\App\Http\Controllers\HomeController::class)->storeSlug($store->slug);
+    }
+
     /* ============================================================================== internals */
 
     private function apply(Request $request, string $theme, string $action)

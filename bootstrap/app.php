@@ -31,6 +31,9 @@ return Application::configure(basePath: dirname(__DIR__))
             // the three POSTs required nothing, so zero-permission staff could not open the editor
             // and could drive every write in it by direct POST.
             'theme.editor' => \App\Http\Middleware\ThemeEditorAccess::class,
+            // PHASE 03 M4-5. Authorises a draft preview, injects it below the view composer, sets
+            // the theme BEFORE any view is resolved, and marks the response no-store.
+            'theme.draft.preview' => \App\Http\Middleware\ThemeDraftPreview::class,
             // Finance route guard. Routes through the `finance` gate, which has a
             // super-admin path that does not depend on a seeded permission row --
             // see App\Http\Middleware\FinancePermission for why neither
