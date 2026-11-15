@@ -270,25 +270,18 @@ class ThemeCustomizeController extends Controller
 
             $orders = null;
             /*
-             * NO `theme_id` PREDICATE: THE COLUMN DOES NOT EXIST. Measured on MariaDB 10.11.14
-             * against the table built from its own migration
-             * (`2025_05_23_043026_create_theme_customize_orders_table.php` -- id, page_slug,
-             * orders, store_id, timestamps, and nothing else):
+             * PHASE 03 M3-D. `theme_id` now EXISTS (2026_11_15_000100) and is nullable, so this
+             * resolves theme-specific-first with a legacy fallback instead of ignoring the theme.
              *
-             *     SELECT * FROM theme_customize_orders WHERE theme_id = 'stylique' ...
-             *     ERROR 1054 (42S22): Unknown column 'theme_id' in 'WHERE'
-             *
-             * So this line answered **500 in production**, and the suite could never see it:
-             * SQLite reinterprets the unresolvable identifier as a STRING LITERAL, compares
-             * 'theme_id' = 'stylique', finds no rows, and carries on. A pre-existing defect that
-             * only a real engine reveals -- the exact hazard CLAUDE.md records about SQLite.
-             *
-             * CONSEQUENCE, stated rather than hidden: section order is keyed on (store, page) and
-             * is therefore SHARED ACROSS THEMES. Keying it per theme needs a column, which needs a
-             * migration against live data -- an owner decision, so it is recorded in
-             * `PHASE-03-M3-THEME-VERSIONING.md` and not taken here.
+             * M3-C had to remove a `theme_id` predicate from here because the column did not exist:
+             * on MariaDB that was `ERROR 1054 Unknown column 'theme_id' in 'WHERE'` and the route
+             * answered 500, while SQLite silently reinterpreted the identifier as a string literal
+             * so no test could see it. Removing it fixed the 500 and left ordering SHARED ACROSS
+             * THEMES. `resolveFor()` is the fix for that, and it carries the NULL-means-fallback
+             * rule in one place.
              */
-            $theme_order = ThemeCustomizeOrder::where('store_id', getCurrentStore())->where('page_slug', $slug)->first();
+            $theme_order = ThemeCustomizeOrder::resolveFor(
+                (int) getCurrentStore(), (string) $theme, $slug);
             if (! empty($theme_order)) {
                 $orders = $theme_order->orders;
             }
@@ -325,12 +318,21 @@ class ThemeCustomizeController extends Controller
         }
 
         /*
-         * `theme_id` IS NOT A COLUMN OF THIS TABLE -- see `changeOrder()` above for the measurement.
-         * The M3-C fix originally kept the inherited predicate, which would have answered 500 on
-         * MySQL while passing on SQLite; an adversarial re-verification of the review caught it.
+         * PHASE 03 M3-D. The write names the RESOLVED, AUTHORISED theme -- `$theme` has been checked
+         * against `ThemeFieldCatalog::themes()` above, and `$storeId` came from the gate, not from
+         * the request.
+         *
+         * AND IT KEYS ON THE THEME, which is the point of the column: a merchant reordering
+         * stylique's home page must not reorder greentic's. Before M3-D this upserted on
+         * `(store_id, page_slug)` and did exactly that.
+         *
+         * LEGACY ROWS ARE LEFT ALONE. This creates a theme-specific row the first time a merchant
+         * reorders a page under a theme; the legacy `theme_id = NULL` row stays as the fallback for
+         * every theme that has not been reordered yet. Nothing is migrated in place, so a rollback
+         * of the column loses the attribution and keeps every `orders` value.
          */
         ThemeCustomizeOrder::updateOrCreate(
-            ['page_slug' => $request->page_slug, 'store_id' => $storeId],
+            ['store_id' => $storeId, 'theme_id' => $theme, 'page_slug' => $request->page_slug],
             ['orders' => $request->orders]
         );
 

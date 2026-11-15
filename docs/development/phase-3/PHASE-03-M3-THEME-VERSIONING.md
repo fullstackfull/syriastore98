@@ -1303,3 +1303,122 @@ asserted in both directions.
 | `ThemePublishedVersion::version()` is a bare-id dereference | **Accurate, and now replaced** by `liveVersion()`, which resolves through `ThemeVersion::ownedBy()` on the full triple. Not deferred to M3-D: a relation in a model is a precedent that gets copied into a handler where no composite key exists. Pinned and falsified — reverting it to `ThemeVersion::find($this->version_id)` fails the test. Measured along the way: this suite **does** enforce SQLite foreign keys, so the bad row cannot be inserted at all, and `PRAGMA foreign_keys = OFF` is a documented **no-op inside a transaction**, which `RefreshDatabase` always has open. The test therefore exercises an unsaved pointer carrying the mismatched triple — what a restored or imported row looks like when read back. |
 | `isOperator()` used `trim` where `UserPolicy` deliberately uses `rtrim` | **Accurate and acted on.** `trim` is WIDER than MySQL's PAD SPACE collation: `' super admin'` is the operator to `trim` and to no SQL query. Latent, but a cross-tenant gate is the worst place to be wider than the engine. Now delegates to `UserPolicy::isOperator()`; the divergence from CLAUDE.md's wording is deliberate and recorded. Both directions pinned. |
 | the raw-query ratchet might be matching its own comment | **Refuted by the reviewer itself** — `codeLines()` skips `*` continuation lines, so the counts are right. |
+
+---
+
+## 11. M3-D — atomic publishing, rollback, and theme-isolated section ordering
+
+### 11.1 `theme_customize_orders.theme_id` — the audit, the migration, and what production would need
+
+**Owner decision implemented:** developing this migration in isolated development/test databases is
+approved; **applying it to production is not.** Nothing below ran against a live host. The
+verification script creates and drops its own throwaway database.
+
+#### The audit came first, because the owner's conditions are about live data
+
+`report-theme-customize-order-duplicates.php` is read-only and issues no DDL. Run against both
+databases available here:
+
+| | fresh MariaDB 10.11.14 | `database/p2dev.sqlite` |
+|---|---|---|
+| rows | **0** | **0** |
+| `store_id IS NULL` | 0 | 0 |
+| duplicate `(store_id, page_slug)` | none | none |
+| indexes reported | `PRIMARY(id)`, `theme_customize_orders_store_id_foreign(store_id)` | **none** |
+
+The index row is the point. SQLite reports **no index** while InnoDB has created one for the foreign
+key — the same disagreement M3-B measured on `theme_customizes`. **And both databases hold zero
+rows, so neither proves anything about production.** That is precisely why the migration adds no
+unique key: a `UNIQUE(store_id, theme_id, page_slug)` meets the first duplicate pair and fails the
+migration mid-run, on a table every theme page reads.
+
+#### What the migration does, and the one thing it refuses to do
+
+`2026_11_15_000100` adds `theme_id VARCHAR(191) NULL` and a **non-unique** index
+`(store_id, theme_id, page_slug)`. It backfills **nothing**.
+
+The obvious backfill — `SET theme_id = (SELECT theme_id FROM stores ...)` — is wrong, and not
+marginally. `stores.theme_id` is the theme active **today**; the order row was written while some
+theme was active **then**, and this table never recorded which. For any merchant who has switched
+theme since, that statement does not recover a fact, it **invents** one — and a false record is
+worse than an absent one because nothing downstream can tell it is false. This is the "do not blindly
+assign legacy rows to arbitrary themes" condition, and it is the reason the column is nullable.
+
+So `NULL` reads as *"applies to whichever theme has no row of its own"*, in exactly one place —
+`ThemeCustomizeOrder::resolveFor()`: theme-specific first, legacy second. Measured consequence: the
+first time a merchant reorders a page under a theme, that theme gets a row and every other theme
+keeps falling back. **Nothing a merchant can see changes until they next reorder something.**
+
+#### The rollback trap reproduced — and the mechanism measured exactly
+
+M3-B recorded that adding a composite index beginning with a foreign-key column lets MariaDB drop
+the FK's own index, after which dropping the composite fails with errno 1553. A first reproduction
+here appeared to **contradict** that, and chasing the contradiction produced the real rule:
+
+| how the single-column index exists | adding a covering composite | then dropping the composite |
+|---|---|---|
+| declared **explicitly** (`KEY ... (store_id)` in the CREATE) | **kept** | succeeds |
+| created **only by the foreign key** — what Laravel's `$table->foreign()` does | **discarded** | `ERROR 1553 (HY000): Cannot drop index … needed in a foreign key constraint` |
+
+`theme_customize_orders` is the second case. After a full `migrate`, `SHOW CREATE TABLE` holds the
+constraint and exactly one index serving it:
+
+```sql
+PRIMARY KEY (`id`),
+KEY `tco_store_theme_page_index` (`store_id`,`theme_id`,`page_slug`),
+CONSTRAINT `theme_customize_orders_store_id_foreign` FOREIGN KEY (`store_id`) REFERENCES `stores` (`id`)
+```
+
+`theme_customize_orders_store_id_foreign` is **gone as an index**. So `down()` restores a
+single-column index *before* dropping the composite. **Falsified:** delete that restore and the
+rollback fails at the `dropIndex` call.
+
+#### Evidence
+
+| | |
+|---|---|
+| `verify-theme-order-theme-id-migration-on-mysql.php` | **20 checks, 0 failed, 0 inconclusive** — fresh install, legacy upgrade, rollback, re-apply, under `sql_mode = NO_ENGINE_SUBSTITUTION` |
+| `tests/Feature/Theme/ThemeOrderResolutionTest` | 6 passed — Stylique, Techzonix, Greentic and the empty-theme fallback, cross-theme isolation, the tenant boundary, and that resolving never writes |
+| falsification: legacy fallback removed | 2 tests fail |
+| falsification: theme-specific lookup skipped | 2 tests fail |
+| falsification: `down()` restore removed | rollback fails |
+| rollback cost, measured | **every `orders` value survives**; only the theme attribution is discarded, leaving two rows per `(store, page)` that pre-M3-D code resolves with `->first()` |
+
+#### THE FUTURE PRODUCTION MIGRATION AND BACKFILL PROCEDURE — not authorised, written down
+
+This is the procedure the owner would authorise separately. It is recorded here so the decision has
+a concrete plan attached rather than being re-derived under pressure.
+
+**Step 0 — audit, before anything.** Run the read-only reporter against production:
+
+```bash
+php tests/Support/Security/bin/report-theme-customize-order-duplicates.php --database=<prod> --user=<user> --pass=<pass>
+```
+
+Exit `0` means no duplicate `(store_id, page_slug)` pairs and no NULL-owner rows. **Exit `1` means a
+later unique constraint is unsafe and must not be attempted**; the output lists every offending
+group. Keep the output as evidence — this is the only step that answers a question this repository
+cannot.
+
+**Step 1 — apply the additive migration.** `2026_11_15_000100` adds a nullable column and a
+non-unique index. It takes a brief metadata lock; on InnoDB with `ALGORITHM=INPLACE` the column add
+does not rewrite the table, but the index build scans it, so run it in a maintenance window sized
+from the real row count (step 0 reports it). **It backfills nothing and cannot lose data.**
+
+**Step 2 — do NOT backfill.** State the default plainly: leaving every legacy row at `NULL` is
+correct and complete. Ordering keeps working for every theme, and merchants acquire theme-specific
+rows naturally as they reorder. There is no deadline and no degraded state to escape.
+
+**Step 3 — if a backfill is nevertheless wanted**, it must be a *decision about the product*, not a
+data repair, because the information needed does not exist. The only defensible form is: for stores
+whose `stores.theme_id` has demonstrably never changed, assign that theme. There is no column
+recording theme changes, so "demonstrably" requires an external source — an audit log export, a
+backup comparison — and if none exists, **the honest answer is that the backfill cannot be
+justified** and step 2 stands.
+
+**Step 4 — a unique constraint is a separate, later change** and needs step 0 to have exited `0`
+*and* a decision about what a duplicate group means. It is not part of this migration.
+
+**Rollback plan.** `migrate:rollback --step=1`. Measured above: no `orders` value is lost; theme
+attribution is. A store that had per-theme ordering comes back with several rows per
+`(store_id, page_slug)` and pre-M3-D code resolves that with `->first()`. Recoverable and visible.

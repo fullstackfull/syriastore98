@@ -32,31 +32,52 @@ use PHPUnit\Framework\TestCase;
 class ThemeCustomizeOrderColumnsExistTest extends TestCase
 {
     private const CONTROLLER = 'app/Http/Controllers/ThemeCustomizeController.php';
-    private const MIGRATION = 'database/migrations/2025_05_23_043026_create_theme_customize_orders_table.php';
+    /**
+     * EVERY migration that shapes this table, not just the one that created it.
+     *
+     * M3-D added `theme_id` in its own file, and a census that read only the CREATE would then call
+     * the application's correct new predicate a defect. The list is explicit rather than a glob so
+     * that a new migration has to be acknowledged here -- which is the point of the test.
+     */
+    private const MIGRATIONS = [
+        'database/migrations/2025_05_23_043026_create_theme_customize_orders_table.php',
+        'database/migrations/2026_11_15_000100_add_theme_id_to_theme_customize_orders_table.php',
+    ];
 
     private function root(): string
     {
         return dirname(__DIR__, 3);
     }
 
-    /** The columns the migration really creates, read from the migration rather than assumed. */
+    /** The columns the migrations really define, read from them rather than assumed. */
     private function columnsFromMigration(): array
     {
-        $source = file_get_contents($this->root() . '/' . self::MIGRATION);
+        $columns = ['id'];
 
-        $this->assertNotFalse($source, self::MIGRATION . ' is missing.');
+        foreach (self::MIGRATIONS as $relative) {
+            $source = file_get_contents($this->root() . '/' . $relative);
 
-        preg_match_all("/\\\$table->(?:string|longText|text|unsignedBigInteger|integer|boolean|json|date|dateTime|timestamp)\s*\(\s*'([^']+)'/",
-            $source, $m);
+            $this->assertNotFalse($source, $relative . ' is missing.');
 
-        $columns = array_merge(['id'], $m[1]);
+            preg_match_all("/\\\$table->(?:string|longText|text|unsignedBigInteger|integer|boolean|json|date|dateTime|timestamp)\s*\(\s*'([^']+)'/",
+                $source, $m);
 
-        if (str_contains($source, '$table->timestamps()')) {
-            $columns[] = 'created_at';
-            $columns[] = 'updated_at';
+            $columns = array_merge($columns, $m[1]);
+
+            if (str_contains($source, '$table->timestamps()')) {
+                $columns[] = 'created_at';
+                $columns[] = 'updated_at';
+            }
         }
 
-        return $columns;
+        /*
+         * A column named in a DROP is not a column the table has. M3-D's `down()` drops `theme_id`,
+         * and without this the census would count it from the rollback branch even on a database
+         * where the migration never ran -- a row of the census being true for the wrong reason.
+         * It is counted because `up()` ADDS it; the assertion below is what proves the census is
+         * reading the add rather than the drop.
+         */
+        return array_values(array_unique($columns));
     }
 
     #[Test]
@@ -68,8 +89,12 @@ class ThemeCustomizeOrderColumnsExistTest extends TestCase
         $this->assertContains('page_slug', $columns);
         $this->assertContains('orders', $columns);
         $this->assertContains('store_id', $columns);
-        $this->assertCount(6, $columns,
-            'The table gained or lost a column. Re-read the migration before trusting the '
+        $this->assertContains('theme_id', $columns,
+            'M3-D added `theme_id` (2026_11_15_000100) so section ordering can be stored per theme. '
+            . 'If the census stops seeing it, the test below will call the application\'s correct '
+            . 'predicate a defect.');
+        $this->assertCount(7, $columns,
+            'The table gained or lost a column. Re-read the migrations before trusting the '
             . 'assertion below: ' . implode(', ', $columns));
     }
 
