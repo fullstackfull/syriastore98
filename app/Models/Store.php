@@ -12,6 +12,41 @@ class Store extends Model
     use HasFactory, Cachable;
 
     /**
+     * SLUGS A MERCHANT'S STORE MAY NOT TAKE. PHASE 03 M5/M6.
+     * =============================================================================================
+     *
+     * `routes/web.php` declares the platform's own public pages under `/platform/...` BEFORE it
+     * requires `routes/customer.php`, so those declarations win every collision with the
+     * storefront's `{storeSlug?}/...` patterns. That precedence is what keeps the company website
+     * reachable. The cost is the mirror case: a store whose slug really is `platform` would be
+     * shadowed on the paths the platform owns, and -- worse -- would still answer on the ones it
+     * does NOT own. `routes/customer.php` declares `{storeSlug?}/login` and `{storeSlug?}/register`,
+     * so that merchant's CUSTOMER SIGN-IN AND REGISTRATION FORMS would be served at
+     * `/platform/login` and `/platform/register`, which a visitor reads as the platform's own.
+     * That is a brand-impersonation surface reachable by an ordinary merchant.
+     *
+     * THERE ARE THREE WRITERS OF `stores.slug`, NOT ONE, and an independent review of M5 found the
+     * other two after a comment in `User::slugs()` had already claimed it was the single mint:
+     *
+     *   - `User::slugs()`                                 -- creation (StoreController, registration)
+     *   - `AppSettingController::store()`                 -- the merchant's own App Setting screen
+     *   - `Api\DashboardController` store-settings update -- the same rename from the Flutter app
+     *
+     * So the list lives here, on the model that owns the column, and all three consult it. The two
+     * rename paths REFUSE a reserved slug with a validation message, because a merchant typing a
+     * name is told what happened; the mint path SUFFIXES it (`platform-1`) the way it already
+     * handles a slug that is taken, because nobody is watching a registration form's slug
+     * derivation and failing it would block the sign-up.
+     */
+    public const RESERVED_SLUGS = ['platform'];
+
+    /** Case-insensitive, trimmed: the comparison a validator needs. */
+    public static function slugIsReserved(?string $slug): bool
+    {
+        return in_array(strtolower(trim((string) $slug)), self::RESERVED_SLUGS, true);
+    }
+
+    /**
      * The attributes that are mass assignable.
      *
      * @var array<int, string>

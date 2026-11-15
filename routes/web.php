@@ -36,6 +36,8 @@ use App\Http\Controllers\XenditPaymentController;
 use App\Http\Controllers\MidtransController;
 use App\Http\Controllers\EmailTemplateController;
 use App\Http\Controllers\HomeController;
+use App\Http\Controllers\PlatformDocsController;
+use App\Http\Controllers\PlatformSiteController;
 use App\Http\Controllers\ShippingController;
 use App\Http\Controllers\ShippingZoneController;
 use App\Http\Controllers\ShippingMethodController;
@@ -403,6 +405,58 @@ Route::middleware(['web'])->group(function () {
   // module page before login
   Route::get('add-on', [HomeController::class, 'Software'])->name('apps.software');
   Route::any('/', [HomeController::class, 'Landing'])->name('start')->middleware('setlocate');
+
+  /*
+  |--------------------------------------------------------------------------
+  | PHASE 03 M5 — the official Store Syria website
+  |--------------------------------------------------------------------------
+  |
+  | The platform's own public pages: what Store Syria is, what it does, what it costs, how to
+  | start, and how to reach us. The merchant's STOREFRONT is a different thing entirely and lives
+  | under `{storeSlug}/...` in routes/customer.php.
+  |
+  | WHY THEY ARE DECLARED HERE AND NOT IN A GROUP FURTHER DOWN. `routes/customer.php` is required
+  | at the foot of this file and declares `{storeSlug?}/faq`, `{storeSlug?}/contact-us` and the
+  | rest. Laravel matches in declaration order, so `/platform/faq` must be registered before those
+  | patterns or the storefront would answer for the platform's own page. `PlatformSiteRoutesTest`
+  | pins it by resolving each URL through the real router and asserting the controller.
+  |
+  | `setlocate` only — the same middleware the root route carries. These pages are public by
+  | design, read no request input, touch no tenant and write nothing, so there is nothing here for
+  | `auth`, `xss` or `verified` to protect.
+  |
+  | The LandingPage module still owns `/`. Nothing here replaces it or duplicates its builder.
+  */
+  Route::middleware('setlocate')->prefix('platform')->name('platform.')->group(function () {
+      Route::get('/', [PlatformSiteController::class, 'home'])->name('home');
+      Route::get('features', [PlatformSiteController::class, 'features'])->name('features');
+      Route::get('pricing', [PlatformSiteController::class, 'pricing'])->name('pricing');
+      Route::get('getting-started', [PlatformSiteController::class, 'onboarding'])->name('onboarding');
+      Route::get('faq', [PlatformSiteController::class, 'faq'])->name('faq');
+      Route::get('contact', [PlatformSiteController::class, 'contact'])->name('contact');
+      Route::get('legal', [PlatformSiteController::class, 'legal'])->name('legal');
+
+      /*
+       * PHASE 03 M6 — the bilingual documentation centre.
+       *
+       * NOT `/api-docs`, which is `packages/workdo/Api/src/routes/web.php:18`, sits behind the
+       * merchant auth stack and documents the HTTP API rather than the product.
+       *
+       * `docs/search` IS DECLARED BEFORE `docs/{category}` and the order is load-bearing: both are
+       * two-segment GETs, so the later pattern would otherwise swallow `/platform/docs/search` and
+       * answer it with a 404 for a category named "search". `PlatformDocsRoutesTest` resolves the
+       * URL through the real router and asserts the controller method, which is the only check
+       * that can tell those two 404s apart.
+       *
+       * There is no `/{locale}/` segment. `setlocate` has already resolved the reader's language
+       * and the site chrome's switch already works; a locale in the path would give every article
+       * two addresses that disagree with the header.
+       */
+      Route::get('docs', [PlatformDocsController::class, 'index'])->name('docs.index');
+      Route::get('docs/search', [PlatformDocsController::class, 'search'])->name('docs.search');
+      Route::get('docs/{category}', [PlatformDocsController::class, 'category'])->name('docs.category');
+      Route::get('docs/{category}/{article}', [PlatformDocsController::class, 'article'])->name('docs.article');
+  });
   Route::get('pricing', [HomeController::class, 'Pricing'])->name('apps.pricing');
 
   // Session Save Addon Routes

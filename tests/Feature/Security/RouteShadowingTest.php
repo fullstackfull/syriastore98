@@ -171,23 +171,80 @@ class RouteShadowingTest extends TestCase
 
         foreach (glob(base_path('routes') . '/*.php') ?: [] as $path) {
             $stripped = '';
+            $depthAt  = [0 => 0];   // line index (0-based) => brace depth at the START of that line
+            $line     = 0;
+            $depth    = 0;
 
             foreach (token_get_all((string) file_get_contents($path)) as $token) {
                 if (is_array($token)) {
-                    $stripped .= ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT)
+                    $text = ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT)
                         ? str_repeat("\n", substr_count($token[1], "\n"))
                         : $token[1];
+                } else {
+                    $text = $token;
+                    if ($token === '{') {
+                        $depth++;
+                    } elseif ($token === '}') {
+                        $depth--;
+                    }
+                }
+
+                $stripped .= $text;
+
+                /* The depth is taken from the TOKEN stream, not from the text: a route URI such as
+                   '{storeSlug?}' carries braces inside a string, and PHP's tokenizer keeps those
+                   inside T_CONSTANT_ENCAPSED_STRING where they are correctly invisible here. A
+                   single-character `{` / `}` token never contains a newline, so recording the depth
+                   after applying it is right for every token shape. */
+                $newlines = substr_count($text, "\n");
+                for ($n = 0; $n < $newlines; $n++) {
+                    $line++;
+                    $depthAt[$line] = $depth;
+                }
+            }
+
+            /*
+             * GROUP NAME PREFIXES. Kept IDENTICAL to the copy in
+             * tests/Feature/Platform/RouteRegistrationIntegrityTest::declaredRouteNames(); the two
+             * guards are duplicated on purpose and one of them being updated alone is the precise
+             * failure this duplication exists to catch, so both were changed together.
+             *
+             * `Route::name('platform.')->group(function () { ... ->name('home') ... })` registers
+             * `platform.home`. A scan that took every `->name()` literal at face value would report
+             * `home` as a LOST NAME -- a false positive claiming a live route is missing. Measured
+             * when the Phase 03 M5 platform-site group was added: eight names reported lost, all
+             * eight registered under their prefixed names.
+             *
+             * This is not a weakening. A name that genuinely disappears inside a prefixed group is
+             * still reported, now under the name it was really given.
+             */
+            $prefixes = [];
+
+            foreach (explode("\n", $stripped) as $i => $text) {
+                $depthHere = $depthAt[$i] ?? 0;
+
+                while ($prefixes !== [] && $depthHere <= end($prefixes)['depth']) {
+                    array_pop($prefixes);
+                }
+
+                if (! preg_match_all('/->name\(\s*[\'"]([^\'"]+)[\'"]\s*\)/', $text, $m)) {
                     continue;
                 }
 
-                $stripped .= $token;
-            }
+                $opensGroup = str_contains($text, '->group(');
 
-            foreach (explode("\n", $stripped) as $i => $line) {
-                if (preg_match_all('/->name\(\s*[\'"]([^\'"]+)[\'"]\s*\)/', $line, $m)) {
-                    foreach ($m[1] as $name) {
-                        $declared[$name][] = basename($path) . ':' . ($i + 1);
+                foreach ($m[1] as $name) {
+                    if ($opensGroup) {
+                        $prefixes[] = ['prefix' => $name, 'depth' => $depthHere];
+                        continue;
                     }
+
+                    $full = '';
+                    foreach ($prefixes as $prefix) {
+                        $full .= $prefix['prefix'];
+                    }
+
+                    $declared[$full . $name][] = basename($path) . ':' . ($i + 1);
                 }
             }
         }
@@ -501,22 +558,65 @@ class RouteShadowingTest extends TestCase
 
         foreach (glob(base_path('routes') . '/*.php') ?: [] as $path) {
             $stripped = '';
+            $depthAt  = [0 => 0];
+            $line     = 0;
+            $depth    = 0;
 
             foreach (token_get_all((string) file_get_contents($path)) as $token) {
                 if (is_array($token)) {
-                    $stripped .= ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT)
+                    $text = ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT)
                         ? str_repeat("\n", substr_count($token[1], "\n"))
                         : $token[1];
+                } else {
+                    $text = $token;
+                    if ($token === '{') {
+                        $depth++;
+                    } elseif ($token === '}') {
+                        $depth--;
+                    }
+                }
+
+                $stripped .= $text;
+
+                $newlines = substr_count($text, "\n");
+                for ($n = 0; $n < $newlines; $n++) {
+                    $line++;
+                    $depthAt[$line] = $depth;
+                }
+            }
+
+            /*
+             * GROUP URI PREFIXES, the same mechanism this file already applies to group NAME
+             * prefixes above. A declaration inside `Route::prefix('platform')->group(...)` is
+             * registered at `platform/pricing`, not at `pricing`, so keying it on the bare literal
+             * made it collide with the unrelated `Route::get('pricing', ...)` at web.php:460 and
+             * reported a duplicate that does not exist. Measured when the Phase 03 M5 platform-site
+             * group was added.
+             *
+             * This STRENGTHENS the guard rather than relaxing it: before, two genuinely identical
+             * declarations in two DIFFERENT prefixed groups were reported as a collision they are
+             * not, and the exemption list below carries three hand-written entries of exactly that
+             * kind. Those three stay, because their prefix comes from `bootstrap/app.php`'s api
+             * routing and not from a `->prefix()` in the file, so this pass cannot see it.
+             */
+            $prefixes = [];
+
+            foreach (explode("\n", $stripped) as $i => $text) {
+                $depthHere = $depthAt[$i] ?? 0;
+
+                while ($prefixes !== [] && $depthHere <= end($prefixes)['depth']) {
+                    array_pop($prefixes);
+                }
+
+                if (str_contains($text, '->group(')
+                    && preg_match('/->prefix\(\s*[\x27"]([^\x27"]*)[\x27"]\s*\)/', $text, $pm) === 1) {
+                    $prefixes[] = ['prefix' => trim($pm[1], '/'), 'depth' => $depthHere];
                     continue;
                 }
 
-                $stripped .= $token;
-            }
-
-            foreach (explode("\n", $stripped) as $i => $line) {
                 $matched = preg_match(
                     '/Route::(get|post|put|patch|delete|any|match|options)\s*\(\s*(\[[^\]]*\]\s*,\s*)?[\x27"]([^\x27"]*)[\x27"]/',
-                    $line,
+                    $text,
                     $m
                 );
 
@@ -524,7 +624,12 @@ class RouteShadowingTest extends TestCase
                     continue;
                 }
 
-                $key = strtolower($m[1]) . ' ' . trim($m[3], '/');
+                $uri = trim($m[3], '/');
+                foreach (array_reverse($prefixes) as $prefix) {
+                    $uri = trim($prefix['prefix'] . '/' . $uri, '/');
+                }
+
+                $key = strtolower($m[1]) . ' ' . $uri;
                 $seen[$key][] = basename($path) . ':' . ($i + 1);
             }
         }

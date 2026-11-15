@@ -8891,7 +8891,36 @@ public function updateStoreOwnerInfo(Request $request)
         $validated = $request->validate([
             'store_name' => 'nullable|string|max:255',
             'store_email' => 'nullable|email|max:255',
-            'store_slug' => 'nullable|string|max:255|unique:stores,slug,' . $store->id,
+            /* PHASE 03 M5/M6. The THIRD writer of `stores.slug`, and the one a merchant reaches
+               from the shipped Flutter app -- found by an independent review of M5 after a comment
+               in `User::slugs()` had claimed the mint path was the only one. See
+               `Store::RESERVED_SLUGS` for why `platform` cannot belong to a store.
+
+               THE VALUE THIS RULE SEES IS ALREADY NORMALISED. The `$request->merge()` immediately
+               above runs `Str::slug()` over the input for the P3-SEC reason documented there, so
+               `Platform` has already become `platform` by the time the rule runs. The `Str::slug()`
+               inside the closure is therefore idempotent, and it is kept so the rule stays correct
+               on its own if that merge is ever moved.
+
+               IT IS A VALIDATION RULE RATHER THAN A HAND-WRITTEN REFUSAL so that the response is
+               identical in shape to the `unique` failure beside it -- the 422 the shipped app
+               already handles for a slug it cannot have. A new response SHAPE on a path a client
+               calls is a contract change; a new reason for an existing shape is not.
+
+               THE TRADE, STATED. The note above deliberately did NOT refuse an input that
+               normalises to '' because that would be a new 422 on a path the app calls. This adds
+               one -- for exactly one word, which no merchant can legitimately want and which no
+               store can currently hold. A refusal that says why is better than a rename that
+               silently hands a merchant the platform's own namespace. */
+            'store_slug' => [
+                'nullable', 'string', 'max:255',
+                'unique:stores,slug,' . $store->id,
+                static function ($attribute, $value, $fail) {
+                    if (\App\Models\Store::slugIsReserved(\Illuminate\Support\Str::slug((string) $value))) {
+                        $fail(__('This store slug is reserved by the platform. Please choose another.'));
+                    }
+                },
+            ],
             'custom_store_url' => 'nullable|url|max:255',
 
             'owner_name' => 'nullable|string|max:255',

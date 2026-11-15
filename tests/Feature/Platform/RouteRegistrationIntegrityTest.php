@@ -238,25 +238,89 @@ class RouteRegistrationIntegrityTest extends TestCase
             // Rebuild the file with comment tokens blanked out, preserving line numbers
             // so the reported file:line stays accurate. A commented-out ->name() must not
             // register as a declaration -- routes/web.php:396 is exactly that case.
-            $stripped = '';
+            //
+            // The brace depth of each line is computed from the SAME token pass, because a
+            // route URI such as '{storeSlug?}' carries braces inside a string and a naive
+            // substr_count over the text would mis-count the nesting that the group-prefix
+            // tracking below depends on. PHP's tokenizer yields `{` and `}` as single-character
+            // tokens only when they really open or close a block; inside a string they are part
+            // of T_CONSTANT_ENCAPSED_STRING and are therefore invisible here, which is exactly
+            // what is wanted.
+            $stripped   = '';
+            $depthAt    = [0 => 0];     // line index (0-based) => brace depth at the START of it
+            $line       = 0;
+            $depth      = 0;
+
             foreach (token_get_all($source) as $token) {
                 if (is_array($token)) {
+                    $text = $token[1];
                     if ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT) {
                         // Keep only the newlines, so line numbers do not shift.
-                        $stripped .= str_repeat("\n", substr_count($token[1], "\n"));
-                        continue;
+                        $text = str_repeat("\n", substr_count($text, "\n"));
                     }
-                    $stripped .= $token[1];
-                    continue;
+                } else {
+                    $text = $token;
+                    if ($token === '{') {
+                        $depth++;
+                    } elseif ($token === '}') {
+                        $depth--;
+                    }
                 }
-                $stripped .= $token;
+
+                $stripped .= $text;
+
+                /* A single-character `{` / `}` token never contains a newline, so recording the
+                   depth AFTER applying it is correct for every token shape. */
+                $newlines = substr_count($text, "\n");
+                for ($n = 0; $n < $newlines; $n++) {
+                    $line++;
+                    $depthAt[$line] = $depth;
+                }
             }
 
-            foreach (explode("\n", $stripped) as $i => $line) {
-                if (preg_match_all('/->name\(\s*[\'"]([^\'"]+)[\'"]\s*\)/', $line, $m)) {
-                    foreach ($m[1] as $name) {
-                        $names[$name][] = basename($path) . ':' . ($i + 1);
+            /*
+             * GROUP NAME PREFIXES.
+             * ------------------------------------------------------------------------------------
+             * `Route::name('platform.')->group(function () { ... ->name('home') ... })` registers
+             * `platform.home`, not `home`. A line-based scan that took every `->name()` literal at
+             * face value would report `home` as a LOST NAME -- a false positive that says a real
+             * route is missing. Measured when the Phase 03 M5 platform-site group was added: eight
+             * names reported lost, all eight registered under their prefixed names.
+             *
+             * This is a scanner limitation, not a weakening: a name that genuinely disappears
+             * inside a prefixed group is still caught, now under the name it was really given.
+             *
+             * The rule: a `->name('x.')` on a line that also opens a `->group(` is a PREFIX and not
+             * a route name. It applies until the brace depth returns to what it was on that line.
+             */
+            $prefixes = [];   // list of ['prefix' => string, 'depth' => int]
+
+            foreach (explode("\n", $stripped) as $i => $text) {
+                $depthHere = $depthAt[$i] ?? 0;
+
+                while ($prefixes !== [] && $depthHere <= end($prefixes)['depth']) {
+                    array_pop($prefixes);
+                }
+
+                if (! preg_match_all('/->name\(\s*[\'"]([^\'"]+)[\'"]\s*\)/', $text, $m)) {
+                    continue;
+                }
+
+                $opensGroup = str_contains($text, '->group(');
+
+                foreach ($m[1] as $name) {
+                    if ($opensGroup) {
+                        $prefixes[] = ['prefix' => $name, 'depth' => $depthHere];
+                        continue;
                     }
+
+                    $full = '';
+                    foreach ($prefixes as $p) {
+                        $full .= $p['prefix'];
+                    }
+                    $full .= $name;
+
+                    $names[$full][] = basename($path) . ':' . ($i + 1);
                 }
             }
         }
