@@ -17,7 +17,7 @@ class ThemeCustomizeController extends Controller
      */
     public function index(Request $request)
     {
-        if (auth()->user() && auth()->user()->isAbleTo('Manage Themes')) {
+        if ($this->mayManageThemes()) {
             $user = auth()->user();
             $plan = Plan::find($user->plan_id);
             $addons = Addon::where('status', '1')->pluck('theme_id')->toArray();
@@ -38,35 +38,183 @@ class ThemeCustomizeController extends Controller
         }
     }
 
+    /**
+     * PHASE 03 M4-2 — THE SAME BOUNDARY THE `theme.editor` MIDDLEWARE APPLIES, re-asserted in the
+     * handler as defence in depth.
+     *
+     * THESE FOUR READS USED TO TEST `isAbleTo('Manage Themes')` DIRECTLY, and leaving that in place
+     * under the new middleware LOCKED THE STORE OWNER OUT OF THEIR OWN EDITOR -- found by
+     * `ThemeEditorAuthorizationMatrixTest::test_the_owner_can_open_the_editor_without_holding_the
+     * _permission`, which asked for 200 and got 302. The middleware admitted the owner and the
+     * handler refused them.
+     *
+     * The lesson is narrow and worth keeping: defence in depth must restate the SAME rule. A second
+     * check that is STRICTER than the first is not depth, it is a different policy applied in one
+     * of two places, and the surface it closes is the legitimate one.
+     *
+     * `allowsManagement()` is that one rule -- operator-first with an explicit store, the verified
+     * tenant owner, or a same-tenant holder of `Manage Themes`.
+     */
+    private function mayManageThemes(): bool
+    {
+        $user = auth()->user();
+
+        if (! $user) {
+            return false;
+        }
+
+        $gate = new \App\Support\Theme\ThemeEditorGate();
+        $storeId = $gate->storeIdForSelfService($user);
+
+        return $storeId !== null && $gate->allowsManagement($storeId, $user);
+    }
+
+    /* ============================================ M4-1 — identifiers, then paths, then the store */
+
+    /**
+     * PHASE 03 M4-1. THE ORDER OF THESE THREE QUESTIONS IS THE FIX.
+     *
+     * Every read action used to build a filesystem path out of the `{theme}` and `{slug}` route
+     * parameters and `file_get_contents()` it before asking anything else. Two consequences, both
+     * measured on this tree:
+     *
+     *   - NO CONTAINMENT. `ThemeFieldCatalog::themes()` applies `basename()` to a theme directory
+     *     (`:246-249`); this controller applied none to either parameter, so the segments went
+     *     into `base_path('themes/'.$theme.'/theme_json/'.$slug.'.json')` exactly as received.
+     *   - A MISSING FILE WAS A 500, not a refusal: `file_get_contents()` on a path that does not
+     *     exist raises a warning, the project promotes warnings to `ErrorException`, and the route
+     *     answers 500 rather than "no such page".
+     *
+     * So a theme is now checked against the shipped catalogue and a page against the files that
+     * actually exist, BEFORE any path is built, and the store is resolved through the gate rather
+     * than `getCurrentStore()`.
+     *
+     * WHY THE PAGE IS VALIDATED AGAINST THE DIRECTORY AND NOT AGAINST `pages.json`, which is the
+     * obvious choice and is wrong: `pages.json` is an INCOMPLETE INDEX. All three shipped themes
+     * omit `homepage` and `terms-condition` from it while shipping `homepage.json` and
+     * `terms-condition.json`, and `homepage.json` is read at runtime by `Product.php:586` and
+     * `ApiController.php:5920`. Validating against the index would refuse real pages.
+     */
+    private function themeIsShipped(string $theme): bool
+    {
+        return in_array($theme, \App\Support\Theme\ThemeFieldCatalog::themes(), true);
+    }
+
+    /**
+     * Decoded theme JSON for `$name`, or null when the identifier is not a plain file name that
+     * exists under this theme. `basename($name) !== $name` rejects every separator and traversal
+     * segment without needing to enumerate them.
+     */
+    private function readThemeJson(string $theme, string $name): ?array
+    {
+        if ($name === '' || basename($name) !== $name) {
+            return null;
+        }
+
+        $path = base_path('themes/' . $theme . '/theme_json/' . $name . '.json');
+
+        if (! is_file($path)) {
+            return null;
+        }
+
+        $decoded = json_decode((string) file_get_contents($path), true);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * The store this editor request may act on, or null with the gate's reason logged.
+     *
+     * NOT `getCurrentStore()`. That resolver returns the literal `1` for an operator whose
+     * `current_store` is empty -- a fallback artefact, not a store anyone chose -- and
+     * `storeIdForSelfService()` exists precisely to refuse that rather than guess.
+     */
+    private function editorStoreId(string $action): ?int
+    {
+        $gate = new \App\Support\Theme\ThemeEditorGate();
+        $storeId = $gate->storeIdForSelfService();
+
+        if ($storeId === null || ! $gate->allows($storeId)) {
+            \Log::warning('Theme editor read refused.', [
+                'action'  => $action,
+                'user_id' => auth()->id(),
+                'reason'  => $gate->reason(),
+            ]);
+
+            return null;
+        }
+
+        return $storeId;
+    }
+
     public function themePages(Request $request, $theme)
     {
-        if (auth()->user() && auth()->user()->isAbleTo('Manage Themes')) {
-            $path = base_path('themes/'.$theme.'/theme_json/pages.json');
-            $page_json = json_decode(file_get_contents($path), true);
-
-            return view('theme_customize.pages', compact('theme', 'page_json'));
-        } else {
+        if (! $this->mayManageThemes()) {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
+
+        $theme = (string) $theme;
+
+        if (! $this->themeIsShipped($theme)) {
+            return redirect()->back()->with('error', __('Theme not found.'));
+        }
+
+        $page_json = $this->readThemeJson($theme, 'pages');
+
+        if ($page_json === null) {
+            return redirect()->back()->with('error', __('Theme not found.'));
+        }
+
+        return view('theme_customize.pages', compact('theme', 'page_json'));
     }
 
     public function themeCustomize(Request $request, $theme, $slug = null, $sub_slug = null)
     {
-        if (auth()->user() && auth()->user()->isAbleTo('Manage Themes')) {
-            $pagePath = base_path('themes/'.$theme.'/theme_json/pages.json');
-            $page_json = json_decode(file_get_contents($pagePath), true);
-
-            $path = base_path('themes/'.$theme.'/theme_json/'.$slug.'.json');
-            $theme_json = json_decode(file_get_contents($path), true);
-            $settings = getThemeSetting(getCurrentStore(), $theme);
-            if (empty($sub_slug)) {
-                $sub_slug = $theme_json['sections'][0]['slug'] ?? null;
-            }
-
-            return view('theme_customize.customize', compact('theme', 'slug', 'sub_slug', 'theme_json', 'page_json', 'settings'));
-        } else {
+        if (! $this->mayManageThemes()) {
             return redirect()->back()->with('error', __('Permission denied.'));
         }
+
+        $theme = (string) $theme;
+
+        if (! $this->themeIsShipped($theme)) {
+            return redirect()->back()->with('error', __('Theme not found.'));
+        }
+
+        $page_json = $this->readThemeJson($theme, 'pages');
+
+        if ($page_json === null) {
+            return redirect()->back()->with('error', __('Theme not found.'));
+        }
+
+        /*
+         * A MISSING `{slug}` FALLS BACK TO THE FIRST PAGE rather than being refused. The route
+         * declares it optional (`routes/web.php:1443`), and every link in the shipped views passes
+         * one, so this is reachable only by a hand-typed or bookmarked URL -- which used to build
+         * `.../theme_json/.json`, raise a warning and answer 500.
+         */
+        if ($slug === null || $slug === '') {
+            $slug = $page_json[0]['slug'] ?? null;
+        }
+
+        $theme_json = $slug === null ? null : $this->readThemeJson($theme, (string) $slug);
+
+        if ($theme_json === null) {
+            return redirect()->back()->with('error', __('Theme page not found.'));
+        }
+
+        $storeId = $this->editorStoreId('themeCustomize');
+
+        if ($storeId === null) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
+        $settings = getThemeSetting($storeId, $theme);
+
+        if (empty($sub_slug)) {
+            $sub_slug = $theme_json['sections'][0]['slug'] ?? null;
+        }
+
+        return view('theme_customize.customize', compact('theme', 'slug', 'sub_slug', 'theme_json', 'page_json', 'settings'));
     }
 
     public function themeCustomizeUpdate(Request $request, $theme)
@@ -260,15 +408,63 @@ class ThemeCustomizeController extends Controller
 
     public function changeOrder(Request $request, $theme, $slug = null, $sub_slug = null)
     {
-        if (auth()->user() && auth()->user()->isAbleTo('Manage Themes')) {
-            $pagePath = base_path('themes/'.$theme.'/theme_json/pages.json');
-            $page_json = json_decode(file_get_contents($pagePath), true);
-            
-            if (empty($sub_slug)) {
-                $sub_slug = $theme_json['sections'][0]['slug'] ?? null;
-            }
+        if (! $this->mayManageThemes()) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
 
-            $orders = null;
+        $theme = (string) $theme;
+
+        /*
+         * PHASE 03 M4-1. THE THEME IS CHECKED BEFORE THE PATH IS BUILT, which it was not: the
+         * `in_array($theme, ThemeFieldCatalog::themes())` test below guarded only the ORDER LOOKUP,
+         * while `pages.json` was read from an unvalidated `{theme}` segment forty lines earlier.
+         * Half-validating one parameter for one of two uses reads as containment and is not.
+         */
+        if (! $this->themeIsShipped($theme)) {
+            return redirect()->back()->with('error', __('Theme not found.'));
+        }
+
+        $page_json = $this->readThemeJson($theme, 'pages');
+
+        if ($page_json === null) {
+            return redirect()->back()->with('error', __('Theme not found.'));
+        }
+
+        if ($slug === null || $slug === '') {
+            $slug = $page_json[0]['slug'] ?? null;
+        }
+
+        /*
+         * `$theme_json` WAS NEVER ASSIGNED IN THIS METHOD. The line read
+         * `$sub_slug = $theme_json['sections'][0]['slug'] ?? null;` against an undefined variable,
+         * and `??` swallowed the notice, so `$sub_slug` was unconditionally null whenever the route
+         * omitted it -- a defect with no symptom, which is why it survived. The page JSON is now
+         * actually loaded, so the default means what it says.
+         */
+        $theme_json = $slug === null ? null : $this->readThemeJson($theme, (string) $slug);
+
+        if ($theme_json === null) {
+            return redirect()->back()->with('error', __('Theme page not found.'));
+        }
+
+        if (empty($sub_slug)) {
+            $sub_slug = $theme_json['sections'][0]['slug'] ?? null;
+        }
+
+        /*
+         * EMPTY STRING, NOT NULL -- AND THIS IS HYGIENE, NOT A RENDERING FIX. The first version of
+         * this comment claimed null made `order.blade.php:57`'s `explode(',', $orders)` render an
+         * empty row that an empty string would not. MEASURED, and that is false:
+         *
+         *     explode(',', '')   => ['']   count=1
+         *     explode(',', null) => ['']   count=1   identical: true
+         *
+         * Both render the same single empty row, so the output is unchanged for a store with no
+         * saved ordering -- which is the normal case, not an error. What the empty string actually
+         * removes is the PHP 8.1+ deprecation for passing null to a non-nullable string parameter.
+         * Worth doing, not worth claiming more than it does.
+         */
+        $orders = '';
             /*
              * PHASE 03 M3-D. `theme_id` now EXISTS (2026_11_15_000100) and is nullable, so this
              * resolves theme-specific-first with a legacy fallback instead of ignoring the theme.
@@ -303,23 +499,18 @@ class ThemeCustomizeController extends Controller
              * store, and `$theme` is validated against the shipped catalog for the same reason
              * `updateOrder()` validates it.
              */
-            $gate = new \App\Support\Theme\ThemeEditorGate();
-            $orderStoreId = $gate->storeIdForSelfService();
-            $theme_order = null;
+        $gate = new \App\Support\Theme\ThemeEditorGate();
+        $orderStoreId = $gate->storeIdForSelfService();
+        $theme_order = null;
 
-            if ($orderStoreId !== null
-                && $gate->allows($orderStoreId)
-                && in_array($theme, \App\Support\Theme\ThemeFieldCatalog::themes(), true)) {
-                $theme_order = ThemeCustomizeOrder::resolveFor($orderStoreId, (string) $theme, $slug);
-            }
-            if (! empty($theme_order)) {
-                $orders = $theme_order->orders;
-            }
-
-            return view('theme_customize.order', compact('theme', 'slug', 'sub_slug', 'page_json', 'orders'));
-        } else {
-            return redirect()->back()->with('error', __('Permission denied.'));
+        if ($orderStoreId !== null && $gate->allows($orderStoreId)) {
+            $theme_order = ThemeCustomizeOrder::resolveFor($orderStoreId, $theme, $slug);
         }
+        if (! empty($theme_order)) {
+            $orders = (string) $theme_order->orders;
+        }
+
+        return view('theme_customize.order', compact('theme', 'slug', 'sub_slug', 'page_json', 'orders'));
     }
 
     /**
@@ -328,7 +519,10 @@ class ThemeCustomizeController extends Controller
      * `theme-customize/{theme}/order/update` (`routes/web.php:1447`, group
      * `['auth','xss','setlocate','verified']`) -- so zero-permission staff could reorder their
      * employer's storefront sections, and a platform operator with an empty `current_store` would
-     * write to the literal store 1, which belongs to a merchant.
+     * write to the literal store 1 -- a fallback artefact, not a store they chose. (This note used
+     * to add "which belongs to a merchant". That is not established and is false on a clean seed,
+     * where `PermissionTableSeeder.php:40-50` gives store 1 to the OPERATOR; see
+     * `ThemeEditorGate::storeIdForSelfService()`. The refusal does not depend on the answer.)
      *
      * The GET sibling `changeOrder()` DOES check `isAbleTo('Manage Themes')` -- the same inverted
      * guard M3-A measured on this controller: the read locked, the write open. The gate entitles by

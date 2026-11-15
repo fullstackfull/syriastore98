@@ -346,6 +346,108 @@ final class ThemeEditorGate
      * `created_by` to the user's resolved root and does not treat a root of 1 as universal: store 1
      * is one store, so a demoted merchant matches only store 1, not every store.
      */
+    /**
+     * PHASE 03 M4-2 — THE LIVE-WRITE AND PUBLISHING BOUNDARY, under owner decision 2026-11-15.
+     * =============================================================================================
+     *
+     * `allows()` above answers TENANT MEMBERSHIP: a merchant and every user they created, staff
+     * with no permission included, may edit that tenant's theme configuration. That is deliberate
+     * and it stays, because the owner's standing requirement is that tenant-authorised staff should
+     * eventually prepare and preview DRAFTS. This method is the separate, stricter question the
+     * owner approved for anything that changes what shoppers see:
+     *
+     *     the verified tenant OWNER
+     *     a user of the SAME TENANT who holds `Manage Themes`
+     *     the platform operator, naming a store explicitly
+     *
+     * TWO CONSTRAINTS FROM THE DECISION, AND WHERE EACH IS DISCHARGED:
+     *
+     * "A global permission alone must NEVER authorize access to another tenant."
+     *   `Manage Themes` is granted to the shared global `admin` role by `Utility::addNewData()`, so
+     *   it is NOT tenant-scoped -- a merchant in tenant A and a merchant in tenant B hold the same
+     *   row. Testing it alone would be a cross-tenant hole, not an entitlement. It is therefore
+     *   never reached until `resolveStore()` has already applied the tenant predicate
+     *   (`tenantRootIsAMerchant($root)` AND `stores.created_by = $root`), so the permission can
+     *   only ever widen access WITHIN a tenant the caller already belongs to. The ordering is the
+     *   control; a later edit that hoists the permission test above `resolveStore()` would convert
+     *   this method into the hole the decision names.
+     *
+     * "Do not infer tenant ownership from `type=admin` alone."
+     *   `isTenantOwner()` below compares `stores.created_by` to the user's OWN id and still demands
+     *   `tenantRootIsAMerchant()`. It never reads `type` as a grant. Note `ownsStore()` is a
+     *   different question -- tenant MEMBERSHIP, true for staff too -- and must not be substituted
+     *   here, which is why both exist with names that say which is which.
+     *
+     * NO NEW PERMISSION IS INTRODUCED. The owner ruled out a `Publish Theme` name for this
+     * milestone, and the codebase has already been bitten once by gating on a name that is seeded
+     * as a row and granted to nobody: that is a permanent 403 for everyone, the operator included.
+     */
+    public function allowsManagement(mixed $storeId, ?Authenticatable $user = null): bool
+    {
+        $user ??= Auth::user();
+
+        /* THE TENANT BOUNDARY FIRST, ALWAYS. Everything below is an entitlement test WITHIN a
+         * tenant this principal has already been proved to belong to. */
+        $store = $this->resolveStore($storeId, $user);
+
+        if (! $store || ! $user) {
+            return false;
+        }
+
+        /* Operator-first: `isAbleTo()` alone refuses a super admin, and `resolveStore()` has
+         * already refused an operator who named no store -- there is no store-1 fallback. */
+        if ($this->isOperator($user)) {
+            return true;
+        }
+
+        if ($this->isTenantOwner($user, $store)) {
+            return true;
+        }
+
+        if ($this->ownsStore($user, $store) && $user->isAbleTo('Manage Themes')) {
+            return true;
+        }
+
+        $this->reason = 'this principal belongs to the tenant but may not change its live '
+            . 'storefront; publishing requires the store owner or `Manage Themes`';
+
+        return false;
+    }
+
+    /**
+     * The VERIFIED owner of this store -- the user whose own id is `stores.created_by`.
+     *
+     * Deliberately NOT `type === 'admin'`: every merchant on the platform is type-`admin`, so that
+     * test would make each of them the owner of every store. It is the exact inference the owner's
+     * decision forbids, and the same collapse that was an account takeover in
+     * `docs/security/P0-USER-DELETION-CASCADE.md` §7.
+     *
+     * HONEST SCOPE, BECAUSE A REMOVAL CHECK SAID SO. Replacing this body with
+     * `strtolower(trim($user->type)) === 'admin'` -- the forbidden inference, in full -- leaves ALL
+     * FOURTEEN tests in `ThemeEditorAuthorizationMatrixTest` PASSING. Measured, not assumed.
+     *
+     * The reason is that it is unreachable for a foreign store: `allowsManagement()` calls
+     * `resolveStore()` first, and for a non-operator that applies `stores.created_by = $root`, so
+     * a store outside the caller's tenant never arrives here. By the time this method runs, tenancy
+     * is already settled; all it decides is OWNER versus STAFF *within* that tenant -- and staff
+     * are type-`staff`, so the relaxed form refuses them anyway.
+     *
+     * So these conditions are DEFENCE IN DEPTH, not the control, and this comment says so rather
+     * than letting the next reader infer from a green suite that they are load-bearing. They are
+     * kept because `resolveStore()`'s predicate is the kind of thing that gets refactored, and
+     * because the gate has already been bitten once by a limb that read as a check and was
+     * unreachable -- see the note in `allows()`. The difference is that this one is honest about
+     * which it is.
+     */
+    private function isTenantOwner(Authenticatable $user, Store $store): bool
+    {
+        $id = (int) ($user->id ?? 0);
+
+        return $id > 0
+            && (int) $store->created_by === $id
+            && UserPolicy::tenantRootIsAMerchant($id);
+    }
+
     private function ownsStore(Authenticatable $user, Store $store): bool
     {
         $root = method_exists($user, 'creatorId') ? (int) $user->creatorId() : 0;

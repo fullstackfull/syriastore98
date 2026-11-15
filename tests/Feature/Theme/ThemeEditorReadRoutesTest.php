@@ -249,23 +249,50 @@ class ThemeEditorReadRoutesTest extends TestCase
     /* ====================================================================== who is refused what */
 
     /**
-     * THE PERMISSION IS LOAD-BEARING ON THE READ SIDE, and this is the assertion that proves it --
-     * the same merchant, the same store, the same route, differing only in the grant.
+     * SUPERSEDED BY M4-2, AND INVERTED DELIBERATELY — OWNER DECISION 2026-11-15.
+     *
+     * This test used to assert that every read screen refuses a merchant who does not hold
+     * `Manage Themes`, including the merchant who OWNS the store. That was the measured behaviour
+     * and it was half of an inversion: the owner could not open their own editor while
+     * zero-permission staff could drive every write in it by direct POST.
+     *
+     * The owner closed it. All eight theme routes now share one boundary -- operator naming a store,
+     * the verified tenant owner, or a same-tenant holder of `Manage Themes` -- so the store owner
+     * reaches their own editor WITHOUT the permission, and that is now what this asserts.
+     *
+     * The docblock on the old version said: "If this now passes, the read guard changed and M4-2
+     * should be the reason." It did, and it is.
      */
     #[Test]
-    public function test_every_read_screen_refuses_a_merchant_without_the_permission(): void
+    public function test_the_store_owner_reaches_every_read_screen_without_the_permission(): void
     {
+        $this->assertFalse($this->merchant->isAbleTo('Manage Themes'),
+            'PREMISE: this asserts OWNER access without the permission; a grant would hide the bug.');
+
         foreach (static::readRoutes() as $label => [$url]) {
             $response = $this->actingAs($this->merchant)->get($url);
 
+            $response->assertOk();
+
+            $this->assertStringNotContainsString('Permission denied', (string) $response->getContent(),
+                "`{$label}` refused the store's own owner.");
+        }
+    }
+
+    /**
+     * The other half: a principal who is neither the owner nor a permission holder is still refused
+     * every read screen. Without this, the test above is satisfied by removing the guard entirely.
+     */
+    #[Test]
+    public function test_a_merchant_from_another_tenant_is_refused_every_read_screen(): void
+    {
+        foreach (static::readRoutes() as $label => [$url]) {
+            $response = $this->actingAs($this->otherMerchant)->get($url);
+
             $this->assertTrue(
                 $response->isRedirect(),
-                "`{$label}` served a merchant who does not hold `Manage Themes`. All four read "
-                . 'actions gate on it and redirect back with `Permission denied.` when it is absent.'
+                "`{$label}` served a merchant who neither owns this store nor holds the permission."
             );
-
-            $this->assertStringNotContainsString('Theme Customize', (string) $response->getContent(),
-                "`{$label}` redirected but still rendered editor content in the response body.");
         }
     }
 

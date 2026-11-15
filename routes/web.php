@@ -1438,14 +1438,33 @@ Route::get(
     Route::get('/currency/{id}/edit', [CurrencyController::class, 'edit'])->name('currency.edit');
 
     /** Themes Setting Route */
-    Route::get('theme-customize', [ThemeCustomizeController::class, 'index'])->name('theme.index');
-    Route::get('theme-customize/{theme}/pages', [ThemeCustomizeController::class, 'themePages'])->name('theme.pages');
-    Route::get('theme-customize/{theme}/page/{slug?}/{sub_slug?}', [ThemeCustomizeController::class, 'themeCustomize'])->name('theme.customize');
-    Route::post('theme-customize/{theme}/update', [ThemeCustomizeController::class, 'themeCustomizeUpdate'])->name('theme.customize.update');
-    Route::post('theme-customize/file-get', [ThemeCustomizeController::class, 'imageFileGet'])->name('theme.file.get');
-    Route::get('theme-customize/{theme}/pages/order/{slug?}/{sub_slug?}', [ThemeCustomizeController::class, 'changeOrder'])->name('theme.customize.order');
-    Route::post('theme-customize/{theme}/order/update', [ThemeCustomizeController::class, 'updateOrder'])->name('theme.customize.update.order');
-    Route::post('theme-preview/make-active', [ThemeCustomizeController::class, 'makeActiveTheme'])->name('theme-preview.make-active');
+    /*
+     * PHASE 03 M4-2 -- OWNER DECISION 2026-11-15. ONE BOUNDARY, ALL EIGHT ROUTES, BOTH VERBS.
+     *
+     * Before this group existed the two verbs disagreed: the four GETs each opened with
+     * `isAbleTo('Manage Themes')` while the three POSTs carried NO permission middleware and were
+     * entitled by store ownership alone, so a `type`-`staff` user with no role and no permission
+     * could not open the editor and COULD drive every write in it by direct POST
+     * (`ThemeCustomizeWebRoutesTest.php:177-186`). `theme.file.get` had no authorization of ANY
+     * kind: any authenticated verified user posted a path and got back a URL minted from the super
+     * admin's storage configuration.
+     *
+     * `theme.editor` resolves the store through the gate -- never `getCurrentStore()`, never a
+     * `{store}` parameter from the caller -- and admits the operator naming a store explicitly, the
+     * verified tenant owner, or a same-tenant holder of `Manage Themes`. The controller's own
+     * `isAbleTo()` checks are LEFT IN PLACE: defence in depth, and deleting them on the strength of
+     * a middleware line is how a guard goes missing when a route is later moved out of a group.
+     */
+    Route::middleware(['theme.editor'])->group(function () {
+        Route::get('theme-customize', [ThemeCustomizeController::class, 'index'])->name('theme.index');
+        Route::get('theme-customize/{theme}/pages', [ThemeCustomizeController::class, 'themePages'])->name('theme.pages');
+        Route::get('theme-customize/{theme}/page/{slug?}/{sub_slug?}', [ThemeCustomizeController::class, 'themeCustomize'])->name('theme.customize');
+        Route::post('theme-customize/{theme}/update', [ThemeCustomizeController::class, 'themeCustomizeUpdate'])->name('theme.customize.update');
+        Route::post('theme-customize/file-get', [ThemeCustomizeController::class, 'imageFileGet'])->name('theme.file.get');
+        Route::get('theme-customize/{theme}/pages/order/{slug?}/{sub_slug?}', [ThemeCustomizeController::class, 'changeOrder'])->name('theme.customize.order');
+        Route::post('theme-customize/{theme}/order/update', [ThemeCustomizeController::class, 'updateOrder'])->name('theme.customize.update.order');
+        Route::post('theme-preview/make-active', [ThemeCustomizeController::class, 'makeActiveTheme'])->name('theme-preview.make-active');
+    });
 
   // ===================================================================
   // SEC-F2 / NEW-public-mutating-routes / NEW-order-payment-status.

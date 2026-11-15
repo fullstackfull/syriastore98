@@ -175,15 +175,71 @@ class ThemeCustomizeWebRoutesTest extends TestCase
             . 'a worse failure than the one M3-C fixed.');
     }
 
+    /**
+     * DELIBERATE BEHAVIOUR CHANGE — PHASE 03 M4-2, OWNER DECISION 2026-11-15.
+     *
+     * This test used to be `test_staff_of_the_merchant_can_save` and asserted the opposite: that a
+     * `type`-`staff` user holding no role and no permission COULD write their employer's live
+     * storefront, because tenant-root resolution entitled them. That was true, and it was half of a
+     * measured inversion — the four GET routes required `isAbleTo('Manage Themes')` while the three
+     * POSTs required nothing, so the same staff user could not OPEN the editor and could drive
+     * every write in it by direct POST.
+     *
+     * The owner closed it in the safe direction. Live theme writes now require the verified tenant
+     * owner, a same-tenant holder of `Manage Themes`, or the operator naming a store explicitly —
+     * `ThemeEditorGate::allowsManagement()`, applied to all eight theme routes by the
+     * `theme.editor` middleware.
+     *
+     * THE ASSERTION IS ON THE PROJECTION, NOT ON THE STATUS CODE. A redirect is what this surface
+     * returns for both a refusal and a success, so asserting one would pass either way. What
+     * distinguishes them is whether the row moved.
+     */
     #[Test]
-    public function test_staff_of_the_merchant_can_save(): void
+    public function test_zero_permission_staff_can_no_longer_write_the_live_storefront(): void
     {
-        $this->actingAs($this->staff)
-            ->post('/theme-customize/stylique/update', ['footer_description' => 'By staff'])
-            ->assertRedirect();
+        $before = $this->projection('footer_description');
 
-        $this->assertSame('By staff', $this->projection('footer_description'),
-            'Staff resolve to their employer as tenant root, so they are entitled by ownership.');
+        $this->actingAs($this->staff)
+            ->post('/theme-customize/stylique/update', ['footer_description' => 'By staff']);
+
+        $this->assertSame($before, $this->projection('footer_description'),
+            'A staff user holding no role and no permission wrote their employer\'s LIVE '
+            . 'storefront. Since M4-2 that requires the tenant owner, a same-tenant holder of '
+            . '`Manage Themes`, or the operator naming a store.');
+    }
+
+    /**
+     * THE OTHER HALF, AND WITHOUT IT THE TEST ABOVE IS SATISFIED BY A TOTAL LOCKOUT. Narrowing the
+     * route until nobody can reach it would pass every refusal assertion in this file; this is the
+     * positive control that says delegation still works.
+     */
+    #[Test]
+    public function test_staff_holding_manage_themes_can_still_write(): void
+    {
+        $permission = \App\Models\Permission::firstOrCreate(
+            ['name' => 'Manage Themes'], ['display_name' => 'Manage Themes']
+        );
+        $role = \App\Models\Role::forceCreate([
+            'name' => 'staff-themes-role', 'display_name' => 'Staff Themes Role',
+            'guard_name' => 'web', 'created_by' => $this->staff->creatorId(),
+            'store_id' => $this->staff->current_store,
+        ]);
+        $role->givePermission($permission);
+        $this->staff->addRole($role);
+        $this->staff->flushCache();
+
+        $staff = $this->staff->fresh();
+
+        $this->assertTrue($staff->isAbleTo('Manage Themes'),
+            'PREMISE: the grant did not take, so the assertion below would prove nothing.');
+
+        $this->actingAs($staff)
+            ->post('/theme-customize/stylique/update', ['footer_description' => 'By entitled staff']);
+
+        $this->assertSame('By entitled staff', $this->projection('footer_description'),
+            'A same-tenant staff member HOLDING `Manage Themes` could not write. The owner\'s '
+            . 'decision restricts live writes to the owner, a permission holder and the operator — '
+            . 'it does not close the surface.');
     }
 
     /**

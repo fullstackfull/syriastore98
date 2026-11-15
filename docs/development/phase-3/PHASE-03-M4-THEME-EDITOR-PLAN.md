@@ -31,42 +31,75 @@ directly.
 
 ---
 
-## Two decisions taken here, with the owner's standing authorisation to proceed
+## OWNER DECISION, 2026-11-15 — both questions ruled, and my default was overruled
 
-The synthesis raised two open questions. Neither blocks, because for each the conservative option
-**preserves existing behaviour**, so proceeding needs no new approval. Both are flagged for the
-owner to overturn.
+I had planned to proceed on the conservative default for Q1, reasoning that preserving existing
+behaviour needed no new approval. **The owner directed otherwise**, and was right to: M4 *adds*
+publish and rollback on top of that model, so "unchanged" would have silently granted every
+zero-permission staff member the ability to revert a live storefront. Preserving a permission model
+is not the same as preserving its blast radius when new capabilities are attached to it.
 
-### Q1 — Who may publish? **Decision: keep today's model unchanged for now.**
+### Decision 1 — publish and rollback require `Manage Themes`
 
-Today every user a merchant created — staff, holding no permission of any kind — can write that
-tenant's live storefront, and `ThemeEditorGate` is explicit (`:238-243`) that this is deliberate.
-Restricting it would be a material change to who may alter a live storefront, which the owner
-reserves. So M4 does not change it.
+Permitted, and only these:
 
-**What M4 must not do quietly, though:** adding rollback widens the blast radius even with the
-permission model untouched — staff who could previously only edit forward can now revert a live
-storefront to an older configuration. That is recorded, not waved through, and M4-6's attribution
-requirement exists partly because of it.
+| principal | test |
+|---|---|
+| the verified tenant **owner** | `stores.created_by` === that user's own id |
+| a **same-tenant** user holding `Manage Themes` | tenant predicate **then** permission |
+| the **platform operator** | operator-first, with an **explicitly selected** target store |
 
-**The constraint on any future restriction:** a permission gated on but never seeded is a permanent
-403 for everyone, the operator included. The precedent is the six Finance names, seeded as rows and
-granted to nobody. Any new name must go into `Utility::addNewData()`'s `$arrPermissions` and be
-granted deliberately. Note `Manage Themes` is **absent** from `$superadminNewPermission` (all 29
-entries read) and is created nowhere under `database/`.
+Two absolutes, quoted from the decision, and where each is discharged:
 
-### Q2 — Does "sections" mean grouped editing or reordering? **Decision: grouped editing in M4; reordering deferred.**
+> "A global permission alone must NEVER authorize access to another tenant."
 
-Three measured facts, any one of which would be enough:
+`Manage Themes` is granted to the shared **global** `admin` role by `Utility::addNewData()`, so two
+merchants in different tenants hold the same row. It is therefore never reached until
+`resolveStore()` has applied `tenantRootIsAMerchant($root)` **and** `stores.created_by = $root`.
+**The ordering is the control.** Pinned by
+`ThemeEditorAuthorizationMatrixTest::test_a_global_permission_never_authorizes_another_tenants_store`.
 
-1. **Nothing on the storefront consumes saved ordering.** `grep -rln "ThemeCustomizeOrder\|theme_customize_orders" themes/ resources/views/front_end/` exits 1. Order is a fixed `@include` sequence in `main_file.blade.php`, gated by `$themeSettings['<section>_status']`, in three copies.
-2. **Version snapshots cover settings only**, so publish and rollback cannot restore an ordering.
-3. **The shipped `orders` CSV does not match reality** — phantom tokens naming no section, real sections missing, and greentic declares no `is_order` at all.
+> "Do not infer tenant ownership from `type=admin` alone."
 
-Building a drag-and-drop reorderer on that gives the merchant a control they can watch save and that
-changes nothing. Grouped editing is what the theme JSON's page → section → field structure already
-supports and what the storefront already renders. M4 does the **correctness fixes** to the existing
-order screen and defers the feature until the storefront consumes it.
+`isTenantOwner()` compares `stores.created_by` to the user's own id and never reads `type` as a
+grant. See the honest-scope note below.
+
+**No `Publish Theme` permission**, per the decision. The codebase has been bitten once by gating on
+a name seeded as a row and granted to nobody — a permanent 403 for everyone, operator included.
+
+### Decision 2 — close the GET/POST inversion
+
+One boundary on all **eight** theme routes, both verbs, via `ThemeEditorAccess` (`theme.editor`).
+Zero-permission staff can no longer modify a live storefront; the owner regains their own editor;
+the operator never defaults to store 1. `theme.file.get` — which had **no authorization of any
+kind** — is inside the group.
+
+### Future delegation, recorded now so it is not designed away
+
+The owner requires that tenant-authorised staff eventually prepare and preview **drafts** without
+publishing, through *deliberately separated* draft/preview authorization — not by reopening
+unrestricted live-write endpoints. The gate is already shaped for it: `allows()` answers tenant
+membership (the future draft/preview rule) and `allowsManagement()` answers the live-write and
+publish rule. Two methods, two questions, named so they cannot be swapped by accident.
+
+### What the removal checks actually proved, including the one that proved less than it looks
+
+| mutation | result |
+|---|---|
+| permission limb removed from `allowsManagement()` | **2 tests fail** |
+| permission hoisted **above** `resolveStore()` (the named cross-tenant hole) | **1 test fails** — and *only* the gate-level one |
+| `isTenantOwner()` relaxed to `type === 'admin'` (the forbidden inference) | **nothing fails** |
+
+The second row is the finding. All **twelve** HTTP tests passed with the hole open, because no
+current route lets a caller name a store — the URL carries the theme and the store comes from the
+caller's own `current_store`. The hole is unreachable *today* and becomes reachable the moment any
+route accepts a store identifier, which M4 goes on to add. **An authorization rule tested only
+through the routes that currently exist is tested against today's call sites, not against the rule.**
+The gate-level test exists because of that.
+
+The third row is honest scope rather than a gap: `isTenantOwner()` is unreachable for a foreign
+store, because `resolveStore()` settles tenancy before it runs. Its conditions are defence in depth,
+and the code now says so rather than letting a green suite imply they are load-bearing.
 
 ### Not asked, because the code already settles it
 
