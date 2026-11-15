@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\Database\ThemeSchemaGuard;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -52,6 +53,26 @@ return new class extends Migration
 {
     public function up(): void
     {
+        /*
+         * A TABLE THAT ALREADY EXISTS IS NOT A TABLE THAT IS CORRECT -- and this used to be a blind
+         * `if (Schema::hasTable(...)) return;`.
+         *
+         * MySQL DDL is not transactional, so a migration that fails PART WAY leaves its CREATE TABLE
+         * committed and its constraints missing, and is not recorded as applied. The blind early
+         * return then made the next run report DONE in half a millisecond and record it, which made
+         * the gap PERMANENT. Reproduced on MariaDB 10.11.14; see `ThemeSchemaGuard`.
+         *
+         * `tpv_version_identity_foreign` is THE one. This migration's sibling calls it "the key that makes
+         * cross-tenant publication impossible, not merely unlikely", and a reproduction showed an
+         * interrupted migration leaving it permanently absent while `migrate` reported DONE.
+         */
+        ThemeSchemaGuard::assertCompatible(
+            'theme_published_versions',
+            ['store_id', 'theme_id', 'version_id'],
+            ['tpv_store_theme_unique', 'tpv_identity_index'],
+            ['tpv_store_id_foreign', 'tpv_version_identity_foreign']
+        );
+
         if (Schema::hasTable('theme_published_versions')) {
             return;
         }

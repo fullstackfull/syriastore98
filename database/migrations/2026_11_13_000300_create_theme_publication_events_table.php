@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\Database\ThemeSchemaGuard;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -56,6 +57,25 @@ return new class extends Migration
 {
     public function up(): void
     {
+        /*
+         * A TABLE THAT ALREADY EXISTS IS NOT A TABLE THAT IS CORRECT -- and this used to be a blind
+         * `if (Schema::hasTable(...)) return;`.
+         *
+         * MySQL DDL is not transactional, so a migration that fails PART WAY leaves its CREATE TABLE
+         * committed and its constraints missing, and is not recorded as applied. The blind early
+         * return then made the next run report DONE in half a millisecond and record it, which made
+         * the gap PERMANENT. Reproduced on MariaDB 10.11.14; see `ThemeSchemaGuard`.
+         *
+         * This table deliberately carries NO foreign key -- an audit log the audited tenant could cascade
+         * away is not an audit log -- so only its columns and indexes are asserted.
+         */
+        ThemeSchemaGuard::assertCompatible(
+            'theme_publication_events',
+            ['store_id', 'theme_id', 'version_id', 'action', 'payload_hash'],
+            ['tpe_store_theme_id_index', 'tpe_version_id_index'],
+            []
+        );
+
         if (Schema::hasTable('theme_publication_events')) {
             return;
         }

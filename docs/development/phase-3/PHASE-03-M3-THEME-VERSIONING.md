@@ -1642,3 +1642,82 @@ watch there: the `?Authenticatable $user` parameter decides both authorization *
 written into the audit event, so it must be `$request->user()` and never a user loaded from request
 input; and on the admin API, `ApiResponser::error()`'s HTTP 200 convention applies, where a new 401
 would log the shipped Flutter app out.
+
+---
+
+## 12. M3-E — an interrupted migration was a permanent, silent loss of the cross-tenant backstop
+
+The first thing M3-E's discovery looked at was the forward-migration path against live data. It found
+a defect in my own M3-B migrations, and it is the worst of this phase because **nothing would have
+reported it.**
+
+### What was there
+
+All three M3-B migrations opened with a blind early return:
+
+```php
+if (Schema::hasTable('theme_published_versions')) {
+    return;
+}
+```
+
+**MySQL DDL is not transactional.** A migration that fails part way leaves its `CREATE TABLE`
+committed and its constraints missing — and is *not* recorded as applied, so the next deployment
+attempts it again. Reproduced on MariaDB 10.11.14 with the partial table in place:
+
+```
+2026_11_13_000200_create_theme_published_versions_table ........ 0.54ms DONE
+exit 0
+
+SELECT constraint_name FROM information_schema.referential_constraints ...
+-> tpv_store_id_foreign            (and nothing else)
+```
+
+**`tpv_version_identity_foreign` was permanently absent while `migrate:status` showed green.** That
+is the constraint `2026_11_13_000100:167` calls *"THE KEY THAT MAKES CROSS-TENANT PUBLICATION
+IMPOSSIBLE, not merely unlikely"* — the engine-level backstop for the moment a hand-written
+`where('store_id', …)` is forgotten. Half a millisecond of "DONE" removed it for good, and recorded
+the migration so it could never repair itself.
+
+### Why I got it wrong, in one sentence
+
+`Schema::hasTable()` answers *"does a table of this name exist"*. The migration needed *"is this the
+table I would have created"*. **Those are different questions**, and conflating them is the same
+inverted-absence mistake this phase keeps recording: `PRAGMA index_list` reporting no index where
+InnoDB had one; `getGlobalScopes()` not answering "is it scoped"; and my own claim that
+`ThemeCustomizeOrder` was not in `scoped_models`.
+
+### The fix
+
+`App\Support\Database\ThemeSchemaGuard::assertCompatible()` — the same posture as
+`GateFSchemaGuard` and M3-D's `assertExistingColumnIsCompatible()`: it reads
+`information_schema`, names every disagreement, and **throws**. All three migrations call it before
+their early return. SQLite is exempt, narrowly and for a measured reason: `PRAGMA index_list` does
+not report the index InnoDB creates for a foreign key, so asserting constraint names there would
+fail against a database that is fine.
+
+Same database, after:
+
+```
+2026_11_13_000200_create_theme_published_versions_table ........ 4.17ms FAIL
+RuntimeException: `theme_published_versions` ALREADY EXISTS BUT IS NOT THE TABLE THIS
+  MIGRATION WOULD HAVE CREATED:
+  - foreign key `tpv_version_identity_foreign` is missing
+exit 1
+migrations row recorded: 0
+```
+
+It stops the deployment, names the constraint, and **leaves the migration unrecorded so it can be
+repaired**.
+
+### Evidence
+
+| | |
+|---|---|
+| `verify-interrupted-theme-migration-on-mysql.php` | **6 checks, 0 failed, 0 inconclusive** — fresh install carries the FK; a COMPLETE table is skipped not refused (idempotence); a PARTIAL table is refused, by name, non-zero exit, unrecorded |
+| falsification | guard call removed → **3 of 6 fail** |
+| census | `app` 176 → 178 and the total 221 → 223, with the two `information_schema` reads **classified** rather than counted: tables that have no `store_id`, parameterised on a literal table name, console-only, and able to produce exactly one outcome — a `RuntimeException` that stops the migration |
+
+The stale number in `RawQueryTenancyInventoryTest`'s method *name* is left alone deliberately and
+now says why: the name is an identity the known-outcome tooling matches on, so renaming it to chase
+the figure would change that identity for no behavioural gain.

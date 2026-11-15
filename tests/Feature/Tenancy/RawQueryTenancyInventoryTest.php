@@ -54,6 +54,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
      * builder, and the surrounding query still carries its scopes, so conflating the two would
      * overstate this inventory.
      */
+    /*
+     * THE NAME'S NUMBER IS STALE AND IS LEFT ALONE DELIBERATELY. It said 168 when written; the
+     * measured total has since moved to 223 through eleven recorded changes, each with its reason
+     * in the notes below. The name is an IDENTITY -- `.github/known-test-outcomes.json` and the
+     * gate script match tests by `Class::method` -- so renaming it to chase the number would change
+     * that identity for no behavioural gain. The assertions carry the real figures.
+     */
     public function test_the_raw_entry_point_totals_are_the_measured_one_hundred_and_sixty_eight(): void
     {
         $perDir = [];
@@ -400,7 +407,38 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // through Eloquent. The raw write did not invalidate the Cachable model, so the save never
         // reached the storefront -- measured on MariaDB with CACHE_STORE=database. One fewer raw
         // entry point is the point, not a side effect.
-        $this->assertSame(['app' => 176, 'packages' => 45], $perDir,
+        /*
+         * 176 -> 178 [P3-M3-E]: the two `information_schema` reads in
+         * `App\Support\Database\ThemeSchemaGuard`, which the three M3-B theme migrations now call
+         * instead of opening with a blind `if (Schema::hasTable(...)) return;`.
+         *
+         * CLASSIFIED, not merely counted, because that is what this census is for:
+         *
+         *   - They query `information_schema.statistics` and
+         *     `information_schema.referential_constraints`. **Those tables have no `store_id` and no
+         *     tenant**; they describe the SCHEMA, not any tenant's rows. A `store_id` predicate is
+         *     not merely unnecessary here, it is unexpressible.
+         *   - Both are parameterised on a TABLE NAME supplied by the migration as a literal. Nothing
+         *     caller-controlled reaches either query, and neither runs in a request: migrations run
+         *     from the console.
+         *   - Each can produce exactly one outcome -- a `RuntimeException` that STOPS the migration.
+         *     They feed no authorization decision and cannot admit anything.
+         *
+         * WHY THEY ARE RAW AT ALL, since the alternative was considered: `Schema::hasIndex()` does
+         * not exist in this Laravel version for the shapes needed (a named index and a named
+         * referential constraint), and the Doctrine-based introspection the schema builder would use
+         * reports a foreign key's auto-created index inconsistently -- which is the very thing being
+         * asserted. `information_schema` is the authority the engine itself answers from.
+         *
+         * WHAT THEY EXIST TO STOP, measured on MariaDB 10.11.14: MySQL DDL is not transactional, so
+         * an interrupted migration leaves its CREATE TABLE committed and its constraints missing.
+         * The blind early return then reported `DONE` in 0.54ms, exit 0, and RECORDED the migration
+         * -- leaving `tpv_version_identity_foreign` permanently absent while `migrate:status` showed
+         * green. That is the constraint the sibling migration calls "the key that makes cross-tenant
+         * publication impossible". With the guard the same database answers `FAIL`, names the missing
+         * foreign key, exits 1, and is NOT recorded, so it can be repaired.
+         */
+        $this->assertSame(['app' => 178, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -480,7 +518,11 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // carries a `store_id` predicate, so the UNSCOPED sum below does not move.
         // 221, DOWN FROM 222: one raw theme_customizes WRITE removed by P3-M3-C. See the
         // per-directory note above.
-        $this->assertSame(221, array_sum($perDir));
+        // 221 -> 223 [P3-M3-E]: ThemeSchemaGuard's two information_schema reads. Classified in full
+        // in the per-directory note above -- schema introspection on tables that HAVE no store_id,
+        // parameterised on a literal table name, reachable only from the console, and able to
+        // produce exactly one outcome: a RuntimeException that stops the migration.
+        $this->assertSame(223, array_sum($perDir));
     }
 
     /**
