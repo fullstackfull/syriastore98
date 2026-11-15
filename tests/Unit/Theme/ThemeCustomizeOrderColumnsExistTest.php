@@ -31,7 +31,19 @@ use PHPUnit\Framework\TestCase;
  */
 class ThemeCustomizeOrderColumnsExistTest extends TestCase
 {
-    private const CONTROLLER = 'app/Http/Controllers/ThemeCustomizeController.php';
+    /**
+     * EVERY FILE THAT QUERIES THE TABLE, not just the controller.
+     *
+     * A review found this ratchet had WEAKENED: M3-D moved the `where('theme_id', ...)` predicates
+     * out of the controller and into `ThemeCustomizeOrder::resolveFor()`, which the census did not
+     * read. It was not vacuous -- the controller's `updateOrCreate` still names the column, so it
+     * still failed if `theme_id` left the migration list -- but the queries that now carry the
+     * column were no longer being checked at all.
+     */
+    private const QUERY_FILES = [
+        'app/Http/Controllers/ThemeCustomizeController.php',
+        'app/Models/ThemeCustomizeOrder.php',
+    ];
     /**
      * EVERY migration that shapes this table, not just the one that created it.
      *
@@ -102,29 +114,47 @@ class ThemeCustomizeOrderColumnsExistTest extends TestCase
     public function test_no_query_against_the_table_names_a_column_it_does_not_have(): void
     {
         $columns = $this->columnsFromMigration();
-        $source = file($this->root() . '/' . self::CONTROLLER);
-
-        $this->assertNotFalse($source, self::CONTROLLER . ' is missing.');
-
         $offenders = [];
+        $statementsSeen = 0;
 
-        foreach ($source as $i => $line) {
-            if (! str_contains($line, 'ThemeCustomizeOrder::')) {
-                continue;
-            }
+        foreach (self::QUERY_FILES as $relative) {
+            $source = file($this->root() . '/' . $relative);
 
-            /* The statement can wrap, so take this line and the two after it. */
-            $statement = $line . ($source[$i + 1] ?? '') . ($source[$i + 2] ?? '');
+            $this->assertNotFalse($source, $relative . ' is missing.');
 
-            preg_match_all("/'([a-z_][a-z0-9_]*)'\s*=>/i", $statement, $assoc);
-            preg_match_all("/->where\s*\(\s*'([a-z_][a-z0-9_]*)'/i", $statement, $where);
+            $inModel = str_contains($relative, 'Models/');
 
-            foreach (array_merge($assoc[1], $where[1]) as $named) {
-                if (! in_array($named, $columns, true)) {
-                    $offenders[] = self::CONTROLLER . ':' . ($i + 1) . "  names '{$named}'";
+            foreach ($source as $i => $line) {
+                /* In the controller the queries are `ThemeCustomizeOrder::...`; inside the model
+                 * itself they are `static::query()`, so both spellings are looked for. */
+                if (! str_contains($line, 'ThemeCustomizeOrder::')
+                    && ! ($inModel && str_contains($line, 'static::query()'))) {
+                    continue;
+                }
+
+                $statementsSeen++;
+
+                /* A statement can wrap, so take this line and the four after it. */
+                $statement = $line;
+                for ($n = 1; $n <= 4; $n++) {
+                    $statement .= $source[$i + $n] ?? '';
+                }
+
+                preg_match_all("/'([a-z_][a-z0-9_]*)'\s*=>/i", $statement, $assoc);
+                preg_match_all("/->where(?:Null)?\s*\(\s*'([a-z_][a-z0-9_]*)'/i", $statement, $where);
+
+                foreach (array_merge($assoc[1], $where[1]) as $named) {
+                    if (! in_array($named, $columns, true)) {
+                        $offenders[] = $relative . ':' . ($i + 1) . "  names '{$named}'";
+                    }
                 }
             }
         }
+
+        $this->assertGreaterThanOrEqual(3, $statementsSeen,
+            'The census found almost no queries against this table, so the assertion below would '
+            . 'be vacuous. The query spellings, not the codebase, are the likely cause: '
+            . $statementsSeen . ' found.');
 
         $this->assertSame([], $offenders, sprintf(
             "A query against `theme_customize_orders` names a column the table does not have.\n  %s\n\n"

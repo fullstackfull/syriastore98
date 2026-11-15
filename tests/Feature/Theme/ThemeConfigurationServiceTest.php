@@ -565,4 +565,97 @@ class ThemeConfigurationServiceTest extends TestCase
             . 'problem this service did not create would hide it from '
             . 'report-theme-customize-duplicates.php instead of fixing it.');
     }
+
+    /* ============================================ updateDraft -- requirement 1's second half */
+
+    #[Test]
+    public function test_a_draft_can_be_revised_in_place_without_creating_a_new_version(): void
+    {
+        $draft = $this->service()->saveDraft(
+            $this->storeA->id, 'stylique', ['footer_description' => 'first attempt'], 'wip', $this->merchantA);
+
+        $this->assertNotNull($draft);
+
+        $countBefore = ThemeVersion::query()
+            ->where('store_id', $this->storeA->id)->where('theme_id', 'stylique')->count();
+
+        $revised = $this->service()->updateDraft(
+            $this->storeA->id, 'stylique', $draft->id,
+            ['footer_description' => 'second attempt'], 'wip 2', $this->merchantA);
+
+        $this->assertNotNull($revised, 'Refused: ' . var_export($this->service()->refusal(), true));
+
+        $this->assertSame($draft->id, $revised->id, 'Revising a draft created a NEW version. The '
+            . 'version history is meant to record what was PUBLISHED; filling it with keystrokes is '
+            . 'what this method exists to avoid.');
+        $this->assertSame($draft->version_no, $revised->version_no);
+        $this->assertSame('second attempt', $revised->settings()['footer_description'] ?? null);
+        $this->assertSame('wip 2', $revised->label);
+
+        $this->assertTrue($revised->hashIsIntact(),
+            'The payload was rewritten without its hash, so the stored evidence no longer matches '
+            . 'the stored content.');
+
+        $this->assertSame($countBefore, ThemeVersion::query()
+            ->where('store_id', $this->storeA->id)->where('theme_id', 'stylique')->count());
+    }
+
+    /**
+     * THE REFUSAL THAT MAKES VERSIONS MEAN ANYTHING. A publication event records a version's
+     * `payload_hash` as evidence of what went live. Editing a published version afterwards would
+     * make that record a lie -- and `hashIsIntact()` would still say the payload matched, because
+     * the hash is rewritten with it. So the immutability of a published version is not tidiness.
+     */
+    #[Test]
+    public function test_a_published_or_archived_version_cannot_be_edited(): void
+    {
+        $v1 = $this->service()->saveDraft(
+            $this->storeA->id, 'stylique', ['footer_description' => 'one'], null, $this->merchantA);
+        $v2 = $this->service()->saveDraft(
+            $this->storeA->id, 'stylique', ['footer_description' => 'two'], null, $this->merchantA);
+
+        $publisher = new \App\Services\Theme\ThemePublishingService();
+
+        $publisher->publish($this->storeA->id, 'stylique', $v1->id, $this->merchantA);
+        $publisher->publish($this->storeA->id, 'stylique', $v2->id, $this->merchantA, $v1->id);
+
+        /* v1 is now archived, v2 is published. Neither may be edited. */
+        foreach ([[$v1, 'archived'], [$v2, 'published']] as [$version, $what]) {
+            $service = $this->service();
+
+            $this->assertNull(
+                $service->updateDraft($this->storeA->id, 'stylique', $version->id,
+                    ['footer_description' => 'TAMPERED'], null, $this->merchantA),
+                "A {$what} version was edited in place. The publication event records its hash as "
+                . 'evidence of what went live.');
+
+            $this->assertStringContainsString('immutable', (string) $service->refusal());
+
+            $this->assertNotSame('TAMPERED',
+                ThemeVersion::ownedBy($this->storeA->id, 'stylique', $version->id)
+                    ?->settings()['footer_description'] ?? null);
+        }
+    }
+
+    #[Test]
+    public function test_updating_a_draft_respects_the_same_tenant_boundary(): void
+    {
+        $draft = $this->service()->saveDraft(
+            $this->storeA->id, 'stylique', ['footer_description' => 'A content'], null, $this->merchantA);
+
+        $this->assertNull(
+            $this->service()->updateDraft($this->storeA->id, 'stylique', $draft->id,
+                ['footer_description' => 'B edited this'], null, $this->merchantB),
+            "Merchant B revised merchant A's draft.");
+
+        $this->assertNull(
+            $this->service()->updateDraft(null, 'stylique', $draft->id,
+                ['footer_description' => 'operator edited this'], null, $this->operator),
+            'An operator with no store named revised a draft. getCurrentStore() would hand them '
+            . 'the literal store 1.');
+
+        $this->assertSame('A content',
+            ThemeVersion::ownedBy($this->storeA->id, 'stylique', $draft->id)
+                ?->settings()['footer_description'] ?? null);
+    }
 }

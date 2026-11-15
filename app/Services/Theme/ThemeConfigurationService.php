@@ -299,14 +299,132 @@ class ThemeConfigurationService
     /**
      * Is this a duplicate-key violation rather than some other integrity failure?
      *
-     * 23000 is the integrity-constraint class on both engines; the driver code distinguishes a
-     * duplicate key (1062 on MySQL/MariaDB, 19 on SQLite) from a foreign-key or NOT NULL failure,
-     * which must NOT be retried -- retrying those is an infinite loop around a real error.
+     * EXACT ON MySQL/MariaDB, COARSE ON SQLITE -- and an earlier version of this note claimed the
+     * distinction held on both, which a review disproved.
+     *
+     *   MySQL/MariaDB  1062 duplicate key, 1452 foreign key, 1048 NOT NULL -- distinct codes, so
+     *                  this really does tell a duplicate from an integrity failure that must NOT
+     *                  be retried.
+     *   SQLite         pdo_sqlite reports the PRIMARY result code `SQLITE_CONSTRAINT = 19` with
+     *                  SQLSTATE 23000 for EVERY constraint class. The extended codes (2067 unique,
+     *                  787 foreign key, 1299 NOT NULL) do not reach `errorInfo[1]`, so on the
+     *                  engine the suite runs on this cannot distinguish them.
+     *
+     * WHAT ACTUALLY BOUNDS THE RETRY, therefore: the attempt cap in `saveDraft()`, not this
+     * classification. A misclassified foreign-key failure there would be retried up to five times
+     * and then rethrown unchanged -- wasteful, not a hang, and not an infinite loop.
+     *
+     * AND A TEST OF THAT DISTINCTION BELONGS IN THE MySQL HARNESS, not the suite: a SQLite test
+     * written to prove "an FK violation is rethrown rather than retried" would pass for the wrong
+     * reason, because every constraint class arrives as 19.
      */
     private function isUniqueViolation(\Illuminate\Database\QueryException $e): bool
     {
         return ($e->errorInfo[0] ?? null) === '23000'
             && in_array((int) ($e->errorInfo[1] ?? 0), [1062, 19], true);
+    }
+
+    /**
+     * REVISE AN EXISTING DRAFT IN PLACE. Requirement 1 of the M3-D directive is "create **and
+     * update** drafts", and only the first half existed.
+     *
+     * WHY IT HAS TO EXIST RATHER THAN BEING SATISFIED BY `saveDraft()`. Every `saveDraft()` call
+     * allocates a new `version_no`, so a merchant who edits and saves five times leaves five
+     * versions, and the version history -- which is meant to be a record of what was PUBLISHED --
+     * fills up with keystrokes. An editor needs one working draft it can revise until it is
+     * published.
+     *
+     * AND WHAT IT REFUSES, which is the part that keeps versions meaningful: **only a version whose
+     * status is `draft` can be revised.** A published or archived version is immutable, because the
+     * publication event records its `payload_hash` as evidence of what went live -- editing it
+     * afterwards would make that record a lie, and `hashIsIntact()` would still say the payload
+     * matched, since the hash is rewritten with it. So the refusal is not tidiness; it is what makes
+     * the audit trail worth having.
+     *
+     * The live pointer is checked too, belt and braces: a version the pointer names must not be
+     * editable even if its status column somehow disagrees.
+     */
+    public function updateDraft(
+        mixed $storeId,
+        string $themeId,
+        int $versionId,
+        array $settings,
+        ?string $label = null,
+        ?Authenticatable $user = null
+    ): ?ThemeVersion {
+        $this->rejected = [];
+        $this->refusal = null;
+
+        $user ??= Auth::user();
+        $store = $this->gate->resolveStore($storeId, $user);
+
+        if (! $store || ! $this->gate->allows($store->id, $user)) {
+            $this->refusal = $this->gate->reason() ?? 'not permitted';
+
+            return null;
+        }
+
+        $themeId = $this->resolveThemeId($themeId, (string) $store->theme_id);
+
+        if ($themeId === null) {
+            return null;
+        }
+
+        $storeKey = (int) $store->id;
+        $version = ThemeVersion::ownedBy($storeKey, $themeId, $versionId);
+
+        if ($version === null) {
+            $this->refusal = 'no such version for this store and theme';
+
+            return null;
+        }
+
+        if ($version->status !== ThemeVersion::STATUS_DRAFT) {
+            $this->refusal = sprintf(
+                'version %d is %s, not a draft; a published or archived version is immutable '
+                . 'because a publication event records its hash as evidence of what went live',
+                $version->version_no, $version->status);
+
+            return null;
+        }
+
+        $live = ThemePublishedVersion::liveFor($storeKey, $themeId);
+
+        if ($live && (int) $live->version_id === (int) $version->id) {
+            /* Unreachable through this service -- publishing sets the status -- but a row written by
+             * an import or a restore could disagree, and the pointer is the authority on what is
+             * live. */
+            $this->refusal = 'that version is currently published and cannot be edited';
+
+            return null;
+        }
+
+        $accepted = $this->validator->validate($themeId, $settings);
+        $this->rejected = $this->validator->errors();
+
+        if ($this->rejected !== [] && $accepted === []) {
+            $this->refusal = 'every posted field was rejected';
+
+            return null;
+        }
+
+        $payload = ThemePayload::encode($accepted);
+
+        /*
+         * The hash is recomputed with the payload. A draft has no publication event vouching for
+         * it, so there is nothing for the two to drift from -- which is exactly why only a draft may
+         * take this path.
+         */
+        $version->payload = $payload;
+        $version->payload_hash = hash('sha256', $payload);
+
+        if ($label !== null) {
+            $version->label = $label;
+        }
+
+        $version->save();
+
+        return $version->fresh();
     }
 
     /**

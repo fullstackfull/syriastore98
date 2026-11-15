@@ -280,8 +280,38 @@ class ThemeCustomizeController extends Controller
              * THEMES. `resolveFor()` is the fix for that, and it carries the NULL-means-fallback
              * rule in one place.
              */
-            $theme_order = ThemeCustomizeOrder::resolveFor(
-                (int) getCurrentStore(), (string) $theme, $slug);
+            /*
+             * THROUGH THE GATE, NOT `getCurrentStore()` -- a review correction, and the asymmetry
+             * was mine.
+             *
+             * The first M3-D version of this line passed `(int) getCurrentStore()`, the resolver
+             * this whole phase exists to remove, while its write sibling `updateOrder()` fifty
+             * lines down proved ownership through `ThemeEditorGate`. `getCurrentStore()` hands an
+             * operator with an empty `current_store` the literal store 1, which belongs to a
+             * MERCHANT.
+             *
+             * It was LATENT rather than live, and the reason is worth knowing because it is not in
+             * this handler: the `isAbleTo('Manage Themes')` check above is what currently keeps the
+             * operator out, since the super-admin role is not granted that permission by
+             * `Utility::addNewData()` (`$superadminNewPermission` does not contain it). So the only
+             * thing standing between a support engineer and a merchant's section ordering was an
+             * entry missing from a SEED LIST -- grant that permission, or give a support user the
+             * `admin` role, and this line would have resolved store 1 immediately.
+             *
+             * A tenant boundary that depends on a seed list is not a tenant boundary. The gate
+             * proves ownership of whatever it returns and refuses an operator who has named no
+             * store, and `$theme` is validated against the shipped catalog for the same reason
+             * `updateOrder()` validates it.
+             */
+            $gate = new \App\Support\Theme\ThemeEditorGate();
+            $orderStoreId = $gate->storeIdForSelfService();
+            $theme_order = null;
+
+            if ($orderStoreId !== null
+                && $gate->allows($orderStoreId)
+                && in_array($theme, \App\Support\Theme\ThemeFieldCatalog::themes(), true)) {
+                $theme_order = ThemeCustomizeOrder::resolveFor($orderStoreId, (string) $theme, $slug);
+            }
             if (! empty($theme_order)) {
                 $orders = $theme_order->orders;
             }

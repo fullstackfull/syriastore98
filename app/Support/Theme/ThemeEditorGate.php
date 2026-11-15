@@ -218,9 +218,22 @@ final class ThemeEditorGate
          *   - so a non-operator that gets past `resolveStore()` always satisfies `ownsStore()`,
          *     and an operator returned earlier.
          *
-         * Dead code shaped like an authorization check is worse than no code: the next reader
-         * believes `Manage Themes` restricts something. It restricts nothing -- measured at M3-A,
-         * no role and no user holds it, and `Edit Theme` is not a permission row at all.
+    * Dead code shaped like an authorization check is worse than no code: the next reader
+         * believes `Manage Themes` restricts something HERE. It does not -- the limb was
+         * unreachable.
+         *
+         * BUT `Manage Themes` IS A LIVE PERMISSION, and an earlier version of this note got that
+         * wrong in the direction that matters. It said the permission "is held by no role and no
+         * user", which is true of the TEST FIXTURE only. In production `Utility::addNewData()`
+         * grants it to the shared global role named `admin` -- the name is in
+         * `$companyNewPermission` (`Utility.php:3259`) and granted at `:3287-3292` to
+         * `Role::where('name','LIKE','admin')->first()`, and `addNewData()` runs on login and on
+         * registration. So every merchant on that role holds it, and the four GET theme actions
+         * that check it are a live surface, not dead code.
+         *
+         * The distinction matters because `ThemeCustomizeController::changeOrder()` is guarded by
+         * that permission and by nothing else: a reader who deleted the check as "dead" would open
+         * it. `Edit Theme` genuinely is not a permission row.
          *
          * WHAT ACTUALLY ENTITLES, stated plainly: tenant-root resolution. A merchant and EVERY user
          * they created -- staff included, with no permission of any kind -- may edit that tenant's

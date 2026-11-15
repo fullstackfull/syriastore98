@@ -1550,3 +1550,95 @@ lifecycle flush no longer happens on either path. That is not a regression — i
 **post-commit flush the only invalidation**, which is the one that is actually correct under
 concurrency. Re-falsified after the change: removing `DB::afterCommit` still fails the cache
 harness's check 4, and the publish concurrency harness is 20/0/0 over four further runs.
+
+### 11.4 M3-D independent review — and the claim of mine that was backwards
+
+Verdict: **the publish surface is clean.** The reviewer could not construct a principal reaching a
+store, version, draft or history it does not own, and traced each of the six questions put to it
+rather than agreeing. Three findings, plus two corrections to facts I had asserted.
+
+#### F1 — `ThemeCustomizeOrder` **is** in `scoped_models`. I said it was not, in three places.
+
+My docblock, my test comment and my brief to the reviewer all stated that
+`theme_customize_orders` is **not** in `config/tenancy.php`'s `scoped_models`, and that the caller's
+predicate is therefore the only tenant boundary. **Verified myself after the review raised it:**
+
+```
+config/tenancy.php:176          App\Models\ThemeCustomizeOrder::class,   (with a justification at :170-175)
+ThemeCustomizeOrder             use Cachable, BelongsToStore;
+getGlobalScopes()               App\Scopes\StoreScope
+```
+
+It is scoped. This is exactly the inverted-absence claim CLAUDE.md's *"check before asserting
+absence"* rule exists for, and I made it while writing a milestone whose whole subject is tenancy.
+
+**Nothing is broken by it**, and the reviewer traced that rather than assuming: the scope's
+admissible set is `{current_store} ∪ {stores created_by = creatorId()}`, both call sites pass an id
+that is always a member, and for an operator the scope adds nothing. Predicate and scope agree. In
+`ThemeOrderResolutionTest` no principal is authenticated, so the scope is unresolved and
+`null_tenant => 'open'` adds no predicate — which means those assertions really are proving the
+explicit filter. **The tests were honest; the reason printed inside them was not.** All three
+statements corrected.
+
+#### F2 — the one new store-id derivation in M3-D used `getCurrentStore()`
+
+`changeOrder()` resolved its tenant with `(int) getCurrentStore()` while its write sibling fifty
+lines down proved ownership through the gate. My asymmetry.
+
+**Latent, not live — and the reason is not in the handler.** `isAbleTo('Manage Themes')` above it
+keeps the operator out, because `Utility::addNewData()`'s `$superadminNewPermission` does not contain
+that permission. **So the only thing between a support engineer and a merchant's section ordering was
+an entry missing from a seed list.** A tenant boundary that depends on a seed list is not a tenant
+boundary. Now resolved through `ThemeEditorGate` with the theme catalog-validated, as its sibling
+already was.
+
+#### Correction — `Manage Themes` IS held in production. My gate docblock said no role holds it.
+
+That measurement was from the **test fixture**. In production `Utility::addNewData()` grants it to
+the shared global role named `admin` — the name is in `$companyNewPermission` (`Utility.php:3259`),
+granted at `:3287-3292` to `Role::where('name','LIKE','admin')->first()`, and `addNewData()` runs on
+login and registration. **Verified.** So every merchant on that role holds it and the four GET theme
+actions are a live surface.
+
+Wrong in the direction that matters: a reader who believed the check was dead code could delete it,
+and it is the only thing keeping an operator off `changeOrder()`. Deleting the permission *limb* from
+`allows()` remains correct — its unreachability argument stands — but the sentence has been narrowed
+to what was actually measured. `Edit Theme` genuinely is not a permission row.
+
+#### F3 — `isUniqueViolation()` cannot distinguish constraint classes on SQLite
+
+The docblock claimed `19 on SQLite` identified a duplicate key specifically. It does not: pdo_sqlite
+reports `SQLITE_CONSTRAINT = 19` with SQLSTATE 23000 for **every** constraint class, and the extended
+codes never reach `errorInfo[1]`. Exact on MySQL/MariaDB (1062 / 1452 / 1048), coarse on the engine
+the suite runs on.
+
+Bounded, and the reviewer checked the bound rather than asserting safety: the attempt cap in
+`saveDraft()` is what prevents a loop, not the classification; the only unique index reachable inside
+`apply()`'s transaction is `tpv_store_theme_unique`, where a duplicate genuinely *is* a concurrent
+publisher; and authorization is decided **before** the `try`, so a misclassification can only turn
+one refusal into a differently-worded refusal, never into an allow. Both docblocks narrowed.
+
+#### A ratchet of mine had weakened, and the review caught it
+
+`ThemeCustomizeOrderColumnsExistTest` scanned only the controller — and M3-D moved the
+`where('theme_id', …)` predicates **out** of it into `ThemeCustomizeOrder::resolveFor()`. Not
+vacuous (the controller's `updateOrCreate` still named the column) but the queries that now carry it
+were unchecked. The census reads both files, handles `static::query()` and `whereNull`, and carries a
+non-vacuity premise. Falsified: a bogus column in the **model** now fails it with file and line.
+
+#### Recorded, deliberately not changed
+
+| item | why |
+|---|---|
+| `themeCustomize():61` still uses `getCurrentStore()` | **Pre-existing, not M3-D's.** Same latent shape, same permission guard, but it is a GET display path whose callers I have not measured, and the directive warns against rewriting legacy tenancy behaviour without doing so. **For M4**, which owns the visual editor. |
+| a refused publish leaves no trace | `apply()` returns null with a reason and logs nothing, so a cross-tenant attempt is invisible afterwards. The sibling path already logs its refusal with `auth()->id()`. This belongs in the controller that wires publishing up — **which does not exist yet**. For M4. |
+
+#### The framing to carry into M4, stated plainly
+
+**Nothing routes to `ThemePublishingService`.** Its only callers are its own test file and the
+concurrency harness — verified. So the whole publish surface is **correct and latent**, and the
+controller that exposes it is where the request-input question is actually decided. Two shapes to
+watch there: the `?Authenticatable $user` parameter decides both authorization *and* the `actor_id`
+written into the audit event, so it must be `$request->user()` and never a user loaded from request
+input; and on the admin API, `ApiResponser::error()`'s HTTP 200 convention applies, where a new 401
+would log the shipped Flutter app out.

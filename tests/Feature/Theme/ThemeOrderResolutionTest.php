@@ -140,9 +140,11 @@ class ThemeOrderResolutionTest extends TestCase
         ]);
 
         $this->assertNull(ThemeCustomizeOrder::resolveFor($this->storeB->id, 'stylique', 'home'),
-            "Store B resolved store A's ordering. `theme_customize_orders` is NOT in "
-            . "config/tenancy.php's scoped_models, so the explicit store_id predicate is the only "
-            . 'tenant boundary there is.');
+            "Store B resolved store A's ordering. (This message used to say the table is NOT in "
+            . "config/tenancy.php's scoped_models. It IS -- config/tenancy.php:176 -- and the model "
+            . 'carries StoreScope. The assertion is still sound: no principal is authenticated in '
+            . "this test, so the scope is unresolved and `null_tenant => 'open'` adds no predicate, "
+            . 'which means the explicit store_id filter really is what refuses store B here.)');
     }
 
     #[Test]

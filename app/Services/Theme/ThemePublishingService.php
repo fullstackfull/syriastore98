@@ -599,10 +599,20 @@ class ThemePublishingService
             || ($e->errorInfo[0] ?? null) === '40001';
     }
 
+    /**
+     * EXACT ON MySQL/MariaDB, COARSE ON SQLITE. 1062 / 1452 / 1048 are distinct codes there; on
+     * SQLite pdo_sqlite reports `SQLITE_CONSTRAINT = 19` with SQLSTATE 23000 for EVERY constraint
+     * class, so this cannot tell a duplicate from a foreign-key or NOT NULL failure on the engine
+     * the suite runs on. A review disproved the earlier claim that it could.
+     *
+     * No consequence here, and I checked rather than assumed: the only unique index reachable
+     * inside `apply()`'s transaction is `tpv_store_theme_unique`, where a duplicate genuinely IS a
+     * concurrent publisher. `theme_publication_events` has no unique index and `theme_customizes`
+     * deliberately has none. Authorization is decided before the `try`, so a misclassification can
+     * only ever turn one refusal into a differently-worded refusal -- never into an allow.
+     */
     private function isUniqueViolation(QueryException $e): bool
     {
-        /* 23000 covers both engines' integrity-constraint class; the driver code distinguishes a
-         * duplicate key (1062 on MySQL, 19 on SQLite) from other integrity failures. */
         return ($e->errorInfo[0] ?? null) === '23000'
             && in_array((int) ($e->errorInfo[1] ?? 0), [1062, 19], true);
     }
