@@ -18,6 +18,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        /*
+         * PHASE 03 M4-5. `scoped`, NOT `singleton`: this holds an unpublished draft, and a
+         * singleton survives between requests in a worker that keeps the application alive
+         * (Octane, queue workers). A draft leaking into an anonymous shopper's request is the one
+         * failure the preview slice exists to prevent, and shared state is how it would happen.
+         */
+        $this->app->scoped(\App\Support\Theme\ThemePreviewContext::class);
+
         $this->app->singleton('module', function ($app) {
             return new Module();
         });

@@ -3537,6 +3537,24 @@ if (! function_exists('getWebNavMenu')) {
 if (! function_exists('getThemeSetting')) {
     function getThemeSetting($storeId, $theme)
     {
+        /*
+         * PHASE 03 M4-5 — THE DRAFT PREVIEW SEAM, and it is here for a measured reason rather than
+         * convenience. A draft cannot be handed in from a controller: `ViewServiceProvider:23`
+         * composes the storefront layout and at `:65` RECOMPUTES `$themeSettings` by calling this
+         * function, so controller data is silently overwritten. Below this line is the only place
+         * nothing can overwrite.
+         *
+         * It is armed only by `ThemeDraftPreviewController` after authorization, for exactly one
+         * `(store, theme)` pair, and the context is bound `scoped` so it cannot survive the
+         * request. Every other caller -- the 75 anonymous storefront routes included -- gets null
+         * back and reads the live projection exactly as before.
+         */
+        $preview = app(\App\Support\Theme\ThemePreviewContext::class)->settingsFor($storeId, $theme);
+
+        if ($preview !== null) {
+            return $preview;
+        }
+
         $defaultSettings = [];
         $defaultSettingsPath = base_path('themes/'.$theme.'/default_data/settings.php');
 
