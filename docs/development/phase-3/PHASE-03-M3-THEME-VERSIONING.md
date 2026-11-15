@@ -1863,8 +1863,28 @@ pass" is not evidence.
 | `verify-theme-cache-flush-after-commit-on-mysql.php` | **4 checks, 0 failed, 0 inconclusive** |
 | | **50 checks, 0 failed** |
 
-**The suites, locally:** Unit **1797 passed, 1 skipped** (15609 assertions); Contract **44 passed**
-(179 assertions); the theme suites specifically **338 passed** (4251 assertions).
+**The suites, locally.** Unit **1797 passed, 1 skipped** (15609 assertions); Contract **44 passed**
+(179 assertions); the theme suites specifically **338 passed** (4251 assertions). And the Feature
+suite with the blocking gate, run end to end:
+
+```
+Tests:  2 failed, 1 skipped, 8665 passed (44255 assertions)   Duration: 1486.62s
+
+KNOWN-OUTCOME GATE
+  testcases observed : 8668  (manifest floor 1000)
+  failures observed  : 2     (manifest declares 2)
+  errors observed    : 0     (always expected: 0)
+  skips observed     : 1     (manifest declares 1)
+OK: the observed outcome set matches the manifest exactly -- 2 declared failures,
+    1 declared skips, 0 errors, and nothing undeclared.
+exit 0
+```
+
+The gate prints its own disclaimer and it is worth repeating rather than paraphrasing: *"This is NOT
+a statement that the suite is green. It is a statement that the suite is failing and skipping
+exactly the tests the project has recorded, for the reasons it has recorded."* The passing count
+rose from M3-C's 8628 to 8665 because M3-D and M3-E added tests; the **outcome set** did not move,
+which is the property the gate actually guards.
 
 **And the gate in CI, which is the one that counts.** Local runs are not evidence that CI passes —
 that was the whole reason PR #138 was opened. On `ad996a46` the four blocking steps of the required
