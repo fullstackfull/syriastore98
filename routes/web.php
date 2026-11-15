@@ -124,6 +124,7 @@ use App\Http\Controllers\PowertranzPaymentController;
 use App\Http\Controllers\SSLCommerzPaymentController;
 use App\Http\Controllers\PaymentSettingController;
 use App\Http\Controllers\ThemeCustomizeController;
+use App\Http\Controllers\ThemeVersionController;
 use App\Http\Controllers\DeliverySyriaController;
 use App\Http\Controllers\OtpIntegrationController;
 use App\Http\Controllers\StoreFinanceController;
@@ -1464,6 +1465,22 @@ Route::get(
         Route::get('theme-customize/{theme}/pages/order/{slug?}/{sub_slug?}', [ThemeCustomizeController::class, 'changeOrder'])->name('theme.customize.order');
         Route::post('theme-customize/{theme}/order/update', [ThemeCustomizeController::class, 'updateOrder'])->name('theme.customize.update.order');
         Route::post('theme-preview/make-active', [ThemeCustomizeController::class, 'makeActiveTheme'])->name('theme-preview.make-active');
+
+        /*
+         * PHASE 03 M4-6 -- PUBLISH, ROLLBACK AND HISTORY. `ThemePublishingService` has existed
+         * since M3-D with NO production caller; this is its front door, inside the same
+         * `theme.editor` boundary as every other theme route.
+         *
+         * NO `theme-preview/` PREFIX, deliberately. `theme-preview/make-active` above already owns
+         * part of it and the vendored WorkDo `ThemeCustomizer` owns `theme-preview/{theme?}/
+         * change-style` and `theme-preview-content/{theme?}`. A later declaration REPLACES an
+         * earlier one for the same method+URI and silently drops its middleware -- and no WorkDo
+         * module loads in a test run without an `add_on_managers` row, so a collision there is
+         * invisible in CI and live in production.
+         */
+        Route::post('theme-version/{theme}/publish', [ThemeVersionController::class, 'publish'])->name('theme.version.publish');
+        Route::post('theme-version/{theme}/rollback', [ThemeVersionController::class, 'rollback'])->name('theme.version.rollback');
+        Route::get('theme-version/{theme}/history', [ThemeVersionController::class, 'history'])->name('theme.version.history');
     });
 
   // ===================================================================
