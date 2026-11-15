@@ -215,30 +215,73 @@ class ThemeConfigurationService
         $hash = hash('sha256', $payload);
         $actor = $user && isset($user->id) ? (int) $user->id : null;
 
-        return DB::transaction(function () use ($storeKey, $themeId, $payload, $hash, $label, $actor) {
-            /*
-             * The version number is allocated inside the transaction, with a row lock on the
-             * existing versions of this (store, theme) so two concurrent saves cannot both read
-             * "max + 1". `tv_store_theme_version_unique` refuses the loser regardless -- the lock
-             * turns a 500 into a correct second version. M3-E proves the race.
-             */
+        /*
+         * THE VERSION NUMBER IS ALLOCATED OPTIMISTICALLY, AND THE EARLIER PESSIMISTIC LOCK WAS A
+         * MEASURED DEFECT IN THIS METHOD.
+         *
+         * It used to read `max(version_no)` with `lockForUpdate()` inside the transaction, so that
+         * two concurrent draft saves could not both read the same "max + 1". That reasoning was
+         * right about two draft saves and wrong about everything else, because the lock is over the
+         * `theme_versions` rows of a (store, theme) -- the SAME rows `ThemePublishingService`
+         * updates when it marks a version published, and holds until its own commit.
+         *
+         * MEASURED by `verify-theme-publish-concurrency-on-mysql.php`, scenario 3, which exists
+         * because the M3-D directive asked for "draft save vs publish":
+         *
+         *     SQLSTATE[HY000]: General error: 1205 Lock wait timeout exceeded
+         *     select max(`version_no`) ... where store_id = ? and theme_id = ? for update
+         *
+         * So a merchant pressing "Save draft" while a publish was open waited out
+         * `innodb_lock_wait_timeout` -- fifty seconds by default -- and then got a 500. A draft save
+         * has no business contending with a publish at all: it only needs a free number.
+         *
+         * `tv_store_theme_version_unique` was ALWAYS the real arbiter; the lock merely avoided ever
+         * meeting it. Meeting it and retrying is correct, takes no lock on the range, and cannot
+         * block on an unrelated operation. The attempt limit is finite rather than `while (true)`:
+         * an unbounded retry against a persistent collision is a hang, which is the failure this
+         * change is removing.
+         */
+        $attempts = 0;
+
+        while (true) {
+            $attempts++;
+
             $next = 1 + (int) ThemeVersion::query()
                 ->where('store_id', $storeKey)
                 ->where('theme_id', $themeId)
-                ->lockForUpdate()
                 ->max('version_no');
 
-            return ThemeVersion::create([
-                'store_id'     => $storeKey,
-                'theme_id'     => $themeId,
-                'version_no'   => $next,
-                'status'       => ThemeVersion::STATUS_DRAFT,
-                'label'        => $label,
-                'payload'      => $payload,
-                'payload_hash' => $hash,
-                'created_by'   => $actor,
-            ]);
-        });
+            try {
+                return DB::transaction(static fn (): ThemeVersion => ThemeVersion::create([
+                    'store_id'     => $storeKey,
+                    'theme_id'     => $themeId,
+                    'version_no'   => $next,
+                    'status'       => ThemeVersion::STATUS_DRAFT,
+                    'label'        => $label,
+                    'payload'      => $payload,
+                    'payload_hash' => $hash,
+                    'created_by'   => $actor,
+                ]));
+            } catch (\Illuminate\Database\QueryException $e) {
+                /* Someone else took this number. Read the new maximum and try again. */
+                if (! $this->isUniqueViolation($e) || $attempts >= 5) {
+                    throw $e;
+                }
+            }
+        }
+    }
+
+    /**
+     * Is this a duplicate-key violation rather than some other integrity failure?
+     *
+     * 23000 is the integrity-constraint class on both engines; the driver code distinguishes a
+     * duplicate key (1062 on MySQL/MariaDB, 19 on SQLite) from a foreign-key or NOT NULL failure,
+     * which must NOT be retried -- retrying those is an infinite loop around a real error.
+     */
+    private function isUniqueViolation(\Illuminate\Database\QueryException $e): bool
+    {
+        return ($e->errorInfo[0] ?? null) === '23000'
+            && in_array((int) ($e->errorInfo[1] ?? 0), [1062, 19], true);
     }
 
     /**

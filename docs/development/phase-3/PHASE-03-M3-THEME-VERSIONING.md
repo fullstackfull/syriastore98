@@ -1422,3 +1422,89 @@ justified** and step 2 stands.
 **Rollback plan.** `migrate:rollback --step=1`. Measured above: no `orders` value is lost; theme
 attribution is. A store that had per-theme ordering comes back with several rows per
 `(store_id, page_slug)` and pre-M3-D code resolves that with `->first()`. Recoverable and visible.
+
+### 11.2 The publishing races — and the two production defects they found in my own service
+
+`verify-theme-publish-concurrency-on-mysql.php`: two real processes, file semaphores rather than
+sleeps, production's `sql_mode = NO_ENGINE_SUBSTITUTION`, and `MODEL_CACHE_STORE=file` (the database
+store's flush is transactional, so the race it closes cannot occur there — M3-C measured that).
+
+**Why none of it can be a Feature test.** Every claim is about what a *second* principal sees while a
+*first* holds a transaction open. `RefreshDatabase` gives one connection, and worse, a
+single-connection reader sees its own uncommitted writes — so a "the reader never sees half a
+publish" assertion passes whether or not the control exists.
+
+| scenario | what it proves |
+|---|---|
+| 1. publisher vs publisher | exactly one of two concurrent first-publishes is accepted, the loser is **told**, one pointer row, one history row |
+| 2. publisher vs storefront reader | a second connection sees neither the uncommitted projection write nor the pointer move — **the storefront never sees a partially published configuration** |
+| 3. draft save vs an open publish | a draft save is not blocked, and does not wait on a lock |
+| 4. a failed publish | projection, pointer and history byte-identical; the abandoned version still a draft |
+| 5. cache repopulation before commit | the stale entry a concurrent reader cached pre-commit is cleared after it |
+| 6. a contended rollback | exactly one of a rollback and a concurrent publish is accepted; pointer and projection still agree |
+
+**20 checks, 0 failed, 0 inconclusive — over eight consecutive runs.** Falsified: removing the
+conflict check fails 4, restoring the pessimistic lock aborts the run, removing the post-commit
+flush fails 3.
+
+#### Defect 1 — a draft save blocked behind an open publish and died after 50 seconds
+
+Scenario 3 exists because the directive listed "draft save vs publish". It failed immediately:
+
+```
+SQLSTATE[HY000]: General error: 1205 Lock wait timeout exceeded
+select max(`version_no`) ... where store_id = ? and theme_id = ? for update
+```
+
+`saveDraft()` allocated `version_no` under `lockForUpdate()` over the `theme_versions` range —
+**the same rows a publish updates when it marks a version published, and holds until commit.** The
+reasoning was right about two draft saves and wrong about everything else. In production a merchant
+pressing *Save draft* during a publish waited out `innodb_lock_wait_timeout` and got a 500.
+
+`tv_store_theme_version_unique` was always the real arbiter; the lock merely avoided ever meeting
+it. Allocation is now optimistic — read the max, insert, retry on the unique violation, bounded at
+five attempts. No lock on the range, so no contention with an unrelated operation.
+
+#### Defect 2 — a deadlock victim got a 500 instead of the refusal the service promises
+
+After that fix the harness still failed **intermittently**: two runs in four. Three wrong
+explanations were tried and discarded before the right one, and the discarded ones matter because
+each looked plausible:
+
+1. *Model-cache contamination across runs.* Real — `MODEL_CACHE_STORE=file` persists between runs
+   and laravel-model-caching's keys do not include the database name, so a fresh run's first read hit
+   a previous run's rows from a database that no longer existed. The harness now clears the store
+   first and asserts it started empty. **It was not the cause of the intermittency**, but a harness
+   that inherits another run's cache could as easily make a broken control look fine.
+2. *The `.gitkeep` placeholder* counted as a surviving cache file, so the new premise failed against
+   a cache that was genuinely empty — the harness contaminating its own measurement.
+3. Only then, capturing a failing run rather than re-running until green:
+
+```
+THREW: Illuminate\Database\DeadlockException:
+SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get lock
+```
+
+**Both transactions take `lockForUpdate()` on a pointer row that does not exist yet**, which under
+REPEATABLE READ is a gap lock on the unique index range. Two gap locks on the same range coexist;
+the insert-intention locks that follow do not. Each waits for the other's gap, InnoDB kills one —
+*before* anyone reaches the duplicate key. Which path a race takes is timing, which is why it showed
+up in half the runs and would have shown up in production as an occasional 500 on *Publish*.
+
+And the fix took two attempts, because adding the deadlock codes to the existing handler **changed
+nothing**:
+
+```
+Illuminate\Database\DeadlockException extends PDOException
+class_parents() -> PDOException -> RuntimeException -> Exception
+is_a(..., QueryException::class) -> NO
+```
+
+**Laravel's deadlock exception sits outside the `QueryException` hierarchy**, so
+`catch (QueryException $e)` cannot see it. Any handler anywhere that catches `QueryException` to deal
+with concurrency has the same hole. The catch is now `Throwable` with explicit classification —
+deadlock, lock-wait timeout, or duplicate key refuse; everything else is rethrown unchanged.
+
+A deadlock is **not** retried automatically: the caller holds an expectation about which version is
+live, and a silent retry would re-run the publish against a world that just changed underneath it.
+The optimistic check would usually catch that, and "usually" is not a property to build a publish on.

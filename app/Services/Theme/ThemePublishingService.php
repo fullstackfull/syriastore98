@@ -10,6 +10,7 @@ use App\Support\Theme\ThemeEditorGate;
 use App\Support\Theme\ThemeFieldCatalog;
 use App\Support\Theme\ThemeSettingValidator;
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Database\DeadlockException;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -407,16 +408,60 @@ class ThemePublishingService
                     'keysNotInSnapshot' => $keysNotInSnapshot,
                 ];
             });
-        } catch (QueryException $e) {
+        } catch (\Throwable $e) {
             /*
-             * The unique index on `(store_id, theme_id)` is the backstop behind the gap lock. If two
-             * first-publishes ever do get past it, the loser arrives here and is told so, rather
-             * than answering 500 to a merchant who pressed Publish at the same moment as a
-             * colleague.
+             * EVERY WAY TWO CONCURRENT PUBLISHERS CAN COLLIDE ENDS AS A REFUSAL, NOT A 500 -- and
+             * the deadlock case was MEASURED here after being missed.
+             *
+             * The first version of this catch handled only the duplicate key (1062), reasoning that
+             * the unique index on `(store_id, theme_id)` was the backstop behind the gap lock.
+             * `verify-theme-publish-concurrency-on-mysql.php` scenario 1 then failed INTERMITTENTLY
+             * -- two runs in four -- on the check that says the loser is told rather than answering
+             * 500:
+             *
+             *     THREW: Illuminate\Database\DeadlockException:
+             *     SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get
+             *     lock; try restarting transaction
+             *
+             * WHY, and it is the gap lock's own doing. Both transactions take `lockForUpdate()` on a
+             * pointer row that does not exist yet, which under REPEATABLE READ is a gap lock on the
+             * unique index range. Two gap locks on the same range COEXIST; the insert-intention
+             * locks that follow do not. So each transaction then waits for the other's gap, InnoDB
+             * detects the cycle, and one is rolled back as the victim -- 1213, before anyone reaches
+             * the duplicate key at all. Which of the two paths a race takes is a matter of timing,
+             * which is why it appeared in half the runs and would have appeared in production as an
+             * occasional 500 on the Publish button.
+             *
+             * A deadlock victim and a lock-wait timeout are TRANSIENT SERIALISATION FAILURES: the
+             * publish provably did not happen, the transaction is already rolled back, and the
+             * right answer is the same one the duplicate key gets.
+             *
+             * NOT RETRIED AUTOMATICALLY, deliberately. The caller holds an expectation about which
+             * version is live, and a silent retry would re-run the publish against a world that has
+             * just changed underneath it -- the optimistic check would usually catch that, and
+             * "usually" is not a property to build a publish on. Refusing hands the decision back
+             * to the caller with its expectation intact.
+             *
+             * AND THE CATCH IS `Throwable`, WHICH IS NOT LAZINESS -- IT IS A MEASURED NECESSITY.
+             * The second version of this handler added the deadlock codes and STILL let the
+             * exception through, because:
+             *
+             *     Illuminate\Database\DeadlockException extends PDOException
+             *
+             * -- measured with `class_parents()`: `PDOException -> RuntimeException -> Exception`,
+             * and `is_a(..., QueryException::class)` is **NO**. Laravel's deadlock exception sits
+             * OUTSIDE the `QueryException` hierarchy, so `catch (QueryException $e)` cannot see it.
+             * Any handler in any codebase that catches `QueryException` to deal with concurrency
+             * has the same hole.
+             *
+             * Nothing is swallowed: the three recognised shapes refuse, and everything else is
+             * rethrown unchanged on the next line.
              */
-            if ($this->isUniqueViolation($e)) {
-                $this->refusal = 'another publish for this store and theme committed first; '
-                    . 'read the live version again and retry';
+            if ($e instanceof DeadlockException
+                || ($e instanceof QueryException
+                    && ($this->isUniqueViolation($e) || $this->isTransientSerialisationFailure($e)))) {
+                $this->refusal = 'another publish for this store and theme is in flight or '
+                    . 'committed first; read the live version again and retry';
 
                 return null;
             }
@@ -501,6 +546,17 @@ class ThemePublishingService
         }
 
         return $merged;
+    }
+
+    /**
+     * A deadlock victim (1213 / SQLSTATE 40001) or a lock-wait timeout (1205). Both mean the
+     * transaction is already rolled back and nothing was written -- transient by definition, and
+     * distinct from a constraint the data genuinely violates.
+     */
+    private function isTransientSerialisationFailure(QueryException $e): bool
+    {
+        return in_array((int) ($e->errorInfo[1] ?? 0), [1213, 1205], true)
+            || ($e->errorInfo[0] ?? null) === '40001';
     }
 
     private function isUniqueViolation(QueryException $e): bool
