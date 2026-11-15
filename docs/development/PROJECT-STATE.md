@@ -377,5 +377,5 @@ Do not begin Phases 04–06 early.
 | capture | `docs/development/phase-3/tools/storefront-matrix.cjs --store <slug>` |
 | stores | `damascus-textiles` (id 1), `aleppo-soap` (id 2), `p3fixt-no-theme` (id 4, `theme_id = ''`) |
 
-The storefront password is `storefront-dev-password` and is not a secret. Every fixture row carries
+The storefront password is `storefront-fixture-placeholder` and is not a secret. The value self-labels because `scan-secrets.sh`'s `generic-assigned-secret` rule flags `PASSWORD = '<12+ chars>'`, and its recorded norm says a flagged fixture is fixed by changing the VALUE, never by narrowing the rule. Every fixture row carries
 a `p3fixt-` prefix or the `P3FIXT` tag.

@@ -74,7 +74,7 @@ const OUT = arg('out', '/tmp/storefront-matrix');
 const GUEST = flag('guest');
 const NEGATIVE = flag('negative');
 const SHOT = arg('shot', '1') !== '0';
-const PASSWORD = arg('password', 'storefront-dev-password');
+const PASSWORD = arg('password', 'storefront-fixture-placeholder');
 
 /** The fixture's known sign-in per store, from seed-storefront-fixture.php. */
 const FIXTURE_CUSTOMER = {

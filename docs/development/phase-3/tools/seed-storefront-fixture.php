@@ -91,8 +91,20 @@ const TAG = 'P3FIXT';
  * NOT A SECRET, AND DELIBERATELY OBVIOUS. This is a synthetic fixture on a gitignored sqlite file;
  * the value is published here precisely so a harness and a reader agree on it without a side
  * channel. It is never written to a real database -- the guard above refuses.
+ *
+ * AND IT SELF-LABELS, which is not cosmetic. `.github/scripts/scan-secrets.sh`'s
+ * `generic-assigned-secret` rule matches `PASSWORD = '<12+ chars>'`, and the first Phase 03 CI run
+ * on this branch failed on exactly this line -- the real value of opening the pull request, since
+ * `ci.yml` only fires on `pull_request` and pushes to main, so no CI run had ever seen Phase 03.
+ *
+ * The remedy is the one that script's own recorded norm prescribes, and nothing else: *"fixed by
+ * changing the VALUE, never by widening the regex or excluding this path -- those narrowings exist
+ * precisely so a real credential cannot hide behind an exclusion."* The rule carries a
+ * self-labelling vocabulary to be renamed INTO (`placeholder`, `example`, `changeme`, ...), which
+ * is what makes a rename the right answer here where it was not for the one documented exception.
+ * So the value contains `placeholder` and the scanner passes without a single rule being touched.
  */
-const DEV_PASSWORD = 'storefront-dev-password';
+const DEV_PASSWORD = 'storefront-fixture-placeholder';
 
 $remove = in_array('--remove', $argv, true);
 $report = in_array('--report', $argv, true);
@@ -294,6 +306,103 @@ if ($remove) {
 }
 
 /* ------------------------------------------------------------------------------------------- */
+
+/**
+ * STAGE THE COMMITTED FIXTURE MEDIA INTO `public/uploads/`, AND WHY IT IS NOT COMMITTED THERE.
+ * =================================================================================================
+ *
+ * These 44 synthetic tiles used to be committed under the REPOSITORY-ROOT `uploads/` tree -- the
+ * paths the rows below record. The first Phase 03 CI run on this branch refused them, correctly,
+ * and the guard explains itself better than a summary can
+ * (`.github/scripts/guard-no-new-root-uploads.sh`, P1-OWN-10 / OWNER DECISION 11):
+ *
+ *     the tracked `.htaccess` rewrites `/uploads/...` to `public/uploads/...` ONLY when the file
+ *     does NOT exist at the root, so one that DOES exist there is served directly by the
+ *     webserver, with no application and no authorisation.
+ *
+ * So a committed fixture tile was a new unauthenticated disclosure path. Synthetic content, real
+ * mechanism -- and the guard exists to stop that set growing, which Phase 03 had been doing
+ * unnoticed because `ci.yml` only fires on `pull_request` and pushes to main, and Phase 03 had
+ * never had a pull request.
+ *
+ * AND `public/uploads` IS A SYMLINK TO THE REPOSITORY ROOT, which is the fact that decides the
+ * shape of this fix. Measured: `public/uploads -> ../uploads`. `.gitignore:1-8` records why --
+ * *"the application's `theme` disk writes to the REPO ROOT `uploads/` (all 337 tracked upload files
+ * are there, none under public/) -- so a dev environment needs `public/uploads -> ../uploads` to
+ * see them"*. So the guard's own advice, "write user media to public/uploads/", resolves back to the
+ * very directory it refuses commits in. Copying "into public/" and copying "into the root" are the
+ * same operation here.
+ *
+ * WHICH IS FINE, BECAUSE THE GUARD IS ABOUT COMMITTING, NOT ABOUT WRITING. `.gitignore` already
+ * carries exactly this pattern for the P2 dev fixture: `/uploads/1/` and `/uploads/uploads/1/` are
+ * IGNORED precisely so fixture and test uploads can land where the application really writes
+ * without being tracked. The Phase 03 tiles now follow it -- committed SOURCE under
+ * `docs/development/phase-3/fixtures/media/`, copied to `uploads/` at seed time, and those
+ * destinations ignored.
+ *
+ * THE RECORDED PATHS DO NOT CHANGE. Every row still stores `uploads/<id>/p3fixt/...` and the
+ * storefront renders exactly what it did before. What changed is that the bytes arrive by seeding a
+ * development environment instead of by being committed to a repository the webserver serves.
+ */
+function stageFixtureMedia(): array
+{
+    $source = dirname(__DIR__) . '/fixtures/media';
+
+    /* The REPOSITORY ROOT uploads/, named explicitly rather than through the `public/uploads`
+     * symlink that points at it -- a reader should not have to resolve a link to know where these
+     * bytes land, and the symlink is a dev-environment convenience that a CI checkout may not
+     * have. */
+    $target = base_path('uploads');
+
+    if (! is_dir($source)) {
+        fwrite(STDERR, "REFUSING: the committed fixture media is missing at {$source}.\n"
+            . "Every product, category, brand and logo tile would render broken, and a storefront\n"
+            . "capture of broken tiles is worse than no capture -- it looks like a styling defect.\n");
+        exit(2);
+    }
+
+    $copied = 0;
+    $skipped = 0;
+
+    $files = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($source, FilesystemIterator::SKIP_DOTS));
+
+    foreach ($files as $file) {
+        if (! $file->isFile()) {
+            continue;
+        }
+
+        $relative = ltrim(str_replace($source, '', $file->getPathname()), '/\\');
+        $destination = $target . '/' . $relative;
+
+        if (! is_dir(dirname($destination))) {
+            mkdir(dirname($destination), 0775, true);
+        }
+
+        /* Idempotent: an unchanged file is left alone so repeated seeding is cheap and so a
+         * deliberately edited tile in public/ is not silently reverted mid-session. */
+        if (is_file($destination) && md5_file($destination) === md5_file($file->getPathname())) {
+            $skipped++;
+            continue;
+        }
+
+        if (! copy($file->getPathname(), $destination)) {
+            fwrite(STDERR, "REFUSING: could not copy {$relative} into public/uploads/.\n");
+            exit(2);
+        }
+
+        $copied++;
+    }
+
+    return [$copied, $skipped];
+}
+
+[$mediaCopied, $mediaSkipped] = stageFixtureMedia();
+
+echo "\nfixture media staged into uploads/: {$mediaCopied} copied, {$mediaSkipped} already current\n";
+echo "  committed source: docs/development/phase-3/fixtures/media/\n";
+echo "  the destinations are GITIGNORED, so this set cannot grow the tracked uploads/ tree that\n";
+echo "  the webserver serves directly -- P1-OWN-10 / owner decision 11\n";
 
 $hash = Hash::make(DEV_PASSWORD);
 $reset = 0;
