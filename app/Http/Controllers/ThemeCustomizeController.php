@@ -330,9 +330,16 @@ class ThemeCustomizeController extends Controller
      * employer's storefront sections, and a platform operator with an empty `current_store` would
      * write to the literal store 1, which belongs to a merchant.
      *
-     * The GET sibling `changeOrder()` DOES check `isAbleTo('Manage Themes')`, which no role and no
-     * user holds -- the same inverted guard M3-A measured on this controller: the read locked, the
-     * write open. The gate entitles by store OWNERSHIP so the merchant is not locked out.
+     * The GET sibling `changeOrder()` DOES check `isAbleTo('Manage Themes')` -- the same inverted
+     * guard M3-A measured on this controller: the read locked, the write open. The gate entitles by
+     * store OWNERSHIP so the merchant is not locked out.
+     *
+     * THIS NOTE USED TO SAY `Manage Themes` IS HELD BY "no role and no user". That is true of the
+     * TEST FIXTURE ONLY, and stating it unqualified invites the next reader to delete the check as
+     * dead code. In production `Utility::addNewData()` grants it to the shared global `admin` role
+     * (`Utility.php:3259`, granted at `:3287-3292`) and runs on login, so it is a LIVE permission.
+     * `ThemeEditorGate.php:225-235` carries the full measurement; the correction was made there and
+     * not propagated here, which is why this paragraph now exists.
      */
     public function updateOrder(Request $request, $theme)
     {

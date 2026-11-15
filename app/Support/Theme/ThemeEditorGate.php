@@ -283,8 +283,18 @@ final class ThemeEditorGate
         }
 
         if ($this->isOperator($user)) {
-            /* THE WHOLE POINT. getCurrentStore() returns the literal 1 here, and store 1 belongs to
-             * a merchant. An operator must name the store they mean. */
+            /* THE WHOLE POINT. getCurrentStore() returns the literal 1 here, so an operator who
+             * named no store would silently act on whatever store 1 happens to be.
+             *
+             * THIS COMMENT USED TO ASSERT THAT STORE 1 "BELONGS TO A MERCHANT". That is not
+             * established, and on a clean install it is false: `PermissionTableSeeder.php:40-50`
+             * creates `my-store` with `created_by = $superadmin->id` and then sets the operator's
+             * `current_store` to it, so a freshly seeded store 1 is the OPERATOR'S own. What it is
+             * on the production database is UNVERIFIED and not decidable from here.
+             *
+             * THE REFUSAL DOES NOT DEPEND ON THE ANSWER, which is why it is written this way: the
+             * literal 1 is a fallback artefact, not a store the operator chose, so acting on it is
+             * wrong whoever owns it. Do not "repair" this code toward either reading. */
             $this->reason = 'the platform operator must name the store explicitly; theme operations '
                 . 'never default to store 1';
 
