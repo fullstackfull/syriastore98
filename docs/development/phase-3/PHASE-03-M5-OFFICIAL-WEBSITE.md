@@ -164,11 +164,12 @@ the panel in a sibling `<div hidden>`, which nothing could ever have revealed.
 
 ## 8. Tests — and the falsification of each
 
-51 tests, counting the ones the independent review's findings added (§10).
+**53 tests** (440 assertions, measured by running them), counting the ones the independent review's
+findings added (§10) and the two M7 added for the appearance default.
 
 | Suite | Tests |
 |---|---|
-| `tests/Feature/Platform/PlatformSiteRoutesTest` | 9 |
+| `tests/Feature/Platform/PlatformSiteRoutesTest` | 11 |
 | `tests/Feature/Platform/PlatformPricingTest` | 10 |
 | `tests/Feature/Platform/PlatformSiteBilingualTest` | 11 |
 | `tests/Feature/Platform/ReservedStoreSlugTest` | 7 |

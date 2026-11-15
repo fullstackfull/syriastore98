@@ -135,9 +135,11 @@ the URL and a string on the page that follows.
 
 | Gate | Result |
 |---|---|
-| Unit | see §9 |
-| Contract | see §9 |
-| Feature + known-outcome gate | see §9 |
+| Unit | **1845 passed, 1 skipped** (15,903 assertions) |
+| Contract | **45 passed** (182 assertions) |
+| Feature | **8,828 passed, 2 failed, 1 skipped** (45,015 assertions) |
+| known-outcome gate | **PASS** — observed set matches the manifest exactly |
+| `guard-test-isolation`, `-no-env-files`, `-gate-f-containment`, `-no-workdo-changes`, `-no-new-root-uploads`, `-composer-lock-integrity`, `scan-secrets` | all PASS |
 | `platform-site-matrix.cjs` | 44/44 premises, 0 off-origin, 0 console errors, 22/22 pairs differ |
 | `platform-site-a11y.cjs` | 0 WCAG nodes, 0 best-practice nodes |
 | `platform-site-journeys.cjs` | 3/3 journeys, 64 links, 32 anchors, 0 broken |
