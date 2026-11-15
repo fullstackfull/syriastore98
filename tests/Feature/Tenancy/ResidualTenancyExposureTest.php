@@ -493,10 +493,19 @@ class ResidualTenancyExposureTest extends TestCase
             //   deliberate decision recorded above still stands. The line is only how a site
             //   is named, exactly as the User.php note below says.
             'app/Models/Tag.php:76',
-            // :155 -> :160 when B4 added the `mobile_verified_at` cast above it. The SET is
-            // unchanged -- same method, same DB::table() call, five lines down -- which is what
-            // this census measures; the line is only how a site is named.
-            'app/Models/User.php:163',
+            // :155 -> :160 when B4 added the `mobile_verified_at` cast above it, and :163 -> :187
+            // when Phase 03 M5/M6 added the reserved-slug check and its note to `slugs()`, which
+            // sits ABOVE this method. The SET is unchanged both times -- same method, same
+            // DB::table() call, no predicate added and none removed -- which is what this census
+            // measures; the line is only how a site is named.
+            //
+            // RE-READ AT THE M5/M6 MOVE, because a line that drifts is the moment to check the
+            // claim rather than the number. `getRelatedSlugs()` still takes a table name and a
+            // slug and still carries NO store predicate, so the finding recorded above stands
+            // exactly as written. What changed in `slugs()` is a refusal of one reserved word
+            // (`Store::RESERVED_SLUGS`), which narrows what may be minted and touches neither the
+            // query nor its tenancy.
+            'app/Models/User.php:187',
 
             // ------------------------------------------------------------------------------
             // Utility::cookies(). `DB::table('settings')` filtered on `created_by`, NOT on
