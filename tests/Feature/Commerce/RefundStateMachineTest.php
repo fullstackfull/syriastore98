@@ -892,6 +892,76 @@ class RefundStateMachineTest extends TestCase
          * OrderRefundController::STOCK_RESTORED_NOTE_TYPE and
          * tests/Feature/Commerce/RefundStockIdempotencyTest.php.
          */
+        /*
+         * P4-F127 -- THE FINANCIAL TABLES ARE PART OF THIS HANDLER'S CONTRACT NOW.
+         *
+         * `RefundAmonut()` reverses the merchant's entitlement on the 'Refunded' transition, inside
+         * its own transaction, and DELIBERATELY lets a ledger failure roll the refund back: if the
+         * reversal cannot be recorded, a refund must not be recorded as completed either, or the
+         * merchant keeps the credit while the system claims the money went back -- the exact defect
+         * F127 fixes, made silent.
+         *
+         * So a schema without these tables is not a lighter fixture, it is a DIFFERENT contract:
+         * four cases here answered HTTP 500 because `store_order_financials` did not exist. The
+         * tables are added rather than the handler weakened.
+         *
+         * Only the columns this path touches. `store_order_financials` is the row the reversal
+         * locks and moves; `store_wallets` holds the balance; `store_wallet_transactions` records
+         * why it moved.
+         */
+        Schema::create('store_wallets', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('store_id');
+            $table->string('currency_code', 10)->nullable();
+            $table->decimal('available_balance', 15, 2)->default(0);
+            $table->decimal('pending_balance', 15, 2)->default(0);
+            $table->decimal('withdrawal_pending_balance', 15, 2)->default(0);
+            $table->decimal('total_income', 15, 2)->default(0);
+            $table->decimal('total_withdrawn', 15, 2)->default(0);
+            $table->timestamps();
+            $table->unique('store_id');
+        });
+
+        Schema::create('store_order_financials', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('store_id');
+            $table->unsignedBigInteger('wallet_id')->nullable();
+            $table->unsignedBigInteger('order_id');
+            $table->string('currency_code', 10)->nullable();
+            $table->string('currency_symbol', 10)->nullable();
+            $table->decimal('product_amount', 15, 2)->default(0);
+            $table->decimal('discount_amount', 15, 2)->default(0);
+            $table->decimal('tax_amount', 15, 2)->default(0);
+            $table->decimal('shipping_amount', 15, 2)->default(0);
+            $table->decimal('customer_total', 15, 2)->default(0);
+            $table->decimal('product_cost', 15, 2)->default(0);
+            $table->decimal('gross_profit', 15, 2)->default(0);
+            $table->string('payment_status', 32)->default('unpaid');
+            $table->decimal('paid_amount', 15, 2)->default(0);
+            $table->decimal('remaining_amount', 15, 2)->default(0);
+            $table->timestamp('paid_at')->nullable();
+            $table->timestamps();
+            $table->unique('order_id');
+        });
+
+        Schema::create('store_wallet_transactions', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('store_id');
+            $table->unsignedBigInteger('wallet_id')->nullable();
+            $table->string('currency_code', 10)->nullable();
+            $table->string('type', 50);
+            $table->string('direction', 16);
+            $table->decimal('amount', 15, 2)->default(0);
+            $table->decimal('balance_before', 15, 2)->default(0);
+            $table->decimal('balance_after', 15, 2)->default(0);
+            $table->string('reference_type', 50)->nullable();
+            $table->unsignedBigInteger('reference_id')->nullable();
+            $table->text('description')->nullable();
+            $table->string('status', 32)->nullable();
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->timestamps();
+        });
+
         Schema::create('order_notes', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('order_id')->nullable();
@@ -906,7 +976,7 @@ class RefundStateMachineTest extends TestCase
 
     private function dropRefundSchema(): void
     {
-        foreach (['order_notes', 'product_variants', 'products', 'order_refunds', 'orders', 'users'] as $table) {
+        foreach (['store_wallet_transactions', 'store_order_financials', 'store_wallets', 'order_notes', 'product_variants', 'products', 'order_refunds', 'orders', 'users'] as $table) {
             Schema::dropIfExists($table);
         }
     }
