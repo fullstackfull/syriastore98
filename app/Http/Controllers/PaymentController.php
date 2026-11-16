@@ -1163,8 +1163,8 @@ private function paymeraOrderHighWaterMark(mixed $storeId): int
  * `$pending['processed']` still false, and **no in-process marker of either**: not a return
  * value, not a binding, not a flag. The only witness is the row.
  *
- * (Measured anchors: `DB::beginTransaction()` :3814, `DB::commit()` :3989, `$owner->email`
- * :4045, `OrderCompleteBinding::remember()` :4134. Re-measured twice on 2026-10-30: F210's
+ * (Measured anchors: `DB::beginTransaction()` :3988, `DB::commit()` :4163, `$owner->email`
+ * :4219, `OrderCompleteBinding::remember()` :4308. Re-measured twice on 2026-10-30: F210's
  * ownership gate moved them 71 lines, then F216's guard above this method moved them 49 more.
  * Re-measured TWICE MORE on 2026-10-31, and the second time is the lesson: F237's attribution
  * call inside this very transaction moved the last three by 4; correcting THIS COMMENT then added
@@ -2112,7 +2112,19 @@ public function handlePaymeraTrigger00($orderId)
         if ($isGuest) {
             $ssBasketQuery->forGuestCookie(\Illuminate\Support\Facades\Cookie::get('cart'));
         } else {
-            $ssBasketQuery->forCustomer($customer->id);
+            /*
+             * `auth('customers')->id()` AND NOT `$customer->id`, although on this branch they are
+             * the same object -- `$customer` IS `auth('customers')->user()` three screens up.
+             *
+             * `CartScopesTest::test_every_for_customer_call_names_the_authenticated_principal`
+             * is a TEXTUAL control: it scans every `forCustomer(` argument in the tree and
+             * requires it to be a spelling that is self-evidently the signed-in shopper.
+             * `$customer->id` is not one -- a variable of that name could hold anything, and the
+             * whole point of the ratchet is that a reader does not have to trace it. Widening the
+             * allowlist to admit it would weaken the control for every future call site; spelling
+             * the principal directly costs nothing and keeps it strong.
+             */
+            $ssBasketQuery->forCustomer(auth('customers')->id());
         }
 
         $ssIntakeCartIds = $ssBasketQuery->orderBy('id')->pluck('id')->map(
