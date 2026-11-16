@@ -282,6 +282,9 @@ class Cart extends Model
         $coupon_price = 0;
         $tax_id = null;
         $totalQtyDiscount = 0;
+        // One entry per cart line, filled by the loop and consumed by the coupon/tax pass after
+        // it. See the note at the `$coupon_lines[]` push below (P4-F001 / P4-F062).
+        $coupon_lines = [];
         if (!empty($Carts)) {
             foreach ($Carts as $key => $cart_value) {
                 $variant_name = '';
@@ -617,28 +620,75 @@ class Cart extends Model
                 $original_price += $total_product_orignal_price;
                 $shipping_original_price += $shipping_price;
 
-                if (isset($data['coupon_code'])) {
-                    // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
-                    // P01-SEC-14 D2: store-scoped. This is the GUEST (cookie) cart, and the
-                    // predicate was absent here too. `$store_id` rather than `$store->id` because
-                    // `Store::find($storeid)` above can return null, and a predicate on a null
-                    // store matches nothing -- which refuses the coupon rather than widening it.
-                    $coupon = Coupon::findByExactCode(
-                        $data['coupon_code'],
-                        fn ($query) => $query->where('store_id', $store_id)
-                            ->whereDate('coupon_expiry_date', '>=', now()->toDateString())
-                    );
-                    if ($coupon) {
-                        $coupon_apply_price = self::getCouponTotalAmount($coupon, $final_price, $cart_product_data->id, $cart_product_data->category_id);
-                        $coupon_price += $final_price - $coupon_apply_price;
-                        $final_price = $coupon_apply_price;
-                    }
-                }
-                if (isset($cart_product_data->tax_id) && $cart_product_data->tax_id) {
-                    $tax_id = $cart_product_data->tax_id;
-                    $product_tax = self::getProductTaxAmount($cart_product_data->tax_id, $final_price, $store->id, $city_id, $state_id, $country, true);
-                    $tax_price += $product_tax;
-                }
+                /*
+                 * THE COUPON AND THE TAX ARE DECIDED AFTER THIS LOOP, NOT INSIDE IT.  P4-F001 /
+                 * P4-F062. Both used to run here, per line, and a `flat` coupon was therefore
+                 * subtracted once PER LINE -- see App\Services\Commerce\CouponBasketAllocator for
+                 * the measurement (a 120.00 basket wrote a COD order of 0.00).
+                 *
+                 * A basket-wide bound cannot be computed from one line, and neither can the
+                 * `minimum_spend` / `maximum_spend` gate, so the line is recorded and both are
+                 * applied below once `$cart_final_price` holds the whole pre-coupon subtotal.
+                 *
+                 * TAX MOVES WITH IT DELIBERATELY: tax was, and still is, computed on the line price
+                 * AFTER its share of the coupon. Leaving tax here would have taxed the undiscounted
+                 * line and changed every taxed basket's total.
+                 */
+                $coupon_lines[] = [
+                    'final_price' => $final_price,
+                    'product_id' => $cart_product_data->id,
+                    'category_id' => $cart_product_data->category_id,
+                    'tax_id' => $cart_product_data->tax_id ?? null,
+                ];
+            }
+        }
+
+        /*
+         * SECOND PASS: ONE COUPON ACROSS THE BASKET, THEN TAX ON WHAT IS LEFT.  P4-F001 / P4-F062.
+         *
+         * `$cart_final_price` is the pre-coupon subtotal -- the loop above accumulated it BEFORE the
+         * coupon block used to run -- so it is the right baseline for both the spend gate and the
+         * `flat` allowance.
+         *
+         * The lookup is the same store-scoped predicate as before -- `$store_id`, the same variable,
+         * verified against the diff -- hoisted out of the loop it used to be re-run in
+         * (P01-SEC-14 D2, preserved exactly).
+         *
+         * THE REASON THIS USED TO GIVE FOR READING `$store_id` WAS WRONG, and it is corrected here
+         * rather than carried forward: it said `Store::find($storeid)` above can return null "and a
+         * predicate on a null store matches nothing". `$store_id` is not null in that case --
+         * `:242` is `$store->id ?? getCurrentStore()`, so a null `$store` means the AMBIENT tenant,
+         * not no tenant. The predicate is nonetheless self-consistent, because the cart rows at
+         * `:253` are selected with the same `$store_id`: basket and coupon come from one store.
+         * A null `$store` is reachable -- `PaymentController.php:3130`,
+         * `PayUPaymentController.php:352` and `PaiementProPaymentController.php:557` all call this
+         * with `$store->id ?? ''`, and `Store::find('')` is null. Found by independent review.
+         */
+        $coupon = null;
+
+        if (isset($data['coupon_code'])) {
+            // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
+            $coupon = Coupon::findByExactCode(
+                $data['coupon_code'],
+                fn ($query) => $query->where('store_id', $store_id)
+                    ->whereDate('coupon_expiry_date', '>=', now()->toDateString())
+            );
+        }
+
+        $allocator = \App\Services\Commerce\CouponBasketAllocator::forBasket(
+            $coupon,
+            (float) $cart_final_price
+        );
+
+        foreach ($coupon_lines as $line) {
+            $linePrice = (float) $line['final_price'];
+            $discount = $allocator->discountForLine($linePrice, $line['product_id'], $line['category_id']);
+            $coupon_price += $discount;
+            $linePrice = max(0.0, $linePrice - $discount);
+
+            if (!empty($line['tax_id'])) {
+                $tax_id = $line['tax_id'];
+                $tax_price += self::getProductTaxAmount($line['tax_id'], $linePrice, $store->id, $city_id, $state_id, $country, true);
             }
         }
 
@@ -965,46 +1015,74 @@ class Cart extends Model
                     $tax_price += ($sub_total * $tax->tax_rate) / (100 + $tax->tax_rate);
                 }
             }
-            // If no location-specific tax found, calculate with all available tax rates
-            if ($tax_price == 0) {
-                foreach ($taxs as $tax) {
-                    $tax_price += ($sub_total * $tax->tax_rate) / (100 + $tax->tax_rate);
-                }
-            }
+            /*
+             * P4-F070 -- THE "IF NOTHING MATCHED, CHARGE EVERYTHING" SWEEP IS GONE.
+             *
+             * It re-walked every method whenever no jurisdiction matched, which is the inclusive
+             * spelling of the fallback removed from the exclusive branch below. Measured on a
+             * Damascus shopper against [Aleppo 3%, Homs 5%]: 7.67 charged where 0.00 is owed.
+             *
+             * A method carrying country/state/city columns is one the MERCHANT restricted. A
+             * shopper outside it owes nothing, and a shopper whose address is not known yet is
+             * outside every one of them -- which is the first view of every basket, since
+             * `country_id`, `state_id` and `city_id` are null until an address is entered. A tax
+             * that applies to everyone leaves those columns null and is taken by the universal
+             * branch above, which still applies to everyone.
+             *
+             * THIS CHANGES WHAT SHOPPERS ARE CHARGED on stores that have saved tax options, and
+             * it changes it DOWNWARD, toward what the merchant's own configuration says. Nothing
+             * seeds `tax_options`, so a store that has never opened the tax settings form is
+             * unaffected in either direction -- pinned by
+             * `CartTaxJurisdictionTest::test_a_store_with_no_tax_options_still_restricts_by_jurisdiction`.
+             */
             return $tax_price;
         }
-        $tax_value = false;
+        /*
+         * P4-F070. THE `$taxValue` FLAG IS GONE WITH THE FALLBACK IT GATED.
+         *
+         * It was initialised once HERE, outside the loop, and never reset -- which is why the
+         * fallback fired only for non-matching methods sorting BEFORE the first matching one,
+         * and for all of them when nothing matched. Measured on a Damascus shopper against
+         * [Aleppo 3% priority 1, Damascus 5% priority 2]: 8.00 charged where 5.00 is owed.
+         * Reverse the two priorities and the same shopper is charged correctly, which is what
+         * kept this invisible.
+         */
         foreach ($taxs as $tax) {
             if ($flag) {
                 if ($tax->country_id && $tax->state_id && $tax->city_id && ($country == $tax->country_id) && ($state_id == $tax->state_id) && ($city_id == $tax->city_id)) {
-                    $tax_value = true;
                     $amount = $tax->tax_rate * $sub_total / 100;
                     $tax_price += $amount;
                     continue;
                 }
                 if ($tax->country_id && $tax->state_id && !$tax->city_id && ($country == $tax->country_id) && ($state_id == $tax->state_id)) {
-                    $tax_value = true;
                     $amount = $tax->tax_rate * $sub_total / 100;
                     $tax_price += $amount;
                     continue;
                 }
                 if ($tax->country_id && !$tax->state_id && !$tax->city_id && ($country == $tax->country_id)) {
-                    $tax_value = true;
                     $amount = $tax->tax_rate * $sub_total / 100;
                     $tax_price += $amount;
                     continue;
                 }
                 if (!$tax->country_id && !$tax->state_id && !$tax->city_id) {
-                    $tax_value = true;
                     $amount = $tax->tax_rate * $sub_total / 100;
                     $tax_price += $amount;
 
                     continue;
                 }
-                if ($tax_value == false && isset($settings['price_type']) && $settings['price_type'] != 'inclusive') {
-                    $amount = $tax->tax_rate * $sub_total / 100;
-                    $tax_price += $amount;
-                }
+                /*
+                 * P4-F070. THE FALLBACK THAT STOOD HERE CHARGED A NON-MATCHING METHOD ANYWAY,
+                 * whenever `price_type` was anything other than `inclusive`: it tested the
+                 * never-reset flag, and on false added this method's full rate.
+                 *
+                 * Falling past all four branches above means this method's own
+                 * country/state/city do not describe this shopper, and there is nothing further
+                 * to decide: the merchant restricted it and the shopper is outside it.
+                 *
+                 * `price_type` is validated only as `required`, with no `in:` rule, so this also
+                 * fired for any unrecognised string a form sends -- pinned by
+                 * `CartTaxJurisdictionTest::test_an_unrecognised_price_type_does_not_reopen_the_fallback`.
+                 */
             } else {
                 $amount = $tax->tax_rate * $sub_total / 100;
                 $tax_price += $amount;

@@ -5,8 +5,13 @@ is the file to read first. It links the six phases, says what is done, what is n
 executable action is. Everything in it is either a measured fact with its source, or an owner
 decision quoted as such.
 
-**Last updated:** 2026-11-12 · **Active phase:** 03 (Storefront, Official Website, Documentation) ·
-**Active branch:** `feature/phase-03-storefront`
+**Last updated:** 2026-11-16 · **Active phase:** 04 (Commerce) ·
+**Active branch:** `feature/phase-04-commerce`
+
+Phase 03 engineering is complete and sits in **PR #138, Draft, not merged**. Phase 04 is branched
+from that engineering head, so **PR #139 carries Phase 03's commits and must not be merged ahead of
+PR #138**. Both stay separate and neither merges automatically. The six-phase Master Product Plan in
+§2 is unchanged and remains the governing scope.
 
 ---
 
@@ -33,8 +38,8 @@ The owner-approved roadmap. It is the governing source of truth; nothing below r
 | **01 Foundation** | architecture, WorkDo integration, security foundations, schema, tenancy, permissions, API contracts, design foundations, CI gates | engineering complete. **Release gates still outstanding** — not waived by any later phase |
 | **02 Merchant Experience** | merchant + employee experience on Laravel web and the Flutter app: products, inventory, orders, customers, settings, employees, roles, reporting | **closed for development**, merged |
 | **02.5 Premium Merchant Experience** | premium UI/UX across merchant web and Flutter, with verified evidence | **COMPLETE, owner-visually-accepted, merged to both mains** |
-| **03 Storefront, Official Site, Docs** | customer storefront across 3 themes, section-based theme editor, official bilingual website, bilingual documentation centre | **ACTIVE — implementation authorised 2026-11-12** |
-| **04 Commerce** | remaining commerce workflows on the existing WorkDo engine | not started. No duplicate commerce engine, ever |
+| **03 Storefront, Official Site, Docs** | customer storefront across 3 themes, section-based theme editor, official bilingual website, bilingual documentation centre | **ENGINEERING COMPLETE (M0–M7), 2026-11-15.** Head `f4315390` on `feature/phase-03-storefront`; PR #138 open, **Draft, NOT merged**. Nine CI checks green including both required Tests jobs and the merge-base regression gate; the tenth, `Security-sensitive diff: human checklist`, is **red by design** and is the owner's to clear. See `phase-3/PHASE-03-FINAL-REPORT.md` |
+| **04 Commerce** | remaining commerce workflows on the existing WorkDo engine | **ACTIVE — authorised 2026-11-15.** Branch `feature/phase-04-commerce`, based on the Phase 03 engineering head `f4315390` and therefore **dependent on PR #138**; it carries Phase 03's commits and must not be merged ahead of it. No duplicate commerce engine, ever. Measured at the outset: **488 of 1,476 registered routes** are commerce-shaped, and the surface already carries **59 `tests/Feature/Commerce` files** plus a `tests/Feature/Payments` directory, gateway replay and idempotency guards, and order-total reconcilers — so this phase is discovery-and-repair, not greenfield. P4-0 closed with a register of **94 defects confirmed by independent adversarial review** out of 117 claimed (17 refuted, 6 already tracked) -- `phase-4/PHASE-04-FINDINGS-REGISTER.md`. Four money or catalogue defects are fixed and falsified so far: a flat coupon applied once per cart LINE (a 120.00 basket wrote a COD order of **0.00**), the cart readers' missing spend gate, twelve order writers pricing shipping from **the first merchant in the shared database**, and `ordersave`'s shipping-on arm omitting the product subtotal. Two more are recorded as owner decisions rather than fixed, because each changes what a merchant's live coupons do or what a money column means. **P4-4 closed stock integrity across every cancel and return door; P4-3b (2026-11-16) closed order-write integrity**: the two storefront API writers now write the order and its four child rows in one transaction (a caller could previously make a `coupon_limit = 1` coupon **pay out twice**), `OrderController::store()` refuses another store's customer, and the web checkout gained the duplicate-submission claim the API already had (a repeated POST previously wrote a second order and took the stock twice). See `phase-4/` |
 | **05 Marketing & Analytics** | campaigns, growth, merchant analytics, reporting | not started |
 | **06 SaaS & Super Admin** | SaaS administration, plans, subscriptions, tenant governance, premium Super Admin UX | not started. **Final project audit (#137) happens after this**, before any production release |
 

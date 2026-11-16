@@ -346,10 +346,17 @@ class KhaltiPaymnetController extends Controller
 
             $request['method_id'] = $requests_data['method_id'];
         }
-        $user = Cache::remember('admin_details', 3600, function () {
-            return User::where('type','admin')->first();
-        });
-        if ($user->type == 'admin') {
+        /*
+         * P4-F014 / P4-F024. THE STORE'S OWN OWNER, not `User::where('type','admin')->first()`
+         * -- which is the first merchant in the shared database, by lowest id, and was cached
+         * under one global key for an hour. One arbitrary tenant's plan decided whether every
+         * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
+         * right plan (CartController::cart_list_sidebar:38-40,
+         * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
+         * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+         */
+        $user = \App\Support\Commerce\StorePlan::ownerOf($store);
+        if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);
         }
         
@@ -1401,13 +1408,18 @@ class KhaltiPaymnetController extends Controller
              * which oversells the same units to the next shopper while this order stands -- the
              * mirror image of the defect D-13 was opened for, introduced by its own fix.
              *
-             * `$order->exists` is the authoritative answer and closes that window:
-             * `Model::performInsert()` sets it at line 1341 and fires `created` at 1345, so by
-             * the time any `created` listener can throw, `exists` is already true. Measured in
+             * P4-F026 REPLACED `$order->exists` WITH A QUERY. `exists` closed the original
+             * window -- `Model::performInsert()` sets it before firing `created` -- but it is set
+             * once and never unset, so it answers "yes" for a row a rollback has removed. That is
+             * harmless in THIS writer, which opens no transaction, and was a live undersell in the
+             * two storefront API writers the moment they gained one. One spelling across all seven
+             * guards, asking the table, rather than two that disagree under a boundary;
+             * `orderRowSurvived()`'s docblock in AppliesCartStockChanges carries the argument and
+             * says why it fails closed toward NOT restoring. Measured in
              * `ApiOrderWriterStockCompensationTest`, which fails on the flag alone.
              */
             $ssOrderClaimsIt = ($ssOrderWritten ?? false)
-                || (isset($order) && $order instanceof \App\Models\Order && $order->exists);
+                || $this->orderRowSurvived($order ?? null);
 
             if (! $ssOrderClaimsIt) {
                 $this->restoreStockDecrements($appliedStockChanges ?? []);

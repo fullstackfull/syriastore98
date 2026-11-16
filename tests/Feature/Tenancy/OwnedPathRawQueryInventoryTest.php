@@ -342,6 +342,18 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             // on-disk migration filenames against it to decide whether the platform operator is
             // sent to the updater.
             'app/Http/Middleware/XSS.php' => 'platform',
+            // P4-F131. `AppliesCartStockChanges::orderRowSurvived()` holds the ONE raw query in
+            // this trait -- grep confirms a single `DB::table(` in the file.
+            //
+            // CLASSIFIED 'tenant' AND NOT 'platform' OR 'derivation', deliberately, because
+            // 'tenant' is the only category this inventory actually CHECKS; the rest are
+            // exemptions. `orders` plainly has a `store_id`, so calling it platform would be
+            // false, and the probe neither compares a tenant nor overwrites caller input, so
+            // neither of those two fits either. Putting it in the checked bucket and declaring
+            // the single statement in STORE_LESS_BY_DESIGN means the reason is written down, is
+            // asserted to still match a real site, and any SECOND raw query added to this trait
+            // must carry a store_id predicate or be declared on its own.
+            'app/Http/Controllers/Concerns/AppliesCartStockChanges.php' => 'tenant',
             // WEBHOOK INGEST, which is a third category and not a loophole. The two sites in
             // routes/web.php are inside the Zid webhook closure: there is NO AUTHENTICATED
             // TENANT on that request at all (it is a server-to-server POST from Zid,
@@ -506,7 +518,12 @@ class OwnedPathRawQueryInventoryTest extends TestCase
         // `->where('store_id', $routeStore)`, so it earns that category rather than taking an
         // exemption from it. It informs an operator log line only -- the refuse decision is taken
         // before it runs and cannot be changed by it.
-        $this->assertCount(37, $sites, "The owned-path raw query inventory changed:\n  "
+        /* 37 -> 38 on 2026-11-16: P4-F131 added `orderRowSurvived()`'s existence probe in
+           `AppliesCartStockChanges`. It is classified 'tenant' -- the only CHECKED category -- and
+           its single statement is declared in STORE_LESS_BY_DESIGN with the reason a primary-key
+           probe must not be narrowed. The count is raised because the site is real and accounted
+           for, not to make this pass. */
+        $this->assertCount(38, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry
@@ -802,6 +819,34 @@ class OwnedPathRawQueryInventoryTest extends TestCase
      * it cannot silently slide the declaration onto a different query.
      */
     private const STORE_LESS_BY_DESIGN = [
+        'app/Http/Controllers/Concerns/AppliesCartStockChanges.php' => [
+            "where('id', \$order->getKey())" =>
+                // P4-F131. `orderRowSurvived()` asks one question from inside the D-13 stock
+                // compensation catch: did the order row this request just inserted SURVIVE?
+                //
+                // IT MUST NOT CARRY A store_id PREDICATE, and the reason is that a predicate would
+                // weaken it rather than strengthen it. The argument is `$order`, the handler's own
+                // `new Order()` -- never a caller-supplied id -- and `$order->getKey()` is the
+                // PRIMARY KEY the database minted for it microseconds earlier. A primary key is
+                // globally unique, so there is no other tenant's row the probe could reach: the
+                // `orders` table holds exactly one row with that id or none at all, and "none at
+                // all" is the answer the gate exists to obtain.
+                //
+                // Adding `where('store_id', ...)` would introduce a SECOND way for the probe to
+                // answer "gone" -- a store_id that is null, or that the rollback has already
+                // reverted -- and the gate reads "gone" as "restore the stock". That turns a
+                // mis-read tenant value into a stock restore behind a committed order, which is
+                // the oversell this whole guard was written to prevent.
+                //
+                // RAW RATHER THAN ELOQUENT for two measured reasons: `Order` is Cachable, so an
+                // Eloquent read can serve the pre-rollback row, and the model's `exists` flag is
+                // never cleared by a rollback, which is the defect that made this probe necessary.
+                'P4-F131: existence probe on the primary key this request just minted, from inside '
+                . 'the stock-compensation catch. A PK is globally unique so no predicate can narrow '
+                . 'it; adding one would give the gate a second way to read "gone" and restore stock '
+                . 'behind a committed order.',
+        ],
+
         'app/Http/Middleware/BulkDeleteTenantGuard.php' => [
             "whereIn('category_id', \$ids)" =>
                 // OWNER DECISION D13 / P1-INV-12. `categoriesStillHoldingProducts()` counts the

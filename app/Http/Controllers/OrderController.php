@@ -62,6 +62,8 @@ use Illuminate\Support\Facades\Cache;
 
 class OrderController extends Controller
 {
+    use \App\Http\Controllers\Concerns\RestoresCancelledOrderStock;
+
     /**
      * Atomic stock decrement, replacing the read-modify-write in store().
      *
@@ -128,6 +130,79 @@ public function store(Request $request)
 
     if ($validator->fails()) {
         return redirect()->back()->withErrors($validator)->withInput();
+    }
+
+    /*
+     * THE CUSTOMER MUST BE THIS STORE'S.  P4-F025.
+     *
+     * The validator above says `customer_id` => `required|exists:customers,id`, and `exists:` is a RAW
+     * QUERY-BUILDER rule: it never reaches the Customer model, so the StoreScope that genuinely filters
+     * that model (Customer IS in config/tenancy.php's scoped_models, unlike Product) adds no predicate.
+     * MEASURED: `Validator::make(['customer_id' => <store B's customer>], ['customer_id' =>
+     * 'required|exists:customers,id'])->passes()` is TRUE, and the whole write then commits -- orders
+     * +1 with `customer_id` = store B's customer and `store_id` = store A's, one `order_notes` row
+     * naming the same foreign customer, and `product_stock` 10 -> 8.
+     *
+     * The API twin already carries this predicate (Api/DashboardController.php:6500-6512, pinned by
+     * ForeignProductCartChainTest:1307) and THIS SAME SCREEN'S GET already carries it (:486-488,
+     * :491-492). Only the POST was missed.
+     *
+     * IT IS CROSS-TENANT DATA LINKAGE, NOT A MONEY PATH -- the grade the project already gave the
+     * identical API defect. The order and its wallet stay in the attacker's own store
+     * (OrderFinancialService.php:21), and the victim cannot read it back because `Order::CustomerData()`
+     * goes through the scoped Customer model. What it writes is a false association between two
+     * tenants' records, in two tables.
+     *
+     * BEFORE `DB::beginTransaction()` on purpose: the stock decrement is inside that transaction and
+     * the measured run shows it lands today, so refusing here means nothing is written and rolled back.
+     *
+     * `withoutGlobalScopes()` IS MANDATORY and not defensive habit. (a) The StoreScope would answer the
+     * ownership question using the very tenant value being tested, so the check would pass vacuously.
+     * (b) Customer also carries SoftDeletes, and a scoped Eloquent read against a schema without
+     * `deleted_at` would throw into the catch below and be swallowed -- the test would then pass for
+     * the wrong reason. Both measured.
+     *
+     * A HARD store_id MATCH: a customer row carrying a NULL store_id is not a customer this merchant
+     * may bill. Same rule as the API twin's.
+     *
+     * `resolvedCurrentStoreId()` AND NOT `getCurrentStore()`, and the difference is the whole guard.
+     * `getCurrentStore()` returns NULL for a staff member whose `current_store` is unset and the
+     * literal `1` for the platform operator whether or not store 1 exists -- which is why this file
+     * grew `resolvedCurrentStoreId()` in the first place. Laravel compiles `where('store_id', null)`
+     * to `IS NULL`, so the first draft of this predicate would have ACCEPTED every customer row
+     * carrying a null store_id instead of refusing it: a guard that fails open in exactly the case
+     * it exists for. Found by independent review of this change before it was committed.
+     *
+     * `DB::table()` AND NOT ELOQUENT. The StoreScope would answer the ownership question using the
+     * very tenant value being tested, so a scoped read passes vacuously; the query builder carries
+     * no global scope in either environment, and it also sidesteps the test schema's missing
+     * `deleted_at` column, which would otherwise throw into the catch below and be swallowed.
+     *
+     * A CORRECTION TO THIS COMMENT, made by independent review rather than by a test: an earlier
+     * version also rejected `withoutGlobalScopes()` on the ground that it drops SoftDeletingScope
+     * and would accept a soft-deleted customer. That reason does not survive, because `DB::table()`
+     * has no SoftDeletingScope either -- the replacement shares the property the sentence rejected.
+     * The CODE is right for the first reason alone; a soft-deleted customer of the merchant's own
+     * store is a usability question, not a tenancy breach. Left in place because a reader relying
+     * on the old sentence would draw a false conclusion about what this predicate guarantees.
+     */
+    $ssOrderStoreId = $this->resolvedCurrentStoreId();
+
+    if ($ssOrderStoreId === null) {
+        return redirect()->back()
+            ->with('error', __('No store is selected.'))
+            ->withInput();
+    }
+
+    $ssCustomerIsOwn = DB::table('customers')
+        ->where('id', $request->customer_id)
+        ->where('store_id', $ssOrderStoreId)
+        ->exists();
+
+    if (! $ssCustomerIsOwn) {
+        return redirect()->back()
+            ->with('error', __('Customer not found for this store.'))
+            ->withInput();
     }
 
     DB::beginTransaction();
@@ -1827,6 +1902,30 @@ public function store(Request $request)
         $d_order = Order::find($data['order_id']);
 
         /*
+         * THE GOODS COME BACK HERE TOO.  P4-F034.
+         *
+         * MEASURED before this block: a merchant cancelling a pending, undispatched order through
+         * this screen left a 3-unit line's stock at 4 where 7 was due. The storefront customer's
+         * own cancel door credited it; this one did not, and nothing on the `orders` row
+         * distinguished the two -- `cancel_date` and `delivered_status = 2` are identical.
+         *
+         * `=== 'success'` IS THE REPLAY GUARD, and it is the same one the storefront door relies
+         * on: `Order::order_status_change()` answers `error` for a cancel from any non-pending
+         * state (app/Models/Order.php:702), so a second attempt never reaches this line. The
+         * trait's per-line markers bound it a second time, because five other doors share that
+         * loop and not all of them have a transition guard of their own.
+         *
+         * NOT inside `Order::order_status_change()` itself: that is what
+         * `OrderReplacement::cancelAndReplace()` calls, and the cancel-plus-reissue pair must net
+         * -N rather than restore.
+         */
+        if (($responce['status'] ?? null) === 'success'
+            && strtolower(trim((string) ($data['order_status'] ?? ''))) === 'cancel'
+            && $d_order) {
+            $this->restoreCancelledOrderStock($d_order, is_array($order['product'] ?? null) ? $order['product'] : []);
+        }
+
+        /*
          * ========================================================================================
          *  DELIVERED IS NOT PAID. THE COD SETTLEMENT BLOCK THAT STOOD HERE IS WITHDRAWN.
          *  Owner decision, 2026-10-24, FINAL.
@@ -2197,164 +2296,20 @@ public function store(Request $request)
              * product_json, so the previous unscoped lookup could add stock to a
              * product in another store.
              */
-            DB::transaction(function () use ($order_detail, $order) {
-                /*
-                 * THE SAME "ALREADY BACK IN" MARKER THE RETURN PATH WRITES.
-                 *
-                 * `Order::product_return()` stamps `Order::LINE_STOCK_RESTORED` on every line it
-                 * credits (app/Models/Order.php:1063, :1094) and the merchant return loop reads it
-                 * before crediting (:1353-1360). This loop did neither, so a cancellation credited
-                 * the goods and left no mark — and a merchant who then approved a return on the
-                 * same order credited them a SECOND time. `movedOutFor()` does not catch that one:
-                 * the return path threads no evidence, so its restore is invisible to the record,
-                 * and on production the record does not exist at all. The marker is the control
-                 * that already spans both doors. Raised by independent review.
-                 *
-                 * Collected as (product_id, variant_id) pairs and stamped after the loop, because
-                 * `$order_detail['product']` is a derived copy rather than the stored lines.
-                 */
-                $restoredLines = [];
-
-                foreach ($order_detail['product'] as $item) {
-                    $productId = $item['product_id'] ?? null;
-                    $qty = $item['qty'] ?? null;
-
-                    if ($productId === null || !is_numeric($qty) || (int) $qty <= 0) {
-                        Log::warning('Order cancellation skipped a line with an unusable product id or quantity', [
-                            'order_id' => $order->id,
-                            'product_id' => $productId,
-                        ]);
-
-                        continue;
-                    }
-
-                    $qty = (int) $qty;
-
-                    $product = Product::where('id', $productId)
-                        ->where('store_id', $order->store_id)
-                        ->first();
-
-                    if (! $product) {
-                        Log::warning("Order cancellation skipped a line whose product is not in the order's store", [
-                            'order_id' => $order->id,
-                            'product_id' => $productId,
-                            'store_id' => $order->store_id,
-                        ]);
-
-                        continue;
-                    }
-
-                    /*
-                     * E13 SLICE 3 — ASK THE RECORD, DO NOT INFER FROM THE STATUS.
-                     *
-                     * D-15, restated by D-30: *"Do not infer stock movement from order status,
-                     * payment status, a guessed flag or the existence of an order."* Until this
-                     * line existed, the loop below inferred precisely that — it credited every
-                     * line of every successfully cancelled order, on the assumption that placing
-                     * the order had taken that stock out.
-                     *
-                     * THE ASSUMPTION IS WRONG WHENEVER THE ORIGINAL NEVER REACHED A DECREMENT: a
-                     * refused shortfall, an untracked product, a transaction that rolled back
-                     * after the order row was written. In those cases the cancellation does not
-                     * restore inventory, it INVENTS it — and the arithmetic looks perfect while
-                     * doing so, which is why nothing caught it.
-                     *
-                     * `movedOutFor()` answers in three states and each gets its own behaviour:
-                     *
-                     *   MOVED      give it back, and record the restore (below) so the same line
-                     *              reads NOT_MOVED afterwards — that is what makes a second
-                     *              restore impossible rather than merely unlikely.
-                     *   NOT_MOVED  SKIP. The record saw this order and this line never took
-                     *              anything out.
-                     *   UNKNOWN    give it back, and say so in the log.
-                     *
-                     * UNKNOWN RESTORES ON PURPOSE. `stock_movements` is development-and-test-only
-                     * (its migration says so), so on every live installation `available()` is
-                     * false, every line is UNKNOWN, and this path behaves exactly as it did before
-                     * — one log line heavier. The protection switches on when, and only when, the
-                     * record exists. Refusing on UNKNOWN would stop restoring stock for every real
-                     * order on the platform, which is a far larger defect than the one being
-                     * fixed.
-                     */
-                    /* `empty()` as well as `== 0`, so an EMPTY-STRING variant_id is a product
-                       line rather than a lookup for variant 0 that silently skips the line. The
-                       sibling return loop at :1404 already reads it this way and the two must not
-                       disagree about the same stored value; raised by independent review. */
-                    $variantId = empty($item['variant_id']) || $item['variant_id'] == 0
-                        ? null
-                        : (int) $item['variant_id'];
-
-                    $movement = \App\Services\StockMovement::movedOutFor(
-                        $order->store_id,
-                        $order->id,
-                        $product->id,
-                        $variantId
-                    );
-
-                    if ($movement === \App\Services\StockMovement::NOT_MOVED) {
-                        Log::warning('Order cancellation skipped a line the stock record says never took stock out', [
-                            'order_id' => $order->id,
-                            'store_id' => $order->store_id,
-                            'product_id' => $product->id,
-                            'variant_id' => $variantId,
-                            'qty' => $qty,
-                        ]);
-
-                        continue;
-                    }
-
-                    if ($movement === \App\Services\StockMovement::UNKNOWN) {
-                        Log::info('Order cancellation restored a line with no stock evidence', [
-                            'order_id' => $order->id,
-                            'store_id' => $order->store_id,
-                            'product_id' => $product->id,
-                            'variant_id' => $variantId,
-                            'qty' => $qty,
-                        ]);
-                    }
-
-                    /* The restore is RECORDED, not just performed: `movedOutFor()` nets applied
-                       ins against applied outs, so feeding it here is what turns the consult above
-                       into a restore-twice guard. */
-                    $evidence = [
-                        'store_id' => $order->store_id,
-                        'order_id' => $order->id,
-                        'reason' => \App\Services\StockMovement::REASON_ORDER_CANCEL,
-                    ];
-
-                    if ($variantId === null) {
-                        $this->stockService()->restoreProductStock($product->id, $qty, $evidence);
-                        $restoredLines[] = [(int) $product->id, null];
-
-                        continue;
-                    }
-
-                    // Both predicates, so a variant_id belonging to another
-                    // product cannot be credited against this line.
-                    $variant = ProductVariant::where('id', $variantId)
-                        ->where('product_id', $product->id)
-                        ->first();
-
-                    if (! $variant) {
-                        Log::warning('Order cancellation skipped a line whose variant does not belong to its product', [
-                            'order_id' => $order->id,
-                            'product_id' => $product->id,
-                            'variant_id' => $variantId,
-                        ]);
-
-                        continue;
-                    }
-
-                    $this->stockService()->restoreVariantStock($variant->id, $qty, $evidence);
-                    $restoredLines[] = [(int) $product->id, (int) $variant->id];
-                }
-
-                /* Stamped inside the same transaction as the credits it describes: a marker that
-                   survived a rolled-back restore would stop a legitimate return credit. */
-                if ($restoredLines !== []) {
-                    $this->markCancelledLinesRestored($order, $restoredLines);
-                }
-            });
+            /*
+             * THE RESTORE NOW LIVES IN A TRAIT, BECAUSE FIVE OTHER DOORS NEEDED IT.  P4-F034.
+             *
+             * This loop was inline here and this was the ONLY door that ran it, so a merchant
+             * cancelling through the order screen, the Flutter app or a courier webhook got no
+             * stock back at all -- measured at 4 where 7 was due. See
+             * App\\Http\\Controllers\\Concerns\\RestoresCancelledOrderStock for the census and for the
+             * two markers the loop now consults, which it did not need while it had one caller.
+             *
+             * It stays in the CALLER rather than moving into Order::order_status_change(): that
+             * method is what OrderReplacement::cancelAndReplace() calls, and the replacement pair
+             * must net -N.
+             */
+            $this->restoreCancelledOrderStock($order, $order_detail['product'] ?? []);
 
             $return['status'] = 'success';
             $return['message'] = __('Order cancel successfully!');
@@ -2364,72 +2319,6 @@ public function store(Request $request)
             $return['message'] = $responce['message'];
             return response()->json($return);
         }
-    }
-
-    /**
-     * Stamp `Order::LINE_STOCK_RESTORED` on the stored lines a cancellation really did credit.
-     *
-     * Keyed on (product_id, variant_id) rather than on the array index, because
-     * `Order::order_detail()` returns a DERIVED copy of the lines and its keys are not promised to
-     * match the stored `product_json`. A line that was skipped — the record says it never took
-     * stock out, or its product or variant did not resolve — is deliberately NOT stamped: the
-     * marker means "these goods are already back in", and claiming it for goods that never came
-     * back would block a legitimate return credit later.
-     *
-     * @param list<array{0:int,1:int|null}> $restoredLines
-     */
-    private function markCancelledLinesRestored(Order $order, array $restoredLines): void
-    {
-        $lines = json_decode((string) $order->product_json, true);
-
-        if (! is_array($lines) || $lines === []) {
-            return;
-        }
-
-        $wanted = [];
-
-        foreach ($restoredLines as [$productId, $variantId]) {
-            $wanted[$productId . ':' . ($variantId ?? '')] = true;
-        }
-
-        $changed = false;
-
-        foreach ($lines as $key => $line) {
-            if (! is_array($line)) {
-                continue;
-            }
-
-            $productId = isset($line['product_id']) && is_numeric($line['product_id'])
-                ? (int) $line['product_id'] : null;
-
-            if ($productId === null) {
-                continue;
-            }
-
-            $variantId = empty($line['variant_id']) || $line['variant_id'] == 0
-                ? null
-                : (int) $line['variant_id'];
-
-            if (! isset($wanted[$productId . ':' . ($variantId ?? '')])) {
-                continue;
-            }
-
-            if (Order::lineStockAlreadyRestored($line)) {
-                continue;
-            }
-
-            $lines[$key][Order::LINE_STOCK_RESTORED] = 1;
-            $changed = true;
-        }
-
-        if (! $changed) {
-            return;
-        }
-
-        /* Written through Eloquent so the model cache is flushed: `Order` is `Cachable`, and a raw
-           update would leave route-model binding serving the pre-write row. */
-        $order->product_json = json_encode($lines);
-        $order->save();
     }
 
     public function destroy(Order $order)

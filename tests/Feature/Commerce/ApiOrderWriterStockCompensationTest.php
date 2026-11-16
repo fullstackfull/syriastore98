@@ -128,6 +128,82 @@ final class ApiOrderWriterStockCompensationTest extends SecurityTestCase
     }
 
     /**
+     * THE THIRD WINDOW, AND THE ONLY ONE THAT TELLS THE TWO GATE SPELLINGS APART.
+     * =============================================================================================
+     *
+     * The two cases that bracket this one are both satisfied by the OLD gate, and that is not a
+     * criticism of them -- it is a fact about where they inject:
+     *
+     *   - the case above throws from `Order::creating`, BEFORE `Model::performInsert()` sets
+     *     `exists`, so `$order->exists` is false and both spellings restore;
+     *   - the case below throws after the commit, when the row really is there, so both
+     *     spellings decline to restore.
+     *
+     * Between them sits the window P4-F026 opened by adding a transaction: the insert has run,
+     * `exists` is true, and then the boundary ROLLS THE ROW AWAY. `Model::performInsert()` sets
+     * `exists` and nothing ever unsets it, so the old gate answers "an order claims these goods"
+     * about a row that no longer exists, declines the give-back, and leaves the shopper with
+     * neither the order nor the stock -- an undersell on the commonest failure path inside a
+     * transaction, invisible to every other case in this file.
+     *
+     * `Order::created` is the injection, because `performInsert()` sets `exists` at the statement
+     * before it fires. It is also not a contrived probe: `OrderObserver::created()` catches
+     * `\Exception` but NOT `\Throwable`, so a `TypeError` in
+     * `OrderFinancialService::createForOrder()` reaches here in production exactly this way --
+     * the same real failure that the D-13 fix's own first attempt turned into an oversell.
+     *
+     * MEASURED BOTH WAYS before this was written: with the gate spelled
+     * `|| (isset($order) && $order instanceof \App\Models\Order && $order->exists)` this case
+     * fails on both writers and the other four pass; with `|| $this->orderRowSurvived($order ??
+     * null)` all six pass.
+     *
+     * @dataProvider apiOrderWriters
+     */
+    public function test_a_failure_after_the_insert_but_inside_the_transaction_gives_the_stock_back(string $path): void
+    {
+        [$store, $customer, $product, $shippingId] = $this->checkout();
+
+        $fired = false;
+
+        \App\Models\Order::created(static function () use (&$fired): void {
+            $fired = true;
+
+            throw new \RuntimeException('simulated failure after the insert, inside the boundary');
+        });
+
+        $this->withoutExceptionHandling();
+
+        $threw = null;
+        try {
+            $this->placeOrder($path, $store, $customer, $shippingId);
+        } catch (\Throwable $e) {
+            $threw = $e;
+        }
+
+        /* THE PREMISES. Without the first, an earlier throw gives the identical three readings.
+           Without the second, this case would also pass against a handler with no transaction at
+           all that simply never inserted. */
+        $this->assertTrue($fired,
+            'the injection never reached `Order::created`, so the insert never ran and this case '
+            . 'is measuring a loop that stopped earlier rather than a row that was rolled back');
+
+        $this->assertSame('simulated failure after the insert, inside the boundary',
+            $threw?->getMessage(),
+            'something other than the injected failure threw');
+
+        /* THE TRANSACTION ITSELF. Before P4-F026 this row COMMITTED -- the insert was durable the
+           moment `save()` returned and the throw from `created` could not undo it. */
+        $this->assertSame(0, (int) DB::table('orders')->where('store_id', $store->id)->count(),
+            "`$path` left an order row behind after a throw inside the write boundary, so the five "
+            . 'row writes are not one transaction');
+
+        $this->assertSame(self::OPENING_STOCK, $this->stockOf($product),
+            "`$path` kept the stock consumed although the order was rolled away. The gate is "
+            . 'answering from `$order->exists`, which a rollback does not clear, instead of from '
+            . 'the table.');
+    }
+
+    /**
      * THE OTHER HALF OF THE RULE, and it is not symmetry for its own sake.
      *
      * Once the order EXISTS it claims its goods. Giving the stock back then would put the shopper's
@@ -142,9 +218,42 @@ final class ApiOrderWriterStockCompensationTest extends SecurityTestCase
     {
         [$store, $customer, $product, $shippingId] = $this->checkout();
 
-        \App\Models\Order::created(static function (): void {
-            throw new \RuntimeException('simulated failure after the order write');
-        });
+        /*
+         * THE INJECTION POINT MOVED WITH P4-F026, AND IT HAD TO.
+         *
+         * This case used to throw from `Order::created`, which WAS post-write while these two
+         * handlers had no transaction: the insert was already durable when the event fired, so the
+         * rule being tested -- "an order that exists claims its goods" -- applied. Once the five
+         * row writes became one transaction, `created` fires INSIDE the boundary, the throw rolls
+         * the order away, and the right answer flips: the stock must come back. Keeping the old
+         * injection would not have measured a weaker version of this rule, it would have measured
+         * the opposite one, and the case's own premise assertion caught that on the first run.
+         *
+         * `TransactionCommitted` is the honest replacement. It is dispatched by
+         * `Connection::commit()` AFTER `PDO::commit()` has returned, so a listener that throws
+         * there is a failure that genuinely follows a durable write -- and it is also the exact
+         * window that `$ssOrderWritten` alone cannot see, because the flag is assigned by the
+         * statement after `DB::commit()` and that statement is never reached. What stops the
+         * oversell is the gate's second limb, `orderRowSurvived()`, asking the table.
+         *
+         * GATED ON AN ORDER ROW BEING VISIBLE, not merely on "the first commit", because the
+         * stock service commits before the order write and would otherwise take the throw --
+         * which is the earlier-throw trap the case above spends a paragraph on.
+         */
+        $fired = false;
+
+        \Illuminate\Support\Facades\Event::listen(
+            \Illuminate\Database\Events\TransactionCommitted::class,
+            function () use (&$fired): void {
+                if ($fired || (int) DB::table('orders')->count() === 0) {
+                    return;
+                }
+
+                $fired = true;
+
+                throw new \RuntimeException('simulated failure after the order write');
+            }
+        );
 
         $this->withoutExceptionHandling();
 
@@ -153,6 +262,10 @@ final class ApiOrderWriterStockCompensationTest extends SecurityTestCase
         } catch (\Throwable $e) {
             // expected
         }
+
+        $this->assertTrue($fired,
+            'the post-commit injection never fired, so this case is not measuring a failure after '
+            . 'a durable write -- re-check the probe before trusting the assertions below');
 
         /*
          * THE PREMISE OF THIS CASE IS THAT A ROW COMMITTED, and nothing asserted it until the

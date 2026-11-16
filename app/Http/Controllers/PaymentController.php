@@ -46,6 +46,9 @@ use App\Http\Controllers\Concerns\GuardsGatewayReturn;
 
 class PaymentController extends Controller
 {
+    /* P4-F026: the F276 storefront intake claim, now shared with this web door. */
+    use \App\Http\Controllers\Concerns\ClaimsCheckoutIntake;
+
     use ApiResponser;
 
     /*
@@ -1160,14 +1163,15 @@ private function paymeraOrderHighWaterMark(mixed $storeId): int
  * `$pending['processed']` still false, and **no in-process marker of either**: not a return
  * value, not a binding, not a flag. The only witness is the row.
  *
- * (Measured anchors: `DB::beginTransaction()` :3698, `DB::commit()` :3873, `$owner->email`
- * :3929, `OrderCompleteBinding::remember()` :4018. Re-measured twice on 2026-10-30: F210's
+ * (Measured anchors: `DB::beginTransaction()` :3988, `DB::commit()` :4163, `$owner->email`
+ * :4219, `OrderCompleteBinding::remember()` :4308. Re-measured twice on 2026-10-30: F210's
  * ownership gate moved them 71 lines, then F216's guard above this method moved them 49 more.
  * Re-measured TWICE MORE on 2026-10-31, and the second time is the lesson: F237's attribution
  * call inside this very transaction moved the last three by 4; correcting THIS COMMENT then added
  * four lines above the method and moved all four by 4 again, so the first correction was stale
  * the moment it was written -- the third time that has happened to this block, and the reason it
- * is ratcheted at all. Measure after editing the comment, not before.
+ * is ratcheted at all. P4-3's two notes above then moved all four by 7 and 11. P4-F026's intake
+ * claim and transaction boundary in this same method moved them 97 more. Measure AFTER.
  * THE MARKER IS DATE-FREE ON PURPOSE: dating it is what the ratchet's own needle matches on, and
  * writing "Re-measured 2026-10-30:" here emptied that needle. These are STRUCTURAL claims and the numbers
  * drift -- two earlier versions of this comment cited lines this very change had already moved,
@@ -1843,13 +1847,46 @@ public function handlePaymeraTrigger00($orderId)
  
         // Get store and admin info
         $store = getStore($slug);
-        $user = User::where('id', $store->created_by)->first();
-        $plan = ($user->type == 'admin') ? Plan::find($user->plan_id) : null;
+        /*
+         * THE THIRTEENTH SITE, through the same seam as the other twelve. P4-F014.
+         *
+         * This one already resolved the RIGHT user -- it is one of the two sites
+         * `App\Support\Commerce\StorePlan` cites as correct -- so routing it through the seam is
+         * behaviour-preserving. It is done anyway because a correct site sitting OUTSIDE the seam
+         * will not follow if the rule ever changes, which is how a family of twelve became a family
+         * of thirteen in the first place. The `$user &&` guard is new: a property read on null is a
+         * PHP 8 warning rather than a crash, so a store whose owner row is gone silently resolved
+         * no plan and quietly turned shipping off. Found by independent review.
+         */
+        $user = \App\Support\Commerce\StorePlan::ownerOf($store);
+        $plan = ($user && $user->type == 'admin') ? Plan::find($user->plan_id) : null;
 
         // Handle customer registration if needed
         $isGuest = !auth('customers')->check();
         $customer = $isGuest ? $this->handleCustomerRegistration($request, $store) : auth('customers')->user();
         
+        /*
+         * P4-F096 -- `handleCustomerRegistration()` DOES NOT ALWAYS RETURN A CUSTOMER.
+         * =========================================================================================
+         *
+         * It returns `redirect()->back()->with('error', ...)` from two validation failures, and
+         * `if (! $customer)` does not catch a `RedirectResponse` -- an object is truthy. The next
+         * statement then read `$customer->id` on it, which is "Attempt to read property id on
+         * Illuminate\Http\RedirectResponse": a 500 on an ordinary guest checkout with an
+         * incomplete billing form, where the shopper should have been handed back their own
+         * validation message.
+         *
+         * Reachable by an anonymous visitor with no special anything: leave a required billing
+         * field out and the storefront answers 500 instead of "Billing first name not found."
+         *
+         * RETURNED, NOT COERCED. The redirect IS the refusal `handleCustomerRegistration()`
+         * decided on, carrying the message it chose; handing it back is both the smaller change
+         * and the better answer than replacing it with a generic one.
+         */
+        if ($customer instanceof \Symfony\Component\HttpFoundation\Response) {
+            return $customer;
+        }
+
         if (!$customer) {
             return redirect()->back()->with('error', __('User not found.'));
         }
@@ -2011,8 +2048,209 @@ public function handlePaymeraTrigger00($orderId)
             return $refusal;
         }
 
-        // Process payment
-        return $this->processPayment($request, $slug, $cartlist);
+        /*
+         * P4-F026 -- ONE WEB CHECKOUT, ONE ORDER. The claim F276 built for the storefront API,
+         * applied to the door real shoppers use.
+         * =========================================================================================
+         *
+         * MEASURED at d227b7c0 through this exact route: a second POST to `{slug}/process-order`
+         * naming the SAME cart rows wrote a second order, took the stock a second time, cleared
+         * the cart again and flashed NO error. For `cod` that is a second amount for a driver to
+         * collect; for the merchant the shelf and the ledger disagree by one unit per line.
+         *
+         * THE CART IS NOT THE CONTROL, and this path is where that matters most. A completed
+         * checkout clears the cart, so the SEQUENTIAL replay is already refused -- by the empty
+         * basket, which is why the honest case name in the test is "stopped by the empty basket
+         * NOT by a control". Two requests in flight together each read the basket before either
+         * clears it, and neither sees the other. `Cache::add()` is a single atomic put-if-absent
+         * -- an INSERT against the `cache` primary key on the production `database` store -- and
+         * is the one idempotency primitive this codebase uses (F226, F269, F270, F276).
+         *
+         * PLACED AFTER EVERY PRE-FLIGHT REFUSAL ON PURPOSE. A basket refused for an unavailable
+         * line, a foreign product or a non-positive quantity must leave NO claim behind, or the
+         * shopper who fixes their cart and re-posts inside the window is refused for a checkout
+         * that never happened. The three guards above all `return` before this line.
+         *
+         * THE FINGERPRINT IS SERVER-DERIVED: the store comes from the route slug, the customer
+         * from `auth('customers')` or the registration just performed, and the lines from the
+         * server's own cart read -- never from request input.
+         */
+        $ssIntakeLines = (array) ($cartData['products'] ?? []);
+
+        /*
+         * THE CART ROW IDS COME FROM THE DATABASE, NOT FROM THE PAYLOAD.
+         *
+         * The first version of this read `$line['cart_id']` out of the cart payload, and an
+         * independent review of this change found that it is only a real `carts.id` on ONE of the
+         * two branches this handler serves:
+         *
+         *   `ApiController::cart_list`      (signed in)  `['cart_id'] = $value->id;`       <- the row
+         *   `Cart::cart_list_cookie`        (GUEST)      `['cart_id'] = $key;`             <- the LOOP INDEX
+         *
+         * `$Carts` there comes from `->get()`, so `$key` is 0, 1, 2 … for every guest basket. The
+         * consequences were both live and both on the storefront door real shoppers use: a
+         * one-line guest basket produced `[0]`, which `array_filter` dropped, so the claim was
+         * released even after a committed order and the protection simply did not exist for
+         * guests; and a two-line basket produced `[1, 2]`, which
+         * `Cart::withoutGlobalScopes()->whereIn('id', ...)` then asked about WHOEVER OWNS cart rows
+         * 1 and 2 — another tenant, or nobody — so on any database with history the probe answered
+         * "gone", the claim was kept, and a guest who abandoned at a gateway and retried was
+         * refused for two minutes over an order that was never written.
+         *
+         * Read here instead, with the store predicate and the principal's own scope, so the ids
+         * are this basket's real rows on both branches. `Cart::forCustomer()` and
+         * `::forGuestCookie()` both compile to `1 = 0` for an unusable identifier rather than
+         * matching everything, which is why they are used in preference to a bare `where`.
+         *
+         * NOT FIXED IN `cart_list_cookie` ITSELF, deliberately: `cart_id` is rendered into
+         * `data-id` by four storefront views and posted back to the cart remove and quantity
+         * endpoints, so changing what it means is a storefront contract change and belongs with
+         * those endpoints, not inside a checkout fix. Recorded as its own finding.
+         */
+        $ssBasketQuery = \App\Models\Cart::withoutGlobalScopes()->where('store_id', $store->id);
+
+        if ($isGuest) {
+            $ssBasketQuery->forGuestCookie(\Illuminate\Support\Facades\Cookie::get('cart'));
+        } else {
+            /*
+             * `auth('customers')->id()` AND NOT `$customer->id`, although on this branch they are
+             * the same object -- `$customer` IS `auth('customers')->user()` three screens up.
+             *
+             * `CartScopesTest::test_every_for_customer_call_names_the_authenticated_principal`
+             * is a TEXTUAL control: it scans every `forCustomer(` argument in the tree and
+             * requires it to be a spelling that is self-evidently the signed-in shopper.
+             * `$customer->id` is not one -- a variable of that name could hold anything, and the
+             * whole point of the ratchet is that a reader does not have to trace it. Widening the
+             * allowlist to admit it would weaken the control for every future call site; spelling
+             * the principal directly costs nothing and keeps it strong.
+             */
+            $ssBasketQuery->forCustomer(auth('customers')->id());
+        }
+
+        $ssIntakeCartIds = $ssBasketQuery->orderBy('id')->pluck('id')->map(
+            static fn ($id) => (int) $id
+        )->values()->all();
+
+        /*
+         * AND THE REAL ROW SET IS BOUND INTO THE KEY, which is what makes the trait's documented
+         * property — "a rebuilt cart has NEW `carts.id` values, so it is a different claim; two
+         * requests racing read the SAME rows, so they are still one claim" — true on the guest
+         * branch as well. Appended rather than threaded through `storefrontIntakeFingerprint()`
+         * so that the shared helper keeps answering exactly as it does for its two API callers.
+         */
+        $ssIntakeClaim = $this->storefrontIntakeFingerprint(
+            $ssIntakeLines,
+            (int) $store->id,
+            (int) $customer->id,
+            $request->payment_type
+        ) . ':rows:' . hash('sha256', json_encode($ssIntakeCartIds));
+
+        if (! \Illuminate\Support\Facades\Cache::add(
+            $ssIntakeClaim,
+            self::STOREFRONT_INTAKE_WRITING,
+            now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS)
+        )) {
+            \Illuminate\Support\Facades\Log::warning('Web checkout intake refused as a duplicate submission', [
+                'store_id' => $store->id ?? null,
+                'customer_id' => $customer->id ?? null,
+                'path' => $request->path(),
+            ]);
+
+            return redirect()->back()->with('error', __('This checkout has already been submitted. Please wait a moment and check your orders before trying again.'));
+        }
+
+        /*
+         * AND THE RELEASE IS ALSO REGISTERED FOR SHUTDOWN, because two payment arms NEVER RETURN.
+         *
+         * `PaymentService::redirect_to_merchant()` prints an auto-submitting form and ends with a
+         * bare `exit;` (the AamarPay arm), and the PayTR arm answers a cURL failure with `die(...)`
+         * — which is not an exception, so the `try/catch` below never sees it and the release
+         * block after it never runs. Found by an independent review of this change, not by a test.
+         *
+         * The cost was asymmetric and worst on the innocent case: a TRANSIENT network error to
+         * PayTR locked that shopper out of checkout for the next two minutes, for an order that
+         * does not exist. Before this change the same error cost them one failed attempt.
+         *
+         * `register_shutdown_function` runs on `exit`, on `die` and on a fatal error, which is
+         * exactly the set the catch cannot reach. The released-unless-consumed test is the same
+         * one the normal path uses, so a request that already released its claim finds nothing to
+         * do, and one that legitimately produced an order keeps it.
+         */
+        /*
+         * THE REPOSITORY AND THE CONNECTION ARE RESOLVED **NOW**, NOT INSIDE THE CLOSURE.
+         *
+         * The first version of this called `Cache::get()` through the facade from inside the
+         * shutdown handler, and that is a different world: `register_shutdown_function` runs after
+         * PHP's normal shutdown, by which point Laravel's container can already be torn down. It
+         * threw `Target class does not exist` out of `Container.php` -- a FATAL raised by the very
+         * code written to make a failure recoverable. Measured in the full Feature suite, where
+         * each test rebuilds the application: the handler fired after that instance was gone.
+         *
+         * Holding the resolved cache store and DB connection closes it, because the closure then
+         * needs nothing from the container at all.
+         */
+        $ssClaimStore = \Illuminate\Support\Facades\Cache::store();
+        $ssClaimConnection = \Illuminate\Support\Facades\DB::connection();
+
+        $ssReleaseClaim = function () use ($ssIntakeClaim, $ssIntakeCartIds, $ssClaimStore, $ssClaimConnection): void {
+            /*
+             * TOTAL BY CONSTRUCTION. A shutdown handler that throws has nowhere to report and can
+             * mask the failure that brought the process down, so the whole body is wrapped rather
+             * than the probe alone. The cost of doing nothing is bounded: the claim expires on its
+             * own after STOREFRONT_INTAKE_CLAIM_SECONDS.
+             */
+            try {
+                if ($ssClaimStore->get($ssIntakeClaim) !== self::STOREFRONT_INTAKE_WRITING) {
+                    return;
+                }
+
+                /* Unanswerable means release, which is the direction F276 argued for: a checkout
+                   dead for two minutes with no order to show for it is the worse outcome. */
+                $ssBasketConsumed = $ssIntakeCartIds !== []
+                    && ! $ssClaimConnection->table('carts')->whereIn('id', $ssIntakeCartIds)->exists();
+
+                if (! $ssBasketConsumed) {
+                    $ssClaimStore->forget($ssIntakeClaim);
+                }
+            } catch (\Throwable $ssReleaseFailure) {
+                // Nothing to do and nowhere to say it. The claim's TTL is the backstop.
+            }
+        };
+
+        register_shutdown_function($ssReleaseClaim);
+
+        try {
+            // Process payment
+            $ssPaymentResponse = $this->processPayment($request, $slug, $cartlist);
+        } catch (\Throwable $ssCheckoutFailure) {
+            \Illuminate\Support\Facades\Cache::forget($ssIntakeClaim);
+
+            throw $ssCheckoutFailure;
+        }
+
+        /*
+         * RELEASED UNLESS THE CHECKOUT CONSUMED ITS BASKET, and the test is the CART ROWS rather
+         * than an order count.
+         *
+         * `PaymentService::clearCartLines()` deletes exactly these rows after the order has
+         * committed, so their absence is this claim's own evidence that it produced an order. An
+         * order COUNT would have been wrong under concurrency in the one direction that hurts: a
+         * different shopper's order placed in the same instant would inflate it, the claim would
+         * be kept, and THIS shopper would be refused for two minutes over somebody else's
+         * purchase.
+         *
+         * A checkout that refused -- a declined gateway, a priced-from-nothing basket, a
+         * validation failure further in -- leaves its rows in place and therefore releases the
+         * claim, so the shopper can correct it and complete. That is the behaviour
+         * `test_a_refused_checkout_can_be_corrected_and_completed` holds.
+         *
+         * FAILS OPEN WHEN IT CANNOT TELL, which is the direction F276 chose and argued for: a
+         * checkout dead for two minutes with no order to show for it is worse than a second
+         * chance at a duplicate the cart itself usually refuses.
+         */
+        $ssReleaseClaim();
+
+        return $ssPaymentResponse;
     }
 
     /**
@@ -2861,6 +3099,51 @@ public function handlePaymeraTrigger00($orderId)
         if ($requests_data === null) {
             return $this->gatewayReturnRefusal();
         }
+
+        /*
+         * P4-F044 -- THE SHOPPER PRESSED CANCEL. THE MARKER IS FINALLY READ.
+         * =========================================================================================
+         *
+         * Stripe, Sofort and Paymera all send the shopper back to THIS url whether they paid or
+         * cancelled, and the cancel leg carries `&return_type=cancel&payment_processor=<x>`. That
+         * marker was written in ELEVEN places in this codebase and read in ZERO -- the only reader
+         * anywhere was in the vendored Campaigns module, on a different surface. So a shopper who
+         * pressed Back on the hosted gateway page arrived here with their stored checkout state
+         * intact and this handler wrote the order.
+         *
+         * THE MONEY HALF WAS ALREADY SAFE and is not what this closes: none of these providers is
+         * in `OFFLINE_PAYMENT_TYPES` and no verification record exists on a cancel, so
+         * `resolveOrderPaymentStatus()` returns Pending and no wallet is credited. What the
+         * shopper and the merchant actually lost was everything else -- a phantom Pending order, a
+         * stock decrement with nothing to claim it and no compensation on this path, an emptied
+         * cart, and a consumed 48-hour gateway-return claim that then refuses the genuine retry.
+         *
+         * REFUSED ON THE MARKER, NEVER ON ITS ABSENCE. A return carrying no marker at all is
+         * PayPal's success leg and several other providers'; refusing that would contradict the
+         * recorded decision that an unverified return still writes a Pending order so a shopper
+         * who may have been charged has a reconciliation path. That is why PayPal's and Sofort's
+         * `cancel_url` had to be given the marker in `PaymentService` rather than this reader
+         * being made stricter -- PayPal's two URLs were byte-identical, so there was nothing here
+         * to read.
+         *
+         * PLACED ABOVE EVERYTHING: above the claim, above the cart read, above the stock loop and
+         * above the order write. A cancellation must consume nothing, which is the whole of the
+         * finding -- the shopper has to be able to go straight back and pay.
+         *
+         * THE STATE IS LEFT IN THE SESSION on purpose, for the same reason: the shopper's next
+         * attempt reuses it rather than starting from nothing.
+         */
+        if (strtolower(trim((string) $request->query('return_type'))) === 'cancel') {
+            \Illuminate\Support\Facades\Log::info('Storefront gateway return: the shopper cancelled at the gateway; no order was written', [
+                'slug' => $slug,
+                'payment_type' => $requests_data['payment_type'] ?? null,
+                'payment_processor' => $request->query('payment_processor'),
+            ]);
+
+            return redirect()->route('checkout', $slug)
+                ->with('error', __('Your payment was cancelled. Your basket has been kept, so you can try again.'));
+        }
+
         $store = getStore($slug);
         $admin_payment_setting = getAdminAllSetting($store->created_by, $store->id);
         
@@ -2974,10 +3257,17 @@ public function handlePaymeraTrigger00($orderId)
 
             $request['method_id'] = $requests_data['method_id'];
         }
-        $user = Cache::remember('admin_details', 3600, function () {
-            return User::where('type','admin')->first();
-        });
-        if ($user->type == 'admin') {
+        /*
+         * P4-F014 / P4-F024. THE STORE'S OWN OWNER, not `User::where('type','admin')->first()`
+         * -- which is the first merchant in the shared database, by lowest id, and was cached
+         * under one global key for an hour. One arbitrary tenant's plan decided whether every
+         * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
+         * right plan (CartController::cart_list_sidebar:38-40,
+         * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
+         * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+         */
+        $user = \App\Support\Commerce\StorePlan::ownerOf($store);
+        if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);
         }
 
@@ -4501,9 +4791,16 @@ $result = app(\App\Services\StoreNotificationService::class)
 
             $request['method_id'] = $requests_data['method_id'];
         }
-        $user = Cache::remember('admin_details', 3600, function () {
-            return User::where('type','admin')->first();
-        });
+        /*
+         * P4-F014 / P4-F024. THE STORE'S OWN OWNER, not `User::where('type','admin')->first()`
+         * -- which is the first merchant in the shared database, by lowest id, and was cached
+         * under one global key for an hour. One arbitrary tenant's plan decided whether every
+         * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
+         * right plan (CartController::cart_list_sidebar:38-40,
+         * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
+         * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+         */
+        $user = \App\Support\Commerce\StorePlan::ownerOf($store);
         $plan = null;
         if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);

@@ -374,6 +374,76 @@ trait AppliesCartStockChanges
         return ['message' => __('Insufficient stock. Please review your cart and try again.')];
     }
 
+    /**
+     * DOES AN ORDER ROW STILL EXIST FOR THIS MODEL? ASKED OF THE DATABASE, FROM AN ERROR PATH.
+     * =============================================================================================
+     *
+     * The D-13 guard has to answer one question before it gives inventory back: does an order
+     * claim these goods? Restoring behind an order that exists OVERSELLS -- the shopper's items go
+     * back on the shelf for the next buyer while their order stands. Not restoring when no order
+     * exists UNDERSELLS -- the stock is consumed with nothing to claim it.
+     *
+     * UNTIL P4-F026 THE GUARD ASKED `$order->exists`, AND THAT WAS THE RIGHT QUESTION ONLY WHILE
+     * THERE WAS NO TRANSACTION. `Model::performInsert()` sets `exists = true` and never unsets it;
+     * a rollback is invisible to the model object. So the moment the storefront writers gained a
+     * boundary, `$order->exists` started answering "yes" for orders that had just been rolled
+     * away -- and the guard would have skipped the restore for every failure inside the
+     * boundary, which is the undersell, silently, on the most common failure path there is.
+     *
+     * `$ssOrderWritten` alone is not sufficient either, in the other direction. It is set after
+     * `DB::commit()` returns, and `commit()` dispatches `TransactionCommitted` AFTER the PDO
+     * commit has already succeeded: a listener that throws there leaves the rows durably
+     * committed with the flag still false. Rare, but it is the oversell, and it is exactly the
+     * shape of the defect D-13's own first fix introduced.
+     *
+     * So this asks the only authority that is right in both directions -- the table -- on the
+     * query builder, which carries no global scope and no model cache, both of which would
+     * answer from the wrong tenant or from a pre-rollback snapshot.
+     *
+     * IT FAILS CLOSED, AND "CLOSED" HERE MEANS "DO NOT RESTORE". If the probe itself throws --
+     * the usual reason being the very lost connection that brought us into this catch -- we
+     * cannot tell whether a row survived. Of the two errors, the undersell is recoverable by a
+     * human reading the log and the oversell is not: it has already promised goods to a second
+     * shopper. So an unanswerable probe is treated as "an order claims it", and says so in the
+     * log rather than silently.
+     */
+    private function orderRowSurvived($order = null): bool
+    {
+        /*
+         * UNTYPED ON PURPOSE, AND THE `instanceof` BELOW IS THE REAL GATE.
+         *
+         * The first version declared `?\App\Models\Order $order`, which is NARROWER than the
+         * expression it replaced: `isset($order) && $order instanceof Order && $order->exists` was
+         * total -- any value at all produced `false` -- while a declared class type throws a
+         * `TypeError` at the call boundary for any non-null object of another class. That boundary
+         * is INSIDE the D-13 catch, so the TypeError would have replaced the original exception,
+         * skipped `restoreStockDecrements()` and skipped the rethrow: a compensation silently not
+         * run, from inside the handler whose job is to run it.
+         *
+         * Not reachable at today's eight call sites, all of which pass `new Order()`. But five of
+         * those same files hold `$order = new PlanOrder()` in a sibling method, so the mistake is
+         * one copy-paste away and its failure is invisible. Found by independent review, which is
+         * the only way a latent type narrowing inside a catch gets found.
+         */
+        if (! $order instanceof \App\Models\Order || empty($order->getKey())) {
+            return false;
+        }
+
+        try {
+            return \Illuminate\Support\Facades\DB::table('orders')
+                ->where('id', $order->getKey())
+                ->exists();
+        } catch (\Throwable $probeFailure) {
+            \Illuminate\Support\Facades\Log::critical('Stock compensation could not determine whether the order row survived; assuming it did and leaving the stock consumed.', [
+                'order_id' => $order->getKey(),
+                'store_id' => $order->store_id ?? null,
+                'error' => $probeFailure->getMessage(),
+            ]);
+
+            return true;
+        }
+    }
+
     /** Give back every decrement recorded by {@see decrementStockOrFail()}. */
     private function restoreStockDecrements(array $applied): void
     {

@@ -91,6 +91,7 @@ class OrderStoreOwnershipTest extends TestCase
             'role_user',
             'permissions',
             'roles',
+            'stores',
             'users',
         ] as $table) {
             Schema::dropIfExists($table);
@@ -193,6 +194,436 @@ class OrderStoreOwnershipTest extends TestCase
         );
 
         $this->assertRefused($response, 'الخيار/المتغير غير موجود');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | P4-F025 -- cross-tenant CUSTOMER on the very same form
+    |--------------------------------------------------------------------------
+    |
+    | The PRODUCT and VARIANT predicates above were ported from the API twin.
+    | The CUSTOMER predicate was not.
+    |
+    | `customer_id` is validated with `exists:customers,id`
+    | (OrderController.php:110). `exists:` is a RAW QUERY-BUILDER rule, so it
+    | bypasses Eloquent entirely and is satisfied by any store's customer. The
+    | id then travels verbatim into `Order::create` (OrderController.php:363)
+    | and `OrderNote::create` (:438) with no store test anywhere between them.
+    |
+    | WHY THE TENANT SCOPE DOES NOT COVER IT -- and why that is the trap rather
+    | than the mitigation. `Customer` is one of the few models whose StoreScope
+    | ACTUALLY FILTERS (config/tenancy.php:273; CLAUDE.md's scoped-models table
+    | lists it as the canonical example). A reader who knows that assumes the
+    | scope answers this question. The scope never sees the query: `exists:`
+    | builds its own query-builder SELECT, and nothing here ever loads a
+    | `Customer` model at all.
+    |
+    | THE IDENTICAL DEFECT IS ALREADY CLOSED ON THE API TWIN, at
+    | Api/DashboardController.php:6500-6512, and pinned by
+    | tests/Feature/Security/ForeignProductCartChainTest.php:1307-1333
+    | (`test_the_admin_order_api_refuses_another_stores_customer`). That test
+    | drives `POST /api/admin/createOrderViaApi` ONLY, so it confirms this gap
+    | rather than covering it.
+    |
+    | AND THE SAME SCREEN'S GET ALREADY CARRIES THE PREDICATE:
+    | OrderController::create() reads the preselected customer at :488-491 and
+    | the whole picker list at :493, both `->where('store_id', getCurrentStore())`.
+    | So the form offers a store-scoped list and the POST then accepts an id
+    | from outside it.
+    |
+    | GRADED AS CROSS-TENANT DATA LINKAGE, NOT THEFT, and the grade is load
+    | bearing for what these tests assert. The order lands in the ATTACKER'S
+    | own store, so the wallet follows the attacker's store
+    | (OrderFinancialService.php:21) and the victim's own order list and
+    | timeline stay store-scoped. What is actually written is a durable
+    | association between store A's order rows and store B's customer, in
+    | `orders.customer_id` and `order_notes.customer_id` -- which is why the
+    | assertions below are row counts on those two columns and not a money
+    | assertion.
+    |
+    | EVERY READ BELOW IS AGAINST THE RAW TABLE. `Customer` and `OrderNote` are
+    | both in `scoped_models` and `Order` is `Cachable`, so an Eloquent
+    | "it is not there" assertion answers against whichever tenant happens to be
+    | resolved, or against a cached row -- the two false readings CLAUDE.md
+    | records. `DB::table()` can do neither.
+    */
+
+    /**
+     * PREMISE 1 -- the fixture really straddles two stores, and store()'s own
+     * `customer_id` rule really does accept the far side of it.
+     *
+     * Without this, the case below could pass after a fix for the wrong
+     * reason: if the validator were what stopped the request, the test would
+     * prove nothing about the writer. This asserts the opposite -- that the
+     * rule as written lets the foreign id through to the handler body.
+     *
+     * The rule string is store()'s, copied from OrderController.php:110. It is
+     * asserted BEHAVIOURALLY rather than by matching the controller source, so
+     * that a future fix which tightens the rule itself does not redden a
+     * premise test about today's mechanism.
+     */
+    public function test_premise_the_global_exists_rule_accepts_another_stores_customer(): void
+    {
+        $foreignCustomerId = $this->makeCustomer(self::STORE_B, 'victim@example.test');
+
+        $foreignStore = (int) \Illuminate\Support\Facades\DB::table('customers')
+            ->where('id', $foreignCustomerId)
+            ->value('store_id');
+
+        $this->assertSame(
+            self::STORE_B,
+            $foreignStore,
+            'the fixture customer must be tagged to store B'
+        );
+
+        $this->assertNotSame(
+            (int) getCurrentStore(),
+            $foreignStore,
+            'the fixture must straddle two stores, or the case below is vacuous'
+        );
+
+        $this->assertTrue(
+            \Illuminate\Support\Facades\Validator::make(
+                ['customer_id' => $foreignCustomerId],
+                ['customer_id' => 'required|exists:customers,id']
+            )->passes(),
+            "store()'s own customer_id rule must ACCEPT the foreign id. If it refuses, the "
+                . 'case below is stopped by the validator and says nothing about the writer.'
+        );
+    }
+
+    /**
+     * PREMISE 2, AND THE NEGATIVE REGRESSION -- the identical call for a
+     * customer of THIS store is written, and is written with that customer.
+     *
+     * Two jobs in one case, both necessary:
+     *
+     *  - AS A PREMISE it proves the whole fixture reaches the code under test:
+     *    the `Manage Order` gate passes, the validator passes, the product loop
+     *    finds a product, the reconciler agrees with the posted total, and the
+     *    insert commits. Every one of those has silently swallowed a case in
+     *    this repository before. If this is red, nothing below means anything.
+     *
+     *  - AS A REGRESSION it pins the half a fix must NOT break. The customer
+     *    here is deliberately NOT the schema builder's default id 1; it is a
+     *    second store-A row created at runtime, so a fix that accidentally
+     *    hard-codes the fixture customer, or that refuses any id the picker did
+     *    not render, fails here.
+     */
+    public function test_the_stores_own_customer_is_accepted_and_recorded_on_the_order(): void
+    {
+        $ownCustomerId = $this->makeCustomer(self::STORE_A, 'second-buyer@example.test');
+        $product = $this->makeProduct(self::STORE_A, ['product_stock' => 10]);
+
+        $response = $this->callStore(
+            [$this->line($product->id, 2, 10.0)],
+            ['customer_id' => $ownCustomerId]
+        );
+
+        $this->assertSame(
+            '',
+            $this->errorFrom($response),
+            "the store's own customer must not be refused"
+        );
+
+        $orders = \Illuminate\Support\Facades\DB::table('orders')->get();
+
+        $this->assertCount(
+            1,
+            $orders,
+            'the control order must be written, or every refusal assertion in this section '
+                . 'passes for want of a working fixture rather than for want of a defect'
+        );
+
+        $this->assertSame(
+            $ownCustomerId,
+            (int) $orders->first()->customer_id,
+            'the order must record the customer the merchant actually chose'
+        );
+
+        $this->assertSame(
+            self::STORE_A,
+            (int) $orders->first()->store_id
+        );
+
+        $this->assertSame(
+            1,
+            (int) \Illuminate\Support\Facades\DB::table('order_notes')
+                ->where('customer_id', $ownCustomerId)->count(),
+            "the note must name the store's own customer"
+        );
+
+        $this->assertSame(
+            8,
+            (int) \Illuminate\Support\Facades\DB::table('products')
+                ->where('id', $product->id)->value('product_stock'),
+            'the control order must have taken its stock'
+        );
+    }
+
+    /**
+     * THE DEFECT -- store A bills store B's customer, and nothing refuses it.
+     *
+     * The merchant is a legitimate, authenticated, `Manage Order`-holding
+     * merchant of store A ordering store A's OWN product. The single hostile
+     * value is `customer_id`, which the form's GET would never have offered
+     * and which the POST never checks.
+     */
+    public function test_a_customer_from_another_store_is_refused_and_no_order_is_written(): void
+    {
+        $foreignCustomerId = $this->makeCustomer(self::STORE_B, 'victim@example.test');
+        $own = $this->makeProduct(self::STORE_A, ['product_stock' => 10]);
+
+        $ordersBefore = (int) \Illuminate\Support\Facades\DB::table('orders')->count();
+
+        $response = $this->callStore(
+            [$this->line($own->id, 2, 10.0)],
+            ['customer_id' => $foreignCustomerId]
+        );
+
+        // DATA FIRST, message second -- the file's own convention (see
+        // assertRefused()'s docblock): when the predicate is absent the row IS
+        // written, and a message assertion firing first reports only
+        // "expected string, got null", which tells a reader nothing.
+        $this->assertSame(
+            $ordersBefore,
+            (int) \Illuminate\Support\Facades\DB::table('orders')->count(),
+            "an order was written under store A naming store B's customer (id "
+                . $foreignCustomerId . ')'
+        );
+
+        $this->assertSame(
+            0,
+            (int) \Illuminate\Support\Facades\DB::table('order_notes')
+                ->where('customer_id', $foreignCustomerId)->count(),
+            "an order note was written naming store B's customer"
+        );
+
+        $this->assertSame(
+            10,
+            (int) \Illuminate\Support\Facades\DB::table('products')
+                ->where('id', $own->id)->value('product_stock'),
+            'stock moved for an order that must be refused -- a refusal that has already '
+                . 'decremented is still an inventory write'
+        );
+
+        /*
+         * AND THE MERCHANT MUST BE TOLD. Asserted in a fix-shape-agnostic way
+         * ON PURPOSE. store() redirects on success and on failure alike, so the
+         * HTTP status cannot discriminate; and two legitimate fix shapes report
+         * differently -- a `throw` inside the try (the shape the product and
+         * variant predicates use) lands in the catch and flashes `error`, while
+         * a tightened validator rule flashes an `errors` bag instead. Pinning
+         * one of those would redden this test for the other.
+         *
+         * What IS pinned: the success path was not taken, and something was
+         * reported.
+         */
+        $session = $response->getSession();
+
+        $this->assertNull(
+            $session?->get('success'),
+            'store() took its success path for an order it must refuse'
+        );
+
+        $this->assertTrue(
+            $this->errorFrom($response) !== '' || $session?->get('errors') !== null,
+            'the merchant was redirected with no explanation at all'
+        );
+    }
+
+    /**
+     * FALSIFICATION -- the assertion block above is SATISFIABLE by this
+     * handler, so its redness is the missing predicate and not a test that
+     * could never go green.
+     *
+     * Same four assertions, same helper, same fixture -- and one extra hostile
+     * value: the product is store B's too. That arm DOES have a predicate
+     * (OrderController.php:184-191), so store() throws, the catch rolls back,
+     * and all four properties hold. GREEN TODAY.
+     *
+     * This is the control that distinguishes "the customer predicate is
+     * absent" from "these assertions can never pass", which is the failure
+     * mode this project has actually suffered -- a test that is red or green
+     * for a reason other than the one it names.
+     *
+     * It also stays meaningful after the fix: a request hostile in BOTH
+     * dimensions must still be refused exactly once, with nothing written.
+     */
+    public function test_falsification_the_same_assertions_pass_when_a_predicate_does_refuse(): void
+    {
+        $foreignCustomerId = $this->makeCustomer(self::STORE_B, 'victim@example.test');
+        $foreignProduct = $this->makeProduct(self::STORE_B, ['product_stock' => 10]);
+
+        $ordersBefore = (int) \Illuminate\Support\Facades\DB::table('orders')->count();
+
+        $response = $this->callStore(
+            [$this->line($foreignProduct->id, 2, 10.0)],
+            ['customer_id' => $foreignCustomerId]
+        );
+
+        $this->assertSame(
+            $ordersBefore,
+            (int) \Illuminate\Support\Facades\DB::table('orders')->count()
+        );
+
+        $this->assertSame(
+            0,
+            (int) \Illuminate\Support\Facades\DB::table('order_notes')
+                ->where('customer_id', $foreignCustomerId)->count()
+        );
+
+        $this->assertSame(
+            10,
+            (int) \Illuminate\Support\Facades\DB::table('products')
+                ->where('id', $foreignProduct->id)->value('product_stock')
+        );
+
+        $session = $response->getSession();
+
+        $this->assertNull($session?->get('success'));
+
+        $this->assertTrue(
+            $this->errorFrom($response) !== '' || $session?->get('errors') !== null
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | DEFECT 2b -- the predicate must FAIL CLOSED when no store resolves
+    |--------------------------------------------------------------------------
+    |
+    | THESE TWO TESTS EXIST BECAUSE THE FIRST DRAFT OF THE FIX WAS WRONG, and an
+    | independent review caught it before it was committed. That draft read
+    |
+    |     $storeId = getCurrentStore();
+    |     Customer::...->where('store_id', $storeId)->exists()
+    |
+    | which is the obvious spelling and fails OPEN in both of the cases below:
+    |
+    |   - `getCurrentStore()` returns NULL for a principal whose `current_store`
+    |     is unset and who owns no store of their own, and Laravel compiles
+    |     `where('store_id', null)` to `store_id IS NULL`. So the draft ACCEPTED
+    |     every customer row carrying a null store_id -- and `customers.store_id`
+    |     is nullable, so those rows exist.
+    |
+    |   - `getCurrentStore()` hands back whatever `users.current_store` holds
+    |     without asking whether that store exists, and the operator branch
+    |     returns the literal `1` on a deployment whose stores do not start at 1.
+    |     So the draft ACCEPTED a customer whose store_id matched a store that is
+    |     not there.
+    |
+    | The committed fix calls this file's own `resolvedCurrentStoreId()`, which
+    | asks both questions, and refuses before the transaction opens.
+    |
+    | Neither case is exotic: the first is an ordinary staff member who has not
+    | picked a store yet, and both are reachable from the same authenticated form
+    | post as the rest of this file.
+    */
+
+    /**
+     * A principal for whom NO store resolves may not write an order at all --
+     * and specifically may not reach the null-matches-null hole.
+     *
+     * The customer here carries `store_id = NULL`, which is the row the first
+     * draft would have accepted. Nothing about this request is otherwise
+     * hostile: the product is store A's and the quantity is in stock.
+     */
+    public function test_a_principal_with_no_resolvable_store_is_refused(): void
+    {
+        $this->loginStaffWithNoStore();
+
+        $nullStoreCustomerId = (int) \Illuminate\Support\Facades\DB::table('customers')
+            ->insertGetId([
+                'first_name' => 'Orphan',
+                'last_name' => 'Row',
+                'email' => 'orphan@example.test',
+                'status' => 1,
+                'store_id' => null,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+        $this->assertNull(
+            getCurrentStore(),
+            'premise: this principal must resolve no store, or the test proves nothing'
+        );
+
+        $own = $this->makeProduct(self::STORE_A, ['product_stock' => 10]);
+        $ordersBefore = (int) \Illuminate\Support\Facades\DB::table('orders')->count();
+
+        $response = $this->callStore(
+            [$this->line($own->id, 2, 10.0)],
+            ['customer_id' => $nullStoreCustomerId]
+        );
+
+        $this->assertSame(
+            $ordersBefore,
+            (int) \Illuminate\Support\Facades\DB::table('orders')->count(),
+            'an order was written for a principal whose store does not resolve -- the '
+                . 'null-matches-null hole the first draft of this guard left open'
+        );
+
+        $this->assertSame(
+            10,
+            (int) \Illuminate\Support\Facades\DB::table('products')
+                ->where('id', $own->id)->value('product_stock'),
+            'stock moved for an order that must be refused'
+        );
+
+        $this->assertSame(
+            'No store is selected.',
+            $this->errorFrom($response),
+            'the principal must be told why, and told it BEFORE the transaction opens'
+        );
+    }
+
+    /**
+     * `users.current_store` pointing at a store that does not exist is refused
+     * too -- even when the posted customer's `store_id` matches that same dead
+     * id, which is precisely when a bare `where('store_id', $storeId)` passes.
+     */
+    public function test_a_current_store_that_does_not_exist_is_refused(): void
+    {
+        $deadStoreId = 404;
+
+        $this->assertNull(
+            getStoreById($deadStoreId),
+            'premise: store ' . $deadStoreId . ' must not exist'
+        );
+
+        $merchant = User::withoutGlobalScopes()->find(7);
+        $merchant->current_store = $deadStoreId;
+        $merchant->save();
+        Auth::login(User::withoutGlobalScopes()->find(7));
+
+        $this->assertSame(
+            $deadStoreId,
+            (int) getCurrentStore(),
+            'premise: the helper must hand back the dead id unchecked -- that is the defect '
+                . 'resolvedCurrentStoreId() exists to absorb'
+        );
+
+        $matchingCustomerId = $this->makeCustomer($deadStoreId, 'ghost@example.test');
+        $own = $this->makeProduct(self::STORE_A, ['product_stock' => 10]);
+        $ordersBefore = (int) \Illuminate\Support\Facades\DB::table('orders')->count();
+
+        $response = $this->callStore(
+            [$this->line($own->id, 2, 10.0)],
+            ['customer_id' => $matchingCustomerId]
+        );
+
+        $this->assertSame(
+            $ordersBefore,
+            (int) \Illuminate\Support\Facades\DB::table('orders')->count(),
+            'an order was written against a store that does not exist'
+        );
+
+        $this->assertSame(
+            'No store is selected.',
+            $this->errorFrom($response),
+            'a dead current_store must be refused, not used as a tenant predicate'
+        );
     }
 
     /*
@@ -543,6 +974,44 @@ class OrderStoreOwnershipTest extends TestCase
 
     private function loginMerchantOfStoreA(): void
     {
+        /*
+         * BOTH STORES EXIST. Store A is the merchant's own; store B is the foreign tenant whose
+         * product, variant and customer the attack cases post. Store B is inserted for the same
+         * reason the foreign product is: a test whose foreign tenant does not exist would pass
+         * for the wrong reason, because a missing row is refused by `exists:` validation long
+         * before the ownership predicate is reached.
+         *
+         * WRITTEN THROUGH ELOQUENT, not `DB::table()`. `Store` is `Cachable`, and this suite runs
+         * under `CACHE_STORE=array`, where a raw insert leaves `Store::where('id', 11)->first()`
+         * serving the pre-insert miss for the rest of the process -- the exact reading this
+         * project's CLAUDE.md records as having produced three false test results. Eloquent
+         * flushes.
+         */
+        foreach ([self::STORE_A => 'Store A', self::STORE_B => 'Store B'] as $storeId => $storeName) {
+            /*
+             * `forceFill()` AND NOT `Store::create()`. `Store::$fillable` does not list `id`, so
+             * `create(['id' => 11, ...])` DROPS the id silently and sqlite autoincrements it to 1
+             * and 2 instead. The guard then read `getStoreById(11) === null`, refused the
+             * merchant's own customer with "No store is selected." and failed the positive
+             * control -- a fixture bug wearing the costume of a product defect, which is exactly
+             * what a positive control is for.
+             */
+            $store = new \App\Models\Store();
+            $store->forceFill([
+                'id' => $storeId,
+                'name' => $storeName,
+                'email' => 'store-' . $storeId . '@example.test',
+                'theme_id' => '1',
+                'slug' => 'store-' . $storeId,
+                'created_by' => 7,
+            ])->save();
+
+            $this->assertNotNull(
+                getStoreById($storeId),
+                'store ' . $storeId . ' must resolve, or every ownership assertion below is vacuous'
+            );
+        }
+
         \Illuminate\Support\Facades\DB::table('users')->insert([
             'id' => 7,
             'name' => 'Merchant A',
@@ -588,6 +1057,68 @@ class OrderStoreOwnershipTest extends TestCase
             (int) getCurrentStore(),
             'the fixture must resolve to store A, or every ownership assertion below is vacuous'
         );
+    }
+
+    /**
+     * A customer row in a named store, written RAW.
+     *
+     * Raw rather than through the model on purpose, and the reason is the same
+     * fact the P4-F025 section is about: `Customer` is `Cachable` AND its
+     * StoreScope really filters (it also carries SoftDeletes, and this suite's
+     * hand-built `customers` table has no `deleted_at`). Creating a store-B row
+     * through Eloquent while store A is the resolved tenant is exactly the
+     * shape that has produced false readings here. `DB::table()` writes the row
+     * that is asked for, in the store that is asked for, with no scope and no
+     * cache in the way -- and every assertion against it is raw too.
+     *
+     * No `flushCache()` is needed because nothing in this section reads a
+     * `Customer` through Eloquent.
+     */
+    /**
+     * A SECOND, REALISTIC PRINCIPAL: an ordinary staff member of the merchant who has not picked
+     * a store yet.
+     *
+     * `getCurrentStore()` resolves nothing for this user by THREE independent steps, and all
+     * three have to hold or the premise assertion in the test catches it: `current_store` is
+     * null, `type` is not `super admin` so the hardcoded `1` branch is not taken, and no row in
+     * `stores` carries `created_by = 8` so the owner fallback finds nothing either.
+     *
+     * It holds `Manage Order` on purpose. The point of the test is the tenant predicate, not the
+     * permission gate -- a principal refused at the gate would never reach the line under test
+     * and the test would pass for the wrong reason.
+     */
+    private function loginStaffWithNoStore(): void
+    {
+        \Illuminate\Support\Facades\DB::table('users')->insert([
+            'id' => 8,
+            'name' => 'Staff With No Store',
+            'email' => 'staff-no-store@example.test',
+            'type' => 'company',
+            'password' => bcrypt('secret'),
+            'current_store' => null,
+            'created_by' => 7,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        \Illuminate\Support\Facades\DB::table('role_user')->insert([
+            'role_id' => 3, 'user_id' => 8, 'user_type' => \App\Models\User::class,
+        ]);
+
+        Auth::login(User::withoutGlobalScopes()->find(8));
+    }
+
+    private function makeCustomer(int $storeId, string $email): int
+    {
+        return (int) \Illuminate\Support\Facades\DB::table('customers')->insertGetId([
+            'first_name' => 'Buyer',
+            'last_name' => 'Of ' . $storeId,
+            'email' => $email,
+            'status' => 1,
+            'store_id' => $storeId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     private function makeProduct(int $storeId, array $attributes = []): Product
@@ -652,6 +1183,7 @@ class OrderStoreOwnershipTest extends TestCase
             'role_user',
             'permissions',
             'roles',
+            'stores',
             'users',
         ] as $table) {
             Schema::dropIfExists($table);
@@ -667,6 +1199,35 @@ class OrderStoreOwnershipTest extends TestCase
             $table->string('is_active')->default('1');
             $table->unsignedBigInteger('created_by')->nullable();
             $table->rememberToken();
+            $table->timestamps();
+        });
+
+        /*
+         * THE `stores` TABLE, because the ownership guard added in P4-3b asks whether the
+         * merchant's current store RESOLVES before it trusts it as a predicate.
+         *
+         * `OrderController::store()` now calls this file's own `resolvedCurrentStoreId()`, and
+         * that helper is two conditions rather than one: `getCurrentStore()` hands the platform
+         * operator the literal `1` whether or not store 1 exists, so the helper also asks
+         * `getStoreById($storeId) === null`. That read is `Store::where('id', $id)->first()`, so
+         * without this table the whole suite died with `no such table: stores` BEFORE the first
+         * assertion -- twelve errors, which is a worse outcome than a failure because an erroring
+         * test proves nothing in either direction.
+         *
+         * Columns are the ones `2023_12_14_090259_create_stores_table.php` declares. The foreign
+         * key on `created_by` is deliberately NOT declared: the rest of this builder omits them
+         * too, and store B's owner is not a row this suite needs.
+         */
+        Schema::create('stores', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('email');
+            $table->string('theme_id');
+            $table->string('slug');
+            $table->string('default_language')->nullable();
+            $table->unsignedBigInteger('created_by');
+            $table->integer('is_active')->default(1);
+            $table->string('enable_pwa_store')->default('off');
             $table->timestamps();
         });
 

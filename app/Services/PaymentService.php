@@ -924,7 +924,20 @@ private function processPaymera00000($request, $slug)
         $skill = new SkrillRequest();
         $skill->pay_to_email = $skrill_email;
         $skill->return_url = route('store.payment.status', $store->slug);
-        $skill->cancel_url = route('store.payment.status', $store->slug);
+        /*
+         * P4-F044, SECOND PASS. A PROPERTY ASSIGNMENT rather than an array key, which is why both
+         * of the first ratchet's regexes were blind to it -- they keyed on `=>`.
+         *
+         * LOWER CONSEQUENCE THAN COINGATE, AND THE DIFFERENCE IS WORTH RECORDING RATHER THAN
+         * ASSUMING: `processSkrill` never reaches its own `Session::put('request_data', ...)`,
+         * because both arms of the `isset($matches[1])` branch above return first, so that line is
+         * dead. A Skrill return therefore finds no stored state and is refused by
+         * `storedCheckoutState()` ABOVE the cancel reader -- no order, no stock movement. The
+         * marker is added anyway for two reasons: a stale `request_data` left by an earlier
+         * abandoned checkout in the same session WOULD carry it through, and the dead code is a
+         * bug that someone will eventually fix, at which point this would become live.
+         */
+        $skill->cancel_url = route('store.payment.status', [$store->slug, '&return_type=cancel&payment_processor=skrill']);
 
         // Create a unique transaction ID for Skrill
         $skill->transaction_id = md5(uniqid($request['transaction_id'], true));
@@ -1059,9 +1072,26 @@ private function processPaymera00000($request, $slug)
                         ]
                     ]
                 ],
+                /*
+                 * P4-F044. THE TWO URLS WERE BYTE-IDENTICAL, so a shopper who cancelled at PayPal
+                 * came back indistinguishable from one who paid -- and the storefront return's
+                 * new `return_type` reader had nothing to read. Marking the cancel leg is the
+                 * whole of PayPal's half of that fix; a stricter reader could not have done it,
+                 * because refusing an UNMARKED return would also refuse this provider's success
+                 * leg and every other unverified gateway's reconciliation path.
+                 *
+                 * The success leg stays unmarked on purpose: that is the shape every other
+                 * provider that returns here already uses, and the reader keys on `cancel`.
+                 */
                 "application_context" => [
                     "return_url" => route('store.payment.status', $slug),
-                    "cancel_url" => route('store.payment.status', $slug),
+                    "cancel_url" => route(
+                        'store.payment.status',
+                        [
+                            $slug,
+                            '&return_type=cancel&payment_processor=paypal',
+                        ]
+                    ),
                 ],
 
             ]);
@@ -1226,6 +1256,23 @@ private function processPaymera00000($request, $slug)
                     "value" => str_replace(",", "", number_format($cartlist_final_price, 2)),
                 ],
                 "description" => "payment for product",
+                /*
+                 * P4-F143 -- DELIBERATELY NOT MARKED, AND THIS IS THE DANGEROUS ONE.
+                 *
+                 * This is the ONLY url Mollie is given. It receives the shopper back whether the
+                 * payment was paid, canceled, expired or failed. Adding `return_type=cancel` here
+                 * would make the P4-F044 reader refuse EVERY successful Mollie payment -- a
+                 * shopper charged with no order written, which is far worse than the defect it
+                 * would be trying to fix, and is exactly the "reconciliation path" the recorded
+                 * owner decision protects.
+                 *
+                 * SO MOLLIE NEEDS A FINALITY CHECK, NOT A MARKER: a provider branch in
+                 * `getProductStatus` beside PhonePe, toyyibpay and Tap, polling the payment with
+                 * the id this method already stores as `mollie_payment_id` below. The material
+                 * exists; it is simply unread on the storefront return. Recorded as P4-F143 rather
+                 * than attempted here, because adding a gateway poll that can refuse an order is
+                 * new integration work, not a one-line correction.
+                 */
                 "redirectUrl" => route(
                     'store.payment.status',
                     [
@@ -1289,10 +1336,26 @@ private function processPaymera00000($request, $slug)
                         $store->slug,
                     ]
                 ),
+                /*
+                 * P4-F044, SECOND PASS. This was byte-identical to `callback_url` above and
+                 * `success_url` below, so a shopper who pressed Cancel on the hosted CoinGate page
+                 * came back indistinguishable from one who paid -- and `processCoingate` DOES
+                 * store the checkout state, so the generic writer then wrote a phantom Pending
+                 * order, took the stock with nothing to claim it, emptied the cart and consumed
+                 * the 48-hour return claim.
+                 *
+                 * MISSED BY THE FIRST PASS, AND BY THE RATCHET WRITTEN WITH IT. That ratchet
+                 * matched two literal spellings -- a double-quoted key with a scalar `$slug`, and
+                 * the array form `[$slug]` -- and this site is `[$store->slug]`, which contains no
+                 * `$slug` substring at all. Found by an adversarial sweep, not by the test whose
+                 * name claims to cover EVERY cancellable initiation. The ratchet is rebuilt in the
+                 * same change to assert the property positively instead.
+                 */
                 'cancel_url' => route(
                     'store.payment.status',
                     [
                         $store->slug,
+                        '&return_type=cancel&payment_processor=coingate',
                     ]
                 ),
 
@@ -1652,7 +1715,16 @@ private function processPaymera00000($request, $slug)
             'merchant_id' => !empty($payfast_merchant_id) ? $payfast_merchant_id : '',
             'merchant_key' => !empty($payfast_merchant_key) ? $payfast_merchant_key : '',
             'return_url' => route('store.payment.status', $slug),
-            'cancel_url' => route('store.payment.status', $slug),
+            /* P4-F044. Byte-identical to `return_url`, so a PayFast cancellation arrived at the
+               storefront return looking exactly like a payment. `notify_url` is deliberately NOT
+               marked: it is the server-to-server payment notification, not the shopper's return. */
+            'cancel_url' => route(
+                'store.payment.status',
+                [
+                    $slug,
+                    '&return_type=cancel&payment_processor=payfast',
+                ]
+            ),
             'notify_url' => route('store.payment.status', $slug),
             // Buyer details
             'name_first' => isset($other_info->firstname) ? $other_info->firstname : '',
@@ -1734,7 +1806,13 @@ private function processPaymera00000($request, $slug)
                 "metadata" => ["udf1" => "Metadata 1"],
                 "reference" => ["transaction" => "txn_01", "order" => "ord_01"],
                 "receipt" => ["email" => true, "sms" => true],
-                "customer" => ["first_name" => $other_info['firstname'], "middle_name" => "", "last_name" => $other_info['firstname'], "email" => $other_info['email'], "phone" => ["country_code" => 965, "number" => 51234567]],
+                // P4-F046(d): `last_name` was `$other_info['firstname']` -- the first name sent twice, so Tap
+                // received, stored and receipted every Benefit shopper under a surname that is their
+                // own given name. A copy-paste, found by independent review of the finding rather
+                // than by any test, and corrected here because it is a plain data-quality bug with
+                // no policy question attached: `lastname` is the key the sibling writers already use
+                // (PaymentController::processBillingInfo and the three order writers' billing rows).
+                "customer" => ["first_name" => $other_info['firstname'], "middle_name" => "", "last_name" => $other_info['lastname'] ?? '', "email" => $other_info['email'], "phone" => ["country_code" => 965, "number" => 51234567]],
                 "source" => ["id" => "src_bh.benefit"],
                 "post" => ["url" => "https://webhook.site/fd8b0712-d70a-4280-8d6f-9f14407b3bbd"],
                 "redirect" => ["url" => route('store.payment.status', $slug)],
@@ -1877,9 +1955,26 @@ private function processPaymera00000($request, $slug)
                             'cart_data' => $cartlist
                         ]),
                 //your success route
-                'fail_url' => route('store.payment.status', Crypt::encrypt(['response' => 'failure', 'slug' => $slug, 'price' => $cartlist_final_price, 'order_id' => $orderID])),
+                /*
+                 * P4-F142. BOTH AAMARPAY NOT-PAID LEGS NOW CARRY THE QUERY MARKER, in addition to
+                 * the encrypted payload they already passed.
+                 *
+                 * THE ENCRYPTED PAYLOAD IS NOT A MARKER, which an earlier version of the ratchet
+                 * assumed without checking: `Crypt::decrypt` appears ZERO times in
+                 * `PaymentController.php`, so nothing on the storefront return has ever read
+                 * `['response' => 'cancel']` or `['response' => 'failure']`.
+                 *
+                 * These legs also pass the blob as the SLUG segment, so the store does not resolve
+                 * and the handler fails before the order write -- a 500 rather than the phantom
+                 * order P4-F044 describes. The marker is still worth adding, and it is an
+                 * improvement rather than cosmetic: the P4-F044 reader sits ABOVE
+                 * `getStore($slug)`, so a marked return is answered with "your payment was
+                 * cancelled" instead of crashing. The broken slug is its own defect and is
+                 * recorded separately rather than fixed here on a guess.
+                 */
+                'fail_url' => route('store.payment.status', [Crypt::encrypt(['response' => 'failure', 'slug' => $slug, 'price' => $cartlist_final_price, 'order_id' => $orderID]), '&return_type=cancel&payment_processor=aamarpay']),
                 //your fail route
-                'cancel_url' => route('store.payment.status', Crypt::encrypt(['response' => 'cancel'])),
+                'cancel_url' => route('store.payment.status', [Crypt::encrypt(['response' => 'cancel']), '&return_type=cancel&payment_processor=aamarpay']),
                 //your cancel url
                 'signature_key' => $aamarpay_signature_key,
                 'desc' => $aamarpay_description,
@@ -2027,7 +2122,18 @@ private function processPaymera00000($request, $slug)
                 'user_address' => $user_address,
                 'user_phone' => $user_phone,
                 'merchant_ok_url' => route('store.payment.status', $slug, ),
-                'merchant_fail_url' => route('store.payment.status', $slug),
+                /*
+                 * P4-F142. PayTR's FAIL url was byte-identical to its OK url above, so a declined
+                 * or abandoned PayTR payment came back indistinguishable from a paid one and the
+                 * generic writer wrote a phantom Pending order, took the stock with nothing to
+                 * claim it, emptied the cart and consumed the 48-hour return claim.
+                 *
+                 * MISSED BY BOTH VERSIONS OF THE RATCHET, because both enumerated by the literal
+                 * token `cancel_url` and this key is `merchant_fail_url`. The rewrite that claimed
+                 * a new shape would be "caught by construction" still scanned 10 of this file's 47
+                 * return-URL sites. Found by a second adversarial sweep over that rewrite.
+                 */
+                'merchant_fail_url' => route('store.payment.status', [$slug, '&return_type=cancel&payment_processor=paytr']),
                 'timeout_limit' => $timeout_limit,
                 'currency' => $currency,
                 'test_mode' => $test_mode
@@ -2147,7 +2253,10 @@ private function processPaymera00000($request, $slug)
             'amount' => $cartlist_final_price,
             'callback_url' => route('store.payment.status', $slug),
             'success_redirect_url' => route('store.payment.status', [$slug, 'request_data' => $request->all()]),
-            'failure_redirect_url' => route('store.payment.status', $slug),
+            /* P4-F142. Separable from `success_redirect_url` above, and unmarked -- same defect,
+               same fix. Xendit gives distinct success and failure URLs, so marking this one
+               cannot affect a paid invoice. */
+            'failure_redirect_url' => route('store.payment.status', [$slug, '&return_type=cancel&payment_processor=xendit']),
         ];
         $invoice = Invoice::create($params);
         if (is_array($request)) {
@@ -2257,10 +2366,17 @@ private function processPaymera00000($request, $slug)
 
             $request['method_id'] = $requests_data['method_id'];
         }
-        $user = Cache::remember('admin_details', 3600, function () {
-            return User::where('type','admin')->first();
-        });
-        if ($user->type == 'admin') {
+        /*
+         * P4-F014 / P4-F024. THE STORE'S OWN OWNER, not `User::where('type','admin')->first()`
+         * -- which is the first merchant in the shared database, by lowest id, and was cached
+         * under one global key for an hour. One arbitrary tenant's plan decided whether every
+         * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
+         * right plan (CartController::cart_list_sidebar:38-40,
+         * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
+         * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+         */
+        $user = \App\Support\Commerce\StorePlan::ownerOf($store);
+        if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);
         }
         if (module_is_active('PartialPayments')) {
@@ -3555,19 +3671,26 @@ private function webhook(
 
 
 
-private function webhook_backup($order, $r, $products_weight = []) {
-    $url = 'https://webhook.site/c331de9b-b220-4db3-9619-82d9c64367bd'; 
-    $data = [
-        'order' => $order,
-        'request' => $r,
-        'products_weight' => $products_weight
-    ];
-    $response = Http::post($url, $data);
-    return [
-        'status' => $response->status(),
-        'body' => $response->body()
-    ];
-}
+/*
+ * P4-F046 -- `webhook_backup()` WAS DELETED HERE, 2026-11-16.
+ *
+ * It POSTed the whole `$order` model, the raw request and the basket's weights to
+ * `https://webhook.site/c331de9b-...`, a PUBLIC bin whose URL is committed in this repository and
+ * in its git history -- so anyone holding it reads whatever is sent. It had ZERO callers:
+ * `grep -rn 'webhook_backup' app/ packages/ routes/ resources/ tests/` returned only its own
+ * declaration, which `P1-SEC-55-OUTBOUND-SENDER-CENSUS.md:147` had already established.
+ *
+ * DELETED RATHER THAN RE-POINTED, because there is nothing to re-point it AT. It implements no
+ * requirement, nothing calls it, and leaving it was one call site away from exfiltrating every
+ * order on the platform. That is the whole of its risk and the whole of its value.
+ *
+ * THIS IS NOT THE P4-F046 FIX AND MUST NOT BE READ AS ONE. The LIVE site is
+ * `processBenefit()`'s `"post" => ["url" => "https://webhook.site/fd8b0712-..."]`, which is the
+ * server-to-server callback destination for a real storefront payment method. Changing where a
+ * payment callback goes is an owner decision -- it is the escalation P1-SEC-55 raised and it is
+ * still open -- so that line is untouched and is DECLARED, with its exact reason, by
+ * `tests/Feature/Commerce/GatewayCallbackDestinationTest`.
+ */
 
 
 
@@ -4183,7 +4306,14 @@ private function webhook_backup($order, $r, $products_weight = []) {
                 "amount" => $cartlist_final_price,
                 "currency" => ["iso" => $currency],
                 "callback_url" => route('store.payment.status', $slug),
-                "cancel_url" => route('store.payment.status', $slug)
+                /* P4-F044. Byte-identical to `callback_url` -- same defect, same fix. */
+                "cancel_url" => route(
+                    'store.payment.status',
+                    [
+                        $slug,
+                        '&return_type=cancel&payment_processor=fedapay',
+                    ]
+                )
             ]);
             $token = $transaction->generateToken();
 
@@ -4685,10 +4815,14 @@ private function webhook_backup($order, $r, $products_weight = []) {
                         $return_url_parameters('success'),
                     ]
                 ),
+                /* P4-F044. This carried the slug and nothing else, so a Sofort cancellation
+                   arrived at the storefront return looking exactly like a payment. The success
+                   leg above already used the marker; this one simply never did. */
                 'cancel_url' => route(
                     'store.payment.status',
                     [
                         $slug,
+                        $return_url_parameters('cancel'),
                     ]
                 ),
             ]);

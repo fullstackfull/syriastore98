@@ -466,27 +466,42 @@ class GatewayStockDecrementRoutingTest extends TestCase
              * `OrderWriteTransactionTest` asserts `assertGreaterThan($rollback, $restore)`.
              */
             /*
-             * THE GATE NOW ASKS TWO QUESTIONS AND THE RATCHET REQUIRES BOTH. The flag alone was
-             * not sufficient: it is assigned by the statement AFTER `$order->save()`, so it is
-             * still false while the `created` model event runs, and `OrderObserver::created()`
-             * catches `\Exception` but not `\Throwable`. A `TypeError` in
-             * `OrderFinancialService::createForOrder()` therefore escaped, propagated out of
-             * `save()` and restored the stock behind a COMMITTED order row -- an oversell
-             * introduced by D-13's own fix. `$order->exists` closes it, because
-             * `Model::performInsert()` sets `exists` before firing `created`. Both limbs are
-             * load-bearing and `ApiOrderWriterStockCompensationTest` fails on the removal of
-             * either one.
+             * THE GATE ASKS TWO QUESTIONS AND THE RATCHET REQUIRES BOTH. The flag alone was never
+             * sufficient: it is assigned AFTER the write, so it is still false while the `created`
+             * model event runs, and `OrderObserver::created()` catches `\Exception` but not
+             * `\Throwable`. A `TypeError` in `OrderFinancialService::createForOrder()` therefore
+             * escaped, propagated out of `save()` and restored the stock behind a COMMITTED order
+             * row -- an oversell introduced by D-13's own fix.
+             *
+             * P4-F026 CHANGED THE SECOND LIMB FROM `$order->exists` TO `orderRowSurvived($order)`,
+             * AND THIS RATCHET MOVED WITH IT. That is a strengthening, and the reason is specific
+             * rather than stylistic: `Model::performInsert()` sets `exists` and NOTHING EVER UNSETS
+             * IT, so once `Api/ApiController`'s two storefront writers were given a transaction,
+             * `exists` began answering "an order claims this stock" for rows that had just been
+             * rolled away. The gate would then have skipped the give-back on every failure inside
+             * the boundary -- stock consumed, no order, silently, on the commonest failure path
+             * there is. The replacement asks the `orders` table on the query builder, which is
+             * right after a rollback AND after a post-commit throw.
+             *
+             * ALL SEVEN GUARDS WERE CHANGED, not only the two that now hold a boundary. Six of
+             * them open no transaction, so `exists` was still correct there; one spelling that is
+             * right everywhere beats two that disagree the next time a writer gains a boundary,
+             * and a single regex can then pin it.
+             *
+             * `ApiOrderWriterStockCompensationTest` is the behavioural half of this and fails on
+             * the removal of either limb.
              */
             $this->assertSame(
                 $guards,
                 preg_match_all(
-                    '/\$ssOrderClaimsIt = \(\$ssOrderWritten \?\? false\)\s*\|\|\s*\(isset\(\$order\) && \$order instanceof \\\\App\\\\Models\\\\Order && \$order->exists\);\s*if \(! \$ssOrderClaimsIt\) \{\s*\$this->restoreStockDecrements\(\$appliedStockChanges \?\? \[\]\);/',
+                    '/\$ssOrderClaimsIt = \(\$ssOrderWritten \?\? false\)\s*\|\|\s*\$this->orderRowSurvived\(\$order \?\? null\);\s*if \(! \$ssOrderClaimsIt\) \{\s*\$this->restoreStockDecrements\(\$appliedStockChanges \?\? \[\]\);/',
                     $source
                 ),
-                "$controller gives the stock back without asking whether the ORDER was written."
-                . ' There is no transaction here, so a throw after `$order->save()` would return'
-                . " the shopper's goods to the catalogue while their order stands — the inverse"
-                . ' of the defect this closes.'
+                "$controller gives the stock back without asking whether an order row SURVIVED."
+                . ' Restoring behind an order that exists returns the shopper\'s goods to the'
+                . ' catalogue while their order stands; not restoring when the row was rolled away'
+                . ' leaves the inventory consumed with nothing to claim it. Only a read of the'
+                . ' table answers both.'
             );
 
             $this->assertSame(

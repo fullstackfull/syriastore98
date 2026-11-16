@@ -438,7 +438,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
          * publication impossible". With the guard the same database answers `FAIL`, names the missing
          * foreign key, exits 1, and is NOT recorded, so it can be repaired.
          */
-        $this->assertSame(['app' => 178, 'packages' => 45], $perDir,
+        /* 178 -> 180 on 2026-11-16, both in `app`, both accounted for in the per-table table
+           below: P4-F132's `DB::table('customers')` ownership predicate in OrderController::store()
+           (which NAMES store_id, so the unscoped half does not move) and P4-F131's
+           `DB::table('orders')` primary-key existence probe in AppliesCartStockChanges (which does
+           move the unscoped half, and whose reason is written out where that number lives). */
+        $this->assertSame(['app' => 180, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -522,7 +527,8 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // in the per-directory note above -- schema introspection on tables that HAVE no store_id,
         // parameterised on a literal table name, reachable only from the console, and able to
         // produce exactly one outcome: a RuntimeException that stops the migration.
-        $this->assertSame(223, array_sum($perDir));
+        /* 223 -> 225: the same two P4 sites counted in the per-directory assertion above. */
+        $this->assertSame(225, array_sum($perDir));
     }
 
     /**
@@ -577,7 +583,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             'coupon_requests' => [3, 3],
             'coupons' => [2, 0],
             'currency' => [3, 3],
-            'customers' => [7, 3],   // 5 -> 6 with P1-SEC-04 ModuleStorefrontInputGuard::customerBelongsTo (it READS `store_id` as the value to compare); 6 -> 7 with the follow-up's sameShopperInStore, WITH a store_id predicate -- so the unscoped column does not move either time
+            'customers' => [8, 3],   // 5 -> 6 with P1-SEC-04 ModuleStorefrontInputGuard::customerBelongsTo (it READS `store_id` as the value to compare); 6 -> 7 with the follow-up's sameShopperInStore, WITH a store_id predicate -- so the unscoped column does not move either time; 7 -> 8 with P4-F132's ownership predicate in OrderController::store(), which is `where('id', ...)->where('store_id', $ssOrderStoreId)` -- the unscoped half does not move for that one either
             // NEW WITH P1-INV-20, and the only WRITE in this population.
             // LotteryMailTemplatePrerequisite inserts the authenticated merchant's own
             // `Lottery Win` / `Lottery Fail` / `Lottery Remainder` rows before a draw, because
@@ -632,7 +638,28 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // 1 -> 3 [2026-11-01]: OrderReplacement's lockForUpdate re-read (E13 / D-15 condition 8) and
             // TopSellersByRevenue's line-revenue query (F242). **THE UNSCOPED HALF STAYS AT 0, which is the
             // assertion that matters** -- both new sites name `store_id` at the call site.
-            'orders' => [3, 0],
+            /*
+             * 3 -> 4, AND THE UNSCOPED HALF 0 -> 1, WHICH IS THE ASSERTION THAT MATTERS AND IS
+             * BEING CHANGED DELIBERATELY. P4-F131.
+             *
+             * `AppliesCartStockChanges::orderRowSurvived()` asks, from inside the D-13 stock
+             * compensation catch, whether the order row THIS REQUEST JUST INSERTED survived. Its
+             * argument is the handler's own `new Order()` and its predicate is
+             * `where('id', $order->getKey())` -- the primary key the database minted microseconds
+             * earlier, never a caller-supplied value.
+             *
+             * A `store_id` predicate would make it WORSE, not better. A primary key is globally
+             * unique, so there is no other tenant's row to reach; what a tenant predicate would
+             * add is a SECOND way for the probe to answer "gone" -- a null store_id, or one a
+             * rollback has already reverted -- and the gate reads "gone" as "give the stock back".
+             * That converts a mis-read tenant value into a stock restore behind a committed order,
+             * which is precisely the oversell this guard exists to prevent.
+             *
+             * `OwnedPathRawQueryInventoryTest` carries the same reasoning as a declaration that is
+             * asserted to still match the statement, so this number is not the only place it is
+             * written down.
+             */
+            'orders' => [4, 1],
             'owner_menu_items' => [1, 1],
             'owner_menu_settings' => [1, 1],
             'owner_menus' => [1, 1],
@@ -798,7 +825,8 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // lookup names `products` as a literal, so it is attributable and lands in the per-table
         // count rather than the remainder. 172 literal-table sites of the 222 entry points.
         // 171, DOWN FROM 172: same single removed raw write.
-        $this->assertSame(171, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        /* 171 -> 173: P4-F132's customers predicate and P4-F131's orders probe. */
+        $this->assertSame(173, array_sum(array_map(fn ($r) => $r[0], $actual)),
             '[2026-11-02] 167 -> 170 AND the remainder 52 -> 49, with NOTHING IN app/ CHANGED. '
             . 'Three entry points were counted by RAW_ENTRY_POINT_PATTERN and NOT attributed to '
             . 'their table, because they write `DB::table(` on one line and the name on the next: '
@@ -850,7 +878,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // cross-tenant read: it is a count keyed on the target user id that can only produce a
         // refusal, behind a UserPolicy::delete() check that has already refused a foreign target.
         // Declared with that reason in ServiceLayerRawQueryInventoryTest::STORE_LESS_BY_DESIGN.
-        $this->assertSame(81, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        /* 81 -> 82, AND THIS IS THE UNSCOPED TOTAL, so it is the one number here that should not
+           move without an argument. The single addition is P4-F131's primary-key existence probe
+           on `orders`; the argument for why a tenant predicate would weaken rather than strengthen
+           it is written in full beside that table's entry, and again as a declaration in
+           OwnedPathRawQueryInventoryTest that is asserted to still match the statement. */
+        $this->assertSame(82, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**
@@ -961,6 +994,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         $this->assertSame([
             'customers' => 'integer',
             'order_refunds' => 'integer',
+            /* P4-F131: `orders` joins this list because `orderRowSurvived()` reads it rawly with
+               no store_id predicate. `orders.store_id` is an integer, which is what this map
+               asserts -- a tenant discriminator must be able to hold `stores.id`. The reason the
+               predicate is absent, and why adding one would weaken the probe rather than
+               strengthen it, is written where the per-table count lives. */
+            'orders' => 'integer',
             'products' => 'integer',
             'settings' => 'integer',
             'store_devices' => 'integer',
@@ -1005,6 +1044,19 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // per-table note -- because `Order::refund()` is a hasOne keyed on `order_id`, and a check narrower than
             // the relation it protects would miss exactly the row that makes the relation ambiguous.
             'order_refunds' => 2,
+            // `orders` -- NEW WITH P4-F131, and it is NOT a live exposure. The single site is
+            // `AppliesCartStockChanges::orderRowSurvived()`, which asks whether the order row
+            // THIS REQUEST JUST INSERTED survived a rollback. Its argument is the handler's own
+            // `new Order()`, never caller input, and its predicate is the PRIMARY KEY the database
+            // minted for that row microseconds earlier. A primary key is globally unique, so there
+            // is no other tenant's row within reach; the table holds exactly one row with that id
+            // or none, and "none" is the answer the stock-compensation gate exists to get.
+            //
+            // A store_id predicate would WEAKEN it. It would add a second way for the probe to
+            // answer "gone" -- a null store_id, or one a rollback has already reverted -- and the
+            // gate reads "gone" as "give the stock back". That turns a mis-read tenant value into
+            // a stock restore behind a committed order: the oversell the guard exists to prevent.
+            'orders' => 1,
             // `products` => 3 IS NEW WITH OWNER DECISION D13 / P1-INV-12, and it is the second entry in this list that
             // is NOT a live exposure -- stated here because the list's own header tells a reader to check the per-table
             // note before treating any entry as one.

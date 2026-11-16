@@ -95,6 +95,13 @@ use Tests\Feature\Security\SecurityTestCase;
  * So both findings are REAL and both are currently UNREACHED. They are reported OPEN with this
  * evidence, pinned by the tests below so nobody can mistake them for protected, and ratcheted so
  * that the first first-party call site turns this suite red.
+ *
+     * ANCHOR DRIFT, 2026-11-16 (P4-F123): the three `City/State/Country::truncate()` sites moved
+     * +38 in app/Models/Utility.php when CustomerAuthCheck()'s docblock was written. VERIFIED site by
+     * site that each new line holds the IDENTICAL statement -- 3369->3407 `City::truncate();`,
+     * 3394->3432 `State::truncate();`, 3410->3448 `Country::truncate();` -- so this is a coordinate
+     * change and no truncate target moved. This ratchet is keyed on `file:line`, so it charges a toll
+     * on every comment edit above its sites; an anchor keyed on a stable token would not.
  */
 class EloquentScopeBypassInventoryTest extends SecurityTestCase
 {
@@ -223,9 +230,9 @@ class EloquentScopeBypassInventoryTest extends SecurityTestCase
             // numbers moves whenever a comment does, which is why the D13 store-less
             // declaration in OwnedPathRawQueryInventoryTest keys on a statement fragment
             // instead.
-            'app/Models/Utility.php:3369',   // City::truncate()
-            'app/Models/Utility.php:3394',   // State::truncate()
-            'app/Models/Utility.php:3410',   // Country::truncate()
+            'app/Models/Utility.php:3407',   // City::truncate()
+            'app/Models/Utility.php:3432',   // State::truncate()
+            'app/Models/Utility.php:3448',   // Country::truncate()
         ], $hits, 'The truncate inventory changed. `truncate()` is forwarded straight to the base '
             . 'query builder (Builder.php:2123) and so empties the WHOLE TABLE for EVERY tenant. '
             . 'A new site is only acceptable on a model with no tenant discriminator -- verify '

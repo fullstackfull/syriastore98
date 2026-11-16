@@ -218,7 +218,7 @@ class StockAttributionTest extends SecurityTestCase
                  *
                  * Independent review found that this check quietly passed for nine of the eleven
                  * sites because they open no transaction at all, while the docblock claimed the
-                 * atomicity property for all of them. Recording them makes the real coverage
+                 * atomicity property for all of them. P4-F026 brought that nine down to seven. Recording them makes the real coverage
                  * visible: the atomicity requirement is satisfied where a transaction exists, and
                  * on the rest the order is already committed when the attribution runs, so a crash
                  * between the two leaves an unattributed row -> UNKNOWN -> restore, the safe
@@ -254,14 +254,23 @@ class StockAttributionTest extends SecurityTestCase
         );
 
         /*
-         * The nine sites that open no transaction, asserted as a SET so the docblock above cannot
+         * The SEVEN sites that open no transaction, asserted as a SET so the docblock above cannot
          * drift from the code. These are safe (see the per-site note in the loop) but they are not
          * covered by the atomicity requirement, and that distinction is the point of listing them.
+         *
+         * IT WAS NINE UNTIL P4-F026, and the two that left are the two that matter most:
+         * `Api/ApiController::place_order` and `::ordersave` are the storefront order writers
+         * every mobile client uses, and they now wrap the order, its attribution and its four
+         * child rows in one transaction. This list only ever shrinks by a writer GAINING a
+         * boundary, so a name reappearing here means one was taken away.
+         *
+         * THE SET IS ASSERTED IN BOTH DIRECTIONS ON PURPOSE. When the boundary landed this
+         * assertion failed with two names removed rather than added -- the correct and useful
+         * failure, because a ratchet that only noticed growth would have let the docblock above
+         * keep claiming nine while the code said seven.
          */
         $this->assertSame(
             [
-                'Api/ApiController.php::place_order',
-                'Api/ApiController.php::ordersave',
                 'AuthorizeNetPaymnetController.php::getOrderPaymentStatus',
                 'CinetPayController.php::getProductStatus',
                 'EasebuzzController.php::getProductStatus',
@@ -273,8 +282,9 @@ class StockAttributionTest extends SecurityTestCase
             $withoutTransaction,
             'the set of attribution sites that run outside a transaction changed. Each one is safe '
             . '-- the order is already committed, so a crash leaves the row unattributed, which '
-            . 'reads UNKNOWN and restores -- but none of them satisfies the atomicity requirement, '
-            . 'and only PaymentController::getProductStatus and ::whatsapp do.'
+            . 'reads UNKNOWN and restores -- but none of them satisfies the atomicity requirement. '
+            . 'PaymentController::getProductStatus, ::whatsapp and the two storefront API writers '
+            . 'do.'
         );
 
         $this->assertSame(

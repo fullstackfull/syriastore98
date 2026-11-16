@@ -504,6 +504,28 @@ class AdminApiTenancyTest extends SecurityTestCase
         $this->assertDatabaseHas('orders', ['id' => $victimOrder->id]);
     }
 
+    /**
+     * THE OWNING MERCHANT IS NOT REFUSED AS A FOREIGN TENANT -- which is what this case is for.
+     *
+     * P4-F107 added a PERMISSION gate to this route, which previously had none: any staff member
+     * of the tenant, holding a role with no permissions at all, could irreversibly destroy an
+     * order and its tax, coupon and billing rows.
+     *
+     * THE FIRST VERSION OF THAT GATE BROKE THIS CASE, and the fix was to the GATE and not to this
+     * test. A permission-only gate refused the merchant below, who holds no role -- and the
+     * store's owner is the principal who creates the roles and grants the permissions in their own
+     * tenant, so refusing them is a live breakage with no security gain. `DashboardController::
+     * callerIsStoreOwner()` is that limb, and this case is one of the two tests that caught its
+     * absence; the other is `DeliveryAndOrderApiAuthorizationTest::test_status_change_still_works
+     * _for_the_owning_merchant`, whose own message reads "The predicate is too tight -- that is a
+     * defect, not a fix."
+     *
+     * LEFT WITHOUT A PERMISSION GRANT DELIBERATELY. Granting one here would make this case pass
+     * through the permission limb and stop exercising the owner limb at all -- and the owner limb
+     * is the half that a future tightening would remove. `AdminApiOrderDeletePermissionTest` holds
+     * the rest: a permissionless STAFF member is still refused, a permitted staff member still
+     * succeeds, and the platform operator is never refused.
+     */
     public function test_delete_order_still_works_for_the_owning_merchant(): void
     {
         [, $storeA, $tokenA] = $this->twoTenants();

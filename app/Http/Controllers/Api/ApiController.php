@@ -54,6 +54,12 @@ use App\Models\StoreDevice;
 
 class ApiController extends Controller
 {
+    use \App\Http\Controllers\Concerns\RestoresCancelledOrderStock;
+
+    /* P4-F026: the F276 intake claim, lifted out of this class unchanged so the WEB checkout uses
+       the same one. See the trait's own header for the measurement that made it shared. */
+    use \App\Http\Controllers\Concerns\ClaimsCheckoutIntake;
+
     use ApiResponser;
 
     /*
@@ -363,6 +369,9 @@ public function saveStoreFcmToken(Request $request)
         $cart_array = [];
         $final_price = $original_price = 0;
         $discount_price = $coupon_price = $tax_price = 0;
+        // One entry per cart line, filled by the loop below and consumed by the coupon/tax pass
+        // after it. See the note at the `$coupon_lines[]` push (P4-F001 / P4-F062).
+        $coupon_lines = [];
         $after_discount_final_price = 0;
         $cart_total_qty = 0;
         $cart_final_price = 0;
@@ -869,37 +878,78 @@ public function saveStoreFcmToken(Request $request)
             $cart_final_price += $final_price;
             $original_price += $total_product_orignal_price;
             $shipping_original_price += $shipping_price;
-            if (isset($request['coupon_code'])) {
-                // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode -- the
-                // previous `BINARY` form was MySQL-only and made this whole path 500 on SQLite.
-                //
-                // P01-SEC-14 D2: and store-scoped. `Coupon` has no StoreScope and is not in
-                // config/tenancy.php's scoped_models, so nothing underneath adds the predicate and
-                // this lookup matched a code in ANY store. Measured through api/{slug}/cart-list
-                // before the predicate: store B's 90% coupon on a store A cart returned
-                // total_coupon_price = 90 and total_sub_price = 10.00. The predicate was absent
-                // before P01-SEC-14 and C4 preserved it exactly, so this is a pre-existing
-                // cross-tenant read rather than a regression -- see
-                // docs/security/P01-SECURITY-WORK-QUEUE.md S23.
-                $coupon = Coupon::findByExactCode(
-                    $request['coupon_code'],
-                    fn ($query) => $query->where('store_id', $store->id)
-                        ->whereDate('coupon_expiry_date', '>=', date('Y-m-d'))
-                );
-                if ($coupon) {
-                    $coupon_apply_price = Cart::getCouponTotalAmount($coupon, $final_price, $cart_product_data->id, $cart_product_data->category_id);
+            /*
+             * THE COUPON AND THE TAX ARE DECIDED AFTER THIS LOOP, NOT INSIDE IT.  P4-F001 /
+             * P4-F062, and the twin of the change in `Cart::cart_list_cookie()`. A `flat` coupon
+             * was subtracted once PER LINE here, and `total_sub_price` is what
+             * `PaymentService::getProductStatus()` writes into `orders.final_price` -- so a
+             * three-line 120.00 basket with a flat 50.00 coupon wrote a COD order of 0.00.
+             * App\Services\Commerce\CouponBasketAllocator carries the full measurement.
+             *
+             * A basket-wide bound cannot be computed from one line, and neither can the
+             * `minimum_spend` / `maximum_spend` gate, so the line is recorded and both are applied
+             * below once `$cart_final_price` holds the whole pre-coupon subtotal. Tax moves with
+             * it deliberately: it was, and still is, computed on the line price AFTER its share of
+             * the coupon.
+             */
+            $coupon_lines[] = [
+                'final_price' => $final_price,
+                'product_id' => $cart_product_data->id,
+                'category_id' => $cart_product_data->category_id,
+                'tax_id' => $cart_product_data->tax_id,
+            ];
+        }
 
-                    $coupon_price += $final_price - $coupon_apply_price;
-                    $final_price = $coupon_apply_price;
-                }
-            }
-            if ($cart_product_data->tax_id) {
-                $tax_id = $cart_product_data->tax_id;
-                $tax_price += Cart::getProductTaxAmount($cart_product_data->tax_id, $final_price, $store->id, $city_id, $state_id, $country, true);
+        /*
+         * SECOND PASS: ONE COUPON ACROSS THE BASKET, THEN TAX ON WHAT IS LEFT.
+         *
+         * The lookup is the same store-scoped predicate as before, hoisted out of the loop it used
+         * to be re-run in, and its history is worth keeping:
+         *
+         *   P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode -- the previous
+         *   `BINARY` form was MySQL-only and made this whole path 500 on SQLite.
+         *
+         *   P01-SEC-14 D2: and store-scoped. `Coupon` has no StoreScope and is not in
+         *   config/tenancy.php's scoped_models, so nothing underneath adds the predicate and this
+         *   lookup matched a code in ANY store. Measured through api/{slug}/cart-list before the
+         *   predicate: store B's 90% coupon on a store A cart returned total_coupon_price = 90 and
+         *   total_sub_price = 10.00. The predicate was absent before P01-SEC-14 and C4 preserved it
+         *   exactly, so that was a pre-existing cross-tenant read rather than a regression -- see
+         *   docs/security/P01-SECURITY-WORK-QUEUE.md S23.
+         *
+         * `$final_price` is left holding the LAST line's post-coupon price, because the tail of this
+         * method publishes it as `coupon_info.coupon_final_amount` and the shipped Flutter app reads
+         * that key. Changing what it means is a contract change, not a fix.
+         */
+        $coupon = null;
+
+        if (isset($request['coupon_code'])) {
+            $coupon = Coupon::findByExactCode(
+                $request['coupon_code'],
+                fn ($query) => $query->where('store_id', $store->id)
+                    ->whereDate('coupon_expiry_date', '>=', date('Y-m-d'))
+            );
+        }
+
+        $allocator = \App\Services\Commerce\CouponBasketAllocator::forBasket(
+            $coupon,
+            (float) $cart_final_price
+        );
+
+        foreach ($coupon_lines as $line) {
+            $linePrice = (float) $line['final_price'];
+            $discount = $allocator->discountForLine($linePrice, $line['product_id'], $line['category_id']);
+            $coupon_price += $discount;
+            $final_price = max(0.0, $linePrice - $discount);
+
+            if ($line['tax_id']) {
+                $tax_id = $line['tax_id'];
+                $tax_price += Cart::getProductTaxAmount($line['tax_id'], $final_price, $store->id, $city_id, $state_id, $country, true);
             } else {
                 $tax_price += 0;
             }
         }
+
         $after_discount_final_price = $cart_final_price;
 
         $product_discount_price = (float)number_format((float)$discount_price, 2);
@@ -933,7 +983,21 @@ public function saveStoreFcmToken(Request $request)
             $final_total = $cart_final_price - $coupon_price + $shipping_price + $tax_price;
         }
 
-        if (isset($request['coupon_code'])) {
+        /*
+         * `! $allocator->isInert()` -- P4-F062, second half, found by independent review of the
+         * first version of that fix.
+         *
+         * This block re-resolves the coupon and re-applies expiry, `coupon_limit` and
+         * `coupon_limit_user`, but NOT the spend gate. So a coupon whose `minimum_spend` the basket
+         * does not meet was echoed with its REAL id, name and headline discount beside an amount of
+         * 0.00, and a client that reads `coupon_info.coupon_id != 0` concluded it was active.
+         * `coupon_info.coupon_final_amount` is read as money by `PaymentService.php:2460` on the
+         * path where no top-level `coupon_code` was posted, so the echo is not purely cosmetic.
+         *
+         * The allocator already holds the verdict, so the gate is one definition, not a second
+         * copy of the spend reading.
+         */
+        if (isset($request['coupon_code']) && ! $allocator->isInert()) {
             // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
             // P01-SEC-14 D2: store-scoped, same reason as the per-item lookup above. This one
             // decides the limit and expiry checks and fills `coupon_info` in the response, so an
@@ -969,6 +1033,12 @@ public function saveStoreFcmToken(Request $request)
                     $coupon = null;
                 }
             }
+        }
+
+        if (isset($allocator) && $allocator->isInert()) {
+            // A coupon this basket does not qualify for is not reported as applied. Without this,
+            // `$coupon` still holds the row the per-line lookup found above.
+            $coupon = null;
         }
 
         $cart_array['coupon_info'] = [];
@@ -3295,103 +3365,6 @@ public function saveStoreFcmToken(Request $request)
         }
     }
 
-    /** The value a storefront checkout claim holds while the order is being written. */
-    private const STOREFRONT_INTAKE_WRITING = 'writing';
-
-    /**
-     * How long one storefront checkout's claim survives.
-     *
-     * Long enough to cover a phone that timed out and retried, and a shopper tapping Pay again
-     * because nothing visibly happened. Short enough that a shopper genuinely buying the same
-     * basket again minutes later is not refused -- and that case is not hypothetical for a
-     * consumable.
-     */
-    private const STOREFRONT_INTAKE_CLAIM_SECONDS = 120;
-
-    /**
-     * F276 — E14's payment half, on the two storefront writers that had no control at all.
-     *
-     * The master prompt's Workstream E rule 14 is "no duplication of payments or inventory
-     * movements". `GatewayReplayGuardCensusTest` — which PARSES the tree, after the previous
-     * census was found wrong in every number it asserted — classified exactly three customer-order
-     * writers as `client-api/no-idempotency-control`. F226 closed `createOrderViaApi`. These two
-     * were left, with the census's own note reading "nothing makes a repeated post idempotent".
-     *
-     * MEASURED BEFORE IT WAS FIXED, on both writers: a second post of one checkout wrote a SECOND
-     * order and decremented stock a SECOND time
-     * (`StorefrontOrderIntakeIdempotencyTest::test_a_repeated_checkout_post_does_not_write_a_second_order`).
-     *
-     * AND THE RETRY IS THE ORDINARY CASE HERE, not the attack. These are the storefront API's
-     * checkout endpoints; the client is a phone on a mobile network, where a request that timed
-     * out client-side has still arrived. `ApiResponser::error()` answering HTTP 200 makes it
-     * worse, because a client cannot tell a refusal from a success by status code alone.
-     *
-     * THE CART IS NOT THE CONTROL, which is the same lesson F269 recorded at the till. A completed
-     * order clears the cart, so a bare second post usually finds nothing to sell — but two
-     * requests in flight together each hold their own view of the basket, and neither sees the
-     * other's clear. The claim therefore lives in the cache: `Cache::add()` is a single atomic
-     * put-if-absent, an INSERT against the `cache` primary key on the production `database` store.
-     * Same primitive as F226, F269 and F270: one idempotency mechanism in this codebase, not four.
-     *
-     * THE FINGERPRINT IS SERVER-DERIVED. The store comes from the route's slug and the customer
-     * from `resolveStoreCustomer()` — the shared predicate CLAUDE.md names — never from
-     * `$request->customer_id`, which is caller input and which THIS HANDLER was once exploitable
-     * through. Two shoppers with identical baskets are separate claims because the customer
-     * differs; the same shopper posting the same basket twice inside the window is the duplicate
-     * this exists to stop.
-     */
-    private function storefrontIntakeFingerprint(array $products, int $storeId, int $customerId, $paymentType): string
-    {
-        $lines = [];
-
-        foreach ($products as $line) {
-            $line = is_object($line) ? (array) $line : (array) $line;
-
-            $lines[] = [
-                /* THE CART ROW ID IS IN THE KEY, and leaving it out was the same hole F269 left
-                   at the till before the press id went in. Keyed on content alone, a shopper who
-                   buys two widgets and then rebuilds the SAME basket and buys again inside the
-                   window hashes identically -- so their second purchase is answered as a replay:
-                   money taken by the gateway that follows, nothing recorded. A rebuilt cart has
-                   NEW `carts.id` values, so it is a different claim; two requests racing read the
-                   SAME rows, so they are still one claim. `cart_list` emits it per line
-                   (ApiController:809), which is why no new plumbing is needed.
-
-                   AND THE COST IT BUYS, because this note used to state only the benefit: a retry
-                   that REBUILDS the basket before re-posting is no longer caught -- new row ids,
-                   new claim, second order, second stock decrement. That is the original F276
-                   shape, re-admitted for one specific client behaviour: a client that holds the
-                   basket in local state, re-syncs it after a timeout and re-posts.
-
-                   NOT LIVE TODAY, and the reason is worth stating exactly rather than
-                   comfortably: CLAUDE.md records that no client in either repository calls the
-                   storefront API, and the realistic sequential retry never reaches this claim at
-                   all -- the first post deletes the cart rows, so the retry is refused by the
-                   empty-basket check that PRECEDES the claim. If a storefront client ever
-                   appears, the fix is a client-supplied submission nonce and NOT removing the
-                   cart id: a caller-supplied value can only SPLIT the caller's own key space,
-                   because the key still binds the route-resolved store and
-                   `resolveStoreCustomer()`'s customer. That is safe in a way a caller-supplied
-                   TENANT predicate never is, and it is a contract change. */
-                'cart' => (string) ($line['cart_id'] ?? ''),
-                'id' => (string) ($line['product_id'] ?? $line['id'] ?? ''),
-                'variant' => (string) ($line['variant_id'] ?? ''),
-                'qty' => (string) ($line['qty'] ?? $line['quantity'] ?? ''),
-                'price' => (string) ($line['price'] ?? $line['final_price'] ?? ''),
-            ];
-        }
-
-        /* Sorted, so one basket assembled in a different order is one basket. */
-        usort($lines, fn ($a, $b) => [$a['cart'], $a['id'], $a['variant']] <=> [$b['cart'], $b['id'], $b['variant']]);
-
-        return 'storefront_intake:' . hash('sha256', json_encode([
-            'store' => $storeId,
-            'customer' => $customerId,
-            'payment' => is_scalar($paymentType) ? (string) $paymentType : '',
-            'lines' => $lines,
-        ]));
-    }
-
     public function place_order(Request $request, $slug = '')
     {
         $ssOrderWritten = false;
@@ -3412,10 +3385,17 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
     $settings = Utility::Setting($storeId); // ✅ يفضل استخدام $storeId هنا أيضاً للاتساق
     
     
-        $user = Cache::remember('admin_details', 3600, function () {
-            return User::where('type','admin')->first();
-        });
-        if ($user->type == 'admin') {
+        /*
+         * P4-F014 / P4-F024. THE STORE'S OWN OWNER, not `User::where('type','admin')->first()`
+         * -- which is the first merchant in the shared database, by lowest id, and was cached
+         * under one global key for an hour. One arbitrary tenant's plan decided whether every
+         * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
+         * right plan (CartController::cart_list_sidebar:38-40,
+         * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
+         * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+         */
+        $user = \App\Support\Commerce\StorePlan::ownerOf($store);
+        if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);
         }
         $rules = [
@@ -4030,6 +4010,35 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $order->store_id = $store->id;
 
         /*
+         * P4-F026 -- THE ORDER AND ITS FOUR CHILD ROWS ARE ONE TRANSACTION. The twin of the
+         * boundary in `ordersave()`; the full reasoning is written out there and is identical
+         * here, down to the caller-reachable null dereference on `$Coupon->id`.
+         *
+         * ONE DIFFERENCE WORTH NAMING: this writer also calls `Utility::paymentWebhook($order)`,
+         * which POSTs to the MERCHANT'S OWN configured URL through `Utility::WebhookCall()` and
+         * `curl_init()`. That call has moved below the commit. Holding a transaction open across
+         * it would hold row locks for a response time chosen by whoever configured that webhook,
+         * which is the lock-holding problem `OrderWriteTransactionTest` exists to prevent -- and
+         * that case could not see it, because the needle list looked for `Http::` and this call
+         * site spells neither. The needle was added in the same change.
+         */
+        /*
+         * THE DEPTH IS CAPTURED BEFORE THE BOUNDARY OPENS, and the catch below rolls back only
+         * down to it. A bare `DB::rollBack()` in that catch is a no-op in production after a
+         * successful commit -- `Connection::rollBack()` returns early at level 0 -- but it is NOT
+         * a no-op when this handler is already inside somebody else's transaction: at level 1 it
+         * computes `$toLevel = 0` and ROLLS BACK THE CALLER'S WORK, for a failure that happened
+         * after our own commit succeeded. Found while building a post-commit probe for
+         * `ApiOrderWriterStockCompensationTest`, where the harness's own `RefreshDatabase`
+         * transaction is exactly such a caller and the fixture vanished.
+         */
+        $ssTransactionDepth = DB::transactionLevel();
+
+        DB::beginTransaction();
+
+        try {
+
+        /*
          * RECONCILE THE STORED TOTAL AGAINST ITS OWN COMPONENTS.  P1-ORD-02 criterion 3.
          *
          * THIS WRITER WAS NOT COVERED AT ALL. Three of the four order writers already call
@@ -4067,32 +4076,10 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $order->save();
         /* F237: phase two of the two-phase attribution -- point this request's
            movements at the order that now exists.
-           NO TRANSACTION ON THIS PATH, stated because the first version of this comment
-           claimed one and independent review found it false: this handler opens none, so
-           the order is already committed when this runs. A crash in between therefore
-           leaves the row unattributed, which reads UNKNOWN and makes the cancellation
-           restore -- the safe direction, and the behaviour that held before F237. Adding
-           a transaction here is a separate change, not part of F237. */
+           INSIDE THE BOUNDARY as of P4-F026, which corrects this comment's previous claim that
+           there was no transaction on this path. There is one now, so the attribution rolls back
+           with the order it attributes. */
         $this->attributeStockEvidenceTo($order);
-        /* THE ORDER NOW EXISTS. From here a failure must NOT give the stock back: an order
-           that exists claims its goods, and returning them puts the shopper's items on the
-           shelf for someone else while their order stands. */
-        $ssOrderWritten = true;
-
-        /*
-         * F276. THE CLAIM NOW CARRIES THE ANSWER, written the instant "an order exists" becomes
-         * true and before the webhook, the mails and the rest. If any of those dies, the retry
-         * that follows must be told the order exists rather than allowed to place it again.
-         */
-        if (isset($ssIntakeClaim)) {
-            \Illuminate\Support\Facades\Cache::put(
-                $ssIntakeClaim,
-                ['order_id' => $order->id],
-                now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS)
-            );
-        }
-
-        Utility::paymentWebhook( $order );
         // add in  Order table end
 
         // add in  Order Billing Detail table start
@@ -4217,6 +4204,61 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         //activity log
         ActivityLog::order_entry(['customer_id' => $order->customer_id, 'order_id' => $order->product_order_id, 'order_date' => $order->order_date, 'products' => $order->product_id, 'final_price' => $order->final_price, 'payment_type' => $order->payment_type, 'store_id' => $order->store_id]);
 
+        DB::commit();
+
+        /*
+         * THE FLAG MEANS COMMITTED. See `ordersave()` for why its old position -- immediately
+         * after `$order->save()` -- stopped being the right question once a boundary existed.
+         */
+        $ssOrderWritten = true;
+        } catch (\Throwable $e) {
+            /* OURS ONLY. See the depth capture above: unconditional, this unwinds a caller's
+               transaction for a failure that happened after our own commit returned. */
+            if (DB::transactionLevel() > $ssTransactionDepth) {
+                DB::rollBack();
+            }
+
+            /* The stock is given back once, by the F276/D-13 guard below, which asks the
+               database rather than a flag. Restoring here as well would double it. */
+            throw $e;
+        }
+
+        /*
+         * F276. THE CLAIM CARRIES THE ANSWER ONLY ONCE THE ORDER IS DURABLE -- below the commit,
+         * so a rolled-back write leaves the writing sentinel for the guard to release instead of
+         * handing every retry for the next 120 seconds an order id that is not there.
+         */
+        if (isset($ssIntakeClaim)) {
+            /*
+             * WRAPPED TOO, and for the opposite reason to the one in the catch below: here the
+             * order is already COMMITTED. A cache store that is unavailable would otherwise throw
+             * out of a handler whose order exists -- answering the shopper 500, and, in
+             * `place_order`, skipping the merchant's configured webhook on the next line, which is
+             * silent and permanent for that order. The claim going unwritten costs at most a
+             * refused retry for 120 seconds, and the retry is refused rather than duplicated.
+             */
+            try {
+                \Illuminate\Support\Facades\Cache::put(
+                    $ssIntakeClaim,
+                    ['order_id' => $order->id],
+                    now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS)
+                );
+            } catch (\Throwable $ssClaimWriteFailure) {
+                \Illuminate\Support\Facades\Log::warning('Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered.', [
+                    'order_id' => $order->id,
+                    'error' => $ssClaimWriteFailure->getMessage(),
+                ]);
+            }
+        }
+
+        /*
+         * THE WEBHOOK IS AN OUTBOUND POST TO A MERCHANT-SUPPLIED URL, so it runs with no
+         * transaction open and after the order is durable. It used to run between the order save
+         * and the child rows, which -- once those became one transaction -- would have held
+         * every one of their row locks for a third party's response time.
+         */
+        Utility::paymentWebhook( $order );
+
         //Order Mail
         $order_email = $OrderBillingDetail->email;
         $owner = User::find($store->created_by);
@@ -4321,9 +4363,28 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
              * permits a retry that decrements again -- the pre-change behaviour, and better than
              * a checkout dead for two minutes with no order to show for it.
              */
-            if (isset($ssIntakeClaim)
-                && \Illuminate\Support\Facades\Cache::get($ssIntakeClaim) === self::STOREFRONT_INTAKE_WRITING) {
-                \Illuminate\Support\Facades\Cache::forget($ssIntakeClaim);
+            /*
+             * WRAPPED, because this read runs BEFORE the D-13 block and would otherwise be able
+             * to cancel it. Production is `CACHE_STORE=database`, so on the lost connection that
+             * `orderRowSurvived()`'s fail-closed argument is written for, this `Cache::get()`
+             * throws, replaces the original exception and the whole compensation below -- the
+             * part that decides whether the shopper's goods go back on the shelf -- never runs.
+             * The ordering is F276's; what made it matter is that P4-F026 moved the question that
+             * needs the database underneath it. Found by independent review.
+             *
+             * A claim that cannot be released is a checkout refused for up to 120 seconds. A
+             * compensation that does not run is inventory lost or oversold. The first is the one
+             * to swallow.
+             */
+            try {
+                if (isset($ssIntakeClaim)
+                    && \Illuminate\Support\Facades\Cache::get($ssIntakeClaim) === self::STOREFRONT_INTAKE_WRITING) {
+                    \Illuminate\Support\Facades\Cache::forget($ssIntakeClaim);
+                }
+            } catch (\Throwable $ssClaimReleaseFailure) {
+                \Illuminate\Support\Facades\Log::warning('Storefront intake claim could not be released; it will expire on its own.', [
+                    'error' => $ssClaimReleaseFailure->getMessage(),
+                ]);
             }
 
             /*
@@ -4338,13 +4399,18 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
              * which oversells the same units to the next shopper while this order stands -- the
              * mirror image of the defect D-13 was opened for, introduced by its own fix.
              *
-             * `$order->exists` is the authoritative answer and closes that window:
-             * `Model::performInsert()` sets it at line 1341 and fires `created` at 1345, so by
-             * the time any `created` listener can throw, `exists` is already true. Measured in
+             * P4-F026 REPLACED `$order->exists` WITH A QUERY, and the replacement is not a
+             * refinement -- `exists` became WRONG the moment this writer gained a transaction.
+             * `Model::performInsert()` sets it and nothing ever unsets it, so after a rollback it
+             * still says "yes" for a row that is gone, and the guard would have skipped the
+             * give-back for every failure inside the boundary. `orderRowSurvived()` asks the
+             * table, which is right both after a rollback and after a post-commit throw; its
+             * docblock in AppliesCartStockChanges carries the full argument, including why it
+             * fails closed toward NOT restoring. Measured in
              * `ApiOrderWriterStockCompensationTest`, which fails on the flag alone.
              */
             $ssOrderClaimsIt = ($ssOrderWritten ?? false)
-                || (isset($order) && $order instanceof \App\Models\Order && $order->exists);
+                || $this->orderRowSurvived($order ?? null);
 
             if (! $ssOrderClaimsIt) {
                 $this->restoreStockDecrements($appliedStockChanges ?? []);
@@ -7660,9 +7726,12 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $delivery_image = Storage::url('uploads/delivery.png');
         }
         $order_array['delivery'] = $delivery_image;
-        $order_array['delivery_charge'] = SetNumber($delivery_price);
-        $order_array['subtotal'] = SetNumber($final_price);
-        $order_array['final_price'] = SetNumber($cartlist_final_price);
+        // `(float)` for the same reason as `ordersave`'s copy of this block -- see P4-F121 there.
+        // This one only builds a RESPONSE, so it truncated what the client was shown rather than
+        // what was stored; the shipped Flutter app reads these keys.
+        $order_array['delivery_charge'] = SetNumber((float) $delivery_price);
+        $order_array['subtotal'] = SetNumber((float) $final_price);
+        $order_array['final_price'] = SetNumber((float) $cartlist_final_price);
         return $this->success($order_array, __('Order has been confirmed successfully.'));
     }
 
@@ -7964,6 +8033,27 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $data['order_status'] = $request->order_status;
 
         $date = Order::order_status_change($data);
+
+        /*
+         * THE GOODS.  P4-F034, the doors P4-4 did not reach -- found by the P4-F124 ledger
+         * inventory, which noticed the exact inverse of that finding: this door routes through
+         * `Order::order_status_change()`, so it writes `payment_status = 'Unpaid'` and
+         * `OrderObserver` reverses the merchant's wallet credit, and then loses the stock.
+         * P4-F124 restores the stock and loses the money; this one restored the money and lost
+         * the goods.
+         *
+         * `=== 'success'` is the replay guard: the engine answers `error` for a cancel from any
+         * non-pending state (app/Models/Order.php:702), so a second attempt never reaches here.
+         * The trait's per-line markers bound it again.
+         */
+        if (($date['status'] ?? null) === 'success'
+            && strtolower(trim((string) ($data['order_status'] ?? ''))) === 'cancel') {
+            $this->restoreCancelledOrderStock(
+                $order,
+                is_array($cancelLines = json_decode((string) $order->product_json, true)) ? $cancelLines : []
+            );
+        }
+
         if ($date['status'] == 'success') {
             return $this->success(['message' => $date['message']], $date['message']);
         } else {
@@ -9540,17 +9630,47 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $delivery_image = Storage::url('uploads/delivery.png');
         }
         $order_array['delivery'] = $delivery_image;
-        $order_array['delivery_charge'] = SetNumber($delivery_price);
-        $order_array['subtotal'] = SetNumber($final_price);
-        $order_array['final_price'] = SetNumber($cartlist_final_price);
+        /*
+         * `(float)` BEFORE `SetNumber()`, AND IT IS WORTH 0.99 AN ORDER.  P4-F121.
+         *
+         * `SetNumber()` has a STRING BRANCH that keeps only the first run of digits
+         * (`helper.php:292-295`: `preg_match('/\d+/', $number, $matches)`), and every value below
+         * is already a `SetNumber()` STRING by the time it arrives here:
+         *
+         *     $cartlist_final_price   :8981 from $cartlist['final_price'], published by SetNumber() at :1037
+         *                             :9135 from $apply_coupon['final_price'],   "        "      at :4922
+         *     $delivery_price         :9163 from get_shipping_method's total_final_price, likewise
+         *     $final_price            :8978 is arithmetic on that same string, so numeric -- cast
+         *                                   anyway, because the next person to touch :8978 will not
+         *                                   know which of these three is which
+         *
+         * EXECUTED: `SetNumber(99.99)` is 99.99; `SetNumber("99.99")` is **99.00**. MEASURED through
+         * `POST api/{slug}/order-save` on a 99.99 basket before this cast: `orders.product_price`
+         * and `orders.final_price` both 99.00. Shopper-favourable, and `product_price` is the
+         * merchant's ledger.
+         *
+         * The cast goes here rather than in `SetNumber()`, which has on the order of 200 callers and
+         * whose string branch some of them may rely on. Found by independent review of the total
+         * expression below; invisible to every existing test because they all price in whole units.
+         */
+        $order_array['delivery_charge'] = SetNumber((float) $delivery_price);
+        $order_array['subtotal'] = SetNumber((float) $final_price);
+        $order_array['final_price'] = SetNumber((float) $cartlist_final_price);
         $slug = !empty($slug) ? $slug : '';
         $store = getStore($slug);
         
 
-        $user = Cache::remember('admin_details', 3600, function () {
-            return User::where('type','admin')->first();
-        });
-        if ($user->type == 'admin') {
+        /*
+         * P4-F014 / P4-F024. THE STORE'S OWN OWNER, not `User::where('type','admin')->first()`
+         * -- which is the first merchant in the shared database, by lowest id, and was cached
+         * under one global key for an hour. One arbitrary tenant's plan decided whether every
+         * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
+         * right plan (CartController::cart_list_sidebar:38-40,
+         * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
+         * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+         */
+        $user = \App\Support\Commerce\StorePlan::ownerOf($store);
+        if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);
         }
         $is_guest = 1;
@@ -9614,19 +9734,47 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $order->currency_symbol = $currentCurrencySymbol;
 
 
-        if (!auth('customers')->user()) {
-            if ($plan->shipping_method == "on") {
-                $order->final_price = (float)$order_array['delivery_charge'];
-            } else {
-                $order->final_price =  (float)$order_array['final_price'] + $order_array['tax']['tax_price'];
-            }
-        } else {
-            if ($plan->shipping_method == "on") {
-                $order->final_price = (float)$order_array['delivery_charge'] + $order_array['tax']['tax_price'];
-            } else {
-                $order->final_price = (float) $order_array['final_price'] + $order_array['tax']['tax_price'];
-            }
-        }
+        /*
+         * THE PRODUCT SUBTOTAL IS IN THE TOTAL ON BOTH BRANCHES NOW.  P4-F023.
+         *
+         * This used to be four branches, and the two shipping-ON arms left `$order_array['final_price']`
+         * -- the basket -- out of the expression entirely:
+         *
+         *     if ($plan->shipping_method == "on") {
+         *         $order->final_price = (float) $order_array['delivery_charge'] + $order_array['tax']['tax_price'];
+         *     }
+         *
+         * So a store whose plan has shipping on wrote an order total of delivery + tax, and the
+         * goods were given away. MEASURED through `POST api/{slug}/order-save` on a 100.00 basket
+         * with no delivery charge: `orders.final_price` = 0.00.
+         *
+         * It was reachable without the merchant doing anything wrong, because the plan being read
+         * was not even theirs -- see `App\Support\Commerce\StorePlan`, resolved above. The two
+         * defects compounded: the wrong tenant's plan chose the branch, and the branch dropped the
+         * basket.
+         *
+         * THE GUEST/CUSTOMER SPLIT IS GONE, and that is a simplification rather than a change: the
+         * guest arm is unreachable. `ordersave` 401s at `:8934-8937` through `resolveStoreCustomer()`,
+         * which requires `auth('customers')` to hold a Customer. Its only difference from the
+         * customer arm was that the shipping-on branch omitted tax as well -- the same oversight
+         * twice.
+         *
+         * (The citation above said `:8863-8866` until review checked it: those lines are the
+         * add-review handler's authz comment, above `ordersave`'s opening line entirely. The claim
+         * was right and the evidence pointed somewhere else, which is how a wrong conclusion gets
+         * re-derived later. `$is_guest` at `:9634-9638` rests on the same 401 -- it is initialised
+         * to 1 and only ever set to 0 -- so if that guard ever moves, the collapsed total and
+         * `orders.is_guest` go wrong together.)
+         *
+         * `$plan` may legitimately be null (no owner, or an owner who is not type `admin`), which
+         * every reader on this codebase treats as shipping off. It used to be dereferenced without
+         * a guard.
+         */
+        $ssShippingOn = $plan && $plan->shipping_method == 'on';
+
+        $order->final_price = (float) $order_array['final_price']
+            + ($ssShippingOn ? (float) $order_array['delivery_charge'] : 0.0)
+            + (float) $order_array['tax']['tax_price'];
         event(new AddAdditionalFields($order, $request->all(), $store));
         $order->payment_comment = !empty($request->payment_comment) ? $request->payment_comment : '-';
         $order->payment_type = $request->payment_type;
@@ -9652,33 +9800,56 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $order->reward_points = (float)$product_reward_point;
         $order->additional_note = !empty($request->additional_note) ? $request->additional_note : '-';
         $order->store_id = $store->id;
+
+        /*
+         * P4-F026 -- THE ORDER AND ITS FOUR CHILD ROWS ARE ONE TRANSACTION.
+         * =========================================================================================
+         *
+         * This writer saved five rows -- the Order, OrderBillingDetail, OrderCouponDetail,
+         * UserCoupon and OrderTaxDetail -- each with its own `save()` and no boundary of any kind.
+         * Measured on d227b7c0: `DB::beginTransaction|DB::commit|DB::rollBack|DB::transaction`
+         * matched NOTHING anywhere in this method or in `place_order`.
+         *
+         * THE REACHABLE HALF-WRITE IS A MONEY DEFECT, not an audit gap. The write order below is
+         * OrderCouponDetail and THEN UserCoupon, and `user_coupons` is the ONLY table either
+         * coupon cap counts -- `Coupon::usesByCustomer()`, `PerUsesCouponCount()`,
+         * `coupon_uses()` and `UsesCouponCount()` are all counts on that one table. So a throw
+         * between those two saves leaves "the discount is recorded, the redemption is not": the
+         * order keeps its money off and the coupon's limit never sees it.
+         *
+         * AND THE THROW IS CALLER-REACHABLE. `Coupon::find($coupon_data['coupon_id'])` two
+         * screens down takes the coupon id from the REQUEST, and `$UserCoupon->coupon_id =
+         * $Coupon->id;` dereferences it unchecked. Post a real coupon code with a `coupon_id`
+         * that does not exist and the server grants the discount, writes the order and the
+         * coupon-detail row, and then dies on null -- a `coupon_limit = 1` coupon paid out twice.
+         *
+         * THE BODY IS NOT RE-INDENTED, following this method's own outer F276 guard, which wraps
+         * the same way. Re-indenting ~130 lines would bury the change and move every line the
+         * file:line ratchets in tests/ point at, for no behavioural gain.
+         */
+        /*
+         * THE DEPTH IS CAPTURED BEFORE THE BOUNDARY OPENS, and the catch below rolls back only
+         * down to it. A bare `DB::rollBack()` in that catch is a no-op in production after a
+         * successful commit -- `Connection::rollBack()` returns early at level 0 -- but it is NOT
+         * a no-op when this handler is already inside somebody else's transaction: at level 1 it
+         * computes `$toLevel = 0` and ROLLS BACK THE CALLER'S WORK, for a failure that happened
+         * after our own commit succeeded. Found while building a post-commit probe for
+         * `ApiOrderWriterStockCompensationTest`, where the harness's own `RefreshDatabase`
+         * transaction is exactly such a caller and the fixture vanished.
+         */
+        $ssTransactionDepth = DB::transactionLevel();
+
+        DB::beginTransaction();
+
+        try {
         $order->save();
         /* F237: phase two of the two-phase attribution -- point this request's
            movements at the order that now exists.
-           NO TRANSACTION ON THIS PATH, stated because the first version of this comment
-           claimed one and independent review found it false: this handler opens none, so
-           the order is already committed when this runs. A crash in between therefore
-           leaves the row unattributed, which reads UNKNOWN and makes the cancellation
-           restore -- the safe direction, and the behaviour that held before F237. Adding
-           a transaction here is a separate change, not part of F237. */
+           INSIDE THE BOUNDARY as of P4-F026, which is a correction to this comment's previous
+           claim rather than a change of intent: it used to say "NO TRANSACTION ON THIS PATH"
+           and describe the unattributed row a crash would leave. There is a transaction now, so
+           the attribution rolls back with the order it attributes and the window is closed. */
         $this->attributeStockEvidenceTo($order);
-        /* THE ORDER NOW EXISTS. From here a failure must NOT give the stock back: an order
-           that exists claims its goods, and returning them puts the shopper's items on the
-           shelf for someone else while their order stands. */
-        $ssOrderWritten = true;
-
-        /*
-         * F276. THE CLAIM NOW CARRIES THE ANSWER, written the instant "an order exists" becomes
-         * true and before the webhook, the mails and the rest. If any of those dies, the retry
-         * that follows must be told the order exists rather than allowed to place it again.
-         */
-        if (isset($ssIntakeClaim)) {
-            \Illuminate\Support\Facades\Cache::put(
-                $ssIntakeClaim,
-                ['order_id' => $order->id],
-                now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS)
-            );
-        }
         // P1-ORD-15: the posted values are IDS and this looked the city up by NAME, so every
         // order inserted a city named after an id. The state and country ids are kept too: the
         // order_billing_details columns below are joined to cities.id / states.id / countries.id
@@ -9784,6 +9955,70 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
         $order_array['order_id'] = $order->product_order_id ?? 0;
 
+        DB::commit();
+
+        /*
+         * THE FLAG MEANS COMMITTED, AND THAT IS A CHANGE OF MEANING, NOT OF PLACE.
+         *
+         * It used to be set by the statement after `$order->save()`, where it meant "the insert
+         * returned". With a boundary that is no longer the same question: an insert inside a
+         * transaction that then rolls back returns perfectly well and leaves no row. Setting the
+         * flag there would tell the guard below that an order claims the stock when none does,
+         * and the shopper would lose both the order AND the goods.
+         */
+        $ssOrderWritten = true;
+        } catch (\Throwable $e) {
+            /* OURS ONLY. See the depth capture above: unconditional, this unwinds a caller's
+               transaction for a failure that happened after our own commit returned. */
+            if (DB::transactionLevel() > $ssTransactionDepth) {
+                DB::rollBack();
+            }
+
+            /*
+             * THE STOCK IS NOT GIVEN BACK HERE. It is given back once, by the F276/D-13 guard
+             * below, which asks the DATABASE whether a row survived rather than trusting a flag
+             * -- the one question that is still true after a rollback. Restoring in both places
+             * would double the give-back for every failure inside the boundary.
+             */
+            throw $e;
+        }
+
+        /*
+         * F276. THE CLAIM CARRIES THE ANSWER ONLY ONCE THE ORDER IS DURABLE.
+         *
+         * This block used to sit immediately after `$order->save()`, which was correct while
+         * there was no transaction and WRONG the moment one existed: a failure between the save
+         * and the commit rolls the order away while the claim still names its id, and every
+         * retry for the next 120 seconds is handed `success({order_id: <a row that is not
+         * there>})`. Found by an adversarial read of the fix plan before it landed.
+         *
+         * Below the commit, the two outcomes are exactly the two the claim must distinguish:
+         * committed, so retries are told the order id; rolled back, so the claim is still the
+         * writing sentinel and the guard's release lets an honest retry through.
+         */
+        if (isset($ssIntakeClaim)) {
+            /*
+             * WRAPPED TOO, and for the opposite reason to the one in the catch below: here the
+             * order is already COMMITTED. A cache store that is unavailable would otherwise throw
+             * out of a handler whose order exists -- answering the shopper 500, and, in
+             * `place_order`, skipping the merchant's configured webhook on the next line, which is
+             * silent and permanent for that order. The claim going unwritten costs at most a
+             * refused retry for 120 seconds, and the retry is refused rather than duplicated.
+             */
+            try {
+                \Illuminate\Support\Facades\Cache::put(
+                    $ssIntakeClaim,
+                    ['order_id' => $order->id],
+                    now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS)
+                );
+            } catch (\Throwable $ssClaimWriteFailure) {
+                \Illuminate\Support\Facades\Log::warning('Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered.', [
+                    'order_id' => $order->id,
+                    'error' => $ssClaimWriteFailure->getMessage(),
+                ]);
+            }
+        }
+
         return $this->success($order_array,  __('Order added successfully.'));
             } catch (\Throwable $ssStockGuardError) {
             /*
@@ -9807,9 +10042,28 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
              * permits a retry that decrements again -- the pre-change behaviour, and better than
              * a checkout dead for two minutes with no order to show for it.
              */
-            if (isset($ssIntakeClaim)
-                && \Illuminate\Support\Facades\Cache::get($ssIntakeClaim) === self::STOREFRONT_INTAKE_WRITING) {
-                \Illuminate\Support\Facades\Cache::forget($ssIntakeClaim);
+            /*
+             * WRAPPED, because this read runs BEFORE the D-13 block and would otherwise be able
+             * to cancel it. Production is `CACHE_STORE=database`, so on the lost connection that
+             * `orderRowSurvived()`'s fail-closed argument is written for, this `Cache::get()`
+             * throws, replaces the original exception and the whole compensation below -- the
+             * part that decides whether the shopper's goods go back on the shelf -- never runs.
+             * The ordering is F276's; what made it matter is that P4-F026 moved the question that
+             * needs the database underneath it. Found by independent review.
+             *
+             * A claim that cannot be released is a checkout refused for up to 120 seconds. A
+             * compensation that does not run is inventory lost or oversold. The first is the one
+             * to swallow.
+             */
+            try {
+                if (isset($ssIntakeClaim)
+                    && \Illuminate\Support\Facades\Cache::get($ssIntakeClaim) === self::STOREFRONT_INTAKE_WRITING) {
+                    \Illuminate\Support\Facades\Cache::forget($ssIntakeClaim);
+                }
+            } catch (\Throwable $ssClaimReleaseFailure) {
+                \Illuminate\Support\Facades\Log::warning('Storefront intake claim could not be released; it will expire on its own.', [
+                    'error' => $ssClaimReleaseFailure->getMessage(),
+                ]);
             }
 
             /*
@@ -9824,13 +10078,18 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
              * which oversells the same units to the next shopper while this order stands -- the
              * mirror image of the defect D-13 was opened for, introduced by its own fix.
              *
-             * `$order->exists` is the authoritative answer and closes that window:
-             * `Model::performInsert()` sets it at line 1341 and fires `created` at 1345, so by
-             * the time any `created` listener can throw, `exists` is already true. Measured in
+             * P4-F026 REPLACED `$order->exists` WITH A QUERY, and the replacement is not a
+             * refinement -- `exists` became WRONG the moment this writer gained a transaction.
+             * `Model::performInsert()` sets it and nothing ever unsets it, so after a rollback it
+             * still says "yes" for a row that is gone, and the guard would have skipped the
+             * give-back for every failure inside the boundary. `orderRowSurvived()` asks the
+             * table, which is right both after a rollback and after a post-commit throw; its
+             * docblock in AppliesCartStockChanges carries the full argument, including why it
+             * fails closed toward NOT restoring. Measured in
              * `ApiOrderWriterStockCompensationTest`, which fails on the flag alone.
              */
             $ssOrderClaimsIt = ($ssOrderWritten ?? false)
-                || (isset($order) && $order instanceof \App\Models\Order && $order->exists);
+                || $this->orderRowSurvived($order ?? null);
 
             if (! $ssOrderClaimsIt) {
                 $this->restoreStockDecrements($appliedStockChanges ?? []);
