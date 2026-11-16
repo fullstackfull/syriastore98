@@ -1865,6 +1865,28 @@ public function handlePaymeraTrigger00($orderId)
         $isGuest = !auth('customers')->check();
         $customer = $isGuest ? $this->handleCustomerRegistration($request, $store) : auth('customers')->user();
         
+        /*
+         * P4-F096 -- `handleCustomerRegistration()` DOES NOT ALWAYS RETURN A CUSTOMER.
+         * =========================================================================================
+         *
+         * It returns `redirect()->back()->with('error', ...)` from two validation failures, and
+         * `if (! $customer)` does not catch a `RedirectResponse` -- an object is truthy. The next
+         * statement then read `$customer->id` on it, which is "Attempt to read property id on
+         * Illuminate\Http\RedirectResponse": a 500 on an ordinary guest checkout with an
+         * incomplete billing form, where the shopper should have been handed back their own
+         * validation message.
+         *
+         * Reachable by an anonymous visitor with no special anything: leave a required billing
+         * field out and the storefront answers 500 instead of "Billing first name not found."
+         *
+         * RETURNED, NOT COERCED. The redirect IS the refusal `handleCustomerRegistration()`
+         * decided on, carrying the message it chose; handing it back is both the smaller change
+         * and the better answer than replacing it with a generic one.
+         */
+        if ($customer instanceof \Symfony\Component\HttpFoundation\Response) {
+            return $customer;
+        }
+
         if (!$customer) {
             return redirect()->back()->with('error', __('User not found.'));
         }

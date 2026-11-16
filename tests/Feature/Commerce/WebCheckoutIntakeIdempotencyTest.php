@@ -351,6 +351,54 @@ final class WebCheckoutIntakeIdempotencyTest extends SecurityTestCase
     }
 
     /**
+     * P4-F096 — AN INCOMPLETE GUEST BILLING FORM IS A MESSAGE, NOT A 500.
+     *
+     * `handleCustomerRegistration()` returns `redirect()->back()->with('error', ...)` from two
+     * validation failures, and `if (! $customer)` does not catch a `RedirectResponse` — an object
+     * is truthy — so the next statement read `$customer->id` on it. Measured before the fix:
+     * "Attempt to read property id on Illuminate\Http\RedirectResponse", a 500 served to an
+     * anonymous visitor who simply left a required field out of the billing form.
+     *
+     * The assertion is on the MESSAGE rather than on the status code, because both outcomes are a
+     * 302 in a browser and only the message distinguishes "we told you what was wrong" from
+     * "something exploded".
+     */
+    public function test_a_guest_with_an_incomplete_billing_form_is_told_what_is_missing(): void
+    {
+        [$store, , $product, $shippingId] = $this->checkout();
+
+        $cookie = 'guest-cart-' . uniqid();
+        $this->guestBasket($store, $product, $product, $cookie);
+
+        session()->forget('error');
+
+        $response = $this->withCookie('cart', $cookie)
+            ->post('/' . $store->slug . '/process-order', [
+                'payment_type' => 'cod',
+                'delivery_id' => $shippingId,
+                'method_id' => $shippingId,
+                /* Everything except `lastname`, which `handleCustomerRegistration()` requires. */
+                'billing_info' => [
+                    'firstname' => 'Guest',
+                    'email' => 'guest-incomplete@example.test',
+                    'billing_address' => 'Street',
+                    'billing_country' => '101',
+                ],
+            ]);
+
+        $this->assertNotSame(500, $response->getStatusCode(),
+            'an incomplete guest billing form answered 500. `handleCustomerRegistration()` returns '
+            . 'a RedirectResponse on a validation failure and `if (! $customer)` does not catch it, '
+            . 'so `$customer->id` was read on the redirect.');
+
+        $this->assertNotNull(session('error'),
+            'the shopper was given no message at all, so they cannot tell what to correct');
+
+        $this->assertSame(0, $this->ordersIn($store),
+            'an order was written for a checkout whose billing form was refused');
+    }
+
+    /**
      * AND A GUEST WHO REBUILDS THEIR BASKET IS NOT REFUSED — the liveness half.
      *
      * New rows, new ids, a genuine second purchase. This is the property the trait's docblock

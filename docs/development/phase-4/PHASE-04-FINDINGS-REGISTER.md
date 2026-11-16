@@ -979,3 +979,22 @@ a `type => 'admin'` user with **no roles** while a real self-registered merchant
 global `admin` role carrying `Delete Order` among ~190 others. The fixture was thinner than
 production; it now grants the permission, and the precedent is already shipped — `createOrderViaApi`
 carries the same gate and refuses a roleless owner the same way.
+
+### P4-F096 — an incomplete guest billing form answered 500 — FIXED
+
+`handleCustomerRegistration()` returns `redirect()->back()->with('error', ...)` from two validation
+failures, and `processOrder`'s `if (! $customer)` does not catch a `RedirectResponse` — an object is
+truthy. The next statement read `$customer->id` on it. Measured through the real route: *"Attempt to
+read property id on Illuminate\Http\RedirectResponse"*, **HTTP 500**, served to an anonymous visitor
+who simply left a required field out of the billing form, where they should have been handed their
+own validation message.
+
+Fixed by returning the refusal `handleCustomerRegistration()` already decided on, which carries the
+message it chose — smaller than replacing it with a generic one, and a better answer. Pinned by
+`WebCheckoutIntakeIdempotencyTest::test_a_guest_with_an_incomplete_billing_form_is_told_what_is
+_missing`, which asserts on the MESSAGE rather than the status, because both outcomes are a 302 in a
+browser and only the message distinguishes "we told you what was wrong" from "something exploded".
+Removing the guard re-reddens it with the measured 500.
+
+Found by the same independent review that produced P4-F136 and P4-F137, as an aside rather than as
+part of its brief.
