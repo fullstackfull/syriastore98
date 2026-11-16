@@ -164,7 +164,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Api/ApiController.php:9015` | order: refused, basket holds a non-positive quantity |
 | `app/Http/Controllers/Api/ApiController.php:9140` | coupon: refused an implausible discounted total |
 | `app/Http/Controllers/Api/AuthController.php:186` | register: social identity verification refused |
-| `app/Http/Controllers/Api/DeliverySyriaOrderController.php:82` | Delivery Syria invalid credentials |
+| `app/Http/Controllers/Api/DeliverySyriaOrderController.php:84` | Delivery Syria invalid credentials |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:349` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:391` | AuthorizeNet capture refused: no server-computed payable in the stored state. |
 | `app/Http/Controllers/CartController.php:261` | product_cart: refused a non-positive or non-integer quantity |
@@ -184,6 +184,10 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/RefusesDeferredGateway.php:130` | Paid plan checkout refused before any charge: this gateway is deferred from Phase 02. |
 | `app/Http/Controllers/Concerns/RefusesDeferredGateway.php:180` | Paid plan activation refused: this gateway is deferred from Phase 02 and its payment evidence cannot be verified. |
 | `app/Http/Controllers/Concerns/ResolvesPendingPartialPayment.php:135` | Pending partial payment lookup failed; the payment is refused. |
+| `app/Http/Controllers/Concerns/RestoresCancelledOrderStock.php:92` | Order cancellation skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/Concerns/RestoresCancelledOrderStock.php:151` | Order cancellation skipped a line whose product is not in the order |
+| `app/Http/Controllers/Concerns/RestoresCancelledOrderStock.php:208` | Order cancellation skipped a line the stock record says never took stock out |
+| `app/Http/Controllers/Concerns/RestoresCancelledOrderStock.php:252` | Order cancellation skipped a line whose variant does not belong to its product |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:778` | customer login: refused a social row still holding its module-assigned password |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:1007` | Newsletter subscription failed during customer registration |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:95` | Delivery Syria status webhook: invalid credentials. |
@@ -194,20 +198,16 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/KhaltiPaymnetController.php:459` | Khalti verification refused: no server-computed payable in the stored state. |
 | `app/Http/Controllers/KhaltiPaymnetController.php:504` | Khalti order refused before any stock moved: the gateway rejected the capture |
 | `app/Http/Controllers/NMIPayController.php:435` | Pending partial payment refused: the balance named does not belong to this customer. |
-| `app/Http/Controllers/OrderController.php:343` | Manual order total did not match its components; the computed total was stored |
-| `app/Http/Controllers/OrderController.php:1312` | order receipt could not be rendered |
-| `app/Http/Controllers/OrderController.php:1474` | Return approval restored no stock: order carries no readable product_json |
-| `app/Http/Controllers/OrderController.php:1520` | Return approval skipped a line whose stock was already credited |
-| `app/Http/Controllers/OrderController.php:1540` | Return approval skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1561` | Return approval skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1595` | Return approval skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1710` | Order replacement refused. |
-| `app/Http/Controllers/OrderController.php:2153` | Customer cancellation endpoint refused a status it does not serve |
-| `app/Http/Controllers/OrderController.php:2223` | Order cancellation skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:2238` | Order cancellation skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:2295` | Order cancellation skipped a line the stock record says never took stock out |
-| `app/Http/Controllers/OrderController.php:2339` | Order cancellation skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:2581` | Order assignment refused: the delivery boy is not in a store this caller owns |
+| `app/Http/Controllers/OrderController.php:345` | Manual order total did not match its components; the computed total was stored |
+| `app/Http/Controllers/OrderController.php:1314` | order receipt could not be rendered |
+| `app/Http/Controllers/OrderController.php:1476` | Return approval restored no stock: order carries no readable product_json |
+| `app/Http/Controllers/OrderController.php:1522` | Return approval skipped a line whose stock was already credited |
+| `app/Http/Controllers/OrderController.php:1542` | Return approval skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1563` | Return approval skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1597` | Return approval skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:1712` | Order replacement refused. |
+| `app/Http/Controllers/OrderController.php:2179` | Customer cancellation endpoint refused a status it does not serve |
+| `app/Http/Controllers/OrderController.php:2397` | Order assignment refused: the delivery boy is not in a store this caller owns |
 | `app/Http/Controllers/OrderRefundController.php:180` | Refund transition refused: unrecognised current state |
 | `app/Http/Controllers/OrderRefundController.php:202` | Refund transition refused: illegal transition |
 | `app/Http/Controllers/OrderRefundController.php:416` | Refund cancellation refused: the record does not match the order |
