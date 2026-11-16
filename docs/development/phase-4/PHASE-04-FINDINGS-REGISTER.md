@@ -1111,3 +1111,47 @@ first — the ratchet's comment says so at the site.
 Separately, AamarPay passes `Crypt::encrypt([...])` as the **storeSlug** route segment, so the store
 does not resolve and the handler fails before the order write. That is a 500 rather than P4-F044's
 phantom order — a lesser and different defect, recorded rather than fixed on a guess.
+
+
+---
+
+## Post-closure: the consolidated financial-policy package (2026-11-16)
+
+The six owner-decision findings — **P4-F124, P4-F126, P4-F127, P4-F128, P4-F032, P4-F046** — are now
+measured against the owner's six proposed principles in one place:
+**`docs/finance/P4-FINANCIAL-POLICY-DECISION-PACKAGE.md`**. That document is the decision record;
+this register keeps the findings themselves.
+
+**Three corrections to this register, measured at `50436028`:**
+
+1. **P4-F124's claim that the Flutter admin door leaves `payment_status` untouched is wrong in its
+   mechanism.** `DashboardController::updateStatus` *does* assign the column whenever the client
+   sends the key, and the shipped app sends it unconditionally. The outcome matches only because the
+   app echoes the stored value, so the write is not dirty and the observer is skipped. The test
+   pinning this sends no `payment_status` at all — it pins a request shape no shipped client
+   produces.
+
+2. **"Six doors cancel an order" is wrong; there are seven.** Four write `'Unpaid'`, three do not.
+
+3. **A same-family gap was not recorded:** `OrderObserver::updated()`'s catch is `Log::error` with
+   no order id, store id or amount — below the two levels the observability census tracks — and the
+   order save it guards is in no transaction. It is P4-F032's twin on the **reversal** leg.
+
+### P4-F145 — a merchant cannot change a COD order's status from the shipped app — RECORDED
+
+Found while measuring P4-F124. Verified end to end: the app requires and always sends
+`payment_status`; the status sheet echoes the order's **current** value; COD resolves to `Pending`
+under owner decision D-06; and `updateStatus` validates `in:Paid,Unpaid` — so the echo is **HTTP
+422**. A second guard refuses a status change on an already-cancelled order.
+
+**Pre-existing, not a Phase 04 regression:** the validator was present at the Phase 2.5 merge
+(`4e878b8d`, 2026-11-12). It is in the decision package because any repair arising from P4-F124
+needs merchants able to record a payment correction, and today they cannot on the orders most
+affected. **Not fixed** — it awaits the owner's instruction, per the post-closure directive.
+
+### Residual findings, dispositions unchanged
+
+**P4-F134** (ordersave may record no coupon redemption), **P4-F135** (a refused coupon still burns
+the allowance), **P4-F138** (`cart_id` means two different things), **P4-F143** (Mollie needs a
+finality check and must not be marked), **P4-F144** (PayHere retired; AamarPay blob-as-slug) all keep
+their exact recorded dispositions. None was reopened.
