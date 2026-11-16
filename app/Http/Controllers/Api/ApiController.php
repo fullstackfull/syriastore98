@@ -54,6 +54,8 @@ use App\Models\StoreDevice;
 
 class ApiController extends Controller
 {
+    use \App\Http\Controllers\Concerns\RestoresCancelledOrderStock;
+
     use ApiResponser;
 
     /*
@@ -8038,6 +8040,27 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $data['order_status'] = $request->order_status;
 
         $date = Order::order_status_change($data);
+
+        /*
+         * THE GOODS.  P4-F034, the doors P4-4 did not reach -- found by the P4-F124 ledger
+         * inventory, which noticed the exact inverse of that finding: this door routes through
+         * `Order::order_status_change()`, so it writes `payment_status = 'Unpaid'` and
+         * `OrderObserver` reverses the merchant's wallet credit, and then loses the stock.
+         * P4-F124 restores the stock and loses the money; this one restored the money and lost
+         * the goods.
+         *
+         * `=== 'success'` is the replay guard: the engine answers `error` for a cancel from any
+         * non-pending state (app/Models/Order.php:702), so a second attempt never reaches here.
+         * The trait's per-line markers bound it again.
+         */
+        if (($date['status'] ?? null) === 'success'
+            && strtolower(trim((string) ($data['order_status'] ?? ''))) === 'cancel') {
+            $this->restoreCancelledOrderStock(
+                $order,
+                is_array($cancelLines = json_decode((string) $order->product_json, true)) ? $cancelLines : []
+            );
+        }
+
         if ($date['status'] == 'success') {
             return $this->success(['message' => $date['message']], $date['message']);
         } else {

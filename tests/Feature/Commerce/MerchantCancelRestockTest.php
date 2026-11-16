@@ -790,6 +790,85 @@ class MerchantCancelRestockTest extends SecurityTestCase
     // =============================================================================================
 
     /** The shipped merchant caller is the order detail page's jQuery POST, which expects JSON. */
+    /**
+     * THE THREE DOORS P4-4 DID NOT REACH, found by the P4-F124 ledger inventory.
+     *
+     * P4-4 wired the shared restore into the merchant web screen, the Flutter `update-status`
+     * endpoint and the Delivery Syria webhook. Three more doors cancel an order and were not among
+     * them, and two of them are the EXACT INVERSE of P4-F124: they route through
+     * `Order::order_status_change()`, so they write `payment_status = 'Unpaid'` and the observer
+     * reverses the merchant's wallet credit -- and then lose the goods.
+     *
+     *   Api\ApiController::order_status_change     POST api/{slug}/order-status-change   (api.php:145)
+     *   Api\DashboardController::statusChange      POST api/admin/status-change          (api.php:374)
+     *   Api\DashboardController::orderCancel       POST api/{slug}/order-cancel          (api.php:166,
+     *                                                                                     and :380)
+     *
+     * `orderCancel` is the odd one: it writes `delivered_status = 2` DIRECTLY, guarded on the order
+     * being pending (`== '0'`, DashboardController.php:5775), so it moves no money either -- it
+     * simply loses the stock.
+     */
+    public function test_the_storefront_api_cancel_door_gives_the_stock_back(): void
+    {
+        $product = $this->productIn(4);
+        $order = $this->orderWith([$this->line($product, 3)]);
+        $this->recordOutMovement($order, $product, 3);
+
+        $response = $this->withHeader(
+            'Authorization',
+            'Bearer ' . $this->merchant->createToken('auth_token')->plainTextToken
+        )->postJson('/api/' . $this->store->slug . '/order-status-change', [
+            'order_id' => $order->id,
+            'order_status' => 'cancel',
+        ]);
+
+        $this->assertSame(self::DELIVERED_CANCELLED, (int) $this->orderRow($order->id)->delivered_status,
+            'Premise: the cancel landed. Body: ' . $response->getContent());
+        $this->assertSame(7, $this->stockOf($product),
+            'api/{slug}/order-status-change reversed the wallet (it writes payment_status = Unpaid '
+            . 'through Order::order_status_change) and never gave the 3 units back.');
+    }
+
+    public function test_the_admin_api_status_change_door_gives_the_stock_back(): void
+    {
+        $product = $this->productIn(4);
+        $order = $this->orderWith([$this->line($product, 3)]);
+        $this->recordOutMovement($order, $product, 3);
+
+        $response = $this->withHeader(
+            'Authorization',
+            'Bearer ' . $this->merchant->createToken('auth_token')->plainTextToken
+        )->postJson('/api/admin/status-change', [
+            'id' => $order->id,
+            'delivered' => 'cancel',
+        ]);
+
+        $this->assertSame(self::DELIVERED_CANCELLED, (int) $this->orderRow($order->id)->delivered_status,
+            'Premise: the cancel landed. Body: ' . $response->getContent());
+        $this->assertSame(7, $this->stockOf($product),
+            'api/admin/status-change reversed the wallet and never gave the 3 units back.');
+    }
+
+    public function test_the_driver_order_cancel_door_gives_the_stock_back(): void
+    {
+        $product = $this->productIn(4);
+        $order = $this->orderWith([$this->line($product, 3)]);
+        $this->recordOutMovement($order, $product, 3);
+
+        $response = $this->withHeader(
+            'Authorization',
+            'Bearer ' . $this->merchant->createToken('auth_token')->plainTextToken
+        )->postJson('/api/' . $this->store->slug . '/order-cancel', [
+            'order_id' => $order->id,
+        ]);
+
+        $this->assertSame(self::DELIVERED_CANCELLED, (int) $this->orderRow($order->id)->delivered_status,
+            'Premise: the cancel landed. Body: ' . $response->getContent());
+        $this->assertSame(7, $this->stockOf($product),
+            'api/{slug}/order-cancel writes delivered_status = 2 directly and never gave the 3 '
+            . 'units back.');
+    }
+
     private function cancelAsMerchant(Order $order)
     {
         return $this->actingAs($this->merchant)->post(

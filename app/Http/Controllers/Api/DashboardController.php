@@ -5420,6 +5420,26 @@ public function DeleteStore(Request $request)
         $data['order_status'] = $request->delivered;
         $responce = Order::order_status_change($data);
 
+        /*
+         * THE GOODS.  P4-F034, the doors P4-4 did not reach -- found by the P4-F124 ledger
+         * inventory, which noticed the exact inverse of that finding: this door routes through
+         * `Order::order_status_change()`, so it writes `payment_status = 'Unpaid'` and
+         * `OrderObserver` reverses the merchant's wallet credit, and then loses the stock.
+         * P4-F124 restores the stock and loses the money; this one restored the money and lost
+         * the goods.
+         *
+         * `=== 'success'` is the replay guard: the engine answers `error` for a cancel from any
+         * non-pending state (app/Models/Order.php:702), so a second attempt never reaches here.
+         * The trait's per-line markers bound it again.
+         */
+        if (($responce['status'] ?? null) === 'success'
+            && strtolower(trim((string) ($data['order_status'] ?? ''))) === 'cancel') {
+            $this->restoreCancelledOrderStock(
+                $order,
+                is_array($cancelLines = json_decode((string) $order->product_json, true)) ? $cancelLines : []
+            );
+        }
+
         $order = $order->fresh();
 
         if ($order->delivered_status == 0) {
@@ -5773,14 +5793,24 @@ public function changeProfile(Request $request)
 
         if (!empty($order)) {
             if ($order->delivered_status == '0') {
+                /*
+                 * THE GOODS.  P4-F034, the third door P4-4 did not reach. This one writes
+                 * `delivered_status = 2` DIRECTLY rather than through the engine, so it moves no
+                 * money either -- it simply lost the stock. The `== '0'` test above is its replay
+                 * guard: a second call finds the order already cancelled and is refused.
+                 */
+                $cancelLines = json_decode((string) $order->product_json, true);
+
                 if ($user && $order->deliveryboy_id == $user->id) {
                     $order->deliveryboy_id = null; // Removed quotes around null
                     $order->delivered_status = 2;
                     $order->save();
+                    $this->restoreCancelledOrderStock($order, is_array($cancelLines) ? $cancelLines : []);
                     return $this->success(['message' => __('Order cancel Successfully.')]);
                 } else {
                     $order->delivered_status = 2;
                     $order->save();
+                    $this->restoreCancelledOrderStock($order, is_array($cancelLines) ? $cancelLines : []);
                     return $this->success(['message' => __('Order cancel Successfully.')]);
                 }
             } else {
