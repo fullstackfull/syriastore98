@@ -186,6 +186,7 @@ and that is where a claim about the code meets the code's actual behaviour.
 | **P4-F121** | order-write | HIGH | `orders.product_price` / `final_price` truncated to whole currency units on `order-save` — up to 0.99 lost per order — FIXED in this branch |
 | **P4-F122** | tax-shipping | MEDIUM | the cart sidebar quotes a shipping row from a plan no order writer will honour |
 | **P4-F123** | customer-identity | MEDIUM | `Utility::CustomerAuthCheck()` memoised its answer in process statics keyed on nothing — it decides which cart reader prices a basket — FIXED in this branch |
+| **P4-F124** | order-lifecycle | MEDIUM | an app-side cancel writes no `payment_status`, so `OrderObserver` never reverses the order's wallet credit — RECORDED, owner decision |
 
 ### P4-F118 — the `fixed product discount` arm does not do what the merchant form says
 
@@ -467,3 +468,98 @@ shape, but its guard only memoises a non-empty result and it feeds a module's *d
 `module_is_active()` — so it can render a name wrongly across tests and cannot make an inactive module
 look active. `CouponBasketAllocator` was checked and is immune: every field is instance state, one
 allocator per cart read, and `spendIsOutOfRange()` is a pure static holding nothing.
+
+---
+
+## P4-4 — stock integrity across every cancel and return door (CLOSED)
+
+Four confirmed high findings — **P4-F034, P4-F056, P4-F104, P4-F105** — sharing one mechanism: *a
+status is written and the goods are never accounted for.* All four are fixed, with **119 tests across
+seven files green** and the fix falsified (reverting all three doors reddens **21 of 40**).
+
+### What was measured, before the fix
+
+| door | measured |
+|---|---|
+| merchant web `order-status-change` | a 3-unit line's `product_stock` stayed **4** where 7 was due; variant lines and multi-line orders the same; no `LINE_STOCK_RESTORED` marker |
+| Flutter `api/admin/orders/update-status`, cancel | stayed **4** |
+| Delivery Syria webhook, return limb | stayed **4** where 6 was due — HTTP 200 `{success:true}`, status moved, nothing credited |
+| then the merchant's **genuine** web approval | still **4**, answering *"Return request approve successfully"* |
+| API cancel from **five** non-pending states (1, 3, 4, 5, 6) | all landed; the web refuses every one |
+| API Pending → Return | landed; `return_status` became 2 |
+
+### Corrections to the findings, measured
+
+- **"Eight doors" is not reproducible as eight handlers.** There are **seven** handlers writing
+  `delivered_status = 2` and **eight routes** (one is registered twice). **Six handlers are defects**;
+  the seventh is `OrderReplacement::cancelAndReplace()`, which deliberately does not restore. The
+  original count double-counted: "eight doors … and none of them restocks" included the path the same
+  finding calls the deliberate ninth.
+- Two candidate doors are **not** doors: `DeliverySyriaStatusController` writes `zid_orders` and never
+  touches `delivered_status`; `AuctionProductOrder` is a separate table with its own stock model.
+- `OrderController::updateStatus` is not a cancel door despite the name — it only ever writes
+  `delivered_status = 1`.
+- The webhook does **not** shut "every automated restock door": `OrderRefundController::RefundStock()`
+  stays open, gated on the refund's own status and referencing neither `delivered_status` nor
+  `return_status`.
+- The cancel gap is **five** states, not one.
+
+### The fix, and what moving the loop required
+
+The restore loop lived inline in `OrderController::status_cancel()` and that was the only door that ran
+it. It now lives in `App\Http\Controllers\Concerns\RestoresCancelledOrderStock`, called by the merchant
+web door, the Flutter door and the webhook's cancel limb.
+
+**With one caller the loop needed no idempotency of its own** — a replayed storefront cancel is refused
+by `Order::order_status_change()` before the loop is reached. With six callers that is false, and
+`movedOutFor()` cannot substitute: `stock_movements` is development-and-test-only, so on every live
+installation each line reads `UNKNOWN` and the loop restores unconditionally. So the loop now consults
+both line markers itself, **and** every caller guards on the order's pre-write state. The marker bounds
+the goods; the caller's guard bounds the transition.
+
+That gives **`LINE_STOCK_CARRIED` its first production reader.** Until this change its only reference in
+the whole repository was an assertion in `OrderReplacementTest`, so cancelling a *replacement* order
+through any restoring door would have credited goods that never left the shelf — an inflation nobody had
+pinned, found by adversarial review of the tests rather than of the code.
+
+The loop stays in the **callers** and deliberately not in `Order::order_status_change()`: that is what
+`cancelAndReplace()` calls, and the cancel-plus-reissue pair must net −N.
+
+### Both return arms write `return_status = 1`, not 2
+
+The Flutter app and the webhook both wrote **2 — approved —** and restocked nothing. That is the exact
+durable idempotency marker `OrderController::order_return_request` reads before crediting, so an
+app-side or courier-side "Return" **disarmed the merchant's subsequent genuine approval**. And there was
+no UI-reachable recovery, because both web controls gate on `return_status == 1`: the Approve button was
+never offered and the order simply rendered as "Return" with the goods quietly missing.
+
+Both now write `1`. **A courier or an app tap reporting a return is a request, not an approval** — the
+goods are on their way back, not checked in. `1` says that, restores the Approve control, and routes the
+credit through the one existing restore door rather than adding a fourth beside `status_cancel`,
+`order_return_request` and `RefundStock`.
+
+### A fifth defect, in the fix, caught by the tests it was written against
+
+My first version of the webhook guard read `$oldStatus` **inside** the `DB::transaction` closure without
+capturing it in the `use (...)` list. PHP warns, Laravel raises `ErrorException`, the outer catch logs it
+and answers **500**, and the transaction rolls the whole write back — so every courier-reported
+cancellation that would have changed the status returned 500 and wrote *nothing*, not even `cancel_date`.
+**Wider than the defect it replaced**, on a webhook a courier retries. One missing `$oldStatus` in a
+`use` list. Found because the test's assertions were left unweakened; fixed before anything was pushed.
+
+That is the fifth time in this phase a fix has needed its own review, each for a different reason: a
+first-come allocation, a lost bound, a whole-unit truncation, a process-static memo, and now an
+uncaptured closure variable.
+
+### P4-F124 — an app-side cancel never reverses the wallet credit (RECORDED, not fixed)
+
+The web cancel writes `payment_status = 'Unpaid'` (`Order.php:712`) and `OrderObserver::updated()` fires
+only when `payment_status` changes (`OrderObserver.php:32-34`). The Flutter cancel writes no
+`payment_status` at all, so the observer never runs and the order's wallet record is never walked back.
+
+**Not fixed.** Writing `'Unpaid'` over `'Paid'` is a payment-semantics change on a shipped endpoint,
+which CLAUDE.md §2 and the Phase 04 directive both put in the escalate-to-owner set — and more than one
+answer is defensible, since the web's unconditional `'Unpaid'` may itself be wrong for uncollected COD.
+`ApiOrderStatusTransitionTest::test_the_api_cancel_leaves_the_payment_status_alone_p4_f124` pins the
+current behaviour in **both** directions, and keeps a sibling-order oracle proving the web really does
+write `'Unpaid'`, so the gap cannot quietly survive as a note about behaviour nobody has.

@@ -318,23 +318,43 @@ class OrderCancelRestockTest extends TestCase
      */
     public function test_the_cancel_path_routes_stock_through_the_atomic_service(): void
     {
-        $source = $this->executableSourceOfStatusCancel();
+        /*
+         * FOLLOWS THE LOOP TO ITS NEW HOME (P4-4). The restore loop was inline in
+         * `status_cancel()` when this assertion was written; it now lives in
+         * `App\Http\Controllers\Concerns\RestoresCancelledOrderStock::restoreCancelledOrderStock()`,
+         * because five other doors that cancel an order were restoring nothing at all.
+         *
+         * THE PROPERTY IS UNCHANGED and so are the four assertions -- they are simply read against
+         * the method that now holds the loop, plus a fifth asserting `status_cancel()` still calls
+         * it. Re-pointing the source rather than deleting the test matters: this is the ONLY guard
+         * on the lost-update defect, because `$model->stock += $qty` and `increment()` produce
+         * identical numbers in a single-process sqlite run, so every behavioural assertion in this
+         * file would stay green if the read-modify-write were put back.
+         */
+        $this->assertStringContainsString(
+            'restoreCancelledOrderStock(',
+            $this->executableSourceOfStatusCancel(),
+            'status_cancel no longer calls the shared restore at all, so a cancelled order\'s goods '
+                . 'never come back through this door'
+        );
+
+        $source = $this->executableSourceOfSharedRestore();
 
         $this->assertStringContainsString(
             'restoreProductStock(',
             $source,
-            'status_cancel must restore product stock through ProductStockService'
+            'the shared restore must restore product stock through ProductStockService'
         );
         $this->assertStringContainsString(
             'restoreVariantStock(',
             $source,
-            'status_cancel must restore variant stock through ProductStockService'
+            'the shared restore must restore variant stock through ProductStockService'
         );
 
         $this->assertDoesNotMatchRegularExpression(
             '/(product_stock|->stock)\s*\+=/',
             $source,
-            'status_cancel has a read-modify-write stock increment again. Two concurrent '
+            'the shared restore has a read-modify-write stock increment again. Two concurrent '
                 . 'cancellations both write `stock + qty` and the second overwrites the '
                 . 'first, so a cancelled order\'s goods never come back. Use '
                 . 'ProductStockService, which issues an increment() the database applies '
@@ -352,9 +372,23 @@ class OrderCancelRestockTest extends TestCase
      * status_cancel's body with comments stripped, so a comment that merely
      * mentions `+=` cannot satisfy or break the assertions above.
      */
+    /** The shared restore's body with comments stripped, same treatment as status_cancel's. */
+    private function executableSourceOfSharedRestore(): string
+    {
+        return $this->executableSourceOf(
+            \App\Http\Controllers\Concerns\RestoresCancelledOrderStock::class,
+            'restoreCancelledOrderStock'
+        );
+    }
+
     private function executableSourceOfStatusCancel(): string
     {
-        $method = new \ReflectionMethod(OrderController::class, 'status_cancel');
+        return $this->executableSourceOf(OrderController::class, 'status_cancel');
+    }
+
+    private function executableSourceOf(string $class, string $methodName): string
+    {
+        $method = new \ReflectionMethod($class, $methodName);
 
         $lines = file($method->getFileName());
         $body = implode(

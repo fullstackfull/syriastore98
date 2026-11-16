@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\Validator;
 
 class DeliverySyriaOrderController extends Controller
 {
+    use \App\Http\Controllers\Concerns\RestoresCancelledOrderStock;
+
     public function updateStatus(Request $request): JsonResponse
     {
         /*
@@ -183,6 +185,7 @@ class DeliverySyriaOrderController extends Controller
             DB::transaction(function () use (
                 $order,
                 $newStatus,
+                $oldStatus,
                 $request
             ) {
                 $order->delivered_status = $newStatus;
@@ -200,6 +203,29 @@ class DeliverySyriaOrderController extends Controller
                     case 2:
                         // Cancel
                         $order->cancel_date = now();
+
+                        /*
+                         * THE GOODS.  P4-F056. MEASURED before this line: a courier-reported
+                         * cancellation of a pending order left a 2-unit line's stock at 4 where 6
+                         * was due -- HTTP 200, {success:true}, `cancel_date` stamped, nothing
+                         * credited.
+                         *
+                         * `$oldStatus === 0` IS THE REPLAY GUARD AND IT IS LOAD-BEARING HERE, more
+                         * than at the other doors: this handler's only idempotency is
+                         * `$oldStatus === $newStatus` (:164), so a 2 -> 1 -> 2 sequence re-enters
+                         * this case, and Delivery Syria retries deliveries. Restricting the credit
+                         * to a cancel FROM PENDING also matches what the web permits at all
+                         * (`Order::order_status_change()` refuses a cancel from any non-pending
+                         * state, app/Models/Order.php:702), so the webhook and the merchant screen
+                         * now agree about which cancels are legitimate. The trait's per-line
+                         * markers bound it a second time.
+                         */
+                        if ($oldStatus === 0) {
+                            $this->restoreCancelledOrderStock(
+                                $order,
+                                is_array($cancelLines = json_decode((string) $order->product_json, true)) ? $cancelLines : []
+                            );
+                        }
                         break;
 
                     case 3:
@@ -213,10 +239,26 @@ class DeliverySyriaOrderController extends Controller
                          * 2 = approve
                          * 3 = cancel
                          *
-                         * باعتبار أن Delivery Syria أرسلت الحالة 3،
-                         * نعتبر الإرجاع موافقًا عليه.
+                         * `1`, NOT `2`.  P4-F056.
+                         *
+                         * This wrote `2` -- APPROVED -- and restocked nothing, and `2` is the exact
+                         * durable idempotency marker `OrderController::order_return_request` reads
+                         * before crediting (OrderController.php:1421-1422). So a courier-reported
+                         * return DISARMED the merchant's own approval: MEASURED, the merchant then
+                         * POSTed `order-return-request` with status 2, got HTTP 200, and the stock
+                         * stayed at 4 where 6 was due.
+                         *
+                         * It was not even visible as a problem in the UI: both web controls are
+                         * gated on `return_status == 1` (order/action.blade.php:35,
+                         * order/grid.blade.php:230), so the Approve button was never offered and the
+                         * order simply rendered as "Return" with the goods quietly missing.
+                         *
+                         * A COURIER REPORTING A RETURN IS A REQUEST, NOT AN APPROVAL -- the goods
+                         * are on their way back, not yet checked in. `1` says exactly that, puts the
+                         * Approve control back in front of the merchant, and routes the credit
+                         * through the ONE existing restore door rather than adding a fourth.
                          */
-                        $order->return_status = 2;
+                        $order->return_status = 1;
                         break;
 
                     case 4:

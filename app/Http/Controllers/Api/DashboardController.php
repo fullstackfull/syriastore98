@@ -140,6 +140,8 @@ use App\Services\MerchantPermissions;
  */
 class DashboardController extends Controller
 {
+    use \App\Http\Controllers\Concerns\RestoresCancelledOrderStock;
+
     /*
      * D-21. The same private-helper shape `OrderController` uses (`:53-58`), rather than the
      * `AppliesCartStockChanges` trait, and the difference is deliberate: that trait's
@@ -516,6 +518,37 @@ $storeId = getCurrentStore();
             ]);
         }
 
+        /*
+         * THE TRANSITION GUARDS THE WEB HAS AND THIS HANDLER DID NOT.  P4-F105.
+         *
+         * MEASURED: every non-pending state was cancellable over this endpoint -- Delivered(1),
+         * Return(3), Confirmed(4), Picked Up(5) and Shipped(6) all moved to 2 with `cancel_date`
+         * stamped -- while `Order::order_status_change()` answers `error` for every one of them
+         * (app/Models/Order.php:702). And Pending -> Return landed too, which the web refuses at
+         * `:757`. Five states and one, measured one by one.
+         *
+         * The refusal is `success: false` with HTTP 200, matching this handler's own no-op branch
+         * above rather than inventing a shape. NOT 401: CLAUDE.md records that the shipped Flutter
+         * admin app force-clears its session on any 401, so a new 401 here logs merchants out. Not
+         * 403 or 404 either -- those are this handler's permission and lookup refusals and a client
+         * cannot tell them apart from this.
+         */
+        if ($hasDeliveredStatus && (int) $newDeliveredStatus === 2 && $oldDeliveredStatus !== 0) {
+            return response()->json([
+                'success' => false,
+                'message' => __('Only a pending order can be cancelled.'),
+                'data' => $this->orderResponse($order),
+            ]);
+        }
+
+        if ($hasDeliveredStatus && (int) $newDeliveredStatus === 3 && $oldDeliveredStatus === 0) {
+            return response()->json([
+                'success' => false,
+                'message' => __('A pending order cannot be returned.'),
+                'data' => $this->orderResponse($order),
+            ]);
+        }
+
         try {
             DB::transaction(function () use (
                 $request,
@@ -544,6 +577,19 @@ $storeId = getCurrentStore();
                         case 2:
                             // Cancel
                             $order->cancel_date = now();
+
+                            /*
+                             * THE GOODS.  P4-F034. MEASURED before this line: a merchant cancelling
+                             * through the shipped app left a 3-unit line's stock at 4 where 7 was
+                             * due. The guard above means this only ever runs from Pending, so a
+                             * replay -- including the second POST carrying a `note`, which this
+                             * handler's no-op branch does NOT catch -- is refused before here; the
+                             * trait's per-line markers bound it a second time.
+                             */
+                            $this->restoreCancelledOrderStock(
+                                $order,
+                                is_array($cancelLines = json_decode((string) $order->product_json, true)) ? $cancelLines : []
+                            );
                             break;
 
                         case 3:
@@ -555,8 +601,33 @@ $storeId = getCurrentStore();
                              * 1 = request
                              * 2 = approve
                              * 3 = cancel
+                             *
+                             * `1`, NOT `2`.  P4-F104 / P4-F105.
+                             *
+                             * This wrote `2` -- APPROVED -- and restocked nothing. That value is the
+                             * exact durable idempotency marker
+                             * `OrderController::order_return_request` reads before crediting
+                             * (OrderController.php:1421-1422), so an app-side "Return" DISARMED the
+                             * merchant's subsequent genuine web approval: `restoreReturnedStock()`
+                             * was skipped, the response still read "Return request approve
+                             * successfully", and the goods were lost silently and permanently.
+                             * MEASURED: stock 4 before and after both the app transition and the
+                             * merchant's approval, where 7 was due.
+                             *
+                             * And there was no UI-reachable recovery, because both web controls are
+                             * gated on `return_status == 1` (order/action.blade.php:35,
+                             * order/grid.blade.php:230) -- only a crafted reject-then-approve pair
+                             * of POSTs could get the stock back.
+                             *
+                             * `1` means "a return has been requested", which is what a tap in the
+                             * app actually is. The merchant then approves it in the web UI and the
+                             * single existing restore door credits the goods. No restock is added
+                             * here on purpose: `restoreReturnedStock()` is private to
+                             * OrderController and owns the per-line marker and the store predicate,
+                             * so copying it would create a FOURTH restock door beside
+                             * status_cancel, order_return_request and RefundStock.
                              */
-                            $order->return_status = 2;
+                            $order->return_status = 1;
                             break;
 
                         case 4:
