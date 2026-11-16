@@ -383,6 +383,127 @@ class CancellationLedgerSemanticsTest extends SecurityTestCase
 
     /*
     |--------------------------------------------------------------------------
+    | THE DOORS — owner: "Test all seven cancellation doors and duplicate/retried events"
+    |--------------------------------------------------------------------------
+    |
+    | There are more than seven. A read-only route-table audit found EIGHT always-registered
+    | handlers across NINE routes, plus a module-gated ninth. They split into two families, and the
+    | distinction is what this section is organised around:
+    |
+    |   - FIVE go through `Order::order_status_change()` and inherit the reversal from the engine
+    |     arm — including the VENDORED LotteryPrizes door, which cannot be edited. That family is
+    |     covered by the engine test above plus
+    |     `ModuleOrderMutationGuardTest::test_a_merchant_can_cancel_their_own_order_through_the_lottery_route`,
+    |     which observes the vendored door keeping 'Paid'.
+    |   - THREE write `delivered_status = 2` directly and had to be wired one by one. Those are the
+    |     cases below, because a missed one is a cancelled order that keeps its wallet credit for
+    |     ever and nothing would say so.
+    */
+
+    private function asMerchant(User $user)
+    {
+        return $this->withHeader(
+            'Authorization',
+            'Bearer ' . $user->createToken('auth_token')->plainTextToken
+        );
+    }
+
+    /** DOOR: the shipped Flutter admin app — `POST api/admin/orders/update-status`. */
+    public function test_the_flutter_door_reverses_the_entitlement(): void
+    {
+        [$merchant, $store, $order] = $this->paidOrder();
+
+        $this->asMerchant($merchant)->postJson('/api/admin/orders/update-status', [
+            'product_order_id' => $order->product_order_id,
+            'delivered_status' => HomeController::ORDER_STATUS_CANCEL,
+            'payment_status' => 'Paid',
+            'note' => '',
+        ]);
+
+        $this->assertSame('cancelled', (string) $this->financial($order)->payment_status,
+            'the shipped app cancelled an order and the ledger did not record it');
+
+        $this->assertEquals(0.00, $this->walletBalance($store),
+            'the merchant kept the credit for an order cancelled from the app');
+
+        $this->assertSame('Paid', $this->rawPaymentStatus($order),
+            'the app door rewrote the customer\'s settlement');
+    }
+
+    /** DOOR: `POST api/admin/order-cancel` — the handler registered under two URIs. */
+    public function test_the_order_cancel_door_reverses_the_entitlement(): void
+    {
+        [$merchant, $store, $order] = $this->paidOrder();
+
+        $this->asMerchant($merchant)->postJson('/api/admin/order-cancel', [
+            'order_id' => $order->id,
+        ]);
+
+        $this->assertSame('cancelled', (string) $this->financial($order)->payment_status,
+            'the order-cancel door cancelled an order and the ledger did not record it');
+
+        $this->assertEquals(0.00, $this->walletBalance($store),
+            'the merchant kept the credit for an order cancelled through order-cancel');
+
+        $this->assertSame('Paid', $this->rawPaymentStatus($order));
+    }
+
+    /**
+     * A RETRIED CANCEL THROUGH A DOOR MOVES MONEY ONCE — the owner's "duplicate/retried events".
+     *
+     * Driven through the real endpoint rather than the service, because the service's own
+     * idempotency is already held above; what this case adds is that a door cannot defeat it by
+     * reaching the reversal twice.
+     */
+    public function test_a_retried_cancel_through_a_door_reverses_once(): void
+    {
+        [$merchant, $store, $order] = $this->paidOrder();
+
+        $payload = [
+            'product_order_id' => $order->product_order_id,
+            'delivered_status' => HomeController::ORDER_STATUS_CANCEL,
+            'payment_status' => 'Paid',
+            'note' => '',
+        ];
+
+        $this->asMerchant($merchant)->postJson('/api/admin/orders/update-status', $payload);
+        $this->asMerchant($merchant)->postJson('/api/admin/orders/update-status', $payload);
+        $this->asMerchant($merchant)->postJson('/api/admin/orders/update-status', $payload);
+
+        $this->assertEquals(0.00, $this->walletBalance($store),
+            'a retried cancellation debited the merchant more than once; the balance has gone past '
+            . 'zero and the books are wrong');
+
+        $this->assertSame(1, $this->reversalTransactions($order),
+            'a retried cancellation wrote more than one reversal transaction');
+    }
+
+    /**
+     * THE WEB ENGINE DOOR, asserted here too rather than only through the stock suites.
+     *
+     * This is the door whose `payment_status = 'Unpaid'` line the owner's decision removed, so the
+     * money half deserves an assertion in the file that owns the contract.
+     */
+    public function test_the_web_engine_door_reverses_the_entitlement(): void
+    {
+        [, $store, $order] = $this->paidOrder();
+
+        $answer = Order::order_status_change([
+            'order_id' => $order->id,
+            'order_status' => 'cancel',
+        ]);
+
+        $this->assertSame('success', $answer['status'] ?? null,
+            'the engine refused the cancel, so nothing was measured');
+
+        $this->assertSame('cancelled', (string) $this->financial($order)->payment_status);
+        $this->assertEquals(0.00, $this->walletBalance($store));
+        $this->assertSame('Paid', $this->rawPaymentStatus($order),
+            'the engine still rewrites settlement — the magic line is back');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | NEGATIVE CONTROLS
     |--------------------------------------------------------------------------
     */

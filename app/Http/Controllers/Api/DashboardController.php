@@ -684,6 +684,24 @@ $storeId = getCurrentStore();
                                 $order,
                                 is_array($cancelLines = json_decode((string) $order->product_json, true)) ? $cancelLines : []
                             );
+
+                            /*
+                             * P4-F124 -- THE MONEY. This door writes `delivered_status = 2`
+                             * DIRECTLY rather than through `Order::order_status_change()`, so it
+                             * does not inherit the engine's reversal and a cancelled order kept its
+                             * wallet credit for ever. The owner's instruction is to test all the
+                             * cancellation doors, so every door that cancels must reverse.
+                             *
+                             * `reverseOrLog` and not `reverse`: a ledger fault must not fail the
+                             * merchant's cancellation. It is idempotent on the financial row's own
+                             * status, so a replay -- which this handler's guards already bound --
+                             * moves money at most once regardless.
+                             */
+                            app(\App\Services\OrderEntitlementReversal::class)->reverseOrLog(
+                                $order,
+                                \App\Services\OrderEntitlementReversal::REASON_CANCELLED,
+                                'flutter admin updateStatus'
+                            );
                             break;
 
                         case 3:
@@ -6068,11 +6086,37 @@ public function changeProfile(Request $request)
                     $order->delivered_status = 2;
                     $order->save();
                     $this->restoreCancelledOrderStock($order, is_array($cancelLines) ? $cancelLines : []);
+                    /*
+                     * P4-F124 -- THE MONEY, on both branches of this handler.
+                     *
+                     * `orderCancel` writes `delivered_status = 2` directly and, uniquely among the
+                     * doors, writes no `cancel_date` either. It is registered under TWO URIs
+                     * (api/{slug}/order-cancel and api/admin/order-cancel), so this call serves a
+                     * storefront-prefixed route and an admin-prefixed one.
+                     */
+                    app(\App\Services\OrderEntitlementReversal::class)->reverseOrLog(
+                        $order,
+                        \App\Services\OrderEntitlementReversal::REASON_CANCELLED,
+                        'orderCancel'
+                    );
                     return $this->success(['message' => __('Order cancel Successfully.')]);
                 } else {
                     $order->delivered_status = 2;
                     $order->save();
                     $this->restoreCancelledOrderStock($order, is_array($cancelLines) ? $cancelLines : []);
+                    /*
+                     * P4-F124 -- THE MONEY, on both branches of this handler.
+                     *
+                     * `orderCancel` writes `delivered_status = 2` directly and, uniquely among the
+                     * doors, writes no `cancel_date` either. It is registered under TWO URIs
+                     * (api/{slug}/order-cancel and api/admin/order-cancel), so this call serves a
+                     * storefront-prefixed route and an admin-prefixed one.
+                     */
+                    app(\App\Services\OrderEntitlementReversal::class)->reverseOrLog(
+                        $order,
+                        \App\Services\OrderEntitlementReversal::REASON_CANCELLED,
+                        'orderCancel'
+                    );
                     return $this->success(['message' => __('Order cancel Successfully.')]);
                 }
             } else {
