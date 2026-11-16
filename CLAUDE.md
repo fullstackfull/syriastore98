@@ -202,6 +202,28 @@ script stating its own preconditions — a conditionally-skipped test would brea
 
 Phase 02 engineering may proceed on its own branch; this does **not** waive Phase 01 acceptance criteria or authorise release to production.
 
+### 4.1 Original-plan traceability is mandatory — never reduce the approved scope
+
+**Before declaring any phase or milestone complete, reconcile every original owner-approved
+requirement against `MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`. Missing, partial, unverified and
+deferred items need explicit dispositions. CI success alone does not establish product-scope
+completeness. Never silently reduce the approved scope.**
+
+**The original plan is not in this repository** (`MASTER-PLAN-SOURCE-VERIFICATION.md`): it was never
+committed, and its `UX-*`/`ARCH-*`/`EX-*`/`PRD-*`/`ORD-*`/GOV/DATA decision IDs are named but
+nowhere defined. The lost `EX-*` exclusions matter most — without them nobody can tell "never in
+scope" from "silently dropped". **No figure here is alignment with the original plan**, only with
+the best recoverable derivation, and must say so.
+
+**Four states, never one label:** engineering complete · original requirement coverage · human
+acceptance · production readiness. An engineering-complete phase may still have incomplete original
+requirements — Phases 01, 03 and 04 do.
+
+**Two assessments before any completion claim.** A: engineering. B: original-plan coverage — every
+requirement accounted for, every deviation and partial named, **every deferral grounded in an actual
+owner decision; an engineering report deferring something is not one**. Give **exact totals**, never
+a percentage or a sample. If requirements are missing, say so **even when every test is green**.
+
 **Phase 02 keeps its original Merchant Experience scope.** Phase 2.5, 03 and 06 are separate and
 must not be started during it, nor absorbed into it — see *Scope boundaries* in the ledger. Phase 02
 is not complete until every master-prompt requirement has a verified status or an authorised
@@ -213,6 +235,7 @@ exception; `PHASE-02-COVERAGE-AUDIT-2026-10-25.md` traces which do and which do 
 
 | | |
 |---|---|
+| **original-plan traceability** (read all three) | **`docs/development/MASTER-PLAN-{SOURCE-VERIFICATION,REQUIREMENT-TRACEABILITY,GAP-REGISTER}.md`** — the plan itself was never committed; 350 requirements recovered, **169 verified complete, 181 not**; **181 gaps, 56 category A** |
 | open security findings | `docs/security/P01-SECURITY-WORK-QUEUE.md` |
 | the next work package | `docs/development/phase-1/10-NEXT-WORK-PACKAGES.md` |
 | token lifetime | `docs/security/P01-TOKEN-EXPIRY-PROPOSAL.md` |

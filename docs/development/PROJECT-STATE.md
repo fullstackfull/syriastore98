@@ -15,6 +15,21 @@ PR #138**. Both stay separate and neither merges automatically. The six-phase Ma
 
 ---
 
+
+## Original-plan traceability (permanent, added 2026-11-16)
+
+Three documents govern whether the delivered product matches the **owner-approved** plan, as
+distinct from whether the engineering passed:
+
+| document | what it answers |
+|---|---|
+| [`MASTER-PLAN-SOURCE-VERIFICATION.md`](MASTER-PLAN-SOURCE-VERIFICATION.md) | **Can the original plan even be checked?** Answer: **NOT FULLY VERIFIED** — the Decision Register v1.0 was never committed to this repository. |
+| [`MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`](MASTER-PLAN-REQUIREMENT-TRACEABILITY.md) | **350 requirements recovered. 169 VERIFIED COMPLETE. 181 are not.** |
+| [`MASTER-PLAN-GAP-REGISTER.md`](MASTER-PLAN-GAP-REGISTER.md) | **181 open gaps — 56 category A (must complete before release)**, 16 B, 73 C, 11 D, 25 E. |
+
+**CI success does not establish product-scope completeness.** See `CLAUDE.md` §4.1 for the rule and
+the four states that must never be merged into one label.
+
 ## 1. Where the code is, exactly
 
 | | repository | `main` | active branch |

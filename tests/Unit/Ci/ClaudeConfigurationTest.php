@@ -609,10 +609,33 @@ class ClaudeConfigurationTest extends TestCase
     {
         $claudeMd = (string) file_get_contents($this->root() . '/CLAUDE.md');
 
-        // Concise by instruction: it points at docs/ rather than duplicating them.
-        $this->assertLessThan(300, count(explode("\n", $claudeMd)),
+        /*
+         * 300 -> 325 on 2026-11-16, and the reason is recorded here rather than in a commit
+         * message because the next person to hit this limit needs it.
+         *
+         * THE BUDGET IS NOT WEAKENED TO HIDE ANYTHING. This ratchet measures LENGTH, not
+         * correctness: its job is to stop CLAUDE.md turning into a second copy of docs/. The file
+         * stood at 298 of 300 -- two lines of headroom -- when the owner mandated that a PERMANENT
+         * governance rule live in it:
+         *
+         *     "Before declaring any phase or milestone complete, reconcile every original
+         *      owner-approved requirement against the Master Plan Requirement Traceability Matrix
+         *      ... CI success alone does not establish product-scope completeness."
+         *
+         * That rule cannot be expressed in two lines, and the owner also asked for it to be
+         * CONCISE -- so section 4.1 was compressed three times before this limit was touched, and
+         * the detail it points at lives in the three MASTER-PLAN-* documents rather than here.
+         *
+         * 325 leaves a few lines of headroom and no more, so the ratchet still bites. Raising it
+         * again needs the same treatment: compress first, and record why if that is not enough.
+         *
+         * WHAT WOULD NOT BE ACCEPTABLE, stated so the precedent is not misread: raising an
+         * INVENTORY or KNOWN-OUTCOME ratchet to make a regression disappear. Those measure whether
+         * the code is correct. This one measures whether a document is short.
+         */
+        $this->assertLessThan(325, count(explode("\n", $claudeMd)),
             'CLAUDE.md has grown into a second copy of docs/. It is meant to be the short list of '
-            . 'what will bite you, pointing at the full analysis.');
+            . 'what will bite you, pointing at the full analysis. Compress before raising this.');
 
         foreach ([
             'docs/security/P01-SECURITY-WORK-QUEUE.md',
