@@ -42,11 +42,29 @@ class OrderObserver
              * semantics mid-stream and does nothing for the credits already lost. It is an owner
              * decision of the same family as P4-F124, and it is recorded as one.
              */
+            /*
+             * `getAttributes()` AND NOT `$order->payment_status`, and this is not style.
+             *
+             * Eloquent's `getAttribute()` falls through to the RELATIONSHIP resolver for any name
+             * that is not a loaded column, and throws `LogicException: must return a relationship
+             * instance`. `??` does not suppress it -- the throw happens before the coalesce. So
+             * the first version of this line threw FROM INSIDE THIS CATCH, replacing the real
+             * financial error with a confusing one, exactly the failure mode the compensation
+             * guards elsewhere in this change were written to avoid. Caught by the Unit suite
+             * (`MigrationPortabilityTest::test_order_insert_persists_currency_code_and_symbol`),
+             * whose thin schema has no `payment_status` column -- a reading a full-schema test
+             * could not have produced.
+             *
+             * The raw attribute bag has no fallback of any kind, which is the only safe shape for
+             * a diagnostic that runs in a catch.
+             */
+            $ssAttributes = $order->getAttributes();
+
             \Illuminate\Support\Facades\Log::critical('Order financial record was not written; the wallet credit for this order is lost.', [
-                'order_id' => $order->id ?? null,
-                'store_id' => $order->store_id ?? null,
-                'final_price' => $order->final_price ?? null,
-                'payment_status' => $order->payment_status ?? null,
+                'order_id' => $order->getKey(),
+                'store_id' => $ssAttributes['store_id'] ?? null,
+                'final_price' => $ssAttributes['final_price'] ?? null,
+                'payment_status' => $ssAttributes['payment_status'] ?? null,
                 'error' => $e->getMessage(),
             ]);
         }
