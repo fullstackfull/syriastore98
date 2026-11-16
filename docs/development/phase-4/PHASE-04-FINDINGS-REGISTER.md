@@ -998,3 +998,25 @@ Removing the guard re-reddens it with the measured 500.
 
 Found by the same independent review that produced P4-F136 and P4-F137, as an aside rather than as
 part of its brief.
+
+### P4-F032 — a wallet-less store loses its credit permanently — THE SILENCE FIXED, THE POLICY RECORDED
+
+`OrderFinancialService::createForOrder()` opens with
+`StoreWallet::where('store_id', ...)->lockForUpdate()->firstOrFail()`, so a store whose
+`store_wallets` row does not exist yet throws `ModelNotFoundException` — an `\Exception`, caught by
+`OrderObserver::created()`. The order commits, no `store_order_financials` row is written, and the
+merchant's credit for that order is lost **permanently**: nothing on any path revisits it.
+
+**The swallow itself is right and is left alone.** Letting it throw would now roll back the whole
+order write — P4-F026 gave the two storefront writers a transaction — so a missing wallet row would
+stop the store selling. Losing a ledger entry is bad; refusing every order is worse.
+
+**What is fixed is that nobody could tell.** The handler logged `Log::error` with a concatenated
+message naming no store, no order and no amount, and the observability census tracks `critical` and
+`warning` only — so a merchant could lose every wallet credit they ever earned and the only trace was
+one unattributed line nothing reads. It is now a `critical` carrying the order id, the store id, the
+amount and the payment status, and it is in the inventory.
+
+**What is NOT fixed, deliberately: creating the missing wallet.** That would start crediting orders
+that credit nothing today, changing a merchant's balance semantics mid-stream, and would do nothing
+for the credits already lost. Owner decision, same family as P4-F124.

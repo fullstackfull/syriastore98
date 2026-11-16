@@ -63,11 +63,12 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:346` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:437` | Stock compensation could not determine whether the order row survived; assuming it did and leaving the stock consumed. |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:490` | Stock compensation failed: inventory was consumed and could not be returned. |
+| `app/Observers/OrderObserver.php:45` | Order financial record was not written; the wallet credit for this order is lost. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:954` | Gateway return gave up after the capture was classified: |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1004` | Gateway return refused: the basket names a product or variant row that no longer exists. |
 | `app/Http/Controllers/KhaltiPaymnetController.php:1365` | Khalti order written for RECONCILIATION: the gateway could not be asked whether money moved |
-| `app/Http/Controllers/PaymentController.php:3925` | Order write failed before the transaction opened; stock decrements were given back |
-| `app/Http/Controllers/PaymentController.php:5372` | Order write failed before the transaction opened; stock decrements were given back |
+| `app/Http/Controllers/PaymentController.php:3947` | Order write failed before the transaction opened; stock decrements were given back |
+| `app/Http/Controllers/PaymentController.php:5394` | Order write failed before the transaction opened; stock decrements were given back |
 | `app/Http/Controllers/PaymentController.php:1757` | Paymera write threw and a committed order cannot be ruled out; the claim is kept so no replay can write a second order |
 | `app/Http/Controllers/PaymentController.php:472` | Paymera status poll ABANDONED: no API credential is configured |
 | `app/Http/Controllers/PaymentController.php:583` | Paymera callback REJECTED: the payment status could not be established |
@@ -76,8 +77,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaymentController.php:1742` | Paymera trigger verified the payment but wrote no order; the capture is unreconciled |
 | `app/Http/Controllers/PaymentController.php:942` | Paymera callback REJECTED: inbound signature not verified |
 | `app/Http/Controllers/PaymentController.php:971` | Paymera callback REJECTED: captured amount not verified |
-| `app/Http/Controllers/PaymentController.php:4124` | Order write failed and was rolled back; stock decrements were given back |
-| `app/Http/Controllers/PaymentController.php:5562` | Order write failed and was rolled back; stock decrements were given back |
+| `app/Http/Controllers/PaymentController.php:4146` | Order write failed and was rolled back; stock decrements were given back |
+| `app/Http/Controllers/PaymentController.php:5584` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Services/OrderFinancialService.php:271` | OrderFinancialService: an order line names a product that is not |
 | `app/Services/PaymentService.php:231` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
 | `app/Services/PaymentService.php:3138` | Order write failed and was rolled back; stock decrements were given back |
@@ -160,7 +161,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Api/ApiController.php:10015` | Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered. |
 | `app/Http/Controllers/Api/ApiController.php:10064` | Storefront intake claim could not be released; it will expire on its own. |
 | `app/Http/Controllers/Api/ApiController.php:9303` | Storefront order intake refused as a duplicate submission |
-| `app/Http/Controllers/PaymentController.php:2119` | Web checkout intake refused as a duplicate submission |
+| `app/Http/Controllers/PaymentController.php:2141` | Web checkout intake refused as a duplicate submission |
 | `app/Http/Controllers/Api/ApiController.php:135` | Coupon refused: the basket could not be priced |
 | `app/Http/Controllers/Api/ApiController.php:3513` | order: refused, basket holds a non-positive quantity |
 | `app/Http/Controllers/Api/ApiController.php:7500` | order: refused, basket holds a non-positive quantity |
@@ -235,17 +236,17 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaymentController.php:1575` | Paymera trigger refused: the caller does not own the store the pending payment belongs to |
 | `app/Http/Controllers/PaymentController.php:1654` | Paymera trigger refused: this payment is already being written. |
 | `app/Http/Controllers/PaymentController.php:1736` | Paymera trigger could not identify the order it created; the pending record names none |
-| `app/Http/Controllers/PaymentController.php:1962` | checkout: refused, basket names a product from another store |
-| `app/Http/Controllers/PaymentController.php:2002` | checkout: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/PaymentController.php:2852` | Checkout refused: this payment method cannot settle an outstanding balance. |
-| `app/Http/Controllers/PaymentController.php:2869` | Checkout refused: no recorded balance matches this pending payment. |
-| `app/Http/Controllers/PaymentController.php:2887` | Checkout refused: the posted pending-payment amount disagrees with the record. |
-| `app/Http/Controllers/PaymentController.php:3255` | Pending partial payment refused: the balance named does not belong to this customer. |
-| `app/Http/Controllers/PaymentController.php:4518` | Telegram order message not sent: the store has no bot token or chat id |
-| `app/Http/Controllers/PaymentController.php:4534` | Telegram refused an order message |
-| `app/Http/Controllers/PaymentController.php:4540` | Telegram order message could not be sent |
-| `app/Http/Controllers/PaymentController.php:4608` | Whatsapp order writer: posted slug does not match the route slug; the route wins. |
-| `app/Http/Controllers/PaymentController.php:4724` | Order intake refused: this basket is already being written. |
+| `app/Http/Controllers/PaymentController.php:1984` | checkout: refused, basket names a product from another store |
+| `app/Http/Controllers/PaymentController.php:2024` | checkout: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/PaymentController.php:2874` | Checkout refused: this payment method cannot settle an outstanding balance. |
+| `app/Http/Controllers/PaymentController.php:2891` | Checkout refused: no recorded balance matches this pending payment. |
+| `app/Http/Controllers/PaymentController.php:2909` | Checkout refused: the posted pending-payment amount disagrees with the record. |
+| `app/Http/Controllers/PaymentController.php:3277` | Pending partial payment refused: the balance named does not belong to this customer. |
+| `app/Http/Controllers/PaymentController.php:4540` | Telegram order message not sent: the store has no bot token or chat id |
+| `app/Http/Controllers/PaymentController.php:4556` | Telegram refused an order message |
+| `app/Http/Controllers/PaymentController.php:4562` | Telegram order message could not be sent |
+| `app/Http/Controllers/PaymentController.php:4630` | Whatsapp order writer: posted slug does not match the route slug; the route wins. |
+| `app/Http/Controllers/PaymentController.php:4746` | Order intake refused: this basket is already being written. |
 | `app/Http/Controllers/PaystackPaymentController.php:290` | Paystack plan activation refused: the transaction is not a matching success. |
 | `app/Http/Controllers/PaystackPaymentController.php:377` | Paystack plan activation refused: this reference is already recorded against a different buyer or plan. |
 | `app/Http/Controllers/PaystackPaymentController.php:444` | Paystack plan activation refused: the captured payment does not match the plan being activated. |
