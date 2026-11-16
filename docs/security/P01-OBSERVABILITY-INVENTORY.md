@@ -64,6 +64,9 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:437` | Stock compensation could not determine whether the order row survived; assuming it did and leaving the stock consumed. |
 | `app/Http/Controllers/Concerns/AppliesCartStockChanges.php:490` | Stock compensation failed: inventory was consumed and could not be returned. |
 | `app/Observers/OrderObserver.php:63` | Order financial record was not written; the wallet credit for this order is lost. |
+| `app/Services/OrderEntitlementReversal.php:133` | Entitlement reversal failed; the order was still cancelled or refunded. |
+| `app/Services/OrderEntitlementReversal.php:191` | Entitlement reversal found no financial record for the order. |
+| `app/Services/OrderEntitlementReversal.php:256` | Entitlement reversal could not find the wallet named by the financial record. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:954` | Gateway return gave up after the capture was classified: |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:1004` | Gateway return refused: the basket names a product or variant row that no longer exists. |
 | `app/Http/Controllers/KhaltiPaymnetController.php:1365` | Khalti order written for RECONCILIATION: the gateway could not be asked whether money moved |
@@ -79,7 +82,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaymentController.php:971` | Paymera callback REJECTED: captured amount not verified |
 | `app/Http/Controllers/PaymentController.php:4178` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Http/Controllers/PaymentController.php:5616` | Order write failed and was rolled back; stock decrements were given back |
-| `app/Services/OrderFinancialService.php:271` | OrderFinancialService: an order line names a product that is not |
+| `app/Services/OrderFinancialService.php:321` | OrderFinancialService: an order line names a product that is not |
 | `app/Services/PaymentService.php:231` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
 | `app/Services/PaymentService.php:3215` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Services/ProductStockService.php:139` | Stock decremented below zero on an order path that cannot refuse |
@@ -272,8 +275,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Middleware/LotteryDrawOwnershipGuard.php:260` | lottery draw refused |
 | `app/Http/Middleware/ModuleOrderMutationGuard.php:378` | module order mutation refused |
 | `app/Http/Middleware/ModuleResourceOwnershipGuard.php:559` | module resource mutation refused |
-| `app/Models/Order.php:998` | Order return refused: the order carries no readable product_json |
-| `app/Models/Order.php:1009` | Order return refused: the order lines are not in a shape this workflow can return |
+| `app/Models/Order.php:1045` | Order return refused: the order carries no readable product_json |
+| `app/Models/Order.php:1056` | Order return refused: the order lines are not in a shape this workflow can return |
 | `app/Models/Utility.php:2268` | New Order webhook skipped: no store could be resolved for the order |
 | `app/Models/Utility.php:2278` | New Order webhook skipped: the resolved store does not exist |
 | `app/Providers/PackageServiceProvider.php:80` | addon loader: the dynamic add-on pass failed, so some modules are not loaded |
