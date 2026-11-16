@@ -145,59 +145,122 @@ Two harness errors are recorded for the same reason — each looked like a produ
 
 ---
 
-## 5. The packages
+## 5. The findings register, and what it changed about this plan
 
-Ordered by measured dependency, not by the template. Each states what "done" means as something that
-can fail.
+P4-0 closed with a second, much larger measurement than §2: a parallel inventory of **12 commerce
+domains**, every claimed defect then handed to an **independent reviewer told to refute it**. 129
+agents, 5,734 tool calls, 22.2M tokens.
 
-### P4-1 — Storefront commerce correctness *(starts immediately)*
-The locale defect in §3; the variant-control question in §4; cart edge behaviour (quantity bounds,
-removal, persistence across guest→customer transition). Acceptance: a test that fails today against
-the Arabic-on-English message and passes after the fix; a storefront harness that drives cart and
-checkout in **both** languages and asserts the message language matches the page.
+| | count |
+|---|---|
+| claims inventoried | 117 |
+| **confirmed by independent review** | **94** |
+| — high | 18 |
+| — medium | 42 |
+| — low / informational | 34 |
+| **refuted** | **17** |
+| already tracked elsewhere | 6 |
 
-### P4-2 — Checkout and order-write integrity
-Server-side totals, price snapshots, duplicate-order prevention, transaction boundaries, and the
-`process-order` vs `place-order` divergence. Acceptance: a forged price or quantity in the POST
-cannot change what is stored; a double submit creates one order.
+The register is `PHASE-04-FINDINGS-REGISTER.md`, with per-domain detail in `findings/<domain>.md`.
+Each confirmed row carries the reviewer's **corrected statement** of the defect — which supersedes
+the original claim, and in several rows *widened* it — and the failing test the reviewer asks for.
 
-### P4-3 — Payment and callback integrity census
-The ~30 gateway controllers, as a table: which verify server-side, which check amount, which have
-replay/idempotency guards, which are covered by the existing `Gateway*` tests. Acceptance: the census
-is complete and every gateway is classified; no gateway is marked verified without evidence. Gateways
-needing external credentials are marked **externally blocked**, not verified.
+**The 17 refutations are the most valuable part.** They are why this is a queue of 94 and not 117,
+and they are recorded by name so the next reader does not spend the effort again. Three examples of
+what adversarial review killed: a claim that `carts.price` is a disagreeing money column (it is
+written by five paths and **read by none**); a claim that `get_tax_data()` leaks another tenant's
+`sale_price` through an unscoped `Product::find()`; and a claim that `canManageRefunds()`'s
+byte-exact operator comparison is a defect (it is a pinned owner decision, and the proposed fix
+would have broken it).
 
-### P4-4 — Inventory, totals, shipping and tax
-Seed shipping methods and tax into the fixture, then exercise them. Resolve `"CURRENCY": null`.
-Acceptance: totals reconcile against `OrderTotalReconciler` with shipping and tax present.
+### What the register does not do
 
-### P4-5 — Refunds, returns and cancellations
-Authorization, ownership, valid transitions, amount limits, duplicate protection, inventory effect.
-Acceptance: negative tests for each. **No real financial transaction is initiated**; any path needing
-a live gateway is documented as externally blocked.
+It does not close anything. **A register row is a claim about the code, not a measurement of
+runtime, and not work done.** Every row stays open until a test fails against the defect and passes
+against the fix. Where a row and a measurement disagree, the measurement wins: §2.2 records a
+candidate finding that testing **refuted**, and P4-F096's "every guest submission from the shipped
+form" has to be reconciled against the guest order this phase actually placed in §2.1.
 
-### P4-6 — Merchant web and Flutter contract
-The commerce contract between `routes/api.php` (`api/admin/*`) and `/home/user/StoreSyria_app98`.
-Acceptance: each commerce endpoint the app calls is named with its Dart consumer, and contract
-regression tests cover them. **No new 401 on a path the app calls** — the shipped app force-logs-out
-on 401.
+### The three families worth naming
 
-### P4-7 — Security, tenant isolation and concurrency
-The negative matrix from the directive §11, driven at HTTP level, plus MySQL concurrency beyond the
-existing oversell harness. Acceptance: every claim has a test that fails against the corresponding
-defect.
+Most of the 94 are individually small. Three have a shared root cause, so they are one fix each
+rather than nine:
 
-### P4-8 — End-to-end journeys A–F
-Built on the measured journey in §2.1. Acceptance: each journey asserts on state (rows written,
-amounts, ownership), never on HTTP 200 alone — §2 shows why: a refusal here returns 200 with
-`status: 0`.
-
-### P4-9 — Integrated verification and closure
-Full gates, CI on the Draft PR, final report.
+1. **`Cache::remember('admin_details')` → `User::where('type','admin')->first()`** — "the first
+   merchant in the shared database, chosen by having the lowest id" — decides money, not just
+   presentation. P4-F014, P4-F023 and P4-F024 are the shipping-charge arm. §3's locale defect, fixed
+   in this branch, was the same line in a different file; that is why it is a family and not a
+   coincidence.
+2. **A flat coupon applied once per cart LINE** rather than once per basket. P4-F001 and P4-F063.
+   `getCouponTotalAmount()` floors each line at zero, so the multiplication is Σ min(line, D) — and
+   a basket of five 40.00 lines against a flat 50.00 coupon floors **every** line to zero. The
+   basket can be driven free, and that figure reaches `orders.final_price` for COD.
+3. **Cancel and return doors that write a status without crediting stock back.** P4-F034, P4-F056,
+   P4-F104 and P4-F105. Eight merchant-side doors, and the Flutter and webhook arms stamp
+   `return_status = 2` — the exact value the web uses as its restock idempotency marker — which
+   *disarms* the one door that does restock.
 
 ---
 
-## 6. Standing constraints for this phase
+## 6. The packages
+
+Ordered by measured dependency and money impact, not by the template. Each states what "done" means
+as something that can fail. Finding ids are from the register.
+
+### P4-1 — Storefront commerce correctness *(in progress)*
+§3's locale defect **(done, `073de166`)**; the variant-control question in §4; cart edge behaviour
+(quantity bounds, removal, guest→customer persistence); `P4-F002` `P4-F004`. Acceptance: a test that
+fails against the Arabic-on-English message and passes after the fix (done); a storefront harness
+driving cart and checkout in **both** languages, asserting the message language matches the page.
+
+### P4-2 — Pricing arithmetic *(family 2, highest money impact)*
+`P4-F001` `P4-F063` `P4-F062` — the per-line flat coupon, and the cart's coupon arithmetic having no
+`minimum_spend` / `maximum_spend` gate although `apply_coupon` does. Acceptance: a **multi-line**
+basket fixture — the one thing every existing coupon test lacks — in which a flat coupon reduces the
+basket by its own amount exactly once, and a basket under the spend threshold is not discounted at
+all, asserted on `orders.final_price` and not on the AJAX figure alone.
+
+### P4-3 — Order-write integrity *(family 1)*
+`P4-F014` `P4-F023` `P4-F024` `P4-F025` `P4-F026` `P4-F018`: the foreign-plan shipping arm, the
+missing transaction around the Order row and its four child tables (reachable as coupon-limit
+evasion, not merely an audit gap), the unscoped `orders.customer_id` write on the web form, and
+double-submit. Acceptance: a store's shipping charge is decided by **that store's** plan, proved by
+a second tenant whose plan disagrees; a forced child-table failure leaves no order row; a double
+submit creates one order.
+
+### P4-4 — Stock integrity across every door *(family 3)*
+`P4-F034` `P4-F056` `P4-F104` `P4-F105`, and the `OrderReplacement` path that deliberately does
+**not** restock and must be preserved. Acceptance: for each cancel and return door, a test asserting
+the stock delta, including the idempotency marker — one restock, never two, and never zero.
+
+### P4-5 — Payment and callback integrity census
+`P4-F044` `P4-F046` plus the ~30 gateway controllers as a table: which verify server-side, which
+check amount, which have replay guards, which are covered by existing `Gateway*` tests. `P4-F046`'s
+hardcoded public `webhook.site` callback is a **data-egress** item, fixed in code; the capture
+verification it also lacks is a separate fix. Acceptance: every gateway classified; none marked
+verified without evidence; gateways needing external credentials marked **externally blocked**.
+
+### P4-6 — Refunds, returns and cancellations
+`P4-F082` (a second distinct line re-subtracts the first, driving `final_price` negative) and the
+refunds-returns rows. Acceptance: negative tests for authorization, ownership, transitions, amount
+limits and duplicates. **No real financial transaction is initiated.**
+
+### P4-7 — Authorization on the commerce API
+`P4-F037` `P4-F107` and the permission rows. Acceptance: operator-first checks that fail against the
+defect. `P4-F107` gating may refuse a live merchant, so it is an **owner decision** of the same shape
+as S2, not a free tightening.
+
+### P4-8 — Inventory, totals, shipping and tax
+`P4-F070` and the fixture work in §4: seed shipping methods and tax, resolve `"CURRENCY": null`.
+Acceptance: totals reconcile against `OrderTotalReconciler` with shipping and tax present.
+
+### P4-9 — End-to-end journeys A–F, integrated verification, closure
+Built on the measured journey in §2.1; every journey asserts on state, never on HTTP 200 alone.
+Then full gates, CI on the Draft PR, and `PHASE-04-FINAL-REPORT.md`.
+
+---
+
+## 7. Standing constraints for this phase
 
 - **No second commerce engine.** The WorkDo modules and the existing services are the source of truth.
 - **No duplicate source of truth** for orders, payments, products, customers or inventory.

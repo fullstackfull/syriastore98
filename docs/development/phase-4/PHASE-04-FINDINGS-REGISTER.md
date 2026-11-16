@@ -1,0 +1,171 @@
+# Phase 04 — commerce findings register
+
+Generated from the P4-0 commerce inventory: 12 domains inventoried in parallel, then **every**
+claimed defect handed to an independent reviewer instructed to **refute** it. 129 agents,
+5,734 tool calls. The reviewers are the reason this register is usable: they **refuted 17**
+claims and found **6** already tracked, so the queue below is 94 findings rather than 117.
+
+**This register is a claim about the code, not a record of work done.** A row is evidence that
+somebody read the code and somebody else tried and failed to talk them out of it. It is *not*
+a measured runtime observation unless the row says so, and no row is closed until a test fails
+against the defect and passes against the fix.
+
+| | count |
+|---|---|
+| claims inventoried | 117 |
+| **CONFIRMED** | **94** |
+| — high | 18 |
+| — medium | 42 |
+| — low / info | 34 |
+| REFUTED by review | 17 |
+| already tracked elsewhere | 6 |
+
+Per-domain detail, including each reviewer's corrected statement of the defect and the
+failing test it asks for, is in `findings/<domain>.md`.
+
+## High severity — confirmed (18)
+
+| id | domain | finding |
+|---|---|---|
+| **P4-F001** | cart | A `flat` coupon is subtracted once per cart LINE, so the discount scales with the number of lines |
+| **P4-F014** | checkout | PaymentService::getProductStatus prices storefront COD / bank-transfer orders from an arbitrary foreign merchant's plan |
+| **P4-F023** | order-write | ordersave excludes the product subtotal from orders.final_price on the shipping-on branch — but the live arm is :9625, and the plan it branches on is the platform admin's, not the store's |
+| **P4-F026** | order-write | place_order and ordersave write the Order row and its four child tables with no transaction — confirmed, with a deterministic caller-controlled trigger the claimant did not find |
+| **P4-F032** | order-write | An order in a wallet-less store writes no financial record and loses the wallet credit permanently — confirmed, and the premise is stronger than claimed |
+| **P4-F034** | order-lifecycle | Merchant-side cancellation never credits stock back; only the storefront customer door restocks |
+| **P4-F037** | order-lifecycle | CONFIRMED: `api/admin/status-change` has no `Manage Order` check, and its cancel branch is money-bearing |
+| **P4-F044** | payments-core | Gateway cancel returns land on the generic storefront order writer: an order row and a stock decrement for a payment that never happened |
+| **P4-F046** | payments-core | Storefront Benefit/Tap charge sets its server-to-server callback to a hardcoded public webhook.site bin, and the storefront return performs no capture verification for 'benefit' at all |
+| **P4-F056** | inventory-stock | Delivery Syria webhook: return/cancel limbs restore no stock, and the return limb permanently shuts every remaining automated restock door |
+| **P4-F062** | pricing-discounts | CONFIRMED (reachability corrected): the cart's per-row coupon arithmetic has no minimum_spend/maximum_spend gate, and that figure becomes orders.final_price for cod and bank_transfer — reac… |
+| **P4-F063** | pricing-discounts | Flat coupon is subtracted once per cart ROW; apply_coupon's common tail reports that N-fold figure as final_price while `amount` stays the single subtraction |
+| **P4-F070** | tax-shipping | Jurisdiction-restricted tax methods are charged to non-matching shoppers when price_type is not 'inclusive' — CONFIRMED, with a narrower mechanism than claimed and prior art the claimant mi… |
+| **P4-F082** | refunds-returns | Returning a second distinct line re-subtracts the first line's value from the already-reduced order total, driving final_price negative |
+| **P4-F096** | customer-identity | Guest-checkout validation failure returns a RedirectResponse that processOrder dereferences as a Customer |
+| **P4-F104** | flutter-contract | App's Return transition writes return_status=2 without restocking, leaving no UI-reachable way to credit the stock back |
+| **P4-F105** | flutter-contract | CONFIRMED: /api/admin/orders/update-status writes delivered_status with no transition guard, and its Return arm stamps return_status=2 without restocking, which silently disarms the web's r… |
+| **P4-F107** | flutter-contract | DELETE /api/admin/deleteorder hard-deletes an order and its tax/coupon/billing rows with no permission check, reachable by any permissionless staff token |
+
+## Medium severity — confirmed (42)
+
+| id | domain | finding |
+|---|---|---|
+| P4-F002 | cart | `api/{slug}/cart-check-guest` discloses any tenant's product and per-variant stock to any Sanctum token holder |
+| P4-F004 | cart | Guest basket is written under session()->getId() but read from the `cart` cookie; the first add after the session id changes orphans the existing rows |
+| P4-F015 | checkout | Web checkout dispatches any of 52 payment types with no per-store enablement check — CONFIRMED, severity corrected to medium |
+| P4-F016 | checkout | Guest checkout billing-validation failure dereferences a RedirectResponse and 500s instead of refusing |
+| P4-F018 | checkout | COD/bank-transfer web order writer (PaymentService::getProductStatus) has no double-submit control and is outside the order-writer census's root |
+| P4-F022 | checkout | Checkout's city-list hold gates on $('#state'), an element the checkout page never renders |
+| P4-F024 | order-write | ApiController::ordersave resolves the shipping-governing Plan twice from different tenants in one request; the charge side reads the first type-admin row, not … |
+| P4-F025 | order-write | OrderController::store writes orders.customer_id with no store predicate — the API twin's guard was never ported to the web form |
+| P4-F027 | order-write | Web COD / bank-transfer checkout (PaymentService::getProductStatus) has no duplicate-submission claim, and the replay census's completeness assertion does not … |
+| P4-F029 | order-write | CONFIRMED (with two corrections): OrderFinancialService reads `qty`, the three merchant-side order writers key `quantity`, so product_cost is 0 and gross_profi… |
+| P4-F031 | order-write | CONFIRMED: OrderController::store writes an order, a stock decrement and (when Paid) all three money tables into fallback store 1 for an operator who chose no … |
+| P4-F033 | order-lifecycle | Order::order_status_change() has no from-state rules; the order board is the one merchant surface that offers a forward move on a Cancelled or Returned card |
+| P4-F035 | order-lifecycle | Storefront order-detail page ships the cancel handler without the cancel button, so the only restocking cancellation path is unreachable for non-auction orders |
+| P4-F036 | order-lifecycle | A shopper can set their own order to delivered through the storefront API, unlocking product_return's stock credit and the refund request |
+| P4-F040 | order-lifecycle | Merchant order detail offers "Cancel Order" at four statuses the writer always refuses, with an untranslated message asserting the order was delivered |
+| P4-F042 | order-lifecycle | Delivery Syria webhook: no transition rules, and its Return arm writes return_status = 2 without restocking, which closes both of the merchant's restock doors |
+| P4-F043 | order-lifecycle | `Api\ApiController::ordersave` writes `delivered_status` from request input — an order can be born Delivered, bypassing the fulfilment gate on refunds and retu… |
+| P4-F050 | payments-gateways | CyberSource storefront checkout: the initiator's blob omits the store_id the return handler dereferences above its try — real, measured, but already ledger row… |
+| P4-F055 | inventory-stock | Merchant-side order cancellation restores no stock; only the storefront customer door does |
+| P4-F059 | inventory-stock | CONFIRMED: OrderController::store refuses every untracked product, and on a default store (stock_management = 'off') that is every simple product |
+| P4-F061 | pricing-discounts | coupons.status is written by every coupon editor and read by no gate — deactivating a store coupon does not stop it discounting |
+| P4-F064 | pricing-discounts | Guest coupon re-check in PaymentService::getProductStatus crashes the cod/bank_transfer web checkout |
+| P4-F065 | pricing-discounts | Flutter merchant API coupon writes (AddCoupon/UpdateCoupon/DeleteCoupon) enforce tenancy but no permission — confirmed, with two corrections to the claim |
+| P4-F069 | pricing-discounts | ProductPricing and WholesaleProduct rewrite the cart line price in both readers with zero test coverage — CONFIRMED, with two evidence corrections |
+| P4-F074 | tax-shipping | Tax banding diverges between the catalogue engine and the cart/checkout engine, and `priority` sorts lexicographically |
+| P4-F075 | tax-shipping | Six Flutter admin-API tax/shipping write handlers carry a tenant control and no permission check — CONFIRMED, and it is the "larger slice" the Phase 02 decisio… |
+| P4-F076 | tax-shipping | Saving a shipping zone with every shipping method deselected is a 500 (ShippingZoneController::update has no validation) |
+| P4-F083 | refunds-returns | Refund restock does not consult Order::LINE_STOCK_RESTORED, so a line credited by product_return is credited again by RefundStock |
+| P4-F087 | refunds-returns | Refund approve / reject / restock / payout record no actor; four state-changing mutators attribute nothing |
+| P4-F094 | customer-identity | Storefront checkout's "Create an account?" checkbox submits an empty value, so the registration branch at PaymentController:2026 is unreachable from the shippe… |
+| P4-F098 | customer-identity | saveAddress silently discards the storefront address form's delivery-instructions field (and address_type with it) |
+| P4-F101 | customer-identity | Unscoped `social_id` customer lookup in the social sign-in modules — CONFIRMED, and it is three of eight, not two of seven |
+| P4-F106 | flutter-contract | GET /api/admin/vieworder serves the full order document — money and billing PII — with a tenancy predicate only and no permission gate; its sibling api/admin/o… |
+| P4-F108 | flutter-contract | POST /api/admin/assignOrders writes driver assignment and commission rows with no permission check — CONFIRMED |
+| P4-F109 | flutter-contract | DeliveryBoyApiController enforces ownership but no permission, while its web twin requires five permissions — same defect shape already closed for AddCustomer … |
+| P4-F110 | flutter-contract | CONFIRMED: the admin-API order-note create/delete pair has no permission gate, while its web twin requires 'Create Order Note' / 'Delete Order Note' |
+| P4-F111 | flutter-contract | searchProductsByName and SearchProduct serve products.cost_price with no Manage Products gate |
+| P4-F112 | flutter-contract | CONFIRMED (broader than claimed): POST /api/admin/searchdata?type=order dumps whole Order rows with no permission gate — the same money OrderList gates on ['Ma… |
+| P4-F113 | flutter-contract | CONFIRMED: customerlist, customer/orders, searchCustomerByName and destroyCustomer carry no permission check — and an existing test pins the gap at 200 |
+| P4-F114 | flutter-contract | POST /api/admin/update-customer answers 401 to merchant staff, forcing a logout in the shipped app |
+| P4-F115 | flutter-contract | API cancellation leaves a prepaid order's wallet credit in place; the web cancel reverses it |
+| P4-F116 | flutter-contract | Manual-order product picker reads the stale stock_status column (client-side only; the searchProductsByName half of the claim is wrong) |
+
+## Low / informational — confirmed (34)
+
+| id | domain | finding |
+|---|---|---|
+| P4-F003 | cart | Web cart writer product_cartlist never binds the signed-in customer to the slug store — real and uncovered, but only on that one writer |
+| P4-F005 | cart | `quantity_type=remove` on the guest web cart reports success and removes nothing (real, but low — no shipped client emits it and the real removal route works) |
+| P4-F006 | cart | Unknown variant_id crashes both quantity-change handlers before the cart-row guard; the 500-vs-200 split is a platform-wide product_variants existence oracle |
+| P4-F007 | cart | CartController::product_cartlist dereferences a null store for an unknown slug — confirmed, but it is one of six such handlers in the file, not an outlier |
+| P4-F008 | cart | `abandon_carts_destroy` dereferences a null store where its own sibling fails closed explicitly |
+| P4-F009 | cart | `cart_remove` returns `{status:1}` without deleting when `getStore()` resolves nothing — real and uncovered, but the "absent slug" half is wrong and the only s… |
+| P4-F011 | cart | Login cart merge creates a duplicate line when the customer already holds the same product |
+| P4-F013 | cart | get_tax_data really does resolve a caller-supplied product id with no store predicate — but the claimed sale_price disclosure is structurally blocked, and the … |
+| P4-F019 | checkout | Checkout endpoints dereference a null store for an unknown slug (confirmed; severity low, not medium) |
+| P4-F020 | checkout | processBillingInfo dereferences eight unguarded billing keys before any validator runs — CONFIRMED, with corrections |
+| P4-F021 | checkout | get_shipping_method reads any customer's delivery address by id and replaces the request's whole billing_info, which then lands in the order |
+| P4-F028 | order-write | ordersave discards the per-customer order reference it computes, but the blast radius and the is_guest half of the claim are overstated |
+| P4-F038 | order-lifecycle | `api/admin/status-change` reports a refused status change as a success envelope |
+| P4-F039 | order-lifecycle | `api/admin/status-change` labels the status it wrote one rung too far up the ladder (4→'pickedup', 5→'shipped', 6→'delivered') — real, uncovered, but no client… |
+| P4-F047 | payments-core | PhonePe's capture check on the generic storefront return sources its gateway credentials from the route slug's store, while the order is written to the checkou… |
+| P4-F052 | payments-gateways | PhonePe's and Tap's provider confirmations are never recorded, so the generic storefront writer writes Pending — real, but it is the accepted default for ~45 g… |
+| P4-F053 | payments-gateways | CinetPay notify_url is unrouted-in-practice vendor sample that cannot record a capture — CONFIRMED on substance, but severity is low: the plan arm is currency-… |
+| P4-F054 | payments-gateways | PaymentService::paymentConfig() is dead code with an uninitialised variable and a dangling PayPal setting name |
+| P4-F058 | inventory-stock | Cancellation restock writes LINE_STOCK_RESTORED but never reads it; order_return_request has no delivered_status gate, so return-then-cancel double-credits whe… |
+| P4-F060 | inventory-stock | ProductController::update's choice_no variant upsert creates ProductVariant rows with no store_id — real and uncovered, but two of the claim's supporting citat… |
+| P4-F073 | tax-shipping | Shipping-quote and apply_coupon read an arbitrary customer's DeliveryAddress by caller-supplied id — real and uncovered, but it is a tax-band inference channel… |
+| P4-F077 | tax-shipping | The 'Delivery Syria' shipping branch weighs a cart line with an unscoped Product::find() while the flat-rate branch two lines below refuses the same line |
+| P4-F078 | tax-shipping | Storefront API delivery_list resolves the shipping zone with no country/state predicate |
+| P4-F079 | tax-shipping | CONFIRMED: Api\ApiController::tax_guest() never passes a tax group to Tax::TaxCount(), so POST /api/{slug}/tax-guest returns zero tax for every store, product … |
+| P4-F080 | tax-shipping | taxSettings persists an unvalidated caller-supplied tax_id — real and uncovered, but zero impact; the same five lines hide a worse correctness bug |
+| P4-F081 | tax-shipping | Debug logging left on the shipping-quote path (CartController:621) — real, uncovered, under-scoped |
+| P4-F084 | refunds-returns | Accept → RefundStock → Cancel double-counts the returned units: the stock credit is never reversed and the order's allowance is never consumed |
+| P4-F086 | refunds-returns | The three OrderRefundSetting toggles are never read server-side: RefundStock, RefundAmonut and order_refund_request each ignore the policy their Blade gate enf… |
+| P4-F089 | refunds-returns | OrderRefundController::index() lacks the operator limb its five mutator siblings carry, locking the platform operator out of GET /refund-request |
+| P4-F093 | refunds-returns | A shopper-initiated refund request reaches the merchant with no notification — but the claim's cited contrast is wrong and the merchant-side half is overstated |
+| P4-F097 | customer-identity | The storefront address book validates `address_type` as required and then drops it in mass assignment — plus the same bug on `instructions` |
+| P4-F099 | customer-identity | Two live handlers resolve a `DeliveryAddress` by caller-supplied id with no ownership or tenant predicate |
+| P4-F102 | customer-identity | CONFIRMED (with corrections): `AccountProfileController::password_change`'s else arm dereferences the `web` guard on a `customers`-gated storefront route |
+| P4-F117 | flutter-contract | Three api/admin commerce handlers concatenate $e->getMessage() into the JSON response body — confirmed, uncovered, and 20 sites not 3 |
+
+## Refuted by review (17) — do not re-raise these
+
+Each of these was claimed by a domain inventory agent and **killed** by an independent
+reviewer. The reviewer's reasoning is in the per-domain file. They are listed here so the
+next reader does not spend the same effort twice.
+
+| id | domain | claim, and why it fell |
+|---|---|---|
+| P4-F010 | cart | `cartClear`'s signed-in arm has no store predicate — but it is neither unique nor an independent defect |
+| P4-F012 | cart | `carts.price` is written by five disagreeing paths, is never read, and is an INTEGER column |
+| P4-F030 | order-write | Manual-order return: the refusal is documented and pinned by a named test, and the approval path credits no money |
+| P4-F041 | order-lifecycle | Return approval without a delivery/request precondition is the asserted, tested behaviour — not an uncovered defect |
+| P4-F045 | payments-core | Tap isset() gate on the storefront return: code reading accurate, but it gates nothing — the skipped path is the owner-decided, test-pinned unverified-gateway baseline |
+| P4-F048 | payments-gateways | CyberSource storefront return never inspects the gateway's answer |
+| P4-F049 | payments-gateways | CyberSource storefront arm: the caller-chosen store_id selects no credentials at all, and the request cannot authenticate — the claimed credential-selection and charge mechanism does not exist |
+| P4-F057 | inventory-stock | Return approval credits stock without consulting StockMovement::movedOutFor() |
+| P4-F066 | pricing-discounts | AddCoupon's missing percentage cap is a validator-consistency gap, not a free-basket defect: max:100 already permits 100, and a 100% coupon zeroing every line is pinned as intended behaviour |
+| P4-F067 | pricing-discounts | SetNumber() double-application in apply_coupon's tail is real, but its output reaches no reader: the tax line the claim names is written through an id that exists nowhere in the repository |
+| P4-F072 | tax-shipping | CartController::get_tax_data() unscoped Product::find() leaking another tenant's sale_price |
+| P4-F088 | refunds-returns | Order::LINE_STOCK_CARRIED is written by the replacement service and read by no stock path |
+| P4-F090 | refunds-returns | canManageRefunds()'s byte-exact operator comparison is a pinned owner decision, and the proposed fix would broaden operator permissions on five money-moving mutators |
+| P4-F092 | refunds-returns | The shopper's return list prints the raw English refund status in both locales |
+| P4-F095 | customer-identity | REFUTED — the facade at PaymentController:2840 is unimported, so no broker is ever reached: the line throws a class-not-found Error that the surrounding catch swallows |
+| P4-F100 | customer-identity | Per-store SMTP override via legacy `mail.driver` keys IS honoured by Laravel 11 — the claim inverts the actual failure mode |
+| P4-F103 | customer-identity | `add_newsletter` guard mismatch — REFUTED: the handler is dead code whose insert always fails, and the one live limb is already recorded |
+
+## Already tracked elsewhere (6)
+
+| id | domain | finding |
+|---|---|---|
+| P4-F017 | checkout | storefront place.order points at a missing OrderController method |
+| P4-F051 | payments-gateways | CyberSource storefront credential-key mismatch is real but is already tracked as ledger row F91, and the severity is wrong |
+| P4-F068 | pricing-discounts | Coupon code uniqueness is global across all tenants on the web and absent entirely on the Flutter API |
+| P4-F071 | tax-shipping | place_order's `tax_info` read is real but already pinned by a green blocking test — and the claim's money impact is backwards: the tax IS charged, and implementing the claimed fix would overcharge it… |
+| P4-F085 | refunds-returns | order_refunds.product_refund_id VARCHAR(255) overflow — real mechanism, but a recorded owner-BLOCKED finding (P1-ORD-11) with the money/stock paths already guarded, and the claimed trigger arithmetic… |
+| P4-F091 | refunds-returns | Route::resource('refund-request') registers five verbs the controller does not implement |
+
