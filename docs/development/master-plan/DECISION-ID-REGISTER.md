@@ -495,7 +495,7 @@ Two consequences, both recorded rather than acted on here:
    product-editor experience, so this is likely substantially met; it has never been traced against
    this requirement, because the requirement's text was unknown.
 2. **Phase 05 inherits credit it has not been given.** `ANA-006` and `ANA-007` are partly delivered
-   already, on the merchant dashboard and the eleven report screens. `PHASE-05-METRIC-DEFINITIONS.md`
+   already, on the merchant dashboard and the eleven report screens. `docs/development/phase-5/PHASE-05-METRIC-DEFINITIONS.md`
    should cite those ids.
 
 This is the single clearest demonstration of why inference from usage is marked INFERRED and why no

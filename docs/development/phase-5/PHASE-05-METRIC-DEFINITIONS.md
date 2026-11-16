@@ -20,6 +20,30 @@ is not a rounding difference — it is a different question.
 
 ---
 
+## 0a. Which approved decisions this document answers to
+
+**Added 2026-11-16, after the Master Product Plan was recovered.** These ids were unreadable when this
+document was written, so it was built from the owner's instruction wording alone. The register
+(`docs/development/master-plan/DECISION-ID-REGISTER.md`) shows it was answering `ANA-*` all along:
+
+| id | recovered decision | where it lands here |
+|---|---|---|
+| `ANA-005` | separate sales, collection, settlements and profitability | §§1–8 — the entire settlement/entitlement split |
+| `ANA-006` | **do not claim precise profitability when cost or fee data is missing** | §8, and its cost caveat |
+| `ANA-007` | show data quality, estimates and omissions | §11 rule 5, and every per-metric caveat |
+| `ANA-008` | **document metric definitions and their sources** | **this document is `ANA-008`** |
+| `ANA-010` | do not build a new accounting engine | §11, and `PHASE-05-EXECUTION-PLAN.md` §3 |
+
+**`ANA-006` and `ANA-007` are already partly delivered, by PHASE 02.** The honest stat grid, the refusal
+to display revenue or profit, the period on every figure and the eleven report screens' qualifications
+were built under the label `PRD-001`, which the recovered plan shows means *"full product editor"* — a
+mis-attribution, traced in `DECISION-ID-REGISTER.md` §4.1. The work is sound; it answers here. Phase 05
+should **extend** it rather than re-derive it, and a Phase 05 completeness claim must count it.
+
+**This is a citation, not a status change.** No metric became verified by acquiring an id.
+
+---
+
 ## 0. Why `SUM(orders.final_price)` is not revenue
 
 Measured, and it is the reason this document exists. `app/Http/Controllers/ReportController.php` is
