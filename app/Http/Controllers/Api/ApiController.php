@@ -363,6 +363,9 @@ public function saveStoreFcmToken(Request $request)
         $cart_array = [];
         $final_price = $original_price = 0;
         $discount_price = $coupon_price = $tax_price = 0;
+        // One entry per cart line, filled by the loop below and consumed by the coupon/tax pass
+        // after it. See the note at the `$coupon_lines[]` push (P4-F001 / P4-F062).
+        $coupon_lines = [];
         $after_discount_final_price = 0;
         $cart_total_qty = 0;
         $cart_final_price = 0;
@@ -869,37 +872,78 @@ public function saveStoreFcmToken(Request $request)
             $cart_final_price += $final_price;
             $original_price += $total_product_orignal_price;
             $shipping_original_price += $shipping_price;
-            if (isset($request['coupon_code'])) {
-                // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode -- the
-                // previous `BINARY` form was MySQL-only and made this whole path 500 on SQLite.
-                //
-                // P01-SEC-14 D2: and store-scoped. `Coupon` has no StoreScope and is not in
-                // config/tenancy.php's scoped_models, so nothing underneath adds the predicate and
-                // this lookup matched a code in ANY store. Measured through api/{slug}/cart-list
-                // before the predicate: store B's 90% coupon on a store A cart returned
-                // total_coupon_price = 90 and total_sub_price = 10.00. The predicate was absent
-                // before P01-SEC-14 and C4 preserved it exactly, so this is a pre-existing
-                // cross-tenant read rather than a regression -- see
-                // docs/security/P01-SECURITY-WORK-QUEUE.md S23.
-                $coupon = Coupon::findByExactCode(
-                    $request['coupon_code'],
-                    fn ($query) => $query->where('store_id', $store->id)
-                        ->whereDate('coupon_expiry_date', '>=', date('Y-m-d'))
-                );
-                if ($coupon) {
-                    $coupon_apply_price = Cart::getCouponTotalAmount($coupon, $final_price, $cart_product_data->id, $cart_product_data->category_id);
+            /*
+             * THE COUPON AND THE TAX ARE DECIDED AFTER THIS LOOP, NOT INSIDE IT.  P4-F001 /
+             * P4-F062, and the twin of the change in `Cart::cart_list_cookie()`. A `flat` coupon
+             * was subtracted once PER LINE here, and `total_sub_price` is what
+             * `PaymentService::getProductStatus()` writes into `orders.final_price` -- so a
+             * three-line 120.00 basket with a flat 50.00 coupon wrote a COD order of 0.00.
+             * App\Services\Commerce\CouponBasketAllocator carries the full measurement.
+             *
+             * A basket-wide bound cannot be computed from one line, and neither can the
+             * `minimum_spend` / `maximum_spend` gate, so the line is recorded and both are applied
+             * below once `$cart_final_price` holds the whole pre-coupon subtotal. Tax moves with
+             * it deliberately: it was, and still is, computed on the line price AFTER its share of
+             * the coupon.
+             */
+            $coupon_lines[] = [
+                'final_price' => $final_price,
+                'product_id' => $cart_product_data->id,
+                'category_id' => $cart_product_data->category_id,
+                'tax_id' => $cart_product_data->tax_id,
+            ];
+        }
 
-                    $coupon_price += $final_price - $coupon_apply_price;
-                    $final_price = $coupon_apply_price;
-                }
-            }
-            if ($cart_product_data->tax_id) {
-                $tax_id = $cart_product_data->tax_id;
-                $tax_price += Cart::getProductTaxAmount($cart_product_data->tax_id, $final_price, $store->id, $city_id, $state_id, $country, true);
+        /*
+         * SECOND PASS: ONE COUPON ACROSS THE BASKET, THEN TAX ON WHAT IS LEFT.
+         *
+         * The lookup is the same store-scoped predicate as before, hoisted out of the loop it used
+         * to be re-run in, and its history is worth keeping:
+         *
+         *   P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode -- the previous
+         *   `BINARY` form was MySQL-only and made this whole path 500 on SQLite.
+         *
+         *   P01-SEC-14 D2: and store-scoped. `Coupon` has no StoreScope and is not in
+         *   config/tenancy.php's scoped_models, so nothing underneath adds the predicate and this
+         *   lookup matched a code in ANY store. Measured through api/{slug}/cart-list before the
+         *   predicate: store B's 90% coupon on a store A cart returned total_coupon_price = 90 and
+         *   total_sub_price = 10.00. The predicate was absent before P01-SEC-14 and C4 preserved it
+         *   exactly, so that was a pre-existing cross-tenant read rather than a regression -- see
+         *   docs/security/P01-SECURITY-WORK-QUEUE.md S23.
+         *
+         * `$final_price` is left holding the LAST line's post-coupon price, because the tail of this
+         * method publishes it as `coupon_info.coupon_final_amount` and the shipped Flutter app reads
+         * that key. Changing what it means is a contract change, not a fix.
+         */
+        $coupon = null;
+
+        if (isset($request['coupon_code'])) {
+            $coupon = Coupon::findByExactCode(
+                $request['coupon_code'],
+                fn ($query) => $query->where('store_id', $store->id)
+                    ->whereDate('coupon_expiry_date', '>=', date('Y-m-d'))
+            );
+        }
+
+        $allocator = \App\Services\Commerce\CouponBasketAllocator::forBasket(
+            $coupon,
+            (float) $cart_final_price
+        );
+
+        foreach ($coupon_lines as $line) {
+            $linePrice = (float) $line['final_price'];
+            $discount = $allocator->discountForLine($linePrice, $line['product_id'], $line['category_id']);
+            $coupon_price += $discount;
+            $final_price = max(0.0, $linePrice - $discount);
+
+            if ($line['tax_id']) {
+                $tax_id = $line['tax_id'];
+                $tax_price += Cart::getProductTaxAmount($line['tax_id'], $final_price, $store->id, $city_id, $state_id, $country, true);
             } else {
                 $tax_price += 0;
             }
         }
+
         $after_discount_final_price = $cart_final_price;
 
         $product_discount_price = (float)number_format((float)$discount_price, 2);

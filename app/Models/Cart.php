@@ -282,6 +282,9 @@ class Cart extends Model
         $coupon_price = 0;
         $tax_id = null;
         $totalQtyDiscount = 0;
+        // One entry per cart line, filled by the loop and consumed by the coupon/tax pass after
+        // it. See the note at the `$coupon_lines[]` push below (P4-F001 / P4-F062).
+        $coupon_lines = [];
         if (!empty($Carts)) {
             foreach ($Carts as $key => $cart_value) {
                 $variant_name = '';
@@ -617,28 +620,66 @@ class Cart extends Model
                 $original_price += $total_product_orignal_price;
                 $shipping_original_price += $shipping_price;
 
-                if (isset($data['coupon_code'])) {
-                    // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
-                    // P01-SEC-14 D2: store-scoped. This is the GUEST (cookie) cart, and the
-                    // predicate was absent here too. `$store_id` rather than `$store->id` because
-                    // `Store::find($storeid)` above can return null, and a predicate on a null
-                    // store matches nothing -- which refuses the coupon rather than widening it.
-                    $coupon = Coupon::findByExactCode(
-                        $data['coupon_code'],
-                        fn ($query) => $query->where('store_id', $store_id)
-                            ->whereDate('coupon_expiry_date', '>=', now()->toDateString())
-                    );
-                    if ($coupon) {
-                        $coupon_apply_price = self::getCouponTotalAmount($coupon, $final_price, $cart_product_data->id, $cart_product_data->category_id);
-                        $coupon_price += $final_price - $coupon_apply_price;
-                        $final_price = $coupon_apply_price;
-                    }
-                }
-                if (isset($cart_product_data->tax_id) && $cart_product_data->tax_id) {
-                    $tax_id = $cart_product_data->tax_id;
-                    $product_tax = self::getProductTaxAmount($cart_product_data->tax_id, $final_price, $store->id, $city_id, $state_id, $country, true);
-                    $tax_price += $product_tax;
-                }
+                /*
+                 * THE COUPON AND THE TAX ARE DECIDED AFTER THIS LOOP, NOT INSIDE IT.  P4-F001 /
+                 * P4-F062. Both used to run here, per line, and a `flat` coupon was therefore
+                 * subtracted once PER LINE -- see App\Services\Commerce\CouponBasketAllocator for
+                 * the measurement (a 120.00 basket wrote a COD order of 0.00).
+                 *
+                 * A basket-wide bound cannot be computed from one line, and neither can the
+                 * `minimum_spend` / `maximum_spend` gate, so the line is recorded and both are
+                 * applied below once `$cart_final_price` holds the whole pre-coupon subtotal.
+                 *
+                 * TAX MOVES WITH IT DELIBERATELY: tax was, and still is, computed on the line price
+                 * AFTER its share of the coupon. Leaving tax here would have taxed the undiscounted
+                 * line and changed every taxed basket's total.
+                 */
+                $coupon_lines[] = [
+                    'final_price' => $final_price,
+                    'product_id' => $cart_product_data->id,
+                    'category_id' => $cart_product_data->category_id,
+                    'tax_id' => $cart_product_data->tax_id ?? null,
+                ];
+            }
+        }
+
+        /*
+         * SECOND PASS: ONE COUPON ACROSS THE BASKET, THEN TAX ON WHAT IS LEFT.  P4-F001 / P4-F062.
+         *
+         * `$cart_final_price` is the pre-coupon subtotal -- the loop above accumulated it BEFORE the
+         * coupon block used to run -- so it is the right baseline for both the spend gate and the
+         * `flat` allowance.
+         *
+         * The lookup is the same store-scoped predicate as before, hoisted out of the loop it used
+         * to be re-run in. `$store_id` rather than `$store->id` because `Store::find($storeid)`
+         * above can return null, and a predicate on a null store matches nothing -- which refuses
+         * the coupon rather than widening it (P01-SEC-14 D2, preserved exactly).
+         */
+        $coupon = null;
+
+        if (isset($data['coupon_code'])) {
+            // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
+            $coupon = Coupon::findByExactCode(
+                $data['coupon_code'],
+                fn ($query) => $query->where('store_id', $store_id)
+                    ->whereDate('coupon_expiry_date', '>=', now()->toDateString())
+            );
+        }
+
+        $allocator = \App\Services\Commerce\CouponBasketAllocator::forBasket(
+            $coupon,
+            (float) $cart_final_price
+        );
+
+        foreach ($coupon_lines as $line) {
+            $linePrice = (float) $line['final_price'];
+            $discount = $allocator->discountForLine($linePrice, $line['product_id'], $line['category_id']);
+            $coupon_price += $discount;
+            $linePrice = max(0.0, $linePrice - $discount);
+
+            if (!empty($line['tax_id'])) {
+                $tax_id = $line['tax_id'];
+                $tax_price += self::getProductTaxAmount($line['tax_id'], $linePrice, $store->id, $city_id, $state_id, $country, true);
             }
         }
 
