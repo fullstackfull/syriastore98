@@ -15,7 +15,7 @@ use Tests\Feature\Security\SecurityTestCase;
  * =================================================================================================
  *
  * `Api\DashboardController::updateStatus()` validates `payment_status` with `in:Paid,Unpaid`
- * (DashboardController.php:402-406). The shipped Flutter app sends `payment_status` on EVERY call
+ * (DashboardController.php:419-444, which this change replaced with a format-only rule). The shipped Flutter app sends `payment_status` on EVERY call
  * to this endpoint, including the one that changes only the DELIVERY status, and the value it sends
  * is the order's own CURRENT value echoed straight back:
  *
@@ -70,6 +70,22 @@ class OrderStatusEchoCompatibilityTest extends SecurityTestCase
     private const NOT_FOUND_MESSAGE = 'Order not found.';
     private const NO_PERMISSION_MESSAGE = 'You do not have permission to perform this action.';
     private const VALIDATION_FAILED_MESSAGE = 'Validation failed.';
+
+    /**
+     * THE 500 LIMB, ADDED AFTER REVIEW — without it the sieve below is a hole.
+     *
+     * `ApiOrderStatusTransitionTest` learned this the hard way and says so in its own constants'
+     * docblock: a two-message sieve was "a hole big enough to green six of this file's failing
+     * cases with a 500". The write here lives inside `DB::transaction`
+     * (DashboardController.php:647), so the `catch (\Throwable)` at :805-815 rolls it back and
+     * leaves the row in exactly the state a "nothing was written" assertion demands — while the
+     * shipped app receives an HTTP 500. That is an implementation fault masquerading as a guard,
+     * and it is excluded by name.
+     *
+     * This file originally omitted the limb. It was reinstated by independent review of this
+     * change, which is the second time this project has had to add it.
+     */
+    private const COULD_NOT_UPDATE_MESSAGE = 'Could not update the order.';
 
     /** @return array{0: User, 1: Store, 2: Order} */
     private function tenantWithOrder(array $orderAttributes = []): array
@@ -137,6 +153,11 @@ class OrderStatusEchoCompatibilityTest extends SecurityTestCase
 
         $this->assertStringNotContainsString(self::NO_PERMISSION_MESSAGE, $body,
             'the Manage Order gate refused — a fixture fault, not evidence');
+
+        $this->assertStringNotContainsString(self::COULD_NOT_UPDATE_MESSAGE, $body,
+            'the handler threw and rolled the transaction back. The row is then in exactly the '
+            . 'state these cases assert while the shipped app gets an HTTP 500 — an implementation '
+            . 'fault, not a guard');
     }
 
     /*
@@ -221,9 +242,13 @@ class OrderStatusEchoCompatibilityTest extends SecurityTestCase
      *
      * This is the case that fails against the naive fix — widening `in:` to admit `Pending` would
      * let the echo fall through to `$order->payment_status = $newPaymentStatus`
-     * (DashboardController.php:651) and re-assert a payment state the server is supposed to derive.
-     * The value happens to be identical here, so only the ABSENCE of a transition proves it: see
-     * the sibling case below, which checks the observer never fired.
+     * (DashboardController.php:745) and re-assert a payment state the server is supposed to derive.
+     *
+     * ON ITS OWN THIS ASSERTION IS WEAK, AND SAYING SO IS THE POINT. The submitted value and the
+     * stored value are identical, so "it is still Pending" is equally true if the echo was IGNORED
+     * and if it was WRITTEN BACK unchanged. Only the second re-runs a settlement write. The
+     * sibling case below distinguishes them by watching the observer, and it exists because an
+     * earlier version of this file promised exactly that evidence and did not contain it.
      */
     public function test_the_pending_echo_leaves_the_payment_status_exactly_as_it_was(): void
     {
@@ -234,6 +259,56 @@ class OrderStatusEchoCompatibilityTest extends SecurityTestCase
         $this->assertSame('Pending', $this->rawPaymentStatus($order),
             'the echo changed the stored payment status. A merchant changing a DELIVERY status '
             . 'must not restate settlement.');
+    }
+
+    /**
+     * THE ASSERTION THAT ACTUALLY PROVES THE ECHO IS IGNORED RATHER THAN RE-WRITTEN.
+     *
+     * `OrderObserver::updated()` returns early unless `wasChanged('payment_status')`
+     * (OrderObserver.php:82-84), and when it does NOT return early it calls
+     * `OrderFinancialService::syncFromOrder()`, which moves money. So "the observer never reached
+     * the financial service" is the exact statement that the echo caused no settlement event.
+     *
+     * The spy is installed AFTER the fixture, because creating the order legitimately calls
+     * `createForOrder()` through `OrderObserver::created()`; mocking before that would be
+     * measuring the fixture rather than the request.
+     */
+    public function test_the_echo_never_reaches_the_financial_service(): void
+    {
+        [$merchant, , $order] = $this->tenantWithOrder(['payment_status' => 'Pending']);
+
+        $this->partialMock(\App\Services\OrderFinancialService::class, function ($mock) {
+            $mock->shouldNotReceive('syncFromOrder');
+        });
+
+        $this->postAsTheApp($merchant, $order, HomeController::ORDER_STATUS_CONFIRMED, 'Pending');
+
+        $this->assertSame(
+            HomeController::ORDER_STATUS_CONFIRMED,
+            $this->rawDeliveredStatus($order),
+            'premise: the delivery-status change must still have landed, or this case proves '
+            . 'nothing about the echo'
+        );
+    }
+
+    /**
+     * AND THE CONTROL FOR IT: a GENUINE transition DOES reach the financial service.
+     *
+     * Without this, the case above passes against a handler that never writes `payment_status` at
+     * all — including one that silently dropped every real settlement change.
+     */
+    public function test_a_genuine_transition_does_reach_the_financial_service(): void
+    {
+        [$merchant, , $order] = $this->tenantWithOrder(['payment_status' => 'Unpaid']);
+
+        $this->partialMock(\App\Services\OrderFinancialService::class, function ($mock) {
+            $mock->shouldReceive('syncFromOrder')->atLeast()->once();
+        });
+
+        $this->postAsTheApp($merchant, $order, HomeController::ORDER_STATUS_CONFIRMED, 'Paid');
+
+        $this->assertSame('Paid', $this->rawPaymentStatus($order),
+            'premise: the transition must have landed');
     }
 
     /**
@@ -313,6 +388,8 @@ class OrderStatusEchoCompatibilityTest extends SecurityTestCase
 
         $response = $this->postAsTheApp($merchant, $order, HomeController::ORDER_STATUS_CONFIRMED, 'Refunded');
 
+        $this->assertHandlerWasReached($response);
+
         $this->assertSame('Unpaid', $this->rawPaymentStatus($order),
             'a merchant invented a payment status the server never produces. Body: '
             . $this->body($response));
@@ -352,6 +429,81 @@ class OrderStatusEchoCompatibilityTest extends SecurityTestCase
             $this->rawDeliveredStatus($order),
             'an unpermitted staff member moved the delivery status through the echo path'
         );
+    }
+
+    /**
+     * THE REFUSAL'S SHAPE IS PINNED, because a comment claims it and nothing held it.
+     *
+     * `DashboardController.php:583-597` says the refusal is the validator's own shape. That is true
+     * of the BODY and, as independent review established, NOT universally true of the STATUS: the
+     * check now runs after the lookup and the gate, so an invalid value on an order the caller
+     * cannot see answers 404, and one from a caller without `Manage Order` answers 403. For a
+     * caller who passes both — the case below — it is the validator's 422, byte for byte.
+     */
+    public function test_the_invalid_transition_refusal_keeps_the_validators_shape(): void
+    {
+        [$merchant, , $order] = $this->tenantWithOrder(['payment_status' => 'Unpaid']);
+
+        $response = $this->postAsTheApp($merchant, $order, HomeController::ORDER_STATUS_CONFIRMED, 'Refunded');
+
+        $response->assertStatus(422);
+        $response->assertJsonPath('success', false);
+        $response->assertJsonPath('message', 'Validation failed.');
+        $response->assertJsonPath('errors.payment_status.0', 'The selected payment status is invalid.');
+    }
+
+    /**
+     * A CASE-VARIANT ECHO OF A SETTABLE VALUE IS A NO-OP, NOT A WRITE.
+     *
+     * `strcasecmp` means a client echoing `unpaid` for a stored `Unpaid` names the same state. It
+     * must not be re-written: `$order->save()` would make `wasChanged('payment_status')` true and
+     * fire the observer into `OrderFinancialService` for a request that asked for no settlement
+     * change. Added after review, which identified this as the one input shape the original cases
+     * did not cover.
+     */
+    public function test_a_case_variant_echo_is_treated_as_no_transition(): void
+    {
+        [$merchant, , $order] = $this->tenantWithOrder(['payment_status' => 'Unpaid']);
+
+        $this->partialMock(\App\Services\OrderFinancialService::class, function ($mock) {
+            $mock->shouldNotReceive('syncFromOrder');
+        });
+
+        $this->postAsTheApp($merchant, $order, HomeController::ORDER_STATUS_CONFIRMED, 'unpaid');
+
+        $this->assertSame(
+            HomeController::ORDER_STATUS_CONFIRMED,
+            $this->rawDeliveredStatus($order),
+            'a case-variant echo blocked the delivery-status change'
+        );
+    }
+
+    /**
+     * A PAYMENT-STATUS-ONLY ECHO, with no delivery status at all, answers the no-op success.
+     *
+     * Documented rather than discovered later: this shape used to be 422 and is now HTTP 200
+     * `success: true` with "Order already has the requested statuses." That is honest — nothing was
+     * asked for and nothing changed — but it is a contract change beyond "an unrelated
+     * delivery-status change now works", and it is pinned so it is a decision rather than a
+     * side effect.
+     */
+    public function test_a_payment_only_echo_is_an_explicit_no_op(): void
+    {
+        [$merchant, , $order] = $this->tenantWithOrder(['payment_status' => 'Pending']);
+
+        $response = $this->withHeader(
+            'Authorization',
+            'Bearer ' . $merchant->createToken('auth_token')->plainTextToken
+        )->postJson('/api/admin/orders/update-status', [
+            'product_order_id' => $order->product_order_id,
+            'payment_status' => 'Pending',
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('success', true);
+
+        $this->assertSame('Pending', $this->rawPaymentStatus($order),
+            'a no-op echo still rewrote the payment status');
     }
 
     /** A foreign tenant is still refused, on the echo path too. */

@@ -7740,6 +7740,18 @@ public function Top_orders(Request $request)
                     'created_by'       => $user->id,
                 ]);
 
+                /*
+                 * P4-F032 -- THE WALLET. This is the second of the two doors that created a store
+                 * without one; `Auth\RegisteredUserController::store` was the other, and
+                 * `StoreController` has always provisioned here.
+                 *
+                 * Without it `OrderFinancialService::createForOrder()` throws into
+                 * `OrderObserver::created()`'s catch for every order this store ever takes: the
+                 * order commits, no `store_order_financials` row is written, and the merchant's
+                 * credit is lost permanently with nothing to revisit it.
+                 */
+                app(\App\Services\StoreWalletProvisioning::class)->ensure((int) $store->id);
+
                 if (function_exists('defaultSetting')) {
                     defaultSetting($store->id, 'admin', $user);
                 }
