@@ -185,6 +185,7 @@ and that is where a claim about the code meets the code's actual behaviour.
 | **P4-F120** | pricing-discounts | MEDIUM | `orders.coupon_price` records the coupon's headline amount, not the discount actually given, when the coupon is worth more than the basket |
 | **P4-F121** | order-write | HIGH | `orders.product_price` / `final_price` truncated to whole currency units on `order-save` — up to 0.99 lost per order — FIXED in this branch |
 | **P4-F122** | tax-shipping | MEDIUM | the cart sidebar quotes a shipping row from a plan no order writer will honour |
+| **P4-F123** | customer-identity | MEDIUM | `Utility::CustomerAuthCheck()` memoised its answer in process statics keyed on nothing — it decides which cart reader prices a basket — FIXED in this branch |
 
 ### P4-F118 — the `fixed product discount` arm does not do what the merchant form says
 
@@ -417,3 +418,52 @@ Also recorded from the same pass, and **not** changed: `type == 'admin'` at all 
 excludes `'super admin'`, while `User::creatorId()` treats both as tenant roots, so a store created by
 the platform operator resolves no plan anywhere. It is consistent today; changing it would move money
 on live stores and must not ride along in a seam refactor.
+
+### P4-F123 — `Utility::CustomerAuthCheck()` memoised its answer in process statics keyed on nothing — FIXED
+
+Found by independent review **sweeping for the shape of the defect this phase had just introduced and
+removed** in `StorePlan`. That sweep is the reason this row exists, and it is the strongest argument
+in the package for reviewing a fix rather than only the thing it fixed.
+
+`app/Models/Utility.php:1119-1120` declared `private static $store_id` and `private static $customer`,
+filled them on the first call — the store id resolved from `$slug`, and a **count** of customers in
+that store with the authenticated customer's email — and returned them on every later call in the
+process, **whatever slug it was given and whoever was signed in**. Not keyed on the slug, the
+customer, or anything.
+
+**What it decides:** this function is the switch that chooses which cart reader prices a basket.
+`ApiController::couponSpendBaseline:118` and `apply_coupon:4619` both branch on it between
+`Cart::cart_list_cookie()` and `cart_list()`. A stale answer prices the signed-in `carts` rows where
+the guest cookie basket was intended, or the reverse — directly underneath the coupon arithmetic this
+phase spent three review rounds on.
+
+**Production was hardening, not a hole, and that was measured:** all 21 call sites are controllers,
+middleware or views — no job, listener, command or observer — so under PHP-FPM the statics died with
+the request, and within one request the slug is the route's store and the authenticated customer does
+not change.
+
+**In the test suite it was live.** Measured: `CustomerAuthCheck()` returned **true for a customer of
+another store**, because the previous test in the same PHPUnit process had filled the memo while
+`RefreshDatabase` restarted the id space. Pinned by
+`tests/Feature/Security/CustomerAuthCheckIsNotMemoisedTest`, whose two methods must stay in order in
+one file — split them, reorder them or run either alone and the defect is invisible, which is the same
+property that hid the `StorePlan` memo outside the full suite. Restoring the statics reddens the
+middle test.
+
+#### The rule worth keeping, which settles the next three cases without re-deriving them
+
+> **A process-static memo of SCHEMA is safe. A process-static memo of ROWS, IDS or COUNTS is not,**
+> because `RefreshDatabase` restarts the id space inside the static's lifetime.
+
+It clears `BulkDeleteTenantGuard::$storeColumnMemo` (which caches *which tables carry a store column*
+— schema, and schema does not change inside a test process) and catches both `StorePlan`'s removed
+memo and this one. Where a request-scoped memo genuinely is wanted, `app/Scopes/StoreScope.php`
+already solves it: it pairs each memo with the container instance it was built under and discards it
+when that changes (`forgetSlugMemoIfStale()`, `forgetOwnedStoreMemoIfStale()`). Nobody needs to design
+that again.
+
+Also swept and **left alone**: `Module_Alias_Name()` (`app/Helper/helper.php:1568-1580`) has the same
+shape, but its guard only memoises a non-empty result and it feeds a module's *display alias* — not
+`module_is_active()` — so it can render a name wrongly across tests and cannot make an inactive module
+look active. `CouponBasketAllocator` was checked and is immune: every field is instance state, one
+allocator per cart read, and `spendIsOutOfRange()` is a pure static holding nothing.

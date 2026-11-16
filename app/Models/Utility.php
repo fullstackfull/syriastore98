@@ -1116,8 +1116,54 @@ class Utility extends Model
         return $theme;
     }
 
-    private static $store_id = null;
-    private static $customer = null;
+    /**
+     * Is the signed-in customer a customer OF THIS STORE?  P4-F123.
+     *
+     * THIS USED TO MEMOISE ITS ANSWER IN TWO PROCESS-GLOBAL STATICS KEYED ON NOTHING:
+     *
+     *     private static $store_id = null;
+     *     private static $customer = null;
+     *     ...
+     *     if (is_null(self::$store_id)) { self::$store_id = Store::where('slug', $slug)->...; }
+     *     else                          { $store_id = self::$store_id; }
+     *     if (is_null(self::$customer)) { self::$customer = Customer::where('store_id', $store_id)
+     *                                        ->where('email', $auth_customer->email)->count(); }
+     *     else                          { $customer = self::$customer; }
+     *
+     * The first call for ANY slug filled both, and every later call in the process returned them --
+     * whatever slug it was given, whoever was signed in. Not keyed on the slug, not on the customer,
+     * not on anything.
+     *
+     * WHAT IT DECIDES, which is why this was worth removing rather than documenting: this function is
+     * the switch that chooses which cart reader prices a basket --
+     * `ApiController::couponSpendBaseline:118` and `apply_coupon:4619` both branch on it between
+     * `Cart::cart_list_cookie()` and `cart_list()`. A stale answer prices the signed-in `carts` rows
+     * where the guest cookie basket was intended, or the reverse, underneath the whole coupon
+     * arithmetic.
+     *
+     * PRODUCTION WAS HARDENING, NOT A HOLE, and that was measured rather than assumed: all 21 call
+     * sites are controllers, middleware or views -- no job, listener, command or observer -- so under
+     * PHP-FPM the statics died with the request, and within one request the slug is the route's store
+     * and the authenticated customer does not change.
+     *
+     * IN THE TEST SUITE IT WAS LIVE. MEASURED: `CustomerAuthCheck()` returned TRUE for a customer of
+     * another store, because the previous test in the same PHPUnit process had filled the memo and
+     * `RefreshDatabase` had meanwhile restarted the id space.
+     * `tests/Feature/Security/CustomerAuthCheckIsNotMemoisedTest` drives exactly that sequence.
+     *
+     * THE RULE THIS BELONGS TO, worth stating because this codebase has three recorded variants of
+     * it: a process-static memo of SCHEMA is safe (`BulkDeleteTenantGuard::$storeColumnMemo` caches
+     * which tables carry a store column, and the schema does not change inside a test process); a
+     * process-static memo of ROWS, IDS or COUNTS is not, because `RefreshDatabase` restarts the id
+     * space inside the static's lifetime. Where a request-scoped memo really is needed, `StoreScope`
+     * already solves it properly -- it pairs each memo with the container instance it was built under
+     * and discards it when that changes (`forgetSlugMemoIfStale()`, `forgetOwnedStoreMemoIfStale()`).
+     * Here the two queries are a slug lookup and a count against `Cachable` models, which is cheaper
+     * than a global.
+     *
+     * Found by independent review sweeping for the shape of a defect this phase had just introduced
+     * and removed in `App\Support\Commerce\StorePlan`.
+     */
     public static function CustomerAuthCheck($slug = null)
     {
         if ($slug == null) {
@@ -1125,18 +1171,10 @@ class Utility extends Model
         }
         $auth_customer = auth('customers')->user();
         if (!empty($auth_customer)) {
-            if (is_null(self::$store_id)) {
-                $store_id = Store::where('slug', $slug)->pluck('id')->first();
-                self::$store_id = $store_id;
-            } else {
-                $store_id = self::$store_id;
-            }
-            if (is_null(self::$customer)) {
-                $customer = Customer::where('store_id', $store_id)->where('email', $auth_customer->email)->count();
-                self::$customer = $customer;
-            } else {
-                $customer = self::$customer;
-            }
+            $store_id = Store::where('slug', $slug)->pluck('id')->first();
+            $customer = Customer::where('store_id', $store_id)
+                ->where('email', $auth_customer->email)
+                ->count();
             if ($customer > 0) {
                 return true;
             } else {
