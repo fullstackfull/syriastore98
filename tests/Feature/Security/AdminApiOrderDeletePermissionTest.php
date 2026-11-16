@@ -183,6 +183,31 @@ class AdminApiOrderDeletePermissionTest extends SecurityTestCase
     }
 
     /**
+     * THE STORE'S OWNER IS NOT REFUSED, even holding no role at all.
+     *
+     * THIS CASE EXISTS BECAUSE THE FIRST VERSION OF THE GATE DID REFUSE THEM, and two older tests
+     * caught it — `AdminApiTenancyTest::test_delete_order_still_works_for_the_owning_merchant` and
+     * `DeliveryAndOrderApiAuthorizationTest::test_status_change_still_works_for_the_owning_merchant`,
+     * the latter saying in its own message "The predicate is too tight -- that is a defect, not a
+     * fix." Pinned HERE as well so the limb has a test in the suite that owns the gate, rather than
+     * only in the suites that happened to notice its absence.
+     *
+     * IT IS NOT AN ESCALATION: the owner is the principal who creates the roles and grants the
+     * permissions in their own tenant. The gate's value is against STAFF, which the case above
+     * holds.
+     */
+    public function test_the_store_owner_is_not_refused_without_a_permission(): void
+    {
+        [$merchant, $store, $order] = $this->tenant();
+
+        $response = $this->send(User::find($merchant->id), $store, $order);
+
+        $this->assertFalse($this->orderSurvives($order),
+            "the store's own merchant was refused deletion of their own order while holding no "
+            . 'role. Body: ' . substr((string) $response->getContent(), 0, 200));
+    }
+
+    /**
      * THE OPERATOR IS NOT REFUSED — the single most repeated trap in this codebase.
      *
      * Laratrust runs with `permissions_as_gates => false` and there is no super-admin bypass, so a

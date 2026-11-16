@@ -142,6 +142,26 @@ class AdminApiOrderStatusPermissionTest extends SecurityTestCase
     }
 
     /**
+     * THE STORE'S OWNER IS NOT REFUSED, even holding no role at all.
+     *
+     * `DeliveryAndOrderApiAuthorizationTest::test_status_change_still_works_for_the_owning_merchant`
+     * is the older test that caught the first version of this gate refusing them, and its message
+     * reads "The predicate is too tight -- that is a defect, not a fix." Pinned here too, in the
+     * suite that owns the gate.
+     */
+    public function test_the_store_owner_is_not_refused_without_a_permission(): void
+    {
+        [$merchant, , $order] = $this->tenant();
+
+        $response = $this->asUser($merchant)
+            ->postJson('/api/admin/status-change', ['id' => $order->id, 'delivered' => 'confirmed']);
+
+        $this->assertSame(4, $this->deliveredStatusOf($order),
+            "the store's own merchant was refused while holding no role. Body: "
+            . substr((string) $response->getContent(), 0, 200));
+    }
+
+    /**
      * THE OPERATOR IS NOT REFUSED — `isAbleTo()` alone refuses them, because they hold no roles.
      */
     public function test_the_operator_is_not_refused(): void

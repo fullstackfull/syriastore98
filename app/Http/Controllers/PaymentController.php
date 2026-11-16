@@ -2164,24 +2164,44 @@ public function handlePaymeraTrigger00($orderId)
          * one the normal path uses, so a request that already released its claim finds nothing to
          * do, and one that legitimately produced an order keeps it.
          */
-        $ssReleaseClaim = function () use ($ssIntakeClaim, $ssIntakeCartIds): void {
-            if (\Illuminate\Support\Facades\Cache::get($ssIntakeClaim) !== self::STOREFRONT_INTAKE_WRITING) {
-                return;
-            }
+        /*
+         * THE REPOSITORY AND THE CONNECTION ARE RESOLVED **NOW**, NOT INSIDE THE CLOSURE.
+         *
+         * The first version of this called `Cache::get()` through the facade from inside the
+         * shutdown handler, and that is a different world: `register_shutdown_function` runs after
+         * PHP's normal shutdown, by which point Laravel's container can already be torn down. It
+         * threw `Target class does not exist` out of `Container.php` -- a FATAL raised by the very
+         * code written to make a failure recoverable. Measured in the full Feature suite, where
+         * each test rebuilds the application: the handler fired after that instance was gone.
+         *
+         * Holding the resolved cache store and DB connection closes it, because the closure then
+         * needs nothing from the container at all.
+         */
+        $ssClaimStore = \Illuminate\Support\Facades\Cache::store();
+        $ssClaimConnection = \Illuminate\Support\Facades\DB::connection();
 
+        $ssReleaseClaim = function () use ($ssIntakeClaim, $ssIntakeCartIds, $ssClaimStore, $ssClaimConnection): void {
+            /*
+             * TOTAL BY CONSTRUCTION. A shutdown handler that throws has nowhere to report and can
+             * mask the failure that brought the process down, so the whole body is wrapped rather
+             * than the probe alone. The cost of doing nothing is bounded: the claim expires on its
+             * own after STOREFRONT_INTAKE_CLAIM_SECONDS.
+             */
             try {
-                $ssBasketConsumed = $ssIntakeCartIds !== []
-                    && ! \App\Models\Cart::withoutGlobalScopes()->whereIn('id', $ssIntakeCartIds)->exists();
-            } catch (\Throwable $ssProbeFailure) {
-                /* A shutdown handler must not take the connection's failure out with it, and it
-                   cannot report anything either. Unanswerable means release, which is the
-                   direction F276 argued for: a checkout dead for two minutes with no order to
-                   show for it is the worse outcome. */
-                $ssBasketConsumed = false;
-            }
+                if ($ssClaimStore->get($ssIntakeClaim) !== self::STOREFRONT_INTAKE_WRITING) {
+                    return;
+                }
 
-            if (! $ssBasketConsumed) {
-                \Illuminate\Support\Facades\Cache::forget($ssIntakeClaim);
+                /* Unanswerable means release, which is the direction F276 argued for: a checkout
+                   dead for two minutes with no order to show for it is the worse outcome. */
+                $ssBasketConsumed = $ssIntakeCartIds !== []
+                    && ! $ssClaimConnection->table('carts')->whereIn('id', $ssIntakeCartIds)->exists();
+
+                if (! $ssBasketConsumed) {
+                    $ssClaimStore->forget($ssIntakeClaim);
+                }
+            } catch (\Throwable $ssReleaseFailure) {
+                // Nothing to do and nowhere to say it. The claim's TTL is the backstop.
             }
         };
 

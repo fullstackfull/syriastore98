@@ -3446,11 +3446,9 @@ public function ViewProduct(Request $request)
          * role lacks it is now refused. That is the same trade the web side's S2 records, and it is
          * the right direction -- an un-permissioned irreversible delete is the worse failure.
          */
-        if (! MerchantPermissions::allowsAny(\Auth::user(), ['Delete Order'], $store->id)) {
-            return response()->json([
-                'status' => 'error',
-                'message' => __('You do not have permission to perform this action.'),
-            ], 403);
+        if (! $this->callerIsStoreOwner($store->id)
+            && ! MerchantPermissions::allowsAny(\Auth::user(), ['Delete Order'], $store->id)) {
+            return $this->orderPermissionDenied();
         }
 
         $order = Order::where('id', $request->order_id)
@@ -4851,6 +4849,45 @@ public function DeleteReview($id)
      * the merchant (or platform operator) who owns the order's store.
      */
     /**
+     * IS THE CALLER THE STORE'S OWNER — the tenant root, not merely somebody inside the tenant?
+     * =============================================================================================
+     *
+     * THIS LIMB EXISTS BECAUSE THE FIRST VERSION OF THE P4-F037 AND P4-F107 GATES BROKE A SHIPPED
+     * CONTRACT, and two independent tests said so in as many words. `DeliveryAndOrderApiAuthorization
+     * Test::test_status_change_still_works_for_the_owning_merchant` was written by an earlier
+     * package precisely to catch this, and its failure message is *"The predicate is too tight --
+     * that is a defect, not a fix."* `AdminApiTenancyTest::test_delete_order_still_works_for_the
+     * _owning_merchant` says the same for the delete route. Both merchants in those fixtures hold
+     * NO role, and a permission-only gate refused them.
+     *
+     * IT IS NOT A PRIVILEGE ESCALATION, which is the question worth asking before adding any
+     * bypass. The store's owner is the principal who CREATES the roles and grants the permissions
+     * in their own tenant; there is no permission they cannot give themselves through the product.
+     * Refusing them is therefore a live breakage with no security gain, and in production it is a
+     * breakage for every merchant whose role happens to lack the specific permission.
+     *
+     * `$store->created_by === $user->id` AND NOT `creatorId()`. `User::creatorId()` returns the
+     * OWNER's id for a staff member too, so a `creatorId()` comparison would admit every employee
+     * and dissolve the permission gate entirely. The owner's own id is the only spelling that
+     * separates the tenant root from the tenant.
+     *
+     * The platform operator is not handled here: `MerchantPermissions::allowsAny()` already
+     * returns the wildcard for them, which is where that decision belongs.
+     */
+    private function callerIsStoreOwner($storeId): bool
+    {
+        $user = \Auth::user();
+
+        if (! $user instanceof \App\Models\User || empty($storeId)) {
+            return false;
+        }
+
+        $store = getStoreById($storeId);
+
+        return $store !== null && (int) $store->created_by === (int) $user->id;
+    }
+
+    /**
      * P4-F037 — MAY THIS PRINCIPAL CHANGE THIS ORDER'S STATE?
      * =============================================================================================
      *
@@ -4889,6 +4926,10 @@ public function DeleteReview($id)
         $boy = auth('deliveryboy')->user();
 
         if ($boy && (int) $order->deliveryboy_id === (int) $boy->id) {
+            return true;
+        }
+
+        if ($this->callerIsStoreOwner($order->store_id)) {
             return true;
         }
 

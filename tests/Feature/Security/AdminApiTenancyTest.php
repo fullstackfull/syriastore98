@@ -507,27 +507,28 @@ class AdminApiTenancyTest extends SecurityTestCase
     /**
      * THE OWNING MERCHANT IS NOT REFUSED AS A FOREIGN TENANT -- which is what this case is for.
      *
-     * P4-F107 ADDED A PERMISSION GATE to this route, which previously had none: any staff member
+     * P4-F107 added a PERMISSION gate to this route, which previously had none: any staff member
      * of the tenant, holding a role with no permissions at all, could irreversibly destroy an
-     * order and its tax, coupon and billing rows. The grant below is what keeps THIS case
-     * measuring what it is named for.
+     * order and its tax, coupon and billing rows.
      *
-     * `makeMerchant()` creates a `type => 'admin'` user with NO ROLES, which a real merchant is
-     * not: a self-registered merchant is given the shared global `admin` role, which
-     * `Utility::addNewData()` fills with `Delete Order` among ~190 others. So the fixture was
-     * thinner than production, and without the grant this case would now be asserting that a
-     * roleless principal may hard-delete -- the opposite of what P4-F107 closed.
+     * THE FIRST VERSION OF THAT GATE BROKE THIS CASE, and the fix was to the GATE and not to this
+     * test. A permission-only gate refused the merchant below, who holds no role -- and the
+     * store's owner is the principal who creates the roles and grants the permissions in their own
+     * tenant, so refusing them is a live breakage with no security gain. `DashboardController::
+     * callerIsStoreOwner()` is that limb, and this case is one of the two tests that caught its
+     * absence; the other is `DeliveryAndOrderApiAuthorizationTest::test_status_change_still_works
+     * _for_the_owning_merchant`, whose own message reads "The predicate is too tight -- that is a
+     * defect, not a fix."
      *
-     * The precedent is already shipped on this branch: `createOrderViaApi` carries the same
-     * `MerchantPermissions::allowsAny()` gate and refuses a roleless owner in the same way.
-     * `AdminApiOrderDeletePermissionTest` holds the authorization half, including that a
-     * permitted staff member still succeeds and that the platform operator is never refused.
+     * LEFT WITHOUT A PERMISSION GRANT DELIBERATELY. Granting one here would make this case pass
+     * through the permission limb and stop exercising the owner limb at all -- and the owner limb
+     * is the half that a future tightening would remove. `AdminApiOrderDeletePermissionTest` holds
+     * the rest: a permissionless STAFF member is still refused, a permitted staff member still
+     * succeeds, and the platform operator is never refused.
      */
     public function test_delete_order_still_works_for_the_owning_merchant(): void
     {
-        [$merchantA, $storeA, $tokenA] = $this->twoTenants();
-
-        $this->grantPermission(User::find($merchantA->id), 'Delete Order');
+        [, $storeA, $tokenA] = $this->twoTenants();
 
         $own = $this->makeOrder($storeA);
 
