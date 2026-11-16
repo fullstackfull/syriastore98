@@ -443,7 +443,22 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            (which NAMES store_id, so the unscoped half does not move) and P4-F131's
            `DB::table('orders')` primary-key existence probe in AppliesCartStockChanges (which does
            move the unscoped half, and whose reason is written out where that number lives). */
-        $this->assertSame(['app' => 180, 'packages' => 45], $perDir,
+        /* 180 -> 182 on 2026-11-16 [P4-F124]: BOTH in `app`, both in
+           `App\Services\OrderEntitlementReversal`, and BOTH NAME `store_id` -- so the unscoped
+           half of the per-table row below does NOT move.
+
+           They are the locked read of the order's `store_order_financials` row and the status
+           update that records the reversal. RAW rather than Eloquent for the reason every other
+           statement against this table is raw: the row is read, decided on and written inside one
+           `DB::transaction` with `lockForUpdate()`, and a `Cachable` model would serve a pre-write
+           row to the very next read in the same request -- the failure this repository has
+           measured three times.
+
+           The UPDATE carries `->where('store_id', $storeId)` even though the row was selected with
+           it three statements earlier. That is deliberate: this census flagged the statement as
+           store-less when it was keyed on `id` alone, and it was right to -- a reader of that line
+           in isolation could not tell the id came from a scoped lookup. */
+        $this->assertSame(['app' => 182, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -528,7 +543,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // parameterised on a literal table name, reachable only from the console, and able to
         // produce exactly one outcome: a RuntimeException that stops the migration.
         /* 223 -> 225: the same two P4 sites counted in the per-directory assertion above. */
-        $this->assertSame(225, array_sum($perDir));
+        /* 225 -> 227 [P4-F124]: OrderEntitlementReversal's two `store_order_financials`
+           statements, both naming `store_id`. Classified in full in the per-directory note. */
+        $this->assertSame(227, array_sum($perDir));
     }
 
     /**
@@ -710,7 +727,17 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // So the census was under-reporting this money table by exactly the two sites that
             // matter. Found by independent review of the wave-4 change, which re-derived the
             // number instead of accepting it.
-            'store_order_financials' => [10, 5],
+            // 10 -> 12 on 2026-11-16 [P4-F124], AND THE UNSCOPED HALF STAYS AT 5.
+            // `App\Services\OrderEntitlementReversal` adds the locked read of the order's
+            // financial row and the status update that records the reversal of entitlement.
+            // BOTH NAME `store_id`, which is the whole point of this row's second number: the
+            // table gained two statements and gained no new cross-tenant exposure.
+            //
+            // The UPDATE names `store_id` even though the SELECT three statements earlier already
+            // did. That is not belt-and-braces -- this census flagged it as store-less when it was
+            // keyed on `id` alone, exactly as it flags the two OrderFinancialService reads above,
+            // and the predicate was added rather than an exception declared.
+            'store_order_financials' => [12, 5],
             // 18 -> 19 AND 17 -> 18 with P1-INV-20: LotteryRefundOwnershipGuard's slug lookup,
             // `DB::table('stores')->where('slug', $slug)->value('id')`.
             //
@@ -826,7 +853,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // count rather than the remainder. 172 literal-table sites of the 222 entry points.
         // 171, DOWN FROM 172: same single removed raw write.
         /* 171 -> 173: P4-F132's customers predicate and P4-F131's orders probe. */
-        $this->assertSame(173, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        /* 173 -> 175 [P4-F124]: OrderEntitlementReversal's two `store_order_financials`
+           statements. Both name `store_id`, so the companion unscoped total below does not move --
+           which is the assertion that would have caught a cross-tenant addition. */
+        $this->assertSame(175, array_sum(array_map(fn ($r) => $r[0], $actual)),
             '[2026-11-02] 167 -> 170 AND the remainder 52 -> 49, with NOTHING IN app/ CHANGED. '
             . 'Three entry points were counted by RAW_ENTRY_POINT_PATTERN and NOT attributed to '
             . 'their table, because they write `DB::table(` on one line and the name on the next: '

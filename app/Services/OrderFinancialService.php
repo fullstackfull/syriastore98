@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\StoreWallet;
 use App\Models\StoreWalletTransaction;
 use App\Models\Setting;
+use App\Services\OrderEntitlementReversal;
 use App\Services\StoreWalletProvisioning;
 use Illuminate\Support\Facades\DB;
 
@@ -348,6 +349,43 @@ class OrderFinancialService
             ->first();
 
         if (!$financial) {
+            return;
+        }
+
+        /*
+         * P4-F124 -- A TERMINAL REVERSAL IS NOT UNDONE BY A LATER SETTLEMENT CHANGE.
+         * =========================================================================================
+         *
+         * Once `OrderEntitlementReversal` has moved this row to `cancelled` or `refunded`, the
+         * merchant's entitlement has been reversed and a wallet transaction records it. This method
+         * must not then move the row back.
+         *
+         * WITHOUT THIS GUARD THE RECORD IS ERASED, and it is erased silently. The method ends in an
+         * UNCONDITIONAL `update(['payment_status' => $orderStatus])`, so ANY later movement of the
+         * ORDER's own payment status -- a merchant correcting it, a late gateway callback arriving
+         * after a cancellation, a staff member fixing a typo -- rewrote `cancelled` back to `paid`
+         * or `unpaid`. The wallet stayed debited and the ledger stopped saying why. Measured: both
+         * directions reproduce, and they are pinned by
+         * `CancellationLedgerSemanticsTest::test_a_later_payment_status_change_does_not_erase_the_cancellation`
+         * and `::test_a_late_paid_does_not_resurrect_a_cancelled_entitlement`.
+         *
+         * THE `paid` DIRECTION IS THE DANGEROUS ONE. A late `Paid` on a cancelled order would reach
+         * `markFinancialAsPaid()` and CREDIT the merchant a second time for an order that was
+         * cancelled and already reversed.
+         *
+         * This is the owner's principle 2 one layer down: "Cancellation does not erase evidence of a
+         * captured payment." The evidence lives on this row, and this is what stops a routine status
+         * edit destroying it.
+         *
+         * IT IS NOT A DEAD END FOR LEGITIMATE CORRECTIONS. A merchant who genuinely needs to move a
+         * reversed order's entitlement does it through the finance surface, which acts on the
+         * financial record deliberately and with its own authorization -- not as a side effect of
+         * editing the customer's payment status.
+         */
+        if (in_array((string) $financial->payment_status, [
+            OrderEntitlementReversal::REASON_CANCELLED,
+            OrderEntitlementReversal::REASON_REFUNDED,
+        ], true)) {
             return;
         }
 

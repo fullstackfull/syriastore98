@@ -707,12 +707,59 @@ if ($order_status == 'cancel') {
     
     $order->cancel_date = now();
     $order->delivered_status = 2;
-    
-    // ✅ هذا هو السطر السحري المفقود: يجب تغيير حالة الدفع لاسترداد المبلغ
-    $order->payment_status = 'Unpaid'; 
-    
-    $order->save(); // <-- هنا سيكتشف الـ Observer التغيير ويستدعي خدمة المحفظة
-    
+
+    /*
+     * P4-F124 -- THE "MISSING MAGIC LINE" IS GONE, AND THIS IS WHAT REPLACED IT.
+     * =============================================================================================
+     *
+     * What stood here was:
+     *
+     *     // ✅ هذا هو السطر السحري المفقود: يجب تغيير حالة الدفع لاسترداد المبلغ
+     *     $order->payment_status = 'Unpaid';
+     *     $order->save(); // <-- هنا سيكتشف الـ Observer التغيير ويستدعي خدمة المحفظة
+     *
+     * -- "the missing magic line: the payment status must be changed to reclaim the amount", and
+     * "here the Observer will detect the change and call the wallet service". The comment is honest
+     * about what the line was for: it was not a statement about the customer, it was a TRIGGER.
+     * `OrderObserver::updated()` returns early unless `wasChanged('payment_status')`, so overwriting
+     * the column was the only way to make the merchant's wallet credit reverse.
+     *
+     * THE COST WAS THE CUSTOMER'S PAYMENT HISTORY. A shopper who paid by card and then cancelled
+     * ended up with an order recording that they had not paid. The capture was real; the only
+     * durable trace of it was overwritten to fire a side effect.
+     *
+     * OWNER DECISION (Option A): "`orders.payment_status` represents the customer's actual payment
+     * settlement. Cancellation must not rewrite a captured payment as Unpaid merely to trigger
+     * wallet reversal. Represent cancellation and financial reversal reasons in the existing
+     * financial ledger structures."
+     *
+     * So the reversal is now ASKED FOR rather than provoked. `payment_status` is not touched here
+     * at all -- the order goes on saying what the customer actually did -- and the reversal is
+     * recorded where entitlement lives, with a reason, exactly once per order.
+     *
+     * EVERY DOOR THAT GOES THROUGH THIS ENGINE INHERITS IT, which is why the call sits here rather
+     * than in the callers: the merchant web door, the storefront customer door, the cancel-and-
+     * reissue door, the storefront API door, the admin/driver API door -- and the vendored
+     * LotteryPrizes door, which cancels a host `orders` row through this same method and cannot be
+     * edited. The doors that write `delivered_status = 2` WITHOUT calling this method carry their
+     * own call for the same reason.
+     *
+     * THE SAVE STILL HAPPENS FIRST. The reversal reads the order's own store and id, and the
+     * cancellation must be durable before the money moves: if the save fails, nothing was
+     * cancelled and nothing should be reversed.
+     *
+     * STOCK IS DELIBERATELY NOT TOUCHED HERE and must never be. `OrderReplacement::cancelAndReplace()`
+     * calls this same method, and a cancel-plus-reissue pair must net to zero movement rather than
+     * restoring -- which is why the restore lives in the callers behind per-line markers.
+     */
+    $order->save();
+
+    app(\App\Services\OrderEntitlementReversal::class)->reverseOrLog(
+        $order,
+        \App\Services\OrderEntitlementReversal::REASON_CANCELLED,
+        'order_status_change'
+    );
+
     event(new OrderPaymentStatus($order));
 
     $return['status'] = 'success';

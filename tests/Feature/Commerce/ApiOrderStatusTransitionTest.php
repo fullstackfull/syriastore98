@@ -476,9 +476,27 @@ class ApiOrderStatusTransitionTest extends SecurityTestCase
             Order::order_status_change(['order_id' => $sibling->id, 'order_status' => 'cancel'])['status'] ?? null,
             'the web refused a cancel from Pending, so the oracle is not measuring the web rule'
         );
-        $this->assertSame('Unpaid', (string) $this->rawOrder($sibling)->payment_status,
-            "the web's cancel did not write payment_status = 'Unpaid', so there is nothing for "
-            . 'the API arm to be missing');
+        /*
+         * THE ORACLE IS INVERTED. OWNER DECISION P4-F124 (Option A), 2026-11-16.
+         *
+         * It asserted `'Unpaid'`, and its own docblock said why that mattered: "if the web ever
+         * stops writing 'Unpaid', this oracle reds and the gap has to be re-described rather than
+         * quietly surviving as a note about behaviour nobody has." That is exactly what happened,
+         * and this is the re-description.
+         *
+         * THE TWO DOORS NO LONGER DISAGREE. The gap this file recorded was that the web wrote
+         * `'Unpaid'` and the API did not, so only the web reversed the wallet. The owner resolved
+         * it in the API's favour: NEITHER door rewrites the customer's settlement, and BOTH reverse
+         * the merchant's entitlement explicitly through `OrderEntitlementReversal`, on the ledger,
+         * with a reason and exactly once.
+         *
+         * So the web sibling now keeps `'Paid'` too, and the thing that used to be measured here —
+         * a difference between two doors — no longer exists to measure.
+         */
+        $this->assertSame('Paid', (string) $this->rawOrder($sibling)->payment_status,
+            "the web's cancel rewrote a captured payment as Unpaid. P4-F124 Option A removed that "
+            . 'write from app/Models/Order.php\'s cancel arm; the reversal now happens on the '
+            . 'financial ledger instead. If this reads Unpaid, the old magic line is back.');
 
         $response = $this->postStatus($merchant, $order, [
             'delivered_status' => HomeController::ORDER_STATUS_CANCEL,
