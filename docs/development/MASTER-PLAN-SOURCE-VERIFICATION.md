@@ -1,10 +1,30 @@
 # Master Product Plan — source verification
 
-## ORIGINAL MASTER PLAN SOURCE: NOT FULLY VERIFIED
+## ORIGINAL MASTER PLAN SOURCE: RECOVERED FROM OUTSIDE THE REPOSITORY (2026-11-16)
 
-**The owner-approved "Store Syria Master Product Plan / Decision Register v1.0 (2026-10-14)" does
-not exist as a document in this repository, and never has.** It is cited as an external authority by
-seven files. Its six-phase *structure* and its decision-ID *index* survive; the decision *content*
+> **THIS DOCUMENT IS SUPERSEDED IN PART, NOT WITHDRAWN.** On 2026-11-16 the owner recovered the plan
+> from preserved Store Syria project conversations and supplied it. It is committed verbatim under
+> `docs/development/master-plan/`, and the 181 decision IDs are registered with their content in
+> `docs/development/master-plan/DECISION-ID-REGISTER.md`.
+>
+> **What this document got right and keeps:** section 1's finding - *the plan was never committed to
+> this repository* - is **verified against git history and remains true**. The seven citing files
+> really were citing an external authority. Section 4's warnings about which documents must not be
+> mistaken for the plan still stand, as do section 5's authority levels.
+>
+> **What changed:** the content is now available **from an external source**, so "unrecoverable" in
+> section 3 is wrong and is corrected there. **What did not change:** a recovered requirement is not
+> an implemented one, and no status moved because of the recovery.
+>
+> **One inference in section 2.3 is REFUTED by the recovered text.** It is struck through rather
+> than deleted, because an inference that was reasonable, consistently applied and wrong is the best
+> argument this project has for why INFERRED authority may never close a row.
+
+**The owner-approved "Store Syria Master Product Plan / Decision Register v1.0 (2026-10-14)" was
+never committed to this repository before 2026-11-16.** A recovered copy is committed now; no
+version of it existed here before that date. It was cited as an external authority by seven files.
+Its six-phase *structure* and its decision-ID *index* survived here; the decision *content* did not,
+and had to come from outside.
 does not.
 
 This document records exactly what was searched, what was recovered, and what is missing, so that no
@@ -67,8 +87,15 @@ size is unknown and must not be guessed.
 `docs/development/phase-2/PHASE-02-TASK-LEDGER.md` cites these IDs **as the authority for individual
 tasks**, which lets some meaning be inferred from use. For example:
 
-- `PRD-001` governs honest metric presentation — its rows include *"Honest stat grid, every figure
-  carrying its period"* and *"Refuse to display revenue/profit; label order value honestly"*.
+- ~~`PRD-001` governs honest metric presentation - its rows include *"Honest stat grid, every figure
+  carrying its period"* and *"Refuse to display revenue/profit; label order value honestly"*.~~
+  **REFUTED 2026-11-16.** The recovered plan defines `PRD-001` as *محرر منتج كامل* - **"full product
+  editor"** - the first of `PRD-001`...`PRD-006` in section 04-A, the product catalogue family, and
+  cites it in 02-C and 02-E beside the product-editor requirements. It has nothing to do with metric
+  honesty. The Phase 02 ledger attached the label to four honest-metric rows and this document
+  canonised that usage as meaning. **The work those rows describe is sound and stands**; it answers
+  to `ANA-006` and `ANA-007`, which are Phase 05 decisions it pre-satisfied in part. See
+  `master-plan/DECISION-ID-REGISTER.md` section 4.1.
 - `UX-001…014` governs the design system and component layer — its rows include the Blade component
   layer and the design-system extension.
 
@@ -79,13 +106,18 @@ used.** No row in the traceability matrix may cite an inferred meaning as the re
 
 ## 3. What is NOT recoverable
 
-1. **The wording of every decision ID.** `UX-001` through `UX-014`, `ARCH-001` through `ARCH-011`,
-   `EX-001` through `EX-012`, `PRD-001`, `ORD-001`, `ORD-009` and the GOV/DATA families are named
-   and never defined anywhere in the repository.
-2. **The exclusions `EX-001`–`EX-012`.** These matter most and are the most completely lost: an
-   exclusion is the record of something deliberately NOT built. Without them, a later reader cannot
-   distinguish "never in scope" from "silently dropped" — which is the exact failure this audit
-   exists to prevent.
+**[CORRECTED 2026-11-16 - items 1 and 2 are largely resolved by the recovery.]**
+
+1. ~~**The wording of every decision ID.**~~ **RESOLVED for 178 of 181.** The recovery defines 181
+   decision IDs across 25 families - 19 of those families were not even known to exist when this
+   list was written. **Three texts are still missing**: `GOV-001`...`GOV-014` is supplied with 13
+   texts and `ARCH-001`...`ARCH-011` with 9, so one governance and two architecture decisions remain
+   unknown and must not be invented. For 64 further ids the family's obligations are recovered but
+   the per-id pairing is not. See `master-plan/DECISION-ID-REGISTER.md` sections 1 and 5.
+2. ~~**The exclusions `EX-001`-`EX-012`.**~~ **RESOLVED - all 12 recovered with their wording**, and
+   each reconciled against the matrix, the gap register and, where it is a claim about behaviour,
+   the code. None was found violated; `EX-011` could not be verified because Phase 06 has not
+   started. See `DECISION-ID-REGISTER.md` section 3.
 3. **Owner-authored requirement documents for Phases 03, 04, 05 and 06.** What exists for those
    phases are *execution plans written during engineering* (`PHASE-03-EXECUTION-PREP.md`,
    `PHASE-04-EXECUTION-PLAN.md`, `PHASE-05-EXECUTION-PLAN.md`) plus final reports. Phase 02 is the
@@ -131,10 +163,16 @@ coverage figure in this project is a figure **against the recoverable derivation
 
 ## 6. What would close this
 
-The owner supplying the authoritative **Master Product Plan / Decision Register v1.0 (2026-10-14)**,
-or any export of it carrying the decision IDs and their wording — in particular the **`EX-001`–
-`EX-012` exclusions**, which are the only record of what was deliberately left out.
+**[LARGELY CLOSED 2026-11-16.]** The owner supplied an export carrying the decision IDs and their
+wording, including the `EX-001`-`EX-012` exclusions. What remains open is narrower, and is stated
+exactly:
 
-This is the single piece of missing source material that prevents full scope certification. It is
-recorded here rather than worked around, and independently executable engineering continues without
-it.
+1. **Three decision texts** (1 `GOV`, 2 `ARCH`) are still unknown.
+2. **Per-id pairing for 64 ids** is not derivable from the recovered text.
+3. **Byte-fidelity to the owner's pre-reorganization original is not established.** The recovery
+   document says of itself that it is *"a reorganization of owner-supplied approved decisions, not
+   necessarily the unedited owner-authored original Decision Register"*.
+
+So **alignment can now be certified against the recovered plan**, and still **not** against a
+pre-reorganization original, should one differ. Every coverage figure must continue to say which of
+the two it is measured against.

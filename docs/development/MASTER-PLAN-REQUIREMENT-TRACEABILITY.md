@@ -2,21 +2,38 @@
 
 **Generated from a read-only recovery pass over every phase's authoritative sources.**
 
-> **AUTHORITY WARNING.** The owner-approved *Master Product Plan / Decision Register v1.0
-> (2026-10-14)* **does not exist in this repository** — see
-> `MASTER-PLAN-SOURCE-VERIFICATION.md`, which records that it was never committed and that
-> the decision IDs `UX-001`–`UX-014`, `ARCH-001`–`ARCH-011`, `EX-001`–`EX-012`, `PRD-001`,
-> `ORD-001`/`ORD-009` and the GOV/DATA families are **named but never defined** anywhere.
-> Every row below is therefore traced against the **best recoverable derivation**, not
-> against the original register. **Total alignment with the original plan cannot be
-> certified from this repository.**
+> **AUTHORITY WARNING - REVISED 2026-11-16.** The owner-approved *Master Product Plan / Decision
+> Register v1.0 (2026-10-14)* was **recovered from preserved project conversations and is now
+> committed** at `master-plan/MASTER-PRODUCT-PLAN-v1.0-BASE.md`, with its three approved amendments
+> in `...-WITH-AMENDMENTS.md` and all 181 decision IDs registered in
+> `master-plan/DECISION-ID-REGISTER.md`.
+>
+> **Every row below was written BEFORE that recovery**, against the best derivation then available,
+> and **no row's status was changed by the recovery.** Three things follow:
+>
+> 1. A row may now be **re-traced against REGISTER authority** - the requirement's own text. Until a
+>    row is re-traced, its authority is what it says: DIRECT, DERIVED or INFERRED.
+> 2. **One INFERRED reading is known to be wrong.** `PRD-001` was read as governing honest metric
+>    presentation; the register defines it as *"full product editor"*. The rows citing it are
+>    identified in `DECISION-ID-REGISTER.md` section 4.1. **No row may be marked VERIFIED COMPLETE
+>    on INFERRED authority alone** - this is why.
+> 3. **Eighteen recovered requirements are not in this matrix at all**, because their text was
+>    unavailable when it was built. They are `GAP-182`...`GAP-199` in the gap register, category R,
+>    all at `COVERAGE NOT ASSESSED`. **Ten of the eighteen fall in Phases 03 and 04, which are
+>    already declared engineering-complete.**
+>
+> **Total alignment can now be certified against the RECOVERED plan.** It still cannot be certified
+> against a pre-reorganization original, which the recovery document itself declines to claim to be.
 
 ## Totals
 
 **350 requirements recovered. 169 VERIFIED COMPLETE. 181 are not.**
 
-These are exact counts of recovered requirements, not a percentage of the original plan —
-which is unknown, because the plan is unavailable.
+**Plus 18 recovered on 2026-11-16** and held in the gap register at `COVERAGE NOT ASSESSED`, so the
+project-wide figure is **368 known requirements, 169 verified complete, 199 not.**
+
+These are exact counts of recovered requirements. They are measured against the recovered plan, not
+against a pre-reorganization original.
 
 | status | count |
 |---|---|

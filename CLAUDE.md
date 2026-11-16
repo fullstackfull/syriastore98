@@ -209,11 +209,13 @@ requirement against `MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`. Missing, partial,
 deferred items need explicit dispositions. CI success alone does not establish product-scope
 completeness. Never silently reduce the approved scope.**
 
-**The original plan is not in this repository** (`MASTER-PLAN-SOURCE-VERIFICATION.md`): it was never
-committed, and its `UX-*`/`ARCH-*`/`EX-*`/`PRD-*`/`ORD-*`/GOV/DATA decision IDs are named but
-nowhere defined. The lost `EX-*` exclusions matter most — without them nobody can tell "never in
-scope" from "silently dropped". **No figure here is alignment with the original plan**, only with
-the best recoverable derivation, and must say so.
+**The original plan IS in this repository now** — recovered 2026-11-16, committed verbatim under
+`docs/development/master-plan/`: the base plan, the same text plus three approved amendments, and
+`DECISION-ID-REGISTER.md` with all **181** decision IDs (25 families, 19 previously unknown) and the
+12 `EX-*` exclusions. **Three texts are still missing (1 GOV, 2 ARCH) and must not be invented**; 64
+ids have family-level content only; the source calls itself a *reorganization*, not the unedited
+original — so a figure is alignment with the RECOVERED plan and must say which. **18 recovered
+requirements were never tracked at all** — `GAP-182`…`GAP-199`, ten in Phases 03/04, both closed.
 
 **Four states, never one label:** engineering complete · original requirement coverage · human
 acceptance · production readiness. An engineering-complete phase may still have incomplete original
@@ -235,7 +237,7 @@ exception; `PHASE-02-COVERAGE-AUDIT-2026-10-25.md` traces which do and which do 
 
 | | |
 |---|---|
-| **original-plan traceability** (read all three) | **`docs/development/MASTER-PLAN-{SOURCE-VERIFICATION,REQUIREMENT-TRACEABILITY,GAP-REGISTER}.md`** — the plan itself was never committed; 350 requirements recovered, **169 verified complete, 181 not**; **181 gaps, 56 category A** |
+| **the plan, and traceability** (read all four) | **`docs/development/master-plan/`** — base (historical, unchanged), +amendments (consolidated), `DECISION-ID-REGISTER.md` (181 ids, exclusions, reconciliation) — then `docs/development/MASTER-PLAN-{SOURCE-VERIFICATION,REQUIREMENT-TRACEABILITY,GAP-REGISTER}.md`: 350 requirements, **169 verified complete, 181 not, +18 recovered and untracked = 199 open** |
 | open security findings | `docs/security/P01-SECURITY-WORK-QUEUE.md` |
 | the next work package | `docs/development/phase-1/10-NEXT-WORK-PACKAGES.md` |
 | token lifetime | `docs/security/P01-TOKEN-EXPIRY-PROPOSAL.md` |

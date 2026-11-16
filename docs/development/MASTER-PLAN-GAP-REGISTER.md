@@ -12,7 +12,12 @@ and traces back to its requirement row in `MASTER-PLAN-REQUIREMENT-TRACEABILITY.
 
 ## Totals
 
-**181 open gaps** out of 350 recovered requirements.
+**181 open gaps** out of 350 recovered requirements, **plus 18 recovered on 2026-11-16** when the
+owner supplied the Master Product Plan — requirements that were never tracked at all, in any
+status, because their text was unavailable. **199 in total.**
+
+The original 181 are unchanged: not renumbered, not recategorised, none closed. The 18 are held in
+their own category **R** below precisely so that the two sets stay distinguishable.
 
 | category | meaning | count |
 |---|---|---|
@@ -253,3 +258,48 @@ and traces back to its requirement row in `MASTER-PLAN-REQUIREMENT-TRACEABILITY.
 | `GAP-143` | `P04-P8-02` | 04 Commerce (P4-0  | NOT IMPLEMENTED | Shipping selection, zones and costs, and tax derivation, are still not exercised end to end; the CURRENCY question is unanswered. | Seed the fixture and write the reconciliation test the acceptance clause names; answer the CURRENCY question as defect or fixture. |
 | `GAP-144` | `P04-P8-03` | 04 Commerce (P4-0  | NOT IMPLEMENTED | Six confirmed shipping/tax rows, two of them cross-customer address reads. | Schedule the shipping family; F021/F073 are ownership defects and should go first. |
 | `GAP-145` | `P04-P9-01` | 04 Commerce (P4-0  | NOT IMPLEMENTED | Five of six journeys have no evidence and, worse, no recoverable definition. The phase closed without ever restating what A, B, D, E and F were. | Ask the owner to resupply the journey list (it is the only source), then drive each with state assertions. |
+
+---
+
+## Category R — recovered on 2026-11-16, never previously tracked (18)
+
+These are **not new work items the project invented**. They are owner-approved requirements whose
+text was unavailable until the Master Product Plan was recovered, so the 350-row matrix never
+carried them in any status — not complete, not partial, not deferred. They are listed here to
+satisfy the standing rule that no original requirement may be silently lost.
+
+**Status for all eighteen is `COVERAGE NOT ASSESSED`, deliberately.** `ARCH-009` — itself recovered
+today — says: *do not infer a feature's absence in production from the absence of its evidence in
+the repository.* Each row below therefore records what was **measured in this container** and stops
+there. None is marked NOT IMPLEMENTED, and none is marked complete.
+
+**No category A/B/C/D/E is assigned.** Six of the eighteen fall in Phases 03 and 04, which are
+already declared engineering-complete; that is a disposition only the owner can make.
+
+| gap | decision id(s) | phase | measured in this container | next action |
+|---|---|---|---|---|
+| `GAP-182` | `INV-006` | 04 | **Partly present.** `ORDER_STATUS_PRE_ORDER` is a real `delivered_status` value, referenced at `app/Models/Order.php:505` and carried by `OrderDataTable`. Whether it is *optional and explicit* in the INV-006 sense — a merchant choosing to accept orders beyond available stock — is not assessed. | Assess the existing pre-order status against INV-006's 'optional and explicit' wording before building anything new. |
+| `GAP-183` | `PRD-002` | 04 | **Partly present.** `ProductAttribute` exists (`app/DataTables/ProductAttributeDataTable.php`). Whether attributes can be *templated by business type*, which is the half PRD-002 adds, is not assessed. | Assess attribute templating by business type against the existing ProductAttribute surface. |
+| `GAP-184` | `PRD-005` | 04 | **Partly present.** The vendored `FrequentlyProduct` module covers complementary products — the second half of PRD-005. **Fixed and flexible bundles are not located.** | Assess bundles against the existing module set before building; do not fork FrequentlyProduct. |
+| `GAP-185` | `ORD-008` | 04 | **Partly present.** The vendored `ProductBarCode` module exists, covering barcodes. **Picking, packing, packing slips and labels are not located** — the only whole-word matches for 'picking'/'packing' are English prose inside unrelated services. | Inventory the vendored modules for fulfilment surfaces before planning; ORD-008 is a Phase 04 requirement and Phase 04 is declared engineering-complete. |
+| `GAP-186` | `PRICE-002` | 04 | **Not located.** No `price_list`, `PriceList` or `tier_price` symbol anywhere in `app/` or `packages/workdo/`. | Owner disposition needed: PRICE-002 is Phase 04 scope and Phase 04 closed without it. |
+| `GAP-187` | `PRICE-004 + PRICE-005` | 04 | **Not located.** No discount-priority rule set. PRICE-005 is a prohibition — never auto-pick the lowest price, never auto-stack discounts — so its absence is a question about current coupon/discount behaviour, not only about a missing feature. | Measure what the current coupon and discount stack actually does when two offers apply, then dispose. Relates to the open P4-F134/F135 coupon findings. |
+| `GAP-188` | `PRICE-006` | 04 | **Not located.** No price preview or calculation explanation surface. | Owner disposition needed; Phase 04 scope, closed without it. |
+| `GAP-189` | `CHAN-001 … CHAN-004` | 04 | **Not located.** `packages/workdo/MarketPlaceList` is a store-listing and business-hours module, not a sales-channel integration. No channel catalogue, sync, conflict detection or external-order import exists under that name. | Owner disposition needed. Note the Zid models in `app/Models/` are an integration surface that should be assessed against CHAN-004 (import external orders without duplication) before CHAN is called absent. |
+| `GAP-190` | `CUST-003` | 03 | **Not located for the storefront.** The only synonym support is `app/Support/Docs/DocumentationSearch.php`, which serves the Phase 03 documentation centre, not product search. | Assess storefront product search against CUST-003; Phase 03 is declared engineering-complete. |
+| `GAP-191` | `MKT-005` | 05 | **Partly present.** Vendored `RewardClubPoint` and `SpinToWinReward` modules exist, and the matrix already tracks 'loyalty' in 14 places. **`VIP` and `referral` appear ZERO times in the matrix** and no referral surface was located. | Phase 05 is active. Assess the vendored reward modules first — ARCH-002 forbids a second engine. |
+| `GAP-192` | `SAAS-007` | 06 | **Half-tracked.** `GMV` appears 4× in the matrix; **`MRR` and `ARR` appear zero times.** Separating platform revenue from merchant sales is the half that was never stated. | Phase 06 scope; carry into Phase 06 planning. |
+| `GAP-193` | `CUST-005` | 03 | **Half-tracked.** Product questions appear once in the matrix; **verified reviews appear zero times.** CUST-005 requires reviews to be *verified*. | Assess whether storefront reviews are gated on a real purchase; Phase 03 is declared engineering-complete. |
+| `GAP-194` | `KYC-001 … KYC-003` | 06 | **Not located.** No KYC or identity-verification surface. | Phase 06 scope, not started. Expected absence; recorded so it cannot be lost again. |
+| `GAP-195` | `OPS-002` | 06 | **Not located.** No real resource measurement (`sys_get_loadavg`, `disk_free_space`, `memory_get_usage`) in `app/`. Note this is the exact requirement Phase 01's `P1-PLT-02` ledger row is blocked on — an environment observation nobody could make from a container. | Phase 06 scope. Cross-reference `P1-PLT-02`: the same measurement blocks a Phase 01 row. |
+| `GAP-196` | `MARKET-001 … MARKET-005` | 06 | **Not located.** No app/theme marketplace. `MarketPlaceList` is a different thing (see GAP-189). | Phase 06 scope, not started. Expected absence. |
+| `GAP-197` | `SUPPORT-004` | 06 | **Not located, and its absence is currently a security property.** No impersonation or login-as door exists in `app/Http/Controllers/` or `routes/web.php`. SUPPORT-004 asks for temporary scoped support access **with merchant consent and an audit log** — building it adds a cross-tenant door that does not exist today. | Phase 06 scope. When built it must go through `tenant-authz-reviewer`; it is a deliberate cross-tenant access path. |
+| `GAP-198` | `IAM-003` | 06 | **Not located.** No two-person approval for dangerous actions. | Phase 06 scope, not started. Expected absence. |
+| `GAP-199` | `CTRL-001 … CTRL-004` | 06 | **Not located.** No feature-flag, pilot-group or gradual-rollout mechanism. | Phase 06 scope, not started. Expected absence. |
+
+**By phase: 03 → 2 · 04 → 8 · 05 → 1 · 06 → 7.**
+
+Seven belong to Phase 06, which has not started, so their absence is expected. **TEN belong to
+Phases 03 and 04, which are declared engineering-complete** — and eight of those ten are Phase 04
+Commerce. That is the finding: a closed phase whose owner-approved scope included requirements
+nobody in this repository could read.
