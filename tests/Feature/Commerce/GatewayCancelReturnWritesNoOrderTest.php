@@ -274,42 +274,188 @@ class GatewayCancelReturnWritesNoOrderTest extends SecurityTestCase
     }
 
     /**
-     * EVERY INITIATION THAT CAN BE CANCELLED MARKS ITS CANCEL URL.
+     * EVERY CANCEL URL THAT RETURNS TO THE STOREFRONT WRITER CARRIES THE MARKER.
+     * =============================================================================================
      *
-     * Structural, because these are outbound SDK calls with no seam. It is the half the reader
-     * cannot cover on its own: PayPal's two URLs were byte-identical and Sofort's cancel URL had
-     * no marker, so for those two providers a reader alone would have changed nothing.
+     * THIS CASE IS A REWRITE, AND THE REASON IS THE WHOLE POINT. Its first version asserted that
+     * two literal spellings occurred ZERO times:
+     *
+     *     "cancel_url" => route('store.payment.status', $slug)      // double-quoted key, scalar
+     *     'cancel_url' => route('store.payment.status', [$slug])    // array form, literal $slug
+     *
+     * An adversarial sweep measured what that actually covered, and the answer was: almost
+     * nothing. It was blind to `'cancel_url' => route(..., $slug)` with a SINGLE-quoted key --
+     * which is the exact shape PayFast had, one of the four providers this very suite was written
+     * alongside, so the case could not have failed on it. It was blind to `[$store->slug]`, which
+     * contains no `$slug` substring, and that is CoinGate -- a LIVE instance of the defect, whose
+     * `cancel_url` was byte-identical to its `callback_url` and `success_url` and which does store
+     * its checkout state, so a cancelling shopper got a phantom order, a stock decrement with
+     * nothing to claim it, an emptied cart and a consumed 48-hour claim. And it was blind to
+     * `$skill->cancel_url = ...`, a property assignment rather than an `=>` key.
+     *
+     * A NEGATIVE RATCHET CAN ONLY EVER FORBID THE SPELLINGS ITS AUTHOR IMAGINED. This version
+     * asserts the property POSITIVELY: find every cancel URL that routes to the storefront return,
+     * whatever its syntax, and require each one to carry the marker. A new provider written in a
+     * shape nobody has thought of is caught by construction rather than missed by omission.
+     *
+     * AND IT HAS A POSITIVE CONTROL, which the first version also lacked: `file_get_contents()`
+     * returns `false` for a moved file, `(string) false` is `''`, `token_get_all('')` is `[]`, and
+     * both of the old counts were then 0 -- so the test passed having read nothing at all.
      */
-    public function test_every_cancellable_initiation_marks_its_cancel_url(): void
+    public function test_every_cancel_url_that_returns_to_the_storefront_writer_marks_itself(): void
     {
-        $source = (string) file_get_contents(base_path('app/Services/PaymentService.php'));
+        $code = $this->codeOfPaymentService();
 
-        $code = '';
+        /*
+         * THE POSITIVE CONTROL. Without these three the case is satisfied by an empty string.
+         */
+        $this->assertNotSame('', $code,
+            'PaymentService.php could not be read, so this case would pass having examined '
+            . 'nothing. Re-read this test before trusting it.');
 
-        foreach (token_get_all($source) as $token) {
+        $this->assertStringContainsString('function process(', $code,
+            'the payment dispatcher has moved; this case is measuring the wrong file');
+
+        /*
+         * EVERY cancel URL, in any syntax: an array key (single or double quoted) or a property
+         * assignment. The value is captured up to the closing parenthesis of the `route(` call,
+         * across lines.
+         */
+        /*
+         * THE ARGUMENT LIST IS EXTRACTED BY BALANCING PARENTHESES, not by a regex.
+         *
+         * A non-greedy `(.*?)\)` stops at the FIRST close paren, and two of these sites pass
+         * `$return_url_parameters('cancel')` -- a nested call -- so a regex truncated them
+         * mid-argument and reported them unmarked. Measured: it flagged Stripe and Sofort, both of
+         * which are correctly marked. Balancing is the only way to read an argument list that can
+         * contain calls.
+         */
+        $sites = $this->cancelUrlArgumentLists($code);
+
+        $this->assertGreaterThanOrEqual(8, count($sites),
+            'the sweep found only ' . count($sites) . ' cancel_url assignments. There were ten '
+            . 'when this was written, so the scan has stopped matching shapes it used to -- '
+            . 'which is exactly the failure mode this rewrite exists to prevent. Re-read it.');
+
+        /*
+         * THE CLOSURE FORM IS A MARKER, AND THE PREMISE IS ASSERTED RATHER THAN ASSUMED. Stripe
+         * and Sofort build their marker through `$return_url_parameters($type)`, so the literal
+         * `return_type=cancel` never appears at the call site. Accepting that spelling blindly
+         * would be a hole; this proves the closure really emits it.
+         */
+        $this->assertMatchesRegularExpression(
+            '/\$return_url_parameters\s*=\s*function\s*\(\$return_type\)\s*\{\s*return\s+\'&return_type=\'\s*\.\s*\$return_type/',
+            $code,
+            'the $return_url_parameters closure no longer builds `&return_type=<type>`, so the '
+            . 'sites that call it can no longer be treated as marked. Re-read this test.'
+        );
+
+        $unmarked = [];
+
+        foreach ($sites as $args) {
+
+            /*
+             * ONLY the ones that come back to the generic storefront writer. A cancel URL pointing
+             * at `checkout`, at `nepalste.cancel` or anywhere else never reaches the reader in
+             * `getProductStatus`, so the marker would mean nothing there.
+             */
+            if (! str_contains($args, 'store.payment.status')) {
+                continue;
+            }
+
+            /*
+             * An encrypted payload is its own marker: `Crypt::encrypt(['response' => 'cancel'])`
+             * carries the intent in the route parameter instead of the query string. Accepted
+             * explicitly rather than by accident, and named so a reader knows it was considered.
+             */
+            if (str_contains($args, "'response' => 'cancel'")) {
+                continue;
+            }
+
+            /* The closure form, proven above to emit `&return_type=cancel`. */
+            if (str_contains($args, "\$return_url_parameters('cancel')")) {
+                continue;
+            }
+
+            if (! str_contains($args, 'return_type=cancel')) {
+                $unmarked[] = trim(preg_replace('/\s+/', ' ', $args));
+            }
+        }
+
+        $this->assertSame([], $unmarked,
+            "A cancel URL returns to the storefront order writer carrying no `return_type=cancel`, "
+            . "so a shopper who cancels there is indistinguishable from one who paid: the reader in "
+            . "getProductStatus cannot fire, and the generic writer writes a phantom Pending order, "
+            . "decrements stock with nothing to claim it, empties the cart and consumes the 48-hour "
+            . "return claim.\n  " . implode("\n  ", $unmarked));
+    }
+
+    /**
+     * Every `cancel_url` assignment's `route(...)` argument list, read by balancing parentheses so
+     * a nested call cannot truncate it. Any syntax: a single- or double-quoted array key, or a
+     * property assignment.
+     *
+     * @return array<int, string>
+     */
+    private function cancelUrlArgumentLists(string $code): array
+    {
+        $lists = [];
+        $offset = 0;
+
+        while (preg_match(
+            '/(?:[\'"]cancel_url[\'"]\s*=>|->cancel_url\s*=)\s*route\(/',
+            $code,
+            $m,
+            PREG_OFFSET_CAPTURE,
+            $offset
+        ) === 1) {
+            $open = $m[0][1] + strlen($m[0][0]) - 1;
+            $depth = 0;
+            $end = $open;
+
+            for ($i = $open; $i < strlen($code); $i++) {
+                if ($code[$i] === '(') {
+                    $depth++;
+                } elseif ($code[$i] === ')') {
+                    $depth--;
+
+                    if ($depth === 0) {
+                        $end = $i;
+                        break;
+                    }
+                }
+            }
+
+            $lists[] = substr($code, $open + 1, $end - $open - 1);
+            $offset = $end + 1;
+        }
+
+        return $lists;
+    }
+
+    /** PaymentService.php with comments stripped, so prose cannot satisfy or defeat a match. */
+    private function codeOfPaymentService(): string
+    {
+        $absolute = base_path('app/Services/PaymentService.php');
+
+        if (! is_file($absolute)) {
+            return '';
+        }
+
+        $out = '';
+
+        foreach (token_get_all((string) file_get_contents($absolute)) as $token) {
             if (is_array($token)) {
                 if (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
                     continue;
                 }
 
-                $code .= $token[1];
+                $out .= $token[1];
             } else {
-                $code .= $token;
+                $out .= $token;
             }
         }
 
-        $this->assertSame(
-            0,
-            preg_match_all('/"cancel_url"\s*=>\s*route\(\s*[\'"]store\.payment\.status[\'"]\s*,\s*\$slug\s*\)/', $code),
-            'a cancel_url is byte-identical to its return_url, so the shopper comes back with no '
-            . 'marker and the reader cannot tell a cancellation from a payment. This was PayPal.'
-        );
-
-        $this->assertSame(
-            0,
-            preg_match_all('/[\'"]cancel_url[\'"]\s*=>\s*route\(\s*[\'"]store\.payment\.status[\'"]\s*,\s*\[\s*\$slug\s*,?\s*\]\s*\)/', $code),
-            'a cancel_url carries the slug and nothing else, so the cancellation is indistinguishable '
-            . 'from a payment. This was Sofort.'
-        );
+        return $out;
     }
 }

@@ -1020,3 +1020,42 @@ amount and the payment status, and it is in the inventory.
 **What is NOT fixed, deliberately: creating the missing wallet.** That would start crediting orders
 that credit nothing today, changing a merchant's balance semantics mid-stream, and would do nothing
 for the credits already lost. Owner decision, same family as P4-F124.
+
+### P4-F141 — the P4-F044 ratchet was blind to three of the shapes it claimed to cover — FIXED
+
+Found by a seven-lens adversarial sweep over the Phase 04 diff, not by running anything. The
+`test_every_cancellable_initiation_marks_its_cancel_url` case asserted that two literal spellings
+occurred **zero** times — a double-quoted key with a scalar `$slug`, and the array form `[$slug]`.
+Measured against the real file, that covered almost nothing:
+
+| shape | example | old ratchet |
+|---|---|---|
+| single-quoted key, scalar | PayFast, **pre-fix** | **blind** |
+| `[$store->slug]` | **CoinGate — still live** | **blind** |
+| `->cancel_url = route(...)` | Skrill | **blind** |
+
+The middle row is the one that mattered: **CoinGate was a live, unfixed instance of P4-F044.** Its
+`cancel_url` was byte-identical to its `callback_url` and `success_url`, and `processCoingate` does
+store the checkout state — so a shopper who pressed Cancel on the hosted page got a phantom Pending
+order, a stock decrement with nothing to claim it, an emptied cart and a consumed 48-hour return
+claim. Exactly the defect P4-F044 claims to close, on a provider the fix never reached.
+
+The first row is the sharper indictment of the test: **PayFast's pre-fix form matched neither
+regex**, so the case could not have failed on one of the four defects it was written alongside.
+
+Skrill is marked too, but its consequence is lower and the difference is recorded rather than
+assumed: `processSkrill` never reaches its own `Session::put('request_data', ...)` — both arms of
+the branch above return first, so that line is dead — and a Skrill return is therefore refused by
+`storedCheckoutState()` **above** the cancel reader. It is marked because a stale `request_data`
+from an earlier abandoned checkout in the same session would carry through, and because the dead
+code is a bug someone will eventually fix.
+
+**The ratchet is rebuilt as a positive property**: extract every `cancel_url` assignment's `route()`
+argument list by balancing parentheses (a regex truncated on the nested `$return_url_parameters(...)`
+call and produced two false positives), keep the ones that return to the storefront writer, and
+require each to carry the marker. A new provider in a shape nobody anticipated now fails by
+construction instead of passing by omission. It also gained the positive control it lacked — the old
+version passed having read nothing if the file moved, because `(string) false` is `''`.
+
+Falsified against all three shapes: removing the marker from CoinGate, Skrill or PayFast individually
+re-reddens it.

@@ -924,7 +924,20 @@ private function processPaymera00000($request, $slug)
         $skill = new SkrillRequest();
         $skill->pay_to_email = $skrill_email;
         $skill->return_url = route('store.payment.status', $store->slug);
-        $skill->cancel_url = route('store.payment.status', $store->slug);
+        /*
+         * P4-F044, SECOND PASS. A PROPERTY ASSIGNMENT rather than an array key, which is why both
+         * of the first ratchet's regexes were blind to it -- they keyed on `=>`.
+         *
+         * LOWER CONSEQUENCE THAN COINGATE, AND THE DIFFERENCE IS WORTH RECORDING RATHER THAN
+         * ASSUMING: `processSkrill` never reaches its own `Session::put('request_data', ...)`,
+         * because both arms of the `isset($matches[1])` branch above return first, so that line is
+         * dead. A Skrill return therefore finds no stored state and is refused by
+         * `storedCheckoutState()` ABOVE the cancel reader -- no order, no stock movement. The
+         * marker is added anyway for two reasons: a stale `request_data` left by an earlier
+         * abandoned checkout in the same session WOULD carry it through, and the dead code is a
+         * bug that someone will eventually fix, at which point this would become live.
+         */
+        $skill->cancel_url = route('store.payment.status', [$store->slug, '&return_type=cancel&payment_processor=skrill']);
 
         // Create a unique transaction ID for Skrill
         $skill->transaction_id = md5(uniqid($request['transaction_id'], true));
@@ -1306,10 +1319,26 @@ private function processPaymera00000($request, $slug)
                         $store->slug,
                     ]
                 ),
+                /*
+                 * P4-F044, SECOND PASS. This was byte-identical to `callback_url` above and
+                 * `success_url` below, so a shopper who pressed Cancel on the hosted CoinGate page
+                 * came back indistinguishable from one who paid -- and `processCoingate` DOES
+                 * store the checkout state, so the generic writer then wrote a phantom Pending
+                 * order, took the stock with nothing to claim it, emptied the cart and consumed
+                 * the 48-hour return claim.
+                 *
+                 * MISSED BY THE FIRST PASS, AND BY THE RATCHET WRITTEN WITH IT. That ratchet
+                 * matched two literal spellings -- a double-quoted key with a scalar `$slug`, and
+                 * the array form `[$slug]` -- and this site is `[$store->slug]`, which contains no
+                 * `$slug` substring at all. Found by an adversarial sweep, not by the test whose
+                 * name claims to cover EVERY cancellable initiation. The ratchet is rebuilt in the
+                 * same change to assert the property positively instead.
+                 */
                 'cancel_url' => route(
                     'store.payment.status',
                     [
                         $store->slug,
+                        '&return_type=cancel&payment_processor=coingate',
                     ]
                 ),
 
