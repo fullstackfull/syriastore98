@@ -1015,46 +1015,74 @@ class Cart extends Model
                     $tax_price += ($sub_total * $tax->tax_rate) / (100 + $tax->tax_rate);
                 }
             }
-            // If no location-specific tax found, calculate with all available tax rates
-            if ($tax_price == 0) {
-                foreach ($taxs as $tax) {
-                    $tax_price += ($sub_total * $tax->tax_rate) / (100 + $tax->tax_rate);
-                }
-            }
+            /*
+             * P4-F070 -- THE "IF NOTHING MATCHED, CHARGE EVERYTHING" SWEEP IS GONE.
+             *
+             * It re-walked every method whenever no jurisdiction matched, which is the inclusive
+             * spelling of the fallback removed from the exclusive branch below. Measured on a
+             * Damascus shopper against [Aleppo 3%, Homs 5%]: 7.67 charged where 0.00 is owed.
+             *
+             * A method carrying country/state/city columns is one the MERCHANT restricted. A
+             * shopper outside it owes nothing, and a shopper whose address is not known yet is
+             * outside every one of them -- which is the first view of every basket, since
+             * `country_id`, `state_id` and `city_id` are null until an address is entered. A tax
+             * that applies to everyone leaves those columns null and is taken by the universal
+             * branch above, which still applies to everyone.
+             *
+             * THIS CHANGES WHAT SHOPPERS ARE CHARGED on stores that have saved tax options, and
+             * it changes it DOWNWARD, toward what the merchant's own configuration says. Nothing
+             * seeds `tax_options`, so a store that has never opened the tax settings form is
+             * unaffected in either direction -- pinned by
+             * `CartTaxJurisdictionTest::test_a_store_with_no_tax_options_still_restricts_by_jurisdiction`.
+             */
             return $tax_price;
         }
-        $tax_value = false;
+        /*
+         * P4-F070. THE `$taxValue` FLAG IS GONE WITH THE FALLBACK IT GATED.
+         *
+         * It was initialised once HERE, outside the loop, and never reset -- which is why the
+         * fallback fired only for non-matching methods sorting BEFORE the first matching one,
+         * and for all of them when nothing matched. Measured on a Damascus shopper against
+         * [Aleppo 3% priority 1, Damascus 5% priority 2]: 8.00 charged where 5.00 is owed.
+         * Reverse the two priorities and the same shopper is charged correctly, which is what
+         * kept this invisible.
+         */
         foreach ($taxs as $tax) {
             if ($flag) {
                 if ($tax->country_id && $tax->state_id && $tax->city_id && ($country == $tax->country_id) && ($state_id == $tax->state_id) && ($city_id == $tax->city_id)) {
-                    $tax_value = true;
                     $amount = $tax->tax_rate * $sub_total / 100;
                     $tax_price += $amount;
                     continue;
                 }
                 if ($tax->country_id && $tax->state_id && !$tax->city_id && ($country == $tax->country_id) && ($state_id == $tax->state_id)) {
-                    $tax_value = true;
                     $amount = $tax->tax_rate * $sub_total / 100;
                     $tax_price += $amount;
                     continue;
                 }
                 if ($tax->country_id && !$tax->state_id && !$tax->city_id && ($country == $tax->country_id)) {
-                    $tax_value = true;
                     $amount = $tax->tax_rate * $sub_total / 100;
                     $tax_price += $amount;
                     continue;
                 }
                 if (!$tax->country_id && !$tax->state_id && !$tax->city_id) {
-                    $tax_value = true;
                     $amount = $tax->tax_rate * $sub_total / 100;
                     $tax_price += $amount;
 
                     continue;
                 }
-                if ($tax_value == false && isset($settings['price_type']) && $settings['price_type'] != 'inclusive') {
-                    $amount = $tax->tax_rate * $sub_total / 100;
-                    $tax_price += $amount;
-                }
+                /*
+                 * P4-F070. THE FALLBACK THAT STOOD HERE CHARGED A NON-MATCHING METHOD ANYWAY,
+                 * whenever `price_type` was anything other than `inclusive`: it tested the
+                 * never-reset flag, and on false added this method's full rate.
+                 *
+                 * Falling past all four branches above means this method's own
+                 * country/state/city do not describe this shopper, and there is nothing further
+                 * to decide: the merchant restricted it and the shopper is outside it.
+                 *
+                 * `price_type` is validated only as `required`, with no `in:` rule, so this also
+                 * fired for any unrecognised string a form sends -- pinned by
+                 * `CartTaxJurisdictionTest::test_an_unrecognised_price_type_does_not_reopen_the_fallback`.
+                 */
             } else {
                 $amount = $tax->tax_rate * $sub_total / 100;
                 $tax_price += $amount;

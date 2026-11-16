@@ -889,3 +889,50 @@ interpret a guest's value. Queued for P4-1 with the storefront cart work.
   posted city resolves by neither id nor name, and `cities` is platform-global with no `store_id`.
   Two tenants' checkouts can block each other on it. The rollback direction is an improvement (a
   failed order no longer leaves an orphan city), so it is left in place deliberately.
+
+---
+
+## P4-8 — shipping, tax and inventory totals (2026-11-16)
+
+### P4-F070 — a tax restricted to one jurisdiction was charged to shoppers outside it — FIXED
+
+`Cart::getProductTaxAmount()` walks a store's tax methods in `priority asc`, adds the ones whose
+country/state/city match the shopper, and then — in the exclusive branch — had a fallback that
+charged a **non-matching** method anyway whenever `price_type` was anything other than `inclusive`.
+`$tax_value` is initialised once before the loop and never reset, so it fired for every non-matching
+method sorting before the first matching one, and for **all** of them when nothing matched.
+
+Measured, 100.00 subtotal, methods `[Aleppo 3% priority 1, Damascus 5% priority 2]`:
+
+| shopper | charged | owed |
+|---|---|---|
+| Damascus | **8.00** | 5.00 |
+| no address yet | **8.00** | 0.00 |
+| Damascus, with a universal 2% added | **10.00** | 7.00 |
+| inclusive branch, Damascus against `[Aleppo 3%, Homs 5%]` | **7.67** | 0.00 |
+
+The money moves the wrong way for the shopper: the tax is **overcharged**, and the merchant collects
+tax their own configuration says does not apply.
+
+**The priority order is what kept it invisible.** Reverse the two priorities and the same shopper is
+charged correctly at 5%. A fixture that happened to order them the other way would report the code
+as sound — so the suite pins the order explicitly.
+
+**The widest case is the first page view**: `country_id`, `state_id` and `city_id` are null on a
+cart-list call made before an address is entered, so nothing matches and every restricted method is
+charged, to every shopper, on the first view of their basket.
+
+**The inclusive branch had the same hole in a different spelling** — `if ($tax_price == 0)` re-walked
+every method — and both are removed, because fixing one alone leaves the store that configures the
+other exactly as it was.
+
+**This changes what shoppers are charged**, downward, toward the merchant's own configuration. The
+affected population is narrower than "every store": nothing seeds `tax_options`, so a store that has
+never opened the tax settings form had `isset($settings['price_type'])` false and the restriction
+already worked — pinned in both directions by
+`test_a_store_with_no_tax_options_still_restricts_by_jurisdiction`. Because `price_type` is validated
+only as `required` with no `in:` rule, any other string also opened the fallback; that is pinned too.
+
+Eight cases in `CartTaxJurisdictionTest`, two of them premises (the fixture really saved
+`price_type`, and both cart readers really call this function with `$flag = true`). Reverting the
+change re-reddens five of them.
