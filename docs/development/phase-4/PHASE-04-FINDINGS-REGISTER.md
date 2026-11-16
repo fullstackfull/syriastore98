@@ -186,7 +186,12 @@ and that is where a claim about the code meets the code's actual behaviour.
 | **P4-F121** | order-write | HIGH | `orders.product_price` / `final_price` truncated to whole currency units on `order-save` — up to 0.99 lost per order — FIXED in this branch |
 | **P4-F122** | tax-shipping | MEDIUM | the cart sidebar quotes a shipping row from a plan no order writer will honour |
 | **P4-F123** | customer-identity | MEDIUM | `Utility::CustomerAuthCheck()` memoised its answer in process statics keyed on nothing — it decides which cart reader prices a basket — FIXED in this branch |
-| **P4-F124** | order-lifecycle | MEDIUM | an app-side cancel writes no `payment_status`, so `OrderObserver` never reverses the order's wallet credit — RECORDED, owner decision |
+| **P4-F124** | order-lifecycle | MEDIUM | an app-side cancel writes no `payment_status`, so `OrderObserver` never reverses the order's wallet credit — **UNRESOLVED**, design in `docs/finance/P4-F124-LEDGER-SEMANTICS.md` |
+| **P4-F125** | order-lifecycle | HIGH | three more cancel doors restored no stock; two of them reverse the wallet and lose the goods — the inverse of P4-F124 — FIXED in this branch |
+| **P4-F126** | order-write | MEDIUM | two manual-order writers accept `payment_type=cod` with `payment_status=Paid`, bypassing the verification seam and crediting the wallet at creation — the condition D-06 forbids — RECORDED |
+| **P4-F127** | refunds-returns | MEDIUM | a refund never touches `orders.payment_status`, `store_order_financials` or the wallet: a fully refunded order stays `Paid` and keeps its credit — RECORDED |
+| **P4-F128** | order-lifecycle | MEDIUM | `StoreFinanceController::updateFinancialPaymentStatus()` moves the wallet without touching the order, so the two can diverge permanently with no reconciliation — RECORDED |
+| **P4-F129** | documentation | MEDIUM | `OrderFinancialService` and the backfill assessment claim twenty order-write sites write `'succeeded'` to `orders`; every one is `PlanOrder`. One read-only production query settles it — RECORDED |
 
 ### P4-F118 — the `fixed product discount` arm does not do what the merchant form says
 
@@ -563,3 +568,59 @@ answer is defensible, since the web's unconditional `'Unpaid'` may itself be wro
 `ApiOrderStatusTransitionTest::test_the_api_cancel_leaves_the_payment_status_alone_p4_f124` pins the
 current behaviour in **both** directions, and keeps a sibling-order oracle proving the web really does
 write `'Unpaid'`, so the gap cannot quietly survive as a note about behaviour nobody has.
+
+
+---
+
+## P4-F125 to P4-F129 — found by the P4-F124 ledger inventory
+
+An agent was commissioned to measure how money state is recorded, so that P4-F124 could be *designed*
+rather than guessed. It found one defect in the goods and four in the money, none of which the money
+question itself would have surfaced.
+
+### P4-F125 — three more cancel doors, and two are P4-F124's mirror image — FIXED
+
+P4-4 wired the shared restore into three doors. Three more cancel an order and were not among them:
+`Api\ApiController::order_status_change`, `Api\DashboardController::statusChange` and
+`Api\DashboardController::orderCancel`.
+
+**The first two are the exact inverse of P4-F124.** They route through `Order::order_status_change()`,
+so they *do* write `payment_status = 'Unpaid'` and `OrderObserver` *does* reverse the merchant's wallet
+credit — and then they lose the goods. P4-F124 restores the stock and loses the money; these restored
+the money and lost the goods. Same family, opposite halves, and **neither was visible from the other**.
+
+Measured through the real routes: `product_stock` stayed at 4 where 7 was due, on all three, with the
+cancel landing in every case. Fixed in `4f804baf`; each call site carries its own replay guard.
+
+### P4-F126 — a merchant may assert `Paid` on a COD order at creation — RECORDED
+
+`OrderController::store:385` and `Api\DashboardController::createOrderViaApi:6739` accept `payment_type`
+as a free string and `payment_status` as `Paid|Unpaid`, and neither calls `resolveOrderPaymentStatus()`.
+`payment_type = 'cod'` with `payment_status = 'Paid'` is accepted, and `OrderObserver::created()` credits
+the wallet at creation — **the literal condition owner decision D-06 forbids**. The code's defence is
+that a merchant is asserting an out-of-band fact, which is coherent for a counter sale and is not
+coherent for a COD parcel that has not left. Owner decision; see the design document's question 6.
+
+### P4-F127 — a refund moves no money record — RECORDED
+
+`OrderRefundController` contains no reference to `payment_status`, `StoreWallet` or
+`OrderFinancialService`. A fully refunded order keeps `payment_status = 'Paid'`, keeps its
+`store_order_financials` row at `paid`, and keeps the merchant's wallet credit. `order_refunds.refund_status`
+is the only record that money came back. Design document question 4.
+
+### P4-F128 — the wallet can be moved without the order — RECORDED
+
+`StoreFinanceController::updateFinancialPaymentStatus():376-452` calls `markFinancialAsPaid()` /
+`markFinancialAsUnpaid()` directly on a `store_order_financials.id` and never reads or writes
+`orders.payment_status`. The order and its financial record can diverge permanently, in both directions,
+with no reconciliation anywhere.
+
+### P4-F129 — the repository's own vocabulary documentation is wrong — RECORDED
+
+`OrderFinancialService.php:651-659` states `'succeeded'` is written to orders by *"twenty order-write
+sites"*, and `docs/finance/PAYMENT-STATUS-BACKFILL-ASSESSMENT.md` builds an impact assessment and
+production SQL on that premise. Every one of those assignment sites was classified as `$order = new
+PlanOrder()` — the SaaS plan rail, not `orders`. If that is right, the assessment's query over `orders`
+returns zero rows. **One read-only production query settles it**: `SELECT payment_status, COUNT(*) FROM
+orders GROUP BY 1`. The same document also still says the financial tables do not exist in the test
+schema; they were created on 2026-11-02 and are measured present.
