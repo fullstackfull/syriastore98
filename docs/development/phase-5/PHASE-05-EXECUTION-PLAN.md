@@ -20,12 +20,22 @@ Phase 05 could not start until the ledger meant something. That work is on this 
 | **P4-F032** wallet-less store loses every credit | **DONE** — single provisioning service, locking-read recovery, verified on real MariaDB (13 checks) |
 | **P4-F124** cancellation ledger semantics | **ENGINE DONE** — explicit, idempotent, reason-carrying reversal; settlement no longer rewritten. Three non-engine doors outstanding |
 | **P4-F127** partial refunds | **DETERMINED BLOCKED** and documented, per instruction. Full verified refunds outstanding |
-| **P4-F126** COD asserted Paid at creation | outstanding |
+| **P4-F126** COD asserted Paid at creation | **DONE** — both manual doors refuse `cod` + `Paid`; counter sales preserved via the existing `POS` type. 10 cases, both guards falsified |
+| **P4-F127** full verified refund | outstanding |
 | **P4-F128** reconciliation + finance-screen audit | outstanding |
 | **P4-F046** webhook.site egress + Benefit capture | outstanding |
 
 **No Phase 05 metric may be built on an outstanding row above.** §9 of this plan says which
 surfaces each one blocks.
+
+**VOCABULARY, used consistently from here on.** A row is *approved policy* when the owner has
+decided it; *implemented in development* when code exists; *verified by local tests* when a suite
+measured it on a clean tree; *verified by CI* when GitHub's own check-runs API says so on that head;
+*externally blocked* when a provider or access this session does not have is what stops it;
+*awaiting human approval* when only a person can clear it; and *released to production* — which
+**nothing in this branch is**. An approved design is never described as implemented until its
+behaviour has been measured, and engineering completion is never described as production
+readiness.
 
 ---
 
