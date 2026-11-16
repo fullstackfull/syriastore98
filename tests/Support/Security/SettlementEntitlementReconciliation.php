@@ -145,6 +145,11 @@ class SettlementEntitlementReconciliation
      *
      * `o.store_id IS NULL` is included because `Order` is NOT in config/tenancy.php's `scoped_models`,
      * so nothing in the framework guarantees an order carries a store at all.
+     *
+     * THE JOIN IS A LEFT JOIN, AND THAT IS THE WHOLE POINT OF `o.id IS NULL`. The first draft used
+     * an INNER JOIN, which silently DROPPED any financial row whose `order_id` matches no order --
+     * so an orphaned entitlement, which is the most complete form of the failure this leg looks
+     * for, was the one case it could never report. Found by independent review of this file.
      */
     private function tenantAndWalletControl(): ?array
     {
@@ -156,9 +161,10 @@ class SettlementEntitlementReconciliation
             'SELECT f.id AS financial_id, f.order_id, f.store_id AS financial_store_id,
                     o.store_id AS order_store_id, f.wallet_id, w.store_id AS wallet_store_id
                FROM store_order_financials f
-               JOIN orders o ON o.id = f.order_id
+               LEFT JOIN orders o ON o.id = f.order_id
                LEFT JOIN store_wallets w ON w.id = f.wallet_id
-              WHERE o.store_id IS NULL
+              WHERE o.id IS NULL
+                 OR o.store_id IS NULL
                  OR f.store_id <> o.store_id
                  OR w.id IS NULL
                  OR w.store_id <> f.store_id

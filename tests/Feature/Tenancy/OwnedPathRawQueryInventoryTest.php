@@ -529,7 +529,12 @@ class OwnedPathRawQueryInventoryTest extends TestCase
            $storeId)` -- so it needs no STORE_LESS_BY_DESIGN declaration; it is counted here because
            the site is real, not to make this pass. The first draft was unscoped and the sibling
            RawQueryTenancyInventoryTest is what caught it. */
-        $this->assertCount(39, $sites, "The owned-path raw query inventory changed:\n  "
+        /* 39 -> 40 [P4-F128, after review]: a SECOND statement in the same handler. The audit row
+           was recording the state that was REQUESTED; markFinancialAsUnpaid writes nothing unless
+           the row is exactly 'paid', so a request against a terminal row is a no-op that the audit
+           trail described as a movement. The entitlement state is now RE-READ after the operation.
+           Tenant scoped, like its sibling. */
+        $this->assertCount(40, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry

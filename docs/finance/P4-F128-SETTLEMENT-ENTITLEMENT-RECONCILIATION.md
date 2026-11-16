@@ -172,3 +172,95 @@ restored copy, never against production.**
 every number it would produce is unknown. What is established is that the logic bites in both
 directions on synthetic fixtures — each leg shown to redden when neutered, and a consistent store
 shown to report nothing.
+
+---
+
+## 6. What independent review found, after this was built
+
+The `tenant-authz-reviewer` pass read the handler, the model, the view, both route files, the
+service, the helper, the reporter and the three test files. **Its headline was that the tenancy is
+correct and there is no cross-tenant read or write.** Both defects it found were in the *audit
+trail* — the property this change exists to add.
+
+### 6.1 Fixed: a merchant could move money and guarantee no audit row (confirmed by execution)
+
+The `reason` went straight into a `json`-cast column outside the try/catch. A reason carrying a
+**malformed UTF-8 byte sequence** passes `string` (`is_string`) and `max` (`mb_strlen`), reaches the
+audit write, and `json_encode()` returns `false` — so Eloquent throws `JsonEncodingException`. By
+then `markFinancialAsPaid` has **committed inside its own transaction**, and this handler opens no
+outer one. Result: **money moved, no audit row, HTTP 500** — and the beneficiary is the principal the
+slice exists to hold to account. This route carries no `xss` middleware, and Laravel's `TrimStrings`
+falls back to plain `trim()` when its `/u` regex fails, so nothing upstream normalises the bytes.
+
+The review rated this *probable* from reading. **It was driven and confirmed**: `reason="bad \xC3\x28
+bytes"` produced exactly that exception.
+
+Fixed in the **validator, before any money moves** — explicitly *not* by catching around the audit
+write, since a silently dropped audit row is the same evasion with no 500 to notice it by.
+
+### 6.2 Fixed: the audit row recorded the state that was *requested*, not the one that resulted
+
+`markFinancialAsUnpaid` writes **nothing** unless the row is exactly `'paid'`. So an adjustment to
+`unpaid` on a `cancelled`, `refunded`, `pending` or `partially_paid` row is a complete no-op — and
+the audit row asserted the entitlement had moved.
+
+**This is ordinary use, not a crafted case.** P4-F124 writes `cancelled` on every cancellation, and
+the screen's select offers only `unpaid`/`paid`, so on a cancelled row **neither option carries
+`selected`** and the browser submits the first — `unpaid`. A merchant clicking *Update* on a
+cancelled row would have signed a reasoned audit entry describing a movement that never happened.
+
+Both values are now recorded: `requested_state` and the re-read `entitlement_state`.
+
+### 6.3 Fixed: the one tenancy-relevant line in this change was unpinned
+
+The review found that `test_..._records_the_settlement_this_adjustment_did_not_change` passes
+**whether or not** `->where('store_id', $storeId)` is present, because its fixture has one store, so
+the scoped and unscoped reads return the same row. A test passing for the wrong reason, protecting
+the exact line added in response to the tenancy inventory.
+
+`test_the_audit_read_cannot_reach_another_tenants_order` now builds the **D4 shape** — store A's
+financial row naming store B's order, with different settlements — which is the only state in which
+the two reads differ. Stripping the predicate now reddens it.
+
+### 6.4 Fixed: leg 1 could never report an orphan, and the honest limits of the fix
+
+The review found leg 1's `JOIN orders` was an **INNER** join, so a financial row whose `order_id`
+matches no order was silently dropped — the most complete form of the failure that leg looks for.
+Now a `LEFT JOIN` with an `o.id IS NULL` limb.
+
+**Two things measured while fixing it, both of which bound the claim:**
+
+1. **This schema cannot reach that state.** Deleting an order **cascades** and takes the financial
+   row with it. The limb is **defensive**, against a restored copy that lost referential integrity —
+   which is exactly the kind of database this reporter is pointed at.
+2. **The suite cannot construct it either.** SQLite's `PRAGMA foreign_keys` is a **no-op inside a
+   transaction**, and `RefreshDatabase` wraps every test in one; switching enforcement off in a test
+   does nothing, measured — the cascade still fired.
+
+A conditionally-skipped test would break the declared outcome set, so the evidence is an executable
+script: `tests/Support/Security/bin/verify-orphaned-entitlement-is-reported.php`. It asserts both
+premises, then builds the orphan the way a lossy restore would. **Falsified: with the INNER JOIN
+restored it reports `FAIL — codes present: none`.**
+
+### 6.5 Fixed: a refused adjustment was a silent reload
+
+No `@error('reason')` block existed, so a server-side refusal was a 302 back with nothing shown. The
+browser's `required` catches the ordinary case; the encoding rule and anyone who defeats the
+attribute did not. Now displayed with `role="alert"`.
+
+### 6.6 Recorded, not acted on
+
+| finding | why it is left |
+|---|---|
+| **`markFinancialAsPaid` has no terminal-state guard**, so selecting `paid` on a `cancelled`/`refunded` row credits the wallet and overwrites the F124 reversal | `syncFromOrder`'s own docblock says this is deliberate — the finance surface is the authorised escape hatch. **This change improves it**: the prior `cancelled` state and a mandatory reason now land in the audit row. |
+| **`audit_logs` has no reader anywhere in the product.** Zero matches for `AuditLog::(where\|all\|query\|find)` outside the model | The "auditable event" half is satisfied at the storage layer only; reading the trail needs database access. A reader is a new screen and a new permission — beyond this change. *Upside:* nothing renders `new_values`, so the caller-supplied reason is not a stored-XSS vector despite the absent `xss` middleware. |
+| **The view gate is a bare `isAbleTo`**, which refuses the platform operator, so an ungranted operator sees the read-only badge and never the new input — while able to drive the endpoint by hand | Pre-existing, **fails closed**, and the right spelling. It matters only because the new tests `post()` directly and never render the page, so the suite would not notice. |
+| **`AuditLog::record()` resolves `getCurrentStore()` a second time** | Measured not to differ on this path: `auth()->user()` is memoised for the request and nothing between the two reads writes `current_store`. Passing `$storeId` explicitly would be stronger but reaches every call site. |
+| **The wrapper accepts `--pass=`**, so a restored-copy password lands in the process list and shell history | Operational note; the sibling `report-gatef-reconciliation.php` has the same shape. |
+
+### 6.7 One coverage statement the review made, kept rather than papered over
+
+**Every case in `FinanceAdjustmentAccountabilityTest` drives a `super admin`.** The *delegated*
+`isAbleTo('Edit Finance Payment Status')` principal — which CLAUDE.md names as the only finance
+principal that can resolve no store — is never exercised. Stated here rather than implied by the
+word "passed".

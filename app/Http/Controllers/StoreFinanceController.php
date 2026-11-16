@@ -399,9 +399,35 @@ class StoreFinanceController extends Controller
          * owner decision, and not one this fix needs, because AuditLog already carries actor, store,
          * subject, before/after, IP and user agent.
          */
+        /*
+         * THE ENCODING RULE IS NOT DECORATION -- IT CLOSES AN AUDIT-EVASION PATH.
+         *
+         * MEASURED, by driving it: a `reason` carrying a malformed UTF-8 byte sequence
+         * ("bad \xC3\x28 bytes") passes `string` (is_string) and `max` (mb_strlen), reaches the
+         * AuditLog write, and json_encode() returns false -- so Eloquent throws
+         * JsonEncodingException. By then markFinancialAsPaid has COMMITTED inside its own
+         * transaction, and this handler opens no outer one. Result: money moved, NO AUDIT ROW,
+         * HTTP 500. The principal who benefits is the one this slice exists to hold to account.
+         *
+         * This route carries no `xss` middleware, and Laravel's TrimStrings falls back to plain
+         * trim() when its /u preg_replace fails, so nothing upstream normalises the bytes.
+         *
+         * IT IS FIXED IN THE VALIDATOR, BEFORE ANY MONEY MOVES -- deliberately NOT by wrapping the
+         * audit write in a catch. A silently dropped audit row is the same evasion with no 500 to
+         * notice it by.
+         */
         $request->validate([
             'payment_status' => 'required|in:paid,unpaid',
-            'reason' => 'required|string|max:255',
+            'reason' => [
+                'required',
+                'string',
+                'max:255',
+                function ($attribute, $value, $fail) {
+                    if (! is_string($value) || ! mb_check_encoding($value, 'UTF-8')) {
+                        $fail(__('The reason must be valid text.'));
+                    }
+                },
+            ],
         ]);
 
         $storeId = getCurrentStore();
@@ -490,7 +516,27 @@ class StoreFinanceController extends Controller
             [
                 'financial_id' => (int) $financial->id,
                 'order_id' => (int) $financial->order_id,
-                'entitlement_state' => $request->payment_status,
+                /*
+                 * THE STATE THAT RESULTED, RE-READ -- not the state that was requested.
+                 *
+                 * Recording `$request->payment_status` here was wrong, and ordinary use reaches it:
+                 * markFinancialAsUnpaid writes NOTHING unless the row is exactly 'paid', so an
+                 * adjustment to 'unpaid' on a `cancelled`, `refunded`, `pending` or
+                 * `partially_paid` row is a complete no-op. And the screen's select offers only
+                 * unpaid/paid, so on a cancelled row NEITHER option carries `selected` and the
+                 * browser submits the first one -- 'unpaid'. A merchant clicking Update on a
+                 * cancelled row would have signed a reasoned audit entry describing a movement
+                 * that did not happen.
+                 *
+                 * Both values are kept: `requested_state` is what was asked for, and
+                 * `entitlement_state` is what is actually in the row afterwards. Where they differ,
+                 * the audit row shows the request was a no-op instead of hiding it.
+                 */
+                'requested_state' => $request->payment_status,
+                'entitlement_state' => DB::table('store_order_financials')
+                    ->where('id', $financial->id)
+                    ->where('store_id', $storeId)
+                    ->value('payment_status'),
                 'reason' => $request->input('reason'),
                 /*
                  * SCOPED BY store_id, and the raw-query tenancy inventory is what insisted.

@@ -470,4 +470,25 @@ class SettlementEntitlementReconciliationTest extends TestCase
         }
         $this->assertNotEmpty($statements, 'No statement was observed, so this assertion proved nothing.');
     }
+
+    /*
+     * THE ORPHAN LIMB IS NOT TESTED HERE, AND THAT IS DELIBERATE RATHER THAN AN OMISSION.
+     *
+     * Leg 1 gained `o.id IS NULL` (and a LEFT JOIN) after independent review pointed out that an
+     * INNER JOIN silently drops a financial row whose `order_id` matches no order -- the most
+     * complete form of the failure the leg looks for.
+     *
+     * MEASURED WHILE FIXING IT, both facts:
+     *   1. This schema CANNOT reach that state. Deleting an order CASCADES and takes the financial
+     *      row with it, so with foreign keys enforced an orphan is impossible. The limb is
+     *      DEFENSIVE -- against a RESTORED COPY that lost referential integrity, which is exactly
+     *      the kind of database this reporter is pointed at.
+     *   2. The suite cannot construct it either. SQLite's `PRAGMA foreign_keys` is a NO-OP inside a
+     *      transaction, and RefreshDatabase wraps every test in one, so switching enforcement off
+     *      here does nothing -- measured, the cascade still fired.
+     *
+     * A conditionally-skipped test would break the declared known-outcome set, so per CLAUDE.md the
+     * evidence lives in an executable script that states its own preconditions:
+     * `tests/Support/Security/bin/verify-orphaned-entitlement-is-reported.php`
+     */
 }

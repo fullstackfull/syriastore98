@@ -496,6 +496,13 @@
                                                                 placeholder="{{ __('Reason (required)') }}">
                                                             <button type="submit" class="btn btn-sm btn-primary">{{ __('Update') }}</button>
                                                         </div>
+                                                        {{-- A server-side refusal on this form is a 302 back to this page. Without
+                                                             this block the merchant gets a silent reload and no idea why: the
+                                                             browser's `required` catches the ordinary case, but the encoding rule
+                                                             and anyone who defeats the attribute land here. --}}
+                                                        @error('reason')
+                                                            <div class="text-danger small mt-1" role="alert">{{ $message }}</div>
+                                                        @enderror
                                                     </form>
                                                 @else
                                                     @if($financial->payment_status === 'paid')

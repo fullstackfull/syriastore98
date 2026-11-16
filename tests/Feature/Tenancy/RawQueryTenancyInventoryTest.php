@@ -458,7 +458,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            it three statements earlier. That is deliberate: this census flagged the statement as
            store-less when it was keyed on `id` alone, and it was right to -- a reader of that line
            in isolation could not tell the id came from a scoped lookup. */
-        $this->assertSame(['app' => 183, 'packages' => 45], $perDir,
+        $this->assertSame(['app' => 184, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -552,7 +552,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            unscoped total does not move -- and that is not a coincidence: the first draft read the
            order by id alone, THIS INVENTORY FLAGGED IT, and the scope was added in response. The
            reasoning is in the handler, beside the query. */
-        $this->assertSame(228, array_sum($perDir));
+        /* 228 -> 229 [P4-F128, after review]: the entitlement-state re-read in the same handler,
+           replacing a recorded value that was the REQUEST rather than the RESULT. Scoped. */
+        $this->assertSame(229, array_sum($perDir));
     }
 
     /**
@@ -749,7 +751,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // did. That is not belt-and-braces -- this census flagged it as store-less when it was
             // keyed on `id` alone, exactly as it flags the two OrderFinancialService reads above,
             // and the predicate was added rather than an exception declared.
-            'store_order_financials' => [12, 5],
+            // 12 -> 13 [P4-F128, after review]: the entitlement-state re-read in
+            // updateFinancialPaymentStatus. The UNSCOPED count stays at 5 -- it names store_id.
+            'store_order_financials' => [13, 5],
             // 18 -> 19 AND 17 -> 18 with P1-INV-20: LotteryRefundOwnershipGuard's slug lookup,
             // `DB::table('stores')->where('slug', $slug)->value('id')`.
             //
@@ -872,7 +876,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            StoreFinanceController::updateFinancialPaymentStatus. Scoped by `store_id`, so again the
            companion unscoped total does not move. It moved on the first draft, which is how the
            missing predicate was found. */
-        $this->assertSame(176, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        /* 176 -> 177 [P4-F128, after review]: the entitlement-state re-read. Scoped, so the
+           companion unscoped total below again does not move. */
+        $this->assertSame(177, array_sum(array_map(fn ($r) => $r[0], $actual)),
             '[2026-11-02] 167 -> 170 AND the remainder 52 -> 49, with NOTHING IN app/ CHANGED. '
             . 'Three entry points were counted by RAW_ENTRY_POINT_PATTERN and NOT attributed to '
             . 'their table, because they write `DB::table(` on one line and the name on the next: '

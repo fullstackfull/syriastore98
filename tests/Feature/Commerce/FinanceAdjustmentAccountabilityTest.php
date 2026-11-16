@@ -198,5 +198,157 @@ class FinanceAdjustmentAccountabilityTest extends TestCase
             AuditLog::where('action', 'finance.financial_payment_status.updated')->get(),
             'A failed adjustment was recorded as though money had moved.'
         );
+
+        // Without this, deleting the handler's catch would let the exception propagate, the audit
+        // line would never run, and 0 rows would still satisfy the assertion above -- the case
+        // would pass while testing nothing. Found by independent review.
+        $this->assertNotNull(
+            session('error'),
+            'The failure was not reported to the caller, so this case would also pass if the '
+            . "handler's catch were deleted entirely."
+        );
+    }
+
+    public function test_a_reason_that_is_not_valid_utf8_cannot_move_money_without_an_audit_row(): void
+    {
+        /*
+         * AUDIT EVASION, found by independent review. The `reason` goes straight into a json-cast
+         * column OUTSIDE the try/catch, and the money commits inside the service's OWN transaction
+         * before that line runs. So a reason carrying a malformed UTF-8 byte sequence makes
+         * json_encode() return false, Eloquent throws JsonEncodingException, and the result is:
+         * money moved, NO audit row, HTTP 500.
+         *
+         * The principal who benefits is the one the accountability slice exists to hold to account,
+         * which is what makes it worth a test rather than a note. `string` is is_string() and `max`
+         * is mb_strlen -- neither rejects malformed bytes -- and this route carries no `xss`
+         * middleware, so nothing normalises the input on the way in.
+         */
+        $f = $this->seedFixture();
+
+        $response = $this->actingAs($this->operator())
+            ->from(route('finance.index'))
+            ->post(route('finance.order-financial.status', $f['financialId']), [
+                'payment_status' => 'paid',
+                'reason' => "bad \xC3\x28 bytes",
+            ]);
+
+        $response->assertSessionHasErrors('reason');
+
+        $this->assertSame(
+            'unpaid',
+            DB::table('store_order_financials')->where('id', $f['financialId'])->value('payment_status'),
+            'Money moved on a reason that cannot be stored, so the audit row could never be written.'
+        );
+        $this->assertEqualsWithDelta(
+            0.0,
+            (float) DB::table('store_wallets')->where('id', $f['walletId'])->value('available_balance'),
+            0.001
+        );
+        $this->assertCount(
+            0,
+            AuditLog::where('action', 'finance.financial_payment_status.updated')->get()
+        );
+    }
+
+    public function test_the_audit_read_cannot_reach_another_tenants_order(): void
+    {
+        /*
+         * THE ASSERTION THAT PINS THE ONE TENANCY-RELEVANT LINE IN THIS CHANGE.
+         *
+         * Found by independent review: the sibling case asserting `settlement_unchanged` passes
+         * whether or not `->where('store_id', $storeId)` is present, because its fixture has ONE
+         * store, so the scoped and unscoped reads return the same row. The predicate it was
+         * written to protect was unpinned -- a test passing for the wrong reason, which is the
+         * failure class this project keeps finding.
+         *
+         * This builds the D4 shape instead: a financial row belonging to store A whose `order_id`
+         * names an order belonging to store B. That is exactly what leg 1 of the reconciliation
+         * exists to report, and it is the only state in which the two reads differ. Unscoped, the
+         * handler would copy STORE B's settlement into STORE A's audit log.
+         */
+        $f = $this->seedFixture();
+
+        $otherOwner = User::factory()->create(['email' => 'other@example.test', 'type' => 'admin']);
+        DB::table('stores')->insert([
+            'id' => 2, 'name' => 'Other store', 'slug' => 'other-store',
+            'email' => 'other-store@example.test', 'theme_id' => 'stylique',
+            'created_by' => $otherOwner->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $foreignOrderId = DB::table('orders')->insertGetId([
+            'product_order_id' => 'ORD-OTHER', 'product_json' => json_encode([]),
+            'product_price' => 0.0, 'delivery_price' => 0.0, 'tax_price' => 0.0,
+            'coupon_price' => 0.0, 'final_price' => 999.0,
+            'payment_type' => 'cod',
+            'payment_status' => 'Paid',          // DIFFERENT from store 1's order, which is Unpaid
+            'store_id' => 2,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        // store 1's financial row now names store 2's order -- the control failure leg 1 reports
+        DB::table('store_order_financials')
+            ->where('id', $f['financialId'])
+            ->update(['order_id' => $foreignOrderId]);
+
+        $this->actingAs($this->operator())
+            ->post(route('finance.order-financial.status', $f['financialId']), [
+                'payment_status' => 'paid',
+                'reason' => 'Adjusting a row that names another tenants order',
+            ]);
+
+        $row = AuditLog::where('action', 'finance.financial_payment_status.updated')->first();
+        $this->assertNotNull($row, 'premise: the adjustment did not happen, so this proves nothing');
+
+        $this->assertNull(
+            $row->new_values['settlement_unchanged'],
+            "The audit read reached ANOTHER TENANT'S order. Store 2's settlement is 'Paid' and "
+            . "store 1's is 'Unpaid', so an unscoped read returns 'Paid' here. Null is the honest "
+            . 'answer: the order this row names is not ours.'
+        );
+    }
+
+    public function test_a_no_op_adjustment_records_the_state_that_resulted_not_the_one_requested(): void
+    {
+        /*
+         * markFinancialAsUnpaid writes NOTHING unless the row is exactly 'paid'. So asking for
+         * 'unpaid' on a `cancelled` row is a complete no-op -- and recording the REQUESTED state
+         * would sign a reasoned audit entry describing a movement that did not happen.
+         *
+         * This is ordinary use, not a crafted case. P4-F124 writes `cancelled` on every
+         * cancellation, and the screen's select offers only unpaid/paid, so on a cancelled row
+         * NEITHER option carries `selected` and a browser submits the first one -- 'unpaid'. A
+         * merchant clicking Update on a cancelled row lands here.
+         */
+        $f = $this->seedFixture();
+        DB::table('store_order_financials')
+            ->where('id', $f['financialId'])
+            ->update(['payment_status' => 'cancelled']);
+
+        $this->actingAs($this->operator())
+            ->post(route('finance.order-financial.status', $f['financialId']), [
+                'payment_status' => 'unpaid',
+                'reason' => 'Clicked Update on a cancelled row',
+            ]);
+
+        $this->assertSame(
+            'cancelled',
+            DB::table('store_order_financials')->where('id', $f['financialId'])->value('payment_status'),
+            'premise: the service was supposed to no-op on a terminal row and it did not'
+        );
+
+        $row = AuditLog::where('action', 'finance.financial_payment_status.updated')->first();
+        $this->assertNotNull($row);
+
+        $this->assertSame(
+            'cancelled',
+            $row->new_values['entitlement_state'],
+            'The audit row claims the entitlement moved to the requested state. It did not move at '
+            . 'all -- the row is still cancelled, and the audit trail must say so.'
+        );
+        $this->assertSame(
+            'unpaid',
+            $row->new_values['requested_state'],
+            'What was asked for is still recorded, beside what resulted.'
+        );
     }
 }
