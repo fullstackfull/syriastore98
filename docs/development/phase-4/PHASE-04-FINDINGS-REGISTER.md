@@ -936,3 +936,46 @@ only as `required` with no `in:` rule, any other string also opened the fallback
 Eight cases in `CartTaxJurisdictionTest`, two of them premises (the fixture really saved
 `price_type`, and both cart readers really call this function with `$flag = true`). Reverting the
 change re-reddens five of them.
+
+---
+
+## P4-5 — payment and callback integrity, continued (2026-11-16)
+
+### P4-F044 — pressing Cancel at the gateway wrote an order and took the stock — FIXED
+
+Stripe, Sofort and Paymera all send the shopper back to the same URL whether they paid or
+cancelled, and the cancel leg carries `&return_type=cancel&payment_processor=<x>`. That marker was
+**written in eleven places and read in zero** — the only reader anywhere in the repository is in the
+vendored `Campaigns` module, on a different surface. The Phase 0 audit recorded this and rated it
+P0 with the remediation *"Read return_type"*; this is that remediation.
+
+**The money half was already safe and is not what this closes.** None of these providers is in
+`OFFLINE_PAYMENT_TYPES` and no verification record exists on a cancel, so
+`resolveOrderPaymentStatus()` returns Pending and no wallet is credited. What the shopper and the
+merchant lost was everything else: a phantom Pending order, a **stock decrement with nothing to
+claim it and no compensation on this path**, an emptied cart, and a consumed 48-hour gateway-return
+claim that then refused the genuine retry.
+
+**"Read return_type" is not the whole fix**, which is the correction an independent review made.
+**Four** providers sent byte-identical or unmarked cancel URLs, so for them there was nothing to
+read: PayPal (`return_url` and `cancel_url` identical), Sofort (cancel URL carried the slug alone),
+PayFast and FedaPay (both identical). All four now mark their cancel leg. PayFast's `notify_url` is
+deliberately left unmarked — it is the server-to-server payment notification, not the shopper's
+return.
+
+**The refusal is on the marker, never on its absence.** A return carrying no marker is PayPal's
+success leg and several other providers'; refusing it would contradict the recorded decision that an
+unverified return still writes a Pending order so a shopper who may have been charged has a
+reconciliation path. `test_a_return_with_no_marker_still_writes_its_pending_order()` is that control
+and is precisely what forced the four URL fixes rather than a stricter reader.
+
+Six cases in `GatewayCancelReturnWritesNoOrderTest`, led by a positive control — without it the two
+cancel cases passed **vacuously** while the success leg wrote nothing, which is what the first run
+measured. Removing the reader re-reddens both cancel cases.
+
+**One shipped-behaviour consequence, recorded:** `AdminApiTenancyTest::test_delete_order_still_works
+_for_the_owning_merchant` began failing when P4-F107's gate landed, because `makeMerchant()` creates
+a `type => 'admin'` user with **no roles** while a real self-registered merchant is given the shared
+global `admin` role carrying `Delete Order` among ~190 others. The fixture was thinner than
+production; it now grants the permission, and the precedent is already shipped — `createOrderViaApi`
+carries the same gate and refuses a roleless owner the same way.

@@ -3045,6 +3045,51 @@ public function handlePaymeraTrigger00($orderId)
         if ($requests_data === null) {
             return $this->gatewayReturnRefusal();
         }
+
+        /*
+         * P4-F044 -- THE SHOPPER PRESSED CANCEL. THE MARKER IS FINALLY READ.
+         * =========================================================================================
+         *
+         * Stripe, Sofort and Paymera all send the shopper back to THIS url whether they paid or
+         * cancelled, and the cancel leg carries `&return_type=cancel&payment_processor=<x>`. That
+         * marker was written in ELEVEN places in this codebase and read in ZERO -- the only reader
+         * anywhere was in the vendored Campaigns module, on a different surface. So a shopper who
+         * pressed Back on the hosted gateway page arrived here with their stored checkout state
+         * intact and this handler wrote the order.
+         *
+         * THE MONEY HALF WAS ALREADY SAFE and is not what this closes: none of these providers is
+         * in `OFFLINE_PAYMENT_TYPES` and no verification record exists on a cancel, so
+         * `resolveOrderPaymentStatus()` returns Pending and no wallet is credited. What the
+         * shopper and the merchant actually lost was everything else -- a phantom Pending order, a
+         * stock decrement with nothing to claim it and no compensation on this path, an emptied
+         * cart, and a consumed 48-hour gateway-return claim that then refuses the genuine retry.
+         *
+         * REFUSED ON THE MARKER, NEVER ON ITS ABSENCE. A return carrying no marker at all is
+         * PayPal's success leg and several other providers'; refusing that would contradict the
+         * recorded decision that an unverified return still writes a Pending order so a shopper
+         * who may have been charged has a reconciliation path. That is why PayPal's and Sofort's
+         * `cancel_url` had to be given the marker in `PaymentService` rather than this reader
+         * being made stricter -- PayPal's two URLs were byte-identical, so there was nothing here
+         * to read.
+         *
+         * PLACED ABOVE EVERYTHING: above the claim, above the cart read, above the stock loop and
+         * above the order write. A cancellation must consume nothing, which is the whole of the
+         * finding -- the shopper has to be able to go straight back and pay.
+         *
+         * THE STATE IS LEFT IN THE SESSION on purpose, for the same reason: the shopper's next
+         * attempt reuses it rather than starting from nothing.
+         */
+        if (strtolower(trim((string) $request->query('return_type'))) === 'cancel') {
+            \Illuminate\Support\Facades\Log::info('Storefront gateway return: the shopper cancelled at the gateway; no order was written', [
+                'slug' => $slug,
+                'payment_type' => $requests_data['payment_type'] ?? null,
+                'payment_processor' => $request->query('payment_processor'),
+            ]);
+
+            return redirect()->route('checkout', $slug)
+                ->with('error', __('Your payment was cancelled. Your basket has been kept, so you can try again.'));
+        }
+
         $store = getStore($slug);
         $admin_payment_setting = getAdminAllSetting($store->created_by, $store->id);
         

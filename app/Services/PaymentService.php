@@ -1059,9 +1059,26 @@ private function processPaymera00000($request, $slug)
                         ]
                     ]
                 ],
+                /*
+                 * P4-F044. THE TWO URLS WERE BYTE-IDENTICAL, so a shopper who cancelled at PayPal
+                 * came back indistinguishable from one who paid -- and the storefront return's
+                 * new `return_type` reader had nothing to read. Marking the cancel leg is the
+                 * whole of PayPal's half of that fix; a stricter reader could not have done it,
+                 * because refusing an UNMARKED return would also refuse this provider's success
+                 * leg and every other unverified gateway's reconciliation path.
+                 *
+                 * The success leg stays unmarked on purpose: that is the shape every other
+                 * provider that returns here already uses, and the reader keys on `cancel`.
+                 */
                 "application_context" => [
                     "return_url" => route('store.payment.status', $slug),
-                    "cancel_url" => route('store.payment.status', $slug),
+                    "cancel_url" => route(
+                        'store.payment.status',
+                        [
+                            $slug,
+                            '&return_type=cancel&payment_processor=paypal',
+                        ]
+                    ),
                 ],
 
             ]);
@@ -1652,7 +1669,16 @@ private function processPaymera00000($request, $slug)
             'merchant_id' => !empty($payfast_merchant_id) ? $payfast_merchant_id : '',
             'merchant_key' => !empty($payfast_merchant_key) ? $payfast_merchant_key : '',
             'return_url' => route('store.payment.status', $slug),
-            'cancel_url' => route('store.payment.status', $slug),
+            /* P4-F044. Byte-identical to `return_url`, so a PayFast cancellation arrived at the
+               storefront return looking exactly like a payment. `notify_url` is deliberately NOT
+               marked: it is the server-to-server payment notification, not the shopper's return. */
+            'cancel_url' => route(
+                'store.payment.status',
+                [
+                    $slug,
+                    '&return_type=cancel&payment_processor=payfast',
+                ]
+            ),
             'notify_url' => route('store.payment.status', $slug),
             // Buyer details
             'name_first' => isset($other_info->firstname) ? $other_info->firstname : '',
@@ -4203,7 +4229,14 @@ private function webhook(
                 "amount" => $cartlist_final_price,
                 "currency" => ["iso" => $currency],
                 "callback_url" => route('store.payment.status', $slug),
-                "cancel_url" => route('store.payment.status', $slug)
+                /* P4-F044. Byte-identical to `callback_url` -- same defect, same fix. */
+                "cancel_url" => route(
+                    'store.payment.status',
+                    [
+                        $slug,
+                        '&return_type=cancel&payment_processor=fedapay',
+                    ]
+                )
             ]);
             $token = $transaction->generateToken();
 
@@ -4705,10 +4738,14 @@ private function webhook(
                         $return_url_parameters('success'),
                     ]
                 ),
+                /* P4-F044. This carried the slug and nothing else, so a Sofort cancellation
+                   arrived at the storefront return looking exactly like a payment. The success
+                   leg above already used the marker; this one simply never did. */
                 'cancel_url' => route(
                     'store.payment.status',
                     [
                         $slug,
+                        $return_url_parameters('cancel'),
                     ]
                 ),
             ]);
