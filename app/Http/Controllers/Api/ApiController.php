@@ -4229,11 +4229,26 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
          * handing every retry for the next 120 seconds an order id that is not there.
          */
         if (isset($ssIntakeClaim)) {
-            \Illuminate\Support\Facades\Cache::put(
-                $ssIntakeClaim,
-                ['order_id' => $order->id],
-                now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS)
-            );
+            /*
+             * WRAPPED TOO, and for the opposite reason to the one in the catch below: here the
+             * order is already COMMITTED. A cache store that is unavailable would otherwise throw
+             * out of a handler whose order exists -- answering the shopper 500, and, in
+             * `place_order`, skipping the merchant's configured webhook on the next line, which is
+             * silent and permanent for that order. The claim going unwritten costs at most a
+             * refused retry for 120 seconds, and the retry is refused rather than duplicated.
+             */
+            try {
+                \Illuminate\Support\Facades\Cache::put(
+                    $ssIntakeClaim,
+                    ['order_id' => $order->id],
+                    now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS)
+                );
+            } catch (\Throwable $ssClaimWriteFailure) {
+                \Illuminate\Support\Facades\Log::warning('Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered.', [
+                    'order_id' => $order->id,
+                    'error' => $ssClaimWriteFailure->getMessage(),
+                ]);
+            }
         }
 
         /*
@@ -4348,9 +4363,28 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
              * permits a retry that decrements again -- the pre-change behaviour, and better than
              * a checkout dead for two minutes with no order to show for it.
              */
-            if (isset($ssIntakeClaim)
-                && \Illuminate\Support\Facades\Cache::get($ssIntakeClaim) === self::STOREFRONT_INTAKE_WRITING) {
-                \Illuminate\Support\Facades\Cache::forget($ssIntakeClaim);
+            /*
+             * WRAPPED, because this read runs BEFORE the D-13 block and would otherwise be able
+             * to cancel it. Production is `CACHE_STORE=database`, so on the lost connection that
+             * `orderRowSurvived()`'s fail-closed argument is written for, this `Cache::get()`
+             * throws, replaces the original exception and the whole compensation below -- the
+             * part that decides whether the shopper's goods go back on the shelf -- never runs.
+             * The ordering is F276's; what made it matter is that P4-F026 moved the question that
+             * needs the database underneath it. Found by independent review.
+             *
+             * A claim that cannot be released is a checkout refused for up to 120 seconds. A
+             * compensation that does not run is inventory lost or oversold. The first is the one
+             * to swallow.
+             */
+            try {
+                if (isset($ssIntakeClaim)
+                    && \Illuminate\Support\Facades\Cache::get($ssIntakeClaim) === self::STOREFRONT_INTAKE_WRITING) {
+                    \Illuminate\Support\Facades\Cache::forget($ssIntakeClaim);
+                }
+            } catch (\Throwable $ssClaimReleaseFailure) {
+                \Illuminate\Support\Facades\Log::warning('Storefront intake claim could not be released; it will expire on its own.', [
+                    'error' => $ssClaimReleaseFailure->getMessage(),
+                ]);
             }
 
             /*
@@ -9963,11 +9997,26 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
          * writing sentinel and the guard's release lets an honest retry through.
          */
         if (isset($ssIntakeClaim)) {
-            \Illuminate\Support\Facades\Cache::put(
-                $ssIntakeClaim,
-                ['order_id' => $order->id],
-                now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS)
-            );
+            /*
+             * WRAPPED TOO, and for the opposite reason to the one in the catch below: here the
+             * order is already COMMITTED. A cache store that is unavailable would otherwise throw
+             * out of a handler whose order exists -- answering the shopper 500, and, in
+             * `place_order`, skipping the merchant's configured webhook on the next line, which is
+             * silent and permanent for that order. The claim going unwritten costs at most a
+             * refused retry for 120 seconds, and the retry is refused rather than duplicated.
+             */
+            try {
+                \Illuminate\Support\Facades\Cache::put(
+                    $ssIntakeClaim,
+                    ['order_id' => $order->id],
+                    now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS)
+                );
+            } catch (\Throwable $ssClaimWriteFailure) {
+                \Illuminate\Support\Facades\Log::warning('Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered.', [
+                    'order_id' => $order->id,
+                    'error' => $ssClaimWriteFailure->getMessage(),
+                ]);
+            }
         }
 
         return $this->success($order_array,  __('Order added successfully.'));
@@ -9993,9 +10042,28 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
              * permits a retry that decrements again -- the pre-change behaviour, and better than
              * a checkout dead for two minutes with no order to show for it.
              */
-            if (isset($ssIntakeClaim)
-                && \Illuminate\Support\Facades\Cache::get($ssIntakeClaim) === self::STOREFRONT_INTAKE_WRITING) {
-                \Illuminate\Support\Facades\Cache::forget($ssIntakeClaim);
+            /*
+             * WRAPPED, because this read runs BEFORE the D-13 block and would otherwise be able
+             * to cancel it. Production is `CACHE_STORE=database`, so on the lost connection that
+             * `orderRowSurvived()`'s fail-closed argument is written for, this `Cache::get()`
+             * throws, replaces the original exception and the whole compensation below -- the
+             * part that decides whether the shopper's goods go back on the shelf -- never runs.
+             * The ordering is F276's; what made it matter is that P4-F026 moved the question that
+             * needs the database underneath it. Found by independent review.
+             *
+             * A claim that cannot be released is a checkout refused for up to 120 seconds. A
+             * compensation that does not run is inventory lost or oversold. The first is the one
+             * to swallow.
+             */
+            try {
+                if (isset($ssIntakeClaim)
+                    && \Illuminate\Support\Facades\Cache::get($ssIntakeClaim) === self::STOREFRONT_INTAKE_WRITING) {
+                    \Illuminate\Support\Facades\Cache::forget($ssIntakeClaim);
+                }
+            } catch (\Throwable $ssClaimReleaseFailure) {
+                \Illuminate\Support\Facades\Log::warning('Storefront intake claim could not be released; it will expire on its own.', [
+                    'error' => $ssClaimReleaseFailure->getMessage(),
+                ]);
             }
 
             /*

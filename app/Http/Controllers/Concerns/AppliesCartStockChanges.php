@@ -407,8 +407,24 @@ trait AppliesCartStockChanges
      * shopper. So an unanswerable probe is treated as "an order claims it", and says so in the
      * log rather than silently.
      */
-    private function orderRowSurvived(?\App\Models\Order $order): bool
+    private function orderRowSurvived($order = null): bool
     {
+        /*
+         * UNTYPED ON PURPOSE, AND THE `instanceof` BELOW IS THE REAL GATE.
+         *
+         * The first version declared `?\App\Models\Order $order`, which is NARROWER than the
+         * expression it replaced: `isset($order) && $order instanceof Order && $order->exists` was
+         * total -- any value at all produced `false` -- while a declared class type throws a
+         * `TypeError` at the call boundary for any non-null object of another class. That boundary
+         * is INSIDE the D-13 catch, so the TypeError would have replaced the original exception,
+         * skipped `restoreStockDecrements()` and skipped the rethrow: a compensation silently not
+         * run, from inside the handler whose job is to run it.
+         *
+         * Not reachable at today's eight call sites, all of which pass `new Order()`. But five of
+         * those same files hold `$order = new PlanOrder()` in a sibling method, so the mistake is
+         * one copy-paste away and its failure is invisible. Found by independent review, which is
+         * the only way a latent type narrowing inside a catch gets found.
+         */
         if (! $order instanceof \App\Models\Order || empty($order->getKey())) {
             return false;
         }

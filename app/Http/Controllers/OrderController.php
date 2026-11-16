@@ -173,12 +173,18 @@ public function store(Request $request)
      * carrying a null store_id instead of refusing it: a guard that fails open in exactly the case
      * it exists for. Found by independent review of this change before it was committed.
      *
-     * `DB::table()` AND NOT ELOQUENT, for two measured reasons. The StoreScope would answer the
-     * ownership question using the very tenant value being tested, so a scoped read passes
-     * vacuously; and `withoutGlobalScopes()` -- the obvious escape -- also drops SoftDeletingScope,
-     * which would accept a soft-deleted customer the GET picker at :488-493 would never offer. The
-     * query builder has neither scope in either environment, and it also sidesteps the test schema's
-     * missing `deleted_at` column, which would otherwise throw into the catch below and be swallowed.
+     * `DB::table()` AND NOT ELOQUENT. The StoreScope would answer the ownership question using the
+     * very tenant value being tested, so a scoped read passes vacuously; the query builder carries
+     * no global scope in either environment, and it also sidesteps the test schema's missing
+     * `deleted_at` column, which would otherwise throw into the catch below and be swallowed.
+     *
+     * A CORRECTION TO THIS COMMENT, made by independent review rather than by a test: an earlier
+     * version also rejected `withoutGlobalScopes()` on the ground that it drops SoftDeletingScope
+     * and would accept a soft-deleted customer. That reason does not survive, because `DB::table()`
+     * has no SoftDeletingScope either -- the replacement shares the property the sentence rejected.
+     * The CODE is right for the first reason alone; a soft-deleted customer of the merchant's own
+     * store is a usability question, not a tenancy breach. Left in place because a reader relying
+     * on the old sentence would draw a false conclusion about what this predicate guarantees.
      */
     $ssOrderStoreId = $this->resolvedCurrentStoreId();
 

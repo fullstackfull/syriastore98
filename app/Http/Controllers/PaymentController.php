@@ -2055,21 +2055,61 @@ public function handlePaymeraTrigger00($orderId)
          */
         $ssIntakeLines = (array) ($cartData['products'] ?? []);
 
-        $ssIntakeCartIds = array_values(array_filter(array_map(
-            static function ($line) {
-                $line = (array) $line;
+        /*
+         * THE CART ROW IDS COME FROM THE DATABASE, NOT FROM THE PAYLOAD.
+         *
+         * The first version of this read `$line['cart_id']` out of the cart payload, and an
+         * independent review of this change found that it is only a real `carts.id` on ONE of the
+         * two branches this handler serves:
+         *
+         *   `ApiController::cart_list`      (signed in)  `['cart_id'] = $value->id;`       <- the row
+         *   `Cart::cart_list_cookie`        (GUEST)      `['cart_id'] = $key;`             <- the LOOP INDEX
+         *
+         * `$Carts` there comes from `->get()`, so `$key` is 0, 1, 2 … for every guest basket. The
+         * consequences were both live and both on the storefront door real shoppers use: a
+         * one-line guest basket produced `[0]`, which `array_filter` dropped, so the claim was
+         * released even after a committed order and the protection simply did not exist for
+         * guests; and a two-line basket produced `[1, 2]`, which
+         * `Cart::withoutGlobalScopes()->whereIn('id', ...)` then asked about WHOEVER OWNS cart rows
+         * 1 and 2 — another tenant, or nobody — so on any database with history the probe answered
+         * "gone", the claim was kept, and a guest who abandoned at a gateway and retried was
+         * refused for two minutes over an order that was never written.
+         *
+         * Read here instead, with the store predicate and the principal's own scope, so the ids
+         * are this basket's real rows on both branches. `Cart::forCustomer()` and
+         * `::forGuestCookie()` both compile to `1 = 0` for an unusable identifier rather than
+         * matching everything, which is why they are used in preference to a bare `where`.
+         *
+         * NOT FIXED IN `cart_list_cookie` ITSELF, deliberately: `cart_id` is rendered into
+         * `data-id` by four storefront views and posted back to the cart remove and quantity
+         * endpoints, so changing what it means is a storefront contract change and belongs with
+         * those endpoints, not inside a checkout fix. Recorded as its own finding.
+         */
+        $ssBasketQuery = \App\Models\Cart::withoutGlobalScopes()->where('store_id', $store->id);
 
-                return (int) ($line['cart_id'] ?? 0);
-            },
-            $ssIntakeLines
-        )));
+        if ($isGuest) {
+            $ssBasketQuery->forGuestCookie(\Illuminate\Support\Facades\Cookie::get('cart'));
+        } else {
+            $ssBasketQuery->forCustomer($customer->id);
+        }
 
+        $ssIntakeCartIds = $ssBasketQuery->orderBy('id')->pluck('id')->map(
+            static fn ($id) => (int) $id
+        )->values()->all();
+
+        /*
+         * AND THE REAL ROW SET IS BOUND INTO THE KEY, which is what makes the trait's documented
+         * property — "a rebuilt cart has NEW `carts.id` values, so it is a different claim; two
+         * requests racing read the SAME rows, so they are still one claim" — true on the guest
+         * branch as well. Appended rather than threaded through `storefrontIntakeFingerprint()`
+         * so that the shared helper keeps answering exactly as it does for its two API callers.
+         */
         $ssIntakeClaim = $this->storefrontIntakeFingerprint(
             $ssIntakeLines,
             (int) $store->id,
             (int) $customer->id,
             $request->payment_type
-        );
+        ) . ':rows:' . hash('sha256', json_encode($ssIntakeCartIds));
 
         if (! \Illuminate\Support\Facades\Cache::add(
             $ssIntakeClaim,
@@ -2084,6 +2124,46 @@ public function handlePaymeraTrigger00($orderId)
 
             return redirect()->back()->with('error', __('This checkout has already been submitted. Please wait a moment and check your orders before trying again.'));
         }
+
+        /*
+         * AND THE RELEASE IS ALSO REGISTERED FOR SHUTDOWN, because two payment arms NEVER RETURN.
+         *
+         * `PaymentService::redirect_to_merchant()` prints an auto-submitting form and ends with a
+         * bare `exit;` (the AamarPay arm), and the PayTR arm answers a cURL failure with `die(...)`
+         * — which is not an exception, so the `try/catch` below never sees it and the release
+         * block after it never runs. Found by an independent review of this change, not by a test.
+         *
+         * The cost was asymmetric and worst on the innocent case: a TRANSIENT network error to
+         * PayTR locked that shopper out of checkout for the next two minutes, for an order that
+         * does not exist. Before this change the same error cost them one failed attempt.
+         *
+         * `register_shutdown_function` runs on `exit`, on `die` and on a fatal error, which is
+         * exactly the set the catch cannot reach. The released-unless-consumed test is the same
+         * one the normal path uses, so a request that already released its claim finds nothing to
+         * do, and one that legitimately produced an order keeps it.
+         */
+        $ssReleaseClaim = function () use ($ssIntakeClaim, $ssIntakeCartIds): void {
+            if (\Illuminate\Support\Facades\Cache::get($ssIntakeClaim) !== self::STOREFRONT_INTAKE_WRITING) {
+                return;
+            }
+
+            try {
+                $ssBasketConsumed = $ssIntakeCartIds !== []
+                    && ! \App\Models\Cart::withoutGlobalScopes()->whereIn('id', $ssIntakeCartIds)->exists();
+            } catch (\Throwable $ssProbeFailure) {
+                /* A shutdown handler must not take the connection's failure out with it, and it
+                   cannot report anything either. Unanswerable means release, which is the
+                   direction F276 argued for: a checkout dead for two minutes with no order to
+                   show for it is the worse outcome. */
+                $ssBasketConsumed = false;
+            }
+
+            if (! $ssBasketConsumed) {
+                \Illuminate\Support\Facades\Cache::forget($ssIntakeClaim);
+            }
+        };
+
+        register_shutdown_function($ssReleaseClaim);
 
         try {
             // Process payment
@@ -2114,12 +2194,7 @@ public function handlePaymeraTrigger00($orderId)
          * checkout dead for two minutes with no order to show for it is worse than a second
          * chance at a duplicate the cart itself usually refuses.
          */
-        $ssBasketConsumed = $ssIntakeCartIds !== []
-            && ! \App\Models\Cart::withoutGlobalScopes()->whereIn('id', $ssIntakeCartIds)->exists();
-
-        if (! $ssBasketConsumed) {
-            \Illuminate\Support\Facades\Cache::forget($ssIntakeClaim);
-        }
+        $ssReleaseClaim();
 
         return $ssPaymentResponse;
     }

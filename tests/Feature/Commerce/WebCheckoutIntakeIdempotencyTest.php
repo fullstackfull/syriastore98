@@ -280,6 +280,116 @@ final class WebCheckoutIntakeIdempotencyTest extends SecurityTestCase
     }
 
     /**
+     * THE GUEST DEFECT, MEASURED ON THE BRANCH NO OTHER CASE IN THIS FILE REACHES.
+     *
+     * A two-line guest basket, the same rows on both posts — a race, not a rebuild. Before the
+     * cart ids were read from the DATABASE this failed in the direction that matters: the payload
+     * handed the claim `[1, 2]`, which are some other tenant's rows or nobody's, so the second
+     * post wrote a second order AND the shopper's goods were taken twice.
+     *
+     * The premise assertions are what stop this passing for the wrong reason: a guest checkout
+     * that never wrote an order at all would satisfy "no second order" perfectly.
+     */
+    public function test_a_repeated_guest_checkout_post_does_not_write_a_second_order(): void
+    {
+        [$store, , $product, $shippingId] = $this->checkout();
+
+        $second = Product::forceCreate([
+            'name' => 'p4f026-' . uniqid(), 'slug' => 'p4f026-' . uniqid(),
+            'product_stock' => self::OPENING_STOCK, 'track_stock' => 1, 'variant_product' => 0,
+            'price' => 10.00, 'sale_price' => 10.00, 'stock_status' => 'in_stock',
+            'store_id' => $store->id, 'created_by' => $store->created_by,
+        ]);
+
+        $cookie = 'guest-cart-' . uniqid();
+        $rows = $this->guestBasket($store, $product, $second, $cookie);
+
+        $ssFirst = $this->guestCheckout($store, $shippingId, $cookie);
+
+        /* THE PREMISE. Without it every assertion below is satisfied by a guest checkout that
+           never reached the writer -- and the guest branch is precisely the one no other case in
+           this file has ever driven, so it cannot be assumed to work. */
+        $this->assertSame(1, $this->ordersIn($store),
+            'the FIRST guest post wrote no order, so this case is not measuring a duplicate. '
+            . 'status=' . $ssFirst->getStatusCode() . ' error=' . var_export(session('error'), true)
+            . ' carts=' . DB::table('carts')->where('cookie_session_id', $cookie)->count());
+        $this->assertSame(self::OPENING_STOCK - self::LINE_QTY, $this->stockOf($product),
+            'premise: the first guest post moved no stock');
+
+        /* The SAME rows the first request read, ids and all. */
+        DB::table('carts')->where('cookie_session_id', $cookie)->delete();
+
+        foreach ([[$rows[0], $product], [$rows[1], $second]] as [$id, $line]) {
+            DB::table('carts')->insert([
+                'id' => $id, 'customer_id' => 0, 'cookie_session_id' => $cookie,
+                'product_id' => $line->id, 'variant_id' => 0,
+                'qty' => self::LINE_QTY, 'price' => 10.00 * self::LINE_QTY,
+                'store_id' => $store->id, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        (new Cart)->flushCache();
+
+        session()->forget('error');
+        $response = $this->guestCheckout($store, $shippingId, $cookie);
+
+        $this->assertStringContainsString(
+            'already been submitted',
+            (string) session('error'),
+            'the second GUEST post was refused by something other than the duplicate-submission '
+            . 'claim, so this case is measuring an earlier guard. session(error) held: '
+            . var_export(session('error'), true)
+        );
+
+        $this->assertSame(1, $this->ordersIn($store),
+            'a repeated GUEST post wrote a SECOND order. The claim read its cart ids from the '
+            . 'payload, and `Cart::cart_list_cookie` puts the LOOP INDEX in `cart_id`, so the '
+            . "guest branch's claim was bound to rows that are not this basket's.");
+
+        $this->assertSame(self::OPENING_STOCK - self::LINE_QTY, $this->stockOf($product),
+            'a repeated GUEST post decremented stock a second time');
+    }
+
+    /**
+     * AND A GUEST WHO REBUILDS THEIR BASKET IS NOT REFUSED — the liveness half.
+     *
+     * New rows, new ids, a genuine second purchase. This is the property the trait's docblock
+     * claims ("a rebuilt cart has NEW `carts.id` values, so it is a different claim") and which
+     * was FALSE on the guest branch while the ids came from a loop index: indices restart at 0 for
+     * every basket, so a guest buying the same two things again inside the window hashed
+     * identically and was refused.
+     */
+    public function test_a_guest_who_rebuilds_the_same_basket_is_not_refused(): void
+    {
+        [$store, , $product, $shippingId] = $this->checkout();
+
+        $second = Product::forceCreate([
+            'name' => 'p4f026b-' . uniqid(), 'slug' => 'p4f026b-' . uniqid(),
+            'product_stock' => self::OPENING_STOCK, 'track_stock' => 1, 'variant_product' => 0,
+            'price' => 10.00, 'sale_price' => 10.00, 'stock_status' => 'in_stock',
+            'store_id' => $store->id, 'created_by' => $store->created_by,
+        ]);
+
+        $cookie = 'guest-cart-' . uniqid();
+
+        $this->guestBasket($store, $product, $second, $cookie);
+        $this->guestCheckout($store, $shippingId, $cookie);
+
+        $this->assertSame(1, $this->ordersIn($store), 'premise: the first guest purchase landed');
+
+        /* A genuinely new basket: fresh rows, fresh ids. */
+        $this->guestBasket($store, $product, $second, $cookie);
+
+        session()->forget('error');
+        $this->guestCheckout($store, $shippingId, $cookie);
+
+        $this->assertSame(2, $this->ordersIn($store),
+            'a guest rebuilding their basket and buying again was refused as a duplicate. The '
+            . 'claim must distinguish a race from a second purchase, and on this branch it could '
+            . 'not while the ids were loop indices: 0,1 the first time and 0,1 the second.');
+    }
+
+    /**
      * AND BANK TRANSFER IS THE SAME WRITER, so the gap is not `cod`-shaped.
      *
      * `PaymentService::process()` routes `cod` (:436) and `bank_transfer` (:438) into the SAME
@@ -460,6 +570,79 @@ final class WebCheckoutIntakeIdempotencyTest extends SecurityTestCase
     private function stockOf(Product $product): int
     {
         return (int) DB::table('products')->where('id', $product->id)->value('product_stock');
+    }
+
+    /**
+     * THE GUEST BRANCH, AND IT IS THE ONE THAT WAS BROKEN.
+     * =============================================================================================
+     *
+     * Every other case in this file signs a customer in with `actingAs(..., 'customers')`, so none
+     * of them ever reached `Cart::cart_list_cookie()` — the branch `processOrder` picks when
+     * `auth('customers')->check()` is false. An independent review of the fix found the gap and
+     * then found a live defect inside it, which is the honest order of events: the review found it,
+     * not this test.
+     *
+     * `cart_id` IS NOT A ROW ID ON THIS BRANCH. `ApiController::cart_list` writes `$value->id`;
+     * `Cart::cart_list_cookie` writes `$key`, the index of a `->get()` collection. So the first
+     * version of the claim, which read the cart ids out of the payload, got `[0]` for a one-line
+     * guest basket (filtered away, claim always released, no protection at all) and `[1, 2]` for a
+     * two-line one — ids belonging to WHOEVER OWNS cart rows 1 and 2, which on a database with any
+     * history is nobody, so the claim was kept for 120 seconds whether or not an order was written
+     * and the guest's honest retry was refused.
+     *
+     * TWO LINES, because that is the arm where the wrong ids are non-zero and survive the filter.
+     *
+     * The guest's identity is the `cart` cookie, which is what `cart_list_cookie` reads and what
+     * `Cart::forGuestCookie()` matches on.
+     */
+    private function guestCheckout($store, int $shippingId, string $cookie, array $extra = [])
+    {
+        $billing = [
+            'firstname' => 'Guest', 'lastname' => 'Shopper', 'email' => 'guest-p4f026@example.test',
+            'billing_user_telephone' => '555111333',
+            'billing_address' => 'Street', 'billing_postecode' => '11111',
+            'billing_country' => '101', 'billing_state' => '1', 'billing_city' => '1',
+            'billing_company_name' => '',
+            'delivery_address' => 'Street', 'delivery_postcode' => '11111',
+            'delivery_country' => '101', 'delivery_state' => '1', 'delivery_city' => '1',
+        ];
+
+        /* `withCookie`, which is what every other guest-storefront suite in this repository uses
+           (GatewayStockBeforeVerificationTest, NullCookieCartTest, StorefrontGetMassageBoundaryTest).
+           An unencrypted cookie does not survive EncryptCookies, so `Cookie::get('cart')` came back
+           null and `cart_list_cookie` answered "Cart is empty." -- measured. */
+        return $this->withCookie('cart', $cookie)
+            ->post('/' . $store->slug . '/process-order', array_merge([
+                'payment_type' => 'cod',
+                'delivery_id' => $shippingId,
+                'method_id' => $shippingId,
+                'billing_info' => $billing,
+            ] + $billing, $extra));
+    }
+
+    /** A two-line GUEST basket, keyed on the cart cookie rather than a customer id. */
+    private function guestBasket($store, Product $first, Product $second, string $cookie): array
+    {
+        DB::table('carts')->where('cookie_session_id', $cookie)->delete();
+
+        $ids = [];
+
+        foreach ([$first, $second] as $product) {
+            $ids[] = (int) DB::table('carts')->insertGetId([
+                'customer_id' => 0,
+                'cookie_session_id' => $cookie,
+                'product_id' => $product->id,
+                'variant_id' => 0,
+                'qty' => self::LINE_QTY,
+                'price' => 10.00 * self::LINE_QTY,
+                'store_id' => $store->id,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        (new Cart)->flushCache();
+
+        return $ids;
     }
 
     private function cartRowIdOf(Customer $customer): int

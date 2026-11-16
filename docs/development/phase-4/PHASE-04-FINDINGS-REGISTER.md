@@ -796,3 +796,96 @@ STATUS, and the engine matches it against a word list (`confirmed`, `cancel`, `d
 Sending `1` is refused with *"That order status is not recognised"* and changes nothing — so the
 first draft of the defect case **passed against the ungated handler**, for the wrong reason. The
 suite now sends `confirmed` and asserts `delivered_status === 4`.
+
+---
+
+## P4-3b review round — six defects found in the fix itself (2026-11-16)
+
+An independent `tenant-authz-reviewer` pass over the uncommitted P4-F026 change found **two live
+defects introduced by the fix**, three latent ones, and one false sentence in a comment. None was
+visible to any test, including the tests written specifically to falsify that fix.
+
+### P4-F136 — the web intake claim read cart ids from a payload where they are a loop index — FIXED
+
+`ApiController::cart_list` writes `['cart_id'] = $value->id`; `Cart::cart_list_cookie` — the GUEST
+branch — writes `['cart_id'] = $key`, the index of a `->get()` collection. Measured: `$key` is
+0, 1, 2 … for every guest basket.
+
+So on the storefront door real shoppers use:
+
+- a **one-line** guest basket produced `[0]`, which `array_filter` dropped → the release condition's
+  first conjunct was false → **the claim was always released**, even after a committed order. The
+  duplicate protection did not exist for guests at all.
+- a **two-line** guest basket produced `[1, 2]` → `Cart::withoutGlobalScopes()->whereIn('id', [1,2])`
+  asked about **whoever owns cart rows 1 and 2** — another tenant, or nobody. On a database with
+  history those rows are long gone, so the probe answered "consumed", the claim was kept for 120
+  seconds whether or not an order existed, and a guest who abandoned at a gateway and retried was
+  refused over an order that was never written.
+
+Fixed by reading the cart row ids from the database, store-scoped and principal-scoped
+(`forCustomer` / `forGuestCookie`, both of which compile to `1 = 0` for an unusable identifier), and
+binding that real row set into the claim key. `Cart::cart_list_cookie` itself is **not** changed:
+`cart_id` is rendered into `data-id` by four storefront views and posted back to the cart remove and
+quantity endpoints, so changing what it means is a storefront contract change — recorded below as
+P4-F138.
+
+Two guest cases added to `WebCheckoutIntakeIdempotencyTest`, which had **no guest case at all**:
+every other case signs a customer in, so the whole branch was unmeasured. The duplicate case goes
+red again against the payload-derived ids.
+
+### P4-F137 — two payment arms never return, stranding the claim — FIXED
+
+`PaymentService::redirect_to_merchant()` ends with a bare `exit;` (the AamarPay arm) and the PayTR
+arm answers a cURL failure with `die(...)`. Neither is an exception, so the `try/catch` never sees
+them and the release block after it never ran: the claim was held for the full 120 seconds with no
+order written. The cost was worst on the innocent case — a **transient network error** to PayTR
+locked that shopper out of checkout for two minutes, where before this change it cost them one
+failed attempt. Fixed with `register_shutdown_function`, which runs on `exit`, `die` and a fatal.
+
+### P4-F131b — `orderRowSurvived`'s typed parameter could throw out of a catch — FIXED
+
+The declared `?Order $order` is **narrower** than the expression it replaced: the old
+`isset(...) && instanceof && exists` was total, while a declared class type throws a `TypeError` at
+the call boundary — which is inside the D-13 catch, so it would replace the original exception, skip
+the compensation and skip the rethrow. Unreachable at today's eight call sites, all of which pass
+`new Order()`; but five of those same files hold `$order = new PlanOrder()` in a sibling method.
+Signature widened; the `instanceof` line now does the job it reads as doing.
+
+### P4-F139 — a cache read could cancel the stock compensation — FIXED
+
+The F276 claim release runs **first** in the D-13 catch and its `Cache::get()` is unguarded.
+Production is `CACHE_STORE=database`, so on the lost connection that `orderRowSurvived()`'s
+fail-closed argument is written for, that read throws and the entire compensation never runs. The
+ordering is F276's; what made it matter is that P4-F026 moved the question that needs the database
+underneath it. Wrapped: a claim that cannot be released costs a refused checkout for 120 seconds; a
+compensation that does not run costs inventory.
+
+### P4-F140 — a failed claim write could skip a committed order's webhook — FIXED
+
+Below the commit, an unavailable cache store would throw out of a handler whose order already
+exists, answering the shopper 500 and — in `place_order` — skipping
+`Utility::paymentWebhook($order)` on the next line, which is silent and permanent for that order.
+Wrapped and logged.
+
+### P4-F138 — `cart_id` means two different things on two branches — RECORDED, NOT FIXED
+
+The root cause of P4-F136. Correcting `Cart::cart_list_cookie` to emit the real `carts.id` would
+make the payload consistent, but `cart_id` is posted back to the cart remove and quantity endpoints
+by four storefront views, so those endpoints must be read first to learn how they currently
+interpret a guest's value. Queued for P4-1 with the storefront cart work.
+
+### Two decisions the review surfaced, recorded rather than changed
+
+- **`store_wallets` is now locked for the whole order write.** `$order->save()` fires
+  `OrderObserver::created()` → `OrderFinancialService::createForOrder()`, whose
+  `StoreWallet::...->lockForUpdate()` used to commit in milliseconds on its own and is now a
+  SAVEPOINT inside the order boundary. `store_wallets` has one row per store, so every concurrent
+  checkout in a store serialises on it for the duration of the write, and the lock-acquisition order
+  is a new deadlock surface against `PaymentService::getProductStatus`'s own boundary. This is the
+  honest answer to "what is still inside the transaction that should not be" — not an HTTP call.
+  `OrderWriteTransactionTest` cannot see it, because that case scans the method's own source and
+  nothing an observer does is spellable there.
+- **`cities` is written inside the boundary.** `BillingGeography::cityId()` inserts a row when a
+  posted city resolves by neither id nor name, and `cities` is platform-global with no `store_id`.
+  Two tenants' checkouts can block each other on it. The rollback direction is an improvement (a
+  failed order no longer leaves an orphan city), so it is left in place deliberately.
