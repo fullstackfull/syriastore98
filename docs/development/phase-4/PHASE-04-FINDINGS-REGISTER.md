@@ -704,3 +704,44 @@ recorded anyway. Same block takes `coupon_name`, `coupon_code`, `coupon_discount
 `coupon_discount_number` and `user_coupons.amount` from request input rather than from the resolved
 coupon row. Queued for P4-1 with the identity fix, because both want the same change: derive the coupon
 from the server's own validated resolution, never from the caller's `coupon_id`.
+
+---
+
+## P4-6 — refunds and returns (2026-11-16)
+
+### P4-F082 — returning a second line subtracted the first line again — FIXED
+
+`Order::product_return()` sums the `final_price` of every line whose `return` flag is set — a
+cumulative figure, correctly, because `orders.return_price` records everything ever returned. It
+then wrote `$final_price = ($Order->final_price - $return_price)`, and `$Order->final_price` is the
+total **as the previous return already reduced it**.
+
+Measured on two lines of 90.00 and 40.00 with 17.50 of tax, total 147.50:
+
+| | computed | correct |
+|---|---|---|
+| first return (90.00) | 57.50 | 57.50 |
+| second return (40.00) | **−72.50** | 17.50 |
+
+`orders.final_price` is the amount **owed** — on a `cod` order it is the cash a driver collects — so
+a negative value is an instruction to hand money over at the door, printed on the merchant's own
+order screen. The error is exactly the previously-returned line's value, every time, and compounds
+with each further line.
+
+**The method's own docblock already named this** (`app/Models/Order.php`: "recomputes the total from
+the CURRENT final_price rather than from an immutable base, so the money half compounds") and then
+fixed only the same-line replay, whose guard keys on one line's return flag. Nine existing tests
+drive this workflow and **every one returns a single line**, which is how a defect written down in
+the source survived all of them.
+
+Fixed by reconstructing the base as `final_price + return_price`, which is the original total by
+construction and needs no new column and therefore **no migration**. On a first return
+`return_price` is 0, so the behaviour is byte-identical; only second and later calls change. Pinned
+by `SecondReturnTotalTest` (4 cases: a positive control, the defect, a no-negative-total property,
+and a flat-coupon case that stops the fix being made by breaking the summation instead). All three
+failing cases were re-reddened by reverting the one line.
+
+**NOT repaired: orders already driven negative by this defect.** For such a row
+`final_price + return_price` is not the original total, and writing a plausible number into a money
+column is exactly what this workflow's tax handling refuses to do. Reconciling existing damage needs
+a production read first and is an owner item — the same stance as P4-F124.

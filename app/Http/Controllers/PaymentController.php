@@ -1163,14 +1163,15 @@ private function paymeraOrderHighWaterMark(mixed $storeId): int
  * `$pending['processed']` still false, and **no in-process marker of either**: not a return
  * value, not a binding, not a flag. The only witness is the row.
  *
- * (Measured anchors: `DB::beginTransaction()` :3716, `DB::commit()` :3891, `$owner->email`
- * :3947, `OrderCompleteBinding::remember()` :4036. Re-measured twice on 2026-10-30: F210's
+ * (Measured anchors: `DB::beginTransaction()` :3814, `DB::commit()` :3989, `$owner->email`
+ * :4045, `OrderCompleteBinding::remember()` :4134. Re-measured twice on 2026-10-30: F210's
  * ownership gate moved them 71 lines, then F216's guard above this method moved them 49 more.
  * Re-measured TWICE MORE on 2026-10-31, and the second time is the lesson: F237's attribution
  * call inside this very transaction moved the last three by 4; correcting THIS COMMENT then added
  * four lines above the method and moved all four by 4 again, so the first correction was stale
  * the moment it was written -- the third time that has happened to this block, and the reason it
- * is ratcheted at all. P4-3's two notes above then moved all four by 7 and 11. Measure AFTER.
+ * is ratcheted at all. P4-3's two notes above then moved all four by 7 and 11. P4-F026's intake
+ * claim and transaction boundary in this same method moved them 97 more. Measure AFTER.
  * THE MARKER IS DATE-FREE ON PURPOSE: dating it is what the ratchet's own needle matches on, and
  * writing "Re-measured 2026-10-30:" here emptied that needle. These are STRUCTURAL claims and the numbers
  * drift -- two earlier versions of this comment cited lines this very change had already moved,

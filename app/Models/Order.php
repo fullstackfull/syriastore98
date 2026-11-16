@@ -1246,7 +1246,52 @@ if ($order_status == 'cancel') {
             }
         }
         $return_price -= $coupon_price;
-        $final_price = ($Order->final_price - $return_price);
+
+        /*
+         * P4-F082 -- THE BASE IS THE ORDER'S ORIGINAL TOTAL, NOT ITS CURRENT ONE.
+         * =========================================================================================
+         *
+         * `$return_price` above is CUMULATIVE: it sums the `final_price` of EVERY line whose
+         * `return` flag is set, which is right, because `orders.return_price` records everything
+         * that has ever been returned. This line then subtracted that cumulative figure from
+         * `$Order->final_price` -- the total AS THE PREVIOUS RETURN ALREADY REDUCED IT. So the
+         * second return subtracted the first line again, the third subtracted the first two
+         * again, and the error was exactly the previously-returned value every time.
+         *
+         * MEASURED on two lines of 90.00 and 40.00 with 17.50 of tax, total 147.50:
+         *
+         *     first return  (90.00)   147.50 -  90.00 =   57.50   correct
+         *     second return (40.00)    57.50 - 130.00 =  -72.50   WRONG; 17.50 is owed
+         *
+         * `orders.final_price` is the amount OWED -- on a `cod` order it is the cash a driver
+         * collects -- so a negative value is an instruction to hand money over at the door,
+         * printed on the merchant's own screen.
+         *
+         * THIS METHOD'S OWN DOCBLOCK ALREADY NAMED IT ("recomputes the total from the CURRENT
+         * final_price rather than from an immutable base, so the money half compounds") and then
+         * fixed only the SAME-LINE replay, whose guard keys on one line's return flag. Nine
+         * existing tests drive this workflow and every one returns a single line, which is how a
+         * defect written down in the source survived all of them.
+         *
+         * THE BASE IS RECONSTRUCTED, NOT STORED, and deliberately so: `final_price` plus
+         * `return_price` is the original total by construction, because `return_price` holds
+         * exactly what has been taken off. That needs no new column and therefore no migration --
+         * which matters, since a migration here would be a production schema change requiring the
+         * owner. On the FIRST return `return_price` is 0, so the base is the current total and
+         * the behaviour is byte-identical to before; only the second and later calls change.
+         *
+         * WHAT IT DOES NOT DO. It does not repair an order already driven negative by this
+         * defect: for such a row `final_price + return_price` is not the original total, and a
+         * silent "correction" writing a plausible number into a money column is exactly what the
+         * tax note below this refuses to do. Reconciling existing damage needs a production read
+         * first and is an owner item.
+         *
+         * THE SUMMATION ABOVE IS LEFT ALONE. It is the half this method already gets right, and
+         * `SecondReturnTotalTest::test_a_flat_coupon_is_applied_once_across_two_returns` pins it
+         * so a fix aimed at the base cannot be made by breaking it instead.
+         */
+        $original_total = (float) $Order->final_price + (float) $Order->return_price;
+        $final_price = ($original_total - $return_price);
         /*
          * ONE TRANSACTION AROUND THE WRITES.  P1-INV-15 (D), owner decision 5's "transaction-safe".
          *
