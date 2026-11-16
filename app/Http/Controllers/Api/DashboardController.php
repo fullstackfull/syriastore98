@@ -346,7 +346,21 @@ public function DeleteOrderNote(Request $request)
 
 
 
- public function updateStatus(Request $request): JsonResponse
+ /**
+     * The payment statuses a MERCHANT may set by hand on this endpoint.  P4-F145.
+     *
+     * Deliberately NOT the set of values `orders.payment_status` can hold. `Pending` is a third
+     * real value of that column, but the server DERIVES it from verification evidence
+     * (`PaymentVerificationService::STATUS_PENDING`) and a merchant may not assert it; admitting it
+     * here would let a merchant claim a settlement state nobody verified.
+     *
+     * This is the same pair the validator's `in:Paid,Unpaid` rule carried before P4-F145 moved the
+     * check to where the order's stored value is known, so no transition that was permitted became
+     * forbidden and none that was forbidden became permitted.
+     */
+    private const MERCHANT_SETTABLE_PAYMENT_STATUSES = ['Paid', 'Unpaid'];
+
+    public function updateStatus(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'product_order_id' => [
@@ -399,10 +413,35 @@ public function DeleteOrderNote(Request $request)
                 'required_without:payment_status',
             ],
 
+            /*
+             * P4-F145 -- FORMAT ONLY HERE. THE TRANSITION IS VALIDATED AFTER THE ORDER IS LOADED.
+             *
+             * This read `in:Paid,Unpaid`, and that refused a request the shipped app makes on every
+             * DELIVERY-status change: `order_repository.dart:81-94` declares `paymentStatus` as a
+             * `required String` and writes it into the body unconditionally, and the delivery-status
+             * sheet fills it with the order's OWN CURRENT VALUE
+             * (`payment_status_bottom_sheet.dart:686-693` -> `order_screen.dart:563-564`).
+             *
+             * So any order whose stored status is neither literal died here with HTTP 422 before the
+             * handler looked at it. The third value is `Pending`
+             * (`PaymentVerificationService::STATUS_PENDING`), which covers COD under owner decision
+             * D-06, a bank transfer awaiting settlement, and EVERY gateway return whose capture could
+             * not be verified. A merchant could not move any of those orders at all from the app.
+             *
+             * WIDENING THE LIST WOULD BE THE WRONG FIX: admitting `Pending` would let a merchant
+             * ASSERT a payment state the server is supposed to derive. Owner policy is that a
+             * merchant may not assert settlement without evidence. So the rule here is reduced to
+             * FORMAT, and the real question -- is this an actual TRANSITION, and is that transition
+             * permitted -- is asked below, where the stored value is known. An echo of the order's
+             * own value is not a transition and is ignored entirely.
+             *
+             * `required_without:delivered_status` is unchanged, so a request carrying neither field
+             * is still refused exactly as before.
+             */
             'payment_status' => [
                 'nullable',
                 'string',
-                'in:Paid,Unpaid',
+                'max:50',
                 'required_without:delivered_status',
             ],
 
@@ -502,6 +541,61 @@ $storeId = getCurrentStore();
         $newPaymentStatus = $hasPaymentStatus
             ? (string) $request->input('payment_status')
             : $oldPaymentStatus;
+
+        /*
+         * P4-F145, PART 1 -- AN ECHO IS NOT A TRANSITION.
+         * =========================================================================================
+         *
+         * The shipped app sends `payment_status` on every call to this endpoint, and on a
+         * DELIVERY-status change it sends back the order's own stored value. A request that asks
+         * for the state the order is already in is asking for NOTHING: there is no settlement
+         * event, no transition to authorise, and nothing to validate.
+         *
+         * Dropping it here rather than admitting the value to the validator is what keeps the two
+         * questions apart, which is the owner's requirement: "Validate delivery status
+         * independently from an actual payment-status transition."
+         *
+         * CASE-INSENSITIVE because the comparison is about IDENTITY of state, not spelling. A
+         * client echoing `paid` for a stored `Paid` is naming the same state, so treating it as a
+         * change would re-run a settlement write for no reason -- and `$order->save()` below would
+         * make `wasChanged('payment_status')` true, firing `OrderObserver::updated()` and moving
+         * money through `OrderFinancialService` on a request that asked for no such thing.
+         */
+        if ($hasPaymentStatus
+            && strcasecmp(trim($newPaymentStatus), trim($oldPaymentStatus)) === 0) {
+
+            $hasPaymentStatus = false;
+            $newPaymentStatus = $oldPaymentStatus;
+        }
+
+        /*
+         * P4-F145, PART 2 -- A REAL TRANSITION IS STILL CONSTRAINED, EXACTLY AS BEFORE.
+         *
+         * `in:Paid,Unpaid` used to live in the validator. It still applies, but only to a request
+         * that genuinely asks to MOVE the payment status, and it is asked here because only here is
+         * the stored value known.
+         *
+         * THE SET IS DELIBERATELY NOT WIDENED. `Pending` is a state the SERVER derives from
+         * verification evidence (`PaymentVerificationService::resolveOrderPaymentStatus()`); a
+         * merchant asserting it by hand would be claiming knowledge of a capture nobody checked.
+         * Owner policy: a merchant may not assert settlement without the required evidence.
+         *
+         * THE RESPONSE SHAPE IS THE VALIDATOR'S OWN, byte for byte -- same HTTP 422, same
+         * `success: false`, same `message`, same `errors.payment_status` key -- so a client cannot
+         * tell this refusal from the one it replaced. A new shape here would be a contract change
+         * on a path the shipped app calls.
+         */
+        if ($hasPaymentStatus
+            && ! in_array($newPaymentStatus, self::MERCHANT_SETTABLE_PAYMENT_STATUSES, true)) {
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed.',
+                'errors' => [
+                    'payment_status' => [__('The selected payment status is invalid.')],
+                ],
+            ], 422);
+        }
 
         /*
          * إذا لم يتغير شيء، نعيد نجاح بدون تنفيذ حفظ غير ضروري.
