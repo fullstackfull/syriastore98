@@ -1059,3 +1059,55 @@ version passed having read nothing if the file moved, because `(string) false` i
 
 Falsified against all three shapes: removing the marker from CoinGate, Skrill or PayFast individually
 re-reddens it.
+
+### P4-F142 — two more live unmarked not-paid legs, behind a ratchet that claimed to be exhaustive — FIXED
+
+A **second** adversarial sweep, run over the corrections themselves, found that the P4-F141 rewrite
+was still blind. Its docblock claimed *"a new provider written in a shape nobody has thought of is
+caught by construction rather than missed by omission."* **That claim was false, and I wrote it.**
+
+Measured: the rewritten scanner enumerated **10 of the 47** `route('store.payment.status')` sites in
+`PaymentService.php`, because it still keyed on the literal token `cancel_url`. Behind it:
+
+| provider | key | state |
+|---|---|---|
+| **PayTR** | `merchant_fail_url` | **live, byte-identical to `merchant_ok_url`** — fixed |
+| **Xendit** | `failure_redirect_url` | **live, separable from `success_redirect_url`** — fixed |
+| AamarPay | `fail_url`, `cancel_url` | marked; see below |
+
+**The lesson is not "pick a better token".** Enumerating by key name is the bug: a ratchet that only
+looks at keys it already knows cannot be exhaustive however the matching inside it is phrased. The
+case now enumerates by **destination** — every `route('store.payment.status', ...)`, all 47 — and
+classifies each by its key as paid / not-paid / declared-ambiguous. **An unrecognised key fails the
+test**, which is the only thing that forces a reader to look at a new provider.
+
+**Two exemptions were removed as unjustified, both mine.** The encrypted-payload exemption claimed
+`Crypt::encrypt(['response' => 'cancel'])` was "its own marker". It never was: `Crypt::decrypt`
+appears **zero** times in `PaymentController.php`. Both AamarPay legs now carry the query marker too
+— an improvement rather than cosmetic, because the reader sits above `getStore($slug)`, so a marked
+return answers "your payment was cancelled" instead of the 500 that passing an encrypted blob as the
+slug currently produces.
+
+### P4-F143 — Mollie needs a finality check, and must NOT be marked — RECORDED, NOT FIXED
+
+`processMollie` is given **one** URL, `redirectUrl`, which receives the shopper back for paid,
+canceled, expired and failed alike. **Marking it would make the P4-F044 reader refuse every
+successful Mollie payment** — a shopper charged with no order written, which is worse than the
+defect it would be fixing and contradicts the recorded reconciliation-path decision.
+
+Mollie needs a provider finality branch in `getProductStatus` beside PhonePe, toyyibpay and Tap,
+polling with the id `processMollie` already stores as `mollie_payment_id`. The material exists and is
+simply unread on this path. **Not attempted here**: adding a gateway poll that can refuse an order is
+new integration work, not a one-line correction. PayTabs is the same shape (`sendURLs()` gives one
+return URL plus a callback) and is declared ambiguous for the same reason.
+
+### P4-F144 — PayHere's `failUrl` is unmarked, and AamarPay passes a blob as the slug — RECORDED
+
+`PayHere::checkOut()->failUrl(route('store.payment.status', $slug))` is a genuine not-paid leg with
+no marker. **Not fixed and not disguised**: `RetiredGateways::PROVIDERS` lists `payhere`, so the
+provider is retired and the leg unreachable. If PayHere is ever un-retired, this must be marked
+first — the ratchet's comment says so at the site.
+
+Separately, AamarPay passes `Crypt::encrypt([...])` as the **storeSlug** route segment, so the store
+does not resolve and the handler fails before the order write. That is a 500 rather than P4-F044's
+phantom order — a lesser and different defect, recorded rather than fixed on a guess.

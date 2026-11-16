@@ -1256,6 +1256,23 @@ private function processPaymera00000($request, $slug)
                     "value" => str_replace(",", "", number_format($cartlist_final_price, 2)),
                 ],
                 "description" => "payment for product",
+                /*
+                 * P4-F143 -- DELIBERATELY NOT MARKED, AND THIS IS THE DANGEROUS ONE.
+                 *
+                 * This is the ONLY url Mollie is given. It receives the shopper back whether the
+                 * payment was paid, canceled, expired or failed. Adding `return_type=cancel` here
+                 * would make the P4-F044 reader refuse EVERY successful Mollie payment -- a
+                 * shopper charged with no order written, which is far worse than the defect it
+                 * would be trying to fix, and is exactly the "reconciliation path" the recorded
+                 * owner decision protects.
+                 *
+                 * SO MOLLIE NEEDS A FINALITY CHECK, NOT A MARKER: a provider branch in
+                 * `getProductStatus` beside PhonePe, toyyibpay and Tap, polling the payment with
+                 * the id this method already stores as `mollie_payment_id` below. The material
+                 * exists; it is simply unread on the storefront return. Recorded as P4-F143 rather
+                 * than attempted here, because adding a gateway poll that can refuse an order is
+                 * new integration work, not a one-line correction.
+                 */
                 "redirectUrl" => route(
                     'store.payment.status',
                     [
@@ -1938,9 +1955,26 @@ private function processPaymera00000($request, $slug)
                             'cart_data' => $cartlist
                         ]),
                 //your success route
-                'fail_url' => route('store.payment.status', Crypt::encrypt(['response' => 'failure', 'slug' => $slug, 'price' => $cartlist_final_price, 'order_id' => $orderID])),
+                /*
+                 * P4-F142. BOTH AAMARPAY NOT-PAID LEGS NOW CARRY THE QUERY MARKER, in addition to
+                 * the encrypted payload they already passed.
+                 *
+                 * THE ENCRYPTED PAYLOAD IS NOT A MARKER, which an earlier version of the ratchet
+                 * assumed without checking: `Crypt::decrypt` appears ZERO times in
+                 * `PaymentController.php`, so nothing on the storefront return has ever read
+                 * `['response' => 'cancel']` or `['response' => 'failure']`.
+                 *
+                 * These legs also pass the blob as the SLUG segment, so the store does not resolve
+                 * and the handler fails before the order write -- a 500 rather than the phantom
+                 * order P4-F044 describes. The marker is still worth adding, and it is an
+                 * improvement rather than cosmetic: the P4-F044 reader sits ABOVE
+                 * `getStore($slug)`, so a marked return is answered with "your payment was
+                 * cancelled" instead of crashing. The broken slug is its own defect and is
+                 * recorded separately rather than fixed here on a guess.
+                 */
+                'fail_url' => route('store.payment.status', [Crypt::encrypt(['response' => 'failure', 'slug' => $slug, 'price' => $cartlist_final_price, 'order_id' => $orderID]), '&return_type=cancel&payment_processor=aamarpay']),
                 //your fail route
-                'cancel_url' => route('store.payment.status', Crypt::encrypt(['response' => 'cancel'])),
+                'cancel_url' => route('store.payment.status', [Crypt::encrypt(['response' => 'cancel']), '&return_type=cancel&payment_processor=aamarpay']),
                 //your cancel url
                 'signature_key' => $aamarpay_signature_key,
                 'desc' => $aamarpay_description,
@@ -2088,7 +2122,18 @@ private function processPaymera00000($request, $slug)
                 'user_address' => $user_address,
                 'user_phone' => $user_phone,
                 'merchant_ok_url' => route('store.payment.status', $slug, ),
-                'merchant_fail_url' => route('store.payment.status', $slug),
+                /*
+                 * P4-F142. PayTR's FAIL url was byte-identical to its OK url above, so a declined
+                 * or abandoned PayTR payment came back indistinguishable from a paid one and the
+                 * generic writer wrote a phantom Pending order, took the stock with nothing to
+                 * claim it, emptied the cart and consumed the 48-hour return claim.
+                 *
+                 * MISSED BY BOTH VERSIONS OF THE RATCHET, because both enumerated by the literal
+                 * token `cancel_url` and this key is `merchant_fail_url`. The rewrite that claimed
+                 * a new shape would be "caught by construction" still scanned 10 of this file's 47
+                 * return-URL sites. Found by a second adversarial sweep over that rewrite.
+                 */
+                'merchant_fail_url' => route('store.payment.status', [$slug, '&return_type=cancel&payment_processor=paytr']),
                 'timeout_limit' => $timeout_limit,
                 'currency' => $currency,
                 'test_mode' => $test_mode
@@ -2208,7 +2253,10 @@ private function processPaymera00000($request, $slug)
             'amount' => $cartlist_final_price,
             'callback_url' => route('store.payment.status', $slug),
             'success_redirect_url' => route('store.payment.status', [$slug, 'request_data' => $request->all()]),
-            'failure_redirect_url' => route('store.payment.status', $slug),
+            /* P4-F142. Separable from `success_redirect_url` above, and unmarked -- same defect,
+               same fix. Xendit gives distinct success and failure URLs, so marking this one
+               cannot affect a paid invoice. */
+            'failure_redirect_url' => route('store.payment.status', [$slug, '&return_type=cancel&payment_processor=xendit']),
         ];
         $invoice = Invoice::create($params);
         if (is_array($request)) {

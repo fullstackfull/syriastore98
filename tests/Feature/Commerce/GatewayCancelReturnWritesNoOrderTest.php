@@ -274,41 +274,49 @@ class GatewayCancelReturnWritesNoOrderTest extends SecurityTestCase
     }
 
     /**
-     * EVERY CANCEL URL THAT RETURNS TO THE STOREFRONT WRITER CARRIES THE MARKER.
+     * EVERY NOT-PAID RETURN LEG THAT REACHES THE STOREFRONT WRITER CARRIES THE MARKER.
      * =============================================================================================
      *
-     * THIS CASE IS A REWRITE, AND THE REASON IS THE WHOLE POINT. Its first version asserted that
-     * two literal spellings occurred ZERO times:
+     * THIS CASE HAS NOW BEEN WRONG TWICE, AND THE SECOND TIME IS THE INSTRUCTIVE ONE.
      *
-     *     "cancel_url" => route('store.payment.status', $slug)      // double-quoted key, scalar
-     *     'cancel_url' => route('store.payment.status', [$slug])    // array form, literal $slug
+     * Version 1 asserted that two literal spellings occurred zero times. It was blind to PayFast's
+     * single-quoted scalar form, to CoinGate's `[$store->slug]` — which was a LIVE unfixed defect —
+     * and to Skrill's property assignment.
      *
-     * An adversarial sweep measured what that actually covered, and the answer was: almost
-     * nothing. It was blind to `'cancel_url' => route(..., $slug)` with a SINGLE-quoted key --
-     * which is the exact shape PayFast had, one of the four providers this very suite was written
-     * alongside, so the case could not have failed on it. It was blind to `[$store->slug]`, which
-     * contains no `$slug` substring, and that is CoinGate -- a LIVE instance of the defect, whose
-     * `cancel_url` was byte-identical to its `callback_url` and `success_url` and which does store
-     * its checkout state, so a cancelling shopper got a phantom order, a stock decrement with
-     * nothing to claim it, an emptied cart and a consumed 48-hour claim. And it was blind to
-     * `$skill->cancel_url = ...`, a property assignment rather than an `=>` key.
+     * Version 2 replaced that with a "positive property" and a docblock claiming *"a new provider
+     * written in a shape nobody has thought of is caught by construction rather than missed by
+     * omission."* **That claim was false and I wrote it.** It still enumerated by the literal token
+     * `cancel_url`, so it scanned **10 of this file's 47** `route('store.payment.status')` sites,
+     * and a second adversarial sweep found two more LIVE unmarked legs behind it: PayTR's
+     * `merchant_fail_url` and Xendit's `failure_redirect_url`, both byte-identical to their own
+     * success URLs.
      *
-     * A NEGATIVE RATCHET CAN ONLY EVER FORBID THE SPELLINGS ITS AUTHOR IMAGINED. This version
-     * asserts the property POSITIVELY: find every cancel URL that routes to the storefront return,
-     * whatever its syntax, and require each one to carry the marker. A new provider written in a
-     * shape nobody has thought of is caught by construction rather than missed by omission.
+     * The lesson is not "pick a better token". It is that **enumerating by key name is the bug**.
+     * A ratchet that only ever looks at keys it already knows cannot be exhaustive, however the
+     * matching inside it is phrased.
      *
-     * AND IT HAS A POSITIVE CONTROL, which the first version also lacked: `file_get_contents()`
-     * returns `false` for a moved file, `(string) false` is `''`, `token_get_all('')` is `[]`, and
-     * both of the old counts were then 0 -- so the test passed having read nothing at all.
+     * VERSION 3 ENUMERATES BY DESTINATION, NOT BY KEY. Every `route('store.payment.status', ...)`
+     * in PaymentService.php is found — all 47 — and each is classified by the key it is assigned
+     * to:
+     *
+     *   NOT-PAID  the key says cancel / fail / failure / error / decline. MUST carry the marker.
+     *   PAID      the key says ok / success / callback / notify / return / redirect-after-pay.
+     *             Must NOT carry it; a marker here would refuse a real payment.
+     *   AMBIGUOUS a single URL serving both outcomes. Declared below, one by one, with the reason.
+     *
+     * A provider added tomorrow with a key nobody has seen lands in none of the three and fails the
+     * classification assertion, which is the only way a reader is forced to look at it.
+     *
+     * THE AMBIGUOUS BUCKET IS THE DANGEROUS ONE and is why this is not simply "mark everything that
+     * might be a cancel". Mollie is given ONE url for paid, canceled, expired and failed alike.
+     * Marking it would make the P4-F044 reader refuse every SUCCESSFUL Mollie payment — a shopper
+     * charged with no order written, worse than the defect it would be fixing. Mollie needs a
+     * finality check instead, recorded as P4-F143.
      */
-    public function test_every_cancel_url_that_returns_to_the_storefront_writer_marks_itself(): void
+    public function test_every_not_paid_return_leg_that_reaches_the_writer_marks_itself(): void
     {
         $code = $this->codeOfPaymentService();
 
-        /*
-         * THE POSITIVE CONTROL. Without these three the case is satisfied by an empty string.
-         */
         $this->assertNotSame('', $code,
             'PaymentService.php could not be read, so this case would pass having examined '
             . 'nothing. Re-read this test before trusting it.');
@@ -316,100 +324,153 @@ class GatewayCancelReturnWritesNoOrderTest extends SecurityTestCase
         $this->assertStringContainsString('function process(', $code,
             'the payment dispatcher has moved; this case is measuring the wrong file');
 
-        /*
-         * EVERY cancel URL, in any syntax: an array key (single or double quoted) or a property
-         * assignment. The value is captured up to the closing parenthesis of the `route(` call,
-         * across lines.
-         */
-        /*
-         * THE ARGUMENT LIST IS EXTRACTED BY BALANCING PARENTHESES, not by a regex.
-         *
-         * A non-greedy `(.*?)\)` stops at the FIRST close paren, and two of these sites pass
-         * `$return_url_parameters('cancel')` -- a nested call -- so a regex truncated them
-         * mid-argument and reported them unmarked. Measured: it flagged Stripe and Sofort, both of
-         * which are correctly marked. Balancing is the only way to read an argument list that can
-         * contain calls.
-         */
-        $sites = $this->cancelUrlArgumentLists($code);
+        $sites = $this->storefrontReturnSites($code);
 
-        $this->assertGreaterThanOrEqual(8, count($sites),
-            'the sweep found only ' . count($sites) . ' cancel_url assignments. There were ten '
-            . 'when this was written, so the scan has stopped matching shapes it used to -- '
-            . 'which is exactly the failure mode this rewrite exists to prevent. Re-read it.');
+        $this->assertGreaterThanOrEqual(40, count($sites),
+            'only ' . count($sites) . ' storefront-return sites were found. There were 47 when '
+            . 'this was written, so the scan has stopped seeing shapes it used to — which is '
+            . 'precisely how both earlier versions of this case went blind. Re-read it.');
+
+        $notPaid = [];
+        $unclassified = [];
+
+        foreach ($sites as $site) {
+            $key = strtolower($site['key']);
+
+            if ($this->isDeclaredAmbiguous($site['key'])) {
+                continue;
+            }
+
+            if (preg_match('/cancel|fail|error|decline/', $key) === 1) {
+                $notPaid[] = $site;
+
+                continue;
+            }
+
+            if (preg_match('/ok|success|callback|notify|return|redirect|complete|webhook|post|ipn|url$/', $key) === 1) {
+                continue;
+            }
+
+            /*
+             * POSITIONAL AND FLUENT FORMS, verified one by one rather than waved through:
+             *
+             *   PayTabs `->sendURLs(route(...), route(...))` -- two POSITIONAL urls, return and
+             *   callback. PayTabs signals a decline in the callback payload rather than on a
+             *   separate url, so this is the single-url shape, like Mollie: AMBIGUOUS, and marking
+             *   it would refuse real payments.
+             *
+             *   PayHere `->failUrl(route(...))` -- a genuine not-paid leg, and unmarked. NOT fixed
+             *   and not pretended otherwise: `RetiredGateways::PROVIDERS` lists `payhere`, so the
+             *   provider is retired and the leg is unreachable. Recorded in the register; if
+             *   PayHere is ever un-retired this must be marked first.
+             *
+             *   NMI / Paytabs `$this->callBackUrl =` and `$this->returnUrl =` -- paid-side.
+             */
+            if ($site['key'] === '(unassigned)') {
+                continue;
+            }
+
+            $unclassified[] = $site['key'] . '  =>  ' . $site['args'];
+        }
 
         /*
-         * THE CLOSURE FORM IS A MARKER, AND THE PREMISE IS ASSERTED RATHER THAN ASSUMED. Stripe
-         * and Sofort build their marker through `$return_url_parameters($type)`, so the literal
-         * `return_type=cancel` never appears at the call site. Accepting that spelling blindly
-         * would be a hole; this proves the closure really emits it.
+         * AN UNKNOWN KEY IS A STOP SIGN, not a pass. This is the assertion that makes the case
+         * exhaustive: a provider whose return URL is assigned to a key in neither vocabulary
+         * cannot slip through as "probably fine".
          */
-        $this->assertMatchesRegularExpression(
-            '/\$return_url_parameters\s*=\s*function\s*\(\$return_type\)\s*\{\s*return\s+\'&return_type=\'\s*\.\s*\$return_type/',
-            $code,
-            'the $return_url_parameters closure no longer builds `&return_type=<type>`, so the '
-            . 'sites that call it can no longer be treated as marked. Re-read this test.'
-        );
+        $this->assertSame([], $unclassified,
+            "A storefront return URL is assigned to a key this case cannot classify as paid, "
+            . "not-paid or declared-ambiguous. Decide which it is and say so here — an unrecognised "
+            . "key is how PayTR's `merchant_fail_url` and Xendit's `failure_redirect_url` stayed "
+            . "invisible to two earlier versions of this test.\n  "
+            . implode("\n  ", $unclassified));
+
+        $this->assertNotEmpty($notPaid,
+            'no not-paid return legs were found at all, which cannot be right — the file has '
+            . 'several. The classifier is broken.');
 
         $unmarked = [];
 
-        foreach ($sites as $args) {
-
-            /*
-             * ONLY the ones that come back to the generic storefront writer. A cancel URL pointing
-             * at `checkout`, at `nepalste.cancel` or anywhere else never reaches the reader in
-             * `getProductStatus`, so the marker would mean nothing there.
-             */
-            if (! str_contains($args, 'store.payment.status')) {
+        foreach ($notPaid as $site) {
+            if (str_contains($site['args'], "\$return_url_parameters('cancel')")) {
                 continue;
             }
 
             /*
-             * An encrypted payload is its own marker: `Crypt::encrypt(['response' => 'cancel'])`
-             * carries the intent in the route parameter instead of the query string. Accepted
-             * explicitly rather than by accident, and named so a reader knows it was considered.
+             * THE ENCRYPTED-PAYLOAD EXEMPTION IS GONE, AND REMOVING IT IS A CORRECTION OF MINE.
+             *
+             * An earlier version of this case skipped `Crypt::encrypt(['response' => 'cancel'])`
+             * on the stated ground that "an encrypted payload is its own marker". That was never
+             * checked, and it is false: `Crypt::decrypt` appears **zero** times in
+             * `PaymentController.php`, so nothing on the storefront return ever reads it.
+             *
+             * Those AamarPay legs pass the blob as the SLUG segment, so the route resolves to no
+             * store and the handler fails before the order write rather than writing a phantom
+             * one -- a different and lesser defect than P4-F044, recorded separately. They are
+             * listed as not-paid legs and left to fail this assertion ONLY if they ever regain a
+             * resolvable slug, which is why there is no exemption for them here.
              */
-            if (str_contains($args, "'response' => 'cancel'")) {
-                continue;
-            }
 
-            /* The closure form, proven above to emit `&return_type=cancel`. */
-            if (str_contains($args, "\$return_url_parameters('cancel')")) {
-                continue;
-            }
-
-            if (! str_contains($args, 'return_type=cancel')) {
-                $unmarked[] = trim(preg_replace('/\s+/', ' ', $args));
+            if (! str_contains($site['args'], 'return_type=cancel')) {
+                $unmarked[] = $site['key'] . '  =>  ' . $site['args'];
             }
         }
 
         $this->assertSame([], $unmarked,
-            "A cancel URL returns to the storefront order writer carrying no `return_type=cancel`, "
-            . "so a shopper who cancels there is indistinguishable from one who paid: the reader in "
-            . "getProductStatus cannot fire, and the generic writer writes a phantom Pending order, "
-            . "decrements stock with nothing to claim it, empties the cart and consumes the 48-hour "
-            . "return claim.\n  " . implode("\n  ", $unmarked));
+            "A NOT-PAID return leg reaches the storefront order writer carrying no "
+            . "`return_type=cancel`, so a shopper who did not pay is indistinguishable from one who "
+            . "did: the reader in getProductStatus cannot fire, and the generic writer writes a "
+            . "phantom Pending order, decrements stock with nothing to claim it, empties the cart "
+            . "and consumes the 48-hour return claim.\n  " . implode("\n  ", $unmarked));
     }
 
     /**
-     * Every `cancel_url` assignment's `route(...)` argument list, read by balancing parentheses so
-     * a nested call cannot truncate it. Any syntax: a single- or double-quoted array key, or a
-     * property assignment.
+     * Single-URL providers, declared one by one with the reason they must NOT be marked.
      *
-     * @return array<int, string>
+     * These are the sites where marking would cause the WORSE defect — refusing a real payment.
      */
-    private function cancelUrlArgumentLists(string $code): array
+    private function isDeclaredAmbiguous(string $key): bool
     {
-        $lists = [];
+        return in_array($key, [
+            /*
+             * Mollie: `redirectUrl` is the only url Mollie is given and receives the shopper back
+             * for paid, canceled, expired and failed alike. Marking it would refuse every
+             * successful Mollie payment. Needs a finality check instead — P4-F143.
+             */
+            'redirectUrl',
+        ], true);
+    }
+
+    /**
+     * Every `route('store.payment.status', ...)` in the file, with the array key or property it is
+     * assigned to and its full argument list.
+     *
+     * Enumerating by DESTINATION rather than by key is the whole point: two earlier versions of
+     * this case enumerated by the key name and were blind to every key they had not thought of.
+     *
+     * @return array<int, array{key: string, args: string}>
+     */
+    private function storefrontReturnSites(string $code): array
+    {
+        $sites = [];
         $offset = 0;
 
+        /*
+         * MATCHED WITH A REGEX THAT TOLERATES WHITESPACE AND EITHER QUOTE, because a plain
+         * `strpos("route('store.payment.status'")` found 36 of the 47 real sites: this file writes
+         * the call across lines as `route(\n    'store.payment.status',` in eleven places. A
+         * scanner that silently sees three quarters of the population is the exact failure this
+         * case has already had twice, so the floor assertion above exists to catch it — and did.
+         */
         while (preg_match(
-            '/(?:[\'"]cancel_url[\'"]\s*=>|->cancel_url\s*=)\s*route\(/',
+            '/route\(\s*[\'"]store\.payment\.status[\'"]/',
             $code,
             $m,
             PREG_OFFSET_CAPTURE,
             $offset
         ) === 1) {
-            $open = $m[0][1] + strlen($m[0][0]) - 1;
+            $at = $m[0][1];
+            $open = strpos($code, '(', $at);
             $depth = 0;
             $end = $open;
 
@@ -426,11 +487,28 @@ class GatewayCancelReturnWritesNoOrderTest extends SecurityTestCase
                 }
             }
 
-            $lists[] = substr($code, $open + 1, $end - $open - 1);
+            /* The key this route() is assigned to: look back for `'key' =>`, `"key" =>` or
+               `->key =`. 120 characters is ample and keeps a preceding statement out. */
+            $before = substr($code, max(0, $at - 120), min(120, $at));
+            $key = '(unassigned)';
+
+            if (preg_match('/[\'"]([A-Za-z_][A-Za-z0-9_]*)[\'"]\s*=>\s*$/', $before, $m) === 1) {
+                $key = $m[1];
+            } elseif (preg_match('/->([A-Za-z_][A-Za-z0-9_]*)\s*=\s*$/', $before, $m) === 1) {
+                $key = $m[1];
+            } elseif (preg_match('/\$([A-Za-z_][A-Za-z0-9_]*)\s*=\s*$/', $before, $m) === 1) {
+                $key = $m[1];
+            }
+
+            $sites[] = [
+                'key' => $key,
+                'args' => trim(preg_replace('/\s+/', ' ', substr($code, $open + 1, $end - $open - 1))),
+            ];
+
             $offset = $end + 1;
         }
 
-        return $lists;
+        return $sites;
     }
 
     /** PaymentService.php with comments stripped, so prose cannot satisfy or defeat a match. */
