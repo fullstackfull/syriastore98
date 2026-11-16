@@ -134,8 +134,10 @@ unaffected in either direction, and that is pinned in both directions by a test.
 
 ## 7. Evidence
 
-Every figure below was measured on **one clean tree** — `feature/phase-04-commerce` at `6a2e309d`,
-`git status` empty — and each names the command that produced it. Figures from earlier trees in this
+Every figure below was measured on **one clean tree** — `feature/phase-04-commerce` at `b294f2e3`,
+`git status` empty — and each names the command that produced it. The Feature suite subsumes
+`tests/Feature/Commerce`, `tests/Feature/Security` and `tests/Feature/Tenancy`, so the whole surface
+is covered by a single run on a single tree. Figures from earlier trees in this
 phase are not carried forward, because three suite runs during this work were invalidated by editing
 files while they ran, and an unattributable number is worse than no number.
 
@@ -144,7 +146,7 @@ files while they ran, and an unattributable number is worse than no number.
 | Unit | `php artisan test --testsuite=Unit` | **1845 passed, 1 skipped, 0 failed** |
 | Contract (the Flutter API contract) | `php artisan test --testsuite=Contract` | **45 passed** |
 | Commerce + Security + Tenancy | `php artisan test tests/Feature/Commerce tests/Feature/Security tests/Feature/Tenancy` | **6648 passed, 1 skipped, 0 failed** |
-| Feature | `php artisan test --testsuite=Feature --log-junit … --log-teamcity …` | 8977 testcases, **2 failures, 0 errors, 1 skip** |
+| Feature | `php artisan test --testsuite=Feature --log-junit … --log-teamcity …` | 8977 testcases, 47261 assertions, **2 failures, 0 errors, 1 skip** |
 | Known-outcome gate | `php .github/scripts/assert-known-test-outcomes.php …` | **OK — the observed set matches the manifest exactly** |
 
 **The gate's own words, kept rather than paraphrased:** *"This is NOT a statement that the suite is
@@ -154,10 +156,14 @@ declared — `Auth\RegistrationTest::test_new_users_can_register` and
 `ProfileTest::test_profile_page_is_displayed` — both pre-existing, neither touched by Phase 04.
 **Nothing was added to `.github/known-test-outcomes.json`.**
 
-**GitHub CI has not completed on any commit in this stretch, and this report does not claim it has.**
-The required Tests jobs were cancelled at five successive SHAs because each push superseded the
-previous run, and the one genuine CI failure — at `14a46da6`, before this work began — was a stale
-observability inventory, since resynced. `Security-sensitive diff: human checklist` is red by design
+**GitHub CI: the merge-base regression gate passes; the required Tests jobs have never completed.**
+At `2e0a996c`, CI reported **success** for `Merge-base regression gate (new failures only)`,
+`Static checks`, `Secret scan` and the PayHere report — the merge-base gate being one of the two
+this phase was asked to satisfy, and independent evidence that this work introduces no new failures
+against the base. Both required Tests jobs were **cancelled** at six successive SHAs, each push
+superseding the previous run; they have not failed either. The one genuine CI failure in this
+stretch — at `14a46da6`, before this work began — was a stale observability inventory, since
+resynced. `Security-sensitive diff: human checklist` is red by design
 and is the owner's to clear; no automation in this phase wrote to it or claimed it complete.
 
 **New tests added by this phase:** 8 files, 52 test methods.
