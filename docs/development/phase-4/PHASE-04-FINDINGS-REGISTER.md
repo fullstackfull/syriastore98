@@ -745,3 +745,54 @@ failing cases were re-reddened by reverting the one line.
 `final_price + return_price` is not the original total, and writing a plausible number into a money
 column is exactly what this workflow's tax handling refuses to do. Reconciling existing damage needs
 a production read first and is an owner item — the same stance as P4-F124.
+
+---
+
+## P4-7 — commerce authorization (2026-11-16)
+
+### P4-F107 — `DELETE /api/admin/deleteorder` had no permission check — FIXED
+
+The TENANT boundary on this handler was repaired earlier and its comment records it. What it never
+gained is a PERMISSION check. Measured through the real route with a staff token holding a role with
+**no permissions at all**: HTTP 200, `{"status":1,...,"Order deleted successfully!."}`, and the
+`orders`, `order_tax_details`, `order_coupon_details` and `order_billing_details` rows gone. There is
+no soft delete and no audit row on this path.
+
+Gated with `MerchantPermissions::allowsAny($user, ['Delete Order'], $store->id)` — **not**
+`isAbleTo()`, which refuses the platform operator, and **not** `current_store`, because the handler
+serves whichever store `?store_id=` names. The four deletes are now one transaction: they were four
+autocommitted statements, so a throw part-way destroyed an order's money records while the order
+itself survived, pointing at rows that are no longer there.
+
+Falsified both ways: removing the gate re-reddens the permissionless-staff case; spelling it
+`isAbleTo('Delete Order')` re-reddens the operator case.
+
+**What it costs, stated rather than discovered in production:** the shipped Flutter app calls this
+route and a merchant *owner* does not implicitly hold `Delete Order`, so a merchant whose role lacks
+it is now refused. Same trade the web side's S2 records, and the right direction — an
+un-permissioned irreversible delete is the worse failure.
+
+### P4-F037 — `api/admin/status-change` and `api/admin/order-cancel` had no permission check — FIXED
+
+Both resolve their order through `resolveChangeableOrder()`, which is a tenant check and a
+delivery-driver allowance and nothing else. A permissionless staff member of the merchant's own
+tenant could move any of that tenant's orders to Delivered or **cancel** them. Cancelling is
+money-bearing: it routes through `Order::order_status_change()`, which writes
+`payment_status = 'Unpaid'` and makes `OrderObserver` reverse the merchant's wallet credit, and it
+restores the stock.
+
+Gated with a separate `callerMayChangeOrderState()` predicate rather than by changing the resolver,
+because the resolver has a third caller that serves a **read**, and gating reads is a different
+decision with its own cost in the shipped app that this finding does not claim.
+
+**The assigned driver is deliberately not gated.** A `DeliveryBoy` is not a Laratrust subject —
+`MerchantPermissions::names()` returns `[]` for anything that is not a `User` — and carrying the
+parcel *is* the authorization, recorded in `orders.deliveryboy_id`. A gate requiring a permission of
+every caller would refuse every driver on the platform and take the driver app offline.
+`test_the_assigned_driver_is_not_gated()` holds that.
+
+**A measured test trap worth recording.** `statusChange` passes `$request->delivered` as the ORDER
+STATUS, and the engine matches it against a word list (`confirmed`, `cancel`, `delivered`, …).
+Sending `1` is refused with *"That order status is not recognised"* and changes nothing — so the
+first draft of the defect case **passed against the ungated handler**, for the wrong reason. The
+suite now sends `confirmed` and asserts `delivered_status === 4`.

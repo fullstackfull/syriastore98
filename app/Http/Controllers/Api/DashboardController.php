@@ -3408,6 +3408,51 @@ public function ViewProduct(Request $request)
         //
         // A foreign order answers 'Order not found.' rather than a 403, so the
         // response does not confirm that an order id exists.
+        /*
+         * P4-F107 -- AND WHETHER THIS PRINCIPAL MAY DELETE AT ALL.
+         * =========================================================================================
+         *
+         * The TENANT boundary above was repaired earlier and the comment records it. What this
+         * handler never had is a PERMISSION check, so any staff member of the merchant's own
+         * tenant -- holding a role with no permissions whatsoever -- could irreversibly destroy an
+         * order and its tax, coupon and billing rows by sending one integer. Measured through the
+         * real route: HTTP 200, `{"status":1,...,"Order deleted successfully!."}`, four rows gone.
+         * There is no soft delete and no audit row on this path.
+         *
+         * `MerchantPermissions::allowsAny()` AND NOT `isAbleTo()`. Laratrust runs here with
+         * `permissions_as_gates => false` and there is no super-admin bypass, so
+         * `isAbleTo('Delete Order')` REFUSES the platform operator, who holds no roles.
+         * `allowsAny()` tests operator status first and returns the wildcard --
+         * `AdminApiOrderDeletePermissionTest::test_the_operator_is_not_refused()` is what holds
+         * that, and it is the case the naive spelling fails.
+         *
+         * `$store->id` AND NOT `current_store`, for the reason `MerchantPermissions::names()`
+         * states: this handler serves whichever store `?store_id=` names, and `resolveOwnedStore()`
+         * admits any store in the caller's tenant, so a gate keyed on `current_store` would weigh
+         * store A's grants against store B's rows.
+         *
+         * BELOW THE TENANT CHECK AND ABOVE THE ORDER LOOKUP. Below, because a principal with no
+         * business in this store should not learn whether it exists from a permission message;
+         * above, because the lookup is the step before the destructive one and nothing may run
+         * between a refusal and it.
+         *
+         * 403, NEVER 401. `ApiResponser::error()` answers HTTP 200 by default and the shipped
+         * Flutter app force-clears its session on any 401, so a 401 here logs merchants out of the
+         * whole app. `response()->json(..., 403)` rather than `$this->error()` for that reason,
+         * matching `createOrderViaApi`'s gate in this same file.
+         *
+         * WHAT THIS COSTS, stated rather than discovered in production: the shipped app calls this
+         * route and a merchant OWNER does not implicitly hold `Delete Order`, so a merchant whose
+         * role lacks it is now refused. That is the same trade the web side's S2 records, and it is
+         * the right direction -- an un-permissioned irreversible delete is the worse failure.
+         */
+        if (! MerchantPermissions::allowsAny(\Auth::user(), ['Delete Order'], $store->id)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => __('You do not have permission to perform this action.'),
+            ], 403);
+        }
+
         $order = Order::where('id', $request->order_id)
             ->where('store_id', $store->id)
             ->first();
@@ -3416,10 +3461,18 @@ public function ViewProduct(Request $request)
             return $this->error(['message' => __('Order not found.')]);
         }
 
-        OrderTaxDetail::where('order_id', $order->id)->delete();
-        OrderCouponDetail::where('order_id', $order->id)->delete();
-        OrderBillingDetail::where('order_id', $order->id)->delete();
-        $order->delete();
+        /*
+         * ONE TRANSACTION. The four deletes were four autocommitted statements, so a throw
+         * part-way -- a failing observer, a lock timeout, a lost connection -- left the order's
+         * tax or coupon rows destroyed while the order itself survived, pointing at money records
+         * that are no longer there. Nothing on this path could put them back.
+         */
+        \Illuminate\Support\Facades\DB::transaction(function () use ($order) {
+            OrderTaxDetail::where('order_id', $order->id)->delete();
+            OrderCouponDetail::where('order_id', $order->id)->delete();
+            OrderBillingDetail::where('order_id', $order->id)->delete();
+            $order->delete();
+        });
 
         return $this->success(['message' => __('Order deleted successfully!.')]);
     }
@@ -4797,6 +4850,65 @@ public function DeleteReview($id)
      * Legitimate principals: the delivery boy the order is ASSIGNED to, and
      * the merchant (or platform operator) who owns the order's store.
      */
+    /**
+     * P4-F037 — MAY THIS PRINCIPAL CHANGE THIS ORDER'S STATE?
+     * =============================================================================================
+     *
+     * `resolveChangeableOrder()` answers a DIFFERENT question: whose order is it. It is a tenant
+     * check and a delivery-driver allowance, and it never asks whether the actor may change an
+     * order. So a staff member of the merchant's own tenant, holding a role with no permissions at
+     * all, could move any of that tenant's orders to Delivered or CANCEL them — and cancelling is
+     * money-bearing, because it routes through `Order::order_status_change()`, which writes
+     * `payment_status = 'Unpaid'` and makes `OrderObserver` reverse the merchant's wallet credit,
+     * and it returns the goods to the shelf. Measured through both routes: HTTP 200, order
+     * cancelled, by a principal with nothing granted.
+     *
+     * THIS IS A SEPARATE PREDICATE RATHER THAN A CHANGE TO THE RESOLVER, deliberately. The
+     * resolver has a third caller that serves a READ, and gating reads is a different decision
+     * with its own cost in the shipped app — one the finding does not claim. Folding the
+     * permission into the resolver would have made that change invisibly.
+     *
+     * THE ASSIGNED DRIVER IS NOT GATED. A `DeliveryBoy` is not a Laratrust subject —
+     * `MerchantPermissions::names()` returns `[]` for anything that is not a `User`, and
+     * `isAbleTo()` on one is a fatal — and carrying the parcel IS the authorization, recorded in
+     * `orders.deliveryboy_id`. A gate that required a permission of every caller would refuse
+     * every driver on the platform.
+     *
+     * THE OPERATOR IS TESTED FIRST, by `allowsAny()`, which returns the wildcard for them. This
+     * codebase has no super-admin bypass, so `isAbleTo('Manage Order')` REFUSES the operator.
+     *
+     * `$order->store_id` AND NOT `current_store`: the order names its own store, and that is the
+     * store whose grants decide.
+     */
+    private function callerMayChangeOrderState($order): bool
+    {
+        if (empty($order)) {
+            return false;
+        }
+
+        $boy = auth('deliveryboy')->user();
+
+        if ($boy && (int) $order->deliveryboy_id === (int) $boy->id) {
+            return true;
+        }
+
+        return MerchantPermissions::allowsAny(\Auth::user(), ['Manage Order'], $order->store_id);
+    }
+
+    /** The refusal every state-changing order endpoint in this controller gives.
+     *
+     * 403, NEVER 401: `ApiResponser::error()` answers HTTP 200 by default and the shipped Flutter
+     * app force-clears its session on any 401, so a 401 here logs merchants out of the whole app.
+     * Same shape as `createOrderViaApi`'s gate in this file.
+     */
+    private function orderPermissionDenied()
+    {
+        return response()->json([
+            'status' => 'error',
+            'message' => __('You do not have permission to perform this action.'),
+        ], 403);
+    }
+
     private function resolveChangeableOrder($orderId)
     {
         if (empty($orderId)) {
@@ -5416,6 +5528,12 @@ public function DeleteStore(Request $request)
             return $this->error(['message' => __('Order not found.')]);
         }
 
+        /* P4-F037. Whose order it is was already asked; whether this principal may change it was
+           not. See callerMayChangeOrderState(). */
+        if (! $this->callerMayChangeOrderState($order)) {
+            return $this->orderPermissionDenied();
+        }
+
         $data['order_id'] = $order->id;
         $data['order_status'] = $request->delivered;
         $responce = Order::order_status_change($data);
@@ -5789,6 +5907,15 @@ public function changeProfile(Request $request)
         // ASSIGNED DRIVER cancelling, so the assignment is released. A
         // merchant cancelling leaves the assignment alone, exactly as before.
         $order = $this->resolveChangeableOrder($request->order_id);
+
+        /* P4-F037, and this is the money-bearing half: cancelling writes `payment_status =
+           'Unpaid'`, which makes OrderObserver reverse the merchant's wallet credit, and it
+           restores the stock. REFUSED BEFORE THE DELIVERY-BOY LOOKUP BELOW, so a refused caller
+           triggers no further reads. */
+        if ($order && ! $this->callerMayChangeOrderState($order)) {
+            return $this->orderPermissionDenied();
+        }
+
         $user = $order ? $this->resolveManageableDeliveryBoy($request->user_id) : null;
 
         if (!empty($order)) {
