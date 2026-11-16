@@ -169,3 +169,92 @@ next reader does not spend the same effort twice.
 | P4-F085 | refunds-returns | order_refunds.product_refund_id VARCHAR(255) overflow — real mechanism, but a recorded owner-BLOCKED finding (P1-ORD-11) with the money/stock paths already guarded, and the claimed trigger arithmetic… |
 | P4-F091 | refunds-returns | Route::resource('refund-request') registers five verbs the controller does not implement |
 
+
+---
+
+## Found during Phase 04 engineering, after the inventory
+
+The inventory above is what 12 reading agents and their reviewers found. These were found by
+*building the fixtures*, which is a different instrument: a test has to make the code do the thing,
+and that is where a claim about the code meets the code's actual behaviour.
+
+| id | domain | severity | finding |
+|---|---|---|---|
+| **P4-F118** | pricing-discounts | HIGH | `fixed product discount` gives the discount to the products **not** named in `applied_product`, and an empty `exclude_categories` refuses every line |
+| **P4-F119** | storefront-catalogue | HIGH | **Editing** a variant product empties its storefront variant selectors, so the product silently stops selling — FIXED in this branch |
+
+### P4-F118 — the `fixed product discount` arm does not do what the merchant form says
+
+Measured while writing `MultiLineCouponArithmeticTest::test_a_fixed_product_discount_stays_per_line`,
+whose fixture had to be built around it. The live arm is `Cart.php:1115-1123`:
+
+```php
+if (! in_array($productId, $exclude_product) && ! in_array($productId, $coupon_applied)) {
+```
+
+Three separate things are wrong, and only the first is obvious from reading:
+
+1. **The membership test is inverted.** A product named in `applied_product` is the one product
+   that does *not* get the discount. Measured: a coupon naming product A, on a basket of A, B and C,
+   discounted **B and C**.
+2. **The other four arms are unreachable.** Each needs some `count(explode(',', $column)) == 0`,
+   and `count(explode(',', ''))` is **1**, never 0. Only the first arm can ever fire, so the
+   `applied_categories`-only and `applied_product`-only configurations the merchant form offers do
+   not exist at runtime.
+3. **An empty `exclude_categories` refuses everything.** The arm's last limb is
+   `! in_array($categoryId, $exclude_categories)`; with an empty column that is
+   `in_array(null, [''])`, which PHP 8 evaluates as **true**. A product with no category, or a
+   coupon with no exclusions, silently discounts nothing. This is why the first version of the
+   fixture measured 0.00 and looked like a test bug.
+
+**Not fixed, deliberately.** It changes which of a merchant's products their existing coupons apply
+to — live catalogue behaviour, not an internal arithmetic — so it is an owner decision, and
+bundling it with the flat-coupon arithmetic would make both impossible to review. Current behaviour
+is pinned by the test above so that whichever way the decision goes, the change is visible.
+
+### P4-F119 — editing a variant product makes it unsellable
+
+Found while building the fixture for P4-1's "variant product renders no variant control" question.
+That question had two answers, and separating them is the point:
+
+1. **The dev fixture was wrong** — it stored `for_variation_1: "on"` where the merchant form posts
+   the checkbox *value* `1` (`product/edit.blade.php:669`). Every test in the suite posts `1`. So
+   the missing selector in the fixture was a **fixture gap**, now corrected.
+2. **Underneath it was a real defect.** With the flag corrected the selectors appeared — and were
+   **empty**.
+
+`products.product_attribute` holds a `values` array per attribute, and **the two merchant forms
+write different things into it**:
+
+| form | what the browser submits | evidence |
+|---|---|---|
+| create | option **IDs** | `product/create.blade.php:861` — `<option … value="' + key + '">` |
+| edit | **TERMS** | `product/edit.blade.php:689` — `<option @if(…) selected @endif>{{ $f }}</option>`, **no `value`** |
+
+`ProductController` stores whichever arrives. The storefront partial resolved them with
+`ProductAttributeOption::where('id', $p)` — an id lookup — so terms resolved to nothing.
+
+**Measured on the running dev server**, flushing the `Cachable` product cache between reads:
+
+```
+values = ["1","2","3","4"]     Size -> [Select an option, S, M, L, M/L]
+values = ["S","M","L","M/L"]   Size -> [Select an option]
+```
+
+The first probe said *ids don't work either* — because it read a **stale cached row**. That is the
+trap CLAUDE.md names, and it nearly cost a wrong root cause.
+
+**An empty selector is an unsellable product, not a cosmetic gap.** `front-theme.js:1237` serialises
+`.variant_form` on change and writes the returned `variant_id` onto the add-to-cart button; with
+nothing to select, `Cart::AddToCart` refuses at `app/Models/Cart.php:158-160` with *"Please Select a
+variant in a product."* Nothing in the merchant UI reports it.
+
+**Fixed on the read side** — `App\Support\Commerce\VariantOptionTerms` resolves either shape, with
+the explicit `store_id` predicate the lookup never had (`ProductAttributeOption` is **not** in
+`config/tenancy.php`'s `scoped_models`, so a bare term lookup would have offered another tenant's
+options). Six tests in `tests/Feature/Storefront/VariantOptionsRenderTest.php`; reverting the
+partial reddens **5 of 6**, and the one that stays green is the create-shape guard.
+
+**The write-side divergence is the root cause and is NOT fixed here.** Normalising it means
+converting terms to ids at save time and rewriting what is already stored — a data change on live
+catalogues, for a defect whose symptom is a read. Recorded as the follow-up.

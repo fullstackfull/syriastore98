@@ -21,22 +21,25 @@
                                         <div class="inline_contant">
                                         <select data-product="{{ $product->id }}" class="custom-select-btn product_variatin_option variant_loop radio-btn rounded-[6px]"  name="varint[{{ $attribute->name }}]">
                                                 @php
-                                                    $optionValues = [];
+                                                    /*
+                                                     * P4-F119. This used to be two nested loops
+                                                     * doing `ProductAttributeOption::where('id', $p)`
+                                                     * per token -- an ID lookup. The merchant EDIT
+                                                     * form posts TERMS (its <option> carries no
+                                                     * value attribute), so every product that had
+                                                     * been edited rendered this selector EMPTY, and
+                                                     * an empty selector means the shopper cannot
+                                                     * choose a variant, which means add-to-cart is
+                                                     * refused: the product silently stopped selling.
+                                                     * The helper resolves either shape, with the
+                                                     * store predicate this lookup never had.
+                                                     */
+                                                    $optionValues = \App\Support\Commerce\VariantOptionTerms::forAttribute(
+                                                        $product,
+                                                        $attribute->id ?? $value->attribute_id,
+                                                        $value->values ?? []
+                                                    );
                                                 @endphp
-
-                                                @foreach ($value->values as $variant1)
-                                                    @php
-                                                        $parts = explode('|', $variant1);
-                                                    @endphp
-                                                    @foreach ($parts as $p)
-                                                        @php
-                                                            $id = App\Models\ProductAttributeOption::where('id', $p)->first();
-                                                            if (isset($id->terms)) {
-                                                                $optionValues[] = $id->terms;
-                                                            }
-                                                        @endphp
-                                                    @endforeach
-                                                @endforeach
                                                 <option value="">
                                                     {{ __('Select an option') }}
                                                 </option>
