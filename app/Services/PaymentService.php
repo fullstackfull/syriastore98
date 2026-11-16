@@ -1734,7 +1734,13 @@ private function processPaymera00000($request, $slug)
                 "metadata" => ["udf1" => "Metadata 1"],
                 "reference" => ["transaction" => "txn_01", "order" => "ord_01"],
                 "receipt" => ["email" => true, "sms" => true],
-                "customer" => ["first_name" => $other_info['firstname'], "middle_name" => "", "last_name" => $other_info['firstname'], "email" => $other_info['email'], "phone" => ["country_code" => 965, "number" => 51234567]],
+                // P4-F046(d): `last_name` was `$other_info['firstname']` -- the first name sent twice, so Tap
+                // received, stored and receipted every Benefit shopper under a surname that is their
+                // own given name. A copy-paste, found by independent review of the finding rather
+                // than by any test, and corrected here because it is a plain data-quality bug with
+                // no policy question attached: `lastname` is the key the sibling writers already use
+                // (PaymentController::processBillingInfo and the three order writers' billing rows).
+                "customer" => ["first_name" => $other_info['firstname'], "middle_name" => "", "last_name" => $other_info['lastname'] ?? '', "email" => $other_info['email'], "phone" => ["country_code" => 965, "number" => 51234567]],
                 "source" => ["id" => "src_bh.benefit"],
                 "post" => ["url" => "https://webhook.site/fd8b0712-d70a-4280-8d6f-9f14407b3bbd"],
                 "redirect" => ["url" => route('store.payment.status', $slug)],
@@ -3562,19 +3568,26 @@ private function webhook(
 
 
 
-private function webhook_backup($order, $r, $products_weight = []) {
-    $url = 'https://webhook.site/c331de9b-b220-4db3-9619-82d9c64367bd'; 
-    $data = [
-        'order' => $order,
-        'request' => $r,
-        'products_weight' => $products_weight
-    ];
-    $response = Http::post($url, $data);
-    return [
-        'status' => $response->status(),
-        'body' => $response->body()
-    ];
-}
+/*
+ * P4-F046 -- `webhook_backup()` WAS DELETED HERE, 2026-11-16.
+ *
+ * It POSTed the whole `$order` model, the raw request and the basket's weights to
+ * `https://webhook.site/c331de9b-...`, a PUBLIC bin whose URL is committed in this repository and
+ * in its git history -- so anyone holding it reads whatever is sent. It had ZERO callers:
+ * `grep -rn 'webhook_backup' app/ packages/ routes/ resources/ tests/` returned only its own
+ * declaration, which `P1-SEC-55-OUTBOUND-SENDER-CENSUS.md:147` had already established.
+ *
+ * DELETED RATHER THAN RE-POINTED, because there is nothing to re-point it AT. It implements no
+ * requirement, nothing calls it, and leaving it was one call site away from exfiltrating every
+ * order on the platform. That is the whole of its risk and the whole of its value.
+ *
+ * THIS IS NOT THE P4-F046 FIX AND MUST NOT BE READ AS ONE. The LIVE site is
+ * `processBenefit()`'s `"post" => ["url" => "https://webhook.site/fd8b0712-..."]`, which is the
+ * server-to-server callback destination for a real storefront payment method. Changing where a
+ * payment callback goes is an owner decision -- it is the escalation P1-SEC-55 raised and it is
+ * still open -- so that line is untouched and is DECLARED, with its exact reason, by
+ * `tests/Feature/Commerce/GatewayCallbackDestinationTest`.
+ */
 
 
 

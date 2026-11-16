@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Commerce;
 
+use App\Http\Controllers\Api\ApiController;
 use App\Http\Controllers\PaymentController;
 use App\Services\PaymentService;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -67,6 +68,55 @@ class OrderWriteTransactionTest extends TestCase
              * for it to be the exception.
              */
             'controller (whatsapp writer)' => [PaymentController::class, 'whatsapp'],
+
+            /*
+             * P4-F026 — THE TWO STOREFRONT API WRITERS, added 2026-11-16.
+             *
+             * `Api\ApiController::place_order` (api/{slug}/place-order and
+             * .../place-order-guest, routes/api.php:140-141) and
+             * `Api\ApiController::ordersave` (api/{slug}/order-save, routes/api.php:165)
+             * write the SAME five rows as the three above -- the Order plus
+             * OrderBillingDetail, OrderCouponDetail, UserCoupon and OrderTaxDetail,
+             * each `->save()`d on its own -- and NEITHER OPENS A TRANSACTION.
+             * MEASURED on d227b7c0: `DB::beginTransaction|DB::commit|DB::rollBack|
+             * DB::transaction` matches NOTHING in either method's line range
+             * (3459-4426 and 8905-9973).
+             *
+             * THE CONSEQUENCE IS NOT MERELY AN AUDIT GAP. The write order is
+             * OrderCouponDetail (:4240 / :9878) and THEN UserCoupon (:4252 / :9888),
+             * so the reachable half-write is "the discount is recorded, the redemption
+             * is not" -- and `user_coupons` is the ONLY table either coupon cap counts.
+             * `Coupon::usesByCustomer()` (app/Models/Coupon.php:115-136) takes max() of
+             * a `user_coupons.user_id` count and an e-mail limb, and that e-mail limb,
+             * `PerUsesCouponCount()` (:148-158), ITSELF iterates `user_coupons`;
+             * `coupon_uses()` and `UsesCouponCount()` (:139-147) are counts on the same
+             * table. A missing UserCoupon row therefore hides the redemption from the
+             * per-user cap AND from the total limit while the order keeps its discount.
+             *
+             * THE IN-CODE NOTE AT :4245-4247 DOES NOT MAKE THIS HARMLESS. It says the
+             * handler no longer takes `user_id` from the request; it is about the VALUE
+             * of that column, not the EXISTENCE of the row.
+             *
+             * ADOPTING THESE ROWS IMPORTS THE OTHER CASES' DEMANDS, deliberately:
+             *   - `test_no_external_call_is_held_inside_the_transaction` requires the
+             *     Firebase/SMTP/SMS calls to sit outside the boundary, so the webhook
+             *     and notification calls must move after `DB::commit()`;
+             *   - `test_the_stock_loop_is_outside_the_boundary_and_is_compensated_on_failure`
+             *     requires a `restoreStockDecrements(...)` AFTER `DB::rollBack()`, which
+             *     is correct: once the order rolls back no order claims the stock;
+             *   - `test_the_failure_is_rethrown_so_the_response_contract_is_unchanged`
+             *     requires the literal `throw $e;` the other three writers already use.
+             *     Today these two rethrow as `throw $ssStockGuardError;` from the OUTER
+             *     F276/D-13 guard, which is a different catch with a different job, so
+             *     that case's message ("must be re-thrown, not swallowed") is literally
+             *     imprecise for these two rows while the defect it names is real.
+             *
+             * `executableSourceOf()` strips comments, so the handlers' own
+             * "NO TRANSACTION ON THIS PATH" note (:4143-4147) can neither satisfy nor
+             * defeat anything asserted here.
+             */
+            'storefront api (place_order)' => [ApiController::class, 'place_order'],
+            'storefront api (ordersave)' => [ApiController::class, 'ordersave'],
         ];
     }
 
@@ -121,11 +171,36 @@ class OrderWriteTransactionTest extends TestCase
 
         $inside = substr($source, $begin, $commit - $begin);
 
+        /*
+         * THE NEEDLES ARE CALL-SITE SPELLINGS, so a call that reaches the network through a
+         * HELPER is invisible to this case unless the helper's own name is listed.
+         *
+         * `Http::` was the only network needle until an adversarial read of this file asked what
+         * it would actually catch in the two storefront writers -- and the answer was nothing.
+         * `ApiController::ordersave` reaches the merchant's configured webhook URL at :4168 as
+         * `Utility::paymentWebhook($order)`, and the curl is two frames down in
+         * `Utility::WebhookCall()` (app/Models/Utility.php:2207, :2291). There is no literal
+         * `Http::` anywhere in that file's writers, so the boundary could have been drawn around
+         * an outbound POST to a third-party URL and this case would have passed.
+         *
+         * That is the worst version of the lock-holding problem this case exists to prevent: a
+         * merchant-SUPPLIED endpoint, so its response time is not merely a third party's, it is
+         * an attacker-chooseable one. `WebhookCall` is listed too, for a writer that one day
+         * calls it directly.
+         *
+         * MEASURED, not assumed: `paymentWebhook` appears twice in PaymentController, once in
+         * PaymentService and once in ApiController, and the three writers that already hold a
+         * boundary keep it outside -- so adding these needles pins existing correct behaviour
+         * rather than describing an aspiration.
+         */
         foreach ([
             'sendEmailTemplate' => 'an SMTP send',
             'SendMsgs' => 'an SMS send',
             'StoreNotificationService' => 'the Firebase push',
             'Http::' => 'an outbound HTTP call',
+            'paymentWebhook' => "a POST to the merchant's configured webhook URL",
+            'WebhookCall' => 'a direct webhook POST',
+            'curl_init' => 'a raw curl call',
         ] as $needle => $what) {
             $this->assertStringNotContainsString($needle, $inside,
                 $what . ' must not be held inside the order-write transaction: '
@@ -200,7 +275,26 @@ class OrderWriteTransactionTest extends TestCase
         $rollback = strpos($source, 'DB::rollBack()');
         $rethrow = strpos($source, 'throw $e;');
 
+        /*
+         * BOTH OFFSETS ARE ASSERTED NOT-FALSE BEFORE THEY ARE COMPARED, and the missing half of
+         * that was a real vacuity in this case rather than defensive noise.
+         *
+         * `strpos()` returns `false` when the needle is absent, and PHP's `<` compares `false` by
+         * juggling it to `0`, so `assertGreaterThan(false, 412)` is TRUE. This case therefore
+         * PASSED on a writer that had no transaction at all -- no `beginTransaction()`, no
+         * `rollBack()` -- as long as some stray `throw $e;` existed anywhere in the method, which
+         * every one of these three writers already had before the boundary was added. It would
+         * have certified a no-op fix as green.
+         *
+         * Found by an adversarial read of this file before the boundary landed, not by running
+         * it: a vacuous assertion is invisible to every run in which the code happens to be
+         * right.
+         */
         $this->assertNotFalse($rethrow, 'the exception must be re-thrown, not swallowed');
+        $this->assertNotFalse($rollback,
+            'there is no DB::rollBack() in this writer, so there is no transaction for the '
+            . 're-throw to be positioned against -- this case must not pass by comparing an '
+            . 'offset against strpos()\'s false');
         $this->assertGreaterThan($rollback, $rethrow);
     }
 

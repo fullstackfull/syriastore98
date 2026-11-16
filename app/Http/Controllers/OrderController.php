@@ -132,6 +132,73 @@ public function store(Request $request)
         return redirect()->back()->withErrors($validator)->withInput();
     }
 
+    /*
+     * THE CUSTOMER MUST BE THIS STORE'S.  P4-F025.
+     *
+     * The validator above says `customer_id` => `required|exists:customers,id`, and `exists:` is a RAW
+     * QUERY-BUILDER rule: it never reaches the Customer model, so the StoreScope that genuinely filters
+     * that model (Customer IS in config/tenancy.php's scoped_models, unlike Product) adds no predicate.
+     * MEASURED: `Validator::make(['customer_id' => <store B's customer>], ['customer_id' =>
+     * 'required|exists:customers,id'])->passes()` is TRUE, and the whole write then commits -- orders
+     * +1 with `customer_id` = store B's customer and `store_id` = store A's, one `order_notes` row
+     * naming the same foreign customer, and `product_stock` 10 -> 8.
+     *
+     * The API twin already carries this predicate (Api/DashboardController.php:6500-6512, pinned by
+     * ForeignProductCartChainTest:1307) and THIS SAME SCREEN'S GET already carries it (:486-488,
+     * :491-492). Only the POST was missed.
+     *
+     * IT IS CROSS-TENANT DATA LINKAGE, NOT A MONEY PATH -- the grade the project already gave the
+     * identical API defect. The order and its wallet stay in the attacker's own store
+     * (OrderFinancialService.php:21), and the victim cannot read it back because `Order::CustomerData()`
+     * goes through the scoped Customer model. What it writes is a false association between two
+     * tenants' records, in two tables.
+     *
+     * BEFORE `DB::beginTransaction()` on purpose: the stock decrement is inside that transaction and
+     * the measured run shows it lands today, so refusing here means nothing is written and rolled back.
+     *
+     * `withoutGlobalScopes()` IS MANDATORY and not defensive habit. (a) The StoreScope would answer the
+     * ownership question using the very tenant value being tested, so the check would pass vacuously.
+     * (b) Customer also carries SoftDeletes, and a scoped Eloquent read against a schema without
+     * `deleted_at` would throw into the catch below and be swallowed -- the test would then pass for
+     * the wrong reason. Both measured.
+     *
+     * A HARD store_id MATCH: a customer row carrying a NULL store_id is not a customer this merchant
+     * may bill. Same rule as the API twin's.
+     *
+     * `resolvedCurrentStoreId()` AND NOT `getCurrentStore()`, and the difference is the whole guard.
+     * `getCurrentStore()` returns NULL for a staff member whose `current_store` is unset and the
+     * literal `1` for the platform operator whether or not store 1 exists -- which is why this file
+     * grew `resolvedCurrentStoreId()` in the first place. Laravel compiles `where('store_id', null)`
+     * to `IS NULL`, so the first draft of this predicate would have ACCEPTED every customer row
+     * carrying a null store_id instead of refusing it: a guard that fails open in exactly the case
+     * it exists for. Found by independent review of this change before it was committed.
+     *
+     * `DB::table()` AND NOT ELOQUENT, for two measured reasons. The StoreScope would answer the
+     * ownership question using the very tenant value being tested, so a scoped read passes
+     * vacuously; and `withoutGlobalScopes()` -- the obvious escape -- also drops SoftDeletingScope,
+     * which would accept a soft-deleted customer the GET picker at :488-493 would never offer. The
+     * query builder has neither scope in either environment, and it also sidesteps the test schema's
+     * missing `deleted_at` column, which would otherwise throw into the catch below and be swallowed.
+     */
+    $ssOrderStoreId = $this->resolvedCurrentStoreId();
+
+    if ($ssOrderStoreId === null) {
+        return redirect()->back()
+            ->with('error', __('No store is selected.'))
+            ->withInput();
+    }
+
+    $ssCustomerIsOwn = DB::table('customers')
+        ->where('id', $request->customer_id)
+        ->where('store_id', $ssOrderStoreId)
+        ->exists();
+
+    if (! $ssCustomerIsOwn) {
+        return redirect()->back()
+            ->with('error', __('Customer not found for this store.'))
+            ->withInput();
+    }
+
     DB::beginTransaction();
 
     try {

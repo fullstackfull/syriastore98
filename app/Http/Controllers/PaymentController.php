@@ -46,6 +46,9 @@ use App\Http\Controllers\Concerns\GuardsGatewayReturn;
 
 class PaymentController extends Controller
 {
+    /* P4-F026: the F276 storefront intake claim, now shared with this web door. */
+    use \App\Http\Controllers\Concerns\ClaimsCheckoutIntake;
+
     use ApiResponser;
 
     /*
@@ -2022,8 +2025,102 @@ public function handlePaymeraTrigger00($orderId)
             return $refusal;
         }
 
-        // Process payment
-        return $this->processPayment($request, $slug, $cartlist);
+        /*
+         * P4-F026 -- ONE WEB CHECKOUT, ONE ORDER. The claim F276 built for the storefront API,
+         * applied to the door real shoppers use.
+         * =========================================================================================
+         *
+         * MEASURED at d227b7c0 through this exact route: a second POST to `{slug}/process-order`
+         * naming the SAME cart rows wrote a second order, took the stock a second time, cleared
+         * the cart again and flashed NO error. For `cod` that is a second amount for a driver to
+         * collect; for the merchant the shelf and the ledger disagree by one unit per line.
+         *
+         * THE CART IS NOT THE CONTROL, and this path is where that matters most. A completed
+         * checkout clears the cart, so the SEQUENTIAL replay is already refused -- by the empty
+         * basket, which is why the honest case name in the test is "stopped by the empty basket
+         * NOT by a control". Two requests in flight together each read the basket before either
+         * clears it, and neither sees the other. `Cache::add()` is a single atomic put-if-absent
+         * -- an INSERT against the `cache` primary key on the production `database` store -- and
+         * is the one idempotency primitive this codebase uses (F226, F269, F270, F276).
+         *
+         * PLACED AFTER EVERY PRE-FLIGHT REFUSAL ON PURPOSE. A basket refused for an unavailable
+         * line, a foreign product or a non-positive quantity must leave NO claim behind, or the
+         * shopper who fixes their cart and re-posts inside the window is refused for a checkout
+         * that never happened. The three guards above all `return` before this line.
+         *
+         * THE FINGERPRINT IS SERVER-DERIVED: the store comes from the route slug, the customer
+         * from `auth('customers')` or the registration just performed, and the lines from the
+         * server's own cart read -- never from request input.
+         */
+        $ssIntakeLines = (array) ($cartData['products'] ?? []);
+
+        $ssIntakeCartIds = array_values(array_filter(array_map(
+            static function ($line) {
+                $line = (array) $line;
+
+                return (int) ($line['cart_id'] ?? 0);
+            },
+            $ssIntakeLines
+        )));
+
+        $ssIntakeClaim = $this->storefrontIntakeFingerprint(
+            $ssIntakeLines,
+            (int) $store->id,
+            (int) $customer->id,
+            $request->payment_type
+        );
+
+        if (! \Illuminate\Support\Facades\Cache::add(
+            $ssIntakeClaim,
+            self::STOREFRONT_INTAKE_WRITING,
+            now()->addSeconds(self::STOREFRONT_INTAKE_CLAIM_SECONDS)
+        )) {
+            \Illuminate\Support\Facades\Log::warning('Web checkout intake refused as a duplicate submission', [
+                'store_id' => $store->id ?? null,
+                'customer_id' => $customer->id ?? null,
+                'path' => $request->path(),
+            ]);
+
+            return redirect()->back()->with('error', __('This checkout has already been submitted. Please wait a moment and check your orders before trying again.'));
+        }
+
+        try {
+            // Process payment
+            $ssPaymentResponse = $this->processPayment($request, $slug, $cartlist);
+        } catch (\Throwable $ssCheckoutFailure) {
+            \Illuminate\Support\Facades\Cache::forget($ssIntakeClaim);
+
+            throw $ssCheckoutFailure;
+        }
+
+        /*
+         * RELEASED UNLESS THE CHECKOUT CONSUMED ITS BASKET, and the test is the CART ROWS rather
+         * than an order count.
+         *
+         * `PaymentService::clearCartLines()` deletes exactly these rows after the order has
+         * committed, so their absence is this claim's own evidence that it produced an order. An
+         * order COUNT would have been wrong under concurrency in the one direction that hurts: a
+         * different shopper's order placed in the same instant would inflate it, the claim would
+         * be kept, and THIS shopper would be refused for two minutes over somebody else's
+         * purchase.
+         *
+         * A checkout that refused -- a declined gateway, a priced-from-nothing basket, a
+         * validation failure further in -- leaves its rows in place and therefore releases the
+         * claim, so the shopper can correct it and complete. That is the behaviour
+         * `test_a_refused_checkout_can_be_corrected_and_completed` holds.
+         *
+         * FAILS OPEN WHEN IT CANNOT TELL, which is the direction F276 chose and argued for: a
+         * checkout dead for two minutes with no order to show for it is worse than a second
+         * chance at a duplicate the cart itself usually refuses.
+         */
+        $ssBasketConsumed = $ssIntakeCartIds !== []
+            && ! \App\Models\Cart::withoutGlobalScopes()->whereIn('id', $ssIntakeCartIds)->exists();
+
+        if (! $ssBasketConsumed) {
+            \Illuminate\Support\Facades\Cache::forget($ssIntakeClaim);
+        }
+
+        return $ssPaymentResponse;
     }
 
     /**

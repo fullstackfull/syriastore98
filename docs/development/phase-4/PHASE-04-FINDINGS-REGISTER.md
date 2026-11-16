@@ -624,3 +624,83 @@ PlanOrder()` — the SaaS plan rail, not `orders`. If that is right, the assessm
 returns zero rows. **One read-only production query settles it**: `SELECT payment_status, COUNT(*) FROM
 orders GROUP BY 1`. The same document also still says the financial tables do not exist in the test
 schema; they were created on 2026-11-02 and are measured present.
+
+---
+
+## P4-3b — order-write integrity (2026-11-16)
+
+### P4-F026 — the storefront order and its four child rows were not one transaction — FIXED
+
+`Api\ApiController::place_order` and `::ordersave` wrote the Order, OrderBillingDetail,
+OrderCouponDetail, UserCoupon and OrderTaxDetail with five separate `save()` calls and **no boundary
+of any kind**. Measured on `d227b7c0`: `DB::beginTransaction|DB::commit|DB::rollBack|DB::transaction`
+matched nothing anywhere in either method.
+
+**The reachable half-write is a money defect.** The write order is OrderCouponDetail and *then*
+UserCoupon, and `user_coupons` is the only table either coupon cap counts — `Coupon::usesByCustomer()`,
+`PerUsesCouponCount()`, `coupon_uses()` and `UsesCouponCount()` are all counts on it. A throw between
+those two saves leaves "the discount is recorded, the redemption is not".
+
+**And the throw is caller-reachable.** `Coupon::find($coupon_data['coupon_id'])` takes the id from the
+request and `$UserCoupon->coupon_id = $Coupon->id;` dereferences it unchecked. Posting a real coupon
+*code* with a nonexistent `coupon_id` makes the server grant the discount, write the order and the
+coupon-detail row, and die on null — measured in `StorefrontOrderWriteAtomicityTest`, where a coupon
+limited to one use **paid out twice**.
+
+Fixed: both writers wrap the order, its stock attribution and all four child rows in one transaction.
+The intake claim's answer and `Utility::paymentWebhook()` moved **below** the commit.
+
+### P4-F130 — an unconditional `rollBack()` would unwind a caller's transaction — FIXED IN THE SAME CHANGE
+
+Found while building a post-commit probe, not by a failing test. `Connection::rollBack()` with no
+argument computes `$toLevel = $this->transactions - 1`, so inside somebody else's transaction a bare
+`DB::rollBack()` after our own commit succeeded rolls back **their** work. The catch now captures
+`DB::transactionLevel()` before opening the boundary and rolls back only above it.
+
+### P4-F131 — `$order->exists` is not an answer after a rollback — FIXED
+
+The D-13 stock-compensation gate asked `$order->exists`. `Model::performInsert()` sets it and nothing
+ever unsets it, so the moment these writers gained a boundary the gate began answering *"an order
+claims this stock"* for rows that had just been rolled away — skipping the give-back on every failure
+inside the boundary. All seven guards now call `orderRowSurvived()`, which reads the `orders` table on
+the query builder and fails closed toward **not** restoring when the probe itself cannot answer.
+Pinned by a new `ApiOrderWriterStockCompensationTest` case that fails on both writers under the old
+spelling and passes under the new one.
+
+### P4-F132 — `OrderController::store()` billed any store's customer — FIXED
+
+`products.*.product_id` carried an `exists:products,id` rule, which is global, and `customer_id` carried
+no ownership predicate at all. The merchant screen's own GET would never offer another store's customer;
+the POST never checked. The predicate now uses `resolvedCurrentStoreId()` — **not** `getCurrentStore()`,
+whose null return compiles to `where('store_id', IS NULL)` and would have *accepted* every customer row
+with a null `store_id`. Both fail-open cases are pinned by their own tests.
+
+### P4-F133 — the web checkout had no duplicate-submission control — FIXED
+
+A second POST to `{slug}/process-order` naming the same cart rows wrote a second order, took the stock
+a second time, cleared the cart again and flashed no error — measured at `d227b7c0`. For `cod` that is a
+second amount for a driver to collect. The F276 intake claim moved into
+`Http\Controllers\Concerns\ClaimsCheckoutIntake` and is now used by both the API and the web door. The
+claim is released unless the checkout consumed its own cart rows, which is per-claim evidence rather
+than an order count (a count is wrong under concurrency in the direction that refuses an innocent
+shopper).
+
+### P4-F134 — `ordersave` may record no coupon redemption at all — RECORDED, NOT FIXED
+
+`ordersave`'s coupon child-row block reads `$order_array['coupon_info']` and is gated on
+`isset($coupon_data['coupon_id'])`, but an earlier hardening rebuilt `coupon_info` from the server's
+verification with the keys `code`, `discount`, `discount_string`, `price`, `discount_amount` — **no
+`coupon_id`**. If that reading is right, orders placed through `api/{slug}/order-save` write neither
+`order_coupon_details` nor `user_coupons`, so coupon caps never see them. Not yet measured end to end;
+it needs a driven test before anything is changed, because the fix direction (start recording
+redemptions that are not being recorded today) changes what shoppers are allowed to spend.
+
+### P4-F135 — a refused coupon still burns the shopper's allowance — RECORDED, NOT FIXED
+
+`place_order`'s coupon child-row block is gated on `!empty($request->coupon_info)` rather than on
+whether `apply_coupon()` accepted the coupon, so a coupon the server **refused** still writes both
+`order_coupon_details` and `user_coupons`. The discount is correctly not applied; the redemption is
+recorded anyway. Same block takes `coupon_name`, `coupon_code`, `coupon_discount_type`,
+`coupon_discount_number` and `user_coupons.amount` from request input rather than from the resolved
+coupon row. Queued for P4-1 with the identity fix, because both want the same change: derive the coupon
+from the server's own validated resolution, never from the caller's `coupon_id`.
