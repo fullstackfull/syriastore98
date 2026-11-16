@@ -36,8 +36,21 @@ class CartController extends Controller
             return response()->json($return);
         }
         $slug  = $store->slug;
+        /*
+         * `$admin &&` -- a store whose owner row is gone read `->plan_id` on null, which PHP 8
+         * treats as a warning, so the sidebar silently showed no shipping row instead of saying
+         * anything. Found by independent review of P4-F014's family.
+         *
+         * THIS SITE STILL HAS NO `type == 'admin'` TEST, and that is left alone on purpose: all
+         * thirteen order writers DO test it, so for a store whose owner is not type `admin` the
+         * shopper's sidebar shows a shipping row that no writer will charge. That is the same
+         * quoted-versus-charged divergence class as P4-F014 through a different door, recorded as
+         * **P4-F122**. Narrowing this read to match the writers is the right direction -- widening
+         * the writers would start adding a delivery charge to live orders on stores that have none
+         * today -- but either way it moves money on live stores and is not a drive-by change.
+         */
         $admin = User::find($store->created_by);
-        $plan  = Plan::find($admin->plan_id);
+        $plan  = $admin ? Plan::find($admin->plan_id) : null;
         if (!$request->shipping_price) {
             /*
              * F263 (2 of 4). STORE-SCOPED, THE SAME WAY `get_shipping_method()` BELOW ALREADY IS.

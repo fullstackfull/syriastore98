@@ -977,7 +977,21 @@ public function saveStoreFcmToken(Request $request)
             $final_total = $cart_final_price - $coupon_price + $shipping_price + $tax_price;
         }
 
-        if (isset($request['coupon_code'])) {
+        /*
+         * `! $allocator->isInert()` -- P4-F062, second half, found by independent review of the
+         * first version of that fix.
+         *
+         * This block re-resolves the coupon and re-applies expiry, `coupon_limit` and
+         * `coupon_limit_user`, but NOT the spend gate. So a coupon whose `minimum_spend` the basket
+         * does not meet was echoed with its REAL id, name and headline discount beside an amount of
+         * 0.00, and a client that reads `coupon_info.coupon_id != 0` concluded it was active.
+         * `coupon_info.coupon_final_amount` is read as money by `PaymentService.php:2460` on the
+         * path where no top-level `coupon_code` was posted, so the echo is not purely cosmetic.
+         *
+         * The allocator already holds the verdict, so the gate is one definition, not a second
+         * copy of the spend reading.
+         */
+        if (isset($request['coupon_code']) && ! $allocator->isInert()) {
             // P01-SEC-14 C4: portable exact-code match. See Coupon::findByExactCode.
             // P01-SEC-14 D2: store-scoped, same reason as the per-item lookup above. This one
             // decides the limit and expiry checks and fills `coupon_info` in the response, so an
@@ -1013,6 +1027,12 @@ public function saveStoreFcmToken(Request $request)
                     $coupon = null;
                 }
             }
+        }
+
+        if (isset($allocator) && $allocator->isInert()) {
+            // A coupon this basket does not qualify for is not reported as applied. Without this,
+            // `$coupon` still holds the row the per-line lookup found above.
+            $coupon = null;
         }
 
         $cart_array['coupon_info'] = [];
@@ -3456,10 +3476,17 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
     $settings = Utility::Setting($storeId); // ✅ يفضل استخدام $storeId هنا أيضاً للاتساق
     
     
-        $user = Cache::remember('admin_details', 3600, function () {
-            return User::where('type','admin')->first();
-        });
-        if ($user->type == 'admin') {
+        /*
+         * P4-F014 / P4-F024. THE STORE'S OWN OWNER, not `User::where('type','admin')->first()`
+         * -- which is the first merchant in the shared database, by lowest id, and was cached
+         * under one global key for an hour. One arbitrary tenant's plan decided whether every
+         * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
+         * right plan (CartController::cart_list_sidebar:38-40,
+         * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
+         * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+         */
+        $user = \App\Support\Commerce\StorePlan::ownerOf($store);
+        if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);
         }
         $rules = [
@@ -7704,9 +7731,12 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $delivery_image = Storage::url('uploads/delivery.png');
         }
         $order_array['delivery'] = $delivery_image;
-        $order_array['delivery_charge'] = SetNumber($delivery_price);
-        $order_array['subtotal'] = SetNumber($final_price);
-        $order_array['final_price'] = SetNumber($cartlist_final_price);
+        // `(float)` for the same reason as `ordersave`'s copy of this block -- see P4-F121 there.
+        // This one only builds a RESPONSE, so it truncated what the client was shown rather than
+        // what was stored; the shipped Flutter app reads these keys.
+        $order_array['delivery_charge'] = SetNumber((float) $delivery_price);
+        $order_array['subtotal'] = SetNumber((float) $final_price);
+        $order_array['final_price'] = SetNumber((float) $cartlist_final_price);
         return $this->success($order_array, __('Order has been confirmed successfully.'));
     }
 
@@ -9584,17 +9614,47 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             $delivery_image = Storage::url('uploads/delivery.png');
         }
         $order_array['delivery'] = $delivery_image;
-        $order_array['delivery_charge'] = SetNumber($delivery_price);
-        $order_array['subtotal'] = SetNumber($final_price);
-        $order_array['final_price'] = SetNumber($cartlist_final_price);
+        /*
+         * `(float)` BEFORE `SetNumber()`, AND IT IS WORTH 0.99 AN ORDER.  P4-F121.
+         *
+         * `SetNumber()` has a STRING BRANCH that keeps only the first run of digits
+         * (`helper.php:292-295`: `preg_match('/\d+/', $number, $matches)`), and every value below
+         * is already a `SetNumber()` STRING by the time it arrives here:
+         *
+         *     $cartlist_final_price   :8981 from $cartlist['final_price'], published by SetNumber() at :1037
+         *                             :9135 from $apply_coupon['final_price'],   "        "      at :4922
+         *     $delivery_price         :9163 from get_shipping_method's total_final_price, likewise
+         *     $final_price            :8978 is arithmetic on that same string, so numeric -- cast
+         *                                   anyway, because the next person to touch :8978 will not
+         *                                   know which of these three is which
+         *
+         * EXECUTED: `SetNumber(99.99)` is 99.99; `SetNumber("99.99")` is **99.00**. MEASURED through
+         * `POST api/{slug}/order-save` on a 99.99 basket before this cast: `orders.product_price`
+         * and `orders.final_price` both 99.00. Shopper-favourable, and `product_price` is the
+         * merchant's ledger.
+         *
+         * The cast goes here rather than in `SetNumber()`, which has on the order of 200 callers and
+         * whose string branch some of them may rely on. Found by independent review of the total
+         * expression below; invisible to every existing test because they all price in whole units.
+         */
+        $order_array['delivery_charge'] = SetNumber((float) $delivery_price);
+        $order_array['subtotal'] = SetNumber((float) $final_price);
+        $order_array['final_price'] = SetNumber((float) $cartlist_final_price);
         $slug = !empty($slug) ? $slug : '';
         $store = getStore($slug);
         
 
-        $user = Cache::remember('admin_details', 3600, function () {
-            return User::where('type','admin')->first();
-        });
-        if ($user->type == 'admin') {
+        /*
+         * P4-F014 / P4-F024. THE STORE'S OWN OWNER, not `User::where('type','admin')->first()`
+         * -- which is the first merchant in the shared database, by lowest id, and was cached
+         * under one global key for an hour. One arbitrary tenant's plan decided whether every
+         * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
+         * right plan (CartController::cart_list_sidebar:38-40,
+         * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
+         * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+         */
+        $user = \App\Support\Commerce\StorePlan::ownerOf($store);
+        if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);
         }
         $is_guest = 1;
@@ -9658,19 +9718,47 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $order->currency_symbol = $currentCurrencySymbol;
 
 
-        if (!auth('customers')->user()) {
-            if ($plan->shipping_method == "on") {
-                $order->final_price = (float)$order_array['delivery_charge'];
-            } else {
-                $order->final_price =  (float)$order_array['final_price'] + $order_array['tax']['tax_price'];
-            }
-        } else {
-            if ($plan->shipping_method == "on") {
-                $order->final_price = (float)$order_array['delivery_charge'] + $order_array['tax']['tax_price'];
-            } else {
-                $order->final_price = (float) $order_array['final_price'] + $order_array['tax']['tax_price'];
-            }
-        }
+        /*
+         * THE PRODUCT SUBTOTAL IS IN THE TOTAL ON BOTH BRANCHES NOW.  P4-F023.
+         *
+         * This used to be four branches, and the two shipping-ON arms left `$order_array['final_price']`
+         * -- the basket -- out of the expression entirely:
+         *
+         *     if ($plan->shipping_method == "on") {
+         *         $order->final_price = (float) $order_array['delivery_charge'] + $order_array['tax']['tax_price'];
+         *     }
+         *
+         * So a store whose plan has shipping on wrote an order total of delivery + tax, and the
+         * goods were given away. MEASURED through `POST api/{slug}/order-save` on a 100.00 basket
+         * with no delivery charge: `orders.final_price` = 0.00.
+         *
+         * It was reachable without the merchant doing anything wrong, because the plan being read
+         * was not even theirs -- see `App\Support\Commerce\StorePlan`, resolved above. The two
+         * defects compounded: the wrong tenant's plan chose the branch, and the branch dropped the
+         * basket.
+         *
+         * THE GUEST/CUSTOMER SPLIT IS GONE, and that is a simplification rather than a change: the
+         * guest arm is unreachable. `ordersave` 401s at `:8934-8937` through `resolveStoreCustomer()`,
+         * which requires `auth('customers')` to hold a Customer. Its only difference from the
+         * customer arm was that the shipping-on branch omitted tax as well -- the same oversight
+         * twice.
+         *
+         * (The citation above said `:8863-8866` until review checked it: those lines are the
+         * add-review handler's authz comment, above `ordersave`'s opening line entirely. The claim
+         * was right and the evidence pointed somewhere else, which is how a wrong conclusion gets
+         * re-derived later. `$is_guest` at `:9634-9638` rests on the same 401 -- it is initialised
+         * to 1 and only ever set to 0 -- so if that guard ever moves, the collapsed total and
+         * `orders.is_guest` go wrong together.)
+         *
+         * `$plan` may legitimately be null (no owner, or an owner who is not type `admin`), which
+         * every reader on this codebase treats as shipping off. It used to be dereferenced without
+         * a guard.
+         */
+        $ssShippingOn = $plan && $plan->shipping_method == 'on';
+
+        $order->final_price = (float) $order_array['final_price']
+            + ($ssShippingOn ? (float) $order_array['delivery_charge'] : 0.0)
+            + (float) $order_array['tax']['tax_price'];
         event(new AddAdditionalFields($order, $request->all(), $store));
         $order->payment_comment = !empty($request->payment_comment) ? $request->payment_comment : '-';
         $order->payment_type = $request->payment_type;

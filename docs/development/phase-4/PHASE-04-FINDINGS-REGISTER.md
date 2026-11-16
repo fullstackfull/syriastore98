@@ -182,6 +182,9 @@ and that is where a claim about the code meets the code's actual behaviour.
 |---|---|---|---|
 | **P4-F118** | pricing-discounts | HIGH | `fixed product discount` gives the discount to the products **not** named in `applied_product`, and an empty `exclude_categories` refuses every line |
 | **P4-F119** | storefront-catalogue | HIGH | **Editing** a variant product empties its storefront variant selectors, so the product silently stops selling — FIXED in this branch |
+| **P4-F120** | pricing-discounts | MEDIUM | `orders.coupon_price` records the coupon's headline amount, not the discount actually given, when the coupon is worth more than the basket |
+| **P4-F121** | order-write | HIGH | `orders.product_price` / `final_price` truncated to whole currency units on `order-save` — up to 0.99 lost per order — FIXED in this branch |
+| **P4-F122** | tax-shipping | MEDIUM | the cart sidebar quotes a shipping row from a plan no order writer will honour |
 
 ### P4-F118 — the `fixed product discount` arm does not do what the merchant form says
 
@@ -258,3 +261,159 @@ partial reddens **5 of 6**, and the one that stays green is the create-shape gua
 **The write-side divergence is the root cause and is NOT fixed here.** Normalising it means
 converting terms to ids at save time and rewriting what is already stored — a data change on live
 catalogues, for a defect whose symptom is a read. Recorded as the follow-up.
+
+### P4-F120 — `orders.coupon_price` records the coupon's headline amount, not the discount given
+
+Found by independent review of the P4-2 fix (and **not** fixed by it). `apply_coupon` reports
+`amount` and `coupon_discount_amount` as the raw `$coupon->discount_amount`
+(`ApiController.php:4917`, `:4928`), while the cart — correctly, after P4-2 — reports
+`min(basket, discount_amount)`. They agree except when the coupon is worth more than the basket:
+
+> A 40.00 basket with a flat 50.00 coupon writes `orders.coupon_price = 50.00` against a discount
+> that was actually 40.00, beside `final_price = 0.00`. The row does not reconcile.
+
+Pre-existing, unchanged by P4-2, and bounded: the **charge** is right (`final_price` is the cart's
+figure), so no money moves wrongly. What is wrong is the financial record, and anything built on it
+— merchant reporting, coupon analytics, `user_coupons.amount`. Fixing it changes a money column's
+meaning on existing rows, so it is its own slice.
+
+### Two review findings on the P4-2 fix itself, both fixed in the same branch
+
+Recorded because they were found by **adversarial review of a fix**, which is where three of the
+last four packages' defects came from, and because one of them was a money defect introduced by the
+first version of the fix:
+
+1. **The first version's allocation depended on cart row order.** It consumed the flat allowance
+   first-come. Tax is charged per line, at that line's own rate, on the price *after* its share of
+   the coupon — and the two readers do not even iterate the same way (`cart_list` orders by id
+   DESC, `cart_list_cookie` has no `orderBy`). **Measured** on two 100.00 lines, one taxed at 20%,
+   with a flat 100.00 coupon: `total_sub_price` came out **144.00 or 124.00** depending on which row
+   was newer — a 20.00 swing a shopper controls by removing and re-adding a product. Now allocated
+   **pro rata**, which is order-free and sums exactly, and pinned by
+   `test_the_flat_discount_does_not_depend_on_cart_row_order` (which fails against first-come).
+2. **A spend-refused coupon was still echoed as applied.** The `coupon_info` block re-applies expiry
+   and the two usage limits but not the spend gate, so the response carried the coupon's real id,
+   name and headline discount beside an amount of 0.00. `coupon_info.coupon_final_amount` is read as
+   money by `PaymentService.php:2460` where no top-level `coupon_code` was posted. Now gated on the
+   allocator's own verdict.
+
+3. **The pro-rata fix for (1) then broke the bound it was replacing** — found by a SECOND round of
+   review of the same class, and the most instructive item in this package. Pro rata divides by the
+   whole basket subtotal while a non-positive line contributes nothing to the numerator, so
+   `Σ shares = D × (positive mass) / (total mass)`, and one negative line makes the denominator the
+   smaller of the two. **Measured** on the basket this codebase already records at
+   `ApiController.php:3555-3565` — one 1000.00 product plus a 50.00 product at `qty = -5`, subtotal
+   750.00 — with a flat 700.00 coupon: **discount 933.33, `total_sub_price` −183.33**. The
+   first-come version it replaced could not do that; its running allowance was a hard cap, and
+   removing it was the regression. Negative `carts.qty` is reachable today through two vendored
+   module writers (`GuardsGatewayReturn.php:621-627`, S29), so the **cart read was live**; it does
+   not reach `orders.final_price` only because three order writers refuse a non-positive line
+   quantity first. Fixed by keeping a residual budget beside the ratio — it never binds for a
+   well-formed basket, so order-independence is preserved — and pinned by
+   `test_the_discount_never_exceeds_the_basket_even_with_a_negative_line`, which asserts the
+   universal invariant (`discount ≤ basket`) rather than one arithmetic.
+
+   **A fourth defect, in the P4-3 seam, found by the full suite and misdiagnosed once.**
+   `PreTransactionStockGiveBackTest::test_the_plan_throw_happens_before_any_stock_is_taken` failed in
+   the Feature suite and **passed in isolation**. My first explanation was that the run had read
+   files mid-edit; that was wrong, and it is kept here rather than edited out because the wrong
+   diagnosis is the instructive part — it reproduced on a clean tree.
+
+   The cause was a `private static array $owners` memo in `StorePlan::ownerOf()`, keyed on
+   `store_id`. **`RefreshDatabase` restarts ids at 1 for every test while a static survives the
+   whole PHPUnit process**, so test N memoised store 1's owner and test N+1 received that stale
+   `User` for its own, different store 1. That test's `breakThePlanLookup()` nulls `plan_id`,
+   flushes the `User` cache and forgets `admin_details` — and a static memo answers none of those,
+   so the plan still resolved and nothing threw.
+
+   The memo is **removed**, not reset-hooked: `User::find()` on a primary key against a `Cachable`
+   model is cheap enough that it bought nothing worth a process-global. The irony is the record:
+   this is CLAUDE.md's own process-global-pollution class, walked into while fixing a defect caused
+   by a *global cache key*. **Signature worth remembering: fails in the suite, passes alone.**
+
+   **And both line-number ratchets fired on these comments**, twice for one of them:
+   `SecurityLogInventoryTest` keys its inventory on `file:line` and has a mechanical resync tool;
+   `PaymeraPostCommitClaimTest` asserts four cited anchors in a docblock and had to be re-measured
+   by hand, then again, because the first correction moved them further. That docblock's own warning
+   reads *"Measure after editing the comment, not before"*, and it has now been learned a fourth
+   time — which is an argument for keying an anchor on a stable token rather than a coordinate, not
+   for more discipline. Noted for whoever owns that test; out of scope here.
+
+   **The lesson, recorded because it is the general one:** a fix for a review finding is itself
+   unreviewed code. Two rounds found two defects in two successive versions of the same twenty
+   lines, and neither was found by a test — the order-dependence because no test varied row order,
+   this one because no test built a malformed line.
+
+The review also **refuted** its own sharpest claim, which is worth recording as such: it suspected
+the hoisted coupon lookup had changed `$store->id` to `$store_id` and widened three gateway paths.
+The diff says the pre-change code read `$store_id` too — no path moved. What *was* wrong was the
+inherited comment's **justification** for that variable, which is now corrected in place rather than
+carried forward.
+
+### P4-F121 — `orders.product_price` and `orders.final_price` were truncated to whole currency units — FIXED
+
+Found by a third round of independent review, of the very expression P4-3 rewrote. Pre-existing, not
+caused by that rewrite.
+
+`SetNumber()` has a **string branch** that keeps only the first run of digits
+(`app/Helper/helper.php:292-295`: `preg_match('/\d+/', $number, $matches)`), and `ordersave` applied
+it to values that were *already* `SetNumber()` strings. **Executed:**
+
+```
+SetNumber(99.99)            = 99.99
+SetNumber("99.99")          = 99.00      <- the cents are gone
+SetNumber(SetNumber(99.99)) = 99.00
+```
+
+`$cartlist_final_price` is a string on both paths (`:8981` from `$cartlist['final_price']`, published
+through `SetNumber()` at `:1037`; `:9135` from `$apply_coupon['final_price']`, likewise at `:4922`),
+and so is `$delivery_price` (`:9163`, from `get_shipping_method`).
+
+**Measured through `POST api/{slug}/order-save` on a 99.99 basket:** `orders.product_price` **99.00**
+and `orders.final_price` **99.00**. Up to 0.99 lost per order, shopper-favourable, and
+`product_price` is the merchant's ledger. No coupon needed.
+
+Fixed with a `(float)` cast at the three assignments, in `ordersave` and in `confirm_order`'s copy of
+the same block — **not** in `SetNumber()`, which has on the order of 200 callers and whose string
+branch some may rely on. Pinned by
+`OrderTotalUsesTheStoresOwnPlanTest::test_a_fractional_basket_is_not_truncated_to_whole_units`.
+
+**This is the one change in the package that moves money UP for a shopper who did nothing wrong.**
+COD totals on fractional baskets will tick up by up to 0.99 to the basket's true value. It needs no
+pre-approval — restoring cents is correctness, and CLAUDE.md escalates *material* changes to prices —
+but it is the kind of delta an owner should meet in a report rather than in a reconciliation, so it is
+stated here and in the phase report rather than left to be noticed.
+
+**The response shape did not change, and that was checked rather than assumed.** The cast is *inside*
+`SetNumber()`, not in place of it, so the function still returns a string and the JSON value stays
+`"99.99"` rather than becoming `99.99`. A strongly-typed Flutter parse is unaffected. Had the cast
+replaced the call, that would have been a shape change on keys the shipped app reads. Related bounded
+knowable: `(float)` stops at a thousands separator (`(float) "1,234.56"` is 1.0), which is safe at all
+six sites because every input is `SetNumber()` output and `SetNumber` strips commas on the way out
+(`helper.php:297`) — worth knowing only if a future caller feeds one of these a
+`currency_format_with_sym()` value. The old string branch mangled commas too, so the cast is strictly
+better in every case.
+
+**Why no test saw it:** every order-writer fixture in the suite prices in whole units, where the
+truncation is a no-op. That is the **third** variant of one shape in this package — the
+order-dependence was invisible because no test varied row order, the negative-line overshoot because
+no test built a malformed line, and this because no test priced in cents.
+
+### P4-F122 — the cart sidebar quotes shipping from a plan no writer will honour
+
+`CartController::cart_list_sidebar:39-40` resolves the store owner's plan with **no `type == 'admin'`
+test**, while all thirteen order writers apply one. So for a store whose owner's `type` is not
+`admin`, the shopper's sidebar shows a shipping row and every writer then writes no delivery charge —
+the same quoted-versus-charged divergence class as P4-F014, through a different door. A merchant can
+reach it without any data oddity, since they can change their own `users.type` through the product.
+
+**Not fixed.** The right direction is to narrow the sidebar to match the writers, not to widen the
+writers — widening would start adding a delivery charge to live orders on stores that have none
+today. Either way it moves money on live stores, so it is an owner decision. The site is annotated in
+place, and its unguarded `$admin->plan_id` read **is** fixed, because a property read on null silently
+turned shipping off rather than saying anything.
+
+Also recorded from the same pass, and **not** changed: `type == 'admin'` at all thirteen writers
+excludes `'super admin'`, while `User::creatorId()` treats both as tenant roots, so a store created by
+the platform operator resolves no plan anywhere. It is consistent today; changing it would move money
+on live stores and must not ride along in a seam refactor.

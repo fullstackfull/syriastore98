@@ -47,11 +47,11 @@ use App\Models\Cart;
  *     lines earn it twice. Only `flat` carries a basket-wide budget here.
  *
  * THE GATES STAY WHERE THEY ARE. Expiry, `coupon_limit` and `coupon_limit_user` are read by
- * `Cart::getCouponTotalAmount()`, which this class still calls for every line; it adds no second
- * copy of them. What it adds is the `minimum_spend` / `maximum_spend` pair, which that function
- * never read at all (P4-F062) — the basket subtotal is not knowable from one line, so the gate was
- * only ever enforced in `ApiController::apply_coupon`, and a coupon the basket did not qualify for
- * still reduced the cart's figure, and so the order's total, while `orders.coupon_price` stayed 0.
+ * `Cart::getCouponTotalAmount()`, which this class still calls; it adds no second copy of them.
+ * What it adds is the `minimum_spend` / `maximum_spend` pair, which that function never read at all
+ * (P4-F062) — the basket subtotal is not knowable from one line, so the gate was only ever enforced
+ * in `ApiController::apply_coupon`, and a coupon the basket did not qualify for still reduced the
+ * cart's figure, and so the order's total, while `orders.coupon_price` stayed 0.
  *
  * The reading of those two columns is `ApiController::couponSpendRefusal()`'s, verbatim: a null or
  * **zero** limit is NO limit. Both columns default to 0, so reading 0 as "a limit of zero" would
@@ -69,17 +69,27 @@ final class CouponBasketAllocator
     /** `flat` is the only type with a basket-wide allowance. */
     private bool $isFlat;
 
-    /** What is left of a `flat` coupon's allowance. Not used for the other types. */
-    private float $remaining;
+    /** The whole basket's pre-coupon subtotal — the denominator of the pro-rata share. */
+    private float $basketSubtotal;
 
-    private float $allocated = 0.0;
+    /** What a `flat` coupon is worth across this basket, already capped at the basket. */
+    private float $flatDiscount;
 
-    private function __construct($coupon, bool $inert, float $allowance)
+    /**
+     * What is left of `$flatDiscount`. For a well-formed basket the pro-rata shares already sum to
+     * exactly `$flatDiscount`, so this never binds and allocation stays order-free. It exists for
+     * the malformed case -- see `discountForLine()`.
+     */
+    private float $flatRemaining;
+
+    private function __construct($coupon, bool $inert, float $basketSubtotal, float $flatDiscount)
     {
         $this->coupon = $coupon;
         $this->inert = $inert;
         $this->isFlat = $coupon !== null && $coupon->coupon_type === 'flat';
-        $this->remaining = $allowance;
+        $this->basketSubtotal = $basketSubtotal;
+        $this->flatDiscount = $flatDiscount;
+        $this->flatRemaining = $flatDiscount;
     }
 
     /**
@@ -89,18 +99,37 @@ final class CouponBasketAllocator
     public static function forBasket($coupon, float $basketSubtotal): self
     {
         if (empty($coupon)) {
-            return new self(null, true, 0.0);
+            return new self(null, true, 0.0, 0.0);
         }
 
         if (self::spendIsOutOfRange($coupon, $basketSubtotal)) {
-            return new self($coupon, true, 0.0);
+            return new self($coupon, true, 0.0, 0.0);
         }
 
-        // A `flat` coupon may take the whole basket to nothing and no further. The per-line floor
-        // in getCouponTotalAmount() still applies as well, so a line is never driven negative.
-        $allowance = max(0.0, (float) ($coupon->discount_amount ?? 0));
+        $flatDiscount = 0.0;
 
-        return new self($coupon, false, $allowance);
+        if ($coupon->coupon_type === 'flat') {
+            /*
+             * THE BASKET-WIDE DISCOUNT IS ASKED FOR ONCE, FROM THE SAME FUNCTION, ON THE WHOLE
+             * SUBTOTAL. That is deliberately `apply_coupon`'s own arithmetic
+             * (`ApiController.php:4581`, one subtraction from one basket figure) rather than a
+             * second expression that happens to agree today. `getCouponTotalAmount()` keeps every
+             * gate — expiry, `coupon_limit`, `coupon_limit_user` — and its floor at `Cart.php:1173`
+             * caps the result at the basket, so a 50.00 coupon on a 40.00 basket is worth 40.00 and
+             * never pays the shopper.
+             *
+             * The null product and category ids are correct rather than a shortcut: the `flat` arm
+             * reads neither. Only `fixed product discount` does, and that type never reaches here.
+             */
+            $flatDiscount = max(0.0, $basketSubtotal - (float) Cart::getCouponTotalAmount(
+                $coupon,
+                $basketSubtotal,
+                null,
+                null
+            ));
+        }
+
+        return new self($coupon, false, max(0.0, $basketSubtotal), $flatDiscount);
     }
 
     /**
@@ -128,46 +157,82 @@ final class CouponBasketAllocator
     }
 
     /**
-     * What this line's discount is, after the basket-wide bound.
+     * This line's share of the coupon.
      *
-     * The per-line answer still comes from `Cart::getCouponTotalAmount()` — one definition of the
-     * expiry, usage-limit and per-type arithmetic — and only a `flat` coupon's result is then
-     * capped by what is left of the basket allowance.
+     * `percentage` and `fixed product discount` are answered per line by
+     * `Cart::getCouponTotalAmount()`, exactly as before — one definition of the gates and of each
+     * type's arithmetic.
+     *
+     * `flat` is allocated **PRO RATA**, and that is a correctness requirement rather than a
+     * preference. The first version of this class consumed a running allowance first-come, which
+     * made the allocation depend on cart row order — and the two readers do not even iterate in the
+     * same order (`ApiController::cart_list` orders by id DESC at `:362`, `Cart::cart_list_cookie`
+     * has no `orderBy` at `:253`). Because tax is charged per line, at each line's own rate, on the
+     * price AFTER its share of the coupon, an order-dependent allocation moves `total_tax_price`
+     * and therefore `orders.final_price`: two 100.00 lines, one taxed at 0% and one at 20%, with a
+     * flat 100.00 coupon, shift about 20.00 of tax according to which row is newer — which a
+     * shopper controls by removing and re-adding a product. Found by independent review of the
+     * first version of this class, not by a test.
+     *
+     * Pro rata is order-free and sums exactly: `Σ (D × line_i / subtotal) = D`. No per-line
+     * rounding is applied, so there is no remainder to carry on a last line; the published figures
+     * are rounded once, by `SetNumber()`, as they always were.
      */
     public function discountForLine(float $lineTotal, $productId, $categoryId): float
     {
-        if ($this->inert) {
+        if ($this->inert || $lineTotal <= 0.0) {
             return 0.0;
         }
 
-        $after = (float) Cart::getCouponTotalAmount($this->coupon, $lineTotal, $productId, $categoryId);
-        $discount = max(0.0, $lineTotal - $after);
-
         if ($this->isFlat) {
-            $discount = min($discount, max(0.0, $this->remaining));
-            $this->remaining -= $discount;
+            if ($this->basketSubtotal <= 0.0) {
+                return 0.0;
+            }
+
+            $share = min($lineTotal, $this->flatDiscount * $lineTotal / $this->basketSubtotal);
+
+            /*
+             * AND THE SUM IS BOUNDED, WHICH PRO RATA ALONE IS NOT.  Found by a second round of
+             * independent review, as a regression THIS CLASS introduced when it replaced the
+             * first-come allowance -- whose running budget was a hard cap -- with a ratio.
+             *
+             * A non-positive line returns 0.0 above but stays in `$basketSubtotal`, so
+             * `Sum(shares) = D x (positive mass) / (total mass)`, and one negative line makes the
+             * denominator the smaller of the two. MEASURED on the basket this codebase already
+             * records at `ApiController.php:3555-3565` -- one 1000.00 product plus a 50.00 product
+             * at `qty = -5`, subtotal 750.00 -- with a flat 700.00 coupon: the discount came out at
+             * **933.33** and `total_sub_price` at **-183.33**. Negative `carts.qty` is reachable
+             * today through two vendored module writers (`GuardsGatewayReturn.php:621-627`, S29).
+             *
+             * For a well-formed basket the shares already sum to exactly `$flatDiscount`, so this
+             * budget never binds and the allocation stays order-free -- which is what keeps
+             * `test_the_flat_discount_does_not_depend_on_cart_row_order` green. It binds only in the
+             * malformed case, where a bounded total matters more than order-independence.
+             *
+             * The denominator is NOT narrowed to the positive mass instead: the allocator is not
+             * told that figure, so it would mean changing both readers for a case three order
+             * writers already refuse before pricing.
+             */
+            $share = min($share, max(0.0, $this->flatRemaining));
+            $this->flatRemaining -= $share;
+
+            return $share;
         }
 
-        $this->allocated += $discount;
+        $after = (float) Cart::getCouponTotalAmount($this->coupon, $lineTotal, $productId, $categoryId);
 
-        return $discount;
-    }
-
-    /** This line's price after its share of the coupon. */
-    public function lineTotalAfter(float $lineTotal, $productId, $categoryId): float
-    {
-        return max(0.0, $lineTotal - $this->discountForLine($lineTotal, $productId, $categoryId));
-    }
-
-    /** The basket's total discount so far — what `total_coupon_price` reports. */
-    public function totalAllocated(): float
-    {
-        return $this->allocated;
+        return max(0.0, $lineTotal - $after);
     }
 
     /**
-     * Whether this allocator can discount at all. The readers use it to decide whether the coupon
-     * is reported in `coupon_info`: a coupon refused for spend must not be echoed as applied.
+     * Whether this allocator can discount at all.
+     *
+     * `ApiController::cart_list` consults it before filling `coupon_info`, because that block
+     * re-resolves the coupon and applies expiry and the two usage limits but NOT the spend gate — so
+     * a coupon the basket does not qualify for was echoed with its real id, name and headline
+     * discount beside an amount of 0.00, and a client reading `coupon_info.coupon_id != 0` concluded
+     * it was active. `coupon_info.coupon_final_amount` is also read as money by
+     * `PaymentService.php:2460` on the path where no top-level `coupon_code` was posted.
      */
     public function isInert(): bool
     {

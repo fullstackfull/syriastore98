@@ -422,10 +422,17 @@ class PaiementProPaymentController extends Controller
 
                 $request['method_id'] = $requests_data['method_id'];
             }
-            $user = Cache::remember('admin_details', 3600, function () {
-                return User::where('type','admin')->first();
-            });
-            if ($user->type == 'admin') {
+            /*
+             * P4-F014 / P4-F024. THE STORE'S OWN OWNER, not `User::where('type','admin')->first()`
+             * -- which is the first merchant in the shared database, by lowest id, and was cached
+             * under one global key for an hour. One arbitrary tenant's plan decided whether every
+             * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
+             * right plan (CartController::cart_list_sidebar:38-40,
+             * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
+             * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+             */
+            $user = \App\Support\Commerce\StorePlan::ownerOf($store);
+            if ($user && $user->type == 'admin') {
                 $plan = Plan::find($user->plan_id);
             }
             if (module_is_active('PartialPayments')) {

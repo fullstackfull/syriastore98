@@ -1160,14 +1160,14 @@ private function paymeraOrderHighWaterMark(mixed $storeId): int
  * `$pending['processed']` still false, and **no in-process marker of either**: not a return
  * value, not a binding, not a flag. The only witness is the row.
  *
- * (Measured anchors: `DB::beginTransaction()` :3698, `DB::commit()` :3873, `$owner->email`
- * :3929, `OrderCompleteBinding::remember()` :4018. Re-measured twice on 2026-10-30: F210's
+ * (Measured anchors: `DB::beginTransaction()` :3716, `DB::commit()` :3891, `$owner->email`
+ * :3947, `OrderCompleteBinding::remember()` :4036. Re-measured twice on 2026-10-30: F210's
  * ownership gate moved them 71 lines, then F216's guard above this method moved them 49 more.
  * Re-measured TWICE MORE on 2026-10-31, and the second time is the lesson: F237's attribution
  * call inside this very transaction moved the last three by 4; correcting THIS COMMENT then added
  * four lines above the method and moved all four by 4 again, so the first correction was stale
  * the moment it was written -- the third time that has happened to this block, and the reason it
- * is ratcheted at all. Measure after editing the comment, not before.
+ * is ratcheted at all. P4-3's two notes above then moved all four by 7 and 11. Measure AFTER.
  * THE MARKER IS DATE-FREE ON PURPOSE: dating it is what the ratchet's own needle matches on, and
  * writing "Re-measured 2026-10-30:" here emptied that needle. These are STRUCTURAL claims and the numbers
  * drift -- two earlier versions of this comment cited lines this very change had already moved,
@@ -1843,8 +1843,19 @@ public function handlePaymeraTrigger00($orderId)
  
         // Get store and admin info
         $store = getStore($slug);
-        $user = User::where('id', $store->created_by)->first();
-        $plan = ($user->type == 'admin') ? Plan::find($user->plan_id) : null;
+        /*
+         * THE THIRTEENTH SITE, through the same seam as the other twelve. P4-F014.
+         *
+         * This one already resolved the RIGHT user -- it is one of the two sites
+         * `App\Support\Commerce\StorePlan` cites as correct -- so routing it through the seam is
+         * behaviour-preserving. It is done anyway because a correct site sitting OUTSIDE the seam
+         * will not follow if the rule ever changes, which is how a family of twelve became a family
+         * of thirteen in the first place. The `$user &&` guard is new: a property read on null is a
+         * PHP 8 warning rather than a crash, so a store whose owner row is gone silently resolved
+         * no plan and quietly turned shipping off. Found by independent review.
+         */
+        $user = \App\Support\Commerce\StorePlan::ownerOf($store);
+        $plan = ($user && $user->type == 'admin') ? Plan::find($user->plan_id) : null;
 
         // Handle customer registration if needed
         $isGuest = !auth('customers')->check();
@@ -2974,10 +2985,17 @@ public function handlePaymeraTrigger00($orderId)
 
             $request['method_id'] = $requests_data['method_id'];
         }
-        $user = Cache::remember('admin_details', 3600, function () {
-            return User::where('type','admin')->first();
-        });
-        if ($user->type == 'admin') {
+        /*
+         * P4-F014 / P4-F024. THE STORE'S OWN OWNER, not `User::where('type','admin')->first()`
+         * -- which is the first merchant in the shared database, by lowest id, and was cached
+         * under one global key for an hour. One arbitrary tenant's plan decided whether every
+         * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
+         * right plan (CartController::cart_list_sidebar:38-40,
+         * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
+         * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+         */
+        $user = \App\Support\Commerce\StorePlan::ownerOf($store);
+        if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);
         }
 
@@ -4501,9 +4519,16 @@ $result = app(\App\Services\StoreNotificationService::class)
 
             $request['method_id'] = $requests_data['method_id'];
         }
-        $user = Cache::remember('admin_details', 3600, function () {
-            return User::where('type','admin')->first();
-        });
+        /*
+         * P4-F014 / P4-F024. THE STORE'S OWN OWNER, not `User::where('type','admin')->first()`
+         * -- which is the first merchant in the shared database, by lowest id, and was cached
+         * under one global key for an hour. One arbitrary tenant's plan decided whether every
+         * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
+         * right plan (CartController::cart_list_sidebar:38-40,
+         * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
+         * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+         */
+        $user = \App\Support\Commerce\StorePlan::ownerOf($store);
         $plan = null;
         if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);

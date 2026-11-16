@@ -213,14 +213,15 @@ as something that can fail. Finding ids are from the register.
 fails against the Arabic-on-English message and passes after the fix (done); a storefront harness
 driving cart and checkout in **both** languages, asserting the message language matches the page.
 
-### P4-2 — Pricing arithmetic *(family 2, highest money impact)*
+### P4-2 — Pricing arithmetic *(family 2, highest money impact)* — **DONE**
 `P4-F001` `P4-F063` `P4-F062` — the per-line flat coupon, and the cart's coupon arithmetic having no
 `minimum_spend` / `maximum_spend` gate although `apply_coupon` does. Acceptance: a **multi-line**
 basket fixture — the one thing every existing coupon test lacks — in which a flat coupon reduces the
 basket by its own amount exactly once, and a basket under the spend threshold is not discounted at
 all, asserted on `orders.final_price` and not on the AJAX figure alone.
 
-### P4-3 — Order-write integrity *(family 1)*
+### P4-3 — Order-write integrity *(family 1)* — **in progress: the plan family and the ordersave
+### arm are done; the transaction boundary, the unscoped `customer_id` write and double-submit are not**
 `P4-F014` `P4-F023` `P4-F024` `P4-F025` `P4-F026` `P4-F018`: the foreign-plan shipping arm, the
 missing transaction around the Order row and its four child tables (reachable as coupon-limit
 evasion, not merely an audit gap), the unscoped `orders.customer_id` write on the web form, and
@@ -260,7 +261,29 @@ Then full gates, CI on the Draft PR, and `PHASE-04-FINAL-REPORT.md`.
 
 ---
 
-## 7. Standing constraints for this phase
+## 7. What is closed so far, and by what evidence
+
+Every fix in this list was **falsified** — removed again, with the test re-run — because a green test
+that cannot fail is the failure mode this codebase has paid for repeatedly.
+
+| package | fix | falsification |
+|---|---|---|
+| P4-1 | a storefront's language is its own, not the first merchant's (`ThemeLanguage`) | restoring the admin fallback reddens 4 of 5 |
+| P4-1 | **P4-F119** editing a variant product emptied its storefront selectors, so it stopped selling | reverting the partial reddens 5 of 6; the one that stays green is the create-shape guard |
+| P4-2 | **P4-F001 / P4-F063** a flat coupon was one discount PER LINE; a 120.00 basket wrote a COD order of 0.00 | reverting both readers reddens 7 of 10 |
+| P4-2 | **P4-F062** the cart readers had no `minimum_spend` / `maximum_spend` gate although `apply_coupon` does | in the same 7 |
+| P4-2 | the first version of that fix allocated first-come, so row order moved the tax base by 20.00 — found by **review of the fix** | restoring first-come reddens the order-independence test with both measured figures |
+| P4-2 | a spend-refused coupon was still echoed as applied in `coupon_info` | the refusal test plus a positive control that an accepted coupon is still echoed |
+| P4-3 | **P4-F014 / P4-F024** twelve order writers priced shipping from `User::where('type','admin')->first()` — the first merchant in the shared database | reverting the plan read reddens the shipping-on test: a real 25.00 delivery charge is dropped |
+| P4-3 | **P4-F023** `ordersave`'s shipping-on arm omitted the product subtotal entirely | with both defects restored the order total is 0.00 on a 100.00 basket |
+
+**Not closed, and not claimed:** every other register row. In particular P4-F118 and P4-F120 are
+recorded as owner decisions rather than fixed, because each changes what a merchant's existing
+coupons do or what an existing money column means.
+
+---
+
+## 8. Standing constraints for this phase
 
 - **No second commerce engine.** The WorkDo modules and the existing services are the source of truth.
 - **No duplicate source of truth** for orders, payments, products, customers or inventory.

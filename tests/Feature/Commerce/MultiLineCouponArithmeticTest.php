@@ -317,6 +317,10 @@ class MultiLineCouponArithmeticTest extends SecurityTestCase
 
         $data = $this->cartList($store, $customer, 'SMALLONLY');
 
+        // An empty product_list also reports total_coupon_price = 0 with HTTP 200, so this test
+        // would pass against a fixture regression without the premise. Found by review.
+        $this->assertEqualsWithDelta(120.0, (float) ($data['total_final_price'] ?? -1), 0.005,
+            'Premise: a 120.00 basket, above the 50.00 maximum spend.');
         $this->assertEqualsWithDelta(0.0, (float) ($data['total_coupon_price'] ?? -1), 0.005,
             'A coupon capped at 50.00 of spend discounted a 120.00 basket by '
             . ($data['total_coupon_price'] ?? '?') . '.');
@@ -419,6 +423,189 @@ class MultiLineCouponArithmeticTest extends SecurityTestCase
     // =============================================================================================
     // And the money: the COD order the cart figure becomes
     // =============================================================================================
+
+    /**
+     * THE DISCOUNT MUST NOT DEPEND ON CART ROW ORDER, and this is a money test, not tidiness.
+     *
+     * The first version of the fix consumed a running allowance first-come, so which line absorbed
+     * the discount was decided by row order -- and the two readers do not even iterate the same
+     * way (`ApiController::cart_list` orders by id DESC, `Cart::cart_list_cookie` has no
+     * `orderBy`). Tax is charged per line, at that line's own rate, on the price AFTER its share of
+     * the coupon, so an order-dependent allocation moves `total_tax_price` and with it
+     * `orders.final_price`. A shopper could shift it by removing and re-adding a product.
+     *
+     * Two 100.00 lines, one product taxed at 20% and one untaxed, against a flat 100.00 coupon.
+     * Pro rata gives each line 50.00 of discount, so the tax is 20% of the remaining 50.00 on the
+     * taxed line = 10.00, whichever row is newer. First-come allocation gives the whole 100.00 to
+     * one line and taxes 20% of 100.00 or of 0.00 -- a 20.00 swing.
+     */
+    public function test_the_flat_discount_does_not_depend_on_cart_row_order(): void
+    {
+        $totals = [];
+
+        foreach (['taxed-first', 'taxed-second'] as $order) {
+            [, $store] = $this->tenant();
+            $customer = $this->shopper($store);
+
+            // The rate lives in `tax_methods`, not `taxes` -- the shape OrderTotalCouponTest:354 uses.
+            $taxId = (int) DB::table('taxes')->insertGetId([
+                'name' => 'VAT', 'store_id' => $store->id,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            DB::table('tax_methods')->insert([
+                'name' => 'VAT 20%', 'tax_id' => $taxId, 'tax_rate' => 20, 'priority' => 1,
+                'store_id' => $store->id, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+
+            $taxed = $this->productIn($store, 100.00);
+            $taxed->tax_id = $taxId;
+            $taxed->save();
+            $plain = $this->productIn($store, 100.00);
+
+            $first = $order === 'taxed-first' ? $taxed : $plain;
+            $second = $order === 'taxed-first' ? $plain : $taxed;
+
+            foreach ([$first, $second] as $product) {
+                Cart::forceCreate([
+                    'customer_id' => $customer->id, 'product_id' => $product->id, 'variant_id' => 0,
+                    'qty' => 1, 'price' => 100.00, 'store_id' => $store->id,
+                ]);
+            }
+
+            $this->coupon($store, 'FLAT100', ['discount_amount' => 100]);
+            $data = $this->cartList($store, $customer, 'FLAT100');
+
+            /*
+             * The subtotal is NOT asserted as 200.00: `Product::ProductPrice()` folds the tax
+             * method into a taxed line's own price, so the measured figure is 220.00. That is
+             * pre-existing behaviour and not what this test is about -- what matters is that the
+             * figure is the SAME for both orderings, which is asserted below along with the rest.
+             */
+            $this->assertGreaterThan(0.0, (float) ($data['total_final_price'] ?? 0),
+                "Premise ({$order}): the cart priced a basket at all.");
+            $this->assertEqualsWithDelta(100.0, (float) ($data['total_coupon_price'] ?? -1), 0.005,
+                'The flat 100.00 coupon discounted '
+                . ($data['total_coupon_price'] ?? '?') . " ({$order}).");
+
+            $totals[$order] = [
+                'final' => round((float) ($data['total_final_price'] ?? -1), 2),
+                'tax' => round((float) ($data['total_tax_price'] ?? -1), 2),
+                'sub' => round((float) ($data['total_sub_price'] ?? -1), 2),
+            ];
+        }
+
+        $this->assertSame($totals['taxed-first'], $totals['taxed-second'],
+            'The same basket priced differently according to which row is newer: '
+            . json_encode($totals) . '. The flat allowance is being consumed in iteration order, '
+            . 'and the per-line tax base moves with it.');
+    }
+
+    /**
+     * A coupon the basket does not qualify for must not be ECHOED as applied either.
+     *
+     * The `coupon_info` block re-resolves the coupon and re-applies expiry and the two usage
+     * limits, but not the spend gate -- so the response carried the coupon's real id, name and
+     * headline discount beside an amount of 0.00, and a client reading `coupon_id != 0` concluded
+     * it was active. `coupon_final_amount` is read as money by `PaymentService.php:2460` on the
+     * path where no top-level `coupon_code` was posted. Found by review.
+     */
+    public function test_a_spend_refused_coupon_is_not_echoed_as_applied(): void
+    {
+        [, $store] = $this->tenant();
+        $customer = $this->shopper($store);
+        $this->basketFor($store, $customer, 3);
+        $this->coupon($store, 'BIGONLY', ['minimum_spend' => 500]);
+
+        $data = $this->cartList($store, $customer, 'BIGONLY');
+
+        $this->assertEqualsWithDelta(120.0, (float) ($data['total_final_price'] ?? -1), 0.005,
+            'Premise: a 120.00 basket, below the 500.00 minimum spend.');
+        $this->assertSame(0, (int) ($data['coupon_info']['coupon_id'] ?? -1),
+            'The response reported coupon_id ' . ($data['coupon_info']['coupon_id'] ?? '?')
+            . ' for a coupon this basket does not qualify for.');
+        $this->assertSame('-', (string) ($data['coupon_info']['coupon_code'] ?? ''),
+            'The response echoed the refused coupon code back as applied.');
+    }
+
+    /**
+     * AND THE POSITIVE CONTROL: a coupon that DOES apply is still reported, or the assertions above
+     * are satisfied by a response that never reports any coupon.
+     */
+    public function test_an_accepted_coupon_is_still_echoed(): void
+    {
+        [, $store] = $this->tenant();
+        $customer = $this->shopper($store);
+        $this->basketFor($store, $customer, 3);
+        $couponId = $this->coupon($store, 'GOODONE');
+
+        $data = $this->cartList($store, $customer, 'GOODONE');
+
+        $this->assertSame($couponId, (int) ($data['coupon_info']['coupon_id'] ?? -1),
+            'An applicable coupon was not reported in coupon_info, so the refusal assertions '
+            . 'prove nothing.');
+        $this->assertSame('GOODONE', (string) ($data['coupon_info']['coupon_code'] ?? ''));
+    }
+
+    /**
+     * THE DISCOUNT MAY NEVER EXCEED THE BASKET, WHATEVER THE LINES LOOK LIKE.
+     *
+     * This is the universal invariant for this arithmetic, and it is here because the PRO-RATA
+     * REWRITE BROKE IT — a regression introduced by the fix for the order-dependence above, caught
+     * by a second round of independent review rather than by any test.
+     *
+     * Pro rata divides by the whole basket subtotal while a non-positive line contributes nothing
+     * to the numerator, so `Σ shares = D × (positive mass) / (total mass)`. One negative line makes
+     * the denominator the smaller of the two and the sum overshoots `D`. With the basket this
+     * codebase already records at `ApiController.php:3555-3565` — one 1000.00 product plus a 50.00
+     * product at `qty = -5`, subtotal 750.00 — and a flat 700.00 coupon, the discount came out at
+     * **933.33** and `total_sub_price` at **-183.33**. The first-come version it replaced could not
+     * do that: its running allowance was a hard cap.
+     *
+     * NEGATIVE `carts.qty` IS REACHABLE TODAY, which is why this is a live cart-read defect and not
+     * a thought experiment: `GuardsGatewayReturn.php:621-627` names `BoostSalesController` and
+     * `FrequentlyProductController` writing `$qty = $request->qty` into `carts.qty` with no
+     * validation, on plain `web` routes, in vendored code this project must not edit (S29).
+     *
+     * IT DOES NOT REACH `orders.final_price`, and the reason is worth keeping: three order writers
+     * refuse a non-positive line quantity before pricing — `ApiController.php:3571-3574`,
+     * `PaymentService.php:2422-2429` and `processOrder`'s own floor. Those refusals are the only
+     * thing standing between this and a negative charged total, so this test asserts the cart
+     * figure rather than relying on them.
+     */
+    public function test_the_discount_never_exceeds_the_basket_even_with_a_negative_line(): void
+    {
+        [, $store] = $this->tenant();
+        $customer = $this->shopper($store);
+
+        $big = $this->productIn($store, 1000.00);
+        $negative = $this->productIn($store, 50.00);
+
+        Cart::forceCreate(['customer_id' => $customer->id, 'product_id' => $big->id,
+            'variant_id' => 0, 'qty' => 1, 'price' => 1000.00, 'store_id' => $store->id]);
+        Cart::forceCreate(['customer_id' => $customer->id, 'product_id' => $negative->id,
+            'variant_id' => 0, 'qty' => -5, 'price' => 50.00, 'store_id' => $store->id]);
+
+        $this->coupon($store, 'FLAT700', ['discount_amount' => 700]);
+
+        $data = $this->cartList($store, $customer, 'FLAT700');
+
+        $basket = (float) ($data['total_final_price'] ?? -1);
+        $discount = (float) ($data['total_coupon_price'] ?? -1);
+
+        $this->assertEqualsWithDelta(750.0, $basket, 0.005,
+            'Premise: the subtotal is 1000.00 + (-250.00). If this is not 750.00 the basket is not '
+            . 'the malformed one this test is about.');
+        $this->assertLessThanOrEqual($basket + 0.005, $discount,
+            'The coupon discounted ' . $discount . ' from a basket of ' . $basket
+            . '. A discount larger than the basket makes total_sub_price negative.');
+        $this->assertLessThanOrEqual(700.005, $discount,
+            'The coupon is worth 700.00 and discounted ' . $discount . '. Pro rata divides by the '
+            . 'whole subtotal while the negative line contributes nothing to the numerator, so the '
+            . 'shares sum to more than the coupon.');
+        $this->assertGreaterThanOrEqual(-0.005, (float) ($data['total_sub_price'] ?? -1),
+            'total_sub_price came out at ' . ($data['total_sub_price'] ?? '?')
+            . '. Neither reader floors it.');
+    }
 
     /**
      * THE END OF THE CHAIN. `orders.final_price` for a COD order is the cart reader's

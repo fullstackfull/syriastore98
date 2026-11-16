@@ -650,10 +650,19 @@ class Cart extends Model
          * coupon block used to run -- so it is the right baseline for both the spend gate and the
          * `flat` allowance.
          *
-         * The lookup is the same store-scoped predicate as before, hoisted out of the loop it used
-         * to be re-run in. `$store_id` rather than `$store->id` because `Store::find($storeid)`
-         * above can return null, and a predicate on a null store matches nothing -- which refuses
-         * the coupon rather than widening it (P01-SEC-14 D2, preserved exactly).
+         * The lookup is the same store-scoped predicate as before -- `$store_id`, the same variable,
+         * verified against the diff -- hoisted out of the loop it used to be re-run in
+         * (P01-SEC-14 D2, preserved exactly).
+         *
+         * THE REASON THIS USED TO GIVE FOR READING `$store_id` WAS WRONG, and it is corrected here
+         * rather than carried forward: it said `Store::find($storeid)` above can return null "and a
+         * predicate on a null store matches nothing". `$store_id` is not null in that case --
+         * `:242` is `$store->id ?? getCurrentStore()`, so a null `$store` means the AMBIENT tenant,
+         * not no tenant. The predicate is nonetheless self-consistent, because the cart rows at
+         * `:253` are selected with the same `$store_id`: basket and coupon come from one store.
+         * A null `$store` is reachable -- `PaymentController.php:3130`,
+         * `PayUPaymentController.php:352` and `PaiementProPaymentController.php:557` all call this
+         * with `$store->id ?? ''`, and `Store::find('')` is null. Found by independent review.
          */
         $coupon = null;
 
