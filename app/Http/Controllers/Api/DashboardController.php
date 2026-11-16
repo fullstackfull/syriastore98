@@ -6756,6 +6756,53 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
         'additional_note' => 'nullable|string',
     ]);
 
+    /*
+     * P4-F126 -- AN UNCOLLECTED COD PARCEL MAY NOT BE ASSERTED AS ALREADY PAID.
+     * =============================================================================================
+     *
+     * This door takes `payment_type` and `payment_status` from the caller and writes them verbatim,
+     * and it never consults `PaymentVerificationService`. So `cod` + `Paid` was accepted, and
+     * `OrderObserver::created()` then credited the merchant's wallet AT CREATION -- for a parcel
+     * that has not left the building and cash nobody has handled.
+     *
+     * That is the literal condition owner decision D-06 forbids, and the STOREFRONT already obeys
+     * it: `resolveOrderPaymentStatus()`'s first branch returns `Pending` unconditionally for COD.
+     * The gap was never the policy; it was that this door never asked.
+     *
+     * NO NEW VOCABULARY IS INVENTED, because the counter sale is already sayable. `POS` exists, is
+     * already written as a literal `Paid` by the POS door, and is already in
+     * `OFFLINE_PAYMENT_TYPES` -- the set whose own comment reads "settles off-platform by
+     * arrangement, so record Paid at once". A merchant who took cash across a counter records a POS
+     * sale; a merchant dispatching a parcel for collection records COD, and COD is Pending until
+     * somebody collects. That is the owner's "distinguish them using an explicit supported payment
+     * type", satisfied with zero schema change.
+     *
+     * AND THE EVIDENCE STORE ALREADY EXISTS AND CANNOT YET BE FILLED. `CodCollectionService`
+     * enforces exactly the four fields the owner named -- collector type, collector id, a strictly
+     * positive amount, a timestamp -- and refuses a partial collection. It stores nothing because
+     * `cod_collection_events` is declared by no migration, so `codMayBeSettled()` cannot return
+     * true in shipped code. Creating that table is a production migration and is not authorised
+     * here, so COD settles through no door at all today. Recorded, not worked around.
+     *
+     * CREATION-TIME ONLY. Existing `cod` + `Paid` rows are untouched: reclassifying them would move
+     * real money through the observer, which is what the withdrawn COD trigger's own note warned
+     * about.
+     *
+     * THE REFUSAL IS 422 AND NEVER 401 -- the shipped app force-clears its session on any 401.
+     */
+    if (app(\App\Services\PaymentVerificationService::class)
+            ->isCashOnDelivery($validated['payment_type'] ?? null)
+        && strcasecmp(trim((string) ($validated['payment_status'] ?? '')), 'Paid') === 0) {
+
+        return response()->json([
+            'success' => false,
+            'message' => __('A cash-on-delivery order cannot be created as already paid. Record it as Unpaid; it becomes Paid when collection is verified. For an over-the-counter cash sale, use the POS payment type.'),
+            'errors' => [
+                'payment_status' => [__('Cash on delivery cannot be marked Paid before collection is verified.')],
+            ],
+        ], 422);
+    }
+
     \DB::beginTransaction();
 
     try {

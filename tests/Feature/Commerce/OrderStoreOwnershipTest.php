@@ -891,7 +891,15 @@ class OrderStoreOwnershipTest extends TestCase
         $payload = array_merge([
             'customer_id' => 1,
             'products' => $products,
-            'payment_type' => 'cod',
+            /*
+             * 'cod' -> 'POS' for P4-F126. This payload asserts `Paid` AT CREATION, and that is
+             * now refused for cash on delivery: a parcel awaiting collection has not been paid
+             * for. It was always an immediate cash sale in intent -- every test here is about
+             * tenancy and stock, not payment -- and POS is this platform's existing type for
+             * exactly that, already listed in `OFFLINE_PAYMENT_TYPES`. The assertions are
+             * unchanged; only the fixture names what it always meant.
+             */
+            'payment_type' => 'POS',
             'payment_status' => 'Paid',
             'delivery_price' => 0,
             'tax_price' => 0,
