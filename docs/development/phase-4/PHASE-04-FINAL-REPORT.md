@@ -10,16 +10,27 @@ claims a production release is ready, and nothing here was deployed, migrated or
 
 ## 1. The one-line answer
 
-**Sixteen of the eighteen HIGH confirmed findings in the Phase 04 register are now closed.** Phase 04
-found and closed **fifteen confirmed commerce defects in this stretch alone** across the order write, returns,
-authorization, tax and gateway-callback surfaces — including a coupon that could be made to **pay
-out twice**, a repeated checkout post that wrote **a second order and took the stock twice**, a
-second return that drove an order's `final_price` **negative**, three order-mutating admin API
-routes with **no permission check at all**, and a jurisdiction-restricted tax **charged to shoppers
-outside it**. Six further defects were found **in Phase 04's own fixes** by independent review, two
-of them live, and are fixed here too.
+**Sixteen of the eighteen HIGH confirmed findings in the Phase 04 register are now closed.**
 
-**Nothing in this phase is release-ready**, and three financial questions remain the owner's.
+This stretch fixed **seventeen distinct defects** across the order write, returns, authorization,
+tax and gateway-callback surfaces — fourteen full closures of register findings, plus P4-F046's and
+P4-F032's non-policy halves and the correction of a comment that stated a false reason. Among them:
+a coupon that could be made to **pay out twice**, a repeated checkout post that wrote **a second
+order and took the stock twice**, a second return that drove an order's `final_price` **negative**,
+three order-mutating admin API routes with **no permission check at all**, a jurisdiction-restricted
+tax **charged to shoppers outside it**, and a cancelled gateway payment that wrote a **phantom order
+and took the goods**.
+
+**Six further defects were found in Phase 04's own fixes** by independent review, two of them live
+on the storefront checkout, and are fixed here too. A later gate run found **eight more**, again all
+in this phase's own work, including a **PHP fatal in a fix whose purpose was to make a failure
+survivable**. Section 3 is about that pattern, and it is the part of this report worth reading
+twice.
+
+**Nothing in this phase is release-ready.** Six questions remain the owner's, not engineering's —
+five about what a money column means (P4-F124, P4-F126, P4-F127, P4-F128, P4-F032) and one about
+where a live payment callback goes (P4-F046). Section 4 states each one and why it is not an
+engineering call.
 
 ---
 
@@ -63,10 +74,21 @@ review**, and each was invisible to the tests written specifically to falsify it
 - an uncaptured closure variable that turned a webhook defect into an **HTTP 500 and a full
   rollback**, wider than the defect it replaced.
 
-The P4-3b review round found six more in one pass, two of them live on the storefront checkout. The
-pattern is consistent and worth stating plainly: **a test written to catch a defect does not catch
-the defect introduced by its fix.** Every sensitive change in this phase went through
-`tenant-authz-reviewer` for that reason.
+The P4-3b review round found six more in one pass, two of them live on the storefront checkout.
+
+**Then the Feature known-outcome gate found eight more, in the fixes for those.** Five in one run
+and three in the next: a `register_shutdown_function` that called a facade after the container was
+torn down and so raised a **PHP fatal** — from code written to make a failure survivable; a
+permission gate that refused the store's own owner, which two older tests had been written
+specifically to catch, one of them saying in its own message *"The predicate is too tight — that is
+a defect, not a fix"*; an inverted release condition; and five ratchets that needed honest
+re-classification rather than widening.
+
+The pattern is consistent and worth stating plainly: **a test written to catch a defect does not
+catch the defect introduced by its fix.** Every sensitive change in this phase went through
+`tenant-authz-reviewer` or a gate for that reason — and in this phase, the fixes needed that
+scrutiny more than the original code did. Any unreviewed fix in these files should be treated as
+provisional.
 
 ---
 
@@ -112,7 +134,46 @@ unaffected in either direction, and that is pinned in both directions by a test.
 
 ## 7. Evidence
 
-All figures measured on the final committed tree, `feature/phase-04-commerce`.
+Every figure below was measured on **one clean tree** — `feature/phase-04-commerce` at `6a2e309d`,
+`git status` empty — and each names the command that produced it. Figures from earlier trees in this
+phase are not carried forward, because three suite runs during this work were invalidated by editing
+files while they ran, and an unattributable number is worse than no number.
+
+| gate | command | result |
+|---|---|---|
+| Unit | `php artisan test --testsuite=Unit` | **1845 passed, 1 skipped, 0 failed** |
+| Contract (the Flutter API contract) | `php artisan test --testsuite=Contract` | **45 passed** |
+| Commerce + Security + Tenancy | `php artisan test tests/Feature/Commerce tests/Feature/Security tests/Feature/Tenancy` | **6648 passed, 1 skipped, 0 failed** |
+| Feature | `php artisan test --testsuite=Feature --log-junit … --log-teamcity …` | 8977 testcases, **2 failures, 0 errors, 1 skip** |
+| Known-outcome gate | `php .github/scripts/assert-known-test-outcomes.php …` | **OK — the observed set matches the manifest exactly** |
+
+**The gate's own words, kept rather than paraphrased:** *"This is NOT a statement that the suite is
+green. It is a statement that the suite is failing and skipping exactly the tests the project has
+recorded, for the reasons it has recorded."* The two failures are the two the manifest already
+declared — `Auth\RegistrationTest::test_new_users_can_register` and
+`ProfileTest::test_profile_page_is_displayed` — both pre-existing, neither touched by Phase 04.
+**Nothing was added to `.github/known-test-outcomes.json`.**
+
+**GitHub CI has not completed on any commit in this stretch, and this report does not claim it has.**
+The required Tests jobs were cancelled at five successive SHAs because each push superseded the
+previous run, and the one genuine CI failure — at `14a46da6`, before this work began — was a stale
+observability inventory, since resynced. `Security-sensitive diff: human checklist` is red by design
+and is the owner's to clear; no automation in this phase wrote to it or claimed it complete.
+
+**New tests added by this phase:** 8 files, 52 test methods.
+
+### What the gates do not prove
+
+- They run on **SQLite `:memory:`** with `CACHE_STORE=array`. Production is MySQL with
+  `CACHE_STORE=database`, and SQLite's type affinity hides real MySQL defects — that is how
+  P01-SEC-13 survived. No change in this phase added or altered a migration, so no new schema risk
+  was introduced, but the money arithmetic in P4-F070 and P4-F082 is verified on SQLite decimals
+  only.
+- `register_shutdown_function` behaves differently under a long-lived worker (queue, Octane) than
+  under the per-request lifecycle these tests exercise. The P4-F137 release is written to be total
+  and to fail safe, but that specific environment is not covered here.
+- No journey was driven against a real gateway. Every gateway assertion is either a stored-state
+  drive or a source-structural one, and each test says which it is.
 
 ---
 
