@@ -17,6 +17,12 @@ use Tests\TestCase;
  *
  * NOTHING HERE IS A FIX. It is a measurement of what is still open, deliberately kept adjacent to
  * the thing being measured so it cannot quietly drift out of date.
+ *
+     * ANCHOR DRIFT, 2026-11-16 (P4-F123): the six `SET FOREIGN_KEY_CHECKS` sites moved +38 in
+     * app/Models/Utility.php when CustomerAuthCheck()'s docblock was written. VERIFIED site by site
+     * that each new line holds the IDENTICAL statement (3368->3406, 3370->3408, 3393->3431,
+     * 3395->3433, 3409->3447, 3411->3449), so this is a coordinate change and no raw-query entry
+     * point moved. Same keying caveat as its sibling: `file:line` is a coordinate, not a fact.
  */
 class ResidualTenancyExposureTest extends TestCase
 {
@@ -531,12 +537,12 @@ class ResidualTenancyExposureTest extends TestCase
             // numbers moves whenever a comment does, which is why the D13 store-less
             // declaration in OwnedPathRawQueryInventoryTest keys on a statement fragment
             // instead.
-            'app/Models/Utility.php:3368',
-            'app/Models/Utility.php:3370',
-            'app/Models/Utility.php:3393',
-            'app/Models/Utility.php:3395',
-            'app/Models/Utility.php:3409',
-            'app/Models/Utility.php:3411',
+            'app/Models/Utility.php:3406',
+            'app/Models/Utility.php:3408',
+            'app/Models/Utility.php:3431',
+            'app/Models/Utility.php:3433',
+            'app/Models/Utility.php:3447',
+            'app/Models/Utility.php:3449',
 
         ], $sites, 'The raw-query inventory in the owned models changed. A NEW site here is '
             . 'invisible to every global scope and needs an explicit predicate written at the '
