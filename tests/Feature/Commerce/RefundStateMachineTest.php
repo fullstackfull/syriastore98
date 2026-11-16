@@ -902,65 +902,36 @@ class RefundStateMachineTest extends TestCase
          * F127 fixes, made silent.
          *
          * So a schema without these tables is not a lighter fixture, it is a DIFFERENT contract:
-         * four cases here answered HTTP 500 because `store_order_financials` did not exist. The
-         * tables are added rather than the handler weakened.
+         * four cases here answered HTTP 500 because `store_order_financials` did not exist.
          *
-         * Only the columns this path touches. `store_order_financials` is the row the reversal
-         * locks and moves; `store_wallets` holds the balance; `store_wallet_transactions` records
-         * why it moved.
+         * THESE THREE COME FROM THE REAL MIGRATIONS, NOT FROM A BLUEPRINT WRITTEN HERE, and the
+         * first draft of this fixture got that wrong. Hand-writing them passed locally and broke
+         * `GateFCoverageLedgerTest`, which forbids a test creating a GATE F money table.
+         *
+         * MEASURED, so the reason is not overstated: the hand-written blueprint did reproduce all
+         * 10 `store_wallets` and 19 `store_order_financials` columns and both unique constraints.
+         * What it did NOT carry was the four named secondary indexes
+         * (`idx_store_wallet_store_id`, `idx_order_financial_store`, `..._wallet`,
+         * `..._payment_status`) and production's index NAMES -- Laravel would have auto-named the
+         * uniques `store_wallets_store_id_unique` rather than `uq_store_wallet_store_id`. On SQLite
+         * none of that changes a result today.
+         *
+         * The real argument is the one the ratchet makes: a money schema typed by hand in a test
+         * can drift from production and nothing would notice, because the fixture would keep
+         * agreeing with itself. The migrations are derived from `GateFProductionSchema`, which is
+         * a verbatim copy of the structure read from a restored production dump, and
+         * `GateFMigrationParityTest` holds the two together.
+         *
+         * Safe to run here: each `up()` creates the table when absent, which it is -- the teardown
+         * drops all three -- and only calls `GateFSchemaGuard::assertCompatible()` when it is not.
          */
-        Schema::create('store_wallets', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('store_id');
-            $table->string('currency_code', 10)->nullable();
-            $table->decimal('available_balance', 15, 2)->default(0);
-            $table->decimal('pending_balance', 15, 2)->default(0);
-            $table->decimal('withdrawal_pending_balance', 15, 2)->default(0);
-            $table->decimal('total_income', 15, 2)->default(0);
-            $table->decimal('total_withdrawn', 15, 2)->default(0);
-            $table->timestamps();
-            $table->unique('store_id');
-        });
-
-        Schema::create('store_order_financials', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('store_id');
-            $table->unsignedBigInteger('wallet_id')->nullable();
-            $table->unsignedBigInteger('order_id');
-            $table->string('currency_code', 10)->nullable();
-            $table->string('currency_symbol', 10)->nullable();
-            $table->decimal('product_amount', 15, 2)->default(0);
-            $table->decimal('discount_amount', 15, 2)->default(0);
-            $table->decimal('tax_amount', 15, 2)->default(0);
-            $table->decimal('shipping_amount', 15, 2)->default(0);
-            $table->decimal('customer_total', 15, 2)->default(0);
-            $table->decimal('product_cost', 15, 2)->default(0);
-            $table->decimal('gross_profit', 15, 2)->default(0);
-            $table->string('payment_status', 32)->default('unpaid');
-            $table->decimal('paid_amount', 15, 2)->default(0);
-            $table->decimal('remaining_amount', 15, 2)->default(0);
-            $table->timestamp('paid_at')->nullable();
-            $table->timestamps();
-            $table->unique('order_id');
-        });
-
-        Schema::create('store_wallet_transactions', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('store_id');
-            $table->unsignedBigInteger('wallet_id')->nullable();
-            $table->string('currency_code', 10)->nullable();
-            $table->string('type', 50);
-            $table->string('direction', 16);
-            $table->decimal('amount', 15, 2)->default(0);
-            $table->decimal('balance_before', 15, 2)->default(0);
-            $table->decimal('balance_after', 15, 2)->default(0);
-            $table->string('reference_type', 50)->nullable();
-            $table->unsignedBigInteger('reference_id')->nullable();
-            $table->text('description')->nullable();
-            $table->string('status', 32)->nullable();
-            $table->unsignedBigInteger('created_by')->nullable();
-            $table->timestamps();
-        });
+        foreach ([
+            '2026_11_02_000100_create_store_wallets_table.php',
+            '2026_11_02_000400_create_store_order_financials_table.php',
+            '2026_11_02_000200_create_store_wallet_transactions_table.php',
+        ] as $migration) {
+            (require database_path('migrations/'.$migration))->up();
+        }
 
         Schema::create('order_notes', function (Blueprint $table) {
             $table->id();
