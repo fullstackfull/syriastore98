@@ -12,19 +12,21 @@ claims a production release is ready, and nothing here was deployed, migrated or
 
 **Sixteen of the eighteen HIGH confirmed findings in the Phase 04 register are now closed.**
 
-This stretch fixed **seventeen distinct defects** across the order write, returns, authorization,
-tax and gateway-callback surfaces — fourteen full closures of register findings, plus P4-F046's and
-P4-F032's non-policy halves and the correction of a comment that stated a false reason. Among them:
+This stretch fixed **twenty-one distinct defects** across the order write, returns, authorization,
+tax and gateway-callback surfaces — seventeen in the first pass, then two more live payment legs
+(PayTR, Xendit) and two unjustified exemptions, all four found by reviewing the corrections
+themselves. Among them:
 a coupon that could be made to **pay out twice**, a repeated checkout post that wrote **a second
 order and took the stock twice**, a second return that drove an order's `final_price` **negative**,
 three order-mutating admin API routes with **no permission check at all**, a jurisdiction-restricted
 tax **charged to shoppers outside it**, and a cancelled gateway payment that wrote a **phantom order
 and took the goods**.
 
-**Six further defects were found in Phase 04's own fixes** by independent review, two of them live
-on the storefront checkout, and are fixed here too. A later gate run found **eight more**, again all
-in this phase's own work, including a **PHP fatal in a fix whose purpose was to make a failure
-survivable**. Section 3 is about that pattern, and it is the part of this report worth reading
+**Nineteen of those defects were in work this phase had already called verified.** Six were found by
+independent review of the fixes; eight by the known-outcome gate on the fixes for those, including a
+**PHP fatal in a fix whose purpose was to make a failure survivable**; one by an adversarial sweep
+over a fix *and its test*; and four more by a second sweep over the *corrected* fix and its
+*rewritten* test. Section 3 is about that pattern, and it is the part of this report worth reading
 twice.
 
 **Nothing in this phase is release-ready.** Six questions remain the owner's, not engineering's —
@@ -84,11 +86,19 @@ specifically to catch, one of them saying in its own message *"The predicate is 
 a defect, not a fix"*; an inverted release condition; and five ratchets that needed honest
 re-classification rather than widening.
 
+**Then a second sweep, over those corrections, found two more LIVE payment defects** — PayTR's
+`merchant_fail_url`, byte-identical to its own success URL, and Xendit's `failure_redirect_url` —
+sitting behind a ratchet I had rewritten specifically to be exhaustive and whose docblock claimed it
+was. Measured: that rewrite enumerated **10 of the file's 47** return-URL sites. It also removed two
+exemptions I had written without checking, one of them asserting that an encrypted payload was "its
+own marker" when `Crypt::decrypt` appears **zero** times in the handler.
+
 The pattern is consistent and worth stating plainly: **a test written to catch a defect does not
-catch the defect introduced by its fix.** Every sensitive change in this phase went through
-`tenant-authz-reviewer` or a gate for that reason — and in this phase, the fixes needed that
-scrutiny more than the original code did. Any unreviewed fix in these files should be treated as
-provisional.
+catch the defect introduced by its fix, and a test written to catch THAT does not either.** The
+sequence here ran four deep — fix, review, gate, sweep, sweep. Each layer found real defects the
+previous one had certified. Any unreviewed fix in these files should be treated as provisional, and
+a ratchet that enumerates by name rather than by destination should be assumed incomplete until
+someone counts what it actually covers.
 
 ---
 
@@ -134,7 +144,7 @@ unaffected in either direction, and that is pinned in both directions by a test.
 
 ## 7. Evidence
 
-Every figure below was measured on **one clean tree** — `feature/phase-04-commerce` at `b294f2e3`,
+Every figure below was measured on **one clean tree** — `feature/phase-04-commerce` at `ee3c68ca`,
 `git status` empty — and each names the command that produced it. The Feature suite subsumes
 `tests/Feature/Commerce`, `tests/Feature/Security` and `tests/Feature/Tenancy`, so the whole surface
 is covered by a single run on a single tree. Figures from earlier trees in this
@@ -146,7 +156,7 @@ files while they ran, and an unattributable number is worse than no number.
 | Unit | `php artisan test --testsuite=Unit` | **1845 passed, 1 skipped, 0 failed** |
 | Contract (the Flutter API contract) | `php artisan test --testsuite=Contract` | **45 passed** |
 | Commerce + Security + Tenancy | `php artisan test tests/Feature/Commerce tests/Feature/Security tests/Feature/Tenancy` | **6648 passed, 1 skipped, 0 failed** |
-| Feature | `php artisan test --testsuite=Feature --log-junit … --log-teamcity …` | 8977 testcases, 47261 assertions, **2 failures, 0 errors, 1 skip** |
+| Feature | `php artisan test --testsuite=Feature --log-junit … --log-teamcity …` | 8977 testcases, 47262 assertions, **2 failures, 0 errors, 1 skip** |
 | Known-outcome gate | `php .github/scripts/assert-known-test-outcomes.php …` | **OK — the observed set matches the manifest exactly** |
 
 **The gate's own words, kept rather than paraphrased:** *"This is NOT a statement that the suite is
