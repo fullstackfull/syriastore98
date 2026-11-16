@@ -458,7 +458,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            it three statements earlier. That is deliberate: this census flagged the statement as
            store-less when it was keyed on `id` alone, and it was right to -- a reader of that line
            in isolation could not tell the id came from a scoped lookup. */
-        $this->assertSame(['app' => 182, 'packages' => 45], $perDir,
+        $this->assertSame(['app' => 183, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -545,7 +545,14 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         /* 223 -> 225: the same two P4 sites counted in the per-directory assertion above. */
         /* 225 -> 227 [P4-F124]: OrderEntitlementReversal's two `store_order_financials`
            statements, both naming `store_id`. Classified in full in the per-directory note. */
-        $this->assertSame(227, array_sum($perDir));
+        /* 227 -> 228 [P4-F128]: ONE statement, in
+           StoreFinanceController::updateFinancialPaymentStatus. It reads the ORDER's own
+           payment_status into the new audit row, so the divergence that adjustment creates is
+           visible from the audit trail at the moment it is created. It names `store_id`, so the
+           unscoped total does not move -- and that is not a coincidence: the first draft read the
+           order by id alone, THIS INVENTORY FLAGGED IT, and the scope was added in response. The
+           reasoning is in the handler, beside the query. */
+        $this->assertSame(228, array_sum($perDir));
     }
 
     /**
@@ -676,7 +683,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
              * asserted to still match the statement, so this number is not the only place it is
              * written down.
              */
-            'orders' => [4, 1],
+            // 5 raw entry points, 1 of them unscoped. The fifth was added by P4-F128:
+            // StoreFinanceController::updateFinancialPaymentStatus reads the order's own
+            // payment_status into its audit row, to record the divergence that adjustment
+            // creates. It is SCOPED by store_id -- the unscoped count stays at 1 -- because
+            // this inventory flagged the first draft, which read by id alone.
+            'orders' => [5, 1],
             'owner_menu_items' => [1, 1],
             'owner_menu_settings' => [1, 1],
             'owner_menus' => [1, 1],
@@ -856,7 +868,11 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         /* 173 -> 175 [P4-F124]: OrderEntitlementReversal's two `store_order_financials`
            statements. Both name `store_id`, so the companion unscoped total below does not move --
            which is the assertion that would have caught a cross-tenant addition. */
-        $this->assertSame(175, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        /* 175 -> 176 [P4-F128]: the audit-row read of `orders` in
+           StoreFinanceController::updateFinancialPaymentStatus. Scoped by `store_id`, so again the
+           companion unscoped total does not move. It moved on the first draft, which is how the
+           missing predicate was found. */
+        $this->assertSame(176, array_sum(array_map(fn ($r) => $r[0], $actual)),
             '[2026-11-02] 167 -> 170 AND the remainder 52 -> 49, with NOTHING IN app/ CHANGED. '
             . 'Three entry points were counted by RAW_ENTRY_POINT_PATTERN and NOT attributed to '
             . 'their table, because they write `DB::table(` on one line and the name on the next: '

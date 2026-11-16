@@ -470,6 +470,30 @@
                                                                 <option value="unpaid" {{ $financial->payment_status === 'unpaid' ? 'selected' : '' }}>{{ __('Not Received') }}</option>
                                                                 <option value="paid" {{ $financial->payment_status === 'paid' ? 'selected' : '' }}>{{ __('Received') }}</option>
                                                             </select>
+                                                            {{-- P4-F128 -- the reason, required by the handler.
+
+                                                                 This adjustment moves the merchant's entitlement and the
+                                                                 wallet WITHOUT touching the customer's settlement, so after
+                                                                 it the two deliberately disagree. Whether that is correct
+                                                                 (cash arrived outside the gateway) or a mistake is a fact
+                                                                 only the person clicking holds, and it is unrecoverable
+                                                                 afterwards. It goes into an AuditLog row, not a new column.
+
+                                                                 The label is visually hidden rather than absent: the input
+                                                                 sits in a dense table cell where a visible label would wrap
+                                                                 the row, but a screen-reader user still needs to be told
+                                                                 what this box is and that it names an order. --}}
+                                                            <label for="finance-reason-{{ $financial->id }}" class="visually-hidden">
+                                                                {{ __('Reason for changing the payment status of order :order', ['order' => '#' . $financial->order_id]) }}
+                                                            </label>
+                                                            <input type="text"
+                                                                id="finance-reason-{{ $financial->id }}"
+                                                                name="reason"
+                                                                required
+                                                                maxlength="255"
+                                                                class="form-control form-control-sm"
+                                                                style="min-width: 160px;"
+                                                                placeholder="{{ __('Reason (required)') }}">
                                                             <button type="submit" class="btn btn-sm btn-primary">{{ __('Update') }}</button>
                                                         </div>
                                                     </form>

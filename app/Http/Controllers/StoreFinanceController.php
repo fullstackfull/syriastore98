@@ -379,8 +379,29 @@ class StoreFinanceController extends Controller
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 
+        /*
+         * P4-F128 -- A REASON IS REQUIRED, AND IT IS NOT COSMETIC.
+         *
+         * Owner decision: "finance-screen adjustment needs authz + reason + auditable event." This
+         * handler already had the authz (canFinance, operator-first through the `finance` gate). It
+         * had neither of the other two.
+         *
+         * WHY THE REASON IS REQUIRED RATHER THAN OPTIONAL. This is the surface that creates the
+         * divergence F128 is about: it moves store_order_financials AND the wallet, and it does not
+         * touch the order, so afterwards the customer's settlement and the merchant's entitlement
+         * disagree and no screen shows it. That is sometimes exactly right -- cash arrived outside
+         * the gateway -- and sometimes a mistake. Which one it was is a fact only the person
+         * clicking holds, and five minutes later nobody can recover it. An optional field would be
+         * left blank precisely when it matters.
+         *
+         * WHERE IT IS STORED: the AuditLog row below, NOT a new column. `store_order_financials`
+         * has no reason and no actor column, and adding one is a GATE F schema change -- a separate
+         * owner decision, and not one this fix needs, because AuditLog already carries actor, store,
+         * subject, before/after, IP and user agent.
+         */
         $request->validate([
             'payment_status' => 'required|in:paid,unpaid',
+            'reason' => 'required|string|max:255',
         ]);
 
         $storeId = getCurrentStore();
@@ -444,6 +465,54 @@ class StoreFinanceController extends Controller
                 $e->getMessage()
             );
         }
+
+        /*
+         * P4-F128 -- the auditable event, written only after the move succeeded.
+         *
+         * AFTER the try/catch on purpose: a failed adjustment moved no money, and recording one as
+         * though it had would make the audit trail lie in the direction that matters most.
+         *
+         * WHAT IT DELIBERATELY RECORDS. `settlement_unchanged` is the order's own payment_status,
+         * captured here and written into the audit row even though this handler does not touch it.
+         * That is the point: it makes the divergence this adjustment CREATES visible at the moment
+         * it is created, from the audit trail alone, without needing the reconciliation report to
+         * find it later. A reader of this row can see both sides and the stated reason together.
+         */
+        \App\Models\AuditLog::record(
+            'finance.financial_payment_status.updated',
+            null,
+            [
+                'financial_id' => (int) $financial->id,
+                'order_id' => (int) $financial->order_id,
+                'entitlement_state' => $financial->payment_status,
+                'paid_amount' => $financial->paid_amount,
+            ],
+            [
+                'financial_id' => (int) $financial->id,
+                'order_id' => (int) $financial->order_id,
+                'entitlement_state' => $request->payment_status,
+                'reason' => $request->input('reason'),
+                /*
+                 * SCOPED BY store_id, and the raw-query tenancy inventory is what insisted.
+                 *
+                 * The first draft read the order by id alone, reasoning that `$financial` was
+                 * already fetched `where('store_id', $storeId)` so its order_id must belong here.
+                 * That reasoning is exactly what leg 1 of the new reconciliation exists to DOUBT:
+                 * D4 reports financial rows whose order belongs to another store. If such a row
+                 * exists, the unscoped read would have copied another tenant's settlement into
+                 * this tenant's audit log.
+                 *
+                 * Scoped, that case yields null instead -- which reads correctly as "the order
+                 * this row names is not ours", and is the honest answer.
+                 */
+                'settlement_unchanged' => optional(
+                    DB::table('orders')
+                        ->where('id', $financial->order_id)
+                        ->where('store_id', $storeId)
+                        ->first()
+                )->payment_status,
+            ]
+        );
 
         return back()->with(
             'success',

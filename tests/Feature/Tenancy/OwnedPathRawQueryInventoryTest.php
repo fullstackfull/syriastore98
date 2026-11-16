@@ -523,7 +523,13 @@ class OwnedPathRawQueryInventoryTest extends TestCase
            its single statement is declared in STORE_LESS_BY_DESIGN with the reason a primary-key
            probe must not be narrowed. The count is raised because the site is real and accounted
            for, not to make this pass. */
-        $this->assertCount(38, $sites, "The owned-path raw query inventory changed:\n  "
+        /* 38 -> 39 [P4-F128]: StoreFinanceController:436, the audit-row read of `orders` added by
+           updateFinancialPaymentStatus so that the settlement this adjustment does NOT change is
+           recorded beside the entitlement it does. It is TENANT SCOPED -- `where('store_id',
+           $storeId)` -- so it needs no STORE_LESS_BY_DESIGN declaration; it is counted here because
+           the site is real, not to make this pass. The first draft was unscoped and the sibling
+           RawQueryTenancyInventoryTest is what caught it. */
+        $this->assertCount(39, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry

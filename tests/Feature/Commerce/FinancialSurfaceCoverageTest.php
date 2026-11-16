@@ -446,6 +446,32 @@ class FinancialSurfaceCoverageTest extends TestCase
 
         $this->assertEqualsWithDelta(250.0, (float) $wallet->fresh()->available_balance, 0.001);
 
+        /*
+         * P4-F128 -- THE DIVERGENCE, PINNED AS AN OBSERVED PROPERTY.
+         *
+         * This test already demonstrated it and did not look: it seeds the order Unpaid, marks the
+         * FINANCIAL row paid, and asserts the wallet moved -- while asserting nothing at all about
+         * the order. So the settlement and the entitlement now disagree, which is the whole of
+         * F128, and the suite was silent about it.
+         *
+         * The assertion is deliberately that the order is UNCHANGED, not that it followed. Owner
+         * decision on F128: settlement and entitlement stay DISTINCT. Marking a merchant's
+         * entitlement paid must not rewrite what the customer actually paid -- the same rule F124
+         * established for cancellation, from the other direction. If someone later makes this
+         * service write `orders.payment_status`, this line is what tells them it was a decision
+         * rather than an oversight.
+         *
+         * What makes the divergence visible is now a REPORT, not a write:
+         * Tests\Support\Security\SettlementEntitlementReconciliation leg 2 / D1.
+         */
+        $this->assertSame(
+            'Unpaid',
+            DB::table('orders')->where('id', $order->id)->value('payment_status'),
+            'markFinancialAsPaid moved the customer settlement. Entitlement and settlement are '
+            . 'deliberately independent (P4-F128); the divergence is REPORTED, never resolved by '
+            . 'copying one column into the other.'
+        );
+
         $credits = StoreWalletTransaction::where('wallet_id', $wallet->id)
             ->where('direction', 'credit')->get();
         $this->assertCount(1, $credits, 'Marking a record paid must write exactly one credit.');

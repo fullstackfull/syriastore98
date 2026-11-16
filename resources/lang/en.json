@@ -4109,5 +4109,7 @@
     "Search the documentation": "Search the documentation",
     "This page has not been translated yet, so it is shown in English.": "This page has not been translated yet, so it is shown in English.",
     "Type what you are stuck on. Searching works in Arabic and in English.": "Type what you are stuck on. Searching works in Arabic and in English.",
-    "Written for merchants, not for developers. Start at the beginning or search for what you are stuck on.": "Written for merchants, not for developers. Start at the beginning or search for what you are stuck on."
+    "Written for merchants, not for developers. Start at the beginning or search for what you are stuck on.": "Written for merchants, not for developers. Start at the beginning or search for what you are stuck on.",
+    "Reason for changing the payment status of order :order": "Reason for changing the payment status of order :order",
+    "Reason (required)": "Reason (required)"
 }
