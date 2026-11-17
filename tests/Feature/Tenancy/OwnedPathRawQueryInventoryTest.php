@@ -534,7 +534,19 @@ class OwnedPathRawQueryInventoryTest extends TestCase
            the row is exactly 'paid', so a request against a terminal row is a no-op that the audit
            trail described as a movement. The entitlement state is now RE-READ after the operation.
            Tenant scoped, like its sibling. */
-        $this->assertCount(40, $sites, "The owned-path raw query inventory changed:\n  "
+        /* 40 -> 42 [P5-10]: the two ledger-coverage counts in StoreFinanceController::index(),
+           added so the per-order `Profit` column can say how many of its rows report a margin
+           that `product_cost` cannot support (ANA-006). Both are TENANT SCOPED --
+           `->where('store_id', $storeId)`, with `$storeId` resolved from `getCurrentStore()`
+           and never from request input -- so neither needs a STORE_LESS_BY_DESIGN declaration,
+           and the sibling RawQueryTenancyInventoryTest's unscoped half stays at 5. The file is
+           already classified 'tenant' above, and these statements earn that category rather
+           than taking an exemption from it.
+           They are raw rather than Eloquent because `store_order_financials` has no model at
+           all; there is no scope that could reach them, which is precisely why this census
+           counts them. The count is raised because the sites are real and accounted for, not
+           to make this pass. */
+        $this->assertCount(42, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry
