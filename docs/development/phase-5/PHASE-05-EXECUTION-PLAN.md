@@ -66,11 +66,15 @@ Admit `cancelled` and `refunded` to the finance screens and validators that toda
 `in:paid,unpaid`, so a merchant can see and act on a reversed order. **Gate: P4-F124, P4-F127.**
 Without it a reversed row is invisible to the one screen that owns it.
 
-### P5-2 — The metric layer
+### P5-2 — The metric layer — **ENGINEERING COMPLETE (2026-11-17)**
 One query object per metric in §1–§10 of `PHASE-05-METRIC-DEFINITIONS.md`, each with its tenant
 predicate at the call site, its currency handling, and its caveat flag. **No controller computes
 money inline.** Every metric gets the verification test its definition names.
-**Gate: P4-F124, P4-F128.**
+**Gate: P4-F124, P4-F128.** Both closed before the slice began.
+
+Built in `app/Support/Metrics/`. Evidence, the three choices the definitions left open, the five
+`ANA-*` decisions it answers to and the 29-of-29 mutation battery are in
+`PHASE-05-METRIC-LAYER.md`. **Not wired to any surface** — no merchant-visible figure has changed.
 
 ### P5-3 — ReportController predicate replacement
 Point the existing report surfaces at the P5-2 metric layer, one surface at a time, with a

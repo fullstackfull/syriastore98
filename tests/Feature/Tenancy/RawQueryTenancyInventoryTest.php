@@ -458,7 +458,32 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            it three statements earlier. That is deliberate: this census flagged the statement as
            store-less when it was keyed on `id` alone, and it was right to -- a reader of that line
            in isolation could not tell the id came from a scoped lookup. */
-        $this->assertSame(['app' => 184, 'packages' => 45], $perDir,
+        /* 184 -> 188 on 2026-11-17 [P5-2, the Phase 05 metric layer]: FOUR new sites, all in
+           `app/Support/Metrics/Metric.php`, and ALL FOUR NAME `store_id` -- so no unscoped half
+           moves below.
+
+           They are the whole raw surface of the metric layer, and they are deliberately in ONE
+           file: `orders()`, `financials()`, `transactions()` and `wallets()`, each returning a
+           builder with `whereIn('<table>.store_id', $scope->storeIds())` applied IN THE SAME
+           EXPRESSION that names the table. Ten metric classes are built on them and none of the
+           ten can obtain an unscoped builder, by construction rather than by review.
+
+           WHY RAW AND NOT ELOQUENT. `store_order_financials` has no model at all. The other three
+           are GROUP BY aggregates over money columns; hydrating rows to sum them would be slower
+           and no safer. And `Order` is not in `config/tenancy.php`'s `scoped_models`, so an
+           Eloquent read of it would carry no predicate either -- the thing this census exists to
+           notice.
+
+           WHY THE TENANT PREDICATE CANNOT BE OPTIONAL HERE. `MetricScope` has no constructor
+           meaning "every tenant" and refuses an empty store list, so there is no value a caller
+           can pass that produces an unfiltered money query. `tests/Unit/Metrics/
+           MetricValueObjectTest` pins that, and `tests/Feature/Metrics/MetricLayerTest`'s
+           cross-tenant case drives every one of the ten metrics against a two-store fixture.
+
+           `order_coupon_details` is reached by JOINING from `orders` rather than queried directly,
+           because -- measured -- that table has NO `store_id` column. It therefore adds no row to
+           the per-table census and its tenant predicate comes from the order it belongs to. */
+        $this->assertSame(['app' => 188, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -554,7 +579,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            reasoning is in the handler, beside the query. */
         /* 228 -> 229 [P4-F128, after review]: the entitlement-state re-read in the same handler,
            replacing a recorded value that was the REQUEST rather than the RESULT. Scoped. */
-        $this->assertSame(229, array_sum($perDir));
+        /* 229 -> 233 [P5-2]: the four `App\Support\Metrics\Metric` table accessors, every one
+           of them scoped. See the note on the per-directory assertion above. */
+        $this->assertSame(233, array_sum($perDir));
     }
 
     /**
@@ -690,7 +717,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // payment_status into its audit row, to record the divergence that adjustment
             // creates. It is SCOPED by store_id -- the unscoped count stays at 1 -- because
             // this inventory flagged the first draft, which read by id alone.
-            'orders' => [5, 1],
+            // 5 -> 6 [P5-2]: `Metric::orders()`, which applies `whereIn('orders.store_id', ...)`
+            // in the same expression that names the table, so the unscoped half stays at 1.
+            'orders' => [6, 1],
             'owner_menu_items' => [1, 1],
             'owner_menu_settings' => [1, 1],
             'owner_menus' => [1, 1],
@@ -753,7 +782,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // and the predicate was added rather than an exception declared.
             // 12 -> 13 [P4-F128, after review]: the entitlement-state re-read in
             // updateFinancialPaymentStatus. The UNSCOPED count stays at 5 -- it names store_id.
-            'store_order_financials' => [13, 5],
+            // 13 -> 14 [P5-2]: `Metric::financials()`, scoped at the call site; unscoped half
+            // unchanged at 5.
+            'store_order_financials' => [14, 5],
             // 18 -> 19 AND 17 -> 18 with P1-INV-20: LotteryRefundOwnershipGuard's slug lookup,
             // `DB::table('stores')->where('slug', $slug)->value('id')`.
             //
@@ -772,6 +803,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // guard's two entry points with a literal table name, which is why `app` moved by 2
             // above and this row by 1. Unscoped on purpose -- it must see every store the user
             // owns, because one it misses is one the delete destroys.
+            // BOTH NEW WITH P5-2 AND BOTH SCOPED, which is what the 0 says. `Metric::
+            // transactions()` and `Metric::wallets()` are the movement-record and running-balance
+            // halves of the metric layer; §6's net receipts and §7's wallet drift check are built
+            // on them. Neither table is in `scoped_models` either, so the predicate at the call
+            // site is the only one there is.
+            'store_wallet_transactions' => [1, 0],
+            'store_wallets' => [1, 0],
             'stores' => [24, 23],    // P1-SEC-10 (DeliverySyriaCredential: stores created by a matched owner), P1-SEC-04 (Duo setting rule) and the P0 deletion guard; the Zid controller's own stores read is gone.
                                      // 20 -> 23 and 20 -> 22 with ModuleStorefrontInputGuard: two slug resolutions (no store_id to predicate on yet) and the thread read's by-id lookup, whose statement names `store_id` because the id comes from the body and is compared, not trusted
             // [1, 0], DOWN FROM [2, 0]. The remaining raw statement is the READ at
@@ -878,8 +916,18 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            missing predicate was found. */
         /* 176 -> 177 [P4-F128, after review]: the entitlement-state re-read. Scoped, so the
            companion unscoped total below again does not move. */
-        $this->assertSame(177, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '[2026-11-02] 167 -> 170 AND the remainder 52 -> 49, with NOTHING IN app/ CHANGED. '
+        /* 177 -> 181 [2026-11-17, P5-2]: the four `App\Support\Metrics\Metric` table accessors.
+           All four spell their table as a quoted LITERAL, so unlike `StockMovement::TABLE` or
+           `TopSellersByRevenue`'s `DB::table($table)` every one of them lands in this per-table
+           census rather than the unattributable remainder -- which is the point of spelling them
+           that way. All four name `store_id`, so the companion unscoped total below does NOT
+           move. */
+        $this->assertSame(181, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            'THE FIGURES INSIDE THIS MESSAGE ARE THE 2026-11-02 MEASUREMENT AND ARE NOT RATCHETED; '
+            . 'the current totals are the ones ASSERTED above and in the dated notes beside them. '
+            . 'That split is itself one of this file\'s findings, recorded rather than tidied away '
+            . 'because the history is what explains the numbers. '
+            . '[2026-11-02] 167 -> 170 AND the remainder 52 -> 49, with NOTHING IN app/ CHANGED. '
             . 'Three entry points were counted by RAW_ENTRY_POINT_PATTERN and NOT attributed to '
             . 'their table, because they write `DB::table(` on one line and the name on the next: '
             . 'OrderFinancialService.php:289 and :402 and StoreFinanceController.php:545, all '
