@@ -2224,6 +2224,20 @@ class ReportController extends Controller
 
             $startDate = new \DateTime($from_date);
             $endDate = new \DateTime($to_date);
+            /*
+             * P5-3c -- `DatePeriod`'s end is EXCLUSIVE, so without this the category report drops
+             * the last day of a custom range and, for a SINGLE-DAY selection, yields ZERO days:
+             * measured, `DatePeriod('2026-03-05', P1D, '2026-03-05')` iterates nothing, so
+             * `$monthList` is empty, `array_fill(0, 0, 0)` gives empty series and the
+             * `array_search($orderDate, $monthList)` below fails for every order. A merchant
+             * asking for one day got an empty report rather than one day's sales.
+             *
+             * The product report (:1804) and the brand report (:2726) already did this; only the
+             * category report did not, which is why its series were one day short of theirs on
+             * the same range. Written the brand report's way on purpose, so the three now read
+             * alike.
+             */
+            $endDate->modify('+1 day'); // Include the end date
 
             $interval = new \DateInterval('P1D');
             $period = new \DatePeriod($startDate, $interval, $endDate);

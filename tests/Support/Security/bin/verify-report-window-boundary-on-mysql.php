@@ -257,6 +257,84 @@ try {
             "got {$gross}, which reaches store 2's 5,000.00");
     }
 
+    // ---------------------------------------------------------------- C. the category report
+
+    echo "\nC. The sales-by-category report for a SINGLE day\n";
+
+    /*
+     * A different defect in the same family, and a worse one: `DatePeriod`'s end is EXCLUSIVE, and
+     * the category report was the only one of the three per-dimension reports that did not add a
+     * day to compensate -- the product report did it inline and the brand report on the line
+     * before. Measured: `DatePeriod('2026-03-05', P1D, '2026-03-05')` iterates ZERO times, so
+     * `$monthList` is empty, every series is `array_fill(0, 0, 0)`, and the
+     * `array_search($orderDate, $monthList)` that places each line fails for every order.
+     *
+     * A merchant selecting ONE day therefore got an empty report rather than one day's sales --
+     * and `$request->Date` with no ' to ' in it sets from_date = to_date, which is exactly what a
+     * single-date picker posts. The orders were fetched and then silently discarded.
+     */
+    // Columns read off the migrations rather than guessed: `categories` has no `created_by`,
+    // and `products` requires `name`, `track_stock` and `created_by`.
+    $categoryId = DB::table('categories')->insertGetId([
+        'name' => 'Boundary category', 'slug' => 'boundary-category',
+        'store_id' => 1,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    $productId = DB::table('products')->insertGetId([
+        'name' => 'Boundary product', 'slug' => 'boundary-product',
+        'category_id' => $categoryId, 'store_id' => 1, 'created_by' => $owner->id,
+        'track_stock' => 0, 'price' => 60.0,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    $theDay = Carbon::now()->subDays(3)->setTime(11, 0);
+
+    DB::table('orders')->insert([
+        'product_order_id' => 'RB-CAT-1',
+        'product_json' => json_encode([[
+            'product_id' => $productId, 'qty' => 2, 'final_price' => 60.0,
+        ]]),
+        'product_price' => 60.0, 'delivery_price' => 0.0, 'tax_price' => 0.0,
+        'coupon_price' => 0.0, 'final_price' => 60.0,
+        'currency_code' => 'USD', 'payment_type' => 'cod', 'payment_status' => 'Paid',
+        'delivered_status' => 1, 'store_id' => 1,
+        'order_date' => $theDay->format('Y-m-d H:i:s'),
+        'created_at' => $theDay->format('Y-m-d H:i:s'),
+        'updated_at' => $theDay->format('Y-m-d H:i:s'),
+    ]);
+
+    Auth::login($owner);
+    $catRequest = Request::create('/category-order-reports', 'GET', [
+        'Date' => $theDay->format('Y-m-d'),
+    ]);
+    app()->instance('request', $catRequest);
+
+    $catResponse = (new ReportController())->order_category_reports($catRequest);
+    $catPayload = json_decode($catResponse->getContent(), true);
+
+    $series = $catPayload['NetSaleTotal'] ?? null;
+    $dayCount = is_array($catPayload['monthList'] ?? null) ? count($catPayload['monthList']) : 0;
+
+    echo "   day list length: {$dayCount} (0 means the report has no columns at all)\n";
+
+    check('a single-day selection produces ONE day column, not zero',
+        $dayCount === 1, "got {$dayCount}");
+
+    $categoryTotal = 0.0;
+    if (is_array($series)) {
+        foreach ($series as $row) {
+            if (($row['name'] ?? null) === 'Boundary category') {
+                $categoryTotal = round(array_sum(array_map('floatval', (array) ($row['data'] ?? []))), 2);
+            }
+        }
+    }
+
+    check('the day\'s 60.00 of category sales is reported, not discarded',
+        near($categoryTotal, 60.0),
+        'got ' . var_export($categoryTotal, true)
+        . ' -- the orders are fetched and then dropped by array_search() against an empty day list');
+
     echo "\n{$checks} checks, {$failures} failed\n";
     $exit = $failures > 0 ? 1 : 0;
 } catch (\Throwable $e) {
