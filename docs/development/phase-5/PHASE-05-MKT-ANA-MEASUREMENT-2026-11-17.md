@@ -1054,7 +1054,7 @@ a real-world compliance dimension rather than a scope dimension.
 **`ANA-007` — the honesty mechanism cannot reach a sighted merchant.** `<x-ss.stat>` renders its
 `hint` inside `<span class="ss-visually-hidden">`, and `store-syria-ds.css:2238-2246` clips that to
 1×1 with `clip: rect(0,0,0,0)` and **no `:hover`, `:focus` or `:focus-within` reveal anywhere**.
-Verified by hand. Nine `:hint=` usages sit on `<x-ss.stat>`, and they are precisely the sentences
+Verified by hand. Ten `:hint=` usages sit on `<x-ss.stat>` across six files, and nine of them are precisely the sentences
 Phase 05 wrote to stop a figure being misread — "This is not payments received, and not profit",
 "How many units were ordered, not how many were delivered or paid for".
 
@@ -1065,13 +1065,7 @@ that hides it, and **no test pins that as intended**. The component arrived with
 
 The effect is that Phase 05's own corrective wording — including the work done under the owner's
 third recommendation, to correct misleading "before discounts" labels — is **invisible to everyone
-who is not using a screen reader**. It is recorded here as the next slice (**P5-11**) rather than
-folded into P5-10, because it changes the visible layout of nine tiles across five surfaces and so
-needs its own both-direction and contrast evidence.
-
-Separately measured and also unwired: the 12-key `MetricCaveat` vocabulary has **zero consumers**
-outside `app/Support/Metrics/` and `tests/` — no Blade view, controller, API resource or route reads
-it. `COUPON_REDEMPTION_UNRELIABLE` is marked BLOCKING ("This figure is not authoritative", by owner
+who is not using a screen reader**. **SHIPPED as P5-11 on 2026-11-17**, the same day this survey was taken. The hint now renders visibly and is associated with the figure by `aria-describedby`; measured 5.98:1 light and 7.18:1 dark in all four language/theme combinations. The cost is recorded rather than hidden: a six-tile stat row grows from 123px to 257px, because a 160-character sentence wraps to about seven lines in a 190px grid cell. `COUPON_REDEMPTION_UNRELIABLE` is marked BLOCKING ("This figure is not authoritative", by owner
 instruction pending P4-F134/F135) and nothing renders it.
 
 ### 5.2 Where these eighteen now sit in the accounting

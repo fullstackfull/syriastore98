@@ -1865,6 +1865,7 @@
 .ss-empty__body,
 .ss-feed__message,
 .ss-advanced__hint,
+.ss-stat__hint,
 .ss-upload-hint,
 .ss-dialog__body,
 .ss-dialog__message    { color: var(--ss-fg-muted) !important; }
@@ -2404,6 +2405,23 @@ html[data-ss-theme="dark"] .ss-dt-card-body .form-switch .form-check-input:check
     font-size: var(--ss-text-xs);
     color: var(--ss-fg-muted);
     margin-block-start: var(--ss-space-1);
+}
+/* P5-11. THE CAVEAT, VISIBLE. This used to be `.ss-visually-hidden` inside the period span --
+   clipped to 1x1 with no reveal rule anywhere -- so nine honesty sentences ("This is not payments
+   received, and not profit") rendered to nobody who could see. ANA-007 asks the product to SHOW
+   data quality; one pixel shows nothing.
+
+   `--ss-text-xs` and muted, so it reads as a qualifier rather than competing with the figure, and
+   `text-wrap: pretty` where supported because these sentences are long and a one-word last line
+   in a 10rem grid cell looks like a defect. No physical properties: `margin-block-start` and the
+   inherited text direction are all it needs to be correct in Arabic RTL and English LTR from one
+   declaration. */
+.ss-stat__hint {
+    margin: var(--ss-space-2) 0 0;
+    font-size: var(--ss-text-xs);
+    line-height: var(--ss-leading-normal, 1.5);
+    color: var(--ss-fg-muted);
+    text-wrap: pretty;
 }
 /* A measure the system genuinely cannot produce. An honest absence, and it
    must not look like a zero. */

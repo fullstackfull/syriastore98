@@ -197,18 +197,79 @@ overstated** — `gross_profit` with no cost is the discounted product subtotal,
 which is the neighbouring `Total` column. All four corrected. Bilingual (ar/en), RTL-safe via
 `border-inline-start`, contrast 8.28:1 light and 8.25:1 dark.
 
-### P5-11 — `<x-ss.stat>` cannot display a caveat — **NOT STARTED**
-The component renders its `hint` inside `<span class="ss-visually-hidden">`, which
-`store-syria-ds.css:2238-2246` clips to 1×1 with **no hover or focus reveal**. Nine `:hint=`
-usages sit on it and they are precisely Phase 05's "this is not payments received, and not profit"
-sentences — so that work, including the wording corrected under the owner's third recommendation,
-**is invisible to every sighted merchant**. The three sibling components render their hint visibly,
-and no test pins the difference as intended; the component is inherited from `4e878b8d`.
+### P5-11 — `<x-ss.stat>` could not display a caveat — **SHIPPED 2026-11-17**
+The component rendered its `hint` inside `<span class="ss-visually-hidden">`, which
+`store-syria-ds.css:2238-2246` clips to 1×1 with `clip: rect(0,0,0,0)` and **no `:hover`, `:focus`
+or `:focus-within` rule anywhere** that reveals it. So it was not hover-only — it was unreachable
+by sight.
 
-**Do this before routing any further caveat through the component.** It changes no number, needs no
-owner decision, and is the cheapest change with the widest reach in the whole of `P05-04`. Tracked
-as `GAP-201`. It does change the visible layout of nine tiles across five surfaces, so it needs its
-own both-direction and contrast evidence rather than riding along with P5-10.
+**Recovered decision IDs:** `ANA-007` ("show data quality, estimates and omissions") — the display
+half, now delivered for this component. `ANA-006` — reinforced, since four of the ten hints qualify
+money figures. `GAP-201` closed for the component; its `MetricCaveat` half remains open.
+
+**TEN hints across SIX files, nine of them the honesty sentences** — "This is not payments
+received, and not profit", "How many units were ordered, not how many were delivered or paid for",
+and the corrected "before discounts" wording from the owner's third recommendation. The tenth
+(`customer/timeline.blade.php:73`) is a navigation hint and was equally invisible.
+
+*(That count was first measured as nine across five and reached three committed documents before
+the recount caught it. A forward regex over the component tag body is truncated by a Blade comment
+containing `>`, which misattributes the attribute. The count is now taken by walking BACK from each
+`:hint=` to its nearest `<x-` tag, and pinned by a test so it cannot drift again.)*
+
+**The three sibling components already rendered theirs visibly** — `ss-advanced__hint`,
+`ss-field__hint`, and `choice-group`'s `aria-describedby` target — and **no test pinned the
+difference**, so nothing in the suite would have objected either way. The component arrived with
+the Phase 2.5 merge `4e878b8d`; it is not Phase 05's own code.
+
+**Accessibility improved rather than merely preserved.** The hint used to sit INSIDE
+`.ss-stat__period`, so a screen reader announced it as a continuation of the period with no link to
+the figure it qualifies — the markup implied the wrong relationship. It is now its own `<p>` with a
+per-instance id, and the VALUE carries `aria-describedby` pointing at it. Per-instance matters:
+`_sales_stats` renders four hints in one grid, and a static id would make every `aria-describedby`
+after the first resolve to the wrong tile. Nothing is focusable, so there is no keyboard surface to
+regress — which is also why a tooltip was rejected.
+
+**Nothing computes.** No figure, period, label or amount changes; only whether the caveat can be
+seen. The hint text is unchanged at all ten call sites.
+
+**Evidence, measured in Chromium against the composited background** (a computed-style read is
+known to give false numbers here, because `.dash-content` is transparent and every probe then
+compares against black):
+
+| | light | dark |
+|---|---|---|
+| contrast | **5.98:1** | **7.18:1** |
+| visible / clip / position | true / `auto` / `static` | true / `auto` / `static` |
+| `aria-describedby` → hint id | matches, unique per tile | matches, unique per tile |
+
+All four language/theme combinations (en-LTR, ar-RTL, light, dark) rendered through the real Blade
+compiler by `tests/Support/DesignSystem/bin/render-ds-gallery.php`, with **zero** clipped spans
+remaining. Arabic RTL verified by capture: right-aligned, tiles ordered right-to-left, caveat fully
+legible. `.ss-stat__hint` uses only `margin-block-start` and inherited direction, so one declaration
+is correct both ways, and it joins the dark-mode muted-colour list at `store-syria-ds.css:1864` —
+the block that exists because this project has already measured a `<p>` hint rendering at 1.00:1.
+
+**THE COST, MEASURED AND NOT HIDDEN.** A visible caveat makes stat rows taller, and the grid
+equalises row height so every tile grows together:
+
+| grid | before | after |
+|---|---|---|
+| 3 tiles at 1180px (380px cells) | 107px | 169px (+58%) |
+| **6 tiles at 1180px (190px cells) — the real `_sales_stats` shape** | **123px** | **257px (+109%)** |
+
+A 160-character sentence wraps to about seven lines in a 190px cell. The row more than doubles, which
+on a laptop pushes the chart below it further down. This was NOT traded away by clamping the text —
+a clamped caveat re-hides the thing the requirement exists to show. If the owner wants it tighter,
+the cheapest lever is `.ss-stats`' `minmax(10rem, 1fr)`: widening the minimum trades columns for
+fewer wrapped lines. That is a tuning decision with the numbers above in hand, not a blocker.
+
+**Tests.** `tests/Unit/Ui/StatHintIsVisibleTest.php` — 7 tests, 15 assertions: the hint is not
+inside a visually-hidden element, it carries the DS hint class, it is associated with the value,
+two tiles do not share an id, a tile without a hint gains neither element nor dangling
+`aria-describedby`, the style exists and is on the dark-mode list, and the 10/6 census holds.
+The gallery's `stats` specimen now carries two REAL shipped hints plus one tile with none, because
+a short placeholder shows a tidy grid and proves nothing about the surface that ships.
 
 ## 3. What this phase will NOT do
 
