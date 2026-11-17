@@ -4628,21 +4628,22 @@ against a pre-reorganization original.
 - **Source:** `CLAUDE.md §4; docs/development/phase-5/PHASE-05-EXECUTION-PLAN.md §5; docs/development/phase-4/PHASE-04-FINAL-REPORT.md §8`
 - **Owner decisions:** None. No owner decision deferring or descoping loyalty was found anywhere in the repository.
 - **Expected behaviour:** A loyalty capability — points, rewards or tiers — exists for merchants and is measurable.
-- **Actual behaviour:** Not built, and NOT CARRIED BY ANY SLICE. The plan's §2 lists eight slices (P5-1…P5-8) and none of them is loyalty; the word appears only in the §5 prose scope statement. In the code, a vendored packages/workdo/RewardClubPoint module exists with one controller, and `reward_points` appears on Order and in the storefront API, but no Phase 05 work touches either. The metric document defines no loyalty metric.
-- **Gap:** The entire requirement, and — more seriously — its omission from the execution plan's slice list. This is precisely the failure mode the owner's accounting rule exists to prevent: a requirement present in the scope statement and absent from the work breakdown.
+- **Actual behaviour:** NOT MEASURABLE, which is the half of this requirement that is still open. The metric document defines no loyalty metric and no merchant-facing loyalty surface exists. **The slice gap is closed:** loyalty was carried by none of the plan's original eight slices (P5-1…P5-8) and appeared only in the §5 prose scope statement; **`P5-9 — Loyalty` was added to the plan on 2026-11-17** rather than deferred, so the plan's slice list is now P5-1…P5-9. The underlying capability does exist and has now been measured (`PHASE-05-MKT-006-REWARD-REVERSAL.md`): the vendored `packages/workdo/RewardClubPoint` earns and redeems points, **one** listener (`AddRewardClubPointLis`) is its only writer, and `app/` holds **zero** writes to `customers.total_club_point` — all 11 first-party references are reads that spend the balance. Those eleven spend paths shared one copy-pasted expression that threw `DivisionByZeroError` during payment confirmation whenever `reward_points` was absent or 0; that is fixed in `App\Support\Money\RewardPointDiscount` with the arithmetic proved unchanged on every configured input. No loyalty *metric* or merchant-facing loyalty surface was built.
+- **Gap:** The measurable loyalty capability, and — more seriously — the requirement's omission from the execution plan's slice list. This is precisely the failure mode the owner's accounting rule exists to prevent: a requirement present in the scope statement and absent from the work breakdown.
+- **Recovered decision IDs now traced here:** **`MKT-005`** (loyalty points, VIP and referrals, with a transaction log) — **PARTIAL**: points and the `RewardClubPoint` transaction log exist; VIP tiers and referrals were not located and remain open, see `GAP-191`. **`MKT-006`** (reverse rewards on cancellation and refund) — **NOT MET**, measured: the module contains no cancel, refund or reversal handling at all, so a shopper keeps the points for an order that was cancelled or refunded and can spend them on the next one. Recorded as not met, **not** deferred — per CLAUDE.md §4.1 an engineering report deferring something is not an owner decision.
 - **Responsible:** Phase 05
-- **Next action:** Add a loyalty slice to the Phase 05 plan, or obtain an explicit owner decision to defer it; do not let the slice list stand as the definition of scope.
+- **Next action:** Add a loyalty slice to the Phase 05 plan, or obtain an explicit owner decision to defer it; do not let the slice list stand as the definition of scope. For MKT-006 specifically, four remedy options with their consequences are in `docs/development/phase-5/PHASE-05-MKT-006-REWARD-REVERSAL.md` §3d — all of them change customer-visible loyalty balances, so none was taken. A backfill of historical balances is explicitly out of scope.
 
 ### `P05-12` — P5-6 Retention and repeat purchase
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED**
 
 - **Requirement (original wording / faithful reference):** "Derived from `orders` + `customers`, no new events invented. Gate: P5-2 (a repeat-purchase rate computed over unsettled orders is not a retention figure)."
 - **Source:** `docs/development/phase-5/PHASE-05-EXECUTION-PLAN.md §2, slice P5-6; §5 scope statement ("retention")`
 - **Owner decisions:** None found.
 - **Expected behaviour:** A merchant sees repeat-purchase and retention rates computed over settled orders only.
-- **Actual behaviour:** Not built. `grep -n 'repeat\|retention' app/Http/Controllers/HomeController.php` returns nothing; no retention code was found anywhere in app/. No retention metric is defined in PHASE-05-METRIC-DEFINITIONS.md.
-- **Gap:** The entire slice, plus its metric definition.
+- **Actual behaviour:** THE METRIC IS BUILT; THE SURFACE IS NOT. `app/Support/Metrics/CustomerRetention.php` and `RetentionFigures.php` compute repeat-purchase and retention figures through the P5-2 metric layer, under test in `tests/Feature/Metrics/MetricLayerTest.php`, and the settled-orders-only gate the plan demands is a constructor flag with its own test contrasting it against the unsettled reading. Customers are identified on `customer_id > 0` alone — deliberately **not** on `is_guest`, because `PaymentService` assigns a real `Customer` id on its guest branch, so an `is_guest` predicate silently dropped identified repeat buyers (found by a mutation that failed to redden). What does NOT exist: any merchant-facing retention surface — `grep -n 'repeat\|retention' app/Http/Controllers/HomeController.php` still returns nothing — and no retention metric is defined in PHASE-05-METRIC-DEFINITIONS.md.
+- **Gap:** The merchant-facing surface and the written metric definition. The computation itself is no longer a gap.
 - **Responsible:** Phase 05 (P5-6), gated on P5-2
 - **Next action:** Define the retention metrics in the metric document first, since the plan makes a retention figure over unsettled orders an explicit defect.
 
@@ -4807,7 +4808,7 @@ against a pre-reorganization original.
 - **Actual behaviour:** No Phase 05 final report exists; docs/development/phase-5/ holds three files only (execution plan, metric definitions, reporting-surface inventory). The project task ledger carries P5-Z ('Phase 05 final report + PROJECT-STATE') as pending. PROJECT-STATE.md §2 still records Phase 05 as 'not started'.
 - **Gap:** The report, and with it the per-slice completed/not-started statement this matrix is currently standing in for.
 - **Responsible:** Phase 05 (P5-Z)
-- **Next action:** When the report is written, give each of P5-1…P5-8 an explicit verdict, and carry the loyalty, conversion and marketing-performance requirements that have no slice.
+- **Next action:** When the report is written, give each of P5-1…P5-9 (P5-9 — Loyalty was added 2026-11-17) an explicit verdict, and carry the loyalty, conversion and marketing-performance requirements that have no slice.
 
 ### `P05-GATE-01` — Phase 05 dependency gate
 

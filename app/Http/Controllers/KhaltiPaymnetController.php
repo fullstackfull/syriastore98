@@ -43,6 +43,7 @@ use App\Models\UserCoupon;
 use App\Facades\ModuleFacade as Module;
 use Illuminate\Support\Facades\Cache;
 use App\Http\Controllers\Concerns\GuardsGatewayReturn;
+use App\Support\Money\RewardPointDiscount;
 
 class KhaltiPaymnetController extends Controller
 {
@@ -971,7 +972,7 @@ class KhaltiPaymnetController extends Controller
             if (module_is_active('RewardClubPoint') && isset($requests_data['club_point_is_active']) && $requests_data['club_point_is_active'] == 'on') {
                 $customerDetail = Customer::find($customer_id);
                 $rewardSetting = getAdminAllSetting($store->created_by,$store->id) ?? null;
-                $saveRewardPrice = ($customerDetail->total_club_point * $rewardSetting['reward_point_price'] ?? 0) / ($rewardSetting['reward_points'] ?? 0);
+                $saveRewardPrice = RewardPointDiscount::for((float) ($customerDetail->total_club_point ?? 0), $rewardSetting);
                 if ($plan->shipping_method == "on") {
                     $order->final_price = $final_sub_total_price - $saveRewardPrice;
                 } else {
@@ -1029,9 +1030,13 @@ class KhaltiPaymnetController extends Controller
          *
          *   1. recordVerification() writes to the SESSION and nothing else clears it, so any
          *      THROW between there and here leaves a usable record behind for the next request.
-         *      One is caller-influenced: the RewardClubPoint branch below divides by
-         *      $rewardSetting['reward_points'] ?? 0, and `club_point_is_active` comes from the
-         *      stored state. Laravel renders the 500 inside the pipeline, so the session is saved.
+         *      Laravel renders the 500 inside the pipeline, so the session is saved.
+         *
+         *      THE EXAMPLE THIS ONCE GAVE IS SPENT. It named the RewardClubPoint branch below,
+         *      which divided by `$rewardSetting['reward_points'] ?? 0` on a caller-influenced
+         *      path. As of the P5-9 loyalty slice (2026-11-17) that division is
+         *      App\Support\Money\RewardPointDiscount and cannot throw. Reason 2 stands on its
+         *      own and is why this control stays; do not re-derive it from the reward path.
          *
          *   2. THE UNVERIFIABLE BRANCH CONSUMES WHATEVER IS IN THE SESSION. gatewayReturnPaymentStatus()
          *      calls consumeVerification() unconditionally, so a stray khalti record from an

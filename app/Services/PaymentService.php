@@ -58,6 +58,7 @@ use App\Traits\ApiResponser;
 
 
 use Illuminate\Support\Facades\Log;
+use App\Support\Money\RewardPointDiscount;
 
 class PaymentService
 {
@@ -3056,7 +3057,7 @@ $products_weight_array[] = [
             if (module_is_active('RewardClubPoint') && isset($requests_data['club_point_is_active']) && $requests_data['club_point_is_active'] == 'on') {
                 $customerDetail = Customer::find($customer_id);
                 $rewardSetting = getAdminAllSetting($store->created_by, $store->id) ?? null;
-                $saveRewardPrice = ($customerDetail->total_club_point * $rewardSetting['reward_point_price'] ?? 0) / ($rewardSetting['reward_points'] ?? 0);
+                $saveRewardPrice = RewardPointDiscount::for((float) ($customerDetail->total_club_point ?? 0), $rewardSetting);
                 if ($plan->shipping_method == "on") {
                     $order->final_price = $total_sub_price + $delivery_price - $saveRewardPrice;
                 } else {

@@ -320,6 +320,132 @@ class StorefrontCustomerReadAuthorizationTest extends SecurityTestCase
     }
 
     // ===================================================================================
+    // loyality_program_json -- P1-SEC-63. The SIBLING of loyality_reward, in the same
+    // handler family, fixed when that one was and missed.
+    //
+    // Its else limb has NO 401 and `$store` comes from the slug with no check that the
+    // caller belongs to it, so the documented `custom.auth` trap applies: a merchant's or
+    // a driver's token passes the middleware while auth('customers') stays null, takes the
+    // ELSE branch, and is handed that store's customer_id = 0 orders with no select(), i.e.
+    // all 40 columns, paginated. A CUSTOMER TOKEN CANNOT REACH THAT BRANCH AT ALL, so a
+    // customer-token probe proves nothing here -- hence a merchant AND a driver below.
+    // ===================================================================================
+
+    public function test_a_merchant_token_cannot_read_another_stores_guest_orders(): void
+    {
+        [$merchantA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $this->makeOrder($storeB, ['product_order_id' => 'STORE-B-GUEST-REF']);
+
+        $response = $this->callApi($storeB, 'loyality-program-json', [],
+            $merchantA->createToken('t')->plainTextToken);
+
+        // THE REFUSAL ITSELF, NOT JUST THE ABSENCE OF THE MARKER. Asserting only
+        // assertStringNotContainsString passed on a 500 too: with the guard deleted, `$customer`
+        // is null, `$customer->id` raises ErrorException, and an error page contains no marker
+        // either. Both mutations survived until these two lines were added.
+        $response->assertStatus(401);
+        $this->assertSame(0, $response->json('status'));
+        $this->assertStringNotContainsString('STORE-B-GUEST-REF', $response->getContent(),
+            "A merchant of another tenant read store B's guest orders through loyality-program-json.");
+    }
+
+    public function test_a_driver_token_cannot_read_another_stores_guest_orders(): void
+    {
+        [$merchantA, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $driver = $this->driverFor($merchantA, $storeA);
+
+        $this->makeOrder($storeB, ['product_order_id' => 'STORE-B-GUEST-REF-2']);
+
+        $response = $this->callApi($storeB, 'loyality-program-json', [],
+            $driver->createToken('t')->plainTextToken);
+
+        $response->assertStatus(401);          // see the note on the merchant case above
+        $this->assertSame(0, $response->json('status'));
+        $this->assertStringNotContainsString('STORE-B-GUEST-REF-2', $response->getContent(),
+            "A delivery driver read another store's guest orders through loyality-program-json.");
+    }
+
+    public function test_a_shopper_still_reads_their_own_loyalty_history(): void
+    {
+        [, $store] = $this->makeTenant();
+        $customer = $this->customerIn($store, 'lp1');
+        $this->makeOrder($store, [
+            'customer_id' => $customer->id, 'is_guest' => 0,
+            'product_order_id' => 'MY-OWN-LOYALTY-REF', 'reward_points' => 12,
+        ]);
+
+        $response = $this->callApi($store, 'loyality-program-json', [],
+            $customer->createToken('t')->plainTextToken);
+
+        // The new 401 must not have caught the journey it exists to protect.
+        $response->assertStatus(200);
+        $this->assertStringContainsString('MY-OWN-LOYALTY-REF', $response->getContent(),
+            'loyality-program-json stopped returning the shopper their own history.');
+    }
+
+    public function test_a_shopper_of_another_store_is_refused_by_the_loyalty_endpoint(): void
+    {
+        // The old `auth('customers')->user()` admitted ANY customer and then scoped the history by
+        // the slug's store, so this returned an empty-but-successful answer. resolveStoreCustomer()
+        // refuses instead, which is what the sibling handler does.
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $shopperOfA = $this->customerIn($storeA, 'lp3');
+        $this->makeOrder($storeB, ['product_order_id' => 'STORE-B-GUEST-REF-3']);
+
+        $response = $this->callApi($storeB, 'loyality-program-json', [],
+            $shopperOfA->createToken('t')->plainTextToken);
+
+        $response->assertStatus(401);
+        $this->assertStringNotContainsString('STORE-B-GUEST-REF-3', $response->getContent(),
+            "A shopper of store A was served store B's loyalty endpoint.");
+    }
+
+    /**
+     * TRIPWIRE, NOT AN APPROVAL -- P1-SEC-63b. This pins a DEFECT on purpose.
+     *
+     * The `point` figure selects `CAST(SUM(reward_points) AS DECIMAL(10,2))` with **no `AS`
+     * alias**, so the returned column is named after the whole expression, `$Order->reward_points`
+     * is NULL, and `number_format(null, 2)` renders `0.00` however much the shopper earned.
+     * Measured on MariaDB 10.11 and against the real App\Models\Order: true sum 40.00, figure
+     * 0.00.
+     *
+     * THE TWO DEFECTS MASKED EACH OTHER, and the isolation half is now closed. That query also
+     * carried **no `store_id` predicate** -- `Order` is not in config/tenancy.php's
+     * `scoped_models`, so nothing supplied one -- and the missing alias was the only reason the
+     * unscoped result leaked nothing. The predicate has been added (it changes no figure, since
+     * the result is still discarded), so fixing the alias can no longer switch on a cross-store
+     * read. The second assertion below is therefore belt-and-braces, kept deliberately.
+     *
+     * SO IF YOU ARE HERE BECAUSE THIS TEST WENT RED: you have just made the figure real. Settle
+     * what it is CALLED before you ship it -- SUM(orders.reward_points) is lifetime points EARNED
+     * and is never decremented, while the spendable balance is customers.total_club_point, which
+     * the vendored module REPLACES on redemption. The two diverge permanently after any
+     * redemption, so an accurate figure under the bare label "points" would be a new lie rather
+     * than a fixed one. See PHASE-05-FOUR-FIGURE-LABELLING-PROPOSAL.md, and P1-SEC-63b.
+     */
+    public function test_the_loyalty_point_total_is_still_the_known_broken_zero(): void
+    {
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+        $customer = $this->customerIn($storeA, 'lp2');
+
+        $this->makeOrder($storeA, ['customer_id' => $customer->id, 'is_guest' => 0, 'reward_points' => 40]);
+        $this->makeOrder($storeB, ['customer_id' => $customer->id, 'is_guest' => 0, 'reward_points' => 900]);
+
+        $response = $this->callApi($storeA, 'loyality-program-json', [],
+            $customer->createToken('t')->plainTextToken);
+
+        $this->assertSame('0.00', $response->json('data.point'),
+            'P1-SEC-63b: the point figure changed. Read this test\'s docblock before touching it.');
+        $this->assertNotSame('940.00', $response->json('data.point'),
+            'The unscoped sum went live: store B\'s 900 points are in store A\'s figure.');
+    }
+
+    // ===================================================================================
     // AND THE LEGITIMATE JOURNEYS STILL WORK
     // ===================================================================================
 

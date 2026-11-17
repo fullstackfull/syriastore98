@@ -112,6 +112,42 @@ The super-admin view of the same metrics across tenants. **Operator-first author
 Wherever the existing export surfaces already support it. Exports carry the same caveats as the
 screens; an export that drops a caveat is a defect.
 
+### P5-9 — Loyalty — **ADDED 2026-11-17. One fix shipped; MKT-006 needs an owner decision**
+This slice did not exist. The word "loyalty" was in §5's scope prose and in no slice, which is the
+exact failure the owner's accounting rule exists to catch, and the `P05-11` matrix row's next
+action was "add a loyalty slice or obtain a decision to defer". Added rather than deferred: an
+engineering report deferring something is not an owner decision.
+
+**Recovered decision IDs:** `MKT-005` (loyalty points, VIP, referrals, transaction log) —
+**PARTIAL**, points and the log exist, VIP and referrals unlocated (`GAP-191`). `MKT-006` (reverse
+rewards on cancellation and refund) — **NOT MET**, measured.
+
+**Shipped, because it changes no price.** The eleven first-party paths that *spend* points each
+carried one copy-pasted expression that threw `DivisionByZeroError` during payment confirmation
+whenever `reward_points` was absent or `0` — both reachable, the latter because Laravel's `required`
+admits `"0"`. Replaced by `App\Support\Money\RewardPointDiscount`, which returns the **same
+number on every configured input** (asserted against the shipped expression reproduced verbatim in
+the test) and no discount where there is no configured rate. 22 unit tests, seven-mutation battery,
+three guards proved dead by mutation and removed, one real hole found the same way: a
+`reward_point_price` of `'2xyz'` had produced a 20.00 discount.
+
+**Also shipped: P1-SEC-63a.** Measuring the loyalty READ path found
+`ApiController::loyality_program_json()` serving **another tenant's guest orders**, all 40 columns,
+to any merchant or driver token naming that store's slug — the documented `custom.auth` trap, in the
+sibling of a handler already fixed for the same family. Demonstrated by execution, fixed with the
+storefront's shared `resolveStoreCustomer()` + 401, and the `point` query's missing `store_id`
+predicate closed with it. The first version of those tests **passed on a 500** and was replaced; see
+`docs/security/P01-SECURITY-WORK-QUEUE.md` **P1-SEC-63**. The display half — a `point` figure that
+always reads `0.00` — is left open, because fixing it yields an accurate but mislabelled number.
+
+**NOT shipped — each changes a customer-visible amount or a vendored module.** Reward reversal
+itself; the missing `max(0, …)` that lets a large balance write a **negative order total** (measured
+-30.00 on a 20.00 basket); the `checkout_points`/`checkout_price` thresholds enforced in Blade only
+while the server-side guard reads a caller-supplied `club_point_is_active`; and three defects inside
+the vendored listener, including a validation check that **never runs** because `??` binds looser
+than `==` and `&&`. Full evidence, four options and their consequences:
+`PHASE-05-MKT-006-REWARD-REVERSAL.md`. **A backfill of historical balances is out of scope.**
+
 ---
 
 ## 3. What this phase will NOT do

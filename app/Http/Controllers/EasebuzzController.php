@@ -47,6 +47,7 @@ use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Cache;
 use App\Http\Controllers\Concerns\GuardsPlanActivation;
 use App\Http\Controllers\Concerns\GuardsGatewayReturn;
+use App\Support\Money\RewardPointDiscount;
 
 class EasebuzzController extends Controller
 {
@@ -959,7 +960,7 @@ class EasebuzzController extends Controller
                 if (module_is_active('RewardClubPoint') && isset($requests_data['club_point_is_active']) && $requests_data['club_point_is_active'] == 'on') {
                     $customerDetail = Customer::find($customer_id);
                     $rewardSetting = getAdminAllSetting($store->created_by,$store->id) ?? null;
-                    $saveRewardPrice = ($customerDetail->total_club_point * $rewardSetting['reward_point_price'] ?? 0) / ($rewardSetting['reward_points'] ?? 0);
+                    $saveRewardPrice = RewardPointDiscount::for((float) ($customerDetail->total_club_point ?? 0), $rewardSetting);
                     if ($plan->shipping_method == "on") {
                         $order->final_price = $final_sub_total_price - $saveRewardPrice;
                     } else {

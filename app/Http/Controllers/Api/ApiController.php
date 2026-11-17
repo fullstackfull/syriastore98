@@ -8193,32 +8193,56 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 }
             }
         }
-        $orderQuery = Order::query();
-        if (auth('customers')->user()) {
-
-            $Order = (clone $orderQuery)->select(
-                \DB::raw('CAST(SUM(reward_points) AS DECIMAL(10,2))'),
-                \DB::raw('FORMAT((product_price),1,2)')
-            )->where('customer_id', auth('customers')->user()->id)->first();
-            $loyality_program['point'] = $Order ? number_format($Order->reward_points, 2) : number_format(0, 2);
-
-            $loyality_program['reward_history'] = (clone $orderQuery)
-                ->select('*', \DB::raw('CAST(SUM(reward_points) AS DECIMAL(10,2)) AS total_reward_points'))
-                ->selectRaw('FORMAT(product_price, 2) AS product_price')
-                ->selectRaw('FORMAT(coupon_price, 2) AS coupon_price')
-                ->selectRaw('FORMAT(delivery_price, 2) AS delivery_price')
-                ->selectRaw('FORMAT(tax_price, 2) AS tax_price')
-                ->selectRaw('CAST(FORMAT(final_price, 2) AS CHAR) AS final_price')
-                ->selectRaw('FORMAT(return_price, 2) AS return_price')
-                ->where('customer_id', auth('customers')->user()->id)
-                ->where('store_id', $store->id)
-                
-                ->orderBy('id', 'desc')
-                ->paginate(10);
-        } else {
-            $loyality_program['point'] = number_format(0, 2);
-            $loyality_program['reward_history'] = (clone $orderQuery)->where('customer_id', 0)->where('store_id', $store->id)->orderBy('id', 'desc')->paginate(10);
+        // ==================================================================================
+        // P1-SEC-63a. FAILS CLOSED, LIKE ITS SIBLING loyality_reward() ALREADY DOES.
+        //
+        // THE DEFECT, demonstrated by execution and not by reading: the `else` limb below had no
+        // 401, and `$store` comes from `getStore($slug)` -- `Store::where('slug',…)->first()`,
+        // with NO check that the caller belongs to that store. A merchant's or a driver's Sanctum
+        // token passes `custom.auth` while `auth('customers')` stays null, so such a caller took
+        // the else limb and was handed THAT store's `customer_id = 0` orders with no `select()`,
+        // i.e. all 40 columns -- product_json, every money column, payment_type, payment_status,
+        // payment_receipt, the delivery dates -- paginated ten at a time. Two tests in
+        // StorefrontCustomerReadAuthorizationTest drove it with a merchant token and a driver
+        // token against a second tenant's slug and both read `STORE-B-GUEST-REF`.
+        //
+        // A CUSTOMER-TOKEN PROBE CANNOT FIND THIS: a Customer makes auth('customers') non-null and
+        // takes the safe limb. That is why both negative tests use non-customer principals.
+        //
+        // resolveStoreCustomer() is the storefront's shared predicate and also refuses a customer
+        // of ANOTHER store naming this slug, which the old `auth('customers')->user()` did not.
+        // The new 401 is safe on this path for the same reason recorded on the sibling: no client
+        // in either repository calls the storefront API.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
+            return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+
+        $orderQuery = Order::query();
+        // P1-SEC-63b, ISOLATION HALF ONLY. `->where('store_id', …)` is NEW. `Order` is not in
+        // config/tenancy.php's `scoped_models`, so nothing supplied a predicate and this
+        // summed the customer's reward points across EVERY store -- exactly what the sibling
+        // was fixed for. It changes no figure today, because the `select()` below has no `AS`
+        // alias so `$Order->reward_points` is NULL and the result is discarded; that masking
+        // is why it survived. The alias is deliberately NOT added: see the tripwire test.
+        $Order = (clone $orderQuery)->select(
+            \DB::raw('CAST(SUM(reward_points) AS DECIMAL(10,2))'),
+            \DB::raw('FORMAT((product_price),1,2)')
+        )->where('customer_id', $customer->id)->where('store_id', $store->id)->first();
+        $loyality_program['point'] = $Order ? number_format($Order->reward_points, 2) : number_format(0, 2);
+
+        $loyality_program['reward_history'] = (clone $orderQuery)
+            ->select('*', \DB::raw('CAST(SUM(reward_points) AS DECIMAL(10,2)) AS total_reward_points'))
+            ->selectRaw('FORMAT(product_price, 2) AS product_price')
+            ->selectRaw('FORMAT(coupon_price, 2) AS coupon_price')
+            ->selectRaw('FORMAT(delivery_price, 2) AS delivery_price')
+            ->selectRaw('FORMAT(tax_price, 2) AS tax_price')
+            ->selectRaw('CAST(FORMAT(final_price, 2) AS CHAR) AS final_price')
+            ->selectRaw('FORMAT(return_price, 2) AS return_price')
+            ->where('customer_id', $customer->id)
+            ->where('store_id', $store->id)
+            ->orderBy('id', 'desc')
+            ->paginate(10);
 
         return $this->success($loyality_program,  __('Loyality program get succssfully.'));
     }

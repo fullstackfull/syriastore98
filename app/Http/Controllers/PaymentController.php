@@ -43,6 +43,7 @@ use App\Facades\ModuleFacade as Module;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
 use App\Http\Controllers\Concerns\GuardsGatewayReturn;
+use App\Support\Money\RewardPointDiscount;
 
 class PaymentController extends Controller
 {
@@ -2656,7 +2657,7 @@ public function handlePaymeraTrigger00($orderId)
         if (module_is_active('RewardClubPoint') && isset($request->club_point_is_active) && $request->club_point_is_active == 'on') {
             $customerDetail = Customer::find($customerId);
             $settings = getAdminAllSetting($store->created_by, $store->id) ?? null;
-            $saveRewardPrice = ($customerDetail->total_club_point * $settings['reward_point_price'] ?? 0) / ($settings['reward_points'] ?? 0);
+            $saveRewardPrice = RewardPointDiscount::for((float) ($customerDetail->total_club_point ?? 0), $settings);
             return (!empty($cartlist['final_price']) ? $cartlist['final_price'] : 0) - $saveRewardPrice;
         }
         
@@ -3608,12 +3609,23 @@ public function handlePaymeraTrigger00($orderId)
          * it. Everything between the first `decrementStockOrFail()` and that line was an
          * uncompensated window: stock down, no order, nothing given back.
          *
-         * IT IS NOT A THEORETICAL WINDOW. Two deterministic throws live in it, both measured:
-         * the reward-points division (`$rewardSetting['reward_points'] ?? 0` as a DIVISOR, which
-         * raises DivisionByZeroError when that setting is absent or zero, on a line that also
-         * dereferences a `$customerDetail` that is null for a guest), and `$plan->shipping_method`
-         * where `$plan` comes from a `Plan::find()` that returns null for a missing `plan_id` --
-         * a value the code itself guards with `if ($plan && ...)` a few hundred lines earlier.
+         * IT IS NOT A THEORETICAL WINDOW. `$plan->shipping_method` throws deterministically when
+         * `$plan` comes from a `Plan::find()` that returned null for a missing `plan_id` -- a value
+         * the code itself guards with `if ($plan && ...)` a few hundred lines earlier. Measured.
+         *
+         * A SECOND THROW USED TO LIVE HERE AND IS NOW CLOSED; THE WINDOW IS STILL NEEDED FOR THE
+         * ONE ABOVE. F192 originally named two, the other being the reward-points division:
+         * `$rewardSetting['reward_points'] ?? 0` was used AS A DIVISOR, raising DivisionByZeroError
+         * when that setting was absent or zero, on a line that also dereferenced a
+         * `$customerDetail` that can be null. F192 said "null for a guest" and that part was
+         * already wrong: this branch is the `else` of `if (! auth('customers')->user())`, so no
+         * guest reaches it. It is null when a stored-state `customer_id` no longer resolves --
+         * the Customer soft-deleted mid-checkout, or belonging to another tenant.
+         * Both limbs are gone as of the P5-9 loyalty
+         * slice (2026-11-17): the division moved to `App\Support\Money\RewardPointDiscount`,
+         * which returns no discount rather than dividing by zero, and the balance is now read as
+         * `($customerDetail->total_club_point ?? 0)`. Do not re-derive the window's justification
+         * from the reward path -- it no longer throws.
          *
          * ON A GATEWAY RETURN THAT MEANS THE BUYER HAS PAID, THE STOCK IS GONE AND NO ORDER
          * EXISTS. That is F186's root, and closing this window is what makes F186's own remedy
@@ -3902,7 +3914,7 @@ public function handlePaymeraTrigger00($orderId)
             if (module_is_active('RewardClubPoint') && isset($requests_data['club_point_is_active']) && $requests_data['club_point_is_active'] == 'on') {
                 $customerDetail = Customer::find($customer_id);
                 $rewardSetting = getAdminAllSetting($store->created_by, $store->id) ?? null;
-                $saveRewardPrice = ($customerDetail->total_club_point * $rewardSetting['reward_point_price'] ?? 0) / ($rewardSetting['reward_points'] ?? 0);
+                $saveRewardPrice = RewardPointDiscount::for((float) ($customerDetail->total_club_point ?? 0), $rewardSetting);
                 if ($plan->shipping_method == "on") {
                     $order->final_price = $final_sub_total_price - $saveRewardPrice;
                 } else {
@@ -5074,12 +5086,23 @@ $result = app(\App\Services\StoreNotificationService::class)
          * it. Everything between the first `decrementStockOrFail()` and that line was an
          * uncompensated window: stock down, no order, nothing given back.
          *
-         * IT IS NOT A THEORETICAL WINDOW. Two deterministic throws live in it, both measured:
-         * the reward-points division (`$rewardSetting['reward_points'] ?? 0` as a DIVISOR, which
-         * raises DivisionByZeroError when that setting is absent or zero, on a line that also
-         * dereferences a `$customerDetail` that is null for a guest), and `$plan->shipping_method`
-         * where `$plan` comes from a `Plan::find()` that returns null for a missing `plan_id` --
-         * a value the code itself guards with `if ($plan && ...)` a few hundred lines earlier.
+         * IT IS NOT A THEORETICAL WINDOW. `$plan->shipping_method` throws deterministically when
+         * `$plan` comes from a `Plan::find()` that returned null for a missing `plan_id` -- a value
+         * the code itself guards with `if ($plan && ...)` a few hundred lines earlier. Measured.
+         *
+         * A SECOND THROW USED TO LIVE HERE AND IS NOW CLOSED; THE WINDOW IS STILL NEEDED FOR THE
+         * ONE ABOVE. F192 originally named two, the other being the reward-points division:
+         * `$rewardSetting['reward_points'] ?? 0` was used AS A DIVISOR, raising DivisionByZeroError
+         * when that setting was absent or zero, on a line that also dereferenced a
+         * `$customerDetail` that can be null. F192 said "null for a guest" and that part was
+         * already wrong: this branch is the `else` of `if (! auth('customers')->user())`, so no
+         * guest reaches it. It is null when a stored-state `customer_id` no longer resolves --
+         * the Customer soft-deleted mid-checkout, or belonging to another tenant.
+         * Both limbs are gone as of the P5-9 loyalty
+         * slice (2026-11-17): the division moved to `App\Support\Money\RewardPointDiscount`,
+         * which returns no discount rather than dividing by zero, and the balance is now read as
+         * `($customerDetail->total_club_point ?? 0)`. Do not re-derive the window's justification
+         * from the reward path -- it no longer throws.
          *
          * ON A GATEWAY RETURN THAT MEANS THE BUYER HAS PAID, THE STOCK IS GONE AND NO ORDER
          * EXISTS. That is F186's root, and closing this window is what makes F186's own remedy
@@ -5342,7 +5365,7 @@ $result = app(\App\Services\StoreNotificationService::class)
             if (module_is_active('RewardClubPoint') && isset($requests_data['club_point_is_active']) && $requests_data['club_point_is_active'] == 'on') {
                 $customerDetail = Customer::find($customer_id);
                 $rewardSetting = getAdminAllSetting($store->created_by, $store->id) ?? null;
-                $saveRewardPrice = ($customerDetail->total_club_point * $rewardSetting['reward_point_price'] ?? 0) / ($rewardSetting['reward_points'] ?? 0);
+                $saveRewardPrice = RewardPointDiscount::for((float) ($customerDetail->total_club_point ?? 0), $rewardSetting);
                 if ($planShippingMethod == "on") {
                     $order->final_price = $final_price + $delivery_price - $saveRewardPrice;
                 } else {

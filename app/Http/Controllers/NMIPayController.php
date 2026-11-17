@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\Cache;
 use App\Traits\ApiResponser;
+use App\Support\Money\RewardPointDiscount;
 
 class NMIPayController extends Controller
 {
@@ -1107,7 +1108,7 @@ class NMIPayController extends Controller
                 if (module_is_active('RewardClubPoint') && isset($requests_data['club_point_is_active']) && $requests_data['club_point_is_active'] == 'on') {
                     $customerDetail = Customer::find($customer_id);
                     $rewardSetting = getAdminAllSetting($store->created_by,$store->id) ?? null;
-                    $saveRewardPrice = ($customerDetail->total_club_point * $rewardSetting['reward_point_price'] ?? 0) / ($rewardSetting['reward_points'] ?? 0);
+                    $saveRewardPrice = RewardPointDiscount::for((float) ($customerDetail->total_club_point ?? 0), $rewardSetting);
                     if ($planShippingMethod == "on") {
                         /*
                          * NOT `- $saveRewardPrice`. The reward discount is ALREADY inside this

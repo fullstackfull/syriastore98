@@ -6123,3 +6123,114 @@ P1-SEC-62 with no further work.
 | **P1-SEC-61** | the misleading refusal message | **CLOSED** — 5 regression cases, each falsified |
 | **P1-SEC-61-ROOT** | `bidingForm` unscoped + `products.slug` not unique | **OPEN — REPORTED.** Needs a vendored patch or a `UNIQUE (store_id, slug)` migration. Owner decision; fails closed meanwhile |
 | **P1-SEC-62** | the operator diagnostic is readable by anonymous HTTP while P1-SEC-40 stands | **OPEN — ACCEPTED, dependent.** Zero incremental disclosure today; closed by remediating P1-SEC-40 |
+
+---
+
+## P1-SEC-63 — `loyality_program_json` has no caller-to-store check, and two defects that mask each other
+
+**Found 2026-11-17 while measuring MKT-006 (P5-9 loyalty slice). Not previously recorded — the
+sibling handler in the same family was fixed and this one was missed. (a) is now FIXED and driven
+by tests; the isolation half of (b) is fixed; the display half of (b) is left open on purpose.**
+
+`app/Http/Controllers/Api/ApiController.php::loyality_program_json()`, route
+`POST api/{slug}/loyality-program-json` (confirmed by `php artisan route:list`, not by reading the
+file — the storefront group, *not* the `admin` prefix), middleware `custom.auth`.
+
+### a) The else branch answers a caller who is not a shopper, for any store named in the URL
+
+```php
+$store = getStore($slug);                       // Store::where('slug',…)->first() — NO ownership check
+…
+if (auth('customers')->user()) { … } else {
+    $loyality_program['reward_history'] = (clone $orderQuery)
+        ->where('customer_id', 0)->where('store_id', $store->id)
+        ->orderBy('id','desc')->paginate(10);   // no select() → all 40 columns
+}
+```
+
+The documented `custom.auth` trap: a **merchant's or a driver's** Sanctum token passes the
+middleware while `auth('customers')` stays null, so such a caller takes the **else** branch, which
+has **no 401**. `$store` comes from the slug with no check that the caller belongs to it. A customer
+token cannot reach this branch at all, so a customer-token probe proves nothing here.
+
+Result: a caller holding any merchant or delivery-driver token can name **another tenant's slug** and
+receive that store's `customer_id = 0` orders, all 40 columns (`product_json`, every money column,
+`payment_type`, `payment_status`, `payment_receipt`, the delivery dates), paginated ten at a time so
+the whole set is walkable.
+
+**DEMONSTRATED, not read.** Two tests in `StorefrontCustomerReadAuthorizationTest` drove it with a
+**merchant** token and a **driver** token against a second tenant's slug; both read
+`STORE-B-GUEST-REF` out of the response body, with `store_id: 2`, `product_json`, `final_price`,
+`payment_type`, `payment_status` and the delivery dates all present. A third test shows a **shopper
+of another store** was also served the endpoint.
+
+**Payload size in production is NOT established.** Whether the `customer_id = 0` population is
+non-empty depends on the deployment: `PaymentService`'s guest branch writes `0` only when no
+`customer_id` is supplied, and the restored dev dump has **zero** such rows (measured). Do not state
+an impact figure without measuring production.
+
+**FIXED** by `resolveStoreCustomer($store)` + a 401, copied from the sibling rather than hand-rolled
+(CLAUDE.md: reuse the shared predicate). The new 401 is safe here for the reason already recorded on
+the sibling — no client in either repository calls the storefront API.
+
+**MY FIRST VERSION OF THOSE TESTS HAD NO POWER, and that is worth recording.** They asserted only
+`assertStringNotContainsString('STORE-B-GUEST-REF', …)`. Deleting the guard makes `$customer` null,
+so `$customer->id` raises `ErrorException` and the response is a **500 — which contains no marker
+either**. Both mutations SURVIVED. The tests now assert `assertStatus(401)` and `status === 0`, i.e.
+the refusal itself, and both mutations redden. An absence assertion is satisfied by a crash.
+
+### b) The `point` figure is unscoped AND always zero — and fixing one would switch on the other
+
+Immediately above, in the branch a real shopper takes:
+
+```php
+$Order = (clone $orderQuery)->select(
+    \DB::raw('CAST(SUM(reward_points) AS DECIMAL(10,2))'),   // ← no AS alias
+    …
+)->where('customer_id', auth('customers')->user()->id)->first();   // ← no store_id predicate
+$loyality_program['point'] = $Order ? number_format($Order->reward_points, 2) : number_format(0, 2);
+```
+
+Two defects, measured on MariaDB 10.11 and then against the real `App\Models\Order`:
+
+| | |
+|---|---|
+| the column the query returns | literally `CAST(SUM(reward_points) AS DECIMAL(10,2))` — there is **no** `reward_points` key |
+| `$Order->reward_points` | **`NULL`** (the `'reward_points' => 'float'` cast does not conjure a missing attribute) |
+| what the customer is shown | **`0.00`** |
+| the true sum for that customer | **`40.00`** |
+
+So **the customer-facing loyalty point total always reports 0.00**, whatever they earned. And
+because `Order` is **not** in `config/tenancy.php`'s `scoped_models`, that query carries **no
+`store_id` predicate** — unlike `reward_history` three lines below it, which has one.
+
+**The coupling is the point.** The missing alias means the unscoped result is discarded, so the
+missing predicate leaks nothing *today*. **Add the one-word alias and the cross-store read goes
+live.** Anyone fixing the obvious display bug must add the store predicate in the same change.
+
+The already-fixed sibling `loyality_reward()` carries a comment asserting that "the correct shape is
+`loyality_program_json()` a few lines above, which derives from the session and scopes to the store."
+That is **true of `reward_history` and false of the `point` query.** The comment is half right and
+was used as the model for a fix.
+
+### c) What was fixed, and what is deliberately left
+
+(a) is fixed, as above. (b)'s **isolation** half is fixed — `->where('store_id', $store->id)` added
+to the `point` query, which changes no figure today precisely because the result is still discarded,
+and therefore removes the trap: a later alias fix can no longer switch on a cross-store read.
+
+(b)'s **display** half is deliberately NOT fixed, because the alias alone needs a **labelling**
+decision, because
+`SUM(orders.reward_points)` is *lifetime points earned* and is never decremented, while the
+spendable balance is `customers.total_club_point`, which the module **replaces** on redemption —
+two counters that diverge permanently after any redemption. Turning on an accurate-but-mislabelled
+"points" figure is the §1/§3 labelling question in
+`docs/development/phase-5/PHASE-05-FOUR-FIGURE-LABELLING-PROPOSAL.md`, not a bug fix.
+
+### Status
+
+| id | finding | state |
+|---|---|---|
+| **P1-SEC-63a** | `loyality_program_json` else branch: no 401, no caller-to-store check, any slug | **CLOSED** — `resolveStoreCustomer()` + 401. Demonstrated with a merchant token, a driver token and a foreign shopper; 2 mutations redden. The first version of those tests passed on a 500 and was replaced |
+| **P1-SEC-63b** (isolation) | the `point` query summed reward points across every store | **CLOSED** — `store_id` predicate added. No figure moves, because the result is discarded; the point is that the trap is gone |
+| **P1-SEC-63b** (display) | the `point` figure is always `0.00`: `CAST(SUM(…))` with no `AS` alias | **OPEN — OWNER DECISION.** Fixing the alias makes a real but **mislabelled** figure: `SUM(orders.reward_points)` is lifetime points EARNED, never decremented, while the spendable balance is `customers.total_club_point`, which the module REPLACES on redemption. Pinned by a tripwire test so it cannot be "fixed" silently |
