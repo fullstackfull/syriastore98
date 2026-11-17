@@ -348,6 +348,71 @@ report.
 production is not answerable from this container, where `add_on_managers` has zero rows and no
 WorkDo module loads at all.
 
+### P5-13 — D6 server-side redemption eligibility — **HELPER LANDED, NOT WIRED, D6 NOT CLOSED**
+
+**Owner decision D6:** *"Enforce reward redemption thresholds and eligibility server-side.
+Client-submitted values must not bypass them."*
+
+**The gap, measured.** Both module partials carry the identical gate
+(`clubPointApply.blade.php:1-9`, `clubPointPriceShow.blade.php:1-10`): the six reward settings
+present, `total_club_point >= checkout_points`, `final_price >= checkout_price`. Server-side there
+is no check at all — all **eleven** sites that apply a discount test
+`isset($requests_data['club_point_is_active']) && … == 'on'`, which compares the caller's own
+posted string with itself. A hand-crafted POST redeems below both thresholds.
+
+**A third free-money path, found while measuring this one.** `RewardClubPointController:45` writes
+`club_point_enabled` as `$request->club_point_enabled ?? 'off'` and leaves it out of the validator,
+so a store can save all six settings with the programme **off**. Neither partial tests it; the
+server does not test it; but the vendored listener's `:35` does, and it guards the whole debit
+block. In that configuration the discount is applied and **no points are debited and no ledger row
+is written** — recurring, unrecorded. `isRedeemable()` therefore treats it as part of eligibility.
+
+**WHY IT IS NOT WIRED, and this is a finding rather than unfinished effort.** Adding the gate to
+the eleven sites *and nothing else* produces a **worse** defect than it closes:
+
+```
+the eleven sites refuse        -> no discount applied
+the client's club_point_is_active=on still rides into AddRewardClubPoint
+the vendored listener          -> spends the customer's WHOLE balance anyway
+```
+
+Points debited, no discount given — the mirror image of the Khalti leak, and pointing **against**
+the customer. The server's refusal must reach the event as well as the total. The mechanism
+already exists: `NormaliseRewardRedemptionFlag`'s tests prove an absent flag makes the vendored
+listener take its accrual branch, so a refusing site must `unset($requests_data['club_point_is_active'])`
+too. **Measured that this is reachable:** at `PaymentService` the decision (`:3057`) and the
+dispatch (`:3435`) are both inside `getProductStatus()` declared at `:2443`, so the same
+`$requests_data` is in scope. Confirming that for the other ten, and wiring both halves together
+with the negative case tested, is the next slice.
+
+**The helper is labelled dead rather than shipped quietly.**
+`test_it_is_not_wired_yet_and_that_is_deliberate` asserts **zero call sites** via a
+comment-stripped, class-qualified census, so the day it is wired the assertion fails and must be
+updated on purpose. An unwired gate reads as protection, and this repository's own rule — written
+into `RewardPointDiscount` after three mutually-covering guards each proved deletable — is that a
+check which cannot fail is a trap.
+
+**Two divergences from Blade, both deliberate and measured.** The thresholds must be numeric:
+`100 >= "abc"` is already false so junk fails closed either way, but **`100 >= ""` is TRUE** and
+`isset('')` is true, so Blade reads an empty threshold as *no* threshold. And `club_point_enabled`
+is required, per the paragraph above. Everything else matches Blade exactly, including `>=` and
+including that thresholds of `0` opt every logged-in customer in — a savable configuration, since
+`required` passes `0`.
+
+**Evidence.** `tests/Unit/Loyalty/RewardRedemptionEligibilityTest` — 16 tests, 47 assertions, all
+14 behavioural ones failing before the helper existed. **8 mutations run: 7 redden, 1 proved
+equivalent.** The eighth (`!=` → `!==` on the master switch) is equivalent over every value a
+`settings` row can hold, proved by exhaustive check rather than waved through; the one value that
+does differ, boolean `true`, is not reachable from the settings table and is recorded as the bound
+on that claim. **Mutation also caught a real coverage gap of mine:** dropping the negative floor
+left the suite green, because the negative-value test used thresholds of `0` where `-1.0 >= 0.0`
+already refuses. The floor only bites against a *negative* threshold — savable, since the validator
+is a bare `required` with no `min:0`, the same hole that made `> 0.0` load-bearing in `for()`.
+
+Also recorded: `StockMovement::forOrder($storeId, $orderId)` at `app/Services/StockMovement.php:343`
+is an unrelated pre-existing method with the same name and entirely different argument meanings.
+The census is class-qualified because of it.
+
 ## 3. What this phase will NOT do
 
 - **Invent metrics, customer events or campaign outcomes.** If the data does not record it, the

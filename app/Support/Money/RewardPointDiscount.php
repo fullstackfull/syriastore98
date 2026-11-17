@@ -184,4 +184,112 @@ final class RewardPointDiscount
 
         return $floored - self::cappedTo($discount, $eligible);
     }
+
+    /**
+     * May this customer redeem against an order of `$orderValue` at all?  D6.
+     *
+     * ████ THIS HAS ZERO CALL SITES TODAY AND ENFORCES NOTHING. ████
+     *
+     * `RewardRedemptionEligibilityTest::test_it_is_not_wired_yet_and_that_is_deliberate` asserts
+     * exactly that, so the day it IS wired the assertion fails and has to be updated on purpose.
+     * This project's own rule — written into this very class after three mutually-covering guards
+     * were each found deletable — is that a check which cannot fail reads as protection and is a
+     * trap. An unwired gate is the same trap, so it is labelled rather than quietly shipped.
+     *
+     * WHY IT IS NOT WIRED, which is a FINDING and not a shortfall of effort. D6 asks for the
+     * thresholds to be enforced server-side. Adding this gate to the eleven sites that apply a
+     * discount, and nothing else, would produce a WORSE defect than the one it closes:
+     *
+     *     the eleven sites decide          -> no discount applied
+     *     the client's `club_point_is_active=on` still rides into AddRewardClubPoint
+     *     the vendored listener             -> spends the customer's WHOLE balance anyway
+     *
+     * i.e. points debited with no discount given — the mirror image of the Khalti leak, and
+     * pointing against the customer. The server's refusal has to reach the event as well as the
+     * total. The mechanism exists: `App\Listeners\NormaliseRewardRedemptionFlag` already proves an
+     * absent flag makes the vendored listener take its accrual branch, so a refusing site must
+     * `unset($requests_data['club_point_is_active'])` as well as skip the discount. MEASURED that
+     * this is reachable: at `PaymentService` the decision (:3057) and the dispatch (:3435) are both
+     * inside `getProductStatus()` declared at :2443, so the same `$requests_data` is in scope at
+     * both. The remaining work is to confirm that for the other ten and to wire both halves
+     * together, in one slice, with the negative case tested.
+     *
+     * WHAT THE PRODUCT ACTUALLY GATES ON, and what this mirrors. Both module partials carry the
+     * identical condition (`clubPointApply.blade.php:1-9`, `clubPointPriceShow.blade.php:1-10`):
+     * the six settings present, `total_club_point >= checkout_points`, and
+     * `final_price >= checkout_price`. Server-side there is no check at all — the eleven sites
+     * test `isset($requests_data['club_point_is_active']) && … == 'on'`, which compares the
+     * caller's own posted string with itself.
+     *
+     * `club_point_enabled` IS PART OF ELIGIBILITY HERE AND IS NOT IN THE BLADE GATE, deliberately.
+     * `RewardClubPointController:45` writes it as `$request->club_point_enabled ?? 'off'` and
+     * leaves it out of the validator (`:26-31` is the six settings), so a store can save all six
+     * with the programme switched OFF. Neither partial tests it — but the vendored listener's
+     * `:35` does, and it guards the whole debit block. In that configuration today the discount is
+     * applied and **no points are debited and no ledger row is written**: free money, recurring,
+     * unrecorded. Including it here is the only reading under which a granted discount is always
+     * matched by a debit.
+     *
+     * THE THRESHOLDS MUST BE NUMERIC, which diverges from Blade in exactly one reachable way.
+     * Measured on PHP 8.3 against the strings a `settings` row stores: `100 >= "abc"` is already
+     * FALSE, so junk fails closed either way — but **`100 >= ""` is TRUE** and `isset('')` is
+     * TRUE, so Blade reads an empty threshold as *no* threshold. Here it reads as *not
+     * configured*. Not reachable through the settings form, whose `required` rejects `''`; a money
+     * gate should not depend on a validator two layers away.
+     *
+     * A THRESHOLD OF `0` IS SATISFIED BY A BALANCE OF `0`, matching Blade's `>=` exactly —
+     * measured, `0 >= "0"` is true — and `required` passes `0`, so a store CAN opt every logged-in
+     * customer in. That is a configuration, not a defect in this method.
+     *
+     * @param  float  $balance     the customer's own `customers.total_club_point`, read server-side
+     * @param  float  $orderValue  the amount the discount would be applied to, before the discount
+     * @param  array  $settings    the store's settings as `getAdminAllSetting()` returns them
+     */
+    public static function isRedeemable(float $balance, float $orderValue, array $settings): bool
+    {
+        // The module's master switch. `== 'on'` to match the vendored listener's own `:35`; for
+        // every value a `settings` row can hold, strict and loose agree here (`'ON' == 'on'` is
+        // false — string comparison is case-sensitive).
+        if (($settings['club_point_enabled'] ?? null) != 'on') {
+            return false;
+        }
+
+        // `isset()`, matching both Blade gates exactly, including that a null value is "absent".
+        foreach (['order_point_price', 'order_points', 'reward_points', 'reward_point_price',
+            'checkout_points', 'checkout_price'] as $key) {
+            if (! isset($settings[$key])) {
+                return false;
+            }
+        }
+
+        if (! is_numeric($settings['checkout_points']) || ! is_numeric($settings['checkout_price'])) {
+            return false;
+        }
+
+        // Defensive and NOT claimed unreachable: `orders.final_price` was MEASURED negative in
+        // this very family before `applyTo()` bounded it, and a negative balance would otherwise
+        // satisfy a negative threshold.
+        if ($balance < 0.0 || $orderValue < 0.0) {
+            return false;
+        }
+
+        return $balance >= (float) $settings['checkout_points']
+            && $orderValue >= (float) $settings['checkout_price'];
+    }
+
+    /**
+     * The reward discount for an order, or 0.0 when the customer is not eligible to redeem.  D6.
+     *
+     * A GATE OVER `for()`, NEVER A SECOND ARITHMETIC. It returns exactly what `for()` returns when
+     * eligible, so the figure on the order cannot drift from the figure the module computes.
+     * `test_forOrder_never_exceeds_what_for_would_give` pins that across the value range.
+     *
+     * ████ ALSO UNWIRED — see `isRedeemable()` for why both halves must land together. ████
+     */
+    public static function forOrder(float $balance, float $orderValue, array $settings): float
+    {
+        return self::isRedeemable($balance, $orderValue, $settings)
+            ? self::for($balance, $settings)
+            : 0.0;
+    }
 }
