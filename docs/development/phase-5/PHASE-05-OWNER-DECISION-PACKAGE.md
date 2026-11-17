@@ -8,9 +8,9 @@ Nothing in this document has been acted on. Every item here is either a monetary
 customer-visible change, a persistent migration, or a vendored-module change — the four categories
 the standing restrictions reserve to you.
 
-> **STATUS OF §3 (CONSENT):** the sender census is still running at the time of writing. That
-> section is marked PENDING and will be completed in this same document rather than sent
-> separately.
+> **§3 (CONSENT) IS COMPLETE.** The sender census finished: 214 send sites found, 40 classified in
+> depth, 10 of those 40 corrected by an adversarial pass, and 174 enumerated but NOT analysed —
+> a stated limit, not a rounding.
 
 ---
 
@@ -25,7 +25,7 @@ the standing restrictions reserve to you.
 | **D5** | The negative order total (`20.00 − 50.00 = −30.00`) | Clamp with `max(0, …)` | It is a monetary change in a case that currently *succeeds*, so it is yours, not mine |
 | **D6** | Redemption thresholds enforced in Blade only | Enforce server-side | Fixing it **denies** redemptions that currently succeed |
 | **D7** | The three vendored-listener defects | Report upstream + first-party guard | Cannot be fixed without editing `packages/workdo/` |
-| **D8** | Consent and unsubscribe | **PENDING §3** | Release-critical by your own classification |
+| **D8** | Consent and unsubscribe | **Build the enforcement seam first; the suppression STORE needs your authorisation** | Release-critical by your own classification. Enforcement is achievable with no migration and no vendored edit; durable storage is not |
 
 ---
 
@@ -155,28 +155,134 @@ Full evidence for each is in
 
 ---
 
-## 3. Marketing consent and unsubscribe — **PENDING**
+## 3. Marketing consent and unsubscribe — GAP-200 / MKT-008
 
-> The sender census is still running. This section will carry: every message sender with its
-> category (transactional vs promotional, decided from content and trigger rather than module name),
-> its recipient source, whether any consent is consulted at the **sending boundary**, and whether a
-> **first-party interception seam exists that needs no vendored edit**.
->
-> What is already established and does not depend on the census:
->
-> - `customers` has **no consent or eligibility column at all** — all 25 columns of the create
->   migration were read.
-> - The one real consent mechanism, `lynomia_consent_states`, is enforced **upstream, outside this
->   repository**; nothing in `app/` or `packages/workdo/` reads it to gate a send.
-> - There is **no unsubscribe path anywhere**.
-> - At least four senders carry no consent predicate: `CouponEmail` on registration, on first order
->   and on an order-value threshold; `ReviewReminder`; the newsletter list; the back-in-stock push.
->   The census has already found more than these four.
->
-> **A boundary I will not blur:** I can establish what the code does and whom it can reach. I cannot
-> establish whether promotional sending is *currently firing in production* — that is a question
-> about the live host, which I have no access to. The same activation question as D3 applies, since
-> several senders live in modules that are not loaded in this container.
+**Census completed 2026-11-17.** 91 agents, 0 errors: six partitions enumerated every send site in
+`app/` and all ~70 vendored modules, each classified site was then challenged by an adversarial
+pass, and five dedicated analyses answered whether a safe interception seam exists.
+
+### 3.1 The honest scope of what was measured
+
+| | |
+|---|---|
+| Send sites found | **214** |
+| Classified in depth | **40** (a cap I set; the run would otherwise have been several times the size) |
+| Listed but NOT classified | **174** — enumerated with file and line in the run record, not analysed |
+| Classifications the adversary **refuted** | **10 of 40** |
+
+**174 sites are unclassified and that is a real limit, not a rounding.** They are listed so nothing
+is lost, but no category, consent or severity claim is made about them. The classified 40 were
+taken in census order, not chosen for severity, so the unclassified remainder is not "the safe
+ones".
+
+### 3.2 What the adversarial pass corrected, because it changes the picture
+
+The first-pass classification over-reported promotional sending. Corrections, each from reading the
+actual message body:
+
+- **Several WhatsApp sends classified MIXED are TRANSACTIONAL.** `whatsapp_messages` has **no body
+  column at all** (`id, name, from, user_id, is_active, store_id, created_by`) — the template row is
+  consulted only for `is_active`, and the text is hardcoded at the call site. "Order Created" reads
+  *"your order id is …, we'll be in touch"*. There is no stored template that could carry an offer.
+- **`Utility::sendFCM` is a back-in-stock alert, not promotional** — *"now <product> is available in
+  stock"*. No offer, no discount, no price.
+- **`Utility::ios_send_push_notification` is DEAD CODE with zero callers** — not a live sender.
+- **One interception claim was FALSE.** `Utility::paymentWebhook()` was reported as the sole entry
+  point for its sender; it has **two live entry points**. That is precisely the wishful-interception
+  failure the brief was written to catch, and it is why the seams below are stated per channel
+  rather than as one blanket claim.
+
+So: promotional sending is **narrower** than the first pass suggested. The consent gap is not.
+
+### 3.3 What is established, and is not in doubt
+
+- **`customers` has no consent or eligibility column at all** — all 25 columns of the create
+  migration read.
+- **There is no unsubscribe or suppression path anywhere.** Verified independently by many agents
+  grepping `unsubscribe|opt-out|opt_out|suppression|do_not_contact` across `app/`, `routes/`,
+  `resources/` and `packages/workdo/`. No route, no controller, no column, no token, no
+  `List-Unsubscribe` header, no STOP-keyword handler.
+- **30 of the 40 classified senders consult no consent of any kind** before sending.
+- **Recipients are frequently CALLER-SUPPLIED, not principal-derived.** Repeatedly, the destination
+  is `billing_info.email` or `billing_info.billing_user_telephone` — free-text request input, not a
+  stored customer column. So some sends go to an address the caller names, which is a different and
+  arguably worse problem than sending to a customer who never consented.
+- The one real consent mechanism, `lynomia_consent_states`, is enforced **upstream, outside this
+  repository**; nothing in `app/` or `packages/workdo/` reads it to gate a send.
+
+### 3.4 D8 — the seam. Enforcement is achievable; storage is not, without your authorisation
+
+This is the decisive finding and it splits in two.
+
+**Enforcement at the sending boundary — ACHIEVABLE, first-party, no migration, no vendored edit.**
+
+| channel | seam | status |
+|---|---|---|
+| **Email** | `Illuminate\Mail\Events\MessageSending`; a listener returning `false` aborts before the transport is touched | **MEASURED.** An agent booted this repo's real `bootstrap/app.php`, registered a refusing listener, and observed the send cancelled — including for vendored-module Mailables. The funnel is provable: `Mailer.php:585` is the only `transport->send` in all of `Illuminate\Mail`, reachable only through `shouldSendMessage()` |
+| **WhatsApp** | `App\Models\Utility::SendMsgs()` — `app/Models/Utility.php:2648` | First-party, and the single chokepoint for every WhatsApp send in the codebase |
+| **Email templates** | `App\Models\Utility::sendEmailTemplate()` — `app/Models/Utility.php:2515` | First-party; the narrower seam for the template family |
+| **FCM push** | `Utility::sendFCM()` — `app/Models/Utility.php:3576` | First-party, beside its existing early-return guard |
+
+**`MessageSending` covers EMAIL ONLY.** SMS, WhatsApp and FCM do not fire it. A plan that treats
+that hook as covering "sending" rather than "email sending" would be the quiet assumption you
+warned against — which is why the table is per channel.
+
+**Two seams were considered and rejected on evidence:**
+
+- `NotificationSending` is cancellable but fires for **two senders in the whole repository**, both
+  transactional. Wrong instrument.
+- A **custom mail transport or decorated `MailManager`** works mechanically and is still the wrong
+  choice: in this codebase the transport driver name is **tenant-supplied runtime data**, so a
+  transport-keyed interception has a silent-miss mode.
+
+**Durable consent and suppression STORAGE — NOT achievable without your authorisation.**
+
+- **`lynomia_consent_states` is an excellent design template and cannot be the record.** It already
+  models purpose, channel, state and evidence-of-capture, and gets the hard parts right
+  (append-only decisions separated from projected effective state; negatives union, positives do
+  not). But it lives entirely under `packages/workdo/`, its tables are created only by module
+  migrations whose production existence cannot be verified from here, and — decisively — it is
+  **keyed on a Lynomia subject id and holds no email or phone column at all**, so it cannot answer
+  the only question the sending boundary can ask: *may I send to this address?*
+- **The production column set of `customers`, `newsletters` and `users` has never been measured.**
+  `docs/GATE-F-VERIFIED-SCHEMA.md` covers 15 tables and 3 columns, and none of them is one of these
+  three. There is already a known production-vs-code disagreement in this very family:
+  `newsletters.user_id`, an undeclared column, is the single remaining declared skip in
+  `.github/known-test-outcomes.json`.
+
+So a suppression list needs **either** a new first-party table (a persistent migration) **or** a
+column on an existing table whose production shape is unverified. Both are yours.
+
+### 3.5 Recommended minimal remediation, in dependency order
+
+Nothing below has been built.
+
+1. **Measure production first.** Which modules are enabled, and what columns `customers`,
+   `newsletters` and `users` actually have. Everything else rests on this, and the GATE-F precedent
+   is that assuming the schema has been wrong here three times.
+2. **Build the enforcement seam before the storage.** A first-party refusal point per channel,
+   defaulting to *allow*, with a single predicate it consults. This changes no behaviour on its own
+   and is independently testable — and it means that when a decision lands there is one place to
+   put it rather than 214.
+3. **Then the suppression store**, on your authorisation: address-keyed, append-only, modelled on
+   the Lynomia design rather than its schema.
+4. **Then an unsubscribe path**, which needs a route and a token and is the only user-visible part.
+5. **Separate transactional from marketing at the boundary**, using the corrected categories in
+   §3.2 — not the module names, which proved unreliable.
+
+**No fabricated historical consent**, per your instruction: nothing in this plan infers consent
+from a past order, a past open, or an existing newsletter row.
+
+### 3.6 The boundary I cannot cross
+
+**I cannot tell you whether promotional sending is currently firing in production.** I can state
+what the code does and whom it can reach. Whether it runs depends on which modules are enabled and
+which stores have configured mail, WhatsApp and SMS credentials — none of which is visible from
+this container, where `add_on_managers` is empty and no module is loaded at all.
+
+**So I am not reporting an immediate exposure, and I am not reporting its absence.** The honest
+statement is that the code has no consent control and no unsubscribe, and the live blast radius is
+a question about your production database and module configuration.
 
 ---
 
