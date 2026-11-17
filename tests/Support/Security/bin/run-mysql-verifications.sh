@@ -411,6 +411,15 @@ run_one verify-report-window-boundary-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
+# P5-3f -- the four "Top 5" charts. Also NOT a convenience: the category and brand queries use
+# SUBSTRING_INDEX and the rest of ReportController uses MONTH()/YEAR(), none of which SQLite has,
+# so top_product() cannot run under the Feature suite either. The script seeds SEVEN items so a
+# correct top five must exclude two, and spells one payment method four ways so a case-sensitive
+# grouping shows up as four bars competing for five slots.
+run_one verify-top-five-reports-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

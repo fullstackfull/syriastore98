@@ -3140,7 +3140,6 @@
     "The five products appearing in the most orders. Counts orders, not quantity or value.": "The five products appearing in the most orders. Counts orders, not quantity or value.",
     "Categories by the number of distinct orders containing one of their products.": "Categories by the number of distinct orders containing one of their products.",
     "Brands by the number of distinct orders containing one of their products.": "Brands by the number of distinct orders containing one of their products.",
-    "Orders grouped by the method they were paid with.": "Orders grouped by the method they were paid with.",
     "Unknown": "Unknown",
     "Order value by brand": "Order value by brand",
     "Order value by category": "Order value by category",
@@ -4111,5 +4110,6 @@
     "Type what you are stuck on. Searching works in Arabic and in English.": "Type what you are stuck on. Searching works in Arabic and in English.",
     "Written for merchants, not for developers. Start at the beginning or search for what you are stuck on.": "Written for merchants, not for developers. Start at the beginning or search for what you are stuck on.",
     "Reason for changing the payment status of order :order": "Reason for changing the payment status of order :order",
-    "Reason (required)": "Reason (required)"
+    "Reason (required)": "Reason (required)",
+    "The five methods used on the most orders. Spellings of the same method are counted together.": "The five methods used on the most orders. Spellings of the same method are counted together."
 }

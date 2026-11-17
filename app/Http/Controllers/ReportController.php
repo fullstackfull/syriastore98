@@ -2884,6 +2884,21 @@ class ReportController extends Controller
             ->where('orders.store_id', getCurrentStore())
             ->where('categories.store_id', getCurrentStore())
             ->groupBy('categories.name')
+            /*
+             * P5-3f -- RANKED AND LIMITED, which is what the card beside it already promises:
+             * "Categories by the number of distinct orders containing one of their products" and,
+             * above, "the five are the top five". This query ended at `->get()` with NO orderBy
+             * and NO limit, so a store with forty categories got forty bars in whatever order the
+             * engine returned them, under a page headed "Top Sales Report". The metric was never
+             * the problem -- COUNT(DISTINCT orders.id) is exactly what the note describes -- the
+             * ranking simply was not applied.
+             *
+             * The name is a deterministic tie-break. Without it two categories on the same count
+             * swap places between requests, and whichever lands fifth appears and disappears.
+             */
+            ->orderByDesc('total_sale')
+            ->orderBy('categories.name')
+            ->limit(5)
             ->get();
 
         $top_brand_sales = ProductBrand::select('product_brands.name as sale_name', 'product_brands.logo as sale_image_path', \DB::raw('COUNT(DISTINCT orders.id) as total_sale'))
@@ -2896,14 +2911,49 @@ class ReportController extends Controller
             ->where('orders.store_id', getCurrentStore())
             ->where('product_brands.store_id', getCurrentStore())
             ->groupBy('product_brands.name')
+            // P5-3f -- the same repair as the category chart above, for the same reason and with
+            // the same deterministic tie-break.
+            ->orderByDesc('total_sale')
+            ->orderBy('product_brands.name')
+            ->limit(5)
             ->get();
 
         $new_orders = (clone $orderQuery)->orderBy('id', 'DESC')->get();
 
-        // Aggregate payment methods
-        $paymentMethods = $new_orders->groupBy('payment_type')->map(function ($orders) {
-            return $orders->count();
-        });
+        /*
+         * P5-3f -- ONE METHOD WAS BECOMING SEVERAL BARS, and then none of them was ranked.
+         *
+         * `groupBy('payment_type')` grouped the RAW column with PHP's case-sensitive comparison,
+         * while the same method is stored under several spellings -- cash on delivery alone has
+         * three in `PaymentVerificationService::COD_PAYMENT_TYPES`, plus casing and whitespace
+         * variants from the free-text column. So 'cod' and 'COD' were two separate bars competing
+         * for the same five slots, which makes a "top five" wrong rather than merely unordered.
+         *
+         * Grouped case-insensitively on a trimmed key, and each group is DISPLAYED under the
+         * spelling that occurs most often in it -- so the existing `__()` lookups in the view keep
+         * working against the catalogue entries they already have, rather than being handed a
+         * lower-cased key with no translation.
+         *
+         * The metric is unchanged and is what the card says: orders, counted once each. An order
+         * carries one `payment_type`, so distinct orders and row count are the same thing here.
+         */
+        $paymentMethods = $new_orders
+            ->groupBy(fn ($order) => mb_strtolower(trim((string) $order->payment_type)))
+            ->map(function ($orders) {
+                $spellings = $orders
+                    ->map(fn ($order) => trim((string) $order->payment_type))
+                    ->filter(fn ($spelling) => $spelling !== '')
+                    ->countBy()
+                    ->sortDesc();
+
+                return [
+                    'label' => (string) ($spellings->keys()->first() ?? ''),
+                    'orders' => $orders->count(),
+                ];
+            })
+            ->sortByDesc(fn ($group) => [$group['orders'], $group['label']])
+            ->take(5)
+            ->mapWithKeys(fn ($group) => [$group['label'] => $group['orders']]);
         return view('reports.top_5_reports', [
             'paymentMethods' => $paymentMethods,
             'top_brand_sales' => $top_brand_sales,
@@ -2972,10 +3022,27 @@ class ReportController extends Controller
      */
     private function topSellingProducts($orderQuery, $productQuery): array
     {
+        /*
+         * P5-3f -- ONE ORDER COUNTS ONCE PER PRODUCT, which is what the card promises: "The five
+         * products appearing in the most orders. Counts orders, not quantity or value."
+         *
+         * `orders.product_id` is a comma-joined list and TWO of its three writers build it with
+         * no de-duplication -- `OrderController::store()` and `Api\DashboardController` both
+         * `implode(',', array_column($request->products, 'product_id'))`, while only
+         * `PaymentService` applies `array_unique`. So an order containing the same product on two
+         * lines contributed 2 to a figure labelled "orders", and merchant-admin and Flutter orders
+         * were inflated relative to storefront ones.
+         *
+         * `unique()` per order makes the count match its own label, and matches the metric the
+         * category and brand charts use -- COUNT(DISTINCT orders.id) - so all four charts now rank
+         * by the same thing. The name is a deterministic tie-break, as in the two queries above.
+         */
         $countsById = (clone $orderQuery)->pluck('product_id')
-            ->flatMap(fn ($ids) => explode(',', (string) $ids))
-            ->map(fn ($id) => (int) trim($id))
-            ->filter(fn ($id) => $id > 0)
+            ->flatMap(fn ($ids) => collect(explode(',', (string) $ids))
+                ->map(fn ($id) => (int) trim($id))
+                ->filter(fn ($id) => $id > 0)
+                ->unique()
+                ->values())
             ->countBy()
             ->sortDesc()
             ->take(5);

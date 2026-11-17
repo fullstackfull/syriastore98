@@ -1905,7 +1905,6 @@
     "Orders from guests": "طلبات من زوّار",
     "Orders from registered customers": "طلبات من عملاء مسجّلين",
     "Orders get successfully.": "أوامر الحصول على بنجاح.",
-    "Orders grouped by the method they were paid with.": "الطلبات مُجمَّعة حسب طريقة الدفع المستخدمة.",
     "Orders per day": "الطلبات يومياً",
     "Orders placed": "الطلبات المُنشأة",
     "Orders placed against units ordered, day by day.": "الطلبات المُنشأة مقابل الوحدات المطلوبة، يوماً بيوم.",
@@ -4107,5 +4106,6 @@
     "Type what you are stuck on. Searching works in Arabic and in English.": "اكتب ما تعثّرت عنده. والبحث يعمل بالعربية والإنجليزية.",
     "Written for merchants, not for developers. Start at the beginning or search for what you are stuck on.": "مكتوبة للتجّار لا للمبرمجين. ابدأ من البداية أو ابحث عمّا تعثّرت عنده.",
     "Reason for changing the payment status of order :order": "سبب تغيير حالة الدفع للطلب :order",
-    "Reason (required)": "السبب (مطلوب)"
+    "Reason (required)": "السبب (مطلوب)",
+    "The five methods used on the most orders. Spellings of the same method are counted together.": "الطرق الخمس المستخدمة في أكثر عدد من الطلبات. تُحتسب التهجئات المختلفة للطريقة نفسها معاً."
 }
