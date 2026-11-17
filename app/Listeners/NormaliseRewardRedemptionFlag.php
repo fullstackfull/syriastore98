@@ -21,10 +21,22 @@ use App\Events\AddRewardClubPoint;
  * with the anti-tamper comparison stranded in a dead operand that has never executed.
  *
  * `'off'` is a non-empty string, so it is truthy, so the redemption branch runs. That branch does
- * `$totalClubPoint = $orderClubPoint;` (:39) — an assignment, not an addition — and then saves it
- * to `customers.total_club_point` (:46-47). **So an order that redeemed nothing REPLACES the
- * customer's accumulated balance with just that order's earned points, and writes a
- * `RewardClubPoint` row claiming the whole prior balance was spent (:55).**
+ * `$totalClubPoint = $orderClubPoint;` (:39) and then saves it to `customers.total_club_point`
+ * (:46-47). **So an order that redeemed nothing REPLACES the customer's accumulated balance with
+ * just that order's earned points, and writes a `RewardClubPoint` row claiming the whole prior
+ * balance was spent (:55).**
+ *
+ * THE ASSIGNMENT AT :39 IS NOT THE BUG, AND MUST NOT BE "FIXED" TO `+=`. An earlier version of
+ * this paragraph called it "an assignment, not an addition" in a tone that reads as the defect; it
+ * is not. The module only ever redeems the ENTIRE balance — `clubPointApply.blade.php:12` and
+ * `RewardClubPointController.php:85` both derive the saving from the whole `total_club_point`, and
+ * the view offers no partial input — so "zero the balance, then credit this order" is the CORRECT
+ * semantics for that branch. The defect is that the branch is entered at all on an order that
+ * redeemed nothing. And `:46` is the ONLY writer to that column anywhere in this tree: measured,
+ * every other reference across `app/` and `packages/` is a read. So `+=` would mean the balance is
+ * never debited by anything — a full-balance discount on every order with the points retained,
+ * which is unbounded, recurring, and worse than the defect being contained here. This matters
+ * because `docs/security/P05-VENDOR-DEFECTS-REWARDCLUBPOINT.md` is the upstream report.
  *
  * And `'off'` is not a hypothetical value. It is what the shipped checkout posts, in
  * `clubPointApply.blade.php:25`:
@@ -43,7 +55,7 @@ use App\Events\AddRewardClubPoint;
  * `total_club_point >= checkout_points`, AND `final_price >= checkout_price`. So the destructive
  * path fires for a logged-in customer WHO ALREADY QUALIFIES TO REDEEM and did not press Apply,
  * not on every checkout. It degenerates to every logged-in checkout when both thresholds are
- * configured at 0, which is savable because `RewardClubPointController:26-33` validates them with
+ * configured at 0, which is savable because `RewardClubPointController:26-31` validates them with
  * a bare `required`. Either way it is the population whose balance is worth destroying, and a
  * hand-crafted POST -- or any storefront-API caller reaching `PaymentService.php:3435` -- sets the
  * flag whatever a view renders.
@@ -80,8 +92,21 @@ use App\Events\AddRewardClubPoint;
  * calls `->withEvents()` unconditionally (`Illuminate/Foundation/Application.php:244`), which
  * registers the FRAMEWORK's `EventServiceProvider`, whose `protected static $shouldDiscoverEvents`
  * is `true` and whose discovery path defaults to `app/Listeners`. So every class in that directory
- * with a typed `handle()` is auto-registered — measured: all five, this one included, and
- * `VerifyReCaptchaTokenLis` is likewise registered both explicitly and by discovery today.
+ * with a typed `handle()` is auto-registered — measured: all five, this one included. Only TWO are
+ * therefore registered twice FOR THE SAME EVENT: this listener and `VerifyReCaptchaTokenLis`. Of
+ * the other three, two are discovery-only, and `EnforceLotteryTicketPrice` picks up a stray, inert
+ * registration against the literal event name `Illuminate\Database\Eloquent\Model`, because that
+ * is its `handle()` parameter type.
+ *
+ * THE SECOND DOUBLED LISTENER IS THE HAZARD, NOT REASSURANCE, and an earlier version of this
+ * paragraph cited it as the latter. `VerifyReCaptchaTokenLis` is NOT idempotent: it POSTs the
+ * submitted token to Google's `siteverify` on every invocation, and the token is single-use, so
+ * with reCAPTCHA v3 selected each login or registration attempt makes two identical outbound
+ * POSTs, the second answered `timeout-or-duplicate`. It is not a bypass — the controllers read
+ * `$result[0]`, which is the first POST's verdict — but it is wasted egress and doubled latency
+ * on a blocking call, and it is a pre-existing defect rather than evidence that doubling is
+ * benign. THIS listener's duplicate is harmless only because it is idempotent by construction,
+ * which `test_the_handler_is_idempotent` pins.
  *
  * NOTE THAT `App\Providers\EventServiceProvider::shouldDiscoverEvents()` RETURNS FALSE AND DOES
  * NOT TURN THIS OFF. That override applies only to the app's own provider instance; the framework
@@ -101,12 +126,22 @@ use App\Events\AddRewardClubPoint;
  *
  * ELEVEN APPLY THE DISCOUNT, NINE DISPATCH THE EVENT, and an earlier version of this docblock
  * conflated the two. Measured: eleven sites in `app/` read `club_point_is_active` behind
- * `module_is_active('RewardClubPoint')` and apply a discount; nine `event(new AddRewardClubPoint(`
- * sites exist across `app/` and `packages/`. The odd one out is `KhaltiPaymnetController:972`,
- * which applies the discount and dispatches NOTHING — so a Khalti shopper takes the discount and
- * keeps their points. That is a pre-existing leak, already recorded as an owner item in
- * `PHASE-05-OWNER-DECISION-PACKAGE.md:145` and assigned to D4; this listener neither causes nor
- * fixes it, and cannot, because there is no event on that path to intercept.
+ * `module_is_active('RewardClubPoint')` and apply a discount; nine construct and dispatch this
+ * event. So this listener is reached from nine of the eleven, and TWO it never sees:
+ *
+ *   - `KhaltiPaymnetController:972` is an ORDER WRITER. It reduces `orders.final_price` while the
+ *     vendored listener never runs, so no points are debited and no ledger row is written — the
+ *     shopper takes the discount and keeps the balance. A REAL, pre-existing leak, recorded as an
+ *     owner item at `PHASE-05-OWNER-DECISION-PACKAGE.md:145` and assigned to D4. This listener
+ *     neither causes nor can fix it: there is no event on that path to intercept.
+ *   - `PaymentController:2661` (`processRewardPoints()`) is the pre-payment QUOTE feeding
+ *     `cartlist_final_price`; the order it quotes is written and dispatched by another method in
+ *     the same family, so it is NOT a gap. Named because an independent reviewer's enumeration
+ *     found only Khalti, which makes the asymmetry read as a single exception when it is two.
+ *
+ * The nine is pinned by `test_every_construction_of_the_event_goes_through_the_dispatcher`. The
+ * eleven is prose and is not pinned — which is precisely the asymmetry that let "nine" go stale
+ * in this docblock in the first place.
  *
  * `==` AND NOT `===`. Every first-party site compares `… == 'on'` loosely, and an API client can
  * post JSON `true`, for which `true == 'on'` is TRUE in PHP 8. A strict comparison here would
@@ -124,13 +159,19 @@ use App\Events\AddRewardClubPoint;
  *     without separate approval, and the history needed to reconstruct them may not exist.
  *   - IT DOES NOT ABORT ANYTHING. There is no refusal path: the event is dispatched after the
  *     order is written, so refusing here could only produce an order with no reward accounting.
- *   - IT DOES NOT TOUCH THE OTHER TWO DEFECTS IN THE SAME VENDORED FILE. `:37` and `:41` both
- *     carry the `($a * $b ?? 0) / ($c ?? 0)` shape — a mis-bound multiplication and a divisor
- *     defaulted to zero, the pair `App\Support\Money\RewardPointDiscount` exists to fix on the
- *     first-party side. They are recorded in
- *     `docs/security/P05-VENDOR-DEFECTS-REWARDCLUBPOINT.md`, not intercepted: `:37` runs before
- *     this listener's effect can matter and `:41` only feeds a ledger column, and neither can be
- *     reached without editing the vendored file.
+ *   - IT DOES NOT FIX THE OTHER TWO DEFECTS IN THE SAME VENDORED FILE, though it does narrow the
+ *     reach of one, which an earlier version of this bullet denied. `:37` and `:41` both carry the
+ *     `($a * $b ?? 0) / ($c ?? 0)` shape — a mis-bound multiplication and a divisor defaulted to
+ *     zero, the pair `App\Support\Money\RewardPointDiscount` exists to fix on the first-party
+ *     side. Neither VALUE is correctable from here: both read `$setting` from
+ *     `getAdminAllSetting()`, not from the event.
+ *
+ *     REACHABILITY IS A DIFFERENT QUESTION AND THE TWO LINES DIFFER. `:37` sits OUTSIDE the
+ *     redemption guard and runs on BOTH branches, so this listener changes nothing about it.
+ *     `:39-41` sit INSIDE it, so stripping a non-`'on'` flag does stop `:41` executing. That is a
+ *     SIDE EFFECT of containing V1, not a fix for V3: on a flag that is loosely `'on'` the same
+ *     mis-bound expression still runs and still stores the uncapped reward. Recorded in
+ *     `docs/security/P05-VENDOR-DEFECTS-REWARDCLUBPOINT.md`.
  *
  * Pinned by tests/Unit/Loyalty/RewardRedemptionFlagTest, whose premise tests assert the vendored
  * expression is still the mis-bound one — so if WorkDo fixes it upstream, CI says so instead of
@@ -149,8 +190,28 @@ final class NormaliseRewardRedemptionFlag
     {
         $data = $event->requests_data;
 
-        // PaymentController reads `Session::get('request_data')`, which can be null, and the
-        // event's constructor is untyped. A listener that assumed an array would fatal there.
+        // THE EVENT'S CONSTRUCTOR AND `$requests_data` PROPERTY ARE BOTH UNTYPED, so nothing in
+        // the type system keeps a non-array out.
+        //
+        // NO LIVE SITE SENDS ONE TODAY, AND THIS COMMENT USED TO CLAIM OTHERWISE. It said
+        // "PaymentController reads Session::get('request_data'), which can be null" -- that read
+        // is at PaymentController:4381, inside getWhatsappUrl(), which does NOT dispatch this
+        // event. All nine dispatches pass an array: six through `storedCheckoutState(): ?array`
+        // with the null refused before the handler continues, two through `$request->all()`, and
+        // PayU through a `== null` fallback to `$request->all()`.
+        //
+        // IT IS KEPT FOR THE TENTH SITE, and because the failure is expensive relative to two
+        // lines. MEASURED inside the booted app (error_reporting -1, throwing handler), without
+        // the guard:
+        //
+        //     null, false   no throw -- `??` is isset-based and `unset($null['k'])` is a no-op
+        //     'a string'    Error: Cannot unset string offsets
+        //     42, true      Error: Cannot unset offset in a non-array variable
+        //     stdClass      Error: Cannot use object of type stdClass as array
+        //
+        // So the guard is NOT what stops a null; it stops the four shapes that would fatal. And
+        // this event is dispatched AFTER the order row is written, so an uncaught Error here would
+        // 500 a shopper who has already paid.
         if (! is_array($data)) {
             return;
         }

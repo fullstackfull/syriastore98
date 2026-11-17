@@ -108,7 +108,7 @@ keep it serious:
 
 - it is precisely the population **whose balance is worth destroying**; and
 - with `checkout_points` and `checkout_price` configured at `0` it degenerates to *every* logged-in
-  checkout. Those values are savable: `RewardClubPointController:26-33` validates them with a bare
+  checkout. Those values are savable: `RewardClubPointController:26-31` validates them with a bare
   `'required'`, which passes `0`.
 
 Separately, a hand-crafted POST — or any storefront-API caller reaching `PaymentService.php:3435` —
@@ -134,7 +134,7 @@ Ordering is the load-bearing claim and it is measured: module providers arrive f
 `app->booted()`, strictly after this listener is registered. A probe listener registered that way
 observed the flag as `ABSENT`.
 
-Pinned by `tests/Unit/Loyalty/RewardRedemptionFlagTest` — 18 tests, 57 assertions, 8 mutations run
+Pinned by `tests/Unit/Loyalty/RewardRedemptionFlagTest` — 19 tests, 68 assertions, 8 mutations run
 and **8 reddened**. Its premise tests assert the vendored expression is still the mis-bound one, so
 an upstream fix makes CI say so rather than letting this containment silently become redundant.
 
@@ -173,7 +173,7 @@ The identical pair of defects this repository already fixed on the first-party s
 | `order_point_price` missing | **`DivisionByZeroError`** |
 | `order_point_price` = `0` | **`DivisionByZeroError`** |
 | `order_points` missing | **`ErrorException: Undefined array key "order_points"`** |
-| whole settings row absent | **`DivisionByZeroError`** |
+| whole settings row absent | **NOT REACHED.** `:35` guards the block on `!empty($setting)`, so nothing executes |
 
 `RewardClubPointController`'s validator (`:26-33`) is `'required'` with no `numeric` and no `min:0`,
 so `order_point_price = 0` is savable through the ordinary settings form.
@@ -210,7 +210,7 @@ $rewardPrice = ($customer['total_club_point'] * $setting['reward_point_price'] ?
 | fully configured | `50.00` |
 | `reward_points` = `0` | **`DivisionByZeroError`** |
 | `reward_point_price` missing | **`ErrorException: Undefined array key "reward_point_price"`** |
-| whole settings row absent | **`DivisionByZeroError`** |
+| whole settings row absent | **NOT REACHED** — twice over: `:35` skips the block, and `:37` would throw before `:41` is evaluated |
 
 ### Consequence for D5
 
@@ -221,11 +221,22 @@ balance. On the over-discount path the order reads `0.00` while the ledger row r
 reward. Before D5 both were wrong and consistent; after it they are inconsistent by the capped
 amount. That trade was taken deliberately and is recorded in `RewardPointDiscount`'s own docblock.
 
-### Containment — NOT POSSIBLE first-party. Risk recorded.
+### Containment — the DEFECT is not fixable first-party. Its REACH is already narrowed, as a side effect of V1.
 
-Same reason as V2: `$setting` comes from `getAdminAllSetting()`, not from the event, and the
-computed value is written straight into the module's own model. Reconciling order and ledger needs
-either **D4's first-party obligation record** (owner-authorised, not yet built) or a vendored edit.
+The computed value cannot be corrected from outside: `$setting` comes from `getAdminAllSetting()`,
+not from the event, and the result is written straight into the module's own model. Reconciling
+order and ledger still needs either **D4's first-party obligation record** (owner-authorised, not
+yet built) or a vendored edit.
+
+**But `:41` is not reached the way `:37` is, and an earlier version of this section implied it
+was.** `:37` sits OUTSIDE the redemption guard and runs on **both** branches; `:39-41` sit inside
+it. So `NormaliseRewardRedemptionFlag`, which exists for V1, also removes `:41` from every order
+whose flag is not loosely `'on'` — which, given `'off'` is what the form posts, is most of them.
+
+That is a **side effect, not a fix**: on a flag that is loosely `'on'` the same mis-bound
+expression still runs and still stores the uncapped reward at `:56`. And it does nothing for V2,
+whose `:37` is outside the guard and runs regardless. The distinction matters for the upstream
+report: V2's exposure is unchanged, V3's reach is narrower, neither value is corrected.
 
 ---
 
@@ -260,7 +271,7 @@ needed for the report is above: file, line, parse, measured truth table, and the
 
 | | defect | contained? | by what |
 |---|---|---|---|
-| **V1** | `'off'` reads as "redeem"; balance replaced instead of accrued; anti-tamper check dead | **YES** | `App\Listeners\NormaliseRewardRedemptionFlag`, 18 tests, 8/8 mutations redden |
+| **V1** | `'off'` reads as "redeem"; balance replaced instead of accrued; anti-tamper check dead | **YES** | `App\Listeners\NormaliseRewardRedemptionFlag`, 19 tests, 8/8 mutations redden |
 | **V2** | earned points: mis-bound `*`, divisor defaults to `0` → fatal at checkout | **NO** | risk recorded; containment proposed, needs an owner decision |
 | **V3** | ledger `reward_price`: same two defects, and stores the UNCAPPED reward | **NO** | needs D4's obligation record or a vendored edit |
 

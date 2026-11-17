@@ -304,7 +304,7 @@ when the shopper applies points.
 **So the corrected severity is: a logged-in customer who already qualifies to redeem and did not
 press Apply** — narrower than "every checkout", and still precisely the population whose balance is
 worth destroying. It becomes every logged-in checkout when the two thresholds are configured at
-`0`, which is savable because `RewardClubPointController:26-33` validates them with a bare
+`0`, which is savable because `RewardClubPointController:26-31` validates them with a bare
 `'required'`. A hand-crafted POST sets the flag regardless of what any view renders, so the
 containment is justified independently of this chain.
 
@@ -328,7 +328,7 @@ the flag as `ABSENT`.
 that off — it applies only to the app's own instance. The explicit registration is kept because it
 is the one a reader can see; the handler is idempotent and a test pins that.
 
-**Evidence.** `tests/Unit/Loyalty/RewardRedemptionFlagTest` — 18 tests, 57 assertions. 11 failed
+**Evidence.** `tests/Unit/Loyalty/RewardRedemptionFlagTest` — 19 tests, 68 assertions. 11 failed
 before the listener existed. **8 mutations run, 8 reddened**, so every line is load-bearing. One
 guard of mine (`!== null`) was proved dead across eight inputs and **removed**, following the rule
 `RewardPointDiscount` records. Premise tests pin the vendored source text, so an upstream fix makes

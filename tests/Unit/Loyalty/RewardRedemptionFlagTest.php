@@ -46,17 +46,31 @@ use Tests\TestCase;
  *      is plainly meant to refuse a forged total, and it sits in the dead right operand of `??`.
  *      It has never run.
  *
- * WHY THIS IS NOT THEORETICAL, verified from the shipped files rather than reasoned about:
+ * WHY THIS IS NOT THEORETICAL — AND AN EARLIER VERSION OF THIS BLOCK TRACED THE WRONG INPUT.
+ * It cited `clubPointFormField.blade.php` -> `checkout_hide_field.blade.php` ->
+ * `common/checkout/checkout_form.blade.php:125` and concluded "every order". Nothing renders that
+ * last file — see `test_premise_the_other_hidden_field_is_on_a_path_nothing_renders()` below,
+ * which is now a ratchet on exactly that. The input that actually posts is the other one:
  *
- *     clubPointFormField.blade.php:1   <input type="hidden" name="club_point_is_active" value="off">
- *     ViewComposer.php:25-35           pushed for ANY logged-in customer, with no further condition
- *     checkout_hide_field.blade.php:2  @stack('clubPointFormField')
- *     checkout_form.blade.php:125      @include('front_end.hooks.checkout_hide_field')
+ *     clubPointApply.blade.php:1-9     eligibility gate: six reward settings present, AND
+ *                                      total_club_point >= checkout_points, AND
+ *                                      final_price >= checkout_price
+ *     clubPointApply.blade.php:25      <input type="hidden" class="club_point_is_active" name="club_point_is_active" value="off">
+ *     ViewComposer.php:27-32           pushed only when the view has both `store` and `response`
+ *     checkout_list.blade.php:2        @stack('clubPointApply')
+ *     checkout-cart-list.blade.php:97  @include('front_end.hooks.checkout_list')
+ *     CartController.php:114           rendered into checkout_html_2
+ *     front-theme.js:224               $('.checkout_page_cart').html(response.checkout_html_2)
+ *     checkout.blade.php:25/256/263    .checkout_page_cart sits BETWEEN Form::open and Form::close
  *
- * The field is inside the checkout form, so it posts on every submit, and the module's own
- * JavaScript flips it to `'on'` only when the shopper actually applies points
- * (`clubPointApply.blade.php:80`). So with `RewardClubPoint` enabled, the DEFAULT path through
- * checkout is the one that destroys the balance.
+ * It lands inside the checkout form, so it posts on submit, and the module's JavaScript flips it
+ * to `'on'` only when the shopper applies points (`clubPointApply.blade.php:80`). The shared
+ * `class` — not the `name` — is the handle it uses.
+ *
+ * SO THE DESTRUCTIVE PATH FIRES FOR A LOGGED-IN CUSTOMER WHO ALREADY QUALIFIES TO REDEEM and did
+ * not press Apply — not for every shopper. It degenerates to every logged-in checkout only when
+ * both thresholds are configured at 0, which is savable because `RewardClubPointController:26-31`
+ * validates them with a bare `required` and `required` passes both `0` and `'0'`.
  *
  * THE PROTECTION IS A SHAPE NORMALISATION, NOT A SECOND DECISION, and that distinction is the
  * whole design. `NormaliseRewardRedemptionFlag` reduces the posted flag to `'on'`-or-absent and
@@ -496,8 +510,10 @@ class RewardRedemptionFlagTest extends TestCase
 
     public function test_a_non_array_payload_is_left_alone(): void
     {
-        // The event's constructor is untyped and PaymentController reads `Session::get('request_data')`,
-        // which can be null. A listener that assumed an array would fatal on that path.
+        // The event's constructor is untyped, so a non-array is not excluded by the type system
+        // even though no live dispatch site sends one. Measured: 'a string' and 42 throw
+        // `Error: Cannot unset ...` at the listener's unset() without the is_array() guard; null
+        // does NOT, and is included here only to pin that it passes through unchanged.
         foreach ([null, 'a string', 42] as $payload) {
             $event = new AddRewardClubPoint($payload, ['id' => 1], 'a-slug');
             (new NormaliseRewardRedemptionFlag)->handle($event);

@@ -37,7 +37,7 @@ namespace App\Support\Money;
  * and a negative discount is SUBTRACTED, so it ADDED to the bill -- `final_price + tax - (-5.0)`
  * charged 5.00 MORE than the basket. This class clamps that to no discount. It is reachable, not
  * theoretical: the module's settings validator is `'required'` with no `numeric` and no `min:0`
- * (`RewardClubPointController` rules, :26-33), so a merchant can save `reward_point_price = -0.5`
+ * (`RewardClubPointController` rules, :26-31), so a merchant can save `reward_point_price = -0.5`
  * through the ordinary form. `it_never_returns_a_negative_discount` pins the new behaviour.
  *
  * A MISSING RATE IS NOT A RATE OF ONE. The module's own `RewardClubPointController::applyPoints()`
