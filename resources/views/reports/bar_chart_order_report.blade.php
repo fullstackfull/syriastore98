@@ -315,8 +315,8 @@
                                 @json(__('Duration')),
                                 @json(__('Order value')),
                                 @json(__('Average order value')),
-                                @json(__('Order value, before discounts')),
-                                @json(__('Average order value, before discounts')),
+                                @json(__('Order value, including shipping and tax')),
+                                @json(__('Average order value, including shipping and tax')),
                                 @json(__('Shipping charged')),
                                 @json(__('Coupon value applied')),
                             ].map(function(h) {

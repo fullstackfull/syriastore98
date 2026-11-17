@@ -31,7 +31,7 @@
                 :value-decimals="2"
                 :value-decimals2="2"
                 :title="__('Order value before and after discounts')"
-                :value-label="__('Order value, before discounts')"
+                :value-label="__('Order value, including shipping and tax')"
                 :value-label2="__('Order value')"
                 :column-label="__('Day')"
                 :period="$periodLabel" />

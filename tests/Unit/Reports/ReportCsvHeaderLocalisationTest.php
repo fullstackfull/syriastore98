@@ -26,7 +26,7 @@ use Tests\TestCase;
  *    must stay.
  *
  * 3. QUOTING IS LOAD-BEARING, AND ONLY IN ENGLISH. `encodeURI(',')` is `,` — a comma is NOT
- *    escaped. The settled label for the gross figure is `Order value, before discounts`, which
+ *    escaped. The settled label for the gross figure is `Order value, including shipping and tax`, which
  *    `en.json` stores WITH an ASCII comma (and 14 of the 16 locale files lack the key, so they
  *    fall back to it); `ar.json` alone translates it comma-free. So an unquoted `.join(',')`
  *    yields 10 header columns against 9 data fields in `order_report`, and 8 against 7 in
@@ -90,9 +90,9 @@ class ReportCsvHeaderLocalisationTest extends TestCase
         $en = json_decode((string) file_get_contents(base_path('resources/lang/en.json')), true);
 
         $this->assertIsArray($en);
-        $this->assertArrayHasKey('Order value, before discounts', $en);
-        $this->assertStringContainsString(',', (string) $en['Order value, before discounts'], sprintf(
-            'The English value for "Order value, before discounts" no longer contains a comma, '
+        $this->assertArrayHasKey('Order value, including shipping and tax', $en);
+        $this->assertStringContainsString(',', (string) $en['Order value, including shipping and tax'], sprintf(
+            'The English value for "Order value, including shipping and tax" no longer contains a comma, '
             . 'so the quoting this test insists on is no longer load-bearing and '
             . 'test_the_english_header_without_quoting_would_misalign has lost its premise.'
         ));
@@ -242,7 +242,7 @@ class ReportCsvHeaderLocalisationTest extends TestCase
                 $code,
                 sprintf(
                     '%s joins its header terms without CSV-quoting them. encodeURI does not '
-                    . 'escape a comma, and the English label "Order value, before discounts" '
+                    . 'escape a comma, and the English label "Order value, including shipping and tax" '
                     . 'contains one, so an unquoted join adds a column.',
                     $relative
                 )

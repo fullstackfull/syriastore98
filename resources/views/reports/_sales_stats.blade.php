@@ -11,10 +11,10 @@
     One copy, so the next fix lands on both.
 --}}
     <x-ss.stats :label="__('Sales summary')">
-        <x-ss.stat :label="__('Order value, before discounts')"
+        <x-ss.stat :label="__('Order value, including shipping and tax')"
                :value="$currency . (!empty($TotalgrossSale) ? $TotalgrossSale : '0.00')"
                :period="$periodLabel"
-               :hint="__('The total value of orders before any coupon was applied. This is not payments received, and not profit.')" />
+               :hint="__('The full amount the orders came to: after coupons, and including shipping and tax. This is what customers were asked to pay, not what they paid, and not profit.')" />
 
         <x-ss.stat :label="__('Order value')"
                :value="$currency . (!empty($TotalNetSale) ? $TotalNetSale : '0.00')"
