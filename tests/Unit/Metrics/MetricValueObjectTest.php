@@ -223,6 +223,122 @@ class MetricValueObjectTest extends TestCase
         $this->assertSame(5.0, $result->totalIn('unknown'));
     }
 
+    // ------------------------------------------------------- the unrecorded-currency assumption
+
+    private function withUnknownBucket(array $byCurrency): MetricResult
+    {
+        return MetricResult::make(
+            'gmv', MetricResult::RECORD_SETTLEMENT, 'orders.order_date', $byCurrency, 7,
+            $this->scope(), MetricWindow::allTime(), [], ['cancellations' => 'included']
+        );
+    }
+
+    public function test_folding_the_unrecorded_bucket_gives_a_tile_one_number_and_says_what_it_assumed(): void
+    {
+        /*
+         * `2026_10_12_000102` added orders.currency_code and deliberately did not backfill, so
+         * every store with history has an `unknown` bucket and `total()` throws. A tile renders
+         * one number beside one currency symbol, so without this the obvious wiring is an HTTP
+         * 500 on a merchant admin route.
+         */
+        $raw = $this->withUnknownBucket(['USD' => 826.50, 'unknown' => 331.00]);
+
+        $this->assertTrue($raw->hasCaveat(MetricCaveat::MIXED_CURRENCY));
+        $this->assertEqualsWithDelta(331.00, $raw->unrecordedCurrencyAmount(), 0.001);
+
+        $folded = $raw->assumingUnknownCurrencyIs('USD');
+
+        $this->assertEqualsWithDelta(1157.50, $folded->total(), 0.001);
+        $this->assertSame('USD', $folded->currency());
+        $this->assertTrue($folded->hasCaveat(MetricCaveat::CURRENCY_UNRECORDED));
+        $this->assertEqualsWithDelta(331.00, $folded->notes()['currency_assumed_amount'], 0.001);
+        $this->assertSame('USD', $folded->notes()['currency_assumed_into']);
+    }
+
+    public function test_the_mixed_currency_caveat_is_withdrawn_when_folding_leaves_one_currency(): void
+    {
+        // A caveat that is FALSE is worse than one that is missing: a merchant told "these amounts
+        // are in more than one currency" beside a single-currency figure learns to ignore caveats.
+        $folded = $this->withUnknownBucket(['USD' => 10.0, 'unknown' => 5.0])
+            ->assumingUnknownCurrencyIs('USD');
+
+        $this->assertFalse($folded->hasCaveat(MetricCaveat::MIXED_CURRENCY));
+        $this->assertTrue($folded->isSingleCurrency());
+    }
+
+    public function test_folding_does_not_make_a_genuinely_multi_currency_figure_single(): void
+    {
+        /*
+         * The problem this solves is UNRECORDED currency, not two real ones. A store trading in
+         * both USD and SYP still has two buckets after folding, so MIXED_CURRENCY stays and
+         * total() still refuses -- which is the whole point of §11 rule 3.
+         */
+        $folded = $this->withUnknownBucket(['USD' => 10.0, 'SYP' => 500000.0, 'unknown' => 5.0])
+            ->assumingUnknownCurrencyIs('USD');
+
+        $this->assertTrue($folded->hasCaveat(MetricCaveat::MIXED_CURRENCY));
+        $this->assertTrue($folded->hasCaveat(MetricCaveat::CURRENCY_UNRECORDED));
+        $this->assertEqualsWithDelta(15.0, $folded->totalIn('USD'), 0.001);
+
+        $this->expectException(MixedCurrencyException::class);
+        $folded->total();
+    }
+
+    public function test_a_figure_with_nothing_to_assume_claims_no_assumption(): void
+    {
+        // A store with no pre-migration history must not be told its figures rest on an
+        // assumption they do not rest on.
+        $clean = $this->withUnknownBucket(['USD' => 10.0]);
+        $folded = $clean->assumingUnknownCurrencyIs('USD');
+
+        $this->assertSame($clean, $folded, 'a copy was returned where nothing was folded');
+        $this->assertFalse($folded->hasCaveat(MetricCaveat::CURRENCY_UNRECORDED));
+        $this->assertArrayNotHasKey('currency_assumed_amount', $folded->notes());
+        $this->assertEqualsWithDelta(0.0, $folded->unrecordedCurrencyAmount(), 0.001);
+    }
+
+    public function test_folding_into_a_currency_the_figure_does_not_yet_have_still_works(): void
+    {
+        // Every order predates the column: one bucket, named `unknown`. total() does NOT throw
+        // (one bucket), but the number has no unit until it is named.
+        $only = $this->withUnknownBucket(['unknown' => 42.0]);
+
+        $this->assertEqualsWithDelta(42.0, $only->total(), 0.001);
+        $this->assertSame('unknown', $only->currency());
+
+        $folded = $only->assumingUnknownCurrencyIs('SYP');
+
+        $this->assertSame('SYP', $folded->currency());
+        $this->assertEqualsWithDelta(42.0, $folded->total(), 0.001);
+        $this->assertTrue($folded->hasCaveat(MetricCaveat::CURRENCY_UNRECORDED));
+    }
+
+    public function test_folding_preserves_the_figures_identity_and_its_other_notes(): void
+    {
+        $folded = $this->withUnknownBucket(['USD' => 10.0, 'unknown' => 5.0])
+            ->assumingUnknownCurrencyIs('USD');
+
+        $this->assertSame('gmv', $folded->metric());
+        $this->assertSame(MetricResult::RECORD_SETTLEMENT, $folded->record());
+        $this->assertSame('orders.order_date', $folded->datedBy());
+        $this->assertSame(7, $folded->rowCount());
+        $this->assertSame('included', $folded->notes()['cancellations']);
+    }
+
+    public function test_the_unknown_bucket_key_is_the_same_constant_both_sides_use(): void
+    {
+        /*
+         * `Metric::sumByCurrency()` chooses the bucket key and `MetricResult::make()` chooses it
+         * again. If the two ever disagreed, the unrecorded rows would be invisible to
+         * assumingUnknownCurrencyIs() and would silently vanish from every tile that folds.
+         */
+        $source = file_get_contents(__DIR__ . '/../../../app/Support/Metrics/Metric.php');
+
+        $this->assertStringContainsString('MetricResult::UNKNOWN_CURRENCY', $source);
+        $this->assertStringNotContainsString("? 'unknown'", $source);
+        $this->assertSame('unknown', MetricResult::UNKNOWN_CURRENCY);
+    }
+
     public function test_a_blocking_caveat_makes_a_figure_non_authoritative(): void
     {
         $blocked = MetricResult::make(

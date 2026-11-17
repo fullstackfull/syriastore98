@@ -258,6 +258,14 @@ try {
     $financial($order(['payment_type' => 'stripe']), ['payment_status' => 'pending', 'remaining_amount' => 120.0]);
     $financial($order(['payment_type' => null]), ['payment_status' => 'pending', 'remaining_amount' => 45.0]);
 
+    /*
+     * AN ORDER WITH NO RECORDED CURRENCY -- the production shape, not a hypothetical.
+     * `2026_10_12_000102_add_currency_and_created_by_to_orders_table` added `orders.currency_code`
+     * and its own note says "historical rows keep NULL -- this migration does NOT backfill".
+     * Every store with history before that date has rows like this one.
+     */
+    $order(['currency_code' => null, 'final_price' => 1000.0]);
+
     // Shipping/tax, and a coupon.
     $shipped = $order(['delivery_price' => 25.0]);
     $financial($shipped, ['shipping_amount' => 25.0, 'tax_amount' => 8.0]);
@@ -381,7 +389,9 @@ try {
      * isolation assertion and the arithmetic one.
      */
     $expected = [
-        'gmv' => 1235167.99,       // 1234567.89 + 0.07 + 0.03 + six orders at the 100.00 default
+        // GMV is read through assumingUnknownCurrencyIs() below, because the NULL-currency order
+        // gives it a second bucket and total() refuses to add two. 1235167.99 + 1000.00.
+        'gmv' => 1236167.99,
         'collected' => 1234567.99, // paid + the cancelled and refunded rows that WERE captured
         'cancelled' => 0.07,       // customer_total of the one cancelled row
         'refunds' => 0.03,         // the one order_refunded movement
@@ -393,10 +403,18 @@ try {
 
     foreach ($expected as $name => $value) {
         if (! isset($results[$name])) { continue; }
+
+        // GMV reads orders.currency_code, which the NULL-currency row leaves unset, so it must be
+        // folded before a single figure exists at all. Everything else reads the financial row,
+        // whose currency_code the fixture always sets.
+        $figure = $name === 'gmv'
+            ? $results[$name]->assumingUnknownCurrencyIs('USD')
+            : $results[$name];
+
         check(
             sprintf('%s totals %.2f for store A, with store B\'s 9,999.00 absent', $name, $value),
-            near($results[$name]->total(), $value),
-            'got ' . var_export($results[$name]->total(), true)
+            near($figure->total(), $value),
+            'got ' . var_export($figure->total(), true)
         );
     }
 
@@ -411,6 +429,38 @@ try {
     check('premise: store B really is drifted, so the check above had something to catch',
         count($foreignDrift) === 1 && near($foreignDrift[0]['difference'], -8765.0),
         json_encode($foreignDrift));
+
+    echo "\nF2. The unrecorded-currency assumption, on a genuinely NULL currency_code row\n";
+
+    $gmvRaw = $results['gmv'] ?? null;
+
+    if ($gmvRaw !== null) {
+        check('a NULL currency_code row lands in its own bucket, not silently in the store currency',
+            in_array('unknown', $gmvRaw->currencies(), true),
+            implode(', ', $gmvRaw->currencies()));
+
+        check('and the figure declares itself mixed-currency',
+            $gmvRaw->hasCaveat(App\Support\Metrics\MetricCaveat::MIXED_CURRENCY));
+
+        $threw = false;
+        try { $gmvRaw->total(); } catch (App\Support\Metrics\MixedCurrencyException $e) { $threw = true; }
+        check('total() REFUSES to add the two buckets -- this is the HTTP 500 a naive tile would get',
+            $threw);
+
+        check('the unrecorded amount is reported exactly',
+            near($gmvRaw->unrecordedCurrencyAmount(), 1000.0),
+            'got ' . var_export($gmvRaw->unrecordedCurrencyAmount(), true));
+
+        $folded = $gmvRaw->assumingUnknownCurrencyIs('USD');
+
+        check('folding gives a tile ONE number', $folded->isSingleCurrency() && $folded->currency() === 'USD');
+        check('and states what it assumed, with the amount',
+            $folded->hasCaveat(App\Support\Metrics\MetricCaveat::CURRENCY_UNRECORDED)
+            && near($folded->notes()['currency_assumed_amount'], 1000.0),
+            json_encode($folded->notes()));
+        check('and withdraws the now-false mixed-currency claim',
+            ! $folded->hasCaveat(App\Support\Metrics\MetricCaveat::MIXED_CURRENCY));
+    }
 
     echo "\nG. Shipping survives the order column being zeroed\n";
 

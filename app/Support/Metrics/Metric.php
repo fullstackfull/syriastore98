@@ -129,7 +129,12 @@ abstract class Metric
 
         foreach ($rows as $row) {
             $currency = $row->metric_currency;
-            $key = ($currency === null || $currency === '') ? 'unknown' : (string) $currency;
+            // The SAME constant MetricResult::make() buckets under, so the two cannot drift --
+            // a mismatch here would hide the unrecorded-currency rows from
+            // assumingUnknownCurrencyIs() and silently drop them from every tile.
+            $key = ($currency === null || $currency === '')
+                ? MetricResult::UNKNOWN_CURRENCY
+                : (string) $currency;
 
             $byCurrency[$key] = round(($byCurrency[$key] ?? 0.0) + (float) $row->metric_amount, 2);
             $rowCount += (int) $row->metric_rows;

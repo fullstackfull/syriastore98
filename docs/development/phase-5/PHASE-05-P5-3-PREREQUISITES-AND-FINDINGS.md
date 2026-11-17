@@ -1,0 +1,127 @@
+# P5-3 — what the planning pass found, and why wiring cannot start yet
+
+**Status:** P5-3 is **NOT started as engineering.** This document is the output of its planning
+pass and the two prerequisites that pass uncovered. No report surface has been changed.
+
+**Method.** Six report-surface groups were analysed and then adversarially challenged by an
+independent pass instructed to attack each proposal and to default to *unsound* when uncertain.
+**49 surfaces were planned; the challenger rejected 36 of them and named 45 further money surfaces
+the first pass had missed.** A 73% rejection rate is not a tidy result and is not presented as one:
+the first pass was not reliable enough to implement from, and the objections are the deliverable.
+
+Every claim below marked **[verified here]** was re-measured directly against primary sources
+rather than accepted from the analysis.
+
+---
+
+## 1. The two prerequisites, and why they block wiring
+
+### 1a. `total()` throws on any store with history — **[verified here]**
+
+`database/migrations/2026_10_12_000102_add_currency_and_created_by_to_orders_table.php` states
+verbatim:
+
+> *"historical rows keep NULL — this migration does NOT backfill, because the correct per-order
+> historical rate is not recoverable from code, and inventing one would be exactly the silent
+> divergence GATE F exists to prevent. Reading code must tolerate NULL on pre-migration orders."*
+
+The metric layer does tolerate it: `Metric::sumByCurrency()` maps a null `currency_code` to the
+bucket `unknown`, and `MetricResult::make()` then sees two buckets and auto-attaches
+`MIXED_CURRENCY`. `MetricResult::total()` **throws `MixedCurrencyException`** on more than one
+bucket — by design, because adding two currencies produces a number with no unit.
+
+**The consequence for P5-3 is not a caveat, it is a 500.** Every merchant report tile renders one
+number beside one currency symbol. A single-currency store with any order placed before
+2026-10-12 has two buckets, so the obvious wiring — `->total()` into a Blade tile — is an uncaught
+exception on `GET order-reports-chart`, a merchant admin route.
+
+**This is not a defect in the layer.** Refusing to add currencies is the correct behaviour and
+§11 rule 3 requires it. What is missing is an accessor for the question the surfaces actually ask:
+*"my figure, in my currency, and tell me what you assumed."* Inventing a rate is forbidden;
+**stating an assumption is not.** That accessor is prerequisite P5-3a.
+
+### 1b. The entitlement record is 15 days old — **[verified here]**
+
+`store_order_financials` has exactly one migration — `2026_11_02_000400_create_...` — with **zero**
+`INSERT … SELECT` and no backfill anywhere in `database/migrations/`. It is written only by
+`OrderObserver::created()`.
+
+So §2 (collected payments), §4 (cancellations), §5 (refunds), §8 (margin) and §10 (shipping and
+tax) **return zero for every order placed before 2026-11-02.** Any surface switched from `orders`
+to the entitlement record collapses to near-zero on a historical window — correctly, in that the
+ledger genuinely has no rows, and uselessly, in that a merchant reading it concludes their
+business stopped.
+
+The challenger's sharpest instance: a proposal to draw a "collected" series beneath the demand
+series on a per-day chart would render **a flat zero line, correctly labelled, under a real
+line** — precisely the wrong-number-that-looks-right this slice exists to prevent.
+
+**Nothing here is fixable by code.** Either a window is restricted to the ledger's own lifetime
+and says so, or the figure is not offered. Backfilling is a live-data operation and an owner
+decision; it is **not** proposed here.
+
+---
+
+## 2. Pre-existing defects this pass measured, independent of Phase 05
+
+These are faults in the shipped reporting suite. None is caused by P5-2 and none is fixed by it.
+They are recorded because a planning pass that found them and did not write them down would have
+wasted them.
+
+| # | defect | evidence |
+|---|---|---|
+| 1 | **Three of five period buttons silently drop the final day of the period.** `->where('order_date','<=', date('Y-m-t',$end))` compares a bare DATE string against a DATETIME column. Since `date('Y-m-t')` for *last month* always resolves to a date already past, **"last month" permanently loses its last day of trading.** | **[verified here]** `ReportController.php:511`, `:577`, `:723`, and again in the chart-data endpoint at `:1013-1016`, `:1085-1088`, `:1229-1232`, `:1349-1352`. Measured on MariaDB 10.11.14: of four rows (29 Nov 12:00, 30 Nov 00:00, 30 Nov 09:15, 30 Nov 23:59:59), the bare bound keeps **2**, an `endOfDay()` bound keeps **4**. On SQLite the bare bound keeps **1**. `MetricWindow::applyTo()` already uses `startOfDay()`/`endOfDay()`, so surfaces moved onto it get this fixed as a side effect. |
+| 2 | **The tile labelled "Order value, before discounts" is after discounts.** `orders.final_price` is written already net of the coupon *and* inclusive of shipping and tax. A merchant reading that tile beside "Order value" and "Coupon value applied" concludes the first two differ by the discount; measured, they differ by shipping + tax. | `PaymentService.php:3026` sets `coupon_price` separately and computes `final_price` from the already-discounted subtotal; `OrderFinancialService` maps `discount_amount` and `customer_total` as distinct columns. Renders at `resources/views/reports/_sales_stats.blade.php:14-17`. |
+| 3 | **The category report drops the last day of a custom range, and returns nothing at all for a single-day selection.** `ReportController:2194` builds its `DatePeriod` with no `->modify('+1 day')` on the end bound, which product (`:1769`) and brand (`:2689`) both have. `DatePeriod('2026-03-05' … '2026-03-05')` yields **zero** iterations; orders are fetched at `:2216-2217` and then discarded at `:2239`. | Challenger reproduced the `DatePeriod` arithmetic independently. |
+| 4 | **The brand year report omits December from every brand card.** At `:2532` the card total `array_sum($brandNetSales[...])` executes *before* `:2534` assigns that month's value, inside a months-outer/brands-inner loop, so the final index is never included. A correctly-accumulated `$NetSalesOfBrand` (capital O) exists at `:2576-2579` and is read nowhere — the view reads `$NetSalesofbrand`. | Read directly by the challenger; the omitted index is always the last of `$monthList`. |
+| 5 | **A cleared brand multi-select yields an empty selection on two branches but defaults correctly on the other two.** Last-month (`:2338`) and this-month (`:2411`) use `$selectedBrand ?? …`, which fires only on `null`; year and seven-day use `empty()`. `reportSelectionWithinCurrentStore()` returns its argument unchanged when empty (`:3615-3617`). | Read directly. |
+| 6 | **The "Top 5" charts are neither top nor five.** `:2807-2821` (category) and `:2823-2833` (brand) end in `->get()` with **no `orderBy` and no `limit`**. A store with 40 categories gets 40 unordered bars under a page headed "Top Sales Report". | Read directly. |
+| 7 | **`orders.product_id` carries duplicates on two of its three writers**, inflating top-selling-product counts for merchant-admin and Flutter orders. `OrderController.php:460` and `Api/DashboardController.php:7112` both `implode(',', array_column(...))` with no de-duplication; only `PaymentService.php:3017` applies `array_unique`. | Read directly at all three call sites. |
+| 8 | **One payment method becomes several bars.** `groupBy('payment_type')` at `:2838` groups the raw column with PHP's case-sensitive comparison, while COD alone has three spellings (`PaymentVerificationService::COD_PAYMENT_TYPES`) plus casing variants. | Read directly. |
+| 9 | **`<x-ss.stat>`'s only caveat affordance is invisible.** Its `hint` prop renders inside `<span class="ss-visually-hidden">` (`stat.blade.php:40`), so a sighted merchant never sees it. **ANA-007 — "show data quality, estimates and omissions" — cannot be satisfied through that prop.** `<x-ss.card>`'s `note` (`card.blade.php:9`) is visible and is the available slot. | Read directly. |
+| 10 | **`_sales_stats.blade.php` is shared by two different handlers** — `order_chart_data.blade.php:19` and `order_bar_chart_data.blade.php:19`, fed by `order_reports_chart()` and `order_reports_chart_data()` respectively. Any change to the partial lands on both, so the two handlers must be converted together or the partial must take resolved figures. | Read directly. |
+| 11 | **`final_price - delivery_price - tax_price` can double-subtract shipping and go negative.** `PaymentService.php:3031/3033` and `:3067/3069` add `delivery_price` into `final_price` **only** when `$plan->shipping_method == "on"`; the net-sale expression subtracts it unconditionally. | Read directly. |
+
+**Defect 1 is the one worth fixing first**, because it is small, bounded, every-month, and already
+solved correctly inside `MetricWindow`.
+
+---
+
+## 3. What the challenger established about the surfaces themselves
+
+Three findings that shape how the remaining slices must be written:
+
+**There is no honest one-to-one replacement for the "Order value" (net sale) tile.** The layer has
+nothing yielding merchandise-value-excluding-shipping-and-tax over all orders, and composing
+`GMV − ShippingAndTax` is invalid: different tables, different date columns (`orders.order_date`
+vs `store_order_financials.created_at`), therefore different row sets. Substituting
+`CollectedCustomerPayments` was proposed and **correctly rejected** — ANA-005 says *separate* sales
+from collection, not *replace* one with the other, and the five neighbouring tiles are all demand
+figures under a heading that is demand. **What that tile should show is an owner decision**, not an
+engineering one.
+
+**The metric layer has no time-series and no per-dimension shape.** Every metric reduces one scope
+and one window to one `MetricResult`. A 31-day chart is 31 queries, and `orders` carries no
+`(store_id, order_date)` composite index — so each is a `store_id` scan filtering by date, on an
+AJAX endpoint. A per-category or per-brand breakdown is not expressible at all: `MetricScope` offers
+only `store()` and `stores()`, and a category is not a tenant. Both are **layer additions**, not
+wiring.
+
+**Switching a date basis relocates history, which a chart cannot explain.** Moving a per-bucket
+series from `order_date` to `paid_at` or to `store_order_financials.created_at` does not merely
+change values — it changes which bucket a row belongs to. The clearest measured instance: an order
+placed 31 Oct whose financial row was written 4 Nov moves its shipping spike four days, and the
+chart offers no account of why.
+
+---
+
+## 4. Disposition
+
+| | |
+|---|---|
+| **P5-3a** | **DONE.** `MetricResult::assumingUnknownCurrencyIs()` plus `unrecordedCurrencyAmount()` and the `CURRENCY_UNRECORDED` caveat. 7 new unit tests, 7 of 7 mutations redden, and 7 checks on a genuinely NULL `currency_code` row on MariaDB — including that `total()` really does throw before folding, which is the 500 this prevents. See `PHASE-05-METRIC-LAYER.md`. |
+| **P5-3b** | Fix defect 1 (the date-boundary truncation) at the eight named sites. Small, bounded, independent of everything else. |
+| **P5-3c** | Wire surfaces, one at a time, each with its before/after figure recorded — and only where the entitlement record's 2026-11-02 start does not make the figure useless. |
+| **owner** | What should the "Order value" tile show? Retire it, relabel it, or keep it and add a separate collection figure beside it (which is what ANA-005 reads most naturally)? |
+| **owner** | Whether `orders.currency_code` should ever be backfilled. **Not proposed here** — the migration argues against it, and it is a live-data operation. |
+| **separate** | Defects 3–8 and 11 are shipped reporting bugs with no Phase 05 dependency. They are not P5-3's to absorb silently; each needs its own disposition. |

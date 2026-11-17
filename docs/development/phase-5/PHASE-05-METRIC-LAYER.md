@@ -31,6 +31,29 @@ where the predicates live, not of how the SQL is written.
 Supporting value objects: `MetricScope`, `MetricWindow`, `MetricResult`, `MetricCaveat`,
 `MixedCurrencyException`, and the two shape interfaces `SingleFigureMetric` / `MultiFigureMetric`.
 
+### The unrecorded-currency assumption (added for P5-3a)
+
+`MetricResult::assumingUnknownCurrencyIs(string $currency)` folds the `unknown` currency bucket
+into a named currency and returns a new result carrying `MetricCaveat::CURRENCY_UNRECORDED` and
+`notes()['currency_assumed_amount']`. `unrecordedCurrencyAmount()` exposes the amount on its own.
+
+**It exists because the P5-3 planning pass found that the obvious wiring is an HTTP 500.**
+`2026_10_12_000102` added `orders.currency_code` and deliberately did not backfill — its own note
+says the correct per-order historical rate is not recoverable and that *"reading code must tolerate
+NULL on pre-migration orders"*. The layer does tolerate it, bucketing those rows as `unknown`; but
+a merchant tile renders one number beside one currency symbol, and `total()` refuses two buckets.
+So **every store with history** would have thrown on `GET order-reports-chart`.
+
+Inventing a rate is forbidden. Stating an assumption is not, and this one is narrow: that orders
+placed before the column existed were in the currency the store uses now. Three properties make it
+honest rather than convenient — the caveat is attached **unconditionally** whenever anything was
+folded; the **amount** assumed is reported so a merchant can see whether it matters; and folding
+`unknown` into USD on a store that also trades in SYP still leaves two buckets, so `MIXED_CURRENCY`
+stays and `total()` still refuses. The method is opt-in, never the behaviour of `total()`.
+
+It also **withdraws** `MIXED_CURRENCY` when folding leaves one currency, because a caveat that is
+false is worse than one that is missing.
+
 ---
 
 ## 2. The four design decisions worth arguing with
@@ -103,16 +126,16 @@ lose the money. Each result carries `partially_paid_outside_all_three` with the 
 ## 4. Evidence
 
 ```
-php artisan test tests/Unit/Metrics/MetricValueObjectTest.php       # 19 passed
+php artisan test tests/Unit/Metrics/MetricValueObjectTest.php       # 26 passed
 php artisan test tests/Feature/Metrics/MetricLayerTest.php          # 39 passed
 php artisan test tests/Feature/Tenancy/RawQueryTenancyInventoryTest.php \
                  tests/Feature/Tenancy/OwnedPathRawQueryInventoryTest.php   # 5 passed
 
 # on a real engine -- creates and drops its own throwaway database
-php tests/Support/Security/bin/verify-metric-layer-on-mysql.php     # 37 checks, 0 failed
+php tests/Support/Security/bin/verify-metric-layer-on-mysql.php     # 44 checks, 0 failed
 ```
 
-**Mutation evidence — 34 of 34.** Every predicate, label, caveat rule and validation in the layer
+**Mutation evidence — 41 of 41** (34 for the layer, 7 for the currency assumption)**.** Every predicate, label, caveat rule and validation in the layer
 was removed or inverted one at a time and the tests re-run. All 34 reddened, with no unpinned
 predicate and no anchor failure. That battery is the reason this slice is trustworthy, and it is
 not decoration: **the first run found seven unpinned predicates and one test that passed for the

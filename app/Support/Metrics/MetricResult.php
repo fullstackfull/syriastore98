@@ -81,7 +81,9 @@ final class MetricResult
             // store_order_financials, store_wallets and store_wallet_transactions alike. It is
             // kept as a distinct bucket rather than folded into the store's configured currency,
             // because guessing here is how a figure acquires a unit it was never measured in.
-            $key = ($currency === '' || $currency === null) ? 'unknown' : (string) $currency;
+            $key = ($currency === '' || $currency === null)
+                ? self::UNKNOWN_CURRENCY
+                : (string) $currency;
 
             $amounts[$key] = round(($amounts[$key] ?? 0.0) + (float) $amount, 2);
         }
@@ -172,6 +174,94 @@ final class MetricResult
     public function totalIn(string $currency): float
     {
         return (float) ($this->byCurrency[$currency] ?? 0.0);
+    }
+
+    /** The bucket `Metric::sumByCurrency()` puts a null or empty `currency_code` in. */
+    public const UNKNOWN_CURRENCY = 'unknown';
+
+    /**
+     * THE ONE-NUMBER ANSWER FOR A TILE, WITHOUT INVENTING ANYTHING.
+     *
+     * Folds the `unknown` currency bucket into the named currency and returns a NEW result
+     * carrying `MetricCaveat::CURRENCY_UNRECORDED` plus the AMOUNT that was assumed. The original
+     * is untouched.
+     *
+     * WHY THIS HAD TO EXIST. `2026_10_12_000102` added `orders.currency_code` and deliberately did
+     * not backfill -- its own note says the correct per-order historical rate is not recoverable
+     * from code and that "reading code must tolerate NULL on pre-migration orders". So every store
+     * with history has an `unknown` bucket, `MetricResult::make()` attaches MIXED_CURRENCY, and
+     * `total()` throws. A merchant report tile renders one number beside one currency symbol, so
+     * the obvious wiring -- `->total()` into a Blade tile -- is an uncaught exception on
+     * `GET order-reports-chart`. That is not a caveat, it is an HTTP 500 on a merchant route.
+     *
+     * WHAT IS AND IS NOT ASSUMED. Inventing a RATE is forbidden and nothing here converts: the
+     * only assumption is that orders placed before the column existed were in the currency the
+     * store uses now, which is true for every store that has not changed currency. That is narrow,
+     * it is stated, and `notes()['currency_assumed_amount']` lets a merchant see whether it
+     * matters. A store that HAS changed currency gets a wrong figure from this -- which is why the
+     * caveat is attached unconditionally whenever anything was folded, and why this method is
+     * opt-in rather than the behaviour of `total()`.
+     *
+     * IT DOES NOT MAKE A GENUINELY MULTI-CURRENCY RESULT SINGLE. Folding `unknown` into USD on a
+     * store that also trades in SYP still leaves two buckets, MIXED_CURRENCY stays, and `total()`
+     * still refuses. That is correct: the problem this solves is unrecorded currency, not two
+     * real currencies.
+     */
+    public function assumingUnknownCurrencyIs(string $currency): self
+    {
+        $unknown = $this->byCurrency[self::UNKNOWN_CURRENCY] ?? null;
+
+        if ($unknown === null) {
+            // Nothing was assumed, so nothing is claimed. Returning `$this` rather than a copy
+            // with an empty note keeps "this figure carries an assumption" and "it does not"
+            // distinguishable by `hasCaveat()` alone.
+            return $this;
+        }
+
+        $folded = $this->byCurrency;
+        unset($folded[self::UNKNOWN_CURRENCY]);
+        $folded[$currency] = round(($folded[$currency] ?? 0.0) + (float) $unknown, 2);
+
+        $caveats = $this->caveats;
+
+        // MIXED_CURRENCY was attached by make() because `unknown` was a second bucket. If folding
+        // leaves one, the result is no longer mixed and must stop saying so -- a caveat that is
+        // false is worse than one that is missing.
+        if (count($folded) <= 1) {
+            $caveats = array_values(array_filter(
+                $caveats,
+                static fn (string $c): bool => $c !== MetricCaveat::MIXED_CURRENCY
+            ));
+        }
+
+        $caveats[] = MetricCaveat::CURRENCY_UNRECORDED;
+
+        return self::make(
+            $this->metric,
+            $this->record,
+            $this->datedBy,
+            $folded,
+            $this->rowCount,
+            $this->scope,
+            $this->window,
+            array_values(array_unique($caveats)),
+            array_merge($this->notes, [
+                'currency_assumed_amount' => round((float) $unknown, 2),
+                'currency_assumed_into' => $currency,
+            ]),
+        );
+    }
+
+    /**
+     * How much of this figure is in no known currency. Zero when every row carries one.
+     *
+     * Exposed separately so a surface can decide whether the assumption is worth mentioning
+     * prominently or at all -- an `unknown` amount of 0.00 on a store with no history needs no
+     * explaining, and one that is most of the figure needs more than a caveat line.
+     */
+    public function unrecordedCurrencyAmount(): float
+    {
+        return (float) ($this->byCurrency[self::UNKNOWN_CURRENCY] ?? 0.0);
     }
 
     /** @return string[] */

@@ -85,6 +85,28 @@ final class MetricCaveat
     public const RECONCILIATION_DIVERGENCE = 'reconciliation_divergence';
 
     /**
+     * SOME OF THIS FIGURE PREDATES CURRENCY RECORDING AND WAS ASSUMED INTO THE NAMED CURRENCY.
+     *
+     * `orders.currency_code` was added by `2026_10_12_000102` and that migration says, verbatim,
+     * "historical rows keep NULL -- this migration does NOT backfill, because the correct
+     * per-order historical rate is not recoverable from code, and inventing one would be exactly
+     * the silent divergence GATE F exists to prevent. Reading code must tolerate NULL on
+     * pre-migration orders."
+     *
+     * Tolerating NULL is what `Metric::sumByCurrency()` does: it buckets those rows under
+     * `unknown`. But a merchant tile renders ONE number beside ONE currency symbol, and
+     * `MetricResult::total()` refuses to add two buckets -- so on any store with history the
+     * obvious wiring is an uncaught exception on a merchant admin route.
+     *
+     * `MetricResult::assumingUnknownCurrencyIs()` resolves that, and this caveat is the price of
+     * it. Inventing a RATE is forbidden; stating an ASSUMPTION is not, and the assumption is
+     * narrow: that orders placed before the column existed were in the currency the store uses
+     * now. `notes()['currency_assumed_amount']` carries how much money that covers, so the
+     * merchant can see whether the assumption matters at all.
+     */
+    public const CURRENCY_UNRECORDED = 'currency_unrecorded';
+
+    /**
      * Section 11 rule 3, the second limb. `order_refunds.refund_amount` carries NO currency column
      * at all, so a refund figure derived from it cannot be converted and cannot be safely added to
      * a figure that was.
@@ -101,6 +123,7 @@ final class MetricCaveat
         self::FLOAT_PRECISION => 'This figure is stored at limited precision and may differ from the ledger in the smallest units.',
         self::RECONCILIATION_DIVERGENCE => 'The ledger and the order records disagree on this figure.',
         self::REFUND_AMOUNT_UNCONVERTED => 'Refund amounts carry no currency and have not been converted.',
+        self::CURRENCY_UNRECORDED => 'Some of these orders predate currency recording and are counted in your store\'s currency.',
     ];
 
     /**
