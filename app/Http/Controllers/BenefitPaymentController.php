@@ -126,7 +126,19 @@ class BenefitPaymentController extends Controller
                         "receipt" => ["email" => true, "sms" => true],
                         "customer" => ["first_name" => $objUser->name, "middle_name" => "", "last_name" => "", "email" => $objUser->email, "phone" => ["country_code" => 965, "number" => 51234567]],
                         "source" => ["id" => "src_bh.benefit"],
-                        "post" => ["url" => "https://webhook.site/fd8b0712-d70a-4280-8d6f-9f14407b3bbd"],
+                        /*
+                         * P4-F046 -- THE PUBLIC BIN IS GONE. Owner decision: "remove webhook.site".
+                         *
+                         * The same committed bin as the storefront's, on the SaaS-plan rail, and
+                         * worse here in one respect: the sibling `redirect.url` below carries
+                         * plan_id, amount and coupon, so the bin would have received the complete
+                         * replay tuple in the SAME payload as the Tap charge id.
+                         *
+                         * `null` is the shape processTap already ships for this provider. It
+                         * removes the bin WITHOUT choosing a new destination -- that remains the
+                         * open owner decision P1-SEC-55, which this does not pre-empt.
+                         */
+                        "post" => ["url" => null],
                         "redirect" => ["url" => route('benefit.call_back', ['plan_id' => $plan->id, 'amount' => $get_amount, 'coupon' => $coupon])],
 
 

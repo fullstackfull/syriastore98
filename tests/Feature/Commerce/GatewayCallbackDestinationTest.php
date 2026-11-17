@@ -41,27 +41,31 @@ use Tests\TestCase;
 class GatewayCallbackDestinationTest extends TestCase
 {
     /**
-     * Every first-party source file that still names a third-party callback bin, with the exact
-     * reason it is still there.
+     * First-party source files that still name a third-party callback bin.
      *
-     * TWO ENTRIES, AND BOTH ARE OWNER DECISIONS rather than oversights:
+     * **EMPTY SINCE 2026-11-17, AND THAT IS THE POINT OF THIS COMMIT.** Both entries were removed
+     * under P4-F046, on the owner's decision "remove webhook.site":
      *
-     *   - `PaymentService::processBenefit()` is the STOREFRONT Benefit charge. Re-pointing its
-     *     callback changes where a live gateway sends real settlement notifications for real
-     *     money, which is not an engineering call. This is P4-F046 and it is in Phase 04's scope.
+     *   - `PaymentService::processBenefit()` -- the STOREFRONT Benefit charge.
+     *   - `BenefitPaymentController` -- the SAAS PLAN path, a merchant buying a subscription.
      *
-     *   - `BenefitPaymentController` is the SAAS PLAN path — a merchant buying a subscription,
-     *     not a shopper buying goods. Same bin, same mechanism, different rail, and that rail is
-     *     Phase 06. Listed here rather than left out, because "the commerce callback is declared"
-     *     must not read as "this is the only one".
+     * Both now send `"post" => ["url" => null]`, which is the shape `processTap` ALREADY SHIPS in
+     * the same file for the same provider and the same endpoint. So the bin is gone without a new
+     * destination being chosen -- and choosing one remains the open owner decision P1-SEC-55,
+     * which that change deliberately does not pre-empt.
+     *
+     * KEEPING THIS CONSTANT AT `[]` RATHER THAN DELETING THE TEST IS DELIBERATE. The assertion now
+     * reads "no first-party file names a bin", which is a stronger ratchet than the one it
+     * replaces: previously a third file could only be caught as a new KEY, now any hit at all
+     * fails. Deleting it would retire the guard at the moment it finally has nothing to permit.
      *
      * A THIRD COPY WAS DELETED instead of declared: see
      * `test_the_dead_order_exfiltration_helper_is_not_reintroduced()`.
+     *
+     * THREE VENDORED COPIES REMAIN and are NOT asserted -- see VENDORED_COPIES_NOT_ASSERTED. First
+     * -party code being clean is not the platform being clean, and this file has always said so.
      */
-    private const DECLARED_FIRST_PARTY_BINS = [
-        'app/Http/Controllers/BenefitPaymentController.php' => 1,
-        'app/Services/PaymentService.php' => 1,
-    ];
+    private const DECLARED_FIRST_PARTY_BINS = [];
 
     /**
      * The vendored copies, recorded and NOT asserted.
@@ -143,7 +147,8 @@ class GatewayCallbackDestinationTest extends TestCase
             . "A NEW one is a defect: a gateway callback carries, for every payment, who bought "
             . "what and for how much, and a webhook.site bin is public to anyone holding its URL "
             . "-- which is committed here and in git history.\n"
-            . "A REMOVED one is good news and wants this list updated, not relaxed.\n"
+            . "A REMOVED one is good news and wants this list updated, not relaxed -- it was "
+            . "updated to EMPTY on 2026-11-17 when P4-F046 removed both.\n"
             . 'Vendored copies are deliberately not counted: ' . implode('; ', self::VENDORED_COPIES_NOT_ASSERTED)
         );
     }

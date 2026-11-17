@@ -1814,7 +1814,27 @@ private function processPaymera00000($request, $slug)
                 // (PaymentController::processBillingInfo and the three order writers' billing rows).
                 "customer" => ["first_name" => $other_info['firstname'], "middle_name" => "", "last_name" => $other_info['lastname'] ?? '', "email" => $other_info['email'], "phone" => ["country_code" => 965, "number" => 51234567]],
                 "source" => ["id" => "src_bh.benefit"],
-                "post" => ["url" => "https://webhook.site/fd8b0712-d70a-4280-8d6f-9f14407b3bbd"],
+                /*
+                 * P4-F046 -- THE PUBLIC BIN IS GONE. Owner decision: "remove webhook.site".
+                 *
+                 * `post.url` is Tap's SERVER-TO-SERVER notification destination. It pointed at
+                 * `https://webhook.site/fd8b0712-...`, a PUBLIC bin whose URL was committed in this
+                 * repository, so for every real Benefit shopper Tap was asked to POST the charge --
+                 * amount, currency, the first product's name, the customer's name and email, and
+                 * the charge id this platform's return paths treat as proof of payment -- to a page
+                 * anyone holding that URL can read.
+                 *
+                 * `null` IS THE SHAPE ALREADY SHIPPED IN THIS FILE: processTap, the same provider
+                 * and the same endpoint, sends `'post' => ['url' => null]`. So this removes the bin
+                 * WITHOUT choosing a new destination -- and choosing one is a separate open owner
+                 * decision (P1-SEC-55), which this change deliberately does not pre-empt.
+                 *
+                 * WHAT IS LOST BY SENDING null: nothing this application was using. No route in
+                 * this repository receives a Tap server-to-server callback -- measured, the only
+                 * credential-authenticated provider-callback receiver is the delivery one. The
+                 * shopper's return is `redirect.url` below, which is unchanged.
+                 */
+                "post" => ["url" => null],
                 "redirect" => ["url" => route('store.payment.status', $slug)],
 
             ];
@@ -1831,13 +1851,87 @@ private function processPaymera00000($request, $slug)
                     'content-type' => 'application/json',
                 ],
             ]);
+            /*
+             * P4-F046 -- THE UNWRAP IS INSIDE THE TRY NOW, and it was the second half of the bug.
+             *
+             * It used to sit below the catch, so a 200 carrying an error body -- which Tap does
+             * send -- left `$res->transaction` null and PHP 8 raised an uncaught \Error. The
+             * shopper got a white page from a response the server had successfully received.
+             */
+            $res = json_decode($response->getBody());
+
+            if (! isset($res->transaction->url) || ! is_string($res->transaction->url)) {
+                Log::warning('Benefit charge returned no redirect url', [
+                    'store_id' => $store->id,
+                    'provider_error' => $res->errors ?? null,
+                ]);
+
+                return redirect()->back()->with(
+                    'error',
+                    __('The payment provider did not return a payment page. Please try again or contact the store.')
+                );
+            }
+
+            return $res->transaction->url;
+
+        /*
+         * P4-F046 -- THE CATCH IS NARROWED, as the owner's decision asks.
+         *
+         * It was a single `catch (\Throwable)` answering EVERY failure with "Currency Not
+         * Supported.Contact To Your Site Admin" -- a wrong credential, an unreachable provider, a
+         * malformed body and a genuine currency rejection all produced the same sentence, and the
+         * real reason was recorded NOWHERE. A merchant chasing "currency not supported" could not
+         * learn that their secret key was wrong.
+         *
+         * Each arm logs what actually happened, with the store and Tap's own error payload, and
+         * says something true to the shopper. The currency message survives only where it may
+         * really be a currency rejection -- a 4xx from the provider.
+         *
+         * `\Throwable` is kept LAST on purpose. Narrowing a catch that currently swallows
+         * everything must not turn a previously-handled failure into a 500 on a payment path; the
+         * final arm preserves the old behaviour for anything the three named arms do not match,
+         * while still logging it.
+         */
+        } catch (\GuzzleHttp\Exception\ConnectException $e) {
+            Log::error('Benefit charge could not reach the provider', [
+                'store_id' => $store->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            return redirect()->back()->with(
+                'error',
+                __('The payment provider could not be reached. Please try again shortly.')
+            );
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            // 4xx -- a rejected request. A currency the account cannot take is one of these, and so
+            // is a bad credential, so the message stays the historical one while the LOG tells the
+            // operator which it was.
+            Log::error('Benefit charge was rejected by the provider', [
+                'store_id' => $store->id,
+                'status' => $e->getResponse()?->getStatusCode(),
+                'provider_body' => (string) $e->getResponse()?->getBody(),
+            ]);
+
+            return redirect()->back()->with('error', 'Currency Not Supported.Contact To Your Site Admin');
+        } catch (\GuzzleHttp\Exception\ServerException $e) {
+            Log::error('Benefit charge failed inside the provider', [
+                'store_id' => $store->id,
+                'status' => $e->getResponse()?->getStatusCode(),
+            ]);
+
+            return redirect()->back()->with(
+                'error',
+                __('The payment provider reported an error. Please try again shortly.')
+            );
         } catch (\Throwable $th) {
+            Log::error('Benefit charge failed for an unclassified reason', [
+                'store_id' => $store->id,
+                'exception' => $th::class,
+                'message' => $th->getMessage(),
+            ]);
+
             return redirect()->back()->with('error', 'Currency Not Supported.Contact To Your Site Admin');
         }
-
-        $data = $response->getBody();
-        $res = json_decode($data);
-        return $res->transaction->url;
     }
 
     private function processCashFree($request, $slug, $response)
