@@ -54,6 +54,20 @@ class SecurityLogInventoryTest extends SecurityTestCase
      * correct outcome, not a false positive. The message is carried alongside so a failure says
      * which line moved rather than only that something did.
      *
+     * THIS RATCHET IS COUPLED TO A SECOND ONE IN THE SAME FILE, and the pair cascaded twice in
+     * one sitting (2026-11-17, P5-9). app/Http/Controllers/PaymentController.php carries BOTH the
+     * log lines this test keys on AND the four line numbers that
+     * `Tests\Feature\Commerce\PaymeraPostCommitClaimTest::test_the_cited_anchors_still_name_what_they_claim`
+     * asserts. So: comments added for P5-9 moved the log rows, the resync fixed them, the SAME
+     * comments had moved the Paymera anchors, correcting THAT comment added four more lines, and
+     * those four lines moved the log rows again. Two fixes, three breakages.
+     *
+     * SO WHEN YOU TOUCH PaymentController.php, EXPECT BOTH. Run the resync below AND
+     * PaymeraPostCommitClaimTest, and run them in that order only after the code edit is final --
+     * the Paymera fix changes PaymentController and therefore re-dirties this inventory, while the
+     * resync writes only docs/ and cannot re-dirty the anchors. One direction cascades; the other
+     * does not.
+     *
      * REGENERATING IT IS MECHANICAL, and it was not when this test was written:
      * `python3 docs/development/phase-1/tools/resync-observability-inventory.py --write`
      * re-points the rows by (file, message) -- the parts that do not move -- and refuses to write
