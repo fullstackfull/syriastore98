@@ -68,9 +68,25 @@ These are faults in the shipped reporting suite. None is caused by P5-2 and none
 They are recorded because a planning pass that found them and did not write them down would have
 wasted them.
 
+### 2a. The finding that explains all of the others — **[verified here]**
+
+**`ReportController` cannot be executed by this project's test suite at all.** It calls `MONTH()`
+**36** times and `YEAR()` **9** times inside `selectRaw`, and SQLite has neither — measured:
+`SELECT MONTH('2026-11-30')` answers `SQLSTATE[HY000]: General error: 1 no such function: MONTH`.
+I found this by writing a Feature test for defect 1 and watching all five cases return **HTTP 500**
+before they reached a single assertion.
+
+So a 3,660-line controller carrying zero `payment_status` predicates and an eighteen-site date
+bug has been shipped **unexercised by 9,112 Feature tests**. Nothing was skipped and nothing was
+declared; the endpoints simply cannot run on the suite's engine. Any future work on these surfaces
+needs the MySQL harness, and a Feature test written for them will pass vacuously or fail
+confusingly.
+
+---
+
 | # | defect | evidence |
 |---|---|---|
-| 1 | **Three of five period buttons silently drop the final day of the period.** `->where('order_date','<=', date('Y-m-t',$end))` compares a bare DATE string against a DATETIME column. Since `date('Y-m-t')` for *last month* always resolves to a date already past, **"last month" permanently loses its last day of trading.** | **[verified here]** `ReportController.php:511`, `:577`, `:723`, and again in the chart-data endpoint at `:1013-1016`, `:1085-1088`, `:1229-1232`, `:1349-1352`. Measured on MariaDB 10.11.14: of four rows (29 Nov 12:00, 30 Nov 00:00, 30 Nov 09:15, 30 Nov 23:59:59), the bare bound keeps **2**, an `endOfDay()` bound keeps **4**. On SQLite the bare bound keeps **1**. `MetricWindow::applyTo()` already uses `startOfDay()`/`endOfDay()`, so surfaces moved onto it get this fixed as a side effect. |
+| 1 | **FIXED.** **Three of five period buttons silently drop the final day of the period.** `->where('order_date','<=', date('Y-m-t',$end))` compares a bare DATE string against a DATETIME column. Since `date('Y-m-t')` for *last month* always resolves to a date already past, **"last month" permanently loses its last day of trading.** | **[verified here]** `ReportController.php:511`, `:577`, `:723`, and again in the chart-data endpoint at `:1013-1016`, `:1085-1088`, `:1229-1232`, `:1349-1352`. Measured on MariaDB 10.11.14: of four rows (29 Nov 12:00, 30 Nov 00:00, 30 Nov 09:15, 30 Nov 23:59:59), the bare bound keeps **2**, an `endOfDay()` bound keeps **4**. On SQLite the bare bound keeps **1**. `MetricWindow::applyTo()` already uses `startOfDay()`/`endOfDay()`, so surfaces moved onto it get this fixed as a side effect. **Fixed at all 18 sites** (12 on `order_date`, 3 on `regiester_date`, 3 on `last_active`) by converting both bounds to `whereDate`, the idiom the same file already uses at `:260-261` and `:269-297`. End-to-end on MariaDB: with 195.00 placed inside the period the report returned **112.00** before and **195.00** after — short by exactly the 70.00 and 13.00 placed on the final day at 14:00 and 23:59:59, while the 7.00 at midnight was admitted, which pins the mechanism. Reverting one site drops it back to 112.00. |
 | 2 | **The tile labelled "Order value, before discounts" is after discounts.** `orders.final_price` is written already net of the coupon *and* inclusive of shipping and tax. A merchant reading that tile beside "Order value" and "Coupon value applied" concludes the first two differ by the discount; measured, they differ by shipping + tax. | `PaymentService.php:3026` sets `coupon_price` separately and computes `final_price` from the already-discounted subtotal; `OrderFinancialService` maps `discount_amount` and `customer_total` as distinct columns. Renders at `resources/views/reports/_sales_stats.blade.php:14-17`. |
 | 3 | **The category report drops the last day of a custom range, and returns nothing at all for a single-day selection.** `ReportController:2194` builds its `DatePeriod` with no `->modify('+1 day')` on the end bound, which product (`:1769`) and brand (`:2689`) both have. `DatePeriod('2026-03-05' … '2026-03-05')` yields **zero** iterations; orders are fetched at `:2216-2217` and then discarded at `:2239`. | Challenger reproduced the `DatePeriod` arithmetic independently. |
 | 4 | **The brand year report omits December from every brand card.** At `:2532` the card total `array_sum($brandNetSales[...])` executes *before* `:2534` assigns that month's value, inside a months-outer/brands-inner loop, so the final index is never included. A correctly-accumulated `$NetSalesOfBrand` (capital O) exists at `:2576-2579` and is read nowhere — the view reads `$NetSalesofbrand`. | Read directly by the challenger; the omitted index is always the last of `$monthList`. |
@@ -120,8 +136,9 @@ chart offers no account of why.
 | | |
 |---|---|
 | **P5-3a** | **DONE.** `MetricResult::assumingUnknownCurrencyIs()` plus `unrecordedCurrencyAmount()` and the `CURRENCY_UNRECORDED` caveat. 7 new unit tests, 7 of 7 mutations redden, and 7 checks on a genuinely NULL `currency_code` row on MariaDB — including that `total()` really does throw before folding, which is the 500 this prevents. See `PHASE-05-METRIC-LAYER.md`. |
-| **P5-3b** | Fix defect 1 (the date-boundary truncation) at the eight named sites. Small, bounded, independent of everything else. |
+| **P5-3b** | **DONE.** Defect 1 fixed at **18** sites, not the eight first reported. Evidence: `tests/Support/Security/bin/verify-report-window-boundary-on-mysql.php`, 5 checks 0 failed, with the before-figure and the single-site mutation both measured. The merchant's "last month" sales report now includes the last day of the month. |
 | **P5-3c** | Wire surfaces, one at a time, each with its before/after figure recorded — and only where the entitlement record's 2026-11-02 start does not make the figure useless. |
 | **owner** | What should the "Order value" tile show? Retire it, relabel it, or keep it and add a separate collection figure beside it (which is what ANA-005 reads most naturally)? |
 | **owner** | Whether `orders.currency_code` should ever be backfilled. **Not proposed here** — the migration argues against it, and it is a live-data operation. |
-| **separate** | Defects 3–8 and 11 are shipped reporting bugs with no Phase 05 dependency. They are not P5-3's to absorb silently; each needs its own disposition. |
+| **separate** | Defects 2–8 and 11 are shipped reporting bugs with no Phase 05 dependency. They are not P5-3's to absorb silently; each needs its own disposition. Defect 2 (the false "before discounts" label) is a one-line translation change but it changes what a merchant reads, so it is listed rather than taken. |
+| **tooling** | Finding 2a means these surfaces need the MySQL harness as a standing requirement, not a one-off. Two scripts now exist (`verify-metric-layer-on-mysql.php`, `verify-report-window-boundary-on-mysql.php`); `run-mysql-verifications.sh` is where they should be registered so CI or a reviewer can run the set. |

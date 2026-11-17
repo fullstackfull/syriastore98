@@ -30,6 +30,41 @@ class ReportController extends Controller
         $this->middleware(\App\Http\Middleware\ReportPermission::class);
     }
 
+    /*
+     * P5-3b -- WHY EVERY MONTH-WINDOW BOUND IN THIS FILE USES `whereDate` AND NOT `where`.
+     *
+     * Eighteen bounds across three handlers read
+     *   ->where('order_date', '<=', date('Y-m-t', $end))
+     * which compares a BARE DATE STRING against a DATETIME column. MySQL casts it to midnight, so
+     * `order_date <= '2026-10-31'` admitted an order placed at 2026-10-31 00:00:00 and refused one
+     * placed at 00:00:01 -- the whole final day of trading, minus the first second.
+     *
+     * `date('Y-m-t')` for *this month* and *year* resolves to a date in the future for most of the
+     * period, so there it only bit on the final day itself. For *last month* it always resolves to
+     * a date already past, so **the last day of trading was missing from that report every single
+     * month**.
+     *
+     * MEASURED, not inferred. On MariaDB 10.11.14 with 195.00 of orders placed inside the period,
+     * the sales report returned 112.00 -- short by exactly the 70.00 and 13.00 placed on the final
+     * day at 14:00 and 23:59:59, while the 7.00 placed at midnight was admitted.
+     * `tests/Support/Security/bin/verify-report-window-boundary-on-mysql.php` is that measurement.
+     *
+     * `whereDate` compares `DATE(col)` against the bound, which is right at both ends and is the
+     * idiom THIS FILE ALREADY USES at :260-261 and :269-297. The lower bound was already correct
+     * -- `>= 'Y-m-01'` is midnight on the first -- and was converted with it so the pair reads as
+     * one intent; `DATE(col) >= '2026-11-01'` and `col >= '2026-11-01'` select the same rows.
+     *
+     * THERE IS NO INDEX TO LOSE. `orders` carries no `(store_id, order_date)` composite, so these
+     * queries were already a `store_id` scan filtered by date, and wrapping the column in `DATE()`
+     * costs nothing that was being used.
+     *
+     * NOTE FOR ANYONE ADDING A TEST HERE: this controller calls `MONTH()` 36 times and `YEAR()` 9
+     * times inside `selectRaw`, and SQLite has neither -- so every handler in this file answers
+     * HTTP 500 under the project's test suite and CANNOT be covered by it. That is why an
+     * eighteen-site bug survived 9,112 Feature tests, and why the evidence for this fix is a
+     * MySQL script rather than a test.
+     */
+
     /**
      * Display a listing of the resource.
      *
@@ -61,19 +96,19 @@ class ReportController extends Controller
             $end = strtotime(date('Y-m-t', $prevMonth));
             $date = (int) date('j', strtotime($end));
 
-            $user->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 0)->where('store_id', getCurrentStore());
+            $user->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 0)->where('store_id', getCurrentStore());
             $user = $user->get();
 
             $register_customer = Customer::selectRaw('customers.*,DATE(regiester_date) as DATE,MONTH(regiester_date) as month');
-            $register_customer->where('regiester_date', '>=', date('Y-m-01', $start))->where('regiester_date', '<=', date('Y-m-t', $end))->where('regiester_date', '!=', NULL)->where('store_id', getCurrentStore());
+            $register_customer->whereDate('regiester_date', '>=', date('Y-m-01', $start))->whereDate('regiester_date', '<=', date('Y-m-t', $end))->where('regiester_date', '!=', NULL)->where('store_id', getCurrentStore());
             $register_customer = $register_customer->get();
 
             $new_guest = Customer::selectRaw('customers.*,DATE(last_active) as DATE,MONTH(last_active) as month');
-            $new_guest->where('last_active', '>=', date('Y-m-01', $start))->where('last_active', '<=', date('Y-m-t', $end))->where('regiester_date', '=', NULL)->where('store_id', getCurrentStore());
+            $new_guest->whereDate('last_active', '>=', date('Y-m-01', $start))->whereDate('last_active', '<=', date('Y-m-t', $end))->where('regiester_date', '=', NULL)->where('store_id', getCurrentStore());
             $new_guest = $new_guest->get();
 
             $guests = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $guests->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 1)->where('store_id', getCurrentStore());
+            $guests->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 1)->where('store_id', getCurrentStore());
             $guests = $guests->get();
 
             $userTotalArray = [];
@@ -123,20 +158,20 @@ class ReportController extends Controller
             $end = strtotime(date('Y-m-t'));
             $day = (int) date('j', strtotime($end));
 
-            $user->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 0)->where('store_id', getCurrentStore());
+            $user->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 0)->where('store_id', getCurrentStore());
             $user = $user->get();
 
 
             $register_customer = Customer::selectRaw('customers.*,DATE(regiester_date) as DATE,MONTH(regiester_date) as month');
-            $register_customer->where('regiester_date', '>=', date('Y-m-01', $start))->where('regiester_date', '<=', date('Y-m-t', $end))->where('regiester_date', '!=', NULL)->where('store_id', getCurrentStore());
+            $register_customer->whereDate('regiester_date', '>=', date('Y-m-01', $start))->whereDate('regiester_date', '<=', date('Y-m-t', $end))->where('regiester_date', '!=', NULL)->where('store_id', getCurrentStore());
             $register_customer = $register_customer->get();
 
             $new_guest = Customer::selectRaw('customers.*,DATE(last_active) as DATE,MONTH(last_active) as month');
-            $new_guest->where('last_active', '>=', date('Y-m-01', $start))->where('last_active', '<=', date('Y-m-t', $end))->where('regiester_date', '=', NULL)->where('store_id', getCurrentStore());
+            $new_guest->whereDate('last_active', '>=', date('Y-m-01', $start))->whereDate('last_active', '<=', date('Y-m-t', $end))->where('regiester_date', '=', NULL)->where('store_id', getCurrentStore());
             $new_guest = $new_guest->get();
 
             $guests = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $guests->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 1)->where('store_id', getCurrentStore());
+            $guests->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 1)->where('store_id', getCurrentStore());
             $guests = $guests->get();
 
             $userTotalArray = [];
@@ -202,19 +237,19 @@ class ReportController extends Controller
             $user = Order::selectRaw('orders.*,MONTH(order_date) as month,YEAR(order_date) as year');
             $start = strtotime(date('Y-01'));
             $end = strtotime(date('Y-12'));
-            $user->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 0)->where('store_id', getCurrentStore());
+            $user->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 0)->where('store_id', getCurrentStore());
             $user = $user->get();
 
             $guests = Order::selectRaw('orders.*,MONTH(order_date) as month,YEAR(order_date) as year');
-            $guests->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 1)->where('store_id', getCurrentStore());
+            $guests->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 1)->where('store_id', getCurrentStore());
             $guests = $guests->get();
 
             $register_customer = Customer::selectRaw('customers.*,MONTH(regiester_date) as month,YEAR(regiester_date) as year');
-            $register_customer->where('regiester_date', '>=', date('Y-m-01', $start))->where('regiester_date', '<=', date('Y-m-t', $end))->where('regiester_date', '!=', NULL)->where('store_id', getCurrentStore());
+            $register_customer->whereDate('regiester_date', '>=', date('Y-m-01', $start))->whereDate('regiester_date', '<=', date('Y-m-t', $end))->where('regiester_date', '!=', NULL)->where('store_id', getCurrentStore());
             $register_customer = $register_customer->get();
 
             $new_guest = Customer::selectRaw('customers.*,MONTH(last_active) as month,YEAR(last_active) as year');
-            $new_guest->where('last_active', '>=', date('Y-m-01', $start))->where('last_active', '<=', date('Y-m-t', $end))->where('regiester_date', '=', NULL)->where('store_id', getCurrentStore());
+            $new_guest->whereDate('last_active', '>=', date('Y-m-01', $start))->whereDate('last_active', '<=', date('Y-m-t', $end))->where('regiester_date', '=', NULL)->where('store_id', getCurrentStore());
             $new_guest = $new_guest->get();
 
 
@@ -508,7 +543,7 @@ class ReportController extends Controller
             $lastday = date('j', strtotime($lastDayofMonth));
 
             $orders = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $orders->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
+            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
             $orders = $orders->get();
             $TotalOrder = $orders->count();
 
@@ -574,7 +609,7 @@ class ReportController extends Controller
             $day = (int) date('j', strtotime($end));
 
             $orders = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $orders->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
+            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
             $orders = $orders->get();
             $TotalOrder = $orders->count();
 
@@ -720,7 +755,7 @@ class ReportController extends Controller
             $orders = Order::selectRaw('orders.*,MONTH(order_date) as month,YEAR(order_date) as year');
             $start = strtotime(date('Y-01'));
             $end = strtotime(date('Y-12'));
-            $orders->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
+            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
             $orders = $orders->get();
             $order = Order::where('store_id', getCurrentStore())
                 ->whereYear('order_date', date('Y'))
@@ -983,7 +1018,7 @@ class ReportController extends Controller
             $lastday = date('j', strtotime($lastDayofMonth));
 
             $orders = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $orders->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
+            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
             $orders = $orders->get();
             $TotalOrder = $orders->count();
             $TotalOrderCount = Order::selectRaw('orders.*, MONTH(order_date) as month, YEAR(order_date) as year')
@@ -1054,7 +1089,7 @@ class ReportController extends Controller
             $day = (int) date('j', strtotime($end));
 
             $orders = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $orders->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
+            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
             $orders = $orders->get();
             $TotalOrder = $orders->count();
 
@@ -1200,7 +1235,7 @@ class ReportController extends Controller
             $orders = Order::selectRaw('orders.*,MONTH(order_date) as month,YEAR(order_date) as year');
             $start = strtotime(date('Y-01'));
             $end = strtotime(date('Y-12'));
-            $orders->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
+            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
             $orders = $orders->get();
             $TotalOrderCount = Order::selectRaw('orders.*, MONTH(order_date) as month, YEAR(order_date) as year')
                 ->whereYear('order_date', date('Y')) // Filter by the current year
