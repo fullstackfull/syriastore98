@@ -150,6 +150,66 @@ than `==` and `&&`. Full evidence, four options and their consequences:
 
 ---
 
+### P5-10 — `/finance` profit figures — **ADDED AND SHIPPED 2026-11-17**
+Found by measuring `ANA-006` ("do NOT claim precise profitability when cost or fee data is
+missing"). `/finance` is the only surface in either repository that renders profit, and it renders
+it twice. Both were wrong, in opposite directions, and neither disclosed anything.
+
+**Recovered decision IDs:** `ANA-006` — **PARTIAL**, the two named figures are now disclosed;
+fee data remains absent entirely. `ANA-007` — unchanged, see P5-11.
+
+**A fallback that could never fire.** `$product->sale_price ?? $product->price ?? 0` — and
+`products.sale_price` is `float NOT NULL DEFAULT 0`, so `??` never reached `price`. A product
+simply not on sale was valued at **0** retail while still carrying its full cost, and
+`Potential Profit` rendered `0 − cost`: negative, in debit red, for an ordinary store. Measured:
+retail `0.00` where `1,000.00` is right, profit `−600.00` where `+400.00` is right. The variant
+branch twenty lines up has the identical spelling and is **correct**, because
+`product_variants.variation_price` is nullable — the asymmetry is pinned by two tests. The
+replacement is the product's own convention (`Product.php:323`, `product_price.blade.php:4`,
+`preview.blade.php:59`, `ApiController 499/781/804`), not a new judgement.
+
+**Two disclosures, both measured.** `products.cost_price` and
+`store_order_financials.product_cost` are each `decimal NOT NULL DEFAULT 0.00`, so an unrecorded
+cost is indistinguishable from a free item and hands its whole value to profit. Neither figure can
+be corrected without the missing data, so each is qualified with a live count and, for the tile,
+the exact amount exposed. They self-adjust and fall silent when the books are complete. **These are
+the first caveats any figure in this product carries on screen** — matrix row `P05-04`, which said
+"no figure in the product carries a caveat today", is corrected.
+
+**Nothing stored moved.** Both figures are derived on read; no order total, ledger row, wallet
+balance or customer-facing price is touched. The block was inherited at the Phase 2.5 merge
+`4e878b8d` and is not Phase 05's own code.
+
+**Evidence.** `tests/Feature/Merchant/FinanceInventoryValuationTest.php` — 17 tests, 69 assertions.
+**14 mutations run, 14 reddened, none survived.** Two survivors along the way, both informative:
+the `$productUnits > 0` guard looked dead because the simple branch's `continue` already covers it,
+until a variant product with no stock anywhere was tested; and `> 0.0` → `!= 0.0` survived behind a
+**claim of mine that independent review proved false** — the host validators do enforce
+`sale_price >= 0`, but `ImportExport` (`required|numeric`, no `min:0`), `AuctionProduct` and
+`DigitalProduct` (`required` alone) all write that column and do not, so a negative IS reachable and
+the guard IS load-bearing. A test now pins it. **The census failure is the lesson**: an inventory
+keyed on `app/` alone, which is this repository's recurring defect, reproduced exactly.
+
+Review also caught two assertions that could not fail (`assertStringContainsString('200.00', …)` is
+satisfied by the `1,200.00` in an adjacent tile; the catalogue tenancy test asserted only
+pre-existing view data and was green with the slice reverted) and a **caveat that itself
+overstated** — `gross_profit` with no cost is the discounted product subtotal, not the order value,
+which is the neighbouring `Total` column. All four corrected. Bilingual (ar/en), RTL-safe via
+`border-inline-start`, contrast 8.28:1 light and 8.25:1 dark.
+
+### P5-11 — `<x-ss.stat>` cannot display a caveat — **NOT STARTED**
+The component renders its `hint` inside `<span class="ss-visually-hidden">`, which
+`store-syria-ds.css:2238-2246` clips to 1×1 with **no hover or focus reveal**. Nine `:hint=`
+usages sit on it and they are precisely Phase 05's "this is not payments received, and not profit"
+sentences — so that work, including the wording corrected under the owner's third recommendation,
+**is invisible to every sighted merchant**. The three sibling components render their hint visibly,
+and no test pins the difference as intended; the component is inherited from `4e878b8d`.
+
+**Do this before routing any further caveat through the component.** It changes no number, needs no
+owner decision, and is the cheapest change with the widest reach in the whole of `P05-04`. Tracked
+as `GAP-201`. It does change the visible layout of nine tiles across five surfaces, so it needs its
+own both-direction and contrast evidence rather than riding along with P5-10.
+
 ## 3. What this phase will NOT do
 
 - **Invent metrics, customer events or campaign outcomes.** If the data does not record it, the

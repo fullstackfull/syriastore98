@@ -1,4 +1,8 @@
 {
+    "Some of these margins cannot be computed": "بعض هوامش الربح هذه لا يمكن احتسابها",
+    "Cost is not recorded for :uncosted of :total orders in this ledger. Those rows show the discounted product subtotal as margin, because there is no cost to subtract from it.": "لم تُسجَّل التكلفة لـ :uncosted من أصل :total من الطلبات في هذا السجل. تعرض هذه الصفوف إجمالي المنتجات بعد الخصم كهامش ربح، لعدم وجود تكلفة تُخصم منها.",
+    "Potential Profit is not precise": "الربح المتوقع ليس رقماً دقيقاً",
+    "Cost is not recorded for :uncosted of :valued in-stock products. Those products contribute :amount of retail value with no cost subtracted, so Potential Profit is overstated by up to that amount.": "لم تُسجَّل التكلفة لـ :uncosted من أصل :valued من المنتجات المتوفرة في المخزون. تساهم هذه المنتجات بـ :amount من قيمة البيع دون خصم أي تكلفة، لذلك فإن الربح المتوقع مُبالغ فيه بما يصل إلى هذا المقدار.",
     " : ": ":",
     " added to cart successfully!": "تم إضافته إلى العربة بنجاح!",
     " Already have an account?": "هل لديك حساب بالفعل؟",

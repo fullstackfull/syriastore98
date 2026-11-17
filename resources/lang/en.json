@@ -1,4 +1,8 @@
 {
+    "Some of these margins cannot be computed": "Some of these margins cannot be computed",
+    "Cost is not recorded for :uncosted of :total orders in this ledger. Those rows show the discounted product subtotal as margin, because there is no cost to subtract from it.": "Cost is not recorded for :uncosted of :total orders in this ledger. Those rows show the discounted product subtotal as margin, because there is no cost to subtract from it.",
+    "Potential Profit is not precise": "Potential Profit is not precise",
+    "Cost is not recorded for :uncosted of :valued in-stock products. Those products contribute :amount of retail value with no cost subtracted, so Potential Profit is overstated by up to that amount.": "Cost is not recorded for :uncosted of :valued in-stock products. Those products contribute :amount of retail value with no cost subtracted, so Potential Profit is overstated by up to that amount.",
     "No activity yet": "No activity yet",
     "This customer has registered but has not browsed, added to cart or placed an order yet. Their activity will appear here as it happens.": "This customer has registered but has not browsed, added to cart or placed an order yet. Their activity will appear here as it happens.",
     "Search By Field": "Search By Field",

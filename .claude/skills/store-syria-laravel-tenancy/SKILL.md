@@ -109,7 +109,7 @@ every route.
 ## 6. Tests that actually bite
 
 **After writing a regression test, revert the fix and confirm the test fails.** This has caught
-vacuous tests repeatedly. Four ways they pass for the wrong reason, all measured in this project:
+vacuous tests repeatedly. Six ways they pass for the wrong reason, all measured in this project:
 
 1. **The endpoint 500s for everyone**, so "the row didn't change" holds either way. And a handler
    that `catch (\Exception)`es its own failure returns **200**, so even `assertNotSame(500, …)` is
@@ -135,6 +135,15 @@ vacuous tests repeatedly. Four ways they pass for the wrong reason, all measured
    removing that predicate then changes nothing the test can see. In a direct-call test, put the
    default guard back: `$this->app['auth']->shouldUse('web')`, then assert `auth()->user()` is
    null. Over HTTP the kernel sets the guard itself, so this applies to direct calls only.
+6. **`strip_tags()` ate the thing you were asserting about.** The merchant layout inlines scripts
+   containing bare `<` comparisons — `for (let i = 0; i < node.classList.length; i++)`,
+   `if (window.innerWidth < …)` — and `strip_tags()` reads each as a tag opening and discards
+   everything up to the next `>`. Measured on `/finance`: **80,007 bytes became 18,679**, taking a
+   whole rendered block with them. It silently inverts an ABSENCE assertion, so
+   `assertStringNotContainsString($needle, strip_tags($html))` passes whether or not the thing is
+   on the page. Assert against the raw body with whitespace collapsed
+   (`preg_replace('/\s+/', ' ', $html)`) instead, and drive the positive case too so you know the
+   assertion can see anything at all.
 
 **Assert through `DB::table()`.** `User`, `Product` and `Order` are `Cachable`; an Eloquent read can
 serve a mutated in-memory instance. That produced a false *reproduction* once — a model read

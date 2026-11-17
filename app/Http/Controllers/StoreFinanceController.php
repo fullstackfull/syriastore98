@@ -969,6 +969,27 @@ class StoreFinanceController extends Controller
             ->withQueryString();
 
         /*
+         | P5-10 / ANA-006, the SECOND profit figure on this screen. The per-order table prints
+         | `gross_profit` raw, and `product_cost` is `decimal(15,2) NOT NULL DEFAULT '0.00'`, so
+         | a row whose cost was never captured reports the WHOLE order value as margin.
+         |
+         | Counted over the store's entire ledger rather than the visible page: the table
+         | paginates 15 at a time, and a caveat that changed as the merchant paged would be
+         | describing the page instead of the books.
+         |
+         | `store_order_financials` has NO model, so no global scope will add a tenant predicate
+         | here -- the explicit `store_id` below is the only one there is.
+         */
+        $orderFinancialsTotal = (int) DB::table('store_order_financials')
+            ->where('store_id', $storeId)
+            ->count();
+
+        $orderFinancialsWithoutCost = (int) DB::table('store_order_financials')
+            ->where('store_id', $storeId)
+            ->where('product_cost', '<=', 0)
+            ->count();
+
+        /*
          |--------------------------------------------------------------------------
          | Inventory
          |--------------------------------------------------------------------------
@@ -983,10 +1004,32 @@ class StoreFinanceController extends Controller
         $inventoryCost = 0;
         $inventoryRetailValue = 0;
 
+        /*
+         | P5-10 / ANA-006 -- "do NOT claim precise profitability when cost or fee data is
+         | missing". `products.cost_price` is `decimal(15,2) NOT NULL DEFAULT 0.00`, so a cost
+         | that was never entered reads 0.00 and is arithmetically indistinguishable from an
+         | item that genuinely cost nothing. Such a product contributes its WHOLE retail value
+         | to "Potential Profit" with nothing subtracted.
+         |
+         | The figure cannot be corrected without the missing data, so it is qualified instead,
+         | with a MEASURED count and the exact amount exposed -- not a fixed sentence. It
+         | self-adjusts as merchants fill cost in and falls silent on its own.
+         |
+         | Only products that are actually VALUED are counted: an out-of-stock product
+         | contributes nothing to the tiles, so it must not appear in the caveat that qualifies
+         | them.
+         */
+        $inventoryValuedProducts = 0;
+        $inventoryUncostedProducts = 0;
+        $inventoryUncostedRetail = 0;
+
         foreach ($products as $product) {
 
             $costPrice =
                 (float) ($product->cost_price ?? 0);
+
+            $productUnits = 0;
+            $productRetail = 0;
 
             if ($product->variant_product == 1) {
 
@@ -1022,6 +1065,10 @@ class StoreFinanceController extends Controller
 
                     $inventoryRetailValue +=
                         ($sellingPrice * $stock);
+
+                    $productUnits += $stock;
+                    $productRetail +=
+                        ($sellingPrice * $stock);
                 }
 
             } else {
@@ -1038,14 +1085,54 @@ class StoreFinanceController extends Controller
                 $inventoryCost +=
                     ($costPrice * $stock);
 
-                $sellingPrice = (float) (
-                    $product->sale_price
-                    ?? $product->price
-                    ?? 0
-                );
+                /*
+                 | P5-10. THIS WAS `$product->sale_price ?? $product->price ?? 0` AND THE SECOND
+                 | OPERAND COULD NEVER BE REACHED. `??` fires on NULL alone, and
+                 | `products.sale_price` is `float NOT NULL DEFAULT 0` (create_products_table:32),
+                 | so a product that is simply not on sale carried 0 here: it contributed NOTHING
+                 | to retail value while still contributing its full cost above, and the
+                 | "Potential Profit" tile rendered `0 - cost`, negative, in debit red.
+                 |
+                 | NOT the same defect as the variant branch ~20 lines up, which keeps `??`
+                 | because `product_variants.variation_price` IS nullable and its fallthrough
+                 | works. One spelling, two column definitions.
+                 |
+                 | The replacement is the product's own convention for "is there a sale price",
+                 | not a new judgement: Product.php:323 `!empty($product->sale_price)`,
+                 | product_price.blade.php:4 the same, preview.blade.php:59
+                 | `(float) ($product->sale_price ?? 0) > 0`, ApiController 499/781/804
+                 | `!empty(...) ? ... : 0`.
+                 |
+                 | Pinned by tests/Feature/Merchant/FinanceInventoryValuationTest.
+                 */
+                $salePrice = (float) ($product->sale_price ?? 0);
+
+                $sellingPrice = $salePrice > 0.0
+                    ? $salePrice
+                    : (float) ($product->price ?? 0);
 
                 $inventoryRetailValue +=
                     ($sellingPrice * $stock);
+
+                $productUnits += $stock;
+                $productRetail +=
+                    ($sellingPrice * $stock);
+            }
+
+            /*
+             | ANA-006 accounting, once per product. `$productUnits > 0` is what restricts this
+             | to products the tiles actually valued. (The simple branch's `continue` above
+             | skips this tail for an out-of-stock product; that is the same outcome, since
+             | `$productUnits` would be 0.)
+             */
+            if ($productUnits > 0) {
+
+                $inventoryValuedProducts++;
+
+                if ($costPrice <= 0.0) {
+                    $inventoryUncostedProducts++;
+                    $inventoryUncostedRetail += $productRetail;
+                }
             }
         }
 
@@ -1060,6 +1147,11 @@ class StoreFinanceController extends Controller
             2
         );
 
+        $inventoryUncostedRetail = round(
+            $inventoryUncostedRetail,
+            2
+        );
+
         return view(
             'finance.index',
             compact(
@@ -1069,7 +1161,12 @@ class StoreFinanceController extends Controller
                 'inventoryUnits',
                 'inventoryCost',
                 'inventoryRetailValue',
-                'inventoryPotentialProfit'
+                'inventoryPotentialProfit',
+                'inventoryValuedProducts',
+                'inventoryUncostedProducts',
+                'inventoryUncostedRetail',
+                'orderFinancialsTotal',
+                'orderFinancialsWithoutCost'
             )
         );
     }

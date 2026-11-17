@@ -299,6 +299,22 @@ already declared engineering-complete; that is a disposition only the owner can 
 
 **By phase: 03 → 2 · 04 → 8 · 05 → 1 · 06 → 7.**
 
+---
+
+## Gaps found by the MKT/ANA measurement of 2026-11-17
+
+**These are NOT part of the `GAP-182`…`GAP-199` block above and do not change its tally.** That
+block holds requirements that were missing from the matrix entirely. These two are findings against
+decision ids the matrix now traces (`P05-MKT-ANA`), surfaced when the eighteen unmeasured `MKT-*`
+and `ANA-*` ids were measured against the code. Full detail and citations:
+`docs/development/phase-5/PHASE-05-MKT-ANA-MEASUREMENT-2026-11-17.md`.
+
+| gap | decision id(s) | phase | measured | next action |
+|---|---|---|---|---|
+| `GAP-200` | `MKT-008` | 05 | **Consent is not enforced for four message senders, and no unsubscribe path exists.** `customers` has **no consent or eligibility column at all** (all 25 columns of the create migration read). The one real consent mechanism, `lynomia_consent_states`, is enforced *upstream* outside this repository and nothing in `app/` or `packages/workdo/` reads it to gate a send. Sending anyway with no consent predicate: `CouponEmail` on registration, on first order and on an order-value threshold (`CreateCustomerLis.php:28`, `CreateOrderLis.php:32,51`), `ReviewReminder` (`SendOrderReviewMailListner.php:38`, which gates only on the merchant's template being active), the newsletter list, and the back-in-stock push. Confidence: certain. | **OWNER DECISION, and it is blocked on two standing restrictions at once.** Every sender named is in a **vendored** `packages/workdo/` module, and a consent column is a **persistent migration**. Not actionable without an explicit owner instruction on both. This is the one finding in the set with a real-world compliance dimension rather than a scope one. |
+| `GAP-201` | `ANA-007`, `ANA-006` | 05 | **The honesty mechanism cannot reach a sighted merchant.** `<x-ss.stat>` renders its `hint` inside `<span class="ss-visually-hidden">`, and `public/css/store-syria-ds.css:2238-2246` clips that to 1×1 with `clip: rect(0,0,0,0)` and **no `:hover`, `:focus` or `:focus-within` reveal anywhere** — verified by hand 2026-11-17. Nine `:hint=` usages sit on that component and they are precisely the Phase 05 sentences written to stop a figure being misread. The three sibling components (`advanced-fields`, `secret-field`, `choice-group`) all render their hint **visibly**, and **no test pins the difference as intended**; the component arrived with the Phase 2.5 merge `4e878b8d`. Separately, the 12-key `MetricCaveat` vocabulary has **zero consumers** outside `app/Support/Metrics/` and `tests/`. | Phase 05 scope, no owner decision needed — it changes no number. Tracked as slice **P5-11** in `PHASE-05-EXECUTION-PLAN.md`. Do it before adding any further caveat through that component, or the caveat lands in a slot nobody can see. |
+
+
 Seven belong to Phase 06, which has not started, so their absence is expected. **TEN belong to
 Phases 03 and 04, which are declared engineering-complete** — and eight of those ten are Phase 04
 Commerce. That is the finding: a closed phase whose owner-approved scope included requirements

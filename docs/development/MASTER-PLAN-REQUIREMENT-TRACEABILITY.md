@@ -4497,23 +4497,25 @@ against a pre-reorganization original.
 - **Source:** `docs/development/phase-5/PHASE-05-EXECUTION-PLAN.md §2, slice P5-1`
 - **Owner decisions:** None found.
 - **Expected behaviour:** A merchant opening the finance dashboard sees a cancelled or refunded order in its true state, and the status control accepts those values.
-- **Actual behaviour:** NOT done. app/Http/Controllers/StoreFinanceController.php:383 still validates `'payment_status' => 'required\|in:paid,unpaid'`. resources/views/finance/index.blade.php:470-471 still offers exactly two options ('Not Received' / 'Received'), and :477-480 renders anything that is not the literal 'paid' as a danger badge labelled 'Not Received'. Because P4-F124 and P4-F127 now write 'cancelled' and 'refunded' into that column, the screen actively mislabels a reversed order as unpaid.
+- **Actual behaviour:** NOT done. **Re-measured 2026-11-17 and still true; only the line numbers had drifted.** app/Http/Controllers/StoreFinanceController.php:**420** still validates `'payment_status' => 'required\|in:paid,unpaid'`. resources/views/finance/index.blade.php:**543-544** still offers exactly two options ('Not Received' / 'Received'), and the badge still renders anything that is not the literal 'paid' as a danger badge labelled 'Not Received'. Because P4-F124 and P4-F127 now write 'cancelled' and 'refunded' into that column, the screen actively mislabels a reversed order as unpaid.
 - **Gap:** The whole slice. It is now worse than when written: the F124/F127 engine changes shipped, so the new statuses exist in data and the screen cannot represent them.
 - **Responsible:** Phase 05 (P5-1)
 - **Next action:** Widen the validator and the view to the six documented entitlement states, with a test driving a cancelled and a refunded row through the finance screen.
 
 ### `P05-02` — P5-2 Metric layer
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED** *(corrected 2026-11-17 — the row below was written before P5-2
+shipped and had gone false. It is corrected to what is on disk today, not to what was planned.)*
 
 - **Requirement (original wording / faithful reference):** "One query object per metric in §1–§10 of PHASE-05-METRIC-DEFINITIONS.md, each with its tenant predicate at the call site, its currency handling, and its caveat flag. No controller computes money inline. Every metric gets the verification test its definition names."
 - **Source:** `docs/development/phase-5/PHASE-05-EXECUTION-PLAN.md §2, slice P5-2`
 - **Owner decisions:** None found.
 - **Expected behaviour:** Ten named metrics exist as query objects, each tenant-scoped, currency-aware, carrying its caveat, and each with a passing verification test.
-- **Actual behaviour:** No metric layer exists. `find app -iname '*Metric*' -o -iname '*Analytic*'` returns only app/Http/Controllers/ThemeAnalyticController.php (152 lines, a pre-existing theme visitor chart). app/Support/ contains no Metrics directory; app/Support/Reports/ holds one file, AggregateSeriesLabel.php. No test file matching *Metric* exists anywhere under tests/.
-- **Gap:** All ten metrics (GMV, collected payments, unpaid split three ways, cancellations, completed refunds, net receipts, wallet entitlement, margin, coupon redemption, shipping/tax) and all of their verification tests.
-- **Responsible:** Phase 05 (P5-2)
-- **Next action:** Build the metric layer; it is the foundation P5-3 through P5-8 all read.
+- **Actual behaviour:** **The metric layer EXISTS.** `app/Support/Metrics/` holds **20 classes**, measured 2026-11-17: the ten metrics (`GrossMerchandiseValue`, `CollectedCustomerPayments`, `UnpaidOrders`, `CancelledOrders`, `CompletedRefunds`, `NetFinancialReceipts`, `MerchantWalletEntitlement`, `StoreRevenueMargin`, `CouponRedemption`, `ShippingAndTax`) plus `CustomerRetention` and the shared machinery (`Metric`, `MetricResult`, `MetricCaveat`, `MetricScope`, `MetricWindow`, `MixedCurrencyException`, `MultiFigureMetric`, `SingleFigureMetric`, `RetentionFigures`). Verification tests exist too — `tests/Feature/Metrics/MetricLayerTest.php` and `tests/Support/Security/bin/verify-metric-layer-on-mysql.php`.
+  **The half that is NOT done is "no controller computes money inline".** `StoreFinanceController::index()` still computes inventory capital, retail value and potential profit in a `foreach` over `Product` rather than through a metric object — and that inline arithmetic is exactly where P5-10 found a fallback that could never fire (see `docs/development/phase-5/PHASE-05-MKT-ANA-MEASUREMENT-2026-11-17.md` §4). `ReportController` likewise computes its own aggregates.
+- **Gap:** Not the metrics — the *adoption*. No controller or view reads a metric class; outside `app/Support/Metrics/` and `tests/`, the layer has zero consumers, so no merchant has ever seen a figure it produced.
+- **Responsible:** Phase 05 (P5-2 built it; P5-3/P5-4/P5-7/P5-8 are the slices that must consume it)
+- **Next action:** Replace the inline money arithmetic surface by surface, starting with the two that P5-10 has already proved wrong by hand. Each replacement needs its stated delta, because a corrected figure is a changed figure.
 
 ### `P05-03` — Metric definition contract
 
@@ -4523,24 +4525,28 @@ against a pre-reorganization original.
 - **Source:** `docs/development/phase-5/PHASE-05-METRIC-DEFINITIONS.md header`
 - **Owner decisions:** The requirement wording is the owner's, quoted verbatim in the document header.
 - **Expected behaviour:** Each metric carries a definition, a named source table/column, explicit includes/excludes, and a verification test that actually runs.
-- **Actual behaviour:** The definition half is delivered: §1–§10 each state definition, source, includes, excludes and a named verification test, plus §11's five cross-cutting rules. The test half is absent — every 'Verification test' line in that document describes a test that does not exist in the repository.
-- **Evidence:** docs/development/phase-5/PHASE-05-METRIC-DEFINITIONS.md (the definitions themselves). No corresponding test files found.
-- **Gap:** Zero of the ~11 named verification tests are implemented, so no definition has been measured against the code.
+- **Actual behaviour:** The definition half is delivered: §1–§10 each state definition, source, includes, excludes and a named verification test, plus §11's five cross-cutting rules. **The test half is NO LONGER absent — this row was written before P5-2 shipped and is corrected 2026-11-17.** `tests/Feature/Metrics/MetricLayerTest.php` exists and carries the named verification tests, and `tests/Support/Security/bin/verify-metric-layer-on-mysql.php` carries the evidence that cannot live in the SQLite suite.
+- **Evidence:** docs/development/phase-5/PHASE-05-METRIC-DEFINITIONS.md (the definitions); tests/Feature/Metrics/MetricLayerTest.php; tests/Support/Security/bin/verify-metric-layer-on-mysql.php
+- **Gap:** The definitions are measured against the metric classes, but **not against the surfaces merchants actually read**, because no surface reads a metric class yet (see `P05-02`). A definition verified against an unconsumed class has not yet been verified against the product.
 - **Responsible:** Phase 05 (P5-2)
 - **Next action:** Implement each named verification test as part of the metric it defines; the §6 test (two independent computations of net receipts must agree) is explicitly required to fail the build on disagreement.
 
 ### `P05-04` — Trustworthy analytics
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED** *(corrected 2026-11-17 — the row said "no figure in the product
+carries a caveat today", and as of P5-10 two do.)*
 
 - **Requirement (original wording / faithful reference):** "A metric with a known gap displays the gap. §9 is blocked, §5 excludes partials, §8 has a cost caveat, §4 has a date caveat. A number that hides its own limits is worse than no number — which is the whole point of 'trustworthy analytics'."
 - **Source:** `docs/development/phase-5/PHASE-05-METRIC-DEFINITIONS.md §11 rule 5; CLAUDE.md §4 names Phase 05 scope as "campaigns, loyalty, reports and trustworthy analytics"`
 - **Owner decisions:** None found.
 - **Expected behaviour:** Every displayed figure that rests on an unresolved or incomplete record shows its caveat on the screen and in any export of it.
-- **Actual behaviour:** No figure in the product carries a caveat today. The surface inventory records that the merchant sales-stats tile row (resources/views/reports/_sales_stats.blade.php) 'carries no exclusion statement'. Four known caveats are documented (coupon redemption blocked both directions, partial refunds unrepresentable, cost_price snapshot possibly 0, cancel_date missing from one door) and none is surfaced.
-- **Gap:** The caveat-display mechanism in its entirety, on screens and exports alike.
-- **Responsible:** Phase 05 (P5-2/P5-3/P5-8)
-- **Next action:** Design the caveat carrier as part of the metric object so a screen cannot render a figure without it, rather than adding caveats per-view.
+- **Actual behaviour:** **Two figures now carry a visible caveat, and they are the first in the product.** P5-10 wired disclosure into `/finance` for both places it renders profit: the `Potential Profit` tile and the per-order `Profit` column. Each names a measured count and, for the tile, the exact amount exposed — "Cost is not recorded for 1 of 2 in-stock products… overstated by up to that amount" — computed in the same pass that builds the figure, so it self-adjusts and falls silent when the data is complete. Rendered with `.ss-help` (contrast measured 8.28:1 light, 8.25:1 dark; `border-inline-start`, so it flips for RTL), translated in both languages, and pinned by `tests/Feature/Merchant/FinanceInventoryValuationTest.php`.
+  **Everywhere else the row still stands.** No report screen and no export carries a caveat, and the 12-key `MetricCaveat` vocabulary built for exactly this purpose still has **zero consumers** outside `app/Support/Metrics/` and `tests/` — measured 2026-11-17. `COUPON_REDEMPTION_UNRELIABLE` is marked BLOCKING ("This figure is not authoritative", by owner instruction pending P4-F134/F135) and nothing renders it.
+  **And the mechanism that was supposed to carry the caveats cannot display them.** `<x-ss.stat>` renders its `hint` inside `<span class="ss-visually-hidden">`, which `store-syria-ds.css:2238-2246` clips to 1×1 with no hover or focus reveal — verified by hand. Nine `:hint=` usages sit on that component and they are precisely Phase 05's "this is not payments received, and not profit" sentences, so that work is invisible to every sighted merchant. The three sibling components all render their hint visibly, and no test pins the difference as intended.
+- **Gap:** Caveat display on the report screens and in exports; a consumer for `MetricCaveat`; and the `<x-ss.stat>` defect, without which any caveat routed through that component would be invisible too.
+- **Evidence:** docs/development/phase-5/PHASE-05-MKT-ANA-MEASUREMENT-2026-11-17.md §4 and §5.1; tests/Feature/Merchant/FinanceInventoryValuationTest.php
+- **Responsible:** Phase 05 (P5-10 delivered the first two; P5-11 owns the `<x-ss.stat>` defect; P5-3/P5-8 own reports and exports)
+- **Next action:** Fix `<x-ss.stat>` first — it is the cheapest change with the widest reach, and until it lands every caveat added through that component is written into a slot nobody can see.
 
 ### `P05-05` — P5-3 ReportController predicate replacement
 
@@ -4809,6 +4815,64 @@ against a pre-reorganization original.
 - **Gap:** The report, and with it the per-slice completed/not-started statement this matrix is currently standing in for.
 - **Responsible:** Phase 05 (P5-Z)
 - **Next action:** When the report is written, give each of P5-1…P5-9 (P5-9 — Loyalty was added 2026-11-17) an explicit verdict, and carry the loyalty, conversion and marketing-performance requirements that have no slice.
+
+### `P05-MKT-ANA` — the eighteen recovered MKT and ANA decision IDs
+
+**Status: MEASURED, NONE VERIFIED COMPLETE** *(added 2026-11-17)*
+
+- **Requirement (original wording / faithful reference):** the ten `MKT-*` and ten `ANA-*`
+  decision texts in `master-plan/DECISION-ID-REGISTER.md` §`MKT-001`…`MKT-010` and
+  §`ANA-001`…`ANA-010`. `MKT-005` and `MKT-006` are traced under `P05-11` and are not repeated
+  here, which leaves **eighteen**.
+- **Source:** `docs/development/master-plan/DECISION-ID-REGISTER.md:122-155`
+- **Owner decisions:** None. The requirement texts are the owner's, recovered verbatim; no
+  owner decision has been taken on any of the eighteen.
+- **Expected behaviour:** each decision text is satisfied by the shipped product.
+- **Actual behaviour:** all eighteen were measured against the code on 2026-11-17 and each
+  verdict was then challenged by two opposed adversarial passes. **Seventeen are PARTIALLY
+  IMPLEMENTED; one (`ANA-010`, a prohibition) is machine-verified complete and is NOT counted
+  as verified here.** Seventeen of the eighteen verdicts were challenged by at least one lens.
+  Per-id detail, citations and the two lenses' findings are in
+  `docs/development/phase-5/PHASE-05-MKT-ANA-MEASUREMENT-2026-11-17.md`.
+
+| id | requirement | measured | the half that is missing |
+|---|---|---|---|
+| `MKT-001` | An independent marketing section, linked to analytics | **PARTIAL** | 'linked to analytics' (مرتبط بالتحليلات) is not implemented in the marketing-to-analytics direction. grep for route('reports / analytic / chart across resources/views/{coupon,newsletter,flash-sale,wishlist,cart} returns ZERO … |
+| `MKT-002` | Simple by default, advanced when needed | **PARTIAL** | "Advanced when needed" on the marketing surfaces — ABSENT, and this is the decisive measurement. Zero of the five Marketing-menu surfaces (Coupon, Newsletter, Flash Sale, Wishlist, Abandon Cart) uses the project's own … |
+| `MKT-003` | Coupons, automatic discounts and BOGO | **PARTIAL** | BOGO does not apply to variant products AT ALL. Both of the only two call sites that invoke the rule engine gate on `empty($cart_value->variant_id) && $cart_value->variant_id == 0` — app/Models/Cart.php:594 and … |
+| `MKT-004` | Static and dynamic customer segments | **PARTIAL** | Neither half is a usable segment feature. DYNAMIC exists only in LynomiaChat Audiences, which ships behind an engineering kill switch — `LYNOMIA_INTEGRATION_ENABLED` defaults false and both env files set it false (verified by hand) — so **no store can reach it as shipped**. STATIC has no dedicated table; the measuring pass said it existed nowhere and **lens 1 refuted that**: vendored `ProductPricing` persists a merchant-picked customer list per rule, which is a static membership set in all but name. |
+| `MKT-007` | Recover carts and incomplete payments, without duplication | **PARTIAL** | NO AUTOMATED OR SCHEDULED CART RECOVERY. Recovery is one merchant click per cart row. There is no app/Jobs directory at all, and the only scheduled commands in the whole tree are zid:process-events (routes/console.php:9) and … |
+| `MKT-008` | Respect customer eligibility and consent for messages | **PARTIAL** | A customer-level consent flag: `customers` has NO consent/eligibility column at all. Read the create migration (database/migrations/2023_12_15_112855_create_customers_table.php, all 25 columns) and `Customer::$fillable` — there … |
+| `MKT-009` | Lynomia integration when ready, without duplication | **PARTIAL** | NO GUARD AGAINST THE PLATFORM'S OWN COMPETING SHOPPER-MESSAGING PATH. `POST abandon-carts-messagesend` (CartController@abandon_carts_messsend, /home/user/syriastore98/app/Http/Controllers/CartController.php:1438) and `POST … |
+| `MKT-010` | In-store conversion tools, linked to the themes | **PARTIAL** | greentic's product card omits the quick-view/compare hook entirely. themes/greentic/views/components/product-card.blade.php calls productSalesPage (line 5) and ProductcardButton (line 42) but NEVER … |
+| `ANA-001` | A centre for sales, finance, products, customers and marketing | **PARTIAL** | FINANCE is not in the centre. The Reports group has no finance screen and no finance permission, and ReportController's 3,835 lines contain 0 occurrences of payment_status, refund, cost_price, profit or margin ('tax' only as a … |
+| `ANA-002` | Comparisons, filters and saved periods | **PARTIAL** | COMPARISONS — absent entirely. No period-over-period figure, prior-period baseline, delta, percent change or growth rate exists in either repository or in any vendored module. Greps for previous/prior/comparison period, … |
+| `ANA-003` | Custom reports, export and scheduling, permission-gated | **PARTIAL** | SCHEDULING — absent entirely, the hardest-checked of the four. grep -rn 'Schedule::command|->daily()|->dailyAt|->weekly()|->monthly()|->hourly()|->cron(' over app/ routes/ packages/ returns 8 hits and none is a report: … |
+| `ANA-004` | Conversion, device and channel analysis | **PARTIAL** | CONVERSION ANALYSIS -- absent entirely. No conversion rate, no funnel, no stage counts: `conversion_rate|conversionRate|funnel|add_to_cart_rate|checkout_rate` has zero hits across app/, packages/, resources/views/, routes/ in … |
+| `ANA-005` | Separate sales, collection, settlements and profitability | **PARTIAL** | COLLECTION HAS NO FIGURE. Measured: `sum('paid_amount')`, `SUM(paid_amount)` and `sum('remaining_amount')` appear ZERO times across app/, resources/ and packages/. A merchant can read what one order paid, 15 rows at a time, but … |
+| `ANA-006` | Do NOT claim precise profitability when cost or fee data is missing | **PARTIAL** | **The two profit figures named by this measurement are now disclosed** (P5-10, same day): the `Potential Profit` tile and the per-order `Profit` column each name a measured count of rows whose cost was never recorded. What remains is **fee data entirely** — `gross_profit` is `(product_amount − discount_amount) − product_cost`, so it silently excludes gateway and processing fees, `store_order_financials` has no fee column, and `MetricCaveat` has no fee constant — plus the schema's inability to tell "cost unknown" from "cost is genuinely zero". |
+| `ANA-007` | Show data quality, estimates and omissions | **PARTIAL** | ESTIMATES (التقديرات) — no merchant analytics surface labels any figure as an estimate, approximation or assumption. Greps for estimate/approximate/assumed/assumption/provisional/unreliable across every non-storefront Blade view … |
+| `ANA-008` | Document metric definitions and their sources | **PARTIAL** | CustomerRetention has NO section in the metric-definitions document. It is an implemented metric (app/Support/Metrics/CustomerRetention.php + RetentionFigures.php, exercised by 9 of the 48 tests), but `grep -i 'retention\|repeat' … |
+| `ANA-009` | Alerts and proactive analytics, with clear controls | **PARTIAL** | Proactive ANALYTICS alerts of any kind. No sales-drop, trend, anomaly, forecast or threshold-on-a-metric detection exists anywhere in app/ or packages/workdo/ — a repo-wide grep for sales drop / anomal / forecast / predictive / … |
+| `ANA-010` | Do NOT build a new accounting engine | **COMPLETE (machine)** | — |
+
+- **Gap:** eighteen requirements with a measured status and no owner acceptance. **Two outrank
+  the rest and are not actionable without an owner decision.** `MKT-008`: four message senders
+  (`CouponEmail` ×3, `ReviewReminder`, the newsletter list, the back-in-stock push) consult no
+  consent flag, `customers` carries no consent column at all, and there is no unsubscribe path
+  anywhere — every sender named is in a **vendored** module and a consent column is a
+  **persistent migration**, both standing owner decisions. `ANA-007`: the `MetricCaveat`
+  vocabulary has zero consumers, and `<x-ss.stat>` cannot display a hint at all.
+- **Evidence:** docs/development/phase-5/PHASE-05-MKT-ANA-MEASUREMENT-2026-11-17.md
+- **Responsible:** Phase 05 for the `ANA-*` reporting ids; owner for `MKT-008` and for any
+  change to a vendored sender.
+- **Next action:** Do not let the measured statuses harden into acceptance. `ANA-010` needs a
+  human reading before it counts toward the verified total; `MKT-008` needs an owner decision
+  before any code moves; the rest are ordinary Phase 05 scope with a now-known starting point.
+
+> **These eighteen do not change the requirement totals.** They were already inside the 181
+> not-verified; what changed is that they now have measured statuses and citations instead of
+> nothing. 169 verified complete and 181 not are both unchanged.
 
 ### `P05-GATE-01` — Phase 05 dependency gate
 

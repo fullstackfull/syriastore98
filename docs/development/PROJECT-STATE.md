@@ -5,13 +5,27 @@ is the file to read first. It links the six phases, says what is done, what is n
 executable action is. Everything in it is either a measured fact with its source, or an owner
 decision quoted as such.
 
-**Last updated:** 2026-11-16 · **Active phase:** 04 (Commerce) ·
-**Active branch:** `feature/phase-04-commerce`
+**Last updated:** 2026-11-17 · **Active phase:** 05 (Marketing & Analytics) ·
+**Active branch:** `feature/phase-05-marketing-analytics`
 
 Phase 03 engineering is complete and sits in **PR #138, Draft, not merged**. Phase 04 is branched
 from that engineering head, so **PR #139 carries Phase 03's commits and must not be merged ahead of
-PR #138**. Both stay separate and neither merges automatically. The six-phase Master Product Plan in
-§2 is unchanged and remains the governing scope.
+PR #138**. **Phase 05 is branched from Phase 04's head in turn, so PR #140 carries both** and the
+three must merge in order or not at all. None merges automatically. The six-phase Master Product
+Plan in §2 is unchanged and remains the governing scope.
+
+> **THIS DOCUMENT IS TWO PHASES BEHIND BELOW THIS LINE, AND THAT IS FLAGGED RATHER THAN FIXED
+> HERE.** §1's branch table, §4 and §8 still describe Phase 03's milestones as the active work;
+> they were accurate when written and have not been rewritten since. Only the facts above and §1's
+> branch row were corrected on 2026-11-17, because a continuity document that names the wrong
+> active branch misdirects the next session on its first action. The full rewrite — Phase 04's and
+> Phase 05's state, and a current §8 — belongs to the Phase 05 closing slice **P5-Z**, which has
+> not run. **Measured 2026-11-17:** `main` is still `4e878b8d`, so nothing from Phase 03, 04 or 05
+> has merged; `feature/phase-04-commerce` is an ancestor of the Phase 05 head.
+>
+> For what Phase 05 has actually done, read
+> [`phase-5/PHASE-05-EXECUTION-PLAN.md`](phase-5/PHASE-05-EXECUTION-PLAN.md) — slices P5-1…P5-11,
+> each marked shipped or not started — not §8 below.
 
 ---
 
@@ -34,7 +48,7 @@ the four states that must never be merged into one label.
 
 | | repository | `main` | active branch |
 |---|---|---|---|
-| Laravel (canonical backend) | `fullstackfull/syriastore98` | **`4e878b8d`** — the Phase 2.5 merge (PR #134) | `feature/phase-03-storefront` |
+| Laravel (canonical backend) | `fullstackfull/syriastore98` | **`4e878b8d`** — the Phase 2.5 merge (PR #134) | `feature/phase-05-marketing-analytics` *(corrected 2026-11-17; was `feature/phase-03-storefront`. The Phase 03 and Phase 04 branches still exist and are both ancestors of this one.)* |
 | Flutter (merchant/staff app) | `fullstackfull/StoreSyria_app98` | **`cbf6283f`** — the Phase 2.5 merge (PR #9) | none; stays on `main` unless a Phase 03 contract need arises |
 
 Both SHAs verified against the owner's directive. Both Phase 2.5 heads are ancestors of their

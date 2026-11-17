@@ -178,6 +178,35 @@
     </div>
 </div>
 
+{{-- P5-10 / ANA-006 -- "do NOT claim precise profitability when cost or fee data is missing".
+
+     `products.cost_price` is `decimal(15,2) NOT NULL DEFAULT 0.00`, so a cost nobody entered
+     reads 0.00 and is indistinguishable from a product that genuinely cost nothing. Every such
+     product hands its WHOLE retail value to Potential Profit with nothing subtracted.
+
+     The numbers are MEASURED in the same pass that builds the tiles, so this names how many
+     products and exactly how much is exposed instead of saying "some data may be missing", and
+     it disappears by itself once cost is filled in. `ss-attention` states the reason a caveat
+     must not be permanent furniture; the same reasoning applies here.
+
+     `.ss-help` is used rather than a hand-rolled box because it is built from DS tokens
+     (`--ss-info-bg` / `--ss-info-fg`, ratcheted by CI's token-contrast gate) and its accent uses
+     `border-inline-start`, so it flips correctly in Arabic RTL without a second rule. --}}
+@if (($inventoryUncostedProducts ?? 0) > 0)
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="ss-help">
+                <p class="ss-help__title">{{ __('Potential Profit is not precise') }}</p>
+                {{ __('Cost is not recorded for :uncosted of :valued in-stock products. Those products contribute :amount of retail value with no cost subtracted, so Potential Profit is overstated by up to that amount.', [
+                    'uncosted' => number_format($inventoryUncostedProducts),
+                    'valued'   => number_format($inventoryValuedProducts),
+                    'amount'   => number_format($inventoryUncostedRetail, 2),
+                ]) }}
+            </div>
+        </div>
+    </div>
+@endif
+
 {{-- نظام Tabs المحسن --}}
 <div class="card">
     {{-- `bg-white` REMOVED (P2.5-WAVE-31). Bootstrap's utility is `!important` and has no dark
@@ -403,6 +432,36 @@
                 <div class="card border-0 shadow-sm">
                     <div class="card-body">
                         <h5 class="card-title mb-3">{{ __('Order Financial Records') }}</h5>
+
+                        {{-- P5-10 / ANA-006, the SECOND profit figure on this screen. The `Profit`
+                             column below prints `store_order_financials.gross_profit` raw, and
+                             `product_cost` is `decimal(15,2) NOT NULL DEFAULT '0.00'` -- so a row
+                             whose cost was never captured reports the WHOLE order value as margin,
+                             to two decimal places, as though it were measured.
+
+                             The row does print its own `Cost` of 0.00 alongside, but nothing says
+                             why it is zero and nothing adds the rows up, so the column still reads
+                             as a precise margin. Counted over the store's whole ledger, not the
+                             visible page -- see the controller for why. --}}
+                        @if (($orderFinancialsWithoutCost ?? 0) > 0)
+                            <div class="ss-help mb-3">
+                                <p class="ss-help__title">{{ __('Some of these margins cannot be computed') }}</p>
+                                {{-- "discounted product subtotal", NOT "order value", and the
+                                     difference is the whole point of the block. `gross_profit` is
+                                     `(product_amount - discount_amount) - product_cost`
+                                     (`OrderFinancialService.php:82-83`), so with no cost it is the
+                                     product subtotal after discount — NOT the order total, which is
+                                     the adjacent `Total` column (`customer_total`, tax and shipping
+                                     included, :481). On a screen whose purpose is to stop a figure
+                                     claiming more than it can, the caveat must not overstate either.
+                                     Caught in independent review. --}}
+                                {{ __('Cost is not recorded for :uncosted of :total orders in this ledger. Those rows show the discounted product subtotal as margin, because there is no cost to subtract from it.', [
+                                    'uncosted' => number_format($orderFinancialsWithoutCost),
+                                    'total'    => number_format($orderFinancialsTotal),
+                                ]) }}
+                            </div>
+                        @endif
+
                         <div class="table-responsive">
                             <table class="table ss-table ss-table--stack align-middle">
                                 <thead>
