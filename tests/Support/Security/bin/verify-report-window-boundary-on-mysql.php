@@ -440,6 +440,83 @@ try {
         'card reads ' . var_export($cardTotal, true) . ' against a series of ' . $seriesSum
         . ' -- the card was summed before the last month was written into the series');
 
+    // ---------------------------------------------------------------- E. a cleared selection
+
+    echo "\nE. A CLEARED brand selection on the last-month branch\n";
+
+    /*
+     * The last-month and this-month brand branches defaulted with `$selectedBrand ?? ...`, which
+     * fires only on NULL -- while `reportSelectionWithinCurrentStore()` returns its argument
+     * UNCHANGED when the argument is empty. So an empty selection reached the loop instead of the
+     * default:
+     *
+     *   selectedBrand = ''   `foreach ('')` is not iterable       -> PHP error on an admin route
+     *   selectedBrand = []   `foreach ([])` iterates nothing      -> a silently EMPTY report
+     *
+     * The year, seven-day and custom-range branches already used `empty()` and defaulted
+     * correctly, so the SAME cleared selection behaved differently depending on which period
+     * button the merchant had pressed.
+     */
+    $lastMonthDay = Carbon::now()->subMonthNoOverflow()->startOfMonth()->addDays(9)->setTime(12, 0);
+
+    DB::table('orders')->insert([
+        'product_order_id' => 'RB-BRAND-CLEARED',
+        'product_json' => json_encode([[
+            'product_id' => $brandProductId, 'qty' => 1, 'final_price' => 33.0,
+        ]]),
+        'product_price' => 33.0, 'delivery_price' => 0.0, 'tax_price' => 0.0,
+        'coupon_price' => 0.0, 'final_price' => 33.0,
+        'currency_code' => 'USD', 'payment_type' => 'cod', 'payment_status' => 'Paid',
+        'delivered_status' => 1, 'store_id' => 1,
+        'order_date' => $lastMonthDay->format('Y-m-d H:i:s'),
+        'created_at' => $lastMonthDay->format('Y-m-d H:i:s'),
+        'updated_at' => $lastMonthDay->format('Y-m-d H:i:s'),
+    ]);
+
+    foreach ([\App\Models\Product::class, \App\Models\ProductBrand::class] as $model) {
+        if (method_exists($model, 'flushCache')) { (new $model())->flushCache(); }
+    }
+
+    foreach ([
+        'an empty STRING selection' => '',
+        'an empty ARRAY selection' => [],
+        'no selection at all' => null,
+    ] as $description => $selection) {
+        Auth::login($owner);
+
+        $params = ['chart_data' => 'last-month'];
+        if ($selection !== null) {
+            $params['selectedBrand'] = $selection;
+        }
+
+        $clearedRequest = Request::create('/brand-order-reports', 'GET', $params);
+        app()->instance('request', $clearedRequest);
+
+        $series = null;
+        $error = null;
+
+        try {
+            $clearedResponse = (new ReportController())->order_brand_reports($clearedRequest);
+            $clearedPayload = json_decode($clearedResponse->getContent(), true);
+
+            foreach (($clearedPayload['NetSaleTotal'] ?? []) as $row) {
+                if (($row['name'] ?? null) === 'Boundary brand') {
+                    $series = round(array_sum(array_map('floatval', (array) ($row['data'] ?? []))), 2);
+                }
+            }
+        } catch (\Throwable $e) {
+            $error = get_class($e) . ': ' . $e->getMessage();
+        }
+
+        check(
+            $description . ' falls back to every brand and reports the 33.00',
+            $error === null && $series !== null && near($series, 33.0),
+            $error !== null
+                ? ('threw ' . substr($error, 0, 90))
+                : ('the brand series reads ' . var_export($series, true))
+        );
+    }
+
     echo "\n{$checks} checks, {$failures} failed\n";
     $exit = $failures > 0 ? 1 : 0;
 } catch (\Throwable $e) {

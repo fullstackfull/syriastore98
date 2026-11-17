@@ -2388,9 +2388,30 @@ class ReportController extends Controller
             $lastDayOfPreviousMonth = date('Y-m-t', strtotime('-1 month'));
             $daysInPreviousMonth = date('j', strtotime($lastDayOfPreviousMonth));
 
-            $selectedBrand = $selectedBrand ?? ProductBrand::where('store_id', getCurrentStore())
-                
-                ->pluck('id');
+            /*
+             * P5-3h -- `empty()` AND NOT `??`, matching the three sibling branches.
+             *
+             * `??` fires only on NULL, and `reportSelectionWithinCurrentStore()` returns its
+             * argument UNCHANGED when the argument is empty (:3751) -- so an empty selection
+             * reached the loop below instead of the default. Measured:
+             *
+             *   selectedBrand = ''   `??` does not fire, and `foreach ('')` is not iterable
+             *                        -> PHP error on a merchant admin route
+             *   selectedBrand = []   `??` does not fire, `foreach ([])` iterates nothing
+             *                        -> a silently EMPTY report
+             *
+             * Both are reachable: `$('#brand_id').val()` on a multi-select returns null when
+             * nothing is selected, and the AJAX layer can deliver that as '' .
+             *
+             * The year, seven-day and custom-range branches already used `empty()` and defaulted
+             * correctly, so the same cleared selection behaved differently depending on which
+             * period button the merchant had pressed. That divergence between sibling branches is
+             * the third defect this file has produced from exactly that shape.
+             */
+            if (empty($selectedBrand)) {
+                $selectedBrand = ProductBrand::where('store_id', getCurrentStore())
+                    ->pluck('id');
+            }
 
             $brandNetSales = [];
 
@@ -2458,9 +2479,30 @@ class ReportController extends Controller
             $lastDayOfCurrentMonth = date('Y-m-t');
             $daysInPreviousMonth = date('j', strtotime($lastDayOfCurrentMonth));
 
-            $selectedBrand = $selectedBrand ?? ProductBrand::where('store_id', getCurrentStore())
-                
-                ->pluck('id');
+            /*
+             * P5-3h -- `empty()` AND NOT `??`, matching the three sibling branches.
+             *
+             * `??` fires only on NULL, and `reportSelectionWithinCurrentStore()` returns its
+             * argument UNCHANGED when the argument is empty (:3751) -- so an empty selection
+             * reached the loop below instead of the default. Measured:
+             *
+             *   selectedBrand = ''   `??` does not fire, and `foreach ('')` is not iterable
+             *                        -> PHP error on a merchant admin route
+             *   selectedBrand = []   `??` does not fire, `foreach ([])` iterates nothing
+             *                        -> a silently EMPTY report
+             *
+             * Both are reachable: `$('#brand_id').val()` on a multi-select returns null when
+             * nothing is selected, and the AJAX layer can deliver that as '' .
+             *
+             * The year, seven-day and custom-range branches already used `empty()` and defaulted
+             * correctly, so the same cleared selection behaved differently depending on which
+             * period button the merchant had pressed. That divergence between sibling branches is
+             * the third defect this file has produced from exactly that shape.
+             */
+            if (empty($selectedBrand)) {
+                $selectedBrand = ProductBrand::where('store_id', getCurrentStore())
+                    ->pluck('id');
+            }
 
             $brandNetSales = [];
 
