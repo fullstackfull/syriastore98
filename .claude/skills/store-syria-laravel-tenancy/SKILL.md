@@ -136,7 +136,7 @@ So **every class in `app/Listeners` with a typed `handle()` is auto-registered**
 ## 6. Tests that actually bite
 
 **After writing a regression test, revert the fix and confirm the test fails.** This has caught
-vacuous tests repeatedly. Seven ways they pass for the wrong reason, all measured in this project:
+vacuous tests repeatedly. Eleven ways they pass for the wrong reason, all measured in this project:
 
 1. **The endpoint 500s for everyone**, so "the row didn't change" holds either way. And a handler
    that `catch (\Exception)`es its own failure returns **200**, so even `assertNotSame(500, …)` is
@@ -180,6 +180,46 @@ vacuous tests repeatedly. Seven ways they pass for the wrong reason, all measure
    mutation applied by **checksum before and after**, and make the harness *fail loudly* when the
    search string does not occur exactly once. The same shape has also produced a `gate exit: 0`
    from a pipeline whose `$?` came from `tail`.
+
+8. **A neighbouring test pins the failure you just removed.** `PreTransactionStockGiveBackTest`
+   asserted, by name, that a null plan **throws** — a premise-pinning case written to correct an
+   earlier write-up — so the fix that made the writer stop throwing turned it red. It was found by
+   running `Commerce`, `Security` and `Tenancy` *together*, and would have been missed by running
+   the new test file alone, which is what had just passed. When a fix removes a crash, grep the
+   tests for the crash's **message** (`Attempt to read property`, `Undefined variable`) and for the
+   method's old behaviour before the suite — **and before rewriting it, search the Decision
+   Register (`docs/development/phase-2/PHASE-02-DECISION-REGISTER.md`) for a ruling on that
+   behaviour.** This test was pinning a crash the owner had *deliberately kept* (D-13/D-18, "the
+   `$plan` fix stays suspended": landing it on a handler that decrements stock before the payment is
+   proven would turn a crash into an unverified decrement). The red test was the ruling talking and
+   the fix was the error: the guard was reverted on five handlers and the test restored byte-for-byte.
+   Where no ruling exists, rewrite the case to pin the *new* contract with the same premise
+   assertions — a case that only asserts "no longer throws" can pass by returning early, so also
+   assert the order was written once and the stock taken once.
+9. **The test cannot tell the two readings apart.** A placeholder test posted `0` for every
+   jurisdiction level, and a mutant that read `0` as a *selection* survived — because with every
+   level `0`, "zero is a value" and "zero is unset" give the same answer. The cases that bite are
+   the ones where the readings **differ**: a `0` level whose parent is *absent*. When a mutation
+   survives, do not weaken the mutation; ask what input would make the two behaviours disagree.
+   The top-five tie-break did it a second time: all-lower-case labels cannot tell a bytewise
+   comparison from a case-folded one, and the SQL charts beside it obey a case-insensitive
+   collation. Mixed case (`a, B, c, D, e, F, g`) separates them, and belongs in the MySQL evidence
+   script as well as the unit test, because PHP's `<=>` and the database's collation are different
+   comparators.
+10. **A correction can be wrong in the way the thing it corrects was.** A finding said an
+    inclusive-tax change moved only a recorded figure and not the charge, and the staged comment
+    said so — true for the guest cart, false for the signed-in cart, which adds the same figure with
+    no inclusive exemption. Reading the one caller the finding named was not enough. Before writing
+    a claim about what a change does, list **every** call site (`grep -rn 'functionName('`) and read
+    how each uses the result.
+11. **"The form cannot produce that" is a claim about JavaScript, and nobody had read it.** A
+    comment and a test header both said the Country → State → City cascade made a city-with-no-state
+    unbuildable by clicking. Reading the script showed the country handler rebuilt the state select
+    and left the city select holding its old choice, so changing the country posted exactly that
+    row. Read the handlers before writing "the UI prevents X". When the same script is pasted into
+    several views (here `create` and `edit`), pin the fix with a source-level census over **each
+    copy** and run the mutants on **all copies identically** — a mutation applied to one view is
+    killed by the equality test between the copies and tells you nothing about the census.
 
 **Assert through `DB::table()`.** `User`, `Product` and `Order` are `Cachable`; an Eloquent read can
 serve a mutated in-memory instance. That produced a false *reproduction* once — a model read
@@ -230,6 +270,8 @@ python3 docs/development/phase-1/tools/resync-observability-inventory.py --write
 php artisan test tests/Feature/Tenancy/ResidualTenancyExposureTest.php             # read actual vs expected
 php artisan test tests/Feature/Tenancy/EloquentScopeBypassInventoryTest.php
 ```
+
+The `(Measured anchors:` block in `PaymentController`'s docblock is the fifth: edit its digits **in place, at the same width** — adding a sentence moves every row beneath it, which is the cascade this section exists to avoid — and take the shift from `git diff -U0 <file>` (the sum of `new − old` over the hunks above each anchor), then confirm each cited line still holds its token.
 
 The two test-file arrays are re-pointed by hand from the failure's own diff. **Apply the highest
 line number first**: a renumbering where 3230→3255 and 3255→3280 rewrites the same entry twice if

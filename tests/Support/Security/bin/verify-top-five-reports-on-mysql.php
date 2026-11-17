@@ -27,6 +27,20 @@
  *      build without de-duplication. An order with the same product on two lines contributed 2 to
  *      a figure labelled "orders".
  *
+ * A FIFTH DEFECT, found by the PR #140 deletion audit's adversarial pass and measured here as
+ * section E. Ties. The three ranked charts did not break ties the same way, and the fix for the
+ * first three had asserted only "at most five" and "descending", never WHICH five survive:
+ *
+ *   * categories and brands: `orderByDesc(count)` then `orderBy(name)` -- name ascending.
+ *   * payment methods: `sortByDesc(fn => [orders, label])`, which compares BOTH elements
+ *     DESCENDING, so ties fell out in REVERSE alphabet. Seven methods of one order each kept
+ *     g,f,e,d,c and silently dropped a and b. The first replacement compared the label BYTEWISE,
+ *     which puts every capital before every lower-case letter -- the SQL charts' collation is
+ *     case-insensitive -- so the label is now case-folded; section E2 measures it.
+ *   * products: `countBy()->sortDesc()` kept first-appearance order, which follows the database's
+ *     row order for a query with no ORDER BY -- so the fifth place appeared and disappeared
+ *     between loads. Now `sortKeys()` first, so ties break by product id, ascending.
+ *
  * WHY A SCRIPT. `top_product()` is in `ReportController`, which cannot run under the test suite at
  * all: the category and brand queries use `SUBSTRING_INDEX`, and the rest of the file uses
  * `MONTH()` and `YEAR()`, none of which exist in SQLite. See
@@ -316,6 +330,80 @@ try {
     check('every order is counted exactly once across the bars',
         $totalCounted === $orderSeq,
         "bars sum to {$totalCounted}, {$orderSeq} orders were placed");
+
+    // ------------------------------------------------------------------ E. ties
+
+    /*
+     * EVERY ITEM TIED AT ONE ORDER, listed in the order that most separates the readings: the rows
+     * are inserted with product ids DESCENDING (7..1), so first-appearance order is 7,6,5,4,3,2,1
+     * and an implementation that merely keeps arrival order returns exactly the WRONG five.
+     * Payment methods are named so that alphabetical order is the reverse of insertion order too.
+     * The correct answer for every chart is therefore the LOWEST five by id or name: 1..5 / a..e.
+     */
+    echo "\nE. Ties -- seven items at one order each, inserted in descending id order\n";
+
+    DB::table('orders')->delete();
+    foreach ([\App\Models\Product::class, \App\Models\ProductBrand::class, \App\Models\Category::class] as $model) {
+        if (method_exists($model, 'flushCache')) { (new $model())->flushCache(); }
+    }
+
+    foreach (range(7, 1) as $i) {
+        $placeOrder((string) $catalogue[$i]['product'], chr(96 + $i) . '-pay');
+    }
+
+    $tieData = (new ReportController())->top_product($request)->getData();
+
+    $tieCategories = collect($tieData['top_sales'] ?? [])->pluck('sale_name')->all();
+    $tieBrands = collect($tieData['top_brand_sales'] ?? [])->pluck('sale_name')->all();
+    $tieProducts = array_values($tieData['productNames'] ?? []);
+    $tieMethods = array_keys($tieData['paymentMethods'] instanceof \Illuminate\Support\Collection
+        ? $tieData['paymentMethods']->all()
+        : (array) ($tieData['paymentMethods'] ?? []));
+
+    echo "   categories: " . json_encode($tieCategories) . "\n";
+    echo "   brands:     " . json_encode($tieBrands) . "\n";
+    echo "   products:   " . json_encode($tieProducts) . "\n";
+    echo "   methods:    " . json_encode($tieMethods) . "\n";
+
+    check('categories break a tie by name, ascending',
+        $tieCategories === ['Cat 1', 'Cat 2', 'Cat 3', 'Cat 4', 'Cat 5'], json_encode($tieCategories));
+    check('brands break a tie by name, ascending',
+        $tieBrands === ['Brand 1', 'Brand 2', 'Brand 3', 'Brand 4', 'Brand 5'], json_encode($tieBrands));
+    check('products break a tie by id, ascending -- NOT by the order the rows arrived in',
+        $tieProducts === ['Prod 1', 'Prod 2', 'Prod 3', 'Prod 4', 'Prod 5'], json_encode($tieProducts));
+    check('payment methods break a tie by label ascending -- NOT in reverse alphabet',
+        $tieMethods === ['a-pay', 'b-pay', 'c-pay', 'd-pay', 'e-pay'],
+        json_encode($tieMethods) . ' -- reverse alphabet would give g-pay, f-pay, e-pay, d-pay, c-pay');
+
+    // ------------------------------------------------------------------ E2. ties, mixed case
+
+    /*
+     * SEVEN METHODS, ONE ORDER EACH, WITH MIXED CASE. Section E's labels are all lower-case, so a
+     * bytewise comparison and a case-folded one AGREE on them and cannot be told apart. These are
+     * chosen so they disagree:
+     *
+     *     bytewise  B-pay, D-pay, F-pay, a-pay, c-pay      (capitals first -- keeps F, drops e and g)
+     *     folded    a-pay, B-pay, c-pay, D-pay, e-pay      (what the SQL charts' collation gives)
+     */
+    echo "\nE2. Ties -- seven methods of mixed case, one order each\n";
+
+    DB::table('orders')->delete();
+    (new \App\Models\Order())->flushCache();
+
+    foreach (['g-pay', 'F-pay', 'e-pay', 'D-pay', 'c-pay', 'B-pay', 'a-pay'] as $i => $label) {
+        $placeOrder((string) $catalogue[($i % 7) + 1]['product'], $label);
+    }
+
+    $mixedData = (new ReportController())->top_product($request)->getData();
+    $mixedMethods = array_keys($mixedData['paymentMethods'] instanceof \Illuminate\Support\Collection
+        ? $mixedData['paymentMethods']->all()
+        : (array) ($mixedData['paymentMethods'] ?? []));
+
+    echo "   methods:    " . json_encode($mixedMethods) . "\n";
+
+    check('payment methods break a tie ignoring case, as the SQL charts do',
+        $mixedMethods === ['a-pay', 'B-pay', 'c-pay', 'D-pay', 'e-pay'],
+        json_encode($mixedMethods) . ' -- a bytewise comparison would give B-pay, D-pay, F-pay, a-pay, c-pay');
 
     echo "\n{$checks} checks, {$failures} failed\n";
     $exit = $failures > 0 ? 1 : 0;

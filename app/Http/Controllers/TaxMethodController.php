@@ -180,6 +180,47 @@ class TaxMethodController extends Controller
     }
 
     /**
+     * A JURISDICTION THAT NAMES A NARROWER LEVEL MUST NAME THE WIDER ONE ABOVE IT. AUD-4.
+     *
+     * Found by the PR #140 deletion audit's adversarial pass. `Cart::getProductTaxAmount()` takes a
+     * method only when its country/state/city columns describe the shopper through one of four
+     * shapes: country+state+city, country+state, country alone, or none of them. Two more
+     * combinations are writable here and match no shopper at all -- a state with no country, and a
+     * city with no state (including a city with neither) -- and since P4-F070 removed the "charge
+     * every method when nothing matched" fallback that used to catch them by accident, such a row
+     * is charged to NOBODY, in the inclusive and the exclusive branch alike.
+     *
+     * THE FORMS DID NOT PREVENT IT, and the first version of this comment said they did. Found by
+     * independent review of this change and confirmed by reading the script in
+     * `taxes-method/create.blade.php` and `edit.blade.php`: pick a country, a state and a city, then
+     * CHANGE THE COUNTRY. The state select is rebuilt, but the city select is left holding its old
+     * choice (the state's own `change` handler only fires when a state was pre-selected), so the form
+     * posts a city with no state -- an ordinary sequence of clicks, not a crafted request. Both views now
+     * clear the city when the country changes; a crafted request and a row an earlier version wrote can
+     * still carry the combination, which is what this refuses.
+     *
+     * This closes the WRITE path and nothing else: it cannot repair a row that already exists, and finding
+     * those needs a read of production data, which is the owner's. A legacy row of that shape also cannot be
+     * renamed or re-rated until its jurisdiction is repaired in the same submit, which the edit form allows.
+     * The query is in `docs/security/P05-PR140-DELETION-AUDIT-DIGEST.md`.
+     *
+     * The same two `?: null` reads the writers use, so "empty" means what it means there: the
+     * form's `0` placeholder and an empty string both count as unset.
+     */
+    private function jurisdictionRefusal(Request $request)
+    {
+        $country = $request->country_id ?: null;
+        $state = $request->state_id ?: null;
+        $city = $request->city_id ?: null;
+
+        if (($state && ! $country) || ($city && ! $state)) {
+            return redirect()->back()->with('error', __('Choose a country before a state, and a state before a city.'));
+        }
+
+        return null;
+    }
+
+    /**
      * Store a newly created resource in storage.
      */
     public function store(Request $request)
@@ -199,6 +240,10 @@ class TaxMethodController extends Controller
         if ($validator->fails()) {
             $messages = $validator->getMessageBag();
             return redirect()->back()->with('error', implode(' ', $messages->all()));
+        }
+
+        if ($refusal = $this->jurisdictionRefusal($request)) {
+            return $refusal;
         }
 
         /*
@@ -338,6 +383,11 @@ class TaxMethodController extends Controller
             $messages = $validator->getMessageBag();
             return redirect()->back()->with('error', implode(' ', $messages->all()));
         }
+
+        if ($refusal = $this->jurisdictionRefusal($request)) {
+            return $refusal;
+        }
+
         $taxmethod = $this->scopedTaxMethod($taxMethod->id);
 
         if ($taxmethod === null) {

@@ -4117,5 +4117,7 @@
     "Written for merchants, not for developers. Start at the beginning or search for what you are stuck on.": "Written for merchants, not for developers. Start at the beginning or search for what you are stuck on.",
     "Reason for changing the payment status of order :order": "Reason for changing the payment status of order :order",
     "Reason (required)": "Reason (required)",
-    "The five methods used on the most orders. Spellings of the same method are counted together.": "The five methods used on the most orders. Spellings of the same method are counted together."
+    "The five methods used on the most orders. Spellings of the same method are counted together.": "The five methods used on the most orders. Spellings of the same method are counted together.",
+    "Choose a country before a state, and a state before a city.": "Choose a country before a state, and a state before a city.",
+    "The product is not part of this order.": "The product is not part of this order."
 }

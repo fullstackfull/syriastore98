@@ -3392,12 +3392,18 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
          * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
          * right plan (CartController::cart_list_sidebar:38-40,
          * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
-         * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+         * The predicate's TEXT is unchanged but its MEANING is not -- see the plan note below. See App\Support\Commerce\StorePlan.
          */
         $user = \App\Support\Commerce\StorePlan::ownerOf($store);
+        // `$plan` is assigned only inside the owner's `type == 'admin'` test, so it must start null and
+        // shipping is read through `$planShippingMethod` (no plan => 'off', the rule `processOrder` and
+        // `processShipping` already apply). Without this a store whose owner has no resolvable plan dies
+        // here. Held by Tests\Feature\Commerce\ReturnHandlerPlanInitialiserTest (LANDED).
+        $plan = null;
         if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);
         }
+        $planShippingMethod = $plan->shipping_method ?? 'off';
         $rules = [
             'customer_id' => 'required',
             'billing_info' => 'required',
@@ -3588,7 +3594,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
 
         $delivery_price = 0;
-        if ($plan->shipping_method == 'on') {
+        if ($planShippingMethod == 'on') {
             if (!empty($request->method_id)) {
                 $del_charge = new CartController();
                 $delivery_charge = $del_charge->get_shipping_method($request, $slug);
@@ -3986,13 +3992,13 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
          * refusal because apply_coupon has already accepted the coupon by this point.
          */
         if (!\Auth::guard('customers')->user()) {
-            if ($plan->shipping_method == 'on') {
+            if ($planShippingMethod == 'on') {
                 $order->final_price = max(0, $data['shipping_total_price'] - $coupon_price);
             } else {
                 $order->final_price = max(0, $final_price + $tax_price - $coupon_price);
             }
         } else {
-            if ($plan->shipping_method == 'on') {
+            if ($planShippingMethod == 'on') {
                 $order->final_price = max(0, $data['shipping_total_price'] + $tax_price - $coupon_price);
             } else {
                 $order->final_price = max(0, $final_price + $tax_price - $coupon_price);
@@ -9192,10 +9198,16 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $delivery_price = 0;
         $tax_price = $cartlist['tax_price'];
         $user = User::where('id', $store->created_by)->first();
-        if ($user->type == 'admin') {
+        // `$plan` is assigned only inside the owner's `type == 'admin'` test, so it must start null and
+        // shipping is read through `$planShippingMethod` (no plan => 'off', the rule `processOrder` and
+        // `processShipping` already apply). Without this a store whose owner has no resolvable plan dies
+        // here. Held by Tests\Feature\Commerce\ReturnHandlerPlanInitialiserTest (LANDED).
+        $plan = null;
+        if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);
         }
-        if ($plan->shipping_method == 'on') {
+        $planShippingMethod = $plan->shipping_method ?? 'off';
+        if ($planShippingMethod == 'on') {
             if (!empty($request->method_id)) {
                 $del_charge = new CartController();
                 $delivery_charge = $del_charge->get_shipping_method($request, $slug);
@@ -9691,12 +9703,15 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
          * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
          * right plan (CartController::cart_list_sidebar:38-40,
          * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
-         * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+         * The predicate's TEXT is unchanged but its MEANING is not -- see the plan note below. See App\Support\Commerce\StorePlan.
          */
         $user = \App\Support\Commerce\StorePlan::ownerOf($store);
+        // Re-resolved the same way; see the note on the first resolution in this method.
+        $plan = null;
         if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);
         }
+        $planShippingMethod = $plan->shipping_method ?? 'off';
         $is_guest = 1;
         if (auth('customers')->check()) {
             $product_order_id  = $customer_id . date('YmdHis');

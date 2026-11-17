@@ -302,12 +302,18 @@ class AuthorizeNetPaymnetController extends Controller
          * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
          * right plan (CartController::cart_list_sidebar:38-40,
          * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
-         * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+         * The predicate's TEXT is unchanged but its MEANING is not -- see the plan note below. See App\Support\Commerce\StorePlan.
          */
         $user = \App\Support\Commerce\StorePlan::ownerOf($store);
+        // `$plan` is assigned only inside the owner's `type == 'admin'` test, so it must start null and
+        // shipping is read through `$planShippingMethod` (no plan => 'off', the rule `processOrder` and
+        // `processShipping` already apply). Without this a store whose owner has no resolvable plan dies
+        // here. Held by Tests\Feature\Commerce\ReturnHandlerPlanInitialiserTest (LANDED).
+        $plan = null;
         if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);
         }
+        $planShippingMethod = $plan->shipping_method ?? 'off';
         if (module_is_active('PartialPayments')) {
             if($plan && strpos($plan->modules, 'PartialPayments') !== false && \Auth::guard('customers')->user())
             {
@@ -627,7 +633,7 @@ class AuthorizeNetPaymnetController extends Controller
                     }
 
                     $delivery_price = 0;
-                    if ($plan->shipping_method == 'on') {
+                    if ($planShippingMethod == 'on') {
                         if (!empty($request->method_id)) {
                             $del_charge = new CartController();
                             $delivery_charge = $del_charge->get_shipping_method($request, $slug);
@@ -1057,7 +1063,7 @@ class AuthorizeNetPaymnetController extends Controller
                     $order->delivery_price = $delivery_price;
                     $order->tax_price = $tax_price;
                     if (!auth('customers')->user()) {
-                        if ($plan->shipping_method == "on") {
+                        if ($planShippingMethod == "on") {
                             $order->final_price = $final_sub_total_price;
                         } else {
                             $order->final_price = $final_price + $tax_price - $coupon_price;
@@ -1102,13 +1108,13 @@ class AuthorizeNetPaymnetController extends Controller
                             $customerDetail = Customer::find($customer_id);
                             $rewardSetting = getAdminAllSetting($store->created_by,$store->id) ?? null;
                             $saveRewardPrice = RewardPointDiscount::for((float) ($customerDetail->total_club_point ?? 0), $rewardSetting);
-                            if ($plan->shipping_method == "on") {
+                            if ($planShippingMethod == "on") {
                                 $order->final_price = RewardPointDiscount::applyTo($final_sub_total_price, $saveRewardPrice);
                             } else {
                                 $order->final_price = RewardPointDiscount::applyTo($final_price + $tax_price, $saveRewardPrice);
                             }
                         } else {
-                            if ($plan->shipping_method == "on") {
+                            if ($planShippingMethod == "on") {
                                 $order->final_price = $final_sub_total_price;
                             } else {
                                 $order->final_price = $final_price + $tax_price - $coupon_price;

@@ -4113,5 +4113,7 @@
     "Written for merchants, not for developers. Start at the beginning or search for what you are stuck on.": "مكتوبة للتجّار لا للمبرمجين. ابدأ من البداية أو ابحث عمّا تعثّرت عنده.",
     "Reason for changing the payment status of order :order": "سبب تغيير حالة الدفع للطلب :order",
     "Reason (required)": "السبب (مطلوب)",
-    "The five methods used on the most orders. Spellings of the same method are counted together.": "الطرق الخمس المستخدمة في أكثر عدد من الطلبات. تُحتسب التهجئات المختلفة للطريقة نفسها معاً."
+    "The five methods used on the most orders. Spellings of the same method are counted together.": "الطرق الخمس المستخدمة في أكثر عدد من الطلبات. تُحتسب التهجئات المختلفة للطريقة نفسها معاً.",
+    "Choose a country before a state, and a state before a city.": "اختر البلد قبل المحافظة، واختر المحافظة قبل المدينة.",
+    "The product is not part of this order.": "المنتج ليس ضمن هذا الطلب."
 }

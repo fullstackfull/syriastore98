@@ -2993,7 +2993,20 @@ class ReportController extends Controller
                     'orders' => $orders->count(),
                 ];
             })
-            ->sortByDesc(fn ($group) => [$group['orders'], $group['label']])
+            // `sortByDesc()` on an ARRAY key compares BOTH elements descending, so ties on the
+            // order count resolved by REVERSE alphabet -- the opposite of the two SQL charts above,
+            // whose name tie-break is ascending. Measured with this repository's own Collection:
+            // seven methods of one order each kept g,f,e,d,c and dropped a and b. Orders descending,
+            // then the label ascending AND CASE-FOLDED.
+            //
+            // The fold matters: PHP compares bytes, so without it every capital letter sorted before
+            // every lower-case one ("Stripe" before "cod"), where the SQL charts' collation is
+            // case-insensitive. The two now agree for the names this chart actually sees -- Latin
+            // gateway and method names. They can still differ for a non-Latin name, because the
+            // database orders by its collation weights and PHP by code point; that residue is
+            // recorded rather than claimed away. The fold cannot create a tie of its own: groups are
+            // keyed by the lower-cased label, so no two of them fold to the same string.
+            ->sort(fn ($a, $b) => [$b['orders'], mb_strtolower($a['label'])] <=> [$a['orders'], mb_strtolower($b['label'])])
             ->take(5)
             ->mapWithKeys(fn ($group) => [$group['label'] => $group['orders']]);
         return view('reports.top_5_reports', [
@@ -3077,7 +3090,15 @@ class ReportController extends Controller
          *
          * `unique()` per order makes the count match its own label, and matches the metric the
          * category and brand charts use -- COUNT(DISTINCT orders.id) - so all four charts now rank
-         * by the same thing. The name is a deterministic tie-break, as in the two queries above.
+         * by the same thing.
+         *
+         * THE TIE-BREAK IS THE PRODUCT ID, ASCENDING, and an earlier version of this comment said
+         * it was the name. It was neither: `countBy()->sortDesc()` keeps first-appearance order on
+         * a tie, which follows the database's row order for a query with no ORDER BY, so the fifth
+         * place appeared and disappeared between loads. `sortKeys()` first makes the stable sort
+         * that follows break ties by id. A NAME tie-break would need the names of every candidate
+         * product rather than only the five that survive, which is a wider query than this chart
+         * is worth.
          */
         $countsById = (clone $orderQuery)->pluck('product_id')
             ->flatMap(fn ($ids) => collect(explode(',', (string) $ids))
@@ -3086,6 +3107,7 @@ class ReportController extends Controller
                 ->unique()
                 ->values())
             ->countBy()
+            ->sortKeys()
             ->sortDesc()
             ->take(5);
 
@@ -3768,7 +3790,9 @@ class ReportController extends Controller
      *
      * THE RETURN TYPE IS LOAD-BEARING. DO NOT "SIMPLIFY" IT WITH `->all()`.
      *   * An empty selection comes back UNCHANGED, so each caller's own `empty($selected)` default
-     *     (and, in the brand handler's first two branches, its `$selected ?? ...`) still fires, and
+     *     still fires. (This note used to add "and, in the brand handler's first two branches, its
+     *     `$selected ?? ...`". Those two branches now test `empty($selectedBrand)` instead, so the
+     *     parenthesis described a caller shape that no longer exists.) And
      *     the "All Categories" / "All Brands" series -- which are decided from the RAW
      *     `$request->selected*`, untouched here -- behave exactly as before.
      *   * A selection that survives nothing comes back as an EMPTY COLLECTION, and `empty()` on an

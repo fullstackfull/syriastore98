@@ -83,6 +83,12 @@
                 $(this).closest('.row').find('.state_chage').html(option);
                 $(this).closest('.row').find('.state_chage').val(state);
 
+                /* A new country invalidates the city as well as the state. Without this the city select kept
+                   its old choice while the state went back to "Select State", so the form posted a city with no
+                   state. The state's own change handler repopulates it when a state is pre-selected (edit). */
+                $(this).closest('.row').find('.nice-select.city_chage').remove();
+                $(this).closest('.row').find('.city_chage').html('<option value="0">{{ __('Select City') }}</option>').show();
+
                 if (state != 0) {
                     $(this).closest('.row').find('.state_chage').trigger('change');
                 }

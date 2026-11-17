@@ -9541,9 +9541,15 @@ public function updateStoreOwnerInfo(Request $request)
                      * It now goes through the one controlled write path, which validates the value
                      * against the theme's declared taxonomy (`footer_repeater` is declared `slider`
                      * -- a repeater -- in all three shipped themes) and flushes the model cache
-                     * AFTER COMMIT. The HTTP contract is unchanged: same condition, same
-                     * `$updatedFields[] = 'social_media'`, same request and response shape. Only the
-                     * internal write path moved, so the shipped Flutter app is unaffected.
+                     * AFTER COMMIT. The request and response SHAPE are unchanged, so the shipped
+                     * Flutter app is unaffected -- but the CONDITION is not, and an earlier version
+                     * of this comment said it was. `social_media` is now appended only when the
+                     * service actually wrote something. A refusal (no permission, or a store with no
+                     * theme selected) returns null, the field is simply omitted from
+                     * `updated_fields`, and the status is the same 200: a new status code would
+                     * force a logout in that app. A store whose `theme_id` is empty therefore can
+                     * no longer save social links through this endpoint; that is Phase 03's rule
+                     * that a theme write needs a theme, recorded here rather than hidden.
                      */
                     $written = app(\App\Services\Theme\ThemeConfigurationService::class)
                         ->writeSettings(

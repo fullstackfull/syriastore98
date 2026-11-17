@@ -1506,9 +1506,18 @@ Route::get(
      *
      * `theme.editor` resolves the store through the gate -- never `getCurrentStore()`, never a
      * `{store}` parameter from the caller -- and admits the operator naming a store explicitly, the
-     * verified tenant owner, or a same-tenant holder of `Manage Themes`. The controller's own
-     * `isAbleTo()` checks are LEFT IN PLACE: defence in depth, and deleting them on the strength of
-     * a middleware line is how a guard goes missing when a route is later moved out of a group.
+     * verified tenant owner, or a same-tenant holder of `Manage Themes`. The controller keeps its
+     * own check as `mayManageThemes()`, which asks the SAME gate this middleware does, so the two
+     * cannot disagree: defence in depth, and deleting it on the strength of a middleware line is how
+     * a guard goes missing when a route is later moved out of a group.
+     *
+     * THAT IS NOT THE OLD CHECK, and an earlier version of this comment said it was ("the
+     * controller's own `isAbleTo()` checks are LEFT IN PLACE"). The four read handlers used to run
+     * a bare `isAbleTo('Manage Themes')`, which refuses the platform operator (no bypass exists)
+     * and the verified tenant owner (who holds no permission row). The gate admits both on
+     * purpose, so a verified owner without the permission goes from a 302 to a 200 on those four
+     * GETs, pinned by `ThemeEditorAuthorizationMatrixTest::test_the_owner_can_open_the_editor_
+     * without_holding_the_permission`.
      */
     Route::middleware(['theme.editor'])->group(function () {
         Route::get('theme-customize', [ThemeCustomizeController::class, 'index'])->name('theme.index');

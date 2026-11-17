@@ -1825,28 +1825,26 @@ private function processPaymera00000($request, $slug)
                  * the charge id this platform's return paths treat as proof of payment -- to a page
                  * anyone holding that URL can read.
                  *
-                 * `null` MATCHES THE SHAPE ALREADY SHIPPED IN THIS FILE: processTap, the same
-                 * provider and the same endpoint, sends `'post' => ['url' => null]`. So this
-                 * removes the bin WITHOUT choosing a new destination -- and choosing one is a
+                 * `''` IS THE SHAPE ALREADY SHIPPED ON THE WIRE BY EVERY OTHER TAP FLOW IN THIS
+                 * REPOSITORY, and this comment used to say `null` was, then to admit that it was
+                 * not and leave it. processTap and TapPaymnetController pass PHP `null` into
+                 * App\Package\Payment::charge(), which builds its JSON by string concatenation and
+                 * so sends `"post":{"url":""}`. This method json_encode()s an array, so `null`
+                 * would have reached Tap as `"url":null`. Whether Tap treats the two alike is NOT
+                 * VERIFIED from here -- no credential exists in this container -- so the choice
+                 * that adds no unknown is the one the card flows already prove: `''`. Both mean
+                 * "no callback"; only one has ever been sent.
+                 *
+                 * This removes the bin WITHOUT choosing a new destination -- choosing one is a
                  * separate open owner decision (P1-SEC-55), which this deliberately does not
                  * pre-empt.
                  *
-                 * PRECISE ABOUT THE PARITY, after independent review corrected an earlier wording
-                 * here that claimed more than it should. The two match as PHP LITERALS, not on the
-                 * wire: this method json_encode()s an array, so Tap receives `"post":{"url":null}`,
-                 * while processTap goes through App\Package\Payment::charge(), which builds its
-                 * JSON by string concatenation and so sends `"post":{"url":""}`. Both plainly mean
-                 * "no callback" and neither is a URL, but they are not byte-identical, and whether
-                 * Tap treats them the same is NOT VERIFIED from here -- no credential exists in
-                 * this container. If byte-parity with the already-proven shape is wanted, `''` is
-                 * the proven one.
-                 *
-                 * WHAT IS LOST BY SENDING null: nothing this application was using. No route in
+                 * WHAT IS LOST BY SENDING NO CALLBACK URL: nothing this application was using. No route in
                  * this repository receives a Tap server-to-server callback -- measured, the only
                  * credential-authenticated provider-callback receiver is the delivery one. The
                  * shopper's return is `redirect.url` below, which is unchanged.
                  */
-                "post" => ["url" => null],
+                "post" => ["url" => ''],
                 "redirect" => ["url" => route('store.payment.status', $slug)],
 
             ];
@@ -2482,12 +2480,18 @@ private function processPaymera00000($request, $slug)
          * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
          * right plan (CartController::cart_list_sidebar:38-40,
          * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
-         * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+         * The predicate's TEXT is unchanged but its MEANING is not -- see the plan note below. See App\Support\Commerce\StorePlan.
          */
         $user = \App\Support\Commerce\StorePlan::ownerOf($store);
+        // `$plan` is assigned only inside the owner's `type == 'admin'` test, so it must start null and
+        // shipping is read through `$planShippingMethod` (no plan => 'off', the rule `processOrder` and
+        // `processShipping` already apply). Without this a store whose owner has no resolvable plan dies
+        // here. Held by Tests\Feature\Commerce\ReturnHandlerPlanInitialiserTest (LANDED).
+        $plan = null;
         if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);
         }
+        $planShippingMethod = $plan->shipping_method ?? 'off';
         if (module_is_active('PartialPayments')) {
             if ($plan && strpos($plan->modules, 'PartialPayments') !== false && \Auth::guard('customers')->user()) {
                 /*
@@ -2706,7 +2710,7 @@ private function processPaymera00000($request, $slug)
             }
         }
         $delivery_price = 0;
-        if ($plan->shipping_method == 'on') {
+        if ($planShippingMethod == 'on') {
             // The client short-circuit that used to sit here
             // (`if (isset($requests_data['shipping_final_price'])) $delivery_price = ...`)
             // is DELETED: it let the posted shipping price become the charged
@@ -3028,7 +3032,7 @@ $products_weight_array[] = [
         $order->delivery_price = $delivery_price;
         $order->tax_price = $tax_price;
         if (!auth('customers')->user()) {
-            if ($plan->shipping_method == "on") {
+            if ($planShippingMethod == "on") {
                 $order->final_price = $total_sub_price + $delivery_price;
             } else {
                 $order->final_price = $total_sub_price;
@@ -3058,13 +3062,13 @@ $products_weight_array[] = [
                 $customerDetail = Customer::find($customer_id);
                 $rewardSetting = getAdminAllSetting($store->created_by, $store->id) ?? null;
                 $saveRewardPrice = RewardPointDiscount::for((float) ($customerDetail->total_club_point ?? 0), $rewardSetting);
-                if ($plan->shipping_method == "on") {
+                if ($planShippingMethod == "on") {
                     $order->final_price = RewardPointDiscount::applyTo($total_sub_price + $delivery_price, $saveRewardPrice);
                 } else {
                     $order->final_price = RewardPointDiscount::applyTo($total_sub_price, $saveRewardPrice);
                 }
             } else {
-                if ($plan->shipping_method == "on") {
+                if ($planShippingMethod == "on") {
                     $order->final_price = $total_sub_price + $delivery_price;
                 } else {
                     $order->final_price = $total_sub_price;

@@ -413,6 +413,58 @@ Also recorded: `StockMovement::forOrder($storeId, $orderId)` at `app/Services/St
 is an unrelated pre-existing method with the same name and entirely different argument meanings.
 The census is class-qualified because of it.
 
+### P5-14 — the PR #140 deletion audit — **FIXES LANDED LOCALLY; OWNER ITEMS RECORDED, NOT DECIDED**
+
+Question asked: *what did this diff REMOVE or NARROW?* — of every one of the 120 behaviour-bearing
+deleted lines in 24 files, by a first reader and then an **adversarial second reader per file**.
+The second reader overturned **18 of 24** first-pass verdicts. Full digest, the eight checklist
+answers as an **unsigned draft for the human reviewer**, and the owner-run read-only queries:
+[`docs/security/P05-PR140-DELETION-AUDIT-DIGEST.md`](../../security/P05-PR140-DELETION-AUDIT-DIGEST.md).
+**That document is not a security review and does not satisfy the human checklist.**
+
+| Item | State |
+|---|---|
+| AUD-1 — `$plan` undefined after gateway capture; the census finds the shape in **12** handlers, **10** of them unguarded | **PARTLY FIXED, ON PURPOSE** — guard landed on **5**; the other **5** are **held back by owner ruling D-13/D-18** ("the `$plan` fix stays suspended"), the original crash preserved and pinned in both directions. `ReturnHandlerPlanInitialiserTest` 9 tests. Whether to lift the hold is the owner's: **GAP-210** |
+| AUD-2 — `product_return` base doubled after a return **request** (205.00 where 57.50 is owed; −15.00 in a second ordering) | **FIXED**; `SecondReturnTotalTest` 5 → 16. Review added two more defects in the same method — a call naming no line raised `final_price` by a flat coupon on every call, and the return was three writes — both fixed (refusal before the first write; one transaction) |
+| `/finance` filter missing `order_cancelled` / `order_refunded` | **FIXED** in `b7a7e70a` |
+| AUD-4 — Benefit wire shape and catch, `{slug}` locale, top-5 ties (case-folded; **run on MariaDB 10.11.14**), tax-jurisdiction write path **and both tax forms**, seven false comments | **FIXED / CORRECTED** |
+| AUD-3 — `syncFromOrder` early return | **NOT A DEFECT** (owner-approved Option A); silence recorded as GAP-209 |
+| Reward fail-closed removed by D5 (11 sites) | **OPEN** — D6 wiring, GAP-202/203; blocked on D3 |
+| Return-reject marks whole order returned; inclusive-tax guest/signed-in split; NMI `Paid` at 0.00; theme-editor items; existing production data; the `$plan` hold and the owner-row-missing / quote-side findings; vendored callers passing tax arguments shifted by one | **OWNER** — GAP-204 … GAP-211 |
+
+**What went wrong in my own working, kept because it is the instructive part.** I staged a comment
+correction saying the inclusive-tax change moves *only the recorded tax* and leaves the charge
+bit-identical, on the strength of the audit's reading of `Cart::cart_list_cookie`. Before applying
+it I read the other caller: `ApiController::cart_list` adds `$tax_price` with no inclusive
+exemption, so for a signed-in shopper the charge *does* fall. The correction would have replaced
+one false comment with another. The cure was reading every call site of the function rather than
+the one the finding named.
+
+**And where independent review of the fixes themselves found me wrong.** (1) I landed the `$plan` guard
+on all ten handlers; an owner ruling I had not read reserves five of them, so five are reverted and the
+question went to the owner. (2) I wrote that the tax form's cascade makes a city-with-no-state
+unbuildable; changing the country leaves the city selected, so both forms are fixed and the comment
+corrected. (3) My top-five tie-break compared bytewise; the SQL charts are case-insensitive. (4) My
+Benefit comment claimed the currency sentence "survives only where it can be true"; a 401 is a 4xx.
+(5) My `Cart` caller note named two of ten call sites. Each correction is pinned by a test that was
+mutation-checked; the list is in the digest, §6.
+
+### P5-15 — D8 first-party consent store — **BUILT LOCALLY, UNWIRED, GAP-200 STAYS OPEN**
+
+Owner decision D8: a first-party, persistent, tenant-aware consent and suppression store with append-only
+evidence and a secure unsubscribe; per-channel enforcement; no inferred consent and no backfill;
+transactional messages never blocked indiscriminately; the unreviewed sender sites classified; **not marked
+complete while any promotional path can bypass enforcement**. Design and honest state:
+[`PHASE-05-MKT-008-ENFORCEMENT-DESIGN.md`](PHASE-05-MKT-008-ENFORCEMENT-DESIGN.md).
+
+| Slice | State |
+|---|---|
+| D8-1 — events (append-only), projection, ledger, hashed single-use unsubscribe tokens, send gate (`off` / `report` / `enforce`) | **BUILT, dev/test only.** 99 tests / 322 assertions, mutation-checked. Three migrations **applied nowhere**. Gate **called by nothing**. `MARKETING_CONSENT_ENFORCEMENT` defaults to `off` and the gate then issues no query |
+| D8-2 — seams at the send boundaries (mail listener, `sendEmailTemplate`, `SendMsgs`, `send_twilio_msg`, `sendFCM`), `report` mode first, a census per seam | **NOT STARTED** |
+| D8-3 — a place to opt in, the unsubscribe route and page (bilingual, RTL and LTR) | **NOT STARTED** |
+| D8-B — classify the 214 sender sites | **40 of 214** classified in the committed census, ten of those refuted; a further run was in progress and is **not relied on** |
+| Production migration, `report`, `enforce` | **each needs the owner's separate authorisation** — none is implied by anything here |
+
 ## 3. What this phase will NOT do
 
 - **Invent metrics, customer events or campaign outcomes.** If the data does not record it, the
