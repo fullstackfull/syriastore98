@@ -290,8 +290,23 @@
                                                                 id="rejectAdminNote{{ $withdrawal->id }}"
                                                                 class="form-control"
                                                                 rows="3"
+                                                                required
+                                                                maxlength="500"
                                                                 placeholder="{{ __('Reason for rejection') }}"
                                                             ></textarea>
+                                                            {{-- P4-F128: the handler now REQUIRES this note. Rejecting a
+                                                                 withdrawal returns money to the merchant's wallet, and it
+                                                                 used to be possible to do that with nothing recorded about
+                                                                 why. Without this block a server-side refusal is a silent
+                                                                 302 back to the list: the browser's `required` catches the
+                                                                 ordinary case, the encoding rule does not.
+
+                                                                 The id interpolates $withdrawal->id because this sits in a
+                                                                 @forelse loop, and FinanceControlLabellingTest counts ids
+                                                                 across two seeded rows and asserts none repeats. --}}
+                                                            @error('admin_note')
+                                                                <div class="text-danger small mt-1" role="alert">{{ $message }}</div>
+                                                            @enderror
 
                                                         </div>
 

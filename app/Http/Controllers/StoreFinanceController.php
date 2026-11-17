@@ -1593,7 +1593,17 @@ class StoreFinanceController extends Controller
 
         try {
 
-            DB::transaction(function () use (
+            /*
+             * P4-F128 -- THE TRANSACTION RETURNS WHAT THE AUDIT ROW NEEDS.
+             *
+             * `use (...)` captures BY VALUE, so nothing the closure computes -- the amount, the
+             * wallet it belongs to, the status it moved from -- is visible after the commit. The
+             * alternative, re-reading the row once the transaction has closed, would read a row
+             * another request may already have moved, and would record THAT instead of what this
+             * call did. Returning the facts out of the closure is the in-file precedent at
+             * `$result = DB::transaction(...)` further down this controller.
+             */
+            $audit = DB::transaction(function () use (
                 $id,
                 $storeId
             ) {
@@ -1645,6 +1655,12 @@ class StoreFinanceController extends Controller
                         'status' => 'completed',
                         'updated_at' => now(),
                     ]);
+
+                return [
+                    'withdrawal_id' => (int) $withdrawal->id,
+                    'wallet_id' => $withdrawal->wallet_id,
+                    'amount' => (float) $withdrawal->amount,
+                ];
             });
 
         } catch (\Exception $e) {
@@ -1654,6 +1670,41 @@ class StoreFinanceController extends Controller
                 $e->getMessage()
             );
         }
+
+        /*
+         * P4-F128 -- WHO APPROVED THIS PAYOUT, AND WHEN.
+         *
+         * Owner decision: a finance-screen action needs authz + reason + an auditable event. The
+         * authz was already here and operator-first. This is the auditable event.
+         *
+         * AFTER the catch, so only a transition that COMMITTED is recorded -- the same placement
+         * the F128 adjustment uses, and for the same reason: an audit trail that records attempts
+         * as movements lies in the direction that matters most.
+         *
+         * WHAT THIS HANDLER DOES AND DOES NOT DO, recorded here because the distinction is easy to
+         * get backwards: approval MOVES NO MONEY. It writes no `store_wallets` column and inserts
+         * no ledger row; it marks the existing `withdrawal_request` row completed, which makes the
+         * amount PAYABLE. The money leaves in payWithdrawal(). A new ledger row here would be a
+         * fabricated movement, not a missing one.
+         *
+         * NO REASON IS RECORDED, AND THAT IS AN OPEN OWNER QUESTION, not an oversight. Requiring
+         * one would change merchant-visible behaviour on the payout path, and the form here is a
+         * single button whose `onclick="return confirm(...)"` is pinned by two ratchets that exist
+         * because that guard is SYNCHRONOUS where the shared dialog handler is not. See
+         * docs/finance/P4-F128-SETTLEMENT-ENTITLEMENT-RECONCILIATION.md section 4.
+         */
+        \App\Models\AuditLog::record(
+            'finance.withdrawal.approved',
+            null,
+            ['withdrawal_id' => $audit['withdrawal_id'], 'status' => 'pending'],
+            [
+                'withdrawal_id' => $audit['withdrawal_id'],
+                'status' => 'approved',
+                'wallet_id' => $audit['wallet_id'],
+                'amount' => $audit['amount'],
+                'moved_money' => false,
+            ]
+        );
 
         return back()->with(
             'success',
@@ -1702,14 +1753,49 @@ class StoreFinanceController extends Controller
             );
         }
 
+        /*
+         * P4-F128 -- THE NOTE IS REQUIRED NOW, AND IT IS THE REASON.
+         *
+         * This handler RETURNS MONEY to the merchant's wallet: it draws down
+         * `withdrawal_pending_balance`, raises `available_balance` and writes a
+         * `withdrawal_refund` ledger row. `admin_note` was `nullable`, so a payout could be
+         * refused and the money moved back with nothing at all recorded about why. The owner's
+         * F128 decision -- authz + reason + auditable event -- is what this closes.
+         *
+         * IT IS CHEAP HERE AND ONLY HERE, which is why its two siblings are not changed in the
+         * same way: the textarea already exists in the reject modal, and three tests already post
+         * the field. Approve and pay have no field and no room for one; see the note on
+         * approveWithdrawal.
+         *
+         * THE ENCODING RULE IS NOT DECORATION -- the F128 adjustment proved it by execution. The
+         * note lands in an AuditLog `json`-cast column below; a malformed UTF-8 byte sequence
+         * passes `string` and `max`, then makes json_encode() return false AFTER the money has
+         * already moved, so the movement happens with no audit row at all.
+         *
+         * THE GUARD STILL RUNS FIRST, deliberately, and this is the one place the F128 precedent
+         * must NOT be copied: there the validator precedes the store guard. Three security tests
+         * assert `session('error') === __('No store is selected.')`, and a Laravel validation
+         * failure is ALSO a 302 carrying session errors -- so validating first would leave them
+         * green while measuring the wrong refusal.
+         */
         $request->validate([
-            'admin_note' =>
-                'nullable|string|max:500',
+            'admin_note' => [
+                'required',
+                'string',
+                'max:500',
+                function ($attribute, $value, $fail) {
+                    if (! is_string($value) || ! mb_check_encoding($value, 'UTF-8')) {
+                        $fail(__('The reason must be valid text.'));
+                    }
+                },
+            ],
         ]);
 
         try {
 
-            DB::transaction(function () use (
+            // P4-F128: the closure captures by value, so the amount and the balances it moved are
+            // invisible after the commit. Returned out, as approveWithdrawal does.
+            $audit = DB::transaction(function () use (
                 $request,
                 $id,
                 $storeId
@@ -1848,6 +1934,14 @@ class StoreFinanceController extends Controller
                         'status' => 'cancelled',
                         'updated_at' => now(),
                     ]);
+
+                return [
+                    'withdrawal_id' => (int) $withdrawal->id,
+                    'wallet_id' => $withdrawal->wallet_id,
+                    'amount' => (float) $withdrawal->amount,
+                    'available_before' => (float) $before,
+                    'available_after' => (float) $wallet->available_balance,
+                ];
             });
 
         } catch (\Exception $e) {
@@ -1857,6 +1951,31 @@ class StoreFinanceController extends Controller
                 $e->getMessage()
             );
         }
+
+        /*
+         * P4-F128 -- the auditable event for a REFUSAL THAT MOVED MONEY BACK.
+         *
+         * After the catch, so only a committed reversal is recorded. It carries both balances, so
+         * a reader can see the movement itself rather than infer it, and the now-required
+         * `admin_note` as the stated reason.
+         */
+        \App\Models\AuditLog::record(
+            'finance.withdrawal.rejected',
+            null,
+            [
+                'withdrawal_id' => $audit['withdrawal_id'],
+                'status' => 'pending',
+                'available_balance' => $audit['available_before'],
+            ],
+            [
+                'withdrawal_id' => $audit['withdrawal_id'],
+                'status' => 'rejected',
+                'wallet_id' => $audit['wallet_id'],
+                'amount_returned' => $audit['amount'],
+                'available_balance' => $audit['available_after'],
+                'reason' => $request->input('admin_note'),
+            ]
+        );
 
         return back()->with(
             'success',
@@ -1894,7 +2013,9 @@ class StoreFinanceController extends Controller
 
         try {
 
-            DB::transaction(function () use (
+            // P4-F128: returned out of the closure for the audit row below -- `use (...)` captures
+            // by value, and re-reading after the commit would read whatever the row is by then.
+            $audit = DB::transaction(function () use (
                 $id,
                 $storeId
             ) {
@@ -2003,6 +2124,14 @@ class StoreFinanceController extends Controller
 
                     'created_by' => auth()->id(),
                 ]);
+
+                return [
+                    'withdrawal_id' => (int) $withdrawal->id,
+                    'wallet_id' => $withdrawal->wallet_id,
+                    'amount' => (float) $withdrawal->amount,
+                    'total_withdrawn_after' => (float) $wallet->total_withdrawn,
+                    'pending_after' => (float) $wallet->withdrawal_pending_balance,
+                ];
             });
 
         } catch (\Exception $e) {
@@ -2012,6 +2141,35 @@ class StoreFinanceController extends Controller
                 $e->getMessage()
             );
         }
+
+        /*
+         * P4-F128 -- THE AUDIT ROW FOR THE HANDLER THAT ACTUALLY PAYS MONEY OUT.
+         *
+         * Of the three withdrawal surfaces this is the one where money leaves: it draws
+         * `withdrawal_pending_balance` down and raises `total_withdrawn`. Until now it recorded
+         * WHO only in the ledger row's `created_by`, and nothing at all about the action itself.
+         *
+         * `available_balance` is deliberately NOT in this row, because this handler does not touch
+         * it -- the amount was reserved out of it when the withdrawal was REQUESTED. That is also
+         * why the `withdrawal_paid` ledger row carries balance_before == balance_after, and why a
+         * reconciliation that sums it a second time reports phantom drift (see leg 4 of
+         * SettlementEntitlementReconciliation).
+         *
+         * NO REASON IS RECORDED HERE EITHER, for the same open owner question as approval.
+         */
+        \App\Models\AuditLog::record(
+            'finance.withdrawal.paid',
+            null,
+            ['withdrawal_id' => $audit['withdrawal_id'], 'status' => 'approved'],
+            [
+                'withdrawal_id' => $audit['withdrawal_id'],
+                'status' => 'paid',
+                'wallet_id' => $audit['wallet_id'],
+                'amount_paid_out' => $audit['amount'],
+                'total_withdrawn' => $audit['total_withdrawn_after'],
+                'withdrawal_pending_balance' => $audit['pending_after'],
+            ]
+        );
 
         return back()->with(
             'success',
