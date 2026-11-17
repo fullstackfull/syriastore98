@@ -188,6 +188,27 @@ reported a hijacked row while the raw row was untouched.
 **Strip comment lines from any source-grep ratchet.** A docblock quoting the string a ratchet greps
 for makes the ratchet satisfiable by prose. That has happened here.
 
+**AND THE CONVERSE, WHICH IS WORSE BECAUSE IT LOOKS SAFE: "comment-only" DOES NOT MEAN "cannot
+break CI".** Several censuses here are text searches over `app/` that do **not** strip comments, so
+your prose is indistinguishable from code to them. Measured, twice in one session:
+
+- A docblock sentence containing `event(new AddRewardClubPoint(` pushed a dispatch-site census from
+  nine to ten — a census *I* wrote, in the same change.
+- A docblock sentence containing `storedCheckoutState(` put `app/Listeners/` into
+  `Feature\Commerce\PendingPaymentGatewayCensusTest`'s set of **payment order writers** and turned
+  the required `Tests` job red. That census derives "files that read a stored checkout state" from
+  a plain substring search; its own docblock says it is a text census.
+
+Two consequences. First, **do not skip the Feature gate on the grounds that a change is
+comment-only** — that reasoning was used here and CI caught what it missed. If you must justify
+skipping, the test is not "did behaviour change" but "could any text census see this", and the
+second is much harder to answer. Second, when a census you do not own flags your file, **reword
+your comment; do not add your file to its declared-exception list.** Those lists are security
+assertions — adding a flag normaliser to a list of gateway handlers that cannot settle a pending
+balance is a false statement in a payments control, which is worse than the red check.
+
+Mention such an identifier without its call parens, and say in the comment why.
+
 ## 6b. Four inventories are keyed on `file:line`, and ANY edit above one breaks them
 
 Not a defect — they exist so that a moved raw query, truncate or log line gets looked at — but they

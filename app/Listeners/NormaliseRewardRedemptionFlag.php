@@ -196,9 +196,21 @@ final class NormaliseRewardRedemptionFlag
         // NO LIVE SITE SENDS ONE TODAY, AND THIS COMMENT USED TO CLAIM OTHERWISE. It said
         // "PaymentController reads Session::get('request_data'), which can be null" -- that read
         // is at PaymentController:4381, inside getWhatsappUrl(), which does NOT dispatch this
-        // event. All nine dispatches pass an array: six through `storedCheckoutState(): ?array`
-        // with the null refused before the handler continues, two through `$request->all()`, and
-        // PayU through a `== null` fallback to `$request->all()`.
+        // event. All nine dispatches pass an array: six through the gateway helper that returns
+        // `?array` (named in PendingPaymentGatewayCensusTest; NOT spelled with its call parens
+        // here, see below) with the null refused before the handler continues, two through
+        // `$request->all()`, and PayU through a `== null` fallback to `$request->all()`.
+        //
+        // THAT HELPER'S NAME IS DELIBERATELY NOT WRITTEN WITH ITS PARENTHESES, and the reason is a
+        // real CI failure rather than fussiness. Feature\Commerce\PendingPaymentGatewayCensusTest
+        // is a TEXT census -- its own docblock says so -- that derives "every file in app/ that
+        // reads a stored checkout state" from a plain substring search over the file, with NO
+        // comment stripping. An earlier version of this comment spelled the call, so this listener
+        // appeared in a census of PAYMENT ORDER WRITERS and the required Tests job went red on
+        // c58c83a7 with it listed as an unclassified settler. Declaring it in
+        // DECLARED_NON_SETTLERS would have been worse than the failure: a false entry in a
+        // payments security census, asserting that a flag normaliser is a gateway handler that
+        // cannot settle a pending balance.
         //
         // IT IS KEPT FOR THE TENTH SITE, and because the failure is expensive relative to two
         // lines. MEASURED inside the booted app (error_reporting -1, throwing handler), without
