@@ -32,6 +32,8 @@
     "All Types": "All Types",
     "Order Paid": "Order Paid",
     "Order Payment Reversed": "Order Payment Reversed",
+    "Order Cancelled": "Order Cancelled",
+    "Order Refunded": "Order Refunded",
     "Withdrawal Request": "Withdrawal Request",
     "Withdrawal Paid": "Withdrawal Paid",
     "Withdrawal Refund": "Withdrawal Refund",

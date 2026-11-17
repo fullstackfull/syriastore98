@@ -1867,6 +1867,8 @@
     "Order Page": "صفحة الطلب",
     "Order Paid": "تم دفع الطلب",
     "Order Payment Reversed": "تم عكس دفعة الطلب",
+    "Order Cancelled": "تم إلغاء الطلب",
+    "Order Refunded": "تم استرداد الطلب",
     "Order Placed": "طلب وضع",
     "Order preview": "معاينة الطلب",
     "Order Price:-": "سعر الطلب",

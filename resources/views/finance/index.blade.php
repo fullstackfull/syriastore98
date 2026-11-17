@@ -783,6 +783,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     <option value="manual_withdrawal" ${currentSearchValue === 'manual_withdrawal' ? 'selected' : ''}>{{ __('Withdrawal') }}</option>
                     <option value="order_paid" ${currentSearchValue === 'order_paid' ? 'selected' : ''}>{{ __('Order Paid') }}</option>
                     <option value="order_payment_reversed" ${currentSearchValue === 'order_payment_reversed' ? 'selected' : ''}>{{ __('Order Payment Reversed') }}</option>
+                    <option value="order_cancelled" ${currentSearchValue === 'order_cancelled' ? 'selected' : ''}>{{ __('Order Cancelled') }}</option>
+                    <option value="order_refunded" ${currentSearchValue === 'order_refunded' ? 'selected' : ''}>{{ __('Order Refunded') }}</option>
                     <option value="withdrawal_request" ${currentSearchValue === 'withdrawal_request' ? 'selected' : ''}>{{ __('Withdrawal Request') }}</option>
                     <option value="withdrawal_paid" ${currentSearchValue === 'withdrawal_paid' ? 'selected' : ''}>{{ __('Withdrawal Paid') }}</option>
                     <option value="withdrawal_refund" ${currentSearchValue === 'withdrawal_refund' ? 'selected' : ''}>{{ __('Withdrawal Refund') }}</option>
