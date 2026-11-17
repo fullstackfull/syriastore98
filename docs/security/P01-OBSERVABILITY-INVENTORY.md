@@ -285,6 +285,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/CodCollectionService.php:176` | COD collection refused: the amount collected does not settle the order |
 | `app/Services/CodCollectionService.php:187` | COD collection cannot be recorded: cod_collection_events has no table |
 | `app/Services/DeliveryBoyNotificationService.php:65` | No active Delivery Firebase devices found for delivery boy. |
+| `app/Services/Marketing/MarketingSendGate.php:109` | Marketing message would be held by consent enforcement (report mode; it was sent) |
 | `app/Services/OrderTaxResolver.php:88` | Checkout: non-numeric client tax_price discarded |
 | `app/Services/OrderTaxResolver.php:101` | Checkout: client-supplied tax_price discarded (server value used) |
 | `app/Services/OrderTotalReconciler.php:173` | Order total reconciliation mismatch (warn-only) |

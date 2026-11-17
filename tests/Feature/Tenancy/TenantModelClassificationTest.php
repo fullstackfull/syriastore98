@@ -236,7 +236,21 @@ class TenantModelClassificationTest extends TestCase
         // tenant-discriminated, and all three are recorded in doNotScopeDespiteHavingTheColumn()
         // with their reason -- they are NOT allowlisted for scope enforcement. That classification
         // is the review this assertion exists to force, and it was written before the count moved.
-        $this->assertSame(98, $total, 'The model count changed. Re-run the classification and '
+        // 101, UP FROM 98. D8 / MKT-008 added the three marketing-consent models:
+        // App\Models\MarketingConsentEvent, App\Models\MarketingContactState and
+        // App\Models\MarketingUnsubscribeToken. All three tables carry `store_id`, so all three are
+        // tenant-discriminated -- and NONE of them carries the BelongsToStore trait or is allowlisted
+        // for scope enforcement, which is the classification this assertion exists to force.
+        //
+        // WHY NOT SCOPED, written before the count moved. Consent is read and written through
+        // `ConsentLedger`, every method of which takes an explicit `$storeId` and puts it in the query;
+        // the unsubscribe path is a PUBLIC STOREFRONT page opened by an anonymous visitor holding a
+        // token, which is exactly the shape `config/tenancy.php` documents as the one a global scope
+        // breaks (a merchant with a live admin session browsing a storefront resolves THEIR store, not
+        // the page's). A scope there would blank the page for the person it exists for, and a predicate
+        // built from the caller's own store buys no confidentiality: the token already names the store.
+        // They are not `Cachable` either, because a cached answer to "may I send this" is a stale one.
+        $this->assertSame(101, $total, 'The model count changed. Re-run the classification and '
             . 'review the new model before anything is allowlisted: ' . implode(', ', $this->eloquentModels()));
     }
 
@@ -275,8 +289,12 @@ class TenantModelClassificationTest extends TestCase
         // 68, UP FROM 65: theme_versions, theme_published_versions and theme_publication_events all
         // carry `store_id` (P3-M3-C). The column is real and the rows are tenant-owned; what
         // changed is the count, not the classification rule.
+        // 71, UP FROM 68: marketing_consent_events, marketing_contact_states and
+        // marketing_unsubscribe_tokens all carry `store_id` (D8 / MKT-008). The column is real and the
+        // rows are tenant-owned; what changed is the count, not the classification rule. The reason none
+        // is scope-enforced is recorded beside the model count above.
         $this->assertCount(
-            68,
+            71,
             $this->tenantDiscriminated,
             "The set of models whose table carries a `store_id` column changed.\nMeasured now:\n  "
             . implode("\n  ", $this->tenantDiscriminated)
