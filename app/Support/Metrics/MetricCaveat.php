@@ -113,6 +113,43 @@ final class MetricCaveat
      */
     public const REFUND_AMOUNT_UNCONVERTED = 'refund_amount_unconverted';
 
+    /**
+     * SOME ORDERS IN THIS WINDOW HAVE NO LEDGER ROW, so a figure that reads the entitlement
+     * record cannot see them.
+     *
+     * `store_order_financials` has exactly one migration -- `2026_11_02_000400_create_...` -- with
+     * no `INSERT … SELECT` and no backfill anywhere in `database/migrations/`. It is written only
+     * by `OrderObserver::created()`. So every order placed before that table existed has no row,
+     * and any metric reading `payment_status`, `paid_amount`, `gross_profit`, `shipping_amount` or
+     * `tax_amount` is blind to it.
+     *
+     * The caveat carries no date on purpose. `notes()['orders_without_ledger_row']` counts the
+     * orders in the window that the ledger cannot see, which is measurable, self-adjusting, and
+     * does not go stale the way a hardcoded cut-over date would. Zero means the window is wholly
+     * covered and the caveat does not fire.
+     */
+    public const ENTITLEMENT_RECORD_INCOMPLETE = 'entitlement_record_incomplete';
+
+    /**
+     * THE FIGURE COUNTS ONLY ORDERS ATTRIBUTABLE TO A RECOGNISABLE CUSTOMER.
+     *
+     * `orders.customer_id` is `INTEGER DEFAULT 0`, so an order with nobody attached and an order
+     * belonging to "customer zero" are the same value and only a comparison separates them.
+     * Counting id 0 as a customer would give one "customer" holding every unattributed order ever
+     * placed -- a repeat-purchase rate near 100% for any store that takes them, and the most
+     * flattering wrong number this schema can produce.
+     *
+     * **IT IS NOT "GUESTS EXCLUDED", AND THAT DISTINCTION COST A WRONG PREDICATE.** A guest order
+     * CAN carry a real customer id: `PaymentService` sets
+     * `$orderCustomerId = ! empty($request->customer_id) ? $request->customer_id : 0` on the guest
+     * branch, and its own comment records that this is "the id of the Customer the handler found
+     * or created from the billing info -- which is legitimate". Such a shopper is recognisable on
+     * a later visit, so excluding them on `is_guest` alone would discard real repeat-purchase
+     * signal -- most of it, for a store whose business is mostly guest checkout. Only
+     * `customer_id <= 0` is unidentifiable, and only that is excluded.
+     */
+    public const UNIDENTIFIED_CUSTOMERS_EXCLUDED = 'unidentified_customers_excluded';
+
     private const MESSAGES = [
         self::COST_UNKNOWN => 'Cost price was not recorded for some orders, so margin is overstated for those rows.',
         self::EXCLUDES_SHIPPING_AND_TAX => 'Margin excludes shipping and tax.',
@@ -124,6 +161,8 @@ final class MetricCaveat
         self::RECONCILIATION_DIVERGENCE => 'The ledger and the order records disagree on this figure.',
         self::REFUND_AMOUNT_UNCONVERTED => 'Refund amounts carry no currency and have not been converted.',
         self::CURRENCY_UNRECORDED => 'Some of these orders predate currency recording and are counted in your store\'s currency.',
+        self::ENTITLEMENT_RECORD_INCOMPLETE => 'Some orders in this period have no financial record, so they are not included in this figure.',
+        self::UNIDENTIFIED_CUSTOMERS_EXCLUDED => 'Orders with no customer attached are not counted: they cannot be matched to a returning shopper.',
     ];
 
     /**

@@ -90,9 +90,19 @@ light and dark, permission-gated and tenant-isolated. Built on P5-2 only.
 its two-directional error displayed. Campaign *management* is not blocked; campaign *outcome
 measurement* is.
 
-### P5-6 — Retention and repeat purchase
+### P5-6 — Retention and repeat purchase — **METRIC COMPLETE (2026-11-17), no surface**
 Derived from `orders` + `customers`, no new events invented. **Gate: P5-2** (a repeat-purchase rate
 computed over unsettled orders is not a retention figure).
+
+`App\Support\Metrics\CustomerRetention` + `RetentionFigures`. The gate note is honoured by
+**stating the basis** rather than picking one: `settled_only` (default) reads the ledger and is
+authoritative but blind to orders with no financial row — reported by **count**, not by a hardcoded
+cut-over date — while `all_orders` covers all history and overstates retention by however much of
+the book was never paid. `notes()['basis']` always says which.
+
+**No surface renders it yet.** A retention tile needs the §3 decision in
+`PHASE-05-FOUR-FIGURE-LABELLING-PROPOSAL.md`, because the settled basis has the same ledger-history
+limit as payments received and profit.
 
 ### P5-7 — Platform/operator reporting
 The super-admin view of the same metrics across tenants. **Operator-first authorization**

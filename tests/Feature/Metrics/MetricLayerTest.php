@@ -7,6 +7,7 @@ use App\Support\Metrics\CancelledOrders;
 use App\Support\Metrics\CollectedCustomerPayments;
 use App\Support\Metrics\CompletedRefunds;
 use App\Support\Metrics\CouponRedemption;
+use App\Support\Metrics\CustomerRetention;
 use App\Support\Metrics\GrossMerchandiseValue;
 use App\Support\Metrics\MerchantWalletEntitlement;
 use App\Support\Metrics\MetricCaveat;
@@ -1017,6 +1018,220 @@ class MetricLayerTest extends TestCase
             'shipping was read from orders.delivery_price, which a refund request had zeroed'
         );
         $this->assertEqualsWithDelta(8.0, $results[ShippingAndTax::TAX]->total(), 0.001);
+    }
+
+    // ----------------------------------------------------------------- P5-6 retention
+
+    public function test_a_customer_who_ordered_twice_is_a_repeat_customer_and_one_who_ordered_once_is_not(): void
+    {
+        foreach ([[7, 2], [8, 1], [9, 3]] as [$customerId, $orderCount]) {
+            for ($i = 0; $i < $orderCount; $i++) {
+                $this->recordFinancial(
+                    $this->placeOrder(['customer_id' => $customerId]),
+                    ['payment_status' => 'paid', 'paid_amount' => 100.0, 'paid_at' => now()]
+                );
+            }
+        }
+
+        $figures = (new CustomerRetention())->for($this->scopeA(), $this->allTime());
+
+        $this->assertSame(3, $figures->identifiedCustomers());
+        $this->assertSame(2, $figures->repeatCustomers(), 'customers 7 and 9 ordered more than once');
+        $this->assertSame(6, $figures->ordersCounted());
+        $this->assertEqualsWithDelta(0.6667, $figures->repeatRate(), 0.0001);
+        $this->assertSame('settled_only', $figures->notes()['basis']);
+    }
+
+    public function test_orders_with_nobody_attached_do_not_collapse_into_one_enormously_loyal_customer(): void
+    {
+        /*
+         * THE MOST FLATTERING WRONG NUMBER THIS SCHEMA CAN PRODUCE. `orders.customer_id` is
+         * INTEGER DEFAULT 0, so every unattributed order shares id 0. Counting that as a customer
+         * gives one "customer" holding all of them -- a repeat rate near 100%.
+         */
+        for ($i = 0; $i < 6; $i++) {
+            $this->recordFinancial(
+                $this->placeOrder(['customer_id' => 0, 'is_guest' => 1]),
+                ['payment_status' => 'paid', 'paid_amount' => 100.0, 'paid_at' => now()]
+            );
+        }
+
+        // One real customer, one order. The honest answer is 1 customer, 0 repeat, rate 0.
+        $this->recordFinancial(
+            $this->placeOrder(['customer_id' => 11]),
+            ['payment_status' => 'paid', 'paid_amount' => 100.0, 'paid_at' => now()]
+        );
+
+        $figures = (new CustomerRetention())->for($this->scopeA(), $this->allTime());
+
+        $this->assertSame(1, $figures->identifiedCustomers(), 'the six id-0 orders became a customer');
+        $this->assertSame(0, $figures->repeatCustomers());
+        $this->assertEqualsWithDelta(0.0, $figures->repeatRate(), 0.0001);
+        $this->assertSame(6, $figures->notes()['orders_without_identifiable_customer']);
+        $this->assertTrue($figures->hasCaveat(MetricCaveat::UNIDENTIFIED_CUSTOMERS_EXCLUDED));
+    }
+
+    public function test_a_guest_order_carrying_a_real_customer_id_IS_counted(): void
+    {
+        /*
+         * THE CASE THAT CORRECTED THE DESIGN, and it was missing until a mutation that should
+         * have reddened did not.
+         *
+         * This metric first excluded `is_guest <> 0` as well, which looked obviously right. It is
+         * wrong: `PaymentService` sets `$orderCustomerId = ! empty($request->customer_id) ?
+         * $request->customer_id : 0` on the GUEST branch, and its own comment records that the id
+         * is "the Customer the handler found or created from the billing info -- which is
+         * legitimate". A shopper matched to a Customer row by their billing details IS
+         * recognisable on a later visit, so excluding them discards exactly the repeat-purchase
+         * signal this metric exists to measure -- most of it, for a store whose business is mostly
+         * guest checkout.
+         *
+         * The old predicate was invisible in the earlier fixture because its guests also carried
+         * id 0, so both predicates excluded the same rows.
+         */
+        foreach ([1, 2] as $unused) {
+            $this->recordFinancial(
+                $this->placeOrder(['customer_id' => 77, 'is_guest' => 1]),
+                ['payment_status' => 'paid', 'paid_amount' => 100.0, 'paid_at' => now()]
+            );
+        }
+
+        $figures = (new CustomerRetention())->for($this->scopeA(), $this->allTime());
+
+        $this->assertSame(
+            1,
+            $figures->identifiedCustomers(),
+            'a guest order with a real customer id was discarded, losing real retention signal'
+        );
+        $this->assertSame(1, $figures->repeatCustomers(), 'they ordered twice and were recognisable both times');
+        $this->assertEqualsWithDelta(1.0, $figures->repeatRate(), 0.0001);
+        $this->assertSame(0, $figures->notes()['orders_without_identifiable_customer']);
+        $this->assertFalse($figures->hasCaveat(MetricCaveat::UNIDENTIFIED_CUSTOMERS_EXCLUDED));
+    }
+
+    public function test_an_order_with_no_customer_is_excluded_whatever_the_guest_flag_says(): void
+    {
+        // `customer_id` defaults to 0, so "no customer" and "customer zero" are the same value
+        // and only the comparison separates them -- the guest flag is not consulted at all.
+        $this->recordFinancial(
+            $this->placeOrder(['customer_id' => 0, 'is_guest' => 0]),
+            ['payment_status' => 'paid', 'paid_amount' => 100.0, 'paid_at' => now()]
+        );
+
+        $figures = (new CustomerRetention())->for($this->scopeA(), $this->allTime());
+
+        $this->assertSame(0, $figures->identifiedCustomers());
+        $this->assertSame(1, $figures->notes()['orders_without_identifiable_customer']);
+    }
+
+    public function test_two_unpaid_orders_are_not_retention_but_are_counted_when_the_basis_says_so(): void
+    {
+        /*
+         * The plan's gate note: "a repeat-purchase rate computed over unsettled orders is not a
+         * retention figure". A customer who ordered twice and paid for neither tried twice; they
+         * did not come back. Both bases are offered and each says which it is.
+         */
+        foreach ([1, 2] as $unused) {
+            $this->recordFinancial(
+                $this->placeOrder(['customer_id' => 21]),
+                ['payment_status' => 'unpaid', 'remaining_amount' => 100.0]
+            );
+        }
+
+        $settled = (new CustomerRetention(true))->for($this->scopeA(), $this->allTime());
+        $everything = (new CustomerRetention(false))->for($this->scopeA(), $this->allTime());
+
+        $this->assertSame(0, $settled->identifiedCustomers(), 'an unpaid order settled nothing');
+        $this->assertNull($settled->repeatRate(), 'no customers means no rate, not a rate of zero');
+
+        $this->assertSame(1, $everything->identifiedCustomers());
+        $this->assertSame(1, $everything->repeatCustomers());
+        $this->assertEqualsWithDelta(1.0, $everything->repeatRate(), 0.0001);
+        $this->assertSame('all_orders', $everything->notes()['basis']);
+    }
+
+    public function test_orders_the_ledger_cannot_see_are_counted_and_declared(): void
+    {
+        // store_order_financials has no backfill, so a pre-ledger order has no row at all. The
+        // settled basis cannot see it; saying how many is the disclosure, and it needs no
+        // hardcoded cut-over date.
+        $this->placeOrder(['customer_id' => 31]);   // no financial row
+        $this->placeOrder(['customer_id' => 31]);   // no financial row
+
+        $figures = (new CustomerRetention(true))->for($this->scopeA(), $this->allTime());
+
+        $this->assertSame(0, $figures->identifiedCustomers());
+        $this->assertSame(2, $figures->notes()['orders_without_ledger_row']);
+        $this->assertTrue($figures->hasCaveat(MetricCaveat::ENTITLEMENT_RECORD_INCOMPLETE));
+    }
+
+    public function test_the_ledger_caveat_does_not_fire_when_every_order_has_a_row(): void
+    {
+        $this->recordFinancial(
+            $this->placeOrder(['customer_id' => 41]),
+            ['payment_status' => 'paid', 'paid_amount' => 100.0, 'paid_at' => now()]
+        );
+
+        $figures = (new CustomerRetention(true))->for($this->scopeA(), $this->allTime());
+
+        $this->assertSame(0, $figures->notes()['orders_without_ledger_row']);
+        $this->assertFalse($figures->hasCaveat(MetricCaveat::ENTITLEMENT_RECORD_INCOMPLETE));
+    }
+
+    public function test_a_foreign_ledger_row_cannot_make_this_stores_order_look_settled(): void
+    {
+        /*
+         * The retention query scopes ORDERS to this store and then joins the ledger. Nothing in
+         * the schema forces a financial row's `store_id` to match its order's --
+         * `fk_order_financial_order` and `fk_order_financial_store` are two unrelated constraints
+         * -- and `uq_store_order_financial_order` only stops a SECOND row for the same order, not
+         * a single row carrying the wrong store. So without the equality on the join, another
+         * store's `paid` row would make this store's order count as settled.
+         *
+         * This is the mirror of the §3/§4 case above, where the financial row is ours and the
+         * order is foreign. Both directions need the predicate and only one was covered.
+         */
+        $order = $this->placeOrder(['customer_id' => 61]);
+
+        // The ONLY ledger row for this order, and it belongs to store B.
+        $this->recordFinancial($order, [
+            'store_id' => self::STORE_B,
+            'payment_status' => 'paid', 'paid_amount' => 100.0, 'paid_at' => now(),
+        ]);
+
+        $figures = (new CustomerRetention(true))->for($this->scopeA(), $this->allTime());
+
+        $this->assertSame(
+            0,
+            $figures->identifiedCustomers(),
+            'another store\'s ledger row settled this store\'s order'
+        );
+        $this->assertSame(
+            1,
+            $figures->notes()['orders_without_ledger_row'],
+            'the order has no ledger row OF ITS OWN, and the gap counter must say so'
+        );
+    }
+
+    public function test_retention_refuses_another_tenants_customers(): void
+    {
+        // Store B's customer ordered five times. `Order` has no global scope, so only the
+        // metric's own predicate keeps them out.
+        for ($i = 0; $i < 5; $i++) {
+            $this->recordFinancial(
+                $this->placeOrder(['store_id' => self::STORE_B, 'customer_id' => 99]),
+                [
+                    'store_id' => self::STORE_B, 'payment_status' => 'paid',
+                    'paid_amount' => 100.0, 'paid_at' => now(),
+                ]
+            );
+        }
+
+        $figures = (new CustomerRetention())->for($this->scopeA(), $this->allTime());
+
+        $this->assertSame(0, $figures->identifiedCustomers(), 'store B\'s customer was counted');
+        $this->assertSame(0, $figures->ordersCounted());
+        $this->assertSame(0, $figures->notes()['orders_without_identifiable_customer'], 'the exclusion counter leaked too');
     }
 
     // ----------------------------------------------------------------- the layer's own rules
