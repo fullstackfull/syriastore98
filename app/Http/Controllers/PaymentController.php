@@ -1163,15 +1163,19 @@ private function paymeraOrderHighWaterMark(mixed $storeId): int
  * `$pending['processed']` still false, and **no in-process marker of either**: not a return
  * value, not a binding, not a flag. The only witness is the row.
  *
- * (Measured anchors: `DB::beginTransaction()` :3988, `DB::commit()` :4163, `$owner->email`
- * :4219, `OrderCompleteBinding::remember()` :4308. Re-measured twice on 2026-10-30: F210's
+ * (Measured anchors: `DB::beginTransaction()` :4021, `DB::commit()` :4196, `$owner->email`
+ * :4252, `OrderCompleteBinding::remember()` :4341. Re-measured twice on 2026-10-30: F210's
  * ownership gate moved them 71 lines, then F216's guard above this method moved them 49 more.
  * Re-measured TWICE MORE on 2026-10-31, and the second time is the lesson: F237's attribution
  * call inside this very transaction moved the last three by 4; correcting THIS COMMENT then added
  * four lines above the method and moved all four by 4 again, so the first correction was stale
  * the moment it was written -- the third time that has happened to this block, and the reason it
  * is ratcheted at all. P4-3's two notes above then moved all four by 7 and 11. P4-F026's intake
- * claim and transaction boundary in this same method moved them 97 more. Measure AFTER.
+ * claim and transaction boundary in this same method moved them 97 more. P4-F046's instanceof
+ * guard in processPayment -- which is ABOVE this method -- moved all four by 29, the eighth time
+ * this block has gone stale and the first time the full Feature suite caught it rather than a
+ * reviewer: the narrower filters miss it because "Paymera" does not contain "Payment". Measure
+ * AFTER.
  * THE MARKER IS DATE-FREE ON PURPOSE: dating it is what the ratchet's own needle matches on, and
  * writing "Re-measured 2026-10-30:" here emptied that needle. These are STRUCTURAL claims and the numbers
  * drift -- two earlier versions of this comment cited lines this very change had already moved,
@@ -3050,6 +3054,35 @@ public function handlePaymeraTrigger00($orderId)
         } elseif (in_array($paymentMethod, ['payfast', 'CyberSource', 'NMI', 'payu', 'Braintree', 'PowerTranz', 'SSLCommerz'])) {
             return $response;
         } else {
+            /*
+             * P4-F046 -- A FAILURE REDIRECT MUST BE RETURNED, NOT STRINGIFIED.
+             *
+             * Found by independent review of the F046 catch-narrowing, and it undercut that
+             * commit's own claim. A payment service method hands back EITHER a URL string on
+             * success OR a RedirectResponse carrying a refusal message. This branch passed
+             * whatever it got to `new RedirectResponse(...)`, whose constructor is typed `string`
+             * -- and with no `declare(strict_types=1)` in this file, a RedirectResponse is
+             * COERCED by `Response::__toString()` into its ENTIRE HTTP message
+             * ("HTTP/1.0 302 Found\r\n...") and installed as the `Location` header. A header
+             * carrying CRLF is refused at send time, so the shopper gets a broken response and
+             * NEVER the reason their payment failed.
+             *
+             * THIS CODEBASE ALREADY KNEW. `paymera` carries the identical guard a few lines
+             * above, added after this exact shape was measured as "a 500 on an ordinary guest
+             * checkout". `benefit` -- which is in none of the lists above and so lands here --
+             * had none, so all five of its refusal paths were unreachable.
+             *
+             * THE GUARD IS ON THE TYPE, NOT THE PAYMENT METHOD, deliberately. Every gateway that
+             * falls through to this branch and returns a redirect has the same defect, so testing
+             * the type fixes them all at once. Writing `$paymentMethod == 'benefit'` would fix one
+             * AND turn GatewayCallbackDestinationTest red, because that test asserts this file
+             * contains no `== 'benefit'` -- such a string would signal a capture-verification
+             * branch that does not exist.
+             */
+            if ($response instanceof \Illuminate\Http\RedirectResponse) {
+                return $response;
+            }
+
             return new RedirectResponse($response);
         }
     }

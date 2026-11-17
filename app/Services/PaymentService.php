@@ -1824,10 +1824,21 @@ private function processPaymera00000($request, $slug)
                  * the charge id this platform's return paths treat as proof of payment -- to a page
                  * anyone holding that URL can read.
                  *
-                 * `null` IS THE SHAPE ALREADY SHIPPED IN THIS FILE: processTap, the same provider
-                 * and the same endpoint, sends `'post' => ['url' => null]`. So this removes the bin
-                 * WITHOUT choosing a new destination -- and choosing one is a separate open owner
-                 * decision (P1-SEC-55), which this change deliberately does not pre-empt.
+                 * `null` MATCHES THE SHAPE ALREADY SHIPPED IN THIS FILE: processTap, the same
+                 * provider and the same endpoint, sends `'post' => ['url' => null]`. So this
+                 * removes the bin WITHOUT choosing a new destination -- and choosing one is a
+                 * separate open owner decision (P1-SEC-55), which this deliberately does not
+                 * pre-empt.
+                 *
+                 * PRECISE ABOUT THE PARITY, after independent review corrected an earlier wording
+                 * here that claimed more than it should. The two match as PHP LITERALS, not on the
+                 * wire: this method json_encode()s an array, so Tap receives `"post":{"url":null}`,
+                 * while processTap goes through App\Package\Payment::charge(), which builds its
+                 * JSON by string concatenation and so sends `"post":{"url":""}`. Both plainly mean
+                 * "no callback" and neither is a URL, but they are not byte-identical, and whether
+                 * Tap treats them the same is NOT VERIFIED from here -- no credential exists in
+                 * this container. If byte-parity with the already-proven shape is wanted, `''` is
+                 * the proven one.
                  *
                  * WHAT IS LOST BY SENDING null: nothing this application was using. No route in
                  * this repository receives a Tap server-to-server callback -- measured, the only
@@ -1855,8 +1866,11 @@ private function processPaymera00000($request, $slug)
              * P4-F046 -- THE UNWRAP IS INSIDE THE TRY NOW, and it was the second half of the bug.
              *
              * It used to sit below the catch, so a 200 carrying an error body -- which Tap does
-             * send -- left `$res->transaction` null and PHP 8 raised an uncaught \Error. The
-             * shopper got a white page from a response the server had successfully received.
+             * send -- left `$res->transaction` null. Reading a property on null is a WARNING in
+             * PHP 8, which Laravel's HandleExceptions converts to an ErrorException (an earlier
+             * wording here said "\Error", which names the wrong mechanism; the outcome is the
+             * same). Either way the shopper got a white page from a response the server had
+             * successfully received.
              */
             $res = json_decode($response->getBody());
 
