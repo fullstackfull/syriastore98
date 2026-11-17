@@ -1164,8 +1164,8 @@ private function paymeraOrderHighWaterMark(mixed $storeId): int
  * `$pending['processed']` still false, and **no in-process marker of either**: not a return
  * value, not a binding, not a flag. The only witness is the row.
  *
- * (Measured anchors: `DB::beginTransaction()` :4021, `DB::commit()` :4196, `$owner->email`
- * :4252, `OrderCompleteBinding::remember()` :4341. Re-measured twice on 2026-10-30: F210's
+ * (Measured anchors: `DB::beginTransaction()` :4037, `DB::commit()` :4212, `$owner->email`
+ * :4268, `OrderCompleteBinding::remember()` :4357. Re-measured twice on 2026-10-30: F210's
  * ownership gate moved them 71 lines, then F216's guard above this method moved them 49 more.
  * Re-measured TWICE MORE on 2026-10-31, and the second time is the lesson: F237's attribution
  * call inside this very transaction moved the last three by 4; correcting THIS COMMENT then added
@@ -1176,7 +1176,11 @@ private function paymeraOrderHighWaterMark(mixed $storeId): int
  * guard in processPayment -- which is ABOVE this method -- moved all four by 29, the eighth time
  * this block has gone stale and the first time the full Feature suite caught it rather than a
  * reviewer: the narrower filters miss it because "Paymera" does not contain "Payment". Measure
- * AFTER.
+ * AFTER. P5-9's loyalty slice then moved all four by 12 -- the NINTH time -- and the sentence
+ * immediately above CALLED IT: the targeted filter run before pushing was
+ * `Payment|Reward|Checkout|ClubPoint|Order`, and "Paymera" does not match "Payment", so once
+ * again only the full Feature suite caught it. The numbers above were re-measured AFTER this
+ * paragraph was added, because adding it moved them a further three.
  * THE MARKER IS DATE-FREE ON PURPOSE: dating it is what the ratchet's own needle matches on, and
  * writing "Re-measured 2026-10-30:" here emptied that needle. These are STRUCTURAL claims and the numbers
  * drift -- two earlier versions of this comment cited lines this very change had already moved,
