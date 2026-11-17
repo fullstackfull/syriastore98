@@ -7,6 +7,7 @@ use App\Classes\Module;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
 use App\Listeners\EnforceLotteryTicketPrice;
+use App\Listeners\NormaliseRewardRedemptionFlag;
 use App\Models\Order;
 use App\Observers\OrderObserver;
 
@@ -67,6 +68,31 @@ class AppServiceProvider extends ServiceProvider
          * suppress the `creating` event, and why it rewrites the amount and nothing else.
          */
         Event::listen(EnforceLotteryTicketPrice::EVENT, EnforceLotteryTicketPrice::class);
+
+        /*
+         * D7 -- the vendored `AddRewardClubPointLis:38` mis-binds `??` against `==`/`&&`, so its
+         * guard collapses to the TRUTHINESS of the posted `club_point_is_active`. `'off'` is
+         * truthy, and `'off'` is exactly what the shipped checkout form posts on every order, so
+         * the redemption branch runs and REPLACES `customers.total_club_point` with just that
+         * order's earned points. This listener reduces the flag to `'on'`-or-absent and touches
+         * nothing else.
+         *
+         * THE ORDERING IS THE POINT: this runs during the host's own `boot()`, while module
+         * providers are brought in from `app->booted()` — strictly later. The event object is
+         * passed by handle, so the array rewritten here is the array the vendored listener then
+         * reads. MEASURED, not assumed: a probe listener registered from `app->booted()`, exactly
+         * as a module provider arrives, observed the flag as ABSENT.
+         *
+         * THIS LINE IS BELT-AND-BRACES, NOT THE ONLY REGISTRATION, and saying so here matters
+         * because a mutation that deletes it does NOT break the behaviour. Laravel 11's
+         * `Application::configure()` calls `->withEvents()` unconditionally, and the framework
+         * EventServiceProvider it registers has discovery ON over `app/Listeners` — so the class
+         * is auto-registered by its `handle()` signature as well. It is kept explicit anyway,
+         * because `App\Providers\EventServiceProvider::shouldDiscoverEvents()` returns FALSE and
+         * would lead a reader to conclude discovery is off. The handler is idempotent and a test
+         * pins that, so running twice is harmless. Full mechanism in the listener's docblock.
+         */
+        Event::listen(NormaliseRewardRedemptionFlag::EVENT, NormaliseRewardRedemptionFlag::class);
 
         $cachePath = storage_path('framework/cache/data');
 

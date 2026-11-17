@@ -271,6 +271,83 @@ two tiles do not share an id, a tile without a hint gains neither element nor da
 The gallery's `stats` specimen now carries two REAL shipped hints plus one tile with none, because
 a short placeholder shows a tidy grid and proves nothing about the surface that ships.
 
+### P5-12 — the vendored reward listener destroys balances on orders that redeemed nothing — **SHIPPED 2026-11-17**
+
+**Owner decision D7.** `packages/workdo/RewardClubPoint/.../AddRewardClubPointLis.php:38` is
+
+```php
+if ($requests_data['club_point_is_active'] ?? '' == 'on' && $requests_data['final_amount_point'] == $order['final_price']) {
+```
+
+`==` and `&&` bind tighter than `??`, so it parses as `$flag ?? (('' == 'on') && (…))` — i.e. the
+**truthiness of the posted flag**, with the anti-tamper comparison stranded in a dead operand that
+has never executed. `'off'` is a non-empty string, so it is truthy, so the redemption branch runs.
+That branch does `$totalClubPoint = $orderClubPoint;` — an **assignment, not `+=`** — and saves it,
+so **`customers.total_club_point` is replaced by just that order's earned points** and a ledger row
+claims the whole prior balance was spent.
+
+**And `'off'` is the value the shipped checkout posts.** *(This paragraph was WRONG in its first
+version and the test pinning it could not fail — both corrected by independent review. It traced
+the flag through `clubPointFormField.blade.php` → `checkout_hide_field.blade.php` →
+`common/checkout/checkout_form.blade.php:125` and concluded "every order". **Nothing renders that
+last file**; its only reference anywhere is LynomiaChat's ViewComposer naming it as a composer
+target, and the live checkout includes a different file of nearly the same name.)*
+
+The input that actually posts is `clubPointApply.blade.php:25`, and it sits **inside an eligibility
+gate** at `:1-9` — six settings present, `total_club_point >= checkout_points`, and
+`final_price >= checkout_price`. It reaches the browser via `ViewComposer.php:27-32` →
+`CartController.php:114` → `checkout-cart-list.blade.php:97` → `checkout_list.blade.php:2` →
+`front-theme.js:224`, injected into `.checkout_page_cart`, which sits between `Form::open` and
+`Form::close` at `checkout.blade.php:25/256/263`. The module's JavaScript flips it to `'on'` only
+when the shopper applies points.
+
+**So the corrected severity is: a logged-in customer who already qualifies to redeem and did not
+press Apply** — narrower than "every checkout", and still precisely the population whose balance is
+worth destroying. It becomes every logged-in checkout when the two thresholds are configured at
+`0`, which is savable because `RewardClubPointController:26-33` validates them with a bare
+`'required'`. A hand-crafted POST sets the flag regardless of what any view renders, so the
+containment is justified independently of this chain.
+
+**Contained first-party by `App\Listeners\NormaliseRewardRedemptionFlag`**, which reduces the flag
+to `'on'`-or-absent and touches nothing else. It is a **shape normalisation, not a second
+decision** — it reads no balance, consults no threshold and computes no money — so it cannot drift
+from the ELEVEN first-party sites that apply the discount. (Eleven apply it; only NINE dispatch the event. `KhaltiPaymnetController:972` applies and dispatches nothing, so a Khalti shopper takes the discount and keeps their points -- a pre-existing leak recorded at `PHASE-05-OWNER-DECISION-PACKAGE.md:145` and assigned to D4, which this listener neither causes nor can fix.) No input moves from accrue to redeem; only
+`'off'` moves, and it moves to the branch the vendor's own `else` was written for. Loose `==`
+deliberately, matching every first-party site, because an API client can post JSON `true` and
+`true == 'on'` is TRUE in PHP 8 — a strict comparison would strip a flag those sites honour and
+debit no points, which is the mirror-image free-money bug.
+
+**The ordering is the load-bearing claim and it is measured.** Module providers arrive from
+`app->booted()`, strictly after this listener is registered; a probe registered that way observed
+the flag as `ABSENT`.
+
+**Registered twice, disclosed rather than tidied away.** `Application::configure()` calls
+`->withEvents()` unconditionally and the framework `EventServiceProvider` has discovery ON over
+`app/Listeners`, so the class is auto-registered by its `handle()` signature as well as explicitly.
+`App\Providers\EventServiceProvider::shouldDiscoverEvents()` returns FALSE and does **not** turn
+that off — it applies only to the app's own instance. The explicit registration is kept because it
+is the one a reader can see; the handler is idempotent and a test pins that.
+
+**Evidence.** `tests/Unit/Loyalty/RewardRedemptionFlagTest` — 18 tests, 57 assertions. 11 failed
+before the listener existed. **8 mutations run, 8 reddened**, so every line is load-bearing. One
+guard of mine (`!== null`) was proved dead across eight inputs and **removed**, following the rule
+`RewardPointDiscount` records. Premise tests pin the vendored source text, so an upstream fix makes
+CI say so rather than letting the containment silently become redundant.
+
+**What it does NOT do, each stated rather than implied.** It does not enforce eligibility —
+`checkout_points`/`checkout_price` are still checked in Blade only, so a hand-crafted
+`club_point_is_active=on` still redeems below both thresholds; that is **D6 and still open**. It
+does not repair any balance already overwritten — D4 forbids retrospective balance changes without
+separate approval, and a ledger row cannot distinguish a real redemption from this defect because
+the `'off'` path wrote those rows too. It does not touch the **two other defects in the same
+vendored file**, which cannot be intercepted first-party at all: both are recorded with measured
+failure modes in `docs/security/P05-VENDOR-DEFECTS-REWARDCLUBPOINT.md`, which is also the upstream
+report.
+
+**Severity is conditional on D3**, which is unresolved: whether `RewardClubPoint` is enabled in
+production is not answerable from this container, where `add_on_managers` has zero rows and no
+WorkDo module loads at all.
+
 ## 3. What this phase will NOT do
 
 - **Invent metrics, customer events or campaign outcomes.** If the data does not record it, the

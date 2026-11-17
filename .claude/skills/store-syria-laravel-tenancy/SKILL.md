@@ -106,10 +106,37 @@ Row existence in `add_on_managers` is what loads a module. `loadDynamicAddons()`
 **no `is_enable` predicate**, so **"disabled" is not containment** — a disabled row still registers
 every route.
 
+**A module's own listeners CAN be pre-empted, and that is the one clean way to fix a vendored
+listener.** Module providers are registered from `app->booted()`, so anything registered earlier —
+a host provider's `boot()`, or event discovery — runs **first**, and a Laravel event object is
+passed by handle, so a first-party listener can rewrite `$event->…` before the module's listener
+reads it. Measured: a probe registered from `app->booted()` observed an array a discovered listener
+had already normalised. Used by `App\Listeners\NormaliseRewardRedemptionFlag` to contain
+`AddRewardClubPointLis:38`. Keep such a listener a **shape normalisation**, never a second copy of
+a decision the host already makes elsewhere, or the two drift.
+
+**EVENT DISCOVERY IS ON, AND THE FILE THAT LOOKS LIKE IT TURNS IT OFF DOES NOT.**
+`App\Providers\EventServiceProvider::shouldDiscoverEvents()` returns `false` — and discovery still
+runs, because `Application::configure()` calls `->withEvents()` unconditionally
+(`Illuminate/Foundation/Application.php:244`) and registers the **framework's** own
+`EventServiceProvider`, whose `protected static $shouldDiscoverEvents` is `true` and whose default
+discovery path is `app/Listeners`. The app's override applies only to the app's own instance.
+So **every class in `app/Listeners` with a typed `handle()` is auto-registered**, under the
+`Class@handle` key rather than `Class`. Measured consequences:
+
+- All five listeners there are live, and `VerifyReCaptchaTokenLis` is registered **twice** — once
+  in `EventServiceProvider::$listen` and once by discovery — so it runs twice per dispatch.
+- `EnforceLotteryTicketPrice` is discovered against `Illuminate\Database\Eloquent\Model`, because
+  that is its `handle()` parameter type. Inert, but it is in the listener table.
+- A test asserting `assertContains(Foo::class, $registrations)` **misses a discovered listener**,
+  whose entry is `Foo@handle`. That cost a real false reading: a mutation deleting an explicit
+  `Event::listen` reddened only the registration test while the behavioural test stayed green,
+  because discovery was still registering the listener. Match with `str_starts_with`.
+
 ## 6. Tests that actually bite
 
 **After writing a regression test, revert the fix and confirm the test fails.** This has caught
-vacuous tests repeatedly. Six ways they pass for the wrong reason, all measured in this project:
+vacuous tests repeatedly. Seven ways they pass for the wrong reason, all measured in this project:
 
 1. **The endpoint 500s for everyone**, so "the row didn't change" holds either way. And a handler
    that `catch (\Exception)`es its own failure returns **200**, so even `assertNotSame(500, …)` is
@@ -144,6 +171,15 @@ vacuous tests repeatedly. Six ways they pass for the wrong reason, all measured 
    on the page. Assert against the raw body with whitespace collapsed
    (`preg_replace('/\s+/', ' ', $html)`) instead, and drive the positive case too so you know the
    assertion can see anything at all.
+7. **The mutation never reached the file.** Not a defect in the test — a defect in the *harness*,
+   and it reports the most dangerous possible result: "survived". Two measured in one sitting.
+   A Python heredoc replacement containing `\$` is an **invalid escape**, so the pattern never
+   matched and six mutations silently did nothing, every one reported as surviving. Replacing the
+   applied-check with `git diff --quiet` then reported the opposite error, because the file under
+   mutation was **untracked** and `git diff` is always empty for an untracked file. Verify a
+   mutation applied by **checksum before and after**, and make the harness *fail loudly* when the
+   search string does not occur exactly once. The same shape has also produced a `gate exit: 0`
+   from a pipeline whose `$?` came from `tail`.
 
 **Assert through `DB::table()`.** `User`, `Product` and `Order` are `Cachable`; an Eloquent read can
 serve a mutated in-memory instance. That produced a false *reproduction* once — a model read
