@@ -351,4 +351,84 @@ class FinanceAdjustmentAccountabilityTest extends TestCase
             'What was asked for is still recorded, beside what resulted.'
         );
     }
+
+    // ---------------------------------------------------------------- P5-1: the screen must SHOW a reversed row
+
+    /** @dataProvider terminalEntitlementStates */
+    public function test_a_reversed_row_shows_its_real_state_on_the_finance_screen(string $state, string $label): void
+    {
+        /*
+         * P5-1. F124 and F127 write `cancelled` and `refunded` into
+         * store_order_financials.payment_status. The screen offered only unpaid/paid, so on such a
+         * row NEITHER option carried `selected`: the browser rendered the first one and the
+         * merchant was told a REFUNDED order was "Not Received" -- the opposite of what happened.
+         * The read-only badge did the same for anyone without the edit permission.
+         *
+         * This asserts the state is now rendered. It does NOT assert the control is removed: the
+         * paid/unpaid options stay selectable, because syncFromOrder's docblock records the
+         * finance surface as the authorised escape hatch out of a reversal.
+         */
+        $f = $this->seedFixture();
+        DB::table('store_order_financials')->where('id', $f['financialId'])->update(['payment_status' => $state]);
+
+        $response = $this->actingAs($this->operator())->get(route('finance.index'));
+
+        $response->assertOk();
+        $response->assertSee($label);
+
+        /*
+         * AND THE ROW MUST NOT STILL READ "Not Received" -- which is the assertion that actually
+         * bites. `assertSee($label)` alone is NOT sufficient and this was caught by falsifying it:
+         * the word "Cancelled" also appears in the transaction-status FILTER on this page, so the
+         * cancelled case stayed green with the badge removed. The fixture seeds exactly one
+         * financial row, so the misleading label must be absent from the page entirely.
+         */
+        $response->assertDontSee(__('Not Received'));
+    }
+
+    public static function terminalEntitlementStates(): array
+    {
+        return [
+            'cancelled' => ['cancelled', 'Cancelled'],
+            'refunded' => ['refunded', 'Refunded'],
+        ];
+    }
+
+    public function test_a_terminal_state_cannot_be_chosen_from_the_dropdown(): void
+    {
+        /*
+         * Showing the state must not make it settable. `cancelled` and `refunded` are written by
+         * OrderEntitlementReversal when a reversal really happens; typing one here would fabricate
+         * one. The option is rendered `disabled`, and the handler's validator refuses the value
+         * independently -- two bounds, because the markup one is only as good as the browser.
+         */
+        $f = $this->seedFixture();
+        DB::table('store_order_financials')->where('id', $f['financialId'])->update(['payment_status' => 'cancelled']);
+
+        /*
+         * THE MARKUP HALF IS NOT ASSERTED HERE, and the reason is a pre-existing defect worth
+         * naming rather than working around. The view gates the <select> on a BARE
+         * `auth()->user()->isAbleTo('Edit Finance Payment Status')`, which in this codebase
+         * REFUSES the platform operator -- so this principal is served the read-only badge and
+         * never sees the control at all, while the backend admits them to the endpoint. It fails
+         * closed, so it is not a hole; but it means a markup assertion driven by an operator would
+         * measure the badge and pass for the wrong reason.
+         *
+         * Asserting the SERVER-SIDE refusal instead is the stronger half in any case: the
+         * `disabled` attribute is only as good as the browser honouring it.
+         */
+        $this->actingAs($this->operator())
+            ->from(route('finance.index'))
+            ->post(route('finance.order-financial.status', $f['financialId']), [
+                'payment_status' => 'cancelled',
+                'reason' => 'trying to set a terminal state by hand',
+            ])
+            ->assertSessionHasErrors('payment_status');
+
+        $this->assertSame(
+            'cancelled',
+            DB::table('store_order_financials')->where('id', $f['financialId'])->value('payment_status'),
+            'premise: the row was not left in the terminal state this case is about'
+        );
+    }
 }

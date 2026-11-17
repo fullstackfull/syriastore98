@@ -467,6 +467,29 @@
                                                             <select name="payment_status"
                                                                 aria-label="{{ __('Payment status for order :order', ['order' => '#' . $financial->order_id]) }}"
                                                                 class="form-control form-control-sm" style="min-width: 130px;">
+                                                                {{-- P5-1 -- A REVERSED ROW MUST SHOW WHAT IT IS.
+
+                                                                     F124 and F127 write `cancelled` and `refunded` into this
+                                                                     column. With only these two options, NEITHER carried
+                                                                     `selected` on such a row, so the browser displayed the
+                                                                     first one -- the merchant was told a refunded order was
+                                                                     "Not Received", and any click submitted `unpaid`.
+
+                                                                     The terminal state is rendered as a DISABLED option, which
+                                                                     is deliberate in both directions: selected, so the true
+                                                                     state is what the merchant reads; disabled, so it cannot be
+                                                                     CHOSEN. Setting `cancelled` or `refunded` by hand would
+                                                                     fabricate a reversal, and the validator refuses them for
+                                                                     the same reason -- they are written by
+                                                                     OrderEntitlementReversal, never typed.
+
+                                                                     paid/unpaid stay selectable, so the escape hatch
+                                                                     syncFromOrder's docblock describes is not removed. --}}
+                                                                @if(in_array($financial->payment_status, ['cancelled', 'refunded'], true))
+                                                                    <option value="{{ $financial->payment_status }}" selected disabled>
+                                                                        {{ $financial->payment_status === 'cancelled' ? __('Cancelled') : __('Refunded') }}
+                                                                    </option>
+                                                                @endif
                                                                 <option value="unpaid" {{ $financial->payment_status === 'unpaid' ? 'selected' : '' }}>{{ __('Not Received') }}</option>
                                                                 <option value="paid" {{ $financial->payment_status === 'paid' ? 'selected' : '' }}>{{ __('Received') }}</option>
                                                             </select>
@@ -505,8 +528,17 @@
                                                         @enderror
                                                     </form>
                                                 @else
+                                                    {{-- P5-1 -- FOUR STATES, NOT TWO. The @else arm used to label every
+                                                         non-paid row "Not Received" in red, so a REFUNDED order -- one the
+                                                         customer was paid back for -- read as money the merchant was still
+                                                         waiting on. That is not a nuance, it is the opposite of what
+                                                         happened. A reader without the edit permission saw it too. --}}
                                                     @if($financial->payment_status === 'paid')
                                                         <x-ss.status-badge tone="success" :label="__('Received')" />
+                                                    @elseif($financial->payment_status === 'refunded')
+                                                        <x-ss.status-badge tone="info" :label="__('Refunded')" />
+                                                    @elseif($financial->payment_status === 'cancelled')
+                                                        <x-ss.status-badge tone="warning" :label="__('Cancelled')" />
                                                     @else
                                                         <x-ss.status-badge tone="danger" :label="__('Not Received')" />
                                                     @endif
