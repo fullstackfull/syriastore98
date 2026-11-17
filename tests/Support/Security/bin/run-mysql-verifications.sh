@@ -391,6 +391,26 @@ run_one verify-order-replacement-concurrency-on-mysql \
   "E13F_MYSQL_SOCKET=${SOCK}" "E13F_MYSQL_HOST=${HOST}" "E13F_MYSQL_PORT=${PORT}" \
   "E13F_MYSQL_DATABASE=e13f_verify" "E13F_MYSQL_USERNAME=${USER_NAME}" "E13F_MYSQL_PASSWORD=${PASS}"
 
+# P5-2 -- the Phase 05 metric layer. Ten money query objects whose tenant predicates, DECIMAL
+# precision and GROUP BY shape only mean anything on the production driver. It forces
+# ONLY_FULL_GROUP_BY on, which this container's server does NOT enable by default, because testing
+# under the stricter mode is the only direction safe to be wrong in. It also drives a genuinely
+# NULL `orders.currency_code` row -- the shape `2026_10_12_000102` deliberately left unbackfilled --
+# and proves `total()` really throws before the fold, which is the HTTP 500 that P5-3a prevents.
+run_one verify-metric-layer-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
+# P5-3b -- the merchant sales report's month window. THIS ONE IS NOT A CONVENIENCE: ReportController
+# calls MONTH() 36 times and YEAR() 9 times inside selectRaw and SQLite has neither, so every
+# handler in that file answers HTTP 500 under the Feature suite and CANNOT be covered by it. This
+# script is the only executable evidence those surfaces have. It measures the figure a merchant is
+# shown for "last month" and keeps negative controls for an out-of-period order and another
+# tenant's order, so a widened bound cannot pass it.
+run_one verify-report-window-boundary-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

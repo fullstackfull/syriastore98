@@ -74,15 +74,15 @@ Each of these has produced a real defect. Do not assume the framework default.
   calls.
 - Later route declarations **replace** earlier ones for the same method+URI, silently dropping the
   earlier middleware. Check for duplicates before trusting a route's middleware.
-- `APP_KEY` is in git history and unrotated, so **`Crypt::encrypt()` is an encoding, not a
-  control**. An encrypted id in a URL is forgeable.
+- `APP_KEY` is in git history and unrotated, so **`Crypt::encrypt()` is an encoding, not a control** — an encrypted id in a URL is forgeable.
 
 **Tests and modules**
 
 - **No WorkDo module loads in any test run** unless the test inserts an `add_on_managers` row, so
-  the suite is structurally blind to module routes and module code: a test that "passes" against a
-  module surface may never have reached it. Enable the module through the production loader and add
-  a premise test asserting it really is active.
+  the suite is structurally blind to module code: a test that "passes" against a module surface may
+  never have reached it. Enable it through the production loader and add a premise test.
+- **`ReportController` cannot run under the suite AT ALL** — 36 `MONTH(`/9 `YEAR(` in `selectRaw`, absent from SQLite, so every handler answers **HTTP 500** in a Feature test. That is how 3,660 lines with zero `payment_status` predicates and an 18-site date-boundary bug survived 9,112 tests.
+  Evidence for these surfaces goes in `bin/verify-report-window-boundary-on-mysql.php`, never a test.
 
 **Model caching**
 
@@ -183,8 +183,7 @@ P01-SEC-13 survived. For anything schema-sensitive, use a real MySQL:
 `tests/Support/Security/bin/verify-sec13-migration-on-mysql.php` shows the pattern (it creates and
 drops its own throwaway database).
 
-Evidence that cannot live in the suite goes in `tests/Support/Security/bin/` as an executable
-script stating its own preconditions — a conditionally-skipped test would break the declared set.
+Evidence that cannot live in the suite goes in `tests/Support/Security/bin/` as an executable script stating its own preconditions — a conditionally-skipped test would break the declared set.
 
 ---
 
