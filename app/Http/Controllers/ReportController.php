@@ -2578,9 +2578,26 @@ class ReportController extends Controller
                             }
                         }
                     }
-                    $NetSalesofbrand[$brand->name] = array_sum($brandNetSales[$brand->name]);
-
                     $brandNetSales[$brand->name][$index] = $totalNetSales;
+
+                    /*
+                     * P5-3d -- THIS LINE USED TO STAND BEFORE THE ASSIGNMENT ABOVE, so every
+                     * brand card summed the series as it was BEFORE the current month was written
+                     * into it. The loop is months-outer / brands-inner over `yearMonth()`'s twelve
+                     * entries, so on the final iteration the card summed indices 0..10 and
+                     * **December was missing from every brand card, every year.**
+                     *
+                     * Measured: with 40.00 in January and 70.00 in December the card read 40.00;
+                     * it now reads 110.00. The chart series below was always right -- it walks
+                     * `$brandNetSales` after the loop -- so the card and the chart beside it
+                     * disagreed, which is what made this visible without explaining it.
+                     *
+                     * `$NetSalesOfBrand` (capital O) just below accumulates the same figure
+                     * correctly and is read NOWHERE: the view reads `$NetSalesofbrand`. With this
+                     * ordering the two now agree by construction. Removing the dead one is a tidy
+                     * for its own change, not part of a figure fix.
+                     */
+                    $NetSalesofbrand[$brand->name] = array_sum($brandNetSales[$brand->name]);
                     /* D-42.3. `$totalNetSalesAllBrands[$index] += $totalNetSales;` STOOD HERE AND
                        MADE THE YEAR VIEW'S "All Brands" FIGURE EXACTLY DOUBLE. The loop below
                        already walks `$brandNetSales` and array_maps every brand's series onto

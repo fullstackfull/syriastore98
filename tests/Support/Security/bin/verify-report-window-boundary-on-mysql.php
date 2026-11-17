@@ -335,6 +335,111 @@ try {
         'got ' . var_export($categoryTotal, true)
         . ' -- the orders are fetched and then dropped by array_search() against an empty day list');
 
+    // ---------------------------------------------------------------- D. the brand year card
+
+    echo "\nD. The sales-by-brand YEAR card\n";
+
+    /*
+     * A third defect in the same family and the quietest of them. In the year branch the loop is
+     * months-outer / brands-inner over `yearMonth()`'s TWELVE entries, and the card total was
+     * computed BEFORE the current month was written into the series:
+     *
+     *     $NetSalesofbrand[$brand->name] = array_sum($brandNetSales[$brand->name]);   // summed
+     *     $brandNetSales[$brand->name][$index] = $totalNetSales;                      // then set
+     *
+     * so on the final iteration the card summed indices 0..10 and **December was missing from
+     * every brand card, every year**. The CHART beside it was always right -- it walks
+     * `$brandNetSales` after the loop finishes -- so the card and the chart disagreed, which is
+     * what made the defect visible without explaining it. That disagreement is the assertion
+     * below: the card must equal the series it sits next to.
+     */
+    $brandId = DB::table('product_brands')->insertGetId([
+        'name' => 'Boundary brand', 'slug' => 'boundary-brand',
+        'store_id' => 1, 'created_by' => $owner->id,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    $brandProductId = DB::table('products')->insertGetId([
+        'name' => 'Boundary brand product', 'slug' => 'boundary-brand-product',
+        'brand_id' => $brandId, 'store_id' => 1, 'created_by' => $owner->id,
+        'track_stock' => 0, 'price' => 1.0,
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    // January and DECEMBER -- the first and the LAST entry of the twelve-month list.
+    foreach ([['01', 40.0], ['12', 70.0]] as [$month, $amount]) {
+        $when = Carbon::createFromFormat('Y-m-d H:i:s', date('Y') . "-{$month}-10 12:00:00");
+        DB::table('orders')->insert([
+            'product_order_id' => "RB-BRAND-{$month}",
+            'product_json' => json_encode([[
+                'product_id' => $brandProductId, 'qty' => 1, 'final_price' => $amount,
+            ]]),
+            'product_price' => $amount, 'delivery_price' => 0.0, 'tax_price' => 0.0,
+            'coupon_price' => 0.0, 'final_price' => $amount,
+            'currency_code' => 'USD', 'payment_type' => 'cod', 'payment_status' => 'Paid',
+            'delivered_status' => 1, 'store_id' => 1,
+            'order_date' => $when->format('Y-m-d H:i:s'),
+            'created_at' => $when->format('Y-m-d H:i:s'),
+            'updated_at' => $when->format('Y-m-d H:i:s'),
+        ]);
+    }
+
+    /*
+     * FLUSH THE MODEL CACHES BEFORE READING, and this is not belt-and-braces -- it is the
+     * difference between 0.00 and 110.00, measured. `Product` and `ProductBrand` are `Cachable`
+     * (79 of the 95 models are), these fixtures are written with raw `DB::table()` inserts, and a
+     * raw write does NOT invalidate the query cache. Section C above already populated it with
+     * `Product::find()` and the category lookups, so the brand report's own
+     * `Product::find($product['product_id'])` served a stale miss and attributed nothing: the
+     * series read 0.00 while a standalone probe of the identical code and data read 110.00.
+     *
+     * That is exactly the false reading CLAUDE.md's model-caching note describes, and it would
+     * have made this whole section report a defect that was not there.
+     */
+    foreach ([\App\Models\Product::class, \App\Models\ProductBrand::class, \App\Models\Category::class] as $model) {
+        if (method_exists($model, 'flushCache')) {
+            (new $model())->flushCache();
+        }
+    }
+
+    Auth::login($owner);
+    $brandRequest = Request::create('/brand-order-reports', 'GET', ['chart_data' => 'year']);
+    app()->instance('request', $brandRequest);
+
+    $brandResponse = (new ReportController())->order_brand_reports($brandRequest);
+    $brandPayload = json_decode($brandResponse->getContent(), true);
+
+    $seriesSum = 0.0;
+    foreach (($brandPayload['NetSaleTotal'] ?? []) as $row) {
+        if (($row['name'] ?? null) === 'Boundary brand') {
+            $seriesSum = round(array_sum(array_map('floatval', (array) ($row['data'] ?? []))), 2);
+        }
+    }
+
+    // The card lives in the rendered HTML, not the JSON -- `$NetSalesofbrand` is passed to the
+    // view. Read the value that follows the brand's own label.
+    $cardTotal = null;
+    $html = $brandPayload['html'] ?? '';
+    if (preg_match(
+        '/ss-stat__label">\s*Boundary brand\s*<\/span>\s*<span class="ss-stat__value">\s*[^0-9]*([0-9,]+(?:\.[0-9]+)?)/s',
+        $html,
+        $m
+    )) {
+        $cardTotal = (float) str_replace(',', '', $m[1]);
+    }
+
+    echo "   twelve-month list: " . count($brandPayload['monthList'] ?? []) . " entries\n";
+    echo "   chart series sum:  {$seriesSum}\n";
+    echo "   card total:        " . var_export($cardTotal, true) . "\n";
+
+    check('the chart series carries both months (40.00 + 70.00)', near($seriesSum, 110.0),
+        "got {$seriesSum}");
+
+    check('the CARD agrees with the chart beside it, so December is not missing',
+        $cardTotal !== null && near($cardTotal, 110.0),
+        'card reads ' . var_export($cardTotal, true) . ' against a series of ' . $seriesSum
+        . ' -- the card was summed before the last month was written into the series');
+
     echo "\n{$checks} checks, {$failures} failed\n";
     $exit = $failures > 0 ? 1 : 0;
 } catch (\Throwable $e) {
