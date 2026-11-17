@@ -107,4 +107,81 @@ final class RewardPointDiscount
         // is pinned on its own.
         return $discount > 0.0 ? $discount : 0.0;
     }
+
+    /**
+     * How much of a reward discount an order of `$eligible` may actually absorb.
+     *
+     * D5, OWNER-APPROVED 2026-11-17: *"Prevent negative order totals. Cap applied rewards within
+     * the verified eligible amount. Preserve accurate discount, payment and ledger accounting."*
+     *
+     * WHY THE DISCOUNT IS CAPPED AND NOT THE RESULT. Ten first-party call sites computed
+     * `final_price = <base> - $saveRewardPrice` unbounded; a 20.00 basket less a 50.00 reward was
+     * MEASURED storing `orders.final_price = -30.00`. Capping the discount rather than clamping
+     * the result keeps the *computation* honest at the point of use: the figure subtracted is the
+     * figure that could be subtracted, so the arithmetic reads as what it is.
+     *
+     * THIS DOES NOT MAKE THE LEDGER AGREE, AND AN EARLIER VERSION OF THIS PARAGRAPH CLAIMED IT
+     * DID. That was wrong and independent review caught it. The only ledger writer in this family
+     * is the VENDORED `AddRewardClubPointLis`, and it never sees the capped figure: at its :41 it
+     * RECOMPUTES the raw expression
+     * `($customer['total_club_point'] * $setting['reward_point_price'] ?? 0) / ($setting['reward_points'] ?? 0)`
+     * — the uncapped one, including the two defects this class exists to fix — and stores that at
+     * `'reward_price' => $rewardPrice` (:56), alongside `'used_points' => $customerTotalPoints`,
+     * the WHOLE prior balance.
+     *
+     * So on the over-discount path the order now reads 0.00 while the ledger row still reads
+     * 50.00. Before this change they were both wrong and CONSISTENT (-30.00 against 50.00);
+     * after it they are inconsistent by the capped amount. That is a real consequence of this
+     * change and it is recorded rather than glossed: reconciling them means either editing a
+     * vendored listener (forbidden) or D4's first-party obligation record (owner-authorised, not
+     * yet built). **D5 bounds `orders.final_price`. It does not fix reward accounting.**
+     *
+     *     $capped = RewardPointDiscount::cappedTo($raw, $eligible);
+     *     $order->final_price = $eligible - $capped;      // >= 0 for every input, by construction
+     *
+     * BOTH OPERANDS ARE FLOORED AT ZERO, and neither floor is decoration:
+     *
+     *   - a negative `$eligible` would otherwise let a positive discount make the total *worse*.
+     *     This is defensive and is NOT claimed unreachable — the entire reason this method exists
+     *     is that a negative total was reachable in this very family.
+     *   - a negative `$discount` would otherwise be SUBTRACTED, i.e. added to the customer's bill.
+     *     `for()` already refuses to return one, but this method is public and takes a float from
+     *     ten call sites, and an earlier review in this same family caught exactly that
+     *     overclaim — a configured negative rate that used to ADD to the order.
+     *
+     * WHAT THIS DOES NOT DECIDE. How many POINTS the customer is debited. Capping the money does
+     * not by itself cap the spend, and the obligation model for an over-spend is D4's, not this
+     * method's. Deciding it here would silently forgive the remainder, which the owner's
+     * instruction forbids in those words.
+     *
+     * Pinned by tests/Unit/Loyalty/RewardDiscountCapTest.
+     */
+    public static function cappedTo(float $discount, float $eligible): float
+    {
+        $discount = $discount > 0.0 ? $discount : 0.0;
+        $eligible = $eligible > 0.0 ? $eligible : 0.0;
+
+        return $discount < $eligible ? $discount : $eligible;
+    }
+
+    /**
+     * The order total after a reward discount: `$eligible` reduced by as much of `$discount` as
+     * it can absorb, and never below zero.
+     *
+     * This exists so the invariant lives in ONE place. Twenty call sites across nine files write
+     * this expression, and twenty hand-written copies of `$base - cappedTo($d, $base)` is twenty
+     * chances to spell `$base` differently on its second appearance — which is precisely the
+     * copy-paste failure this family has already produced once, when one expression was pasted
+     * into eleven handlers and was fatal in four input families at every one of them.
+     *
+     * Note the asymmetry with `cappedTo()`: there the eligible amount is the SECOND argument
+     * because it is the bound; here it is the FIRST because it is the subject. That is
+     * deliberate — `applyTo($basket, $discount)` reads in the order the sentence does.
+     */
+    public static function applyTo(float $eligible, float $discount): float
+    {
+        $floored = $eligible > 0.0 ? $eligible : 0.0;
+
+        return $floored - self::cappedTo($discount, $eligible);
+    }
 }

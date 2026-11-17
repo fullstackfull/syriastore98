@@ -2662,7 +2662,7 @@ public function handlePaymeraTrigger00($orderId)
             $customerDetail = Customer::find($customerId);
             $settings = getAdminAllSetting($store->created_by, $store->id) ?? null;
             $saveRewardPrice = RewardPointDiscount::for((float) ($customerDetail->total_club_point ?? 0), $settings);
-            return (!empty($cartlist['final_price']) ? $cartlist['final_price'] : 0) - $saveRewardPrice;
+            return RewardPointDiscount::applyTo((!empty($cartlist['final_price']) ? $cartlist['final_price'] : 0), $saveRewardPrice);
         }
         
         return !empty($cartlist['final_price']) ? $cartlist['final_price'] : 0;
@@ -3920,9 +3920,9 @@ public function handlePaymeraTrigger00($orderId)
                 $rewardSetting = getAdminAllSetting($store->created_by, $store->id) ?? null;
                 $saveRewardPrice = RewardPointDiscount::for((float) ($customerDetail->total_club_point ?? 0), $rewardSetting);
                 if ($plan->shipping_method == "on") {
-                    $order->final_price = $final_sub_total_price - $saveRewardPrice;
+                    $order->final_price = RewardPointDiscount::applyTo($final_sub_total_price, $saveRewardPrice);
                 } else {
-                    $order->final_price = $final_price + $tax_price - $saveRewardPrice;
+                    $order->final_price = RewardPointDiscount::applyTo($final_price + $tax_price, $saveRewardPrice);
                 }
             } else {
                 if ($plan->shipping_method == "on") {
@@ -5371,9 +5371,9 @@ $result = app(\App\Services\StoreNotificationService::class)
                 $rewardSetting = getAdminAllSetting($store->created_by, $store->id) ?? null;
                 $saveRewardPrice = RewardPointDiscount::for((float) ($customerDetail->total_club_point ?? 0), $rewardSetting);
                 if ($planShippingMethod == "on") {
-                    $order->final_price = $final_price + $delivery_price - $saveRewardPrice;
+                    $order->final_price = RewardPointDiscount::applyTo($final_price + $delivery_price, $saveRewardPrice);
                 } else {
-                    $order->final_price = $final_price - $saveRewardPrice;
+                    $order->final_price = RewardPointDiscount::applyTo($final_price, $saveRewardPrice);
                 }
             } else {
                 if ($planShippingMethod == "on") {

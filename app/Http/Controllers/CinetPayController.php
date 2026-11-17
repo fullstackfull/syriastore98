@@ -1023,9 +1023,9 @@ class CinetPayController extends Controller
                     $rewardSetting = getAdminAllSetting($store->created_by, $store->id) ?? null;
                     $saveRewardPrice = RewardPointDiscount::for((float) ($customerDetail->total_club_point ?? 0), $rewardSetting);
                     if ($plan->shipping_method == "on") {
-                        $order->final_price = $final_sub_total_price - $saveRewardPrice;
+                        $order->final_price = RewardPointDiscount::applyTo($final_sub_total_price, $saveRewardPrice);
                     } else {
-                        $order->final_price = $final_price + $tax_price - $saveRewardPrice;
+                        $order->final_price = RewardPointDiscount::applyTo($final_price + $tax_price, $saveRewardPrice);
                     }
                 } else {
                     if ($plan->shipping_method == "on") {

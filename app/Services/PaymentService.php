@@ -3059,9 +3059,9 @@ $products_weight_array[] = [
                 $rewardSetting = getAdminAllSetting($store->created_by, $store->id) ?? null;
                 $saveRewardPrice = RewardPointDiscount::for((float) ($customerDetail->total_club_point ?? 0), $rewardSetting);
                 if ($plan->shipping_method == "on") {
-                    $order->final_price = $total_sub_price + $delivery_price - $saveRewardPrice;
+                    $order->final_price = RewardPointDiscount::applyTo($total_sub_price + $delivery_price, $saveRewardPrice);
                 } else {
-                    $order->final_price = $total_sub_price - $saveRewardPrice;
+                    $order->final_price = RewardPointDiscount::applyTo($total_sub_price, $saveRewardPrice);
                 }
             } else {
                 if ($plan->shipping_method == "on") {
