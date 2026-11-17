@@ -119,9 +119,16 @@ driver name is **tenant-supplied runtime data**, so a transport-keyed intercepti
 ## 7. The sender sites — what has and has not been audited
 
 The census found **214** send sites. **Forty were classified in depth and ten of those were refuted**; the other
-**174 were enumerated, not analysed**, and "not analysed" must never be read as "safe". A further classification
-run was in progress when this was written and **nothing from it is relied on here**: its results are not in this
-repository until they are committed with their evidence.
+**174 were enumerated, not analysed**, and "not analysed" must never be read as "safe".
+
+A second run (164 agents) classified the remainder and has finished. Its output is kept, with every row's
+checked-or-not status, in [`evidence/mkt-008-batch2/`](evidence/mkt-008-batch2/README.md) — **as leads, not
+findings**: 239 rows over 163 distinct sites, **88 of them never checked by a second reader**, 50 refuted by
+the ones that were, and a sample of seven against the code in which one row I read the other way. **Nothing in
+this design relies on those classifications**; the only structural conclusion drawn is the one the first census
+already supported, that the four seams in §6 (the mail event, `sendEmailTemplate`, `SendMsgs`, `sendFCM`) are the
+places a promotional send leaves, with the two `LynomiaChat` campaign calls going to an upstream service whose
+own consent boundary is outside this repository.
 
 Until every site has a class **and** a verified seam, the statement GAP-200 can support is exactly this: *the
 code has no consent control and no unsubscribe, a control now exists unwired, and the live blast radius is a
