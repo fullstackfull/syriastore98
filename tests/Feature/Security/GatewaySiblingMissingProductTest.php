@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Security;
 
+use App\Khalti\Khalti;
 use App\Models\Cart;
 use App\Models\Product;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -30,12 +31,45 @@ use Illuminate\Support\Facades\DB;
  * decision, recorded in the register -- but the failure is now a message and a `critical` log rather
  * than a stack trace.
  *
+ * KHALTI IS ANSWERED BY A DOUBLE IN THIS FILE, AND WHICH ANSWER IT GIVES IS THE POINT.  (2026-11-18)
+ *
+ * Until then nothing here faked Khalti, so `App\Khalti\Khalti::verifyPayment()` opened a real curl
+ * handle to khalti.com -- five times per run of this class -- and what the Khalti rows proved depended
+ * on what came back:
+ *
+ *   - THE HOST ANSWERS (CI, and most days here): a made-up token is answered HTTP 400, the capture is
+ *     REJECTED, and the handler refuses at verification -- ABOVE the cart read. The four
+ *     `gatewayReturnRoutes` cases then passed for Khalti without reaching the basket guard they are
+ *     about. Green, and about nothing.
+ *   - THE HOST CANNOT BE REACHED: no HTTP status, the capture is UNVERIFIABLE (not rejected), the
+ *     handler goes on to the basket guard -- and those four cases did test it, while
+ *     `test_khalti_refuses_at_verification_...` FAILED, because it asserts the rejected branch and
+ *     fakes nothing. MEASURED with every outbound connection refused: 1 failed, 26 passed, and five
+ *     `CONNECT khalti.com:443` attempts. A required CI job that goes red when a third party is down.
+ *
+ * So `setUp()` binds a double that answers like an unreachable gateway -- the answer that takes the
+ * guest arm to the basket guard -- and `assertReachedTheHandler()` makes "Khalti was asked, once" a
+ * premise of every Khalti row. The one case about the REJECTED branch binds a rejection instead, and a
+ * new case pins what the unreachable branch does on this arm. No test in this file opens a connection
+ * to khalti.com any more.
+ *
  * @see GatewayReturnMissingProductTest for the authenticated arm, the verified-capture half and the
  *      bite matrix.
  */
 class GatewaySiblingMissingProductTest extends SecurityTestCase
 {
     use RefreshDatabase;
+
+    /** The Khalti double every case runs against; it counts the times it was asked. */
+    private Khalti $khalti;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // No `status_code` at all is what `Khalti::verifyPayment()` returns when the request never completed.
+        $this->khalti = $this->fakeKhalti(['data' => null]);
+    }
 
     /**
      * @return array<string, array{0: string}>
@@ -69,6 +103,7 @@ class GatewaySiblingMissingProductTest extends SecurityTestCase
             $uri . ': a basket naming a deleted product must not produce an unhandled exception'
         );
         $this->assertSame(0, $outcome['orders'], $uri . ': and it must write no order');
+        $this->assertRefusedByTheBasketGuard($uri, $outcome);
     }
 
     /**
@@ -92,6 +127,7 @@ class GatewaySiblingMissingProductTest extends SecurityTestCase
             (int) DB::table('products')->where('id', $product->id)->value('product_stock'),
             $uri . ': and it must take no stock'
         );
+        $this->assertRefusedByTheBasketGuard($uri, $outcome);
     }
 
     /**
@@ -121,6 +157,11 @@ class GatewaySiblingMissingProductTest extends SecurityTestCase
             (string) session('error'),
             $uri . ': the dangling-row guard must not fire for a basket with nothing missing'
         );
+        // AND THE CONTROL MUST END IN AN ORDER. "The guard did not fire" is just as true of a return that was stopped ABOVE the guard,
+        // which is how the Khalti row passed for as long as the live gateway rejected it (measured then: no order, stock untouched).
+        // What an ordinary basket produces on all four routes is one order row -- Pending, since none of these returns is proof of
+        // collection; on Khalti that is the reconciliation order of an unverifiable capture, and the shopper is still told it failed.
+        $this->assertSame(1, $outcome['orders'], $uri . ': an ordinary guest basket did not become an order, so this return never got past the guard it is the control for.');
     }
 
     /**
@@ -179,11 +220,13 @@ class GatewaySiblingMissingProductTest extends SecurityTestCase
         }
 
         $this->assertNull($exception, $uri . ': a cookie-less guest must not throw');
+        $this->assertKhaltiWasAsked($uri);
         $this->assertStringNotContainsString(
             'no longer available',
             (string) session('error'),
             $uri . ': the guard matched another principal\'s basket through a null cookie'
         );
+        $this->assertNotStoppedAtVerification($uri, (string) session('error'));
     }
 
     /**
@@ -329,10 +372,12 @@ class GatewaySiblingMissingProductTest extends SecurityTestCase
     /**
      * WHY KHALTI'S GUEST ARM IS NOT IN THE PROVIDER ABOVE — asserted, not assumed.
      *
-     * D-22 moved the verification ABOVE the cart read, so on Khalti an unverified return is
-     * refused before the basket guard is ever asked. With no gateway response faked, that is what
-     * happens here: the handler refuses at verification, writes no order, and writes no
-     * `payment_needs_attention` row because the guard that writes it was never reached.
+     * D-22 moved the verification ABOVE the cart read, so on Khalti a REJECTED return is refused
+     * before the basket guard is ever asked: the handler refuses at verification, writes no order,
+     * and writes no `payment_needs_attention` row because the guard that writes it was never
+     * reached. The rejection is bound here -- HTTP 400, which is what khalti.com answered to a
+     * made-up token when it was asked by hand. This case used to fake nothing and take whatever the
+     * live host said; with the host unreachable that is "unverifiable", the next case, and it failed.
      *
      * That is the hoist working, not a gap in this half — and it is pinned so that a later change
      * which moves the verification back below the cart read fails here rather than silently
@@ -347,20 +392,71 @@ class GatewaySiblingMissingProductTest extends SecurityTestCase
 
         DB::table('products')->where('id', $product->id)->delete();
 
+        $this->khalti = $this->fakeKhalti(['status_code' => 400, 'data' => ['detail' => 'Invalid token.']]);
+
         $outcome = $this->drive($store, 'order-khalti', $sid);
 
+        $this->assertReachedTheHandler('order-khalti', $outcome);
         $this->assertNull($outcome['exception'], 'the refusal must still not be an exception');
         $this->assertSame(0, $outcome['orders'], 'and it must write no order');
+        $this->assertStringContainsString(
+            'Transaction has been failed',
+            $outcome['error'],
+            'the shopper must be told by the REJECTION branch. Any other message means the return was stopped somewhere else and this'
+            . ' case is no longer about the rejected capture.'
+        );
         $this->assertSame(
             0,
             (int) DB::table('store_notifications')
                 ->where('store_id', $store->id)
                 ->where('type', 'payment_needs_attention')
                 ->count(),
-            'khalti verifies BEFORE the cart read, so an unverified return never reaches the'
+            'khalti verifies BEFORE the cart read, so a rejected return never reaches the'
             . ' basket guard and there is no capture to record. If this starts writing a row, the'
             . ' verification has moved back below the cart read and the 500 D-22 removed is'
             . ' reachable again.'
+        );
+    }
+
+    /**
+     * AN UNREACHABLE GATEWAY IS NOT A REJECTION, ON THE GUEST ARM EITHER. `verifyKhaltiCapture()` says
+     * so in capitals: no HTTP status says nothing about whether money moved, so the capture is
+     * UNVERIFIABLE and the handler goes on. With the basket naming a deleted product it then meets the
+     * basket guard: no exception, no order, and ONE `payment_needs_attention` row, because a card may
+     * have been charged and the merchant has to be told.
+     *
+     * This is what the case above did by accident whenever khalti.com could not be reached -- and why
+     * it failed then. `GatewayReturnMissingProductTest` pins the same branch on the authenticated arm.
+     */
+    public function test_khalti_unreachable_is_not_a_refusal_and_the_merchant_is_told(): void
+    {
+        [, $store] = $this->tenant();
+        $product = $this->productIn($store);
+        $sid = $this->guestCart($store, $product);
+
+        DB::table('products')->where('id', $product->id)->delete();
+
+        $outcome = $this->drive($store, 'order-khalti', $sid);      // the class default: the gateway could not be reached
+
+        $this->assertReachedTheHandler('order-khalti', $outcome);
+        $this->assertNull($outcome['exception'], 'an unreachable gateway and a dangling basket must not be an exception');
+        $this->assertSame(0, $outcome['orders'], 'and no order is written for a basket that cannot be read');
+        $this->assertStringNotContainsString(
+            'Transaction has been failed',
+            $outcome['error'],
+            'an UNVERIFIABLE capture was answered with the rejection message: unreachable has been collapsed into rejected.'
+        );
+
+        $rows = DB::table('store_notifications')
+            ->where('store_id', $store->id)
+            ->where('type', 'payment_needs_attention')
+            ->get();
+
+        $this->assertCount(1, $rows, 'an unverifiable capture that produced no order must reach the merchant, once.');
+        $this->assertSame(
+            'unknown',
+            json_decode((string) $rows[0]->data, true)['capture_state'] ?? null,
+            'the gateway could not be reached, so the state of the money is unknown and the notice must say so.'
         );
     }
 
@@ -493,6 +589,79 @@ class GatewaySiblingMissingProductTest extends SecurityTestCase
             $uri . ': the handler refused at the stored-state entry guard, so this row proves '
             . 'nothing about the cart read'
         );
+
+        $this->assertKhaltiWasAsked($uri);
+    }
+
+    /**
+     * THE REFUSAL IS THE BASKET GUARD'S, on every route. "No exception and no order" is also what a
+     * return looks like when it was stopped anywhere above the cart read -- which is how the Khalti
+     * rows passed for as long as the live gateway rejected them. The guard has one message of its
+     * own, so the two dangling-basket cases now ask for it.
+     */
+    private function assertRefusedByTheBasketGuard(string $uri, array $outcome): void
+    {
+        $this->assertStringContainsString(
+            'no longer available',
+            $outcome['error'],
+            $uri . ': the return was refused, but not by the dangling-row guard -- so the cart read this case is about was never reached.'
+        );
+    }
+
+    /**
+     * AND THE COOKIE-LESS CASE MUST HAVE REACHED THE GUARD TOO. The guard's message is absent from
+     * every return that was stopped above it, so its absence proves nothing by itself: with the
+     * live gateway rejecting, the Khalti row of that case was refused at verification and passed.
+     * A guest with no basket ends with no message at all on every route (measured), and a rejected
+     * capture ends with the rejection's -- so that message must be absent as well.
+     *
+     * NOT USED BY THE INTACT-BASKET CONTROL, and the reason is a fact about the product: an
+     * UNVERIFIABLE Khalti capture writes its Pending order and then tells the shopper the same
+     * "Transaction has been failed" a rejection does (P1-PAY-03). The message cannot tell the two
+     * apart there; the order row can, and that case asks for it.
+     */
+    private function assertNotStoppedAtVerification(string $uri, string $error): void
+    {
+        $this->assertStringNotContainsString(
+            'Transaction has been failed',
+            $error,
+            $uri . ': the return was refused as a REJECTED capture, above the cart read -- so "the guard did not fire" was never put to the test.'
+        );
+    }
+
+    /**
+     * THE SECOND PREMISE, for the Khalti rows only: the handler got as far as asking the gateway, and
+     * it asked THIS double. Zero calls means the return was stopped above the verification, or that
+     * the double is no longer what the container hands the controller -- in which case the request
+     * went to khalti.com again and the row means whatever the network made it mean.
+     */
+    private function assertKhaltiWasAsked(string $uri): void
+    {
+        if ($uri === 'order-khalti') {
+            $this->assertSame(1, $this->khalti->calls, $uri . ': premise -- the Khalti double must have been asked exactly once.');
+        }
+    }
+
+    private function fakeKhalti(array $response): Khalti
+    {
+        $double = new class($response) extends Khalti {
+            public int $calls = 0;
+
+            public function __construct(private array $canned)
+            {
+            }
+
+            public function verifyPayment($secret, $token, $amount)
+            {
+                $this->calls++;
+
+                return $this->canned;
+            }
+        };
+
+        $this->app->instance(Khalti::class, $double);
+
+        return $double;
     }
 
     private function guestCart($store, Product $product, int $variantId = 0): string
