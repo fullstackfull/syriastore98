@@ -4131,8 +4131,9 @@
     "no financial records yet": "no financial records yet",
     "from :date": "from :date",
     "No order has a financial record yet, so this figure cannot be shown.": "No order has a financial record yet, so this figure cannot be shown.",
-    "Orders without a financial record are not included. How many: :count.": "Orders without a financial record are not included. How many: :count.",
     "Orders with no date and no financial record cannot be placed in any period. How many: :count.": "Orders with no date and no financial record cannot be placed in any period. How many: :count.",
-    "Includes :amount :currency from orders placed before currency was recorded, counted in your store currency.": "Includes :amount :currency from orders placed before currency was recorded, counted in your store currency.",
-    "These amounts are in more than one currency and are not combined.": "These amounts are in more than one currency and are not combined."
+    "Orders without a financial record are not included, even if they were paid inside this period. How many: :count.": "Orders without a financial record are not included, even if they were paid inside this period. How many: :count.",
+    "Includes :amount :currency from records that carry no currency, counted in your store currency.": "Includes :amount :currency from records that carry no currency, counted in your store currency.",
+    "These amounts are in more than one currency and are not combined: :amounts.": "These amounts are in more than one currency and are not combined: :amounts.",
+    "The financial record is complete from :date, so there is nothing to show yet.": "The financial record is complete from :date, so there is nothing to show yet."
 }

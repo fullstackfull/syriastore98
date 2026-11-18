@@ -4127,8 +4127,9 @@
     "no financial records yet": "لا توجد سجلات مالية بعد",
     "from :date": "من :date",
     "No order has a financial record yet, so this figure cannot be shown.": "لا يوجد سجل مالي لأي طلب بعد، لذلك لا يمكن عرض هذا الرقم.",
-    "Orders without a financial record are not included. How many: :count.": "الطلبات التي ليس لها سجل مالي غير محتسبة. عددها: :count.",
     "Orders with no date and no financial record cannot be placed in any period. How many: :count.": "الطلبات التي لا تاريخ لها ولا سجل مالي لا يمكن وضعها في أي فترة. عددها: :count.",
-    "Includes :amount :currency from orders placed before currency was recorded, counted in your store currency.": "يشمل :amount :currency من طلبات سابقة لتسجيل العملة، وتُحتسب بعملة متجرك.",
-    "These amounts are in more than one currency and are not combined.": "هذه المبالغ بأكثر من عملة واحدة ولم تُجمع."
+    "Orders without a financial record are not included, even if they were paid inside this period. How many: :count.": "الطلبات التي ليس لها سجل مالي غير محتسبة، حتى لو دُفعت خلال هذه الفترة. عددها: :count.",
+    "Includes :amount :currency from records that carry no currency, counted in your store currency.": "يشمل :amount :currency من سجلات بلا عملة مسجَّلة، وتُحتسب بعملة متجرك.",
+    "These amounts are in more than one currency and are not combined: :amounts.": "هذه المبالغ بأكثر من عملة واحدة ولم تُجمع: :amounts.",
+    "The financial record is complete from :date, so there is nothing to show yet.": "السجل المالي مكتمل ابتداءً من :date، لذلك لا يوجد ما يُعرض بعد."
 }

@@ -473,11 +473,23 @@ order with no `order_date` and no row cannot be placed in any window, so it is c
 amount*; two real currencies are not combined and the tile says so (an unguarded `->total()` would be an
 HTTP 500 for every store with history, which is why the metric layer refuses it).
 
-**Evidence.** `LedgerCoverageTest` — 9 tests / 27 assertions, **8 mutants killed**.
-`FinanceLedgerFiguresTest` — 14 tests / 78 assertions, **11 mutants killed**; a survivor (`StoreRevenueMargin(false)`)
-exposed assertions that matched by substring (`1,295.50` contains `95.50`, the P5-10 trap again), so every value
-is now compared exactly. Two census ratchets moved deliberately: x-ss.stat hints 10 → 12 and raw-query sites
-190 → 191 (one scoped site).
+**Evidence.** `LedgerCoverageTest` — 14 tests / 40 assertions. `FinanceLedgerFiguresTest` — 24 tests / 176
+assertions. **19 mutants killed across the two**; a survivor (`StoreRevenueMargin(false)`) exposed assertions that
+matched by substring (`1,295.50` contains `95.50`, the P5-10 trap again), so every value is now compared exactly.
+Two census ratchets moved deliberately: x-ss.stat hints 10 → 12 and raw-query sites 190 → 191 (one scoped site).
+**On a real server:** `verify-metric-layer-on-mysql.php` section J — **18 new checks, 0 failed (62 in all)**, run
+under `ONLY_FULL_GROUP_BY` and strict mode on MariaDB 10.11, including that coverage is **one statement** and that a
+DATETIME `MAX()` lands on the same midnight the suite asserts.
+
+**Independent review, and what it changed** (a read-only reviewer; its report is model output, so each finding was
+checked against the code before acting). Two **Medium**: (1) the period is set by *order* date but the figures are
+dated by *payment*, so cash for an order the ledger never saw is invisible while the tile said only "not included" —
+it now says *even if they were paid inside this period*; (2) a gap dated **today** put the start in the future and the
+tile printed **0.00** — it now reads "Not available" and names the date the record becomes complete. Plus: a **blank**
+store-currency setting (`?? 'USD'` does not catch `''`) printed "N.NN unknown"; the unrecorded-currency note keyed on the
+sign of the amount and vanished for a negative profit; two real currencies were a dead end and are now **listed**;
+`forStore(0)` answered "complete"; four statements became one. Added: operator-with-chosen-store and staff principals, an
+undated-only fixture, a store-currency setting, a future-start case. Owner questions it surfaced: **GAP-213**.
 
 **Both directions and both themes.** The two tiles are `<x-ss.stats>` / `<x-ss.stat>`, whose hint was measured
 in Chromium in P5-11 (5.98:1 light, 7.18:1 dark, four combinations of theme and direction). The one new piece

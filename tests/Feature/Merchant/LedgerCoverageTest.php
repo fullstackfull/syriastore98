@@ -159,6 +159,82 @@ class LedgerCoverageTest extends SecurityTestCase
             'the dated gap sets the start; the undated one is disclosed, not used');
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // Found by independent review of P5-16.
+    // ---------------------------------------------------------------------------------------------
+
+    public function test_a_start_in_the_future_is_not_a_period_and_gives_no_window(): void
+    {
+        // An unrowed order dated TODAY puts the start at tomorrow 00:00. `paid_at >= tomorrow` matches
+        // nothing, so a window built from it would answer 0.00 for a store whose earlier history is
+        // perfectly good -- a zero that reads as "no sales". There is no period to read yet, and the
+        // honest answer is "not available", the same as when nothing is verified.
+        [, $store] = $this->makeTenant();
+        $this->orderOn($store, '2026-11-02 08:00:00');                       // covered, earlier
+        $this->orderOn($store, now()->format('Y-m-d H:i:s'), ledger: false); // the gap is today
+
+        $coverage = LedgerCoverage::forStore($store->id);
+
+        $this->assertFalse($coverage->hasNothingVerified(), 'there ARE covered orders; this is a different state');
+        $this->assertTrue($coverage->startsInTheFuture());
+        $this->assertSame(now()->addDay()->format('Y-m-d'), $coverage->verifiedFrom()->format('Y-m-d'));
+        $this->assertNull($coverage->window(), 'a window that starts tomorrow reads zero and calls it a figure');
+    }
+
+    public function test_a_gap_dated_yesterday_opens_the_window_today(): void
+    {
+        [, $store] = $this->makeTenant();
+        $this->orderOn($store, now()->subDay()->format('Y-m-d 10:00:00'), ledger: false);
+        $this->orderOn($store, now()->format('Y-m-d H:i:s'));
+
+        $coverage = LedgerCoverage::forStore($store->id);
+
+        $this->assertFalse($coverage->startsInTheFuture());
+        $this->assertSame(now()->format('Y-m-d 00:00:00'), $coverage->verifiedFrom()->format('Y-m-d H:i:s'));
+        $this->assertNotNull($coverage->window());
+    }
+
+    public function test_when_every_unrowed_order_is_undated_nothing_moves_the_start_and_they_are_counted(): void
+    {
+        // The branch the first version never exercised: with no dated gap, MAX() is NULL, the start is
+        // null and the window is all-time -- while orders without a row exist. That is the rule as
+        // written (an undated order cannot be placed in any window), so it is pinned, with the count.
+        [, $store] = $this->makeTenant();
+        $this->orderOn($store, null, ledger: false);
+        $this->orderOn($store, '2026-11-02 08:00:00');
+
+        $coverage = LedgerCoverage::forStore($store->id);
+
+        $this->assertFalse($coverage->isComplete());
+        $this->assertNull($coverage->verifiedFrom());
+        $this->assertSame(1, $coverage->undatedOrdersWithoutRow());
+        $this->assertTrue($coverage->window()->isAllTime());
+    }
+
+    public function test_it_asks_the_database_once_for_everything_but_the_empty_case(): void
+    {
+        // Query cost, from the review: four statements became one aggregate over the anti-join.
+        [, $store] = $this->makeTenant();
+        $this->orderOn($store, '2026-10-30 08:00:00', ledger: false);
+        $this->orderOn($store, '2026-11-02 08:00:00');
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        LedgerCoverage::forStore($store->id);
+        $queries = count(DB::getQueryLog());
+        DB::disableQueryLog();
+
+        $this->assertSame(1, $queries, 'LedgerCoverage issued more than one statement');
+    }
+
+    public function test_it_refuses_a_store_id_that_cannot_name_a_store(): void
+    {
+        // MetricScope refuses these; this class used to accept 0 and answer "no orders, complete".
+        $this->expectException(\InvalidArgumentException::class);
+
+        LedgerCoverage::forStore(0);
+    }
+
     public function test_a_ledger_row_that_belongs_to_another_store_does_not_cover_this_stores_order(): void
     {
         // The join must be on the order's OWN store. A row for the same order id under another

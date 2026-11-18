@@ -48,6 +48,8 @@ $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 use App\Support\Metrics\CancelledOrders;
 use App\Support\Metrics\CollectedCustomerPayments;
 use App\Support\Metrics\CompletedRefunds;
+use App\Support\Metrics\FinanceLedgerFigures;
+use App\Support\Metrics\LedgerCoverage;
 use App\Support\Metrics\CouponRedemption;
 use App\Support\Metrics\GrossMerchandiseValue;
 use App\Support\Metrics\MerchantWalletEntitlement;
@@ -485,6 +487,124 @@ try {
     if (isset($results['coupons'])) {
         check('coupon redemption is not authoritative', ! $results['coupons']->isAuthoritative());
     }
+
+    echo "\nJ. P5-16 -- LedgerCoverage and the /finance figures, on a real engine\n";
+
+    /*
+     * `LedgerCoverage::forStore()` is ONE aggregate over a LEFT JOIN anti-join:
+     *
+     *     COUNT(DISTINCT CASE WHEN f.id IS NULL THEN orders.id END)
+     *     MAX(CASE WHEN f.id IS NULL THEN orders.order_date END)
+     *
+     * SQLite compares dates as strings and lets any GROUP-less aggregate through. On this server, under
+     * ONLY_FULL_GROUP_BY and STRICT_TRANS_TABLES, it has to be a legal statement, `MAX()` has to hand back a
+     * DATETIME that Carbon can parse, and the day arithmetic has to land on the same midnight the suite asserts.
+     * These checks are why `FinanceLedgerFiguresTest` is not the whole evidence for this slice.
+     */
+    foreach ([3 => 'mysql-c', 4 => 'mysql-d', 5 => 'mysql-e', 6 => 'mysql-f', 7 => 'mysql-g', 8 => 'mysql-h'] as $id => $slug) {
+        $ownerId = DB::table('users')->insertGetId([
+            'name' => 'Owner ' . $id, 'email' => $slug . '@example.test',
+            'password' => bcrypt('x'), 'type' => 'admin',
+            'created_at' => $now, 'updated_at' => $now,
+        ]);
+        DB::table('stores')->insert([
+            'id' => $id, 'name' => 'Store ' . $id, 'slug' => $slug,
+            'email' => $slug . '@example.test', 'theme_id' => 'stylique',
+            'created_by' => $ownerId, 'created_at' => $now, 'updated_at' => $now,
+        ]);
+        DB::table('store_wallets')->insert([
+            'id' => $id, 'store_id' => $id, 'currency_code' => 'USD',
+            'available_balance' => 0, 'pending_balance' => 0, 'withdrawal_pending_balance' => 0,
+            'total_income' => 0, 'total_withdrawn' => 0,
+            'created_at' => $now, 'updated_at' => $now,
+        ]);
+    }
+
+    $paidRow = fn (int $orderId, int $storeId, string $amount, string $paidAt, array $more = []) =>
+        $financial($orderId, array_merge([
+            'store_id' => $storeId, 'payment_status' => 'paid', 'paid_amount' => $amount,
+            'paid_at' => $paidAt, 'remaining_amount' => 0, 'customer_total' => $amount,
+        ], $more));
+
+    // J1. Store 3: two orders the ledger cannot see (the later at 23:59), two it can.
+    $order(['store_id' => 3, 'order_date' => '2026-09-10 09:00:00']);
+    $order(['store_id' => 3, 'order_date' => '2026-10-30 23:59:00']);
+    $paidRow($order(['store_id' => 3, 'order_date' => '2026-11-02 08:00:00']), 3, '80.00', '2026-11-04 09:00:00');
+    $paidRow($order(['store_id' => 3, 'order_date' => '2026-11-08 08:00:00']), 3, '120.50', '2026-11-09 10:00:00');
+
+    DB::connection('metric_fresh')->flushQueryLog();
+    DB::connection('metric_fresh')->enableQueryLog();
+    $partial = LedgerCoverage::forStore(3);
+    $statements = count(DB::connection('metric_fresh')->getQueryLog());
+    DB::connection('metric_fresh')->disableQueryLog();
+
+    check('J1 coverage answers in ONE statement under ONLY_FULL_GROUP_BY', $statements === 1, "issued {$statements}");
+    check('J1 two orders have no ledger row', $partial->ordersWithoutRow() === 2, var_export($partial->ordersWithoutRow(), true));
+    check('J1 the verified period starts at the MIDNIGHT after the latest of them',
+        $partial->verifiedFrom() !== null && $partial->verifiedFrom()->format('Y-m-d H:i:s') === '2026-10-31 00:00:00',
+        $partial->verifiedFrom()?->format('Y-m-d H:i:s') ?? 'null');
+    check('J1 it is a window, not all-time, and not in the future',
+        $partial->window() !== null && ! $partial->window()->isAllTime() && ! $partial->startsInTheFuture());
+
+    // J2. Store 4 has no orders at all: complete.
+    $empty = LedgerCoverage::forStore(4);
+    check('J2 a store with no orders is complete and reads all time', $empty->isComplete() && $empty->window()->isAllTime());
+
+    // J3. Store 5: orders and NO ledger rows.
+    $order(['store_id' => 5, 'order_date' => '2026-09-10 09:00:00']);
+    $order(['store_id' => 5, 'order_date' => '2026-10-01 09:00:00']);
+    $none = LedgerCoverage::forStore(5);
+    check('J3 orders with no ledger row at all: nothing verified, no window',
+        $none->hasNothingVerified() && $none->window() === null && $none->ordersWithoutRow() === 2);
+
+    // J4. A ledger row for store 6's order, FILED UNDER STORE 7, is not cover for store 6.
+    $foreign = $order(['store_id' => 6, 'order_date' => '2026-11-02 08:00:00']);
+    $financial($foreign, ['store_id' => 7, 'wallet_id' => 7, 'payment_status' => 'paid', 'paid_amount' => 5.0,
+        'paid_at' => '2026-11-03 09:00:00', 'remaining_amount' => 0, 'customer_total' => 5.0]);
+    check('J4 a ledger row filed under another store does not cover this store\'s order',
+        LedgerCoverage::forStore(6)->ordersWithoutRow() === 1);
+
+    // J5. An unrowed order with NO order_date (the column is nullable): counted, and cannot move the start.
+    $order(['store_id' => 8, 'order_date' => null]);
+    $paidRow($order(['store_id' => 8, 'order_date' => '2026-11-02 08:00:00']), 8, '10.00', '2026-11-03 09:00:00');
+    $undated = LedgerCoverage::forStore(8);
+    check('J5 an undated unrowed order is counted separately and the window is all-time',
+        $undated->undatedOrdersWithoutRow() === 1 && $undated->verifiedFrom() === null && $undated->window()->isAllTime());
+
+    // J6. The two figures, end to end on this server.
+    app()->setLocale('en');
+    $figures = FinanceLedgerFigures::forStore(3, 'USD');
+
+    check('J6 Payments received = 80.00 + 120.50, exactly (DECIMAL(15,2), not float)',
+        $figures['payments']['value'] === '200.50 USD', var_export($figures['payments']['value'], true));
+    check('J6 and states where the verified period starts',
+        $figures['payments']['period'] === 'from 31 October 2026', var_export($figures['payments']['period'], true));
+    check('J6 and says unrowed orders are excluded even when paid inside the period',
+        str_contains($figures['payments']['hint'], 'even if they were paid inside this period'));
+    check('J6 Estimated gross profit = 60.00 + 60.00',
+        $figures['profit']['value'] === '120.00 USD', var_export($figures['profit']['value'], true));
+    check('J6 and says it excludes shipping and tax', str_contains($figures['profit']['hint'], 'Excludes shipping and tax'));
+
+    // J7. Store 5 has nothing verified: the tile must say so rather than print zero.
+    $nothing = FinanceLedgerFigures::forStore(5, 'USD');
+    check('J7 nothing verified reads Not available, never 0.00',
+        $nothing['payments']['value'] === null && $nothing['profit']['value'] === null);
+
+    // J8. A ledger row with NO currency is folded into the store currency and the fold is disclosed.
+    $paidRow($order(['store_id' => 3, 'order_date' => '2026-11-10 08:00:00']), 3, '25.00', '2026-11-11 09:00:00', ['currency_code' => null]);
+    $folded = FinanceLedgerFigures::forStore(3, 'USD');
+    check('J8 a NULL-currency ledger row is counted in the store currency (225.50 USD)',
+        $folded['payments']['value'] === '225.50 USD', var_export($folded['payments']['value'], true));
+    check('J8 and the page says how much was assumed',
+        str_contains($folded['payments']['hint'], 'Includes 25.00 USD'));
+
+    // J9. Two REAL currencies are listed, never added.
+    $paidRow($order(['store_id' => 3, 'order_date' => '2026-11-12 08:00:00']), 3, '900.00', '2026-11-13 09:00:00', ['currency_code' => 'SYP']);
+    $mixed = FinanceLedgerFigures::forStore(3, 'USD');
+    check('J9 two real currencies: no single number', $mixed['payments']['value'] === null);
+    check('J9 and both amounts are listed',
+        str_contains($mixed['payments']['hint'], '225.50 USD') && str_contains($mixed['payments']['hint'], '900.00 SYP'),
+        $mixed['payments']['hint']);
 
     echo "\n{$checks} checks, {$failures} failed\n";
     $exit = $failures > 0 ? 1 : 0;
