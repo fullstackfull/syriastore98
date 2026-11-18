@@ -475,7 +475,9 @@ return [
     |--------------------------------------------------------------------------
     |
     | 'owned_stores'  -- DEFAULT. `store_id IN ({current_store} UNION {stores whose created_by
-    |                    equals the principal's creatorId()})`. This is the controller's own
+    |                    equals the principal's creatorId(), WHEN creatorId() NAMES A MERCHANT --
+    |                    a type-`admin` user; for a root that is not one the second term is
+    |                    empty, P1-SEC-67b})`. This is the controller's own
     |                    authorisation test (Api/DashboardController::resolveOwnedStore, :3627)
     |                    rather than a second, disagreeing definition of "this merchant's data",
     |                    and it is what makes batch 2 possible -- see the header of this file and

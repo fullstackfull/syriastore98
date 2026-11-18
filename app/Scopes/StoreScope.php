@@ -1013,7 +1013,8 @@ class StoreScope implements Scope
      *  THE FIX: SCOPE TO WHAT THE PRODUCT ITSELF CALLS AUTHORISED.
      * ============================================================================================
      *
-     * The predicate admits `{current_store} UNION {stores whose created_by = creatorId()}`, which
+     * The predicate admits `{current_store} UNION {stores whose created_by = creatorId()}` -- the second term only when `creatorId()` names a MERCHANT
+     * (P1-SEC-67b: a root of 1 is the operator, whose stores are not a merchant's to own) -- which
      * is exactly `resolveOwnedStore()`'s own test plus today's value. Two properties follow, and
      * both are asserted in tests/Feature/Tenancy/OwnedStoresTenantResolutionTest:
      *
@@ -1111,7 +1112,9 @@ class StoreScope implements Scope
     protected static bool $resolvingOwnedStoreIds = false;
 
     /**
-     * The store ids this principal owns, per `stores.created_by` = `creatorId()`.
+     * The store ids this principal owns, per `stores.created_by` = `creatorId()` -- WHEN `creatorId()` NAMES A MERCHANT, a type-`admin` user
+     * (P1-SEC-67b). For a root that is not one (the platform operator, a merchant who demoted their own `type`, staff of either) the set is empty,
+     * because the operator's stores are not theirs to own.
      *
      * Fails to an EMPTY array on any problem -- no container, no `stores` table (early migration,
      * console bootstrap), an unresolvable creator. Empty means `admissibleStoreIds()` falls back to
@@ -1151,9 +1154,15 @@ class StoreScope implements Scope
             // `[current_store]` -- the narrow predicate, "never to zero rows and never to no predicate at all" (this method's own contract). That is why
             // this fails CLOSED while changing `resolveTenant()`'s MODE would fail open under `null_tenant => 'open'`.
             //
-            // A RAW query, like the one below and for the same reason: this runs inside query compilation, and a model read would re-enter the scope
-            // and the model-cache key machinery. Only a real `User` (something with `creatorId()`) is asked; any other principal keeps its old path.
-            if (is_object($user) && method_exists($user, 'creatorId') && ! static::rootIsAMerchant($creatorId)) {
+            // ONE RULE FOR EVERY PRINCIPAL, because the memo below is keyed on `$creatorId` alone: the answer must be a function of that id and nothing else, or
+            // a principal of one kind could be served the set memoised for another. (A first draft asked only principals that define `creatorId()` and left the
+            // rest on the old query; the review of it noted the memo then mixed the two. The only production caller passes `auth()->user()` on the `web` guard,
+            // always a `User`, so nothing real took the other branch -- the uniform rule costs nothing and cannot be mis-keyed.)
+            //
+            // RAW, like the `stores` read below and for the reason that read gives: this runs inside query compilation, and a model read here would put a
+            // `Cachable` query and its cache-key machinery inside it. (`User` carries no `store_id` and is on the do-not-scope list, so re-entering THIS scope
+            // is not the risk; staleness of a cached row and the cache layer inside compilation are.)
+            if (! static::rootIsAMerchant($creatorId)) {
                 $ids = [];
             } else {
                 $ids = array_values(array_map(
@@ -1174,9 +1183,12 @@ class StoreScope implements Scope
 
     /**
      * Is this tenant root a MERCHANT -- a type-`admin` user? The same question `UserPolicy::tenantRootIsAMerchant()` answers, asked with a raw query
-     * (no model, no scope, no `Cachable`) because this runs inside query compilation. `type` is normalised the way that method and `isOperator()`
-     * normalise it: lower-cased, trailing spaces ignored (MySQL's collation ignores them, case and all). A root that cannot be read is NOT a merchant.
-     * Throws only into `ownedStoreIds()`'s own catch, which degrades to an empty set.
+     * (no model, no `Cachable`) because this runs inside query compilation. `type` is normalised the way that method and `isOperator()`
+     * normalise it: lower-cased, trailing SPACES ignored (MySQL's collation ignores those and the case, not a leading space or a tab). A root that
+     * cannot be read is NOT a merchant. Throws only into `ownedStoreIds()`'s own catch, which degrades to an empty set.
+     *
+     * This is a SECOND COPY of the policy's rule, which `UserPolicy` itself warns against; it exists because the policy reads through the cached `User`
+     * model. `TenantRootSinksTest` compares the two on every spelling it knows, so a change to one without the other fails there.
      */
     protected static function rootIsAMerchant(int $rootId): bool
     {

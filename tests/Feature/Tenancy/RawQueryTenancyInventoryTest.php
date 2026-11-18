@@ -503,8 +503,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         /* 191 -> 192 [P1-SEC-67b]: `StoreScope::rootIsAMerchant()`, ONE raw read of `users.type` for the principal's own tenant root. It is the
            only way the owned-store set can refuse a root that is not a merchant (a demoted merchant, or staff the operator created: `creatorId()` is
            then the OPERATOR'S id, and the set held the operator's stores). `users` is the principals' registry -- on the do-not-scope list, not
-           tenant-owned data -- and the read is raw for the reason the scope's two `stores` reads are: it runs inside query compilation, so no model
-           and no `Cachable`. Classified on the `users` row below; asserted by what it reads in ResidualTenancyExposureTest. */
+           tenant-owned data -- and the read is raw so that no `Cachable` query (and no cached `type`) sits inside query compilation; it does not need
+           to be raw to avoid re-entering the scope, which `User` cannot do. Classified on the `users` row below; asserted by what it reads in
+           ResidualTenancyExposureTest. */
         $this->assertSame(['app' => 192, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
@@ -1052,7 +1053,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
      * WHICH OF THOSE TABLES REALLY ARE TENANT-DISCRIMINATED, read from the LIVE MIGRATED SCHEMA
      * rather than from a name or a model's $fillable.
      *
-     * This is what separates a finding from a number. `users` has FIVE statements with no
+     * This is what separates a finding from a number. `users` has SIX statements with no (five, plus P1-SEC-67b's `StoreScope::rootIsAMerchant()`)
      * `store_id` and that is correct -- `users` has no such column; membership is
      * `users.current_store` plus `users.created_by`. `migrations` and `personal_access_tokens`
      * are platform tables. Counting those as exposure would have inflated the finding by eight

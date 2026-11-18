@@ -551,10 +551,11 @@ class ResidualTenancyExposureTest extends TestCase
     }
 
     /**
-     * THE SCOPE'S OWN TWO RAW LOOKUPS, asserted by what they query rather than by line number.
+     * THE SCOPE'S OWN RAW LOOKUPS -- TWO WHEN THIS WAS WRITTEN, THREE SINCE P1-SEC-67b -- asserted by what they
+     * query rather than by line number. (The method name keeps its original wording: it is an identity.)
      *
-     * Both are raw ON PURPOSE and the reasons are worth stating, because "the tenancy scope
-     * contains two unscoped raw queries" reads like a contradiction until you see why:
+     * Each is raw ON PURPOSE and the reasons are worth stating, because "the tenancy scope
+     * contains unscoped raw queries" reads like a contradiction until you see why:
      *   - no Eloquent, so neither can re-enter this scope from inside query compilation;
      *   - no `Cachable`, so neither can re-enter the model-cache key machinery either;
      *   - and `stores` is the tenant REGISTRY -- a `stores` row has no tenant above it, so there
@@ -568,9 +569,12 @@ class ResidualTenancyExposureTest extends TestCase
      * P1-SEC-67b MADE IT THREE, ON PURPOSE, AND THE RATCHET DID ITS JOB BY FIRING. The third is one read of `users.type` for the principal's own
      * tenant root (`rootIsAMerchant()`): without it the owned-store set could not refuse a root that is not a merchant, so a merchant who demoted
      * their own `type` -- or staff the operator created -- had `creatorId()` = the OPERATOR'S id and "the stores this principal owns" held the
-     * operator's stores (executed: a self-demoted merchant deleted a menu of the operator's store through this scope). It is NOT a read of a
+     * operator's stores (executed: with the check reverted, the test that drives `DELETE /menus/{id}` as a self-demoted merchant fails -- the handler answers a
+     * redirect where the narrowed scope answers 404). It is NOT a read of a
      * TENANT-OWNED table, which is what this ratchet exists to prevent: `users` is the principals' registry on the do-not-scope list, and the
-     * statement reads a single column of the single row `creatorId()` already names. It is raw for the same two reasons as the others.
+     * statement reads a single column of the single row `creatorId()` already names. It is raw for the SECOND reason above (no `Cachable`: a cached `type` could be
+     * stale, and the cache-key machinery would run inside query compilation), NOT the first: `User` carries no `store_id` and is on the do-not-scope list, so a
+     * model read could not re-enter this scope. The first review of this change called that reason unsupported for `users`; it is.
      */
     public function test_the_scopes_own_raw_lookups_are_exactly_two_and_both_read_the_store_registry(): void   // the name is an identity; it now allows three -- see above
     {

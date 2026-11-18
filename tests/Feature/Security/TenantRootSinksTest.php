@@ -37,9 +37,12 @@ use Illuminate\Support\Facades\DB;
  * THE FIX is one definition, `UserPolicy::merchantTenantRoot()`: the tenant root, or NULL when the principal belongs to no merchant tenant (a demoted
  * merchant, or staff the operator created). Every sink fails CLOSED on null. The operator is admitted before any of them asks.
  *
- * NOT FIXED HERE, AND WHY: `StoreScope::resolveTenant()` (the global tenancy scope, and through it `BulkDeleteTenantGuard`'s owned-store set) builds
- * the same set the same way, but `config/tenancy.php` `null_tenant => 'open'` means "no tenant" adds NO predicate -- patching it to return nothing
- * for these principals would make them see EVERYONE. That needs a closed mode, not a one-line change: recorded as P1-SEC-67, open.
+ * THE GLOBAL SCOPE, FIXED SEPARATELY AS P1-SEC-67b (the tests under "StoreScope" below): `StoreScope::ownedStoreIds()` -- the owned-store set the scope and
+ * `BulkDeleteTenantGuard` both read -- built the same set the same way. An earlier version of this note said it could not be patched because
+ * `config/tenancy.php` `null_tenant => 'open'` means "no tenant" adds NO predicate. That is true of changing `resolveTenant()`'s MODE and not of narrowing
+ * the owned SET: an empty set degrades to `[current_store]` ("never to zero rows and never to no predicate at all"), which fails CLOSED; a test below pins
+ * that the mode stays TENANT. `Api\DashboardController::resolveManageableUser`, the last unpatched copy of the P0 predicate, uses the same helper.
+ * What is STILL open is named in `docs/security/P01-SECURITY-WORK-QUEUE.md`, subsection g).
  */
 class TenantRootSinksTest extends SecurityTestCase
 {
@@ -379,6 +382,8 @@ class TenantRootSinksTest extends SecurityTestCase
         // THE PRINCIPALS ROOTED AT A NON-MERCHANT get only the store they are IN: a demoted merchant, staff the operator created, and a dangling root
         $this->assertSame([(int) $ownStore->id], $ids($collapsed->fresh()), "A self-demoted merchant's scope includes the operator's stores.");
         $this->assertNotContains((int) $operatorStore->id, $ids($operatorsStaff));
+        // (This one does not discriminate: a missing root owns no store -- `stores.created_by` is a foreign key -- so the answer is [current_store] with or
+        // without the fix. What pins "a root that cannot be read is not a merchant" is the helper test below.)
         $this->assertSame([(int) $ownStore->id], $ids($dangling), 'a root that does not exist must fail closed to the current store');
 
         // POSITIVE CONTROLS: a merchant sees all of their stores, and their staff the merchant's
@@ -411,47 +416,83 @@ class TenantRootSinksTest extends SecurityTestCase
     }
 
     /**
-     * The scope reads the root's `type` the way `UserPolicy::tenantRootIsAMerchant()` does: lower-cased, trailing spaces ignored (MySQL's collation ignores
-     * a trailing space and the case, but not a leading space or a tab). Without that, a merchant whose `type` is stored as `ADMIN` or `admin ` -- which the
-     * database treats as `admin` -- would have the scope refuse their staff the merchant's own stores: a fail-CLOSED regression, but a regression. And the
-     * leading space stays a refusal, because the policy refuses it.
+     * ONE RULE FOR EVERY PRINCIPAL KIND. The owned set is memoised per application instance KEYED BY `creatorId()` ALONE, so its value has to be a function of
+     * that id alone. A first draft asked only principals that define `creatorId()` and left the rest on the old query: a principal WITHOUT one, whose
+     * `created_by` is the operator, filled the memo with the operator's stores, and the next self-demoted merchant in the same application instance was served
+     * them. The only production caller passes the `web` guard's `User`, so nothing real took the other branch; the rule is uniform because a branch nothing
+     * exercises is a branch nobody checks. The plain principal goes FIRST, so that whatever it memoises is what the demoted merchant would be served.
      */
-    public function test_the_scopes_merchant_root_check_reads_the_type_the_way_the_policy_does(): void
+    public function test_the_scope_applies_one_rule_to_every_principal_kind_so_the_memo_cannot_mix_them(): void
+    {
+        [$operator] = $this->operatorWithStore();
+        [$collapsed, $ownStore] = $this->collapsedMerchant();
+        [$merchant, $merchantStore] = $this->makeTenant();
+        $secondStore = $this->makeStore($merchant);
+        \App\Scopes\StoreScope::forgetOwnedStoreIds();
+
+        $plainRootedAtOperator = (object) ['id' => 987001, 'created_by' => $operator->id, 'current_store' => $ownStore->id];
+        $plainRootedAtMerchant = (object) ['id' => 987002, 'created_by' => $merchant->id, 'current_store' => $merchantStore->id];
+        $ids = fn ($principal): array => \App\Scopes\StoreScope::admissibleStoreIds($principal, (int) $principal->current_store);
+
+        $this->assertSame([(int) $ownStore->id], $ids($plainRootedAtOperator), "A principal with no creatorId() and the operator as its creator was given the operator's stores.");
+        $this->assertSame([(int) $ownStore->id], $ids($collapsed->fresh()), 'A self-demoted merchant was served a set memoised for a principal of another kind.');
+
+        // POSITIVE CONTROL: the same rule gives a principal created by a merchant that merchant's stores
+        $this->assertEqualsCanonicalizing([(int) $merchantStore->id, (int) $secondStore->id], $ids($plainRootedAtMerchant), 'Premise: the rule is the same for a principal that is not a User.');
+    }
+
+    /**
+     * A tenant root whose `type` is `$type` FROM THE START -- created that way through the model, never raw-written afterwards, so `Cachable` cannot serve
+     * `UserPolicy` a stale row -- with TWO stores it owns and a staff member working in the first. The second store is what makes the owned set tell
+     * itself apart from the `[current_store]` fallback: with one store they are the same id, and an assertion on it cannot fail.
+     *
+     * @return array{0: User, 1: Store, 2: Store, 3: User}
+     */
+    private function rootTypedAs(string $type): array
+    {
+        $root = User::factory()->create(['type' => $type, 'created_by' => 1, 'is_active' => 1, 'email_verified_at' => now()]);
+        $first = $this->makeStore($root);
+        $second = $this->makeStore($root);
+        $root->current_store = $first->id;
+        $root->save();
+
+        return [$root->fresh(), $first, $second, $this->makeStaff($root->fresh())];
+    }
+
+    /**
+     * The scope reads the root's `type` the way `UserPolicy::tenantRootIsAMerchant()` does -- lower-cased, trailing SPACES ignored (MySQL's collation ignores
+     * those and the case, but not a leading space, a tab or a newline) -- and this test CALLS THE POLICY on every spelling, so the two copies of the rule cannot
+     * drift apart without a test failing. A merchant whose `type` is stored `ADMIN` or `admin ` (which the database treats as `admin`) must not have their staff
+     * refused the merchant's own stores -- fail-closed, but a regression; and the spellings the policy refuses stay refused.
+     */
+    public function test_the_scopes_merchant_root_check_agrees_with_the_policy_on_every_spelling_of_type(): void
     {
         $this->operatorWithStore();
-        [$upper, $upperStore] = $this->makeTenant();
-        [$padded, $paddedStore] = $this->makeTenant();
-        [$leading, $leadingStore] = $this->makeTenant();
-        [$notAdmin, $notAdminStore] = $this->makeTenant();
-        $upperStaff = $this->makeStaff($upper);
-        $paddedStaff = $this->makeStaff($padded);
-        $leadingStaff = $this->makeStaff($leading);
-        $notAdminStaff = $this->makeStaff($notAdmin);
+        $spellings = [
+            'admin' => true, 'Admin' => true, 'ADMIN' => true, 'admin  ' => true,
+            ' admin' => false, "admin\t" => false, "admin\n" => false, 'adminx' => false, 'super admin' => false, 'staff' => false,
+        ];
 
-        // The roots are never read back through the model after these raw writes (the staff are), so `Cachable` cannot serve a stale `type`.
-        DB::table('users')->where('id', $upper->id)->update(['type' => 'ADMIN']);
-        DB::table('users')->where('id', $padded->id)->update(['type' => 'admin  ']);
-        DB::table('users')->where('id', $leading->id)->update(['type' => ' admin']);
-        DB::table('users')->where('id', $notAdmin->id)->update(['type' => 'adminx']);
+        $fixtures = [];
+        foreach ($spellings as $type => $expected) {
+            $fixtures[$type] = $this->rootTypedAs((string) $type);
+        }
         \App\Scopes\StoreScope::forgetOwnedStoreIds();
 
+        $isMerchant = fn (int $rootId): bool => (new \ReflectionMethod(\App\Scopes\StoreScope::class, 'rootIsAMerchant'))->invoke(null, $rootId);
         $ids = fn (User $user): array => \App\Scopes\StoreScope::admissibleStoreIds($user, (int) $user->current_store);
 
-        $this->assertSame([(int) $upperStore->id], $ids($upperStaff->fresh()), "A root typed 'ADMIN' is a merchant: the scope must find their store.");
-        $this->assertSame([(int) $paddedStore->id], $ids($paddedStaff->fresh()), "A root typed 'admin  ' is a merchant (trailing spaces are ignored): the scope must find their store.");
+        foreach ($spellings as $type => $expected) {
+            [$root, $first, $second, $staff] = $fixtures[$type];
+            $label = json_encode((string) $type);
 
-        // The refusals. Each staff's `current_store` IS the root's store, so "only the current store" and "the root's store" are the same id; what tells
-        // them apart is a SECOND store of the root, which the owned set would include and the narrow fallback does not.
-        $leadingSecond = $this->makeStore($leading);
-        $notAdminSecond = $this->makeStore($notAdmin);
-        $upperSecond = $this->makeStore($upper);
-        $paddedSecond = $this->makeStore($padded);
-        \App\Scopes\StoreScope::forgetOwnedStoreIds();
+            $this->assertSame($expected, UserPolicy::tenantRootIsAMerchant((int) $root->id), "Premise: the POLICY's answer for a root typed {$label}.");
+            $this->assertSame($expected, $isMerchant((int) $root->id), "The scope's merchant-root check disagrees with the policy for a root typed {$label}.");
 
-        $this->assertEqualsCanonicalizing([(int) $upperStore->id, (int) $upperSecond->id], $ids($upperStaff->fresh()), "Premise: 'ADMIN' reaches the root's second store.");
-        $this->assertEqualsCanonicalizing([(int) $paddedStore->id, (int) $paddedSecond->id], $ids($paddedStaff->fresh()), "Premise: 'admin  ' reaches the root's second store.");
-        $this->assertSame([(int) $leadingStore->id], $ids($leadingStaff->fresh()), "A root typed ' admin' (leading space) is not a merchant, as the policy says; the second store ".$leadingSecond->id.' must not be reached.');
-        $this->assertSame([(int) $notAdminStore->id], $ids($notAdminStaff->fresh()), "A root typed 'adminx' is not a merchant; the second store ".$notAdminSecond->id.' must not be reached.');
+            $expectedIds = $expected ? [(int) $first->id, (int) $second->id] : [(int) $first->id];
+            $this->assertEqualsCanonicalizing($expectedIds, $ids($staff->fresh()), "The scope's owned set for the staff of a root typed {$label} (the second store is "
+                .($expected ? 'reachable' : 'NOT reachable').').');
+        }
     }
 
     /** What BulkDeleteTenantGuard reads: `StoreScope::resolveTenant()['store_ids']`. */
@@ -479,15 +520,22 @@ class TenantRootSinksTest extends SecurityTestCase
     public function test_a_self_demoted_merchant_cannot_delete_a_menu_of_the_operators_store(): void
     {
         [$operator, $operatorStore] = $this->operatorWithStore();
-        [$collapsed] = $this->collapsedMerchant();
+        [$collapsed, $ownStore] = $this->collapsedMerchant();
         [$merchant, $merchantStore] = $this->makeTenant();
         $this->grantPermission($collapsed, 'Delete Menu');
         $this->grantPermission($merchant, 'Delete Menu');
         $operatorsMenu = \App\Models\Menu::forceCreate(['name' => 'operator menu', 'store_id' => $operatorStore->id]);
         $ownMenu = \App\Models\Menu::forceCreate(['name' => 'merchant menu', 'store_id' => $merchantStore->id]);
+        $demotedsOwnMenu = \App\Models\Menu::forceCreate(['name' => 'demoted merchant menu', 'store_id' => $ownStore->id]);
         \App\Scopes\StoreScope::forgetOwnedStoreIds();
 
-        $this->actingAs($collapsed->fresh())->delete('/menus/'.$operatorsMenu->id);
+        // THE PRINCIPAL REACHES THE HANDLER AND HOLDS THE GRANT: they delete a menu of their OWN store. Without this, "the operator's menu still exists" cannot tell the
+        // scope from a permission refusal (which answers a redirect) or a route that never reached the controller.
+        $this->actingAs($collapsed->fresh())->delete('/menus/'.$demotedsOwnMenu->id);
+        $this->assertFalse(DB::table('menus')->where('id', $demotedsOwnMenu->id)->exists(), 'Premise: the self-demoted merchant holds Delete Menu and reaches the handler, so a refusal below is the scope.');
+
+        // and the operator's menu: a 404 is what `Menu::findOrFail()` answers under the narrowed scope -- a permission refusal and a success are both redirects
+        $this->actingAs($collapsed->fresh())->delete('/menus/'.$operatorsMenu->id)->assertNotFound();
         $this->assertTrue(DB::table('menus')->where('id', $operatorsMenu->id)->exists(), "A self-demoted merchant deleted a menu of the operator's store through the global scope.");
 
         // POSITIVE CONTROL: a merchant deletes their own menu, so "still there" cannot pass on a route that refuses everyone

@@ -5133,10 +5133,12 @@ public function DeleteReview($id)
      * nonexistent user_id raised "Attempt to read property on null" -- the
      * same null-guard class as get_file().
      *
-     * The predicate: yourself always; anyone in your tenant if you are an admin
-     * (created_by = creatorId(), the same predicate resolveOwnedStore and
-     * StoreController::changeStore:637 use, so staff keep working); anyone if
-     * you are the platform operator. Returns null otherwise, and callers answer
+     * The predicate: yourself always; anyone in your tenant if your tenant root is
+     * a MERCHANT (created_by = UserPolicy::merchantTenantRoot(), the root
+     * resolveOwnedStore and StoreController::changeStore use since P1-SEC-66/67,
+     * so staff keep working; for a root that is not a merchant it is null and
+     * nobody but yourself resolves); anyone if you are the platform operator.
+     * Returns null otherwise, and callers answer
      * null the way they already answered a missing user -- 'User not found.' --
      * which also avoids confirming that a user id exists.
      */
