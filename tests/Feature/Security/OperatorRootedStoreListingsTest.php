@@ -88,6 +88,18 @@ class OperatorRootedStoreListingsTest extends SecurityTestCase
         $this->assertSame([], $this->names($operatorsStaff->fresh()->switchableStores()), 'Staff the operator created were offered the operator\'s stores.');
     }
 
+    /**
+     * THE RULE, NOT THE OPERATOR: staff of a self-demoted merchant are rooted at a user who is no longer a merchant (their `created_by` is a `Manager`, id other
+     * than 1). A variant that asked only "is the root the OPERATOR" would offer them the demoted merchant's stores in the chip while `changeStore()` refuses.
+     */
+    public function test_the_workspace_chip_lists_no_store_to_staff_of_a_self_demoted_merchant(): void
+    {
+        $demoted = $this->selfDemotedMerchant();
+        $staff = $this->makeStaff($demoted);
+
+        $this->assertSame([], $this->names($staff->fresh()->switchableStores()), 'Staff of a self-demoted merchant were offered stores changeStore() refuses them.');
+    }
+
     public function test_the_workspace_chip_still_lists_what_it_always_did(): void
     {
         [$merchant, $store] = $this->makeTenant();
@@ -121,7 +133,23 @@ class OperatorRootedStoreListingsTest extends SecurityTestCase
 
         $this->assertArrayHasKey('success', $json, 'Premise: the demoted merchant reaches the toggle and it is authorised for their own row, so the counters below are the thing under test.');
         $this->assertSame([], (array) ($json['users_data'] ?? []), "UserUnable's `user` branch returned the OPERATOR'S per-store staff counts (keyed by store name) to a self-demoted merchant.");
+        // the AGGREGATE totals leak the same tenant's store count: every key of the structure, not only the one that carries names
+        $this->assertSame(0, (int) ($json['store_data']['total_store'] ?? -1), "UserUnable's `user` branch returned the operator's store TOTAL.");
+        $this->assertSame(0, (int) ($json['store_data']['active_store'] ?? -1), "UserUnable's `user` branch returned the operator's ACTIVE store count.");
+        $this->assertSame(0, (int) ($json['store_data']['disable_store'] ?? -1), "UserUnable's `user` branch returned the operator's DISABLED store count.");
         $this->assertStringNotContainsString('Platform Store', json_encode($json), "UserUnable's `user` branch printed the operator's store names to a self-demoted merchant.");
+    }
+
+    public function test_staff_of_a_self_demoted_merchant_are_not_handed_their_employers_counters(): void
+    {
+        $demoted = $this->selfDemotedMerchant();
+        $staff = $this->makeStaff($demoted);
+        $this->grantPermission($staff, 'Edit User');
+
+        $json = $this->unable($staff->fresh(), $staff, 'staff of a self-demoted merchant');
+
+        $this->assertSame([], (array) ($json['users_data'] ?? []), 'A non-merchant root (not the operator) was handed its per-store counters.');
+        $this->assertSame(0, (int) ($json['store_data']['total_store'] ?? -1), 'A non-merchant root was handed its store total.');
     }
 
     public function test_the_counters_are_still_returned_to_the_callers_that_always_had_them(): void

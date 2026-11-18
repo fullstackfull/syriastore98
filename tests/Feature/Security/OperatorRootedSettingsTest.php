@@ -117,6 +117,10 @@ class OperatorRootedSettingsTest extends SecurityTestCase
     {
         $response = $this->actingAs($user)->postJson('/setting-form', ['tab_type' => 'storage_setting']);
 
+        // `settingForm()` turns every exception into HTTP 200 with is_success = false and no content, so a "string absent" assertion on its own would pass for a
+        // tab that threw. The tab must have RENDERED for the principal it is asked about.
+        $this->assertTrue((bool) $response->json('is_success'), 'Premise: the storage tab rendered (it answered '.$response->getContent().').');
+
         return (string) $response->getContent();
     }
 
@@ -150,7 +154,9 @@ class OperatorRootedSettingsTest extends SecurityTestCase
         ])->fresh();
         $this->grantPermission($operatorsStaff, 'Manage Setting');
 
-        $this->assertStringNotContainsString(self::OPERATOR_HOST, $this->emailFields($operatorsStaff->fresh()), "Staff the operator created were served the platform's mail host.");
+        $html = $this->emailFields($operatorsStaff->fresh());
+        $this->assertStringNotContainsString(self::OPERATOR_HOST, $html, "Staff the operator created were served the platform's mail host.");
+        $this->assertStringNotContainsString(self::MERCHANT_HOST, $html, "Staff the operator created were served ANOTHER merchant's mail host.");
     }
 
     /**
@@ -166,8 +172,13 @@ class OperatorRootedSettingsTest extends SecurityTestCase
         $staff = $this->makeStaff($demoted);
         $this->grantPermission($staff, 'Manage Setting');
 
-        $this->assertStringNotContainsString('smtp.demoted-own-fixture.test', $this->emailFields($staff->fresh()), "Staff of a self-demoted merchant were served a non-merchant root's settings.");
-        $this->assertStringNotContainsString(self::OPERATOR_HOST, $this->emailFields($staff->fresh()), "Staff of a self-demoted merchant were served the platform's mail host.");
+        $html = $this->emailFields($staff->fresh());
+        $this->assertStringNotContainsString('smtp.demoted-own-fixture.test', $html, "Staff of a self-demoted merchant were served a non-merchant root's settings.");
+        $this->assertStringNotContainsString(self::OPERATOR_HOST, $html, "Staff of a self-demoted merchant were served the platform's mail host.");
+        // and NOT another merchant's: a missing root must not fall through to the guest branches, whose last one serves the LOWEST-ID MERCHANT's settings
+        // (P1-SEC-18 F4). This principal's root is a non-merchant that is NOT user 1, so it is the case a "refuse root 1, leave the null unguarded" half-fix
+        // would serve -- the fifth review's surviving mutant.
+        $this->assertStringNotContainsString(self::MERCHANT_HOST, $html, "Staff of a self-demoted merchant were served ANOTHER merchant's mail host (a missing root fell through to the lowest-id merchant).");
     }
 
     /**
@@ -202,5 +213,12 @@ class OperatorRootedSettingsTest extends SecurityTestCase
 
         // and the operator sees the platform's, through the path that was always theirs
         $this->assertStringContainsString(self::OPERATOR_HOST, $this->emailFields($this->operator->fresh()), 'Premise: the operator sees the platform mail host.');
+
+        // The two screens above send the operator to `getSuperAdminAllSetting()`, never to the changed helper. THE CHANGED HELPER, called for the operator: the
+        // exemption at its top (`super admin` is not rewritten to anybody's creator) must still hold, or every no-argument caller would get [] for the operator.
+        $this->actingAs($this->operator->fresh());
+        $this->assertSame(self::OPERATOR_HOST, getAdminAllSetting()['MAIL_HOST'] ?? null, 'Premise: getAdminAllSetting() still resolves the operator to themselves.');
+        $this->actingAs($this->merchant->fresh());
+        $this->assertSame(self::MERCHANT_HOST, getAdminAllSetting()['MAIL_HOST'] ?? null, 'Premise: getAdminAllSetting() still resolves a merchant to themselves.');
     }
 }

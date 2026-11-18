@@ -6528,9 +6528,9 @@ MEDIUM and a number of LOW.** Each was read against the code before it was adopt
 | id | finding | disposition |
 |---|---|---|
 | A-01 / C-01 **MEDIUM** | the read-only query offered to find stale pointers was the negation of the old gate and could not return them (both skeptics: not refuted; I hand-evaluated it too) | **FIXED.** Two labelled queries, executed by a test as written (f) |
-| **B-01 MEDIUM** | `getAdminAllSetting()` (`helper.php:728-742`) replaces a non-`admin` user by `User::find($user->created_by)` — for a principal rooted at the operator, the **operator** — and reads the operator's settings in the operator's current store. `POST /setting-form` and `POST /get-email-fields` gate only on `StoreSettingsAccess::permits()` (`Manage Setting`, which the shared `admin` role holds and a self-demoted merchant keeps), so those Settings tabs print the platform's **non-secret** mail, storage and gateway fields; `check_file()` loads the resolved row's storage settings into the request's runtime config. Read, not executed. `Setting` is not a scoped model, so this change cannot reach it. Both skeptics: not refuted; it predates this change and is not worsened by it | **OPEN, first in P1-SEC-67c** — a central helper, so it needs its own failing-first test, mutation and review rather than a line in this change |
-| B-02 LOW | `User::switchableStores()` still lists the operator's active stores to a root-of-1 principal and offers a control `changeStore()` now refuses; its docblock says it "mirrors that handler's predicate exactly" | OPEN (67c) |
-| B-03 LOW | `UserController::UserUnable`, `user` branch: `$ownerId = $target->creatorId()` feeds `storeUserCounter()`, returning the operator's store names and per-store staff counts to a root-of-1 principal targeting their own row (the `store` branch was fixed) | OPEN (67c) |
+| **B-01 MEDIUM** | `getAdminAllSetting()` (`helper.php:728-742`) replaces a non-`admin` user by `User::find($user->created_by)` — for a principal rooted at the operator, the **operator** — and reads the operator's settings in the operator's current store. `POST /setting-form` and `POST /get-email-fields` gate only on `StoreSettingsAccess::permits()` (`Manage Setting`, which the shared `admin` role holds and a self-demoted merchant keeps), so those Settings tabs print the platform's **non-secret** mail, storage and gateway fields; `check_file()` loads the resolved row's storage settings into the request's runtime config. Read, not executed. `Setting` is not a scoped model, so this change cannot reach it. Both skeptics: not refuted; it predates this change and is not worsened by it | **FIXED — subsection i)** (a central helper, so it got its own failing-first test, mutation and review rather than a line in 67b) |
+| B-02 LOW | `User::switchableStores()` still lists the operator's active stores to a root-of-1 principal and offers a control `changeStore()` now refuses; its docblock says it "mirrors that handler's predicate exactly" | **FIXED — subsection i)** |
+| B-03 LOW | `UserController::UserUnable`, `user` branch: `$ownerId = $target->creatorId()` feeds `storeUserCounter()`, returning the operator's store names and per-store staff counts to a root-of-1 principal targeting their own row (the `store` branch was fixed) | **FIXED — subsection i)** |
 | B-08 info | `BulkDeleteTenantGuard`'s roles predicate still reads `created_by = $user->creatorId()`; a root-of-1 principal reaches it only if `PlanModuleCheck:BulkDelete` passes, which depends on the operator's `user_active_modules` rows (data-dependent shield) | OPEN, named |
 | B-12 | the plan-owner reads `User::find($user->creatorId())` (`ProductController.php:617-619`, `ShopifyProductController.php:143-146`, `WoocomProductController.php:101-102`, `helper.php:1806-1819`) apply the operator's plan to a root-of-1 principal — the same class as `Utility`'s storage helpers | OPEN, named |
 | A-02 LOW | an EMPTY `current_store` is fail-open for a principal who owns no store, so "clear the stale pointer" is the wrong remediation | **Recorded in f)**: do not NULL a pointer |
@@ -6546,3 +6546,50 @@ MEDIUM and a number of LOW.** Each was read against the code before it was adopt
 **What the review also established, for the record:** no path mints a *new* stale `current_store` pointer after P1-SEC-66 except propagation from an already-contaminated creator; `adminlogin` still issues a token
 to a root-of-1 principal and `dashboard()` keys only on `users.current_store` with no ownership check — which is why a stale pointer is the live residue; the twelve `file:line` raw sites and the log inventory
 have no rows for `StoreScope.php` or `DashboardController.php`, so no line-keyed ratchet moved.
+
+### i) P1-SEC-67c — the fifth independent review, and what it found (2026-11-18)
+
+Three lenses, nine agents, a pair of skeptics for each HIGH or MEDIUM. It reviewed the first 67c slice: the Settings helper, the workspace chip and `UserUnable`'s `user` branch. **It found one HIGH,
+outside that slice, and it was fixed here.** The full Feature run, not the review, caught the first regression this slice introduced.
+
+**What the full Feature run caught.** The first 67c commit passed every targeted test and **failed three tests in `PaidDownloadLinkInPagesTest` with a `TypeError`**: `getAdminAllSetting()` handed any principal to
+`UserPolicy::merchantTenantRoot(?User)`, and a `Customer` on the default guard (a test's `actingAs($customer, 'customers')`, or any `Auth::shouldUse('customers')` such as the `auth:customers` route group, which
+rewrites the default guard) reaches that branch too. The known-outcome gate refused it as an undeclared error and **nothing was pushed with it**. The rule is now for a `User` only; a customer resolves its creator
+exactly as before. The review's blast-radius lens re-reported the same defect against the first draft; its skeptics refuted it against the corrected tree. A reviewer reads the tree, and the patch file it was handed
+was stale — noted for the next brief.
+
+| id | finding | disposition |
+|---|---|---|
+| **C-01 HIGH** | **The Settings writers stamped a self-demoted merchant's NEW rows with the operator's id** (`SettingOwnership::keep()` re-stamps a new row to `creatorId()`, which is the operator for a principal rooted at the platform), and **`Utility::upload_file()` / `jsonUpload_file()` read every row stamped with the operator's id, in every store, as the platform's storage configuration.** A registered merchant could therefore replace the platform's `storage_setting` and `s3_*` / `wasabi_*` values. Executed through the real routes before the fix: 3 of 4 tests failed, the platform's `storage_setting` was replaced. Predates this branch; the 67c diff neither helps nor hurts | **FIXED**: `keep()` re-stamps only to a MERCHANT root and leaves the writer's own id otherwise. **Not retroactive — see below** |
+| B-01 MEDIUM (tests) | a half-fix ("refuse a root of 1", null left unguarded) survived the five settings tests and would serve the lowest-id merchant's settings to the staff of a self-demoted merchant | **FIXED**: the assertion was missing from two tests; the mutant is now killed |
+| A-01 / C-06 | the `Customer` `TypeError` above | **FIXED** before the review reported it |
+| B-03, B-05, B-06, B-07 LOW | the listings tests had no principal rooted at a non-merchant that is not the operator; the counters' totals were not asserted; the storage tab's render was not asserted; the operator control did not exercise the changed helper | **FIXED**: each added, and the mutants that exploit each are killed |
+| B-09 LOW | `switchableStores()`'s docblock said the type question was "not asked at all" | **FIXED** |
+| A-03, A-04 LOW | the empty settings array is silent for the populations it applies to; the helper fix closes the `$setting` array, not every other read on those screens that keys on `current_store` | recorded: intended, fail-closed, and the second is the "not retroactive" residue of f)/g) |
+| C-02 LOW | `LynomiaChat`'s `EnsureStoreOwnsLink` is an unlisted copy of the `stores.created_by = creatorId()` predicate; shielded in a default install because `PlanModuleCheck:LynomiaChat` resolves the operator's `user_active_modules` rows, which the seed leaves empty | OPEN (first-party package; latent) |
+| C-03 LOW | `OrderNote::authorNameFor()` treats a root of 1 as a tenant, so a self-demoted merchant is shown the operator's display name on notes the operator wrote into their store | OPEN (name only) |
+| B-08 / B-12 / `StoredUpload` / `ProductMediaReclaimer` / `Utility` / `RolePolicy` | as named in h) | OPEN |
+
+**C-01, the shape of the fix and its limits.** The fix is the shared definition once more (`UserPolicy::merchantTenantRoot()`): a merchant and their staff are re-stamped to the merchant as before (the P1-PLT-07
+normalisation, pinned by the sixteen existing `SettingsCreatedByOwnershipTest` cases, all green); the operator needs none; a non-merchant root keeps the writer's own id, outside the pool. **It does not repair
+rows already stamped, and it does not change the reader.** `Utility::upload_file()` still reads the pool with no store predicate, so a row already stamped with the operator's id inside a merchant's store is
+still read as the platform's. Restricting the reader to the operator's own stores is the real defence in depth and **is not made here**: the operator can park `current_store` in a merchant's store and save
+platform settings there (`SettingOwnership`'s own docblock says so), and a reader that ignored those rows could turn a working configuration into a failing one. That is a design decision for the owner. **Read-only
+detection** (nothing here touches production; `tests/Feature/Security/StalePointerDetectionQueryTest.php` executes this SQL as written):
+
+```sql
+-- detect-C: settings rows stamped with an operator's id inside a store the operator does not own
+SELECT s.id, s.name, s.store_id, s.created_by, st.created_by AS store_owner
+FROM settings s
+JOIN users op ON op.id = s.created_by AND op.type = 'super admin'
+JOIN stores st ON st.id = s.store_id
+WHERE st.created_by <> s.created_by
+ORDER BY s.name, s.id;
+```
+
+Read the names first: `storage_setting`, `s3_*`, `wasabi_*` and `local_storage_*` are the rows the upload helpers consume. **Some rows here can be legitimate** — platform settings the operator saved while parked in a
+merchant's store — so **do not delete rows from this list without looking at who made them.** Nothing was changed in production, and none of this has been run there.
+
+**Evidence.** `OperatorRootedSettingsWritesTest` (5), `OperatorRootedSettingsTest` (6), `OperatorRootedStoreListingsTest` (7), and `StalePointerDetectionQueryTest` gained detect-C. Mutation, each on the real file with a checksum-verified restore: the Settings helper
+**8 of 8**, the listings **9 of 9**, the writer **4 of 5 — the survivor is an equivalent mutant** (it asks the merchant question of the writer's creator instead of the writer, which answers identically for every
+principal kind). Stated at their real size: the helper's old-predicate, null-check and half-fix mutants are one family, and the listings' two old-predicate mutants are the failing-before evidence.

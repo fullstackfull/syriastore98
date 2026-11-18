@@ -93,7 +93,13 @@ final class SettingOwnership
             return;
         }
 
-        $root = $user->creatorId();
+        // P1-SEC-67c. Re-stamp to a MERCHANT root only. `creatorId()` is the operator's id for a principal rooted at the platform (a merchant who demoted their
+        // own `type`, or staff the operator created), and a row stamped with the operator's id is read as the PLATFORM's by every reader keyed on
+        // `created_by = 1` with no store predicate -- `Utility::upload_file()` and `jsonUpload_file()` take their storage configuration from it, so a
+        // demoted merchant's `storage_setting` / `s3_*` rows redirected every tenant's uploads. A non-merchant root leaves the row stamped with the WRITER'S
+        // own id, outside that pool. The operator needs no re-stamp (their `creatorId()` is their own id, which is what they already wrote); a merchant and
+        // their staff resolve exactly as before.
+        $root = \App\Policies\UserPolicy::merchantTenantRoot($user);
         if (! empty($root)) {
             $setting->created_by = (int) $root;
         }

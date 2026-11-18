@@ -122,6 +122,34 @@ class StalePointerDetectionQueryTest extends SecurityTestCase
         $this->assertSame(0, $byId[$u['demotedsStaff']], 'staff of the demoted merchant own none');
     }
 
+    /**
+     * detect-C (P1-SEC-67c): the settings rows a self-demoted merchant's saves left stamped with the operator's id inside a store the operator does not own.
+     * They are read as the platform's by every reader keyed on `created_by = 1` with no store predicate. The fixture holds the operator's own platform rows
+     * (not returned), a merchant's own rows and a merchant's staff's rows re-stamped to the merchant (not returned), and one row stamped with the operator's
+     * id inside a merchant's store (returned -- as is a legitimate "parked" save, which is why the document tells the owner to look before deleting).
+     */
+    public function test_detect_c_finds_settings_rows_stamped_with_the_operators_id_inside_a_store_it_does_not_own(): void
+    {
+        $operator = $this->makePlatformAdmin();
+        $operatorStore = $this->makeStore($operator);
+        [$merchant, $merchantStore] = $this->makeTenant();
+
+        $insert = fn (string $name, int $createdBy, int $storeId) => DB::table('settings')->insertGetId([
+            'name' => $name, 'value' => 'x', 'created_by' => $createdBy, 'store_id' => $storeId, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $platform = $insert('storage_setting', (int) $operator->id, (int) $operatorStore->id);          // the platform's own row
+        $own = $insert('s3_bucket', (int) $merchant->id, (int) $merchantStore->id);                      // a merchant's row, their id
+        $contaminated = $insert('storage_setting', (int) $operator->id, (int) $merchantStore->id);       // stamped 1 inside a merchant's store
+
+        $rows = DB::select($this->documentedQuery('detect-C'));
+        $ids = array_map(fn ($r) => (int) $r->id, $rows);
+
+        $this->assertSame([$contaminated], $ids, 'detect-C must return exactly the row stamped with the operator\'s id inside a store the operator does not own.');
+        $this->assertNotContains($platform, $ids);
+        $this->assertNotContains($own, $ids);
+        $this->assertSame((int) $merchant->id, (int) $rows[0]->store_owner, 'the triage column names the store\'s real owner');
+    }
+
     public function test_detect_b_finds_pointers_into_another_tenant_and_cannot_find_what_the_old_change_store_wrote(): void
     {
         $u = $this->fixture();
