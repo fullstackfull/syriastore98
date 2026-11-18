@@ -357,6 +357,48 @@ GROUPS = [
             ]),
         ],
     },
+    {
+        "key": 'upload',
+        "title": "P1-SEC-67d -- StoredUpload rule 3: the operator's cross-tenant folder exemption belongs to the operator acting, not to the operator's id",
+        "tests": ['tests/Feature/Security/OperatorRootedStoredUploadTest.php', 'tests/Feature/Security/StoredUploadTest.php'],
+        "mutants": [
+            ('U1 the exemption keys on the owner id alone again (the fix reverted)', [
+                ('app/Services/StoredUpload.php',
+                 "            $actor = auth('web')->user();\n\n            if ($actor instanceof User && ! UserPolicy::isOperator($actor)) {\n                return Store::where('id', $storeId)->where('created_by', $actor->id)->exists();\n            }\n\n            return true;\n",
+                 '            return true;\n'),
+            ]),
+            ("U2 a non-operator who presents the operator's id is given the stores of the id they presented (the operator's own)", [
+                ('app/Services/StoredUpload.php',
+                 "                return Store::where('id', $storeId)->where('created_by', $actor->id)->exists();\n",
+                 "                return Store::where('id', $storeId)->where('created_by', $ownerId)->exists();\n"),
+            ]),
+            ("U3 a non-operator who presents the operator's id is refused every store folder, their own included", [
+                ('app/Services/StoredUpload.php',
+                 "                return Store::where('id', $storeId)->where('created_by', $actor->id)->exists();\n",
+                 '                return false;\n'),
+            ]),
+            ('U4 the operator acting loses the exemption too', [
+                ('app/Services/StoredUpload.php',
+                 '            if ($actor instanceof User && ! UserPolicy::isOperator($actor)) {\n',
+                 '            if ($actor instanceof User) {\n'),
+            ]),
+            ('U5 the actor is read from the DEFAULT guard with no User test (a storefront customer becomes a panel actor)', [
+                ('app/Services/StoredUpload.php',
+                 "            $actor = auth('web')->user();\n\n            if ($actor instanceof User && ! UserPolicy::isOperator($actor)) {\n",
+                 '            $actor = auth()->user();\n\n            if ($actor !== null && ! UserPolicy::isOperator($actor)) {\n'),
+            ]),
+            ('U6 the uniform rule instead: every panel user whose root is not a merchant is refused every store folder', [
+                ('app/Services/StoredUpload.php',
+                 "        $owner = User::find($ownerId);\n\n        if ($owner !== null && strtolower(trim((string) $owner->type)) === 'super admin') {\n            $actor = auth('web')->user();\n",
+                 "        $panel = auth('web')->user();\n        if ($panel instanceof User && ! UserPolicy::isOperator($panel) && UserPolicy::merchantTenantRoot($panel) === null) {\n            return false;\n        }\n\n        $owner = User::find($ownerId);\n\n        if ($owner !== null && strtolower(trim((string) $owner->type)) === 'super admin') {\n            $actor = auth('web')->user();\n"),
+            ]),
+            ('U7 only a presented id of exactly 1 loses the exemption (an operator row with another id keeps handing it out)', [
+                ('app/Services/StoredUpload.php',
+                 '            if ($actor instanceof User && ! UserPolicy::isOperator($actor)) {\n',
+                 '            if ((int) $ownerId === 1 && $actor instanceof User && ! UserPolicy::isOperator($actor)) {\n'),
+            ]),
+        ],
+    },
 ]
 
 
