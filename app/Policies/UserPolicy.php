@@ -132,8 +132,16 @@ class UserPolicy
      */
     public static function tenantRootIsAMerchant(int|string $actorTenant): bool
     {
-        $root = User::withoutGlobalScopes()->whereKey($actorTenant)->first();
+        return self::isMerchantRow(User::withoutGlobalScopes()->whereKey($actorTenant)->first());
+    }
 
+    /**
+     * Is this ROW a merchant tenant root -- a type-`admin` user, the operator excluded? THE one definition of the rule: `tenantRootIsAMerchant()` reads the row by id
+     * and asks it, and a caller that has ALREADY loaded "the employer" asks it directly, so the rule costs no second read (P1-SEC-67c: `getAdminAllSetting()` runs on
+     * every priced cell of a staff member's list pages, and an extra cached read per call is a query per cell). A row that cannot be read is NOT a merchant.
+     */
+    public static function isMerchantRow(?User $root): bool
+    {
         if ($root === null || self::isOperator($root)) {
             return false;
         }

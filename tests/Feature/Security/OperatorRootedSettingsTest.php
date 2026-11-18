@@ -197,6 +197,41 @@ class OperatorRootedSettingsTest extends SecurityTestCase
         $this->assertSame(self::MERCHANT_HOST, getAdminAllSetting()['MAIL_HOST'] ?? null, "Premise: a customer resolves its creator's (the store owner's) settings, as before.");
     }
 
+    /**
+     * THE PLATFORM'S OWN STOREFRONT: a customer of the operator's store has `created_by` = the operator, and "the creator" is the intended answer for them -- the
+     * settings of the store they shop in. The merchant-root rule is for admin-panel principals; applied to a customer it would blank the currency format of every
+     * priced cell on the platform's own `my-account` page (`currency_format_with_sym()` -> `getAdminAllSetting()`).
+     */
+    public function test_a_customer_of_the_operators_own_store_still_resolves_the_operators_settings(): void
+    {
+        $customer = \App\Models\Customer::forceCreate([
+            'first_name' => 'Buyer', 'last_name' => 'Fixture', 'email' => 'buyer-'.uniqid().'@example.test', 'password' => bcrypt('secret'),
+            'store_id' => $this->operatorStore->id, 'type' => 'customer', 'created_by' => $this->operator->id,
+        ]);
+        $this->actingAs($customer, 'customers');
+
+        $this->assertSame(self::OPERATOR_HOST, getAdminAllSetting()['MAIL_HOST'] ?? null, "A customer of the platform's own store lost the settings of the store they shop in.");
+    }
+
+    /**
+     * ONE READ OF THE EMPLOYER. The helper runs per priced cell of a staff member's list pages; the first form of the fix read the employer twice (a merchant test by id
+     * and then the user), a query per cell. The merchant rule is asked of the row already in hand.
+     */
+    public function test_the_helper_reads_the_employer_once(): void
+    {
+        $staff = $this->makeStaff($this->merchant);
+        $this->actingAs($staff->fresh());
+        (new User())->flushCache();
+
+        \Illuminate\Support\Facades\DB::flushQueryLog();
+        \Illuminate\Support\Facades\DB::enableQueryLog();
+        getAdminAllSetting();
+        $reads = array_filter(\Illuminate\Support\Facades\DB::getQueryLog(), fn (array $q) => str_contains($q['query'], 'from "users"'));
+        \Illuminate\Support\Facades\DB::disableQueryLog();
+
+        $this->assertCount(1, $reads, 'getAdminAllSetting() read the users table '.count($reads).' times for a staff principal: '.json_encode(array_column($reads, 'query')));
+    }
+
     /** The controls: every refusal above could be a route that refuses everyone, or a fixture that never wrote the rows. */
     public function test_the_screens_still_serve_the_settings_they_always_did(): void
     {

@@ -736,14 +736,17 @@ if (!function_exists('getAdminAllSetting')) {
             // branch, and its `created_by` is the owner of ITS store -- the operator, for a customer of the platform's own storefront -- so "the creator" is the intended
             // answer there and the merchant-root rule is a rule about admin-panel principals. (The first draft passed any principal to `merchantTenantRoot(?User)`:
             // a TypeError for a Customer, caught by the full Feature run in PaidDownloadLinkInPagesTest, not by the targeted tests.)
+            //
+            // ONE READ, as before: "the employer" is loaded once, and the merchant rule (`UserPolicy::isMerchantRow()`, the same definition `merchantTenantRoot()` uses)
+            // is asked of the row in hand. Asking `merchantTenantRoot($user)` and then `User::find($root)` read the employer twice on a path that runs per priced cell.
             if ($user instanceof User) {
-                $root = \App\Policies\UserPolicy::merchantTenantRoot($user);
+                $creator = User::find($user->created_by);
 
-                if ($root === null) {
+                if (! \App\Policies\UserPolicy::isMerchantRow($creator)) {
                     return [];
                 }
 
-                $user = User::find($root);
+                $user = $creator;
             } else {
                 $user = User::find($user->created_by);
             }
