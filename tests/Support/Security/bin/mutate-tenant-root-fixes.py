@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-REVERT-AND-CONFIRM FOR THE "A ROOT OF 1 IS A TENANT" FIXES (P1-SEC-67b, P1-SEC-67c), FOR P1-SEC-65, AND FOR THE OWNER'S DETECTION QUERIES
-========================================================================================================================================
+REVERT-AND-CONFIRM FOR THE "A ROOT OF 1 IS A TENANT" FIXES (P1-SEC-67b, P1-SEC-67c, P1-SEC-67d), FOR P1-SEC-65, AND FOR THE OWNER'S DETECTION QUERIES
+====================================================================================================================================================
 
 WHY THIS IS A SCRIPT AND NOT A TEST. The project's rule is stricter than "a failing test first": after the fix, revert it and confirm the
 test fails again -- a test that passes for the wrong reason is the one that has actually bitten here. A reverted fix cannot live in the
@@ -18,7 +18,7 @@ THE `detect` GROUP MUTATES A DOCUMENT, NOT CODE: the SQL the owner is asked to r
 StalePointerDetectionQueryTest executes it as written. A query that is wrong in the document is wrong where it matters, so the document is the
 thing mutated (a query once offered there could not return the rows it was for, and nothing had run it).
 
-NOT EVERY MUTANT IS A REVERT. Each group holds the plain revert to the old predicate (S1, R1, H1, L1, L4, W1, G1) and VARIANTS of the
+NOT EVERY MUTANT IS A REVERT. Each group holds the plain revert to the old predicate (S1, R1, H1, L1, L4, W1, G1, U1) and VARIANTS of the
 fix: the narrower question ("refuse only a root of 1"), a fail-open form, a missing operator-first limb, a drifted copy of the rule. The
 variants are what tell a fix that is right from one that merely differs from the old code. Several mutants of one group exercise one
 behaviour and several pin parity with UserPolicy rather than a live path; docs/security/P01-SECURITY-WORK-QUEUE.md (P1-SEC-64b, g) to j))
@@ -389,13 +389,33 @@ GROUPS = [
             ]),
             ('U6 the uniform rule instead: every panel user whose root is not a merchant is refused every store folder', [
                 ('app/Services/StoredUpload.php',
-                 "        $owner = User::find($ownerId);\n\n        if ($owner !== null && strtolower(trim((string) $owner->type)) === 'super admin') {\n            $actor = auth('web')->user();\n",
-                 "        $panel = auth('web')->user();\n        if ($panel instanceof User && ! UserPolicy::isOperator($panel) && UserPolicy::merchantTenantRoot($panel) === null) {\n            return false;\n        }\n\n        $owner = User::find($ownerId);\n\n        if ($owner !== null && strtolower(trim((string) $owner->type)) === 'super admin') {\n            $actor = auth('web')->user();\n"),
+                 '        $owner = User::find($ownerId);\n\n        if (UserPolicy::isOperator($owner)) {\n',
+                 "        $panel = auth('web')->user();\n        if ($panel instanceof User && ! UserPolicy::isOperator($panel) && UserPolicy::merchantTenantRoot($panel) === null) {\n            return false;\n        }\n\n        $owner = User::find($ownerId);\n\n        if (UserPolicy::isOperator($owner)) {\n"),
             ]),
             ('U7 only a presented id of exactly 1 loses the exemption (an operator row with another id keeps handing it out)', [
                 ('app/Services/StoredUpload.php',
                  '            if ($actor instanceof User && ! UserPolicy::isOperator($actor)) {\n',
                  '            if ((int) $ownerId === 1 && $actor instanceof User && ! UserPolicy::isOperator($actor)) {\n'),
+            ]),
+            ('U8 the guard alone: the DEFAULT guard is asked, the User test kept (a panel session behind a storefront request is not seen)', [
+                ('app/Services/StoredUpload.php',
+                 "            $actor = auth('web')->user();\n",
+                 '            $actor = auth()->user();\n'),
+            ]),
+            ('U9 the exemption is for the OWNER acting, not for an operator acting (a second operator account loses it)', [
+                ('app/Services/StoredUpload.php',
+                 '            if ($actor instanceof User && ! UserPolicy::isOperator($actor)) {\n',
+                 '            if ($actor instanceof User && (int) $actor->id !== (int) $ownerId) {\n'),
+            ]),
+            ('U10 an owner id that names no user enters the operator branch', [
+                ('app/Services/StoredUpload.php',
+                 '        if (UserPolicy::isOperator($owner)) {\n',
+                 '        if ($owner === null || UserPolicy::isOperator($owner)) {\n'),
+            ]),
+            ('U11 the owner test is its own strtolower(trim()) again (a leading-space lookalike row is an operator)', [
+                ('app/Services/StoredUpload.php',
+                 '        if (UserPolicy::isOperator($owner)) {\n',
+                 "        if ($owner !== null && strtolower(trim((string) $owner->type)) === 'super admin') {\n"),
             ]),
         ],
     },

@@ -19,8 +19,8 @@ use Illuminate\Support\Facades\Storage;
  * ============================================================================================
  *
  * `StoredUpload` rule 3 keeps a stored path inside the caller's tenant: `uploads/<store id>/...` resolves only for a store the given OWNER
- * owns -- unless that owner is the platform operator, who may act on any store's folder. The owner is whatever the caller passes, and about
- * thirty handlers pass `Auth::user()->creatorId()`. For a principal rooted at the platform -- a merchant who demoted their own `type` through
+ * owns -- unless that owner is the platform operator, who may act on any store's folder. The owner is whatever the caller passes, and some
+ * thirty-five handlers (about sixty call sites) pass `Auth::user()->creatorId()`. For a principal rooted at the platform -- a merchant who demoted their own `type` through
  * `PUT /users/{self}`, or staff the operator created -- `creatorId()` IS the operator's id, so they presented the operator's id and were
  * given the operator's exemption: any file in any tenant's upload folder, the operator's own included.
  *
@@ -29,11 +29,12 @@ use Illuminate\Support\Facades\Storage;
  *
  * THE RULE NOW: when the owner presented is an operator and a panel user who is NOT the operator is acting, the exemption does not apply and
  * they get what they would get as themselves -- a store they own, and nothing else. Nothing changes for the operator, for a merchant, for a
- * merchant's staff, for staff of a self-demoted merchant (their `creatorId()` is their employer, never the operator), or where no panel user
- * is acting at all (the console, a queue job, a storefront customer).
+ * merchant's staff, for staff of a self-demoted merchant (their `creatorId()` is their employer, never the operator), or where no `User` is
+ * on the web guard at all (the console, a queue job, a storefront request with no panel session).
  *
- * WHAT IT COSTS: staff the operator created can no longer unlink an old file in the operator's own store folder (the file is orphaned; the
- * save itself succeeds). They are indistinguishable from a demoted merchant by `creatorId()`; that is the owner's fork in the work queue.
+ * WHAT IT COSTS: staff the operator created can no longer unlink anything under `uploads/<id>/`, the operator's own store included: a replaced
+ * image's old file stays, a deleted product's media stays with no row pointing at it, and the storage figure charged for their uploads is never
+ * credited back (the save itself succeeds). They are indistinguishable from a demoted merchant by `creatorId()`; that is the owner's fork.
  *
  * `uploads/` IS A TRACKED DIRECTORY (see StoredUploadTest): every store here is re-keyed to an id no real folder uses, the ids differ from
  * StoredUploadTest's so that the two classes cannot collide, and teardown removes only the folders named here.
@@ -54,6 +55,7 @@ class OperatorRootedStoredUploadTest extends SecurityTestCase
     private User $merchant;
     private Store $ownStore;
     private bool $createdUploadsRoot = false;
+    private bool $fixtureFoldersAreOurs = false;
 
     protected function setUp(): void
     {
@@ -64,6 +66,9 @@ class OperatorRootedStoredUploadTest extends SecurityTestCase
             $this->assertDirectoryDoesNotExist(base_path('uploads/' . $id));
             $this->assertDirectoryDoesNotExist(base_path('uploads/uploads/' . $id));
         }
+        // Only now may tearDown delete them: PHPUnit runs tearDown even when an assertion in setUp fails, and a folder this guard has
+        // just refused to adopt is by definition not this test's to remove.
+        $this->fixtureFoldersAreOurs = true;
 
         // The operator FIRST, so that it is user 1 -- the id every merchant has as `created_by`.
         $this->operator = $this->makePlatformAdmin();
@@ -96,7 +101,7 @@ class OperatorRootedStoredUploadTest extends SecurityTestCase
 
     protected function tearDown(): void
     {
-        foreach (self::FIXTURE_STORE_IDS as $id) {
+        foreach ($this->fixtureFoldersAreOurs ? self::FIXTURE_STORE_IDS : [] as $id) {
             File::deleteDirectory(base_path('uploads/' . $id));
             File::deleteDirectory(base_path('uploads/uploads/' . $id));   // the product gallery's doubled prefix
         }
@@ -116,8 +121,10 @@ class OperatorRootedStoredUploadTest extends SecurityTestCase
     }
 
     /**
-     * The P0 test's demotion, THROUGH THE PRODUCT, with its premise asserted. A real merchant's seeded `admin` role holds `Edit User` and
-     * `Manage Setting` and `UserController::update` only ADDS a role, so the demoted merchant keeps both; here the grants are made explicit.
+     * The P0 test's demotion, with its premise asserted. THE REQUEST THAT DEMOTES goes through the product (`PUT /users/{self}`); the role it
+     * names and the two permissions are fixture grants. A real merchant holds both permissions through the shared `admin` role
+     * (`Utility::addNewData()` grants them) and `UserController::update` only ADDS a role, so the state reached here is the one a real
+     * merchant reaches -- by reading, not by this test.
      */
     private function selfDemotedMerchant(): User
     {
@@ -264,6 +271,37 @@ class OperatorRootedStoredUploadTest extends SecurityTestCase
         $this->actingAs($this->operator);
         $this->assertSame(realpath(base_path($victim)), StoredUpload::resolve($victim, $this->operator->creatorId()), "The operator lost their reach into a merchant's folder.");
         $this->assertSame(realpath(base_path($gallery)), StoredUpload::resolve($gallery, $this->operator->creatorId()));
+
+        // AN operator acting, not THE owner acting: a second operator account, with the first one's id presented, is still an operator.
+        $second = $this->makePlatformAdmin();
+        $this->actingAs($second);
+        $this->assertSame(realpath(base_path($victim)), StoredUpload::resolve($victim, $this->operator->id), 'A second operator account lost the exemption because the id presented was not its own.');
+    }
+
+    /**
+     * ONE DEFINITION OF "AN OPERATOR ROW". The owner test used to be its own `strtolower(trim())`, which calls a row typed with a leading
+     * space an operator; `UserPolicy::isOperator()` does not (MySQL ignores a trailing space and nothing else). Such a row exists only by
+     * hand-editing, and it must not carry the exemption for whoever presents its id.
+     */
+    public function test_a_row_that_only_looks_like_an_operator_is_not_one(): void
+    {
+        $lookalike = User::factory()->create(['type' => ' super admin', 'created_by' => null, 'is_active' => 1, 'email_verified_at' => now()]);
+        $this->assertFalse(\App\Policies\UserPolicy::isOperator($lookalike->fresh()), 'premise: the policy does not call a leading-space type an operator');
+        $victim = $this->file('uploads/' . self::VICTIM_STORE_ID . '/victim-logo.png');
+
+        $this->assertNull(StoredUpload::resolve($victim, $lookalike->id), 'A row typed with a leading space was treated as an operator and resolved another store\'s folder.');
+    }
+
+    /** An owner id that names nobody is not an operator, whoever is or is not signed in: it owns no store, so nothing resolves. */
+    public function test_an_owner_id_that_names_no_user_is_not_an_operator(): void
+    {
+        $victim = $this->file('uploads/' . self::VICTIM_STORE_ID . '/victim-logo.png');
+        $this->assertNull(User::find(999999), 'premise: no such user');
+
+        $this->assertNull(StoredUpload::resolve($victim, 999999), 'An owner id that names no user resolved a store folder with nobody signed in.');
+
+        $this->actingAs($this->victim);
+        $this->assertNull(StoredUpload::resolve($this->file('uploads/' . self::OWN_STORE_ID . '/someone-elses.png'), 999999), 'An owner id that names no user resolved another store\'s folder.');
     }
 
     public function test_an_ordinary_merchant_and_their_staff_are_unchanged(): void
@@ -282,23 +320,63 @@ class OperatorRootedStoredUploadTest extends SecurityTestCase
     }
 
     /**
-     * UNCHANGED, AND RECORDED RATHER THAN ENDORSED: a storefront customer is not a panel user. `Api\ApiController` replaces a customer's
-     * profile image with `StoredUpload::delete($customer->profile_image, $store->created_by)`; in the operator's own store that owner is the
-     * operator and the exemption applies, exactly as before this change. This case pins that the new rule reads the WEB guard and a `User`,
-     * so a `Customer` on the default guard is neither refused by it nor handed to a method that takes a `User`.
+     * UNCHANGED, AND RECORDED RATHER THAN ENDORSED: with no `User` on the web guard the rule does not apply. Two customer-side callers present a
+     * store owner's id (`Api\ApiController`, a customer's profile image; `AccountProfileController::attachmentDestroy`); in the operator's own
+     * store that owner is the operator and the exemption applies, exactly as before this change. WHAT THIS CASE PINS: a `Customer` on the
+     * default guard is not mistaken for a panel user. It is the conjunction it pins -- the web guard AND a `User` -- and the next case is the
+     * one that tells the two apart.
      */
     public function test_a_storefront_customer_is_not_a_panel_actor_and_nothing_changes_for_one(): void
     {
-        $customer = Customer::forceCreate([
-            'first_name' => 'Buyer', 'last_name' => 'Fixture', 'email' => 'buyer-' . uniqid() . '@example.test', 'password' => bcrypt('secret'),
-            'store_id' => self::OPERATOR_STORE_ID, 'type' => 'customer', 'created_by' => $this->operator->id,
-        ]);
+        $customer = $this->customerOfTheOperatorsStore();
         $victim = $this->file('uploads/' . self::VICTIM_STORE_ID . '/victim-logo.png');
 
         $this->actingAs($customer, 'customers');
 
         $this->assertNull(auth('web')->user(), 'premise: no panel user is acting');
         $this->assertSame(realpath(base_path($victim)), StoredUpload::resolve($victim, $this->operatorStore->created_by), 'A storefront customer changed what the operator-as-owner resolves; this rule is about panel users.');
+    }
+
+    /**
+     * THE WEB GUARD IS READ BY NAME. An `auth:customers` route makes `customers` the DEFAULT guard; a browser that also holds a panel session
+     * still has that `User` on the web guard. A rule that asked the default guard would see only the customer there and hand the exemption
+     * back. Fails closed in this state: the customer's old file in the operator's store is left on disk.
+     */
+    public function test_a_panel_session_is_seen_even_when_another_guard_is_the_default(): void
+    {
+        $demoted = $this->selfDemotedMerchant();
+        $victim = $this->file('uploads/' . self::VICTIM_STORE_ID . '/victim-logo.png');
+
+        $this->actingAs($demoted);                                        // the panel session
+        $this->actingAs($this->customerOfTheOperatorsStore(), 'customers'); // ...and a storefront request: the default guard is now `customers`
+
+        $this->assertInstanceOf(Customer::class, auth()->user(), 'premise: the default guard holds the customer');
+        $this->assertSame((int) $demoted->id, (int) auth('web')->id(), 'premise: the web guard still holds the demoted merchant');
+        $this->assertNull(StoredUpload::resolve($victim, $this->operator->id), 'With another guard as the default, a non-operator panel session was not seen and the exemption was handed back.');
+    }
+
+    /**
+     * THE ADMIN API ARRIVES ON THE SAME GUARD. `CustomAuth` signs a token's `User` in with `auth()->login()`: the default guard, which is
+     * `web` by configuration. Signed in exactly that way, the demoted merchant is the acting panel user. If the mapping ever moved, the rule
+     * would silently stop applying to every admin-API call site, and this case is what would say so.
+     */
+    public function test_a_user_signed_in_the_way_the_admin_api_does_it_is_the_acting_panel_user(): void
+    {
+        $demoted = $this->selfDemotedMerchant();
+        $victim = $this->file('uploads/' . self::VICTIM_STORE_ID . '/victim-logo.png');
+
+        auth()->login($demoted);   // CustomAuth.php, for a `User` token
+
+        $this->assertSame((int) $demoted->id, (int) auth('web')->id(), 'premise: a User signed in on the default guard is on the web guard');
+        $this->assertNull(StoredUpload::resolve($victim, $demoted->creatorId()), 'A demoted merchant signed in the way the admin API does it kept the operator\'s exemption.');
+    }
+
+    private function customerOfTheOperatorsStore(): Customer
+    {
+        return Customer::forceCreate([
+            'first_name' => 'Buyer', 'last_name' => 'Fixture', 'email' => 'buyer-' . uniqid() . '@example.test', 'password' => bcrypt('secret'),
+            'store_id' => self::OPERATOR_STORE_ID, 'type' => 'customer', 'created_by' => $this->operator->id,
+        ]);
     }
 
     // ---------------------------------------------------------------------------------------------
