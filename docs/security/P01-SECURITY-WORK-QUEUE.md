@@ -6590,6 +6590,12 @@ ORDER BY s.name, s.id;
 Read the names first: `storage_setting`, `s3_*`, `wasabi_*` and `local_storage_*` are the rows the upload helpers consume. **Some rows here can be legitimate** — platform settings the operator saved while parked in a
 merchant's store — so **do not delete rows from this list without looking at who made them.** Nothing was changed in production, and none of this has been run there.
 
-**Evidence.** `OperatorRootedSettingsWritesTest` (5), `OperatorRootedSettingsTest` (6), `OperatorRootedStoreListingsTest` (7), and `StalePointerDetectionQueryTest` gained detect-C. Mutation, each on the real file with a checksum-verified restore: the Settings helper
-**8 of 8**, the listings **9 of 9**, the writer **4 of 5 — the survivor is an equivalent mutant** (it asks the merchant question of the writer's creator instead of the writer, which answers identically for every
+**What the empty settings array does, named by the review and intended** (fail closed; nobody is told): for a principal whose settings now resolve to nothing, (a) avatars and sidebar logos fall back to the defaults
+(`check_file()` finds no storage setting and its `try` answers 0); (b) **order and stock mail for a store whose OWNER self-demoted** used to go out through the PLATFORM's SMTP identity (`Utility::sendEmailTemplate()` resolves
+the owner's settings through this helper) and **silently stops** — the credential-use closure working; (c) the Settings screens render blank while the writers still key on `getCurrentStore()`, so a tab without
+`required` rules (SEO, cookies) saves blanks over the principal's own store's stored values. The helper now loads "the employer" ONCE, as it did before the fix, and asks the row in hand through
+`UserPolicy::isMerchantRow()` — the one definition `tenantRootIsAMerchant()` and `merchantTenantRoot()` now share; the first form read it twice, a query per priced cell of a staff list page.
+
+**Evidence.** `OperatorRootedSettingsWritesTest` (5), `OperatorRootedSettingsTest` (8), `OperatorRootedStoreListingsTest` (7), and `StalePointerDetectionQueryTest` gained detect-C. Mutation, each on the real file with a checksum-verified restore: the Settings helper
+**9 of 9** (one of them an UNCACHED second read of the employer; a *cached* duplicate is invisible to a query count under `CACHE_STORE=array`, and that is stated rather than hidden), the listings **9 of 9**, the writer **4 of 5 — the survivor is an equivalent mutant** (it asks the merchant question of the writer's creator instead of the writer, which answers identically for every
 principal kind). Stated at their real size: the helper's old-predicate, null-check and half-fix mutants are one family, and the listings' two old-predicate mutants are the failing-before evidence.
