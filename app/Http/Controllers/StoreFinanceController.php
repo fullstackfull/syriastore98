@@ -1152,9 +1152,17 @@ class StoreFinanceController extends Controller
             2
         );
 
+        /*
+         | P5-16 / owner decisions D1 and D2. `Payments received` and `Estimated gross profit`, read
+         | through the metric layer over the period the ledger can vouch for (LedgerCoverage), with the
+         | start stated. See App\Support\Metrics\FinanceLedgerFigures. Read-only.
+         */
+        $ledgerFigures = \App\Support\Metrics\FinanceLedgerFigures::forStore((int) $storeId, (string) $currencyCode);
+
         return view(
             'finance.index',
             compact(
+                'ledgerFigures',
                 'wallet',
                 'transactions',
                 'orderFinancials',

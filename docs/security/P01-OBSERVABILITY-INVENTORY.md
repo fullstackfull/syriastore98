@@ -259,8 +259,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PosController.php:487` | POS sale skipped a line whose product is not this store |
 | `app/Http/Controllers/StoreFinanceController.php:81` | Manual wallet change refused as a duplicate submission |
 | `app/Http/Controllers/StoreFinanceController.php:367` | Financial action refused: operator has selected no merchant store |
-| `app/Http/Controllers/StoreFinanceController.php:2535` | Manual wallet change refused as a duplicate submission |
-| `app/Http/Controllers/StoreFinanceController.php:2736` | Manual wallet change refused as a duplicate submission |
+| `app/Http/Controllers/StoreFinanceController.php:2543` | Manual wallet change refused as a duplicate submission |
+| `app/Http/Controllers/StoreFinanceController.php:2744` | Manual wallet change refused as a duplicate submission |
 | `app/Http/Controllers/SavedViewController.php:117` | Saved view apply refused: not the owner or no such view |
 | `app/Http/Controllers/SavedViewController.php:136` | Saved view delete refused: not the owner or no such view |
 | `app/Http/Controllers/SenangPayController.php:140` | SenangPay plan return refused: the return hash could not be verified. |

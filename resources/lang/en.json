@@ -4119,5 +4119,20 @@
     "Reason (required)": "Reason (required)",
     "The five methods used on the most orders. Spellings of the same method are counted together.": "The five methods used on the most orders. Spellings of the same method are counted together.",
     "Choose a country before a state, and a state before a city.": "Choose a country before a state, and a state before a city.",
-    "The product is not part of this order.": "The product is not part of this order."
+    "The product is not part of this order.": "The product is not part of this order.",
+    "Available to withdraw": "Available to withdraw",
+    "A running balance, not revenue.": "A running balance, not revenue.",
+    "Financial ledger": "Financial ledger",
+    "Payments received": "Payments received",
+    "Estimated gross profit": "Estimated gross profit",
+    "Money customers actually paid, including orders cancelled or refunded after payment. It is not order value and not profit.": "Money customers actually paid, including orders cancelled or refunded after payment. It is not order value and not profit.",
+    "Sales value minus product cost for settled orders. Excludes shipping and tax.": "Sales value minus product cost for settled orders. Excludes shipping and tax.",
+    "Settled orders with no cost price recorded: :count. Profit is overstated for those.": "Settled orders with no cost price recorded: :count. Profit is overstated for those.",
+    "no financial records yet": "no financial records yet",
+    "from :date": "from :date",
+    "No order has a financial record yet, so this figure cannot be shown.": "No order has a financial record yet, so this figure cannot be shown.",
+    "Orders without a financial record are not included. How many: :count.": "Orders without a financial record are not included. How many: :count.",
+    "Orders with no date and no financial record cannot be placed in any period. How many: :count.": "Orders with no date and no financial record cannot be placed in any period. How many: :count.",
+    "Includes :amount :currency from orders placed before currency was recorded, counted in your store currency.": "Includes :amount :currency from orders placed before currency was recorded, counted in your store currency.",
+    "These amounts are in more than one currency and are not combined.": "These amounts are in more than one currency and are not combined."
 }

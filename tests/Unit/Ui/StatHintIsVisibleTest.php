@@ -54,6 +54,10 @@ use Tests\TestCase;
  * WHAT THIS CHANGE DOES NOT DO. It does not alter a single figure, period, label or calculation.
  * `<x-ss.stat>` renders; it computes nothing. The hint text itself is unchanged in all ten call
  * sites — only whether it can be seen.
+ *
+ * THE CENSUS MOVED, TEN TO TWELVE, ON 2026-11-18 (P5-16): `finance/index.blade.php` gained the two
+ * ledger tiles `Payments received` and `Estimated gross profit`, each with a hint. The history above
+ * describes the ten that existed when the slot was repaired and is left as written.
  */
 class StatHintIsVisibleTest extends TestCase
 {
@@ -316,10 +320,15 @@ class StatHintIsVisibleTest extends TestCase
             }
         }
 
-        $this->assertCount(10, $hits,
+        // 10 -> 12 and 6 -> 7 files, P5-16 (owner decisions D1 and D2). `finance/index.blade.php` now carries TWO
+        // `<x-ss.stat>` hints -- "Payments received" and "Estimated gross profit" -- and both exist for the reason
+        // the other nine do: to stop a figure being misread (it is not order value, it excludes shipping and tax,
+        // it starts where the financial record starts). They are built by `FinanceLedgerFigures`, so each hint
+        // is a real sentence rather than a placeholder, and they render visibly through the same component fix.
+        $this->assertCount(12, $hits,
             "x-ss.stat hint count moved. Found:\n  " . implode("\n  ", $hits));
 
-        $this->assertCount(6, array_unique($hits),
-            'x-ss.stat hints should span six files: ' . implode(', ', array_unique($hits)));
+        $this->assertCount(7, array_unique($hits),
+            'x-ss.stat hints should span seven files: ' . implode(', ', array_unique($hits)));
     }
 }

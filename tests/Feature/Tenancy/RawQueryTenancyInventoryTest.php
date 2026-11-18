@@ -483,7 +483,18 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            `order_coupon_details` is reached by JOINING from `orders` rather than queried directly,
            because -- measured -- that table has NO `store_id` column. It therefore adds no row to
            the per-table census and its tenant predicate comes from the order it belongs to. */
-        $this->assertSame(['app' => 190, 'packages' => 45], $perDir,
+        /* 190 -> 191 on 2026-11-18 [P5-16, D1 Option A]: ONE new site, `LedgerCoverage::forStore()` in
+           `app/Support/Metrics/LedgerCoverage.php`, and it NAMES `store_id` -- `->where('orders.store_id',
+           $storeId)` on the same expression that names the table -- so no unscoped half moves below.
+
+           It asks one question of the books: from what day can the financial ledger vouch for every
+           order of THIS store. The LEFT JOIN to `store_order_financials` repeats the store on the join
+           condition (`store_order_financials.store_id = orders.store_id`), and
+           `LedgerCoverageTest::test_a_ledger_row_that_belongs_to_another_store_does_not_cover_this_stores_order`
+           proves a row filed under another store is not cover. It lives beside the metric layer rather
+           than inside `Metric` because it is not a metric: it decides which WINDOW a metric may be read
+           over. `store_order_financials` still has no model, so the join adds no per-table row. */
+        $this->assertSame(['app' => 191, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -585,7 +596,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            StoreFinanceController::index(), both naming `store_id`, so the UNSCOPED totals do not
            move. They exist to qualify the per-order `Profit` column with how many of its rows
            report a margin the data cannot support. Classified in full on the per-table row. */
-        $this->assertSame(235, array_sum($perDir));
+        /* 235 -> 236 [P5-16]: `LedgerCoverage::forStore()`, which names `store_id`; the unscoped totals
+           do not move. See the note on the per-directory figure above. */
+        $this->assertSame(236, array_sum($perDir));
     }
 
     /**
@@ -723,7 +736,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // this inventory flagged the first draft, which read by id alone.
             // 5 -> 6 [P5-2]: `Metric::orders()`, which applies `whereIn('orders.store_id', ...)`
             // in the same expression that names the table, so the unscoped half stays at 1.
-            'orders' => [6, 1],
+            // 6 -> 7 [P5-16]: `LedgerCoverage::forStore()` -- `where('orders.store_id', $storeId)`, so the
+            // unscoped half stays at 1. See the matching note on the per-directory total above.
+            'orders' => [7, 1],
             'owner_menu_items' => [1, 1],
             'owner_menu_settings' => [1, 1],
             'owner_menus' => [1, 1],
@@ -940,7 +955,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            in StoreFinanceController::index(). Both spell the table as a quoted literal and both
            name `store_id`, so they land in this per-table census and the companion unscoped total
            below does NOT move. Classified in full on the per-table row above. */
-        $this->assertSame(183, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        /* 183 -> 184 [P5-16]: `LedgerCoverage::forStore()` spells `orders` as a quoted literal and names
+           `store_id`, so it lands in this per-table census (the `orders` row above, 6 -> 7) and the
+           companion unscoped total below does NOT move. */
+        $this->assertSame(184, array_sum(array_map(fn ($r) => $r[0], $actual)),
             'THE FIGURES INSIDE THIS MESSAGE ARE THE 2026-11-02 MEASUREMENT AND ARE NOT RATCHETED; '
             . 'the current totals are the ones ASSERTED above and in the dated notes beside them. '
             . 'That split is itself one of this file\'s findings, recorded rather than tidied away '

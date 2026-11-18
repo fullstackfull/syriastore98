@@ -1,0 +1,356 @@
+<?php
+
+namespace Tests\Feature\Merchant;
+
+use App\Models\Permission;
+use App\Models\Store;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Tests\Feature\Security\SecurityTestCase;
+
+/**
+ * THE THREE LEDGER FIGURES ON /finance, AND WHAT EACH ONE IS NOT. Owner decisions D1 and D2, P5-16.
+ * =================================================================================================
+ *
+ * D2 asked for four figures that disagree on purpose to carry four different labels, so that a store
+ * that is half cash-on-delivery, or that has just paid itself out, is not read as a failing one:
+ *
+ *     Order value  .  Payments received  .  Available to withdraw  .  Estimated gross profit
+ *
+ * Order value lives on the sales report. The other three are here, and `Payments received` and
+ * `Estimated gross profit` are the FIRST figures in the product to be read through the metric layer
+ * (`App\Support\Metrics`, P5-2) rather than computed inline.
+ *
+ * D1 asked that a figure which reads the ledger be shown only for the period the ledger can vouch
+ * for, with its start stated: `store_order_financials` has no backfill, so for every order placed
+ * before it existed the true answer is "unknown" and the stored answer is zero. The rule is
+ * `LedgerCoverage` and is tested in `LedgerCoverageTest`; this file tests what the merchant SEES.
+ *
+ * THE TILES ARE READ OFF THE PAGE, not off a view-model, because the failure this slice exists to
+ * prevent is a wrong number on a screen. Every assertion that mentions an amount reads it out of the
+ * tile that carries the label, never out of the whole document: P5-10 had a test that passed because
+ * `1,200.00` in an adjacent tile contained the string `200.00`.
+ */
+class FinanceLedgerFiguresTest extends SecurityTestCase
+{
+    use RefreshDatabase;
+
+    private function merchantOnFinance(): array
+    {
+        [$merchant, $store] = $this->makeTenant();
+
+        Permission::firstOrCreate(['name' => 'View Finance Dashboard'], ['display_name' => 'View Finance Dashboard']);
+        $this->grantPermission(User::find($merchant->id), 'View Finance Dashboard');
+
+        /* Several handlers read the platform admin through Cache::remember('admin_details'). */
+        Cache::forget('admin_details');
+
+        return [User::find($merchant->id), $store];
+    }
+
+    /**
+     * An order on a day, whose ledger row is then set to what a scenario needs. The row is the one
+     * `OrderObserver::created()` wrote -- adjusted, not fabricated -- so the fixture stays faithful to
+     * how rows are really made (the same approach as FinanceInventoryValuationTest).
+     */
+    private function ledgerOrder(Store $store, string $orderDate, array $ledger = []): int
+    {
+        $order = $this->makeOrder($store, ['order_date' => $orderDate]);
+
+        $updated = DB::table('store_order_financials')
+            ->where('order_id', $order->id)
+            ->where('store_id', $store->id)
+            ->update($ledger + ['updated_at' => now()]);
+
+        $this->assertSame(1, $updated, 'OrderObserver::created() wrote no ledger row, so this fixture measures nothing');
+
+        return $order->id;
+    }
+
+    /** An order the ledger cannot see: what every order placed before the table existed looks like. */
+    private function preLedgerOrder(Store $store, string $orderDate): int
+    {
+        $order = $this->makeOrder($store, ['order_date' => $orderDate]);
+        DB::table('store_order_financials')->where('order_id', $order->id)->delete();
+
+        return $order->id;
+    }
+
+    private function paid(string $amount, array $more = []): array
+    {
+        // array_merge, NOT `+`: the union operator keeps the LEFT value for a repeated key, so a scenario's
+        // override (a different status, a null currency) would be silently discarded.
+        return array_merge([
+            'payment_status' => 'paid', 'paid_amount' => $amount, 'paid_at' => '2026-11-10 12:00:00',
+            'currency_code' => 'USD', 'product_cost' => '40.00', 'gross_profit' => '60.00',
+        ], $more);
+    }
+
+    /** @return array<string, array{value: string, period: string, hint: string}> every `<x-ss.stat>` on the page, by label */
+    private function tiles(string $html): array
+    {
+        preg_match_all(
+            '/<span class="ss-stat__label">\s*(.*?)\s*<\/span>\s*<span class="ss-stat__value"[^>]*>\s*(.*?)\s*<\/span>\s*<span class="ss-stat__period">\s*(.*?)\s*<\/span>(?:\s*<p class="ss-stat__hint"[^>]*>\s*(.*?)\s*<\/p>)?/s',
+            $html,
+            $m,
+            PREG_SET_ORDER
+        );
+
+        $tiles = [];
+        foreach ($m as $row) {
+            $tiles[trim(strip_tags($row[1]))] = [
+                'value' => trim(preg_replace('/\s+/', ' ', strip_tags($row[2]))),
+                'period' => trim(preg_replace('/\s+/', ' ', strip_tags($row[3]))),
+                'hint' => trim(preg_replace('/\s+/', ' ', strip_tags($row[4] ?? ''))),
+            ];
+        }
+
+        return $tiles;
+    }
+
+    private function page(User $merchant): string
+    {
+        return html_entity_decode(
+            $this->actingAs($merchant->fresh())->get('/finance')->assertOk()->getContent(),
+            ENT_QUOTES | ENT_HTML5
+        );
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Available to withdraw
+    // ---------------------------------------------------------------------------------------------
+
+    public function test_the_wallet_tile_is_labelled_available_to_withdraw_and_says_it_is_not_revenue(): void
+    {
+        [$merchant] = $this->merchantOnFinance();
+
+        $html = $this->page($merchant);
+
+        $this->assertMatchesRegularExpression('/<h6 class="text-muted mb-2">\s*Available to withdraw\s*<\/h6>/', $html,
+            'the wallet tile is no longer labelled for what it is');
+        $this->assertDoesNotMatchRegularExpression('/<h6 class="text-muted mb-2">\s*Available Balance\s*<\/h6>/', $html,
+            'the old label is still on the tile');
+        $this->assertStringContainsString('A running balance, not revenue.', $html);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Payments received
+    // ---------------------------------------------------------------------------------------------
+
+    public function test_payments_received_counts_what_customers_paid_including_a_later_cancellation(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+
+        $this->ledgerOrder($store, '2026-11-05 10:00:00', $this->paid('100.25'));
+        $this->ledgerOrder($store, '2026-11-06 10:00:00', $this->paid('50.00', ['payment_status' => 'cancelled']));   // paid, then cancelled: still money received
+        $this->ledgerOrder($store, '2026-11-07 10:00:00', ['payment_status' => 'unpaid', 'paid_amount' => '0.00', 'currency_code' => 'USD']);
+        $this->ledgerOrder($store, '2026-11-08 10:00:00', ['payment_status' => 'pending', 'paid_amount' => '0.00', 'currency_code' => 'USD']);
+
+        $tile = $this->tiles($this->page($merchant))['Payments received'];
+
+        // EXACT, not "contains": P5-10 had a test that passed because `1,200.00` contains `200.00`.
+        $this->assertSame('150.25 USD', $tile['value'], 'paid 100.25 + cancelled-after-paying 50.00; the two unpaid orders must not count');
+        $this->assertSame('all time', $tile['period'], 'every order has a row, so all-time is verified and says so');
+    }
+
+    public function test_when_earlier_orders_have_no_financial_record_the_figure_starts_where_the_record_does_and_says_so(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+
+        $this->preLedgerOrder($store, '2026-09-10 09:00:00');
+        $this->preLedgerOrder($store, '2026-10-30 23:00:00');
+        $this->ledgerOrder($store, '2026-11-02 08:00:00', $this->paid('80.00'));
+
+        $tile = $this->tiles($this->page($merchant))['Payments received'];
+
+        $this->assertSame('80.00 USD', $tile['value']);
+        $this->assertSame('from 31 October 2026', $tile['period'],
+            'D1 Option A: the start of the verified period is stated, and it is the day after the latest order the ledger cannot see');
+        $this->assertStringContainsString('How many: 2', $tile['hint'], 'the number of orders left out is stated, not just implied');
+        $this->assertStringContainsString('without a financial record', $tile['hint']);
+    }
+
+    public function test_money_that_arrived_before_the_verified_start_is_not_counted(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+
+        // A pre-ledger order has no row, so it cannot contribute; but a ledger row that is DATED before the
+        // start (paid on 28 Oct for an order placed earlier and given a row) must not leak into a figure
+        // whose stated period starts on 31 Oct.
+        $this->preLedgerOrder($store, '2026-10-30 23:00:00');
+        $this->ledgerOrder($store, '2026-10-20 08:00:00', $this->paid('999.00', ['paid_at' => '2026-10-28 09:00:00']));
+        $this->ledgerOrder($store, '2026-11-03 08:00:00', $this->paid('11.00', ['paid_at' => '2026-11-04 09:00:00']));
+
+        $tile = $this->tiles($this->page($merchant))['Payments received'];
+
+        $this->assertSame('11.00 USD', $tile['value'], 'a payment dated before the stated start was counted');
+    }
+
+    public function test_when_no_order_has_a_financial_record_the_figures_are_unavailable_and_say_why(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+
+        $this->preLedgerOrder($store, '2026-09-10 09:00:00');
+        $this->preLedgerOrder($store, '2026-10-01 09:00:00');
+
+        $tiles = $this->tiles($this->page($merchant));
+
+        foreach (['Payments received', 'Estimated gross profit'] as $label) {
+            $this->assertSame('Not available', $tiles[$label]['value'], $label.' showed a number with nothing behind it');
+            $this->assertStringContainsString('No order has a financial record yet', $tiles[$label]['hint']);
+        }
+    }
+
+    public function test_a_store_with_no_orders_shows_zero_not_unavailable(): void
+    {
+        [$merchant] = $this->merchantOnFinance();
+
+        $tile = $this->tiles($this->page($merchant))['Payments received'];
+
+        $this->assertSame('0.00 USD', $tile['value'], 'no orders is a real zero, not a missing figure');
+        $this->assertSame('all time', $tile['period']);
+    }
+
+    public function test_another_stores_ledger_never_reaches_this_stores_figures(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+        [, $other] = $this->makeTenant();
+
+        $this->ledgerOrder($store, '2026-11-05 10:00:00', $this->paid('10.00'));
+        $this->ledgerOrder($other, '2026-11-05 10:00:00', $this->paid('77777.00'));
+
+        $html = $this->page($merchant);
+        $tiles = $this->tiles($html);
+
+        $this->assertSame('10.00 USD', $tiles['Payments received']['value']);
+        $this->assertStringNotContainsString('77777', $html);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Estimated gross profit
+    // ---------------------------------------------------------------------------------------------
+
+    public function test_estimated_gross_profit_counts_settled_orders_only_and_always_says_it_excludes_shipping_and_tax(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+
+        $this->ledgerOrder($store, '2026-11-05 10:00:00', $this->paid('100.00', ['gross_profit' => '60.00']));
+        $this->ledgerOrder($store, '2026-11-06 10:00:00', $this->paid('100.00', ['gross_profit' => '35.50']));
+        $this->ledgerOrder($store, '2026-11-07 10:00:00', $this->paid('100.00', ['payment_status' => 'cancelled', 'gross_profit' => '500.00']));   // reversed: the merchant did not keep it
+        $this->ledgerOrder($store, '2026-11-08 10:00:00', ['payment_status' => 'unpaid', 'paid_amount' => '0.00', 'gross_profit' => '700.00', 'currency_code' => 'USD']);
+
+        $tile = $this->tiles($this->page($merchant))['Estimated gross profit'];
+
+        $this->assertSame('95.50 USD', $tile['value'], '60.00 + 35.50 from the two settled orders only; the cancelled 500.00 and the unpaid 700.00 must not count');
+        $this->assertStringContainsString('Excludes shipping and tax', $tile['hint']);
+    }
+
+    public function test_estimated_gross_profit_counts_the_settled_orders_whose_cost_was_never_recorded(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+
+        $this->ledgerOrder($store, '2026-11-05 10:00:00', $this->paid('100.00', ['product_cost' => '0.00', 'gross_profit' => '100.00']));
+        $this->ledgerOrder($store, '2026-11-06 10:00:00', $this->paid('100.00', ['product_cost' => '0.00', 'gross_profit' => '100.00']));
+        $this->ledgerOrder($store, '2026-11-07 10:00:00', $this->paid('100.00', ['product_cost' => '40.00', 'gross_profit' => '60.00']));
+
+        $tile = $this->tiles($this->page($merchant))['Estimated gross profit'];
+
+        $this->assertStringContainsString('Settled orders with no cost price recorded: 2', $tile['hint']);
+        $this->assertStringContainsString('overstated', $tile['hint']);
+    }
+
+    public function test_when_every_cost_is_recorded_the_missing_cost_warning_stays_silent(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+
+        $this->ledgerOrder($store, '2026-11-05 10:00:00', $this->paid('100.00'));
+
+        $tile = $this->tiles($this->page($merchant))['Estimated gross profit'];
+
+        $this->assertStringNotContainsString('no cost price recorded', $tile['hint'], 'a caveat that never goes away stops being read');
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Currency
+    // ---------------------------------------------------------------------------------------------
+
+    public function test_amounts_in_more_than_one_currency_are_not_combined_and_the_page_still_renders(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+
+        $this->ledgerOrder($store, '2026-11-05 10:00:00', $this->paid('100.00', ['currency_code' => 'USD']));
+        $this->ledgerOrder($store, '2026-11-06 10:00:00', $this->paid('900.00', ['currency_code' => 'SYP']));
+
+        $tiles = $this->tiles($this->page($merchant));      // a MixedCurrencyException would be an HTTP 500 here
+
+        $this->assertSame('Not available', $tiles['Payments received']['value']);
+        $this->assertStringContainsString('more than one currency', $tiles['Payments received']['hint']);
+        $this->assertSame('Not available', $tiles['Estimated gross profit']['value']);
+    }
+
+    public function test_orders_from_before_currency_was_recorded_are_counted_in_the_store_currency_and_the_page_says_so(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+
+        $this->ledgerOrder($store, '2026-11-05 10:00:00', $this->paid('100.00', ['currency_code' => 'USD']));
+        $this->ledgerOrder($store, '2026-11-06 10:00:00', $this->paid('25.00', ['currency_code' => null]));
+
+        $tile = $this->tiles($this->page($merchant))['Payments received'];
+
+        $this->assertSame('125.00 USD', $tile['value']);
+        $this->assertStringContainsString('before currency was recorded', $tile['hint']);
+        $this->assertStringContainsString('Includes 25.00 USD', $tile['hint'], 'the assumed amount is stated so a merchant can judge it');
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Arabic, and what the figures leave alone
+    // ---------------------------------------------------------------------------------------------
+
+    public function test_the_figures_render_in_arabic_with_their_numbers_substituted(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+
+        $merchant->language = 'ar';
+        $merchant->save();
+
+        $this->preLedgerOrder($store, '2026-10-30 23:00:00');
+        $this->ledgerOrder($store, '2026-11-02 08:00:00', $this->paid('80.00', ['product_cost' => '0.00', 'gross_profit' => '80.00']));
+
+        $html = $this->page($merchant);
+        $tiles = $this->tiles($html);
+
+        $this->assertArrayHasKey('المبالغ المحصّلة', $tiles, 'Payments received is untranslated');
+        $this->assertArrayHasKey('إجمالي الربح التقديري', $tiles, 'Estimated gross profit is untranslated');
+        $this->assertStringContainsString('المتاح للسحب', $html);
+
+        $this->assertStringContainsString('من ', $tiles['المبالغ المحصّلة']['period']);
+        $this->assertStringContainsString('1', $tiles['المبالغ المحصّلة']['hint'], 'the count of left-out orders did not survive translation');
+        $this->assertStringNotContainsString(':count', $html, 'a placeholder reached the page unsubstituted');
+        $this->assertStringNotContainsString(':date', $html);
+        $this->assertStringContainsString('1', $tiles['إجمالي الربح التقديري']['hint']);
+    }
+
+    public function test_reading_the_ledger_changes_nothing_that_is_stored(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+
+        $this->ledgerOrder($store, '2026-11-05 10:00:00', $this->paid('100.00'));
+        $before = [
+            'ledger' => DB::table('store_order_financials')->orderBy('id')->get()->toArray(),
+            'wallet' => DB::table('store_wallets')->orderBy('id')->get()->toArray(),
+            'orders' => DB::table('orders')->orderBy('id')->get()->toArray(),
+        ];
+
+        $this->page($merchant);
+
+        $this->assertEquals($before['ledger'], DB::table('store_order_financials')->orderBy('id')->get()->toArray());
+        $this->assertEquals($before['orders'], DB::table('orders')->orderBy('id')->get()->toArray());
+        // The wallet row is created lazily on first visit (existing behaviour); its VALUES are what must not move.
+        foreach (DB::table('store_wallets')->where('store_id', $store->id)->get() as $wallet) {
+            $this->assertEquals(0, (float) $wallet->available_balance);
+            $this->assertEquals(0, (float) $wallet->total_income);
+        }
+    }
+}

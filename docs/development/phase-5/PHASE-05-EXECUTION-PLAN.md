@@ -449,6 +449,49 @@ Benefit comment claimed the currency sentence "survives only where it can be tru
 (5) My `Cart` caller note named two of ten call sites. Each correction is pinned by a test that was
 mutation-checked; the list is in the digest, §6.
 
+### P5-16 — D1 and D2 on `/finance` — **BUILT LOCALLY; THE REPORTS AND EXPORTS ARE NOT DONE**
+
+**Owner decisions.** **D1, Option A:** ledger metrics only for periods the ledger can vouch for, the start
+stated, no backfill. **D2:** four figures, four separate bilingual labels — *Order value*, *Payments
+received*, *Available to withdraw*, *Estimated gross profit with limitations*.
+
+**What shipped on `/finance`** (the first screen to read the P5-2 metric layer):
+
+| Figure | Where it comes from | What the tile says |
+|---|---|---|
+| **Available to withdraw** (AR المتاح للسحب) | `store_wallets.available_balance`, relabelled from "Available Balance" | "A running balance, not revenue." |
+| **Payments received** (AR المبالغ المحصّلة) | `CollectedCustomerPayments` over the verified period | the period ("all time" or "from 31 October 2026"), how many orders are left out and why, an assumed-currency amount if any |
+| **Estimated gross profit** (AR إجمالي الربح التقديري) | `StoreRevenueMargin(settled only)` over the same period | always "Excludes shipping and tax"; "Settled orders with no cost price recorded: N" when N > 0 |
+
+**The D1 rule is `LedgerCoverage`**, and it is data-driven: the verified period starts on **the day after the
+latest order the ledger cannot see** — no hard-coded cut-over date, so a single order lost to a race in the
+middle of the history moves the start past it. Stores with no orders, or with every order covered, read all
+time; a store whose orders have **no** ledger row at all shows "Not available" and why, never a zero. An
+order with no `order_date` and no row cannot be placed in any window, so it is counted and disclosed.
+
+**Currency is not guessed.** Unrecorded currency is folded into the store currency and *stated with the
+amount*; two real currencies are not combined and the tile says so (an unguarded `->total()` would be an
+HTTP 500 for every store with history, which is why the metric layer refuses it).
+
+**Evidence.** `LedgerCoverageTest` — 9 tests / 27 assertions, **8 mutants killed**.
+`FinanceLedgerFiguresTest` — 14 tests / 78 assertions, **11 mutants killed**; a survivor (`StoreRevenueMargin(false)`)
+exposed assertions that matched by substring (`1,295.50` contains `95.50`, the P5-10 trap again), so every value
+is now compared exactly. Two census ratchets moved deliberately: x-ss.stat hints 10 → 12 and raw-query sites
+190 → 191 (one scoped site).
+
+**Both directions and both themes.** The two tiles are `<x-ss.stats>` / `<x-ss.stat>`, whose hint was measured
+in Chromium in P5-11 (5.98:1 light, 7.18:1 dark, four combinations of theme and direction). The one new piece
+of markup is the wallet tile's note, which uses the design system's own `.ss-stat__hint` rather than Bootstrap's
+`.text-muted`; its contrast is **computed from the tokens, not measured in a browser**: `--ss-fg-muted` `#5b5f66`
+on the white card is **6.41:1**, and `#a7abb2` on the dark card `#292A33` is **6.19:1**. The Arabic page is
+asserted to render with its placeholders substituted (`FinanceLedgerFiguresTest`); I did not capture
+screenshots for this slice.
+
+**NOT done, and the proposal's §4 lists them:** the **sales report** still carries only *Order value*, because
+`ReportController` cannot run under the suite (36 `MONTH(` / 9 `YEAR(` calls) so its evidence has to be a
+MariaDB script; the **four JSON/CSV exports** do not yet carry the figures or their caveats; and "Total
+Income" on the wallet row is untouched and unexamined. Nothing stored moved: every figure is derived on read.
+
 ### P5-15 — D8 first-party consent store — **BUILT LOCALLY, UNWIRED, GAP-200 STAYS OPEN**
 
 Owner decision D8: a first-party, persistent, tenant-aware consent and suppression store with append-only

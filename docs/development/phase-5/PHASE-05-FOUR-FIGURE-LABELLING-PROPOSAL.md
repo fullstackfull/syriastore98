@@ -1,6 +1,12 @@
 # Four figures, four labels — a proposal
 
-**Status: PROPOSAL. Nothing in here is implemented.** Owner recommendation 1 (2026-11-17) asked to
+**Status: DECIDED, PARTLY BUILT.** Owner decisions D1 (Option A) and D2 (the four labels, with the fourth
+as *Estimated gross profit*) were given on 2026-11-17. Built so far, on `/finance` only: *Available to
+withdraw*, *Payments received* and *Estimated gross profit* (P5-16, with `LedgerCoverage` stating where the
+verified period starts); *Order value* was already live (P5-3e). **Not built:** *Payments received* on the sales
+report, and the four JSON/CSV exports. The text below is the original proposal and is left as written, so the
+reasoning stays readable; where it says "proposed, not built" for a figure listed above, read it as built on
+`/finance`. Owner recommendation 1 (2026-11-17) asked to
 *"keep order value distinct from collected revenue, merchant settlement and profit"* and to
 *"propose precise user-visible labels and inclusion rules."* This is that proposal. It needs a
 decision before any of it ships, because three of the four figures do not exist on a merchant

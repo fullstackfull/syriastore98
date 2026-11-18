@@ -88,8 +88,15 @@
     <div class="col-xl col-md-6 mb-4">
         <div class="card h-100">
             <div class="card-body">
-                <h6 class="text-muted mb-2">{{ __('Available Balance') }}</h6>
+                {{-- D2: THE LABEL SAYS WHAT THE FIGURE IS. It is `store_wallets.available_balance`, a RUNNING
+                     balance: what the merchant may withdraw now. It has no period and is not revenue --
+                     a merchant who withdraws their earnings would otherwise read that sales had fallen. --}}
+                <h6 class="text-muted mb-2">{{ __('Available to withdraw') }}</h6>
                 <h3 class="mb-0">{{ number_format($wallet->available_balance, 2) }}</h3>
+                {{-- `.ss-stat__hint` is the design system's own muted-caption class (colour from `--ss-fg-muted`,
+                     contrast-gated in CI) and stands alone: it does not need an `.ss-stat` parent. Used here
+                     instead of Bootstrap's `.text-muted` so the note follows the theme the way the tiles below do. --}}
+                <p class="ss-stat__hint">{{ __('A running balance, not revenue.') }}</p>
             </div>
         </div>
     </div>
@@ -124,6 +131,28 @@
                 <h3 class="mb-0">{{ number_format($wallet->total_withdrawn, 2) }}</h3>
             </div>
         </div>
+    </div>
+</div>
+
+{{-- P5-16 / D1 + D2 -- the two LEDGER figures, each with its period stated and its limits visible.
+     `$ledgerFigures` is built by App\Support\Metrics\FinanceLedgerFigures from the metric layer over
+     the period `LedgerCoverage` can vouch for: `store_order_financials` has no backfill, so an earlier
+     window would read zero for months that simply have no record, and a merchant would read that as
+     a business that stopped. The start date is stated instead. `value` of null renders as "Not
+     available" -- never as a zero. --}}
+<div class="row mb-4">
+    <div class="col-12">
+        <x-ss.stats :label="__('Financial ledger')">
+            <x-ss.stat :label="__('Payments received')"
+                   :value="$ledgerFigures['payments']['value']"
+                   :period="$ledgerFigures['payments']['period']"
+                   :hint="$ledgerFigures['payments']['hint']" />
+
+            <x-ss.stat :label="__('Estimated gross profit')"
+                   :value="$ledgerFigures['profit']['value']"
+                   :period="$ledgerFigures['profit']['period']"
+                   :hint="$ledgerFigures['profit']['hint']" />
+        </x-ss.stats>
     </div>
 </div>
 
