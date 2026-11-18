@@ -668,6 +668,37 @@ class RewardRedemptionCheckoutGateTest extends SecurityTestCase
         $this->assertEqualsWithDelta(510.0, $this->balanceOf($customer), 0.005, 'and the balance must accrue, not be replaced');
     }
 
+    public function test_an_eligible_redemption_is_not_spent_when_the_order_is_priced_by_partial_payments(): void
+    {
+        // FOUND BY THE INDEPENDENT REVIEW. When PartialPayments is active for the store and `enable_partial_payment` is on,
+        // the COD / bank writer takes the PartialPayments arm: the order total is the module's deposit and the reward branch
+        // is never evaluated -- so NO discount is in the total -- yet an eligible shopper's `'on'` still reached the event, and
+        // the vendored listener REPLACED the balance. Points spent, nothing received: the mirror image of the leak D6 exists
+        // to close. The refusal has to reach the event from this arm too.
+        [$merchant, $store] = $this->tenant();
+        DB::table('plans')->where('id', $merchant->plan_id)->update(['modules' => 'RewardClubPoint,PartialPayments']);
+        $failed = $this->enableWorkdoModules(['PartialPayments']);
+        $this->assertSame([], $failed, 'a PartialPayments migration threw');
+        foreach (['enable_partial_payment' => 'on', 'deposit_selection' => 'pay_deposit', 'deposit_type' => 'percent',
+            'deposit_amount' => '10', 'force_deposit' => 'on'] as $name => $value) {
+            DB::table('settings')->insert(['name' => $name, 'value' => $value, 'created_by' => $merchant->id,
+                'store_id' => $store->id, 'created_at' => now(), 'updated_at' => now()]);
+        }
+        (new \App\Models\Setting)->flushCache();
+        Cache::flush();
+
+        $customer = $this->shopper($store, 500);
+        $this->basketFor($store, $customer);
+
+        $order = $this->codCheckout($store, $customer);
+
+        $this->assertNotNull($order, 'Premise: the checkout wrote an order (HTTP ' . $this->lastResponse->getStatusCode() . ').');
+        $this->assertEqualsWithDelta(10.0, (float) $order->final_price, 0.005,
+            'Premise: the PartialPayments arm priced this order (a 10% deposit on 100.00), so the reward discount is not in the total.');
+        $this->assertEqualsWithDelta(510.0, $this->balanceOf($customer), 0.005,
+            'No discount was given, so no points may be spent: the balance must ACCRUE, not be replaced by this order\'s earnings.');
+    }
+
     public function test_for_a_store_without_the_module_the_guest_override_does_not_run(): void
     {
         // "No line of this change executes for a store whose RewardClubPoint module is not active" was FALSE of the guest

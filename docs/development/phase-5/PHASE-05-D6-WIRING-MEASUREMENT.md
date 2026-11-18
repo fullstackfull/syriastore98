@@ -109,7 +109,7 @@ keeps its own base (D5 is untouched).
 | `PaymentController::getCartData` (guest arm) | the flag is overwritten with `'off'` when the caller sent it **and the module is active** |
 | `PaymentController::processOrder`, `::whatsapp` | a request whose bag disagrees with the intake about `customer_id` is refused before anything is written |
 | `PaymentController::whatsapp` | the reward arm gates with `forOrder()` against `$final_price` and removes the flag on refusal |
-| `PaymentService::getProductStatus` | **comments only** — the code is as it was (a first-version change here caused the leak) |
+| `PaymentService::getProductStatus` | the COD balance read is **unchanged** (a first-version change here caused the leak; a note says not to tidy it); the PartialPayments arm removes the flag from the event's payload |
 | `RewardPointDiscount::isRedeemable` | also requires `order_points` numeric and ≥ 0 and `order_point_price` numeric and > 0 |
 | `tests/Unit/Loyalty/RewardRedemptionEligibilityTest` | the "zero call sites" census was updated **on purpose**: it now pins exactly two call sites, both in `PaymentController`, and names what is deliberately unwired |
 
@@ -120,19 +120,19 @@ not, and an earlier version of this sentence said no line ran, which was false.)
 
 ## 5. Evidence
 
-* **`tests/Feature/Commerce/RewardRedemptionCheckoutGateTest` — 29 tests, 111 assertions** (the review added the two file-part
-  refusals, five flag shapes that are not the string `on`, and the module-off guest case). Driven through the real
+* **`tests/Feature/Commerce/RewardRedemptionCheckoutGateTest` — 30 tests, 116 assertions** (the review added the two file-part
+  refusals, five flag shapes that are not the string `on`, the module-off guest case and the PartialPayments arm). Driven through the real
   `process-order` route with the module enabled **through the production loader** (`EnablesWorkdoModules`), because a
   suite that never loads the module cannot see this code. Two premise tests prove the module is reached (500 points →
   50.00 off a 100.00 basket, balance replaced by the order's accrual, the vendored ledger row written). Before the fix
   five of the nine first tests failed — a 40.00 basket was written at **0.00**, a switched-off programme still discounted.
   Every refusal test asserts the **balance as well as the total**, because the failure that matters is points spent for
   nothing.
-* **Mutation: 19 of 19 killed** (`/tmp` harness, files restored byte-for-byte, md5 checked): gate removed at the quote;
+* **Mutation: 20 of 20 killed** (`/tmp` harness, files restored byte-for-byte, md5 checked): gate removed at the quote;
   refusal override deleted; merge → body-only removal; accepted flag not canonicalised; value threshold disabled at the
   quote; guest override deleted / made unconditional / un-gated from the module; WhatsApp value threshold disabled;
   WhatsApp refusal not reaching the event; WhatsApp gate removed; intake guard deleted at either entry, made to never refuse,
-  made to always refuse; the accrual requirement removed, a zero divisor allowed, a negative multiplier allowed, a zero
+  made to always refuse; the PartialPayments arm leaving the flag in the event payload; the accrual requirement removed, a zero divisor allowed, a negative multiplier allowed, a zero
   multiplier refused (`RewardRedemptionEligibilityTest`, 75 loyalty unit tests).
 * **What the review's finding looked like before the fix** (executed, both writers): `final 50.00 · balance 500 · ledger rows 0 · HTTP 500`.
 * **Not killable, and therefore not written:** a second `forOrder()` at the COD writer, propagation of a zero discount
@@ -165,10 +165,11 @@ changing their reward block is not a "small slice" and was not done.
    document. D4's obligation record is the owner-authorised answer; it is not built.
 5. **No lock.** Two concurrent redeeming checkouts can each read the same balance. D4.
 6. **The PartialPayments arm** never evaluates the reward branch (`PaymentService::getProductStatus`, the arm taken when that module
-   is active for a signed-in customer with `enable_partial_payment` on), yet an eligible shopper's `'on'` still reaches the
-   event: the balance is replaced and **no discount is in the total**. Pre-existing, unchanged; ineligible shoppers are now
-   refused at the quote. Reported by the review; not fixed because it needs the PartialPayments fixture and a decision about
-   what a deposit total means for a reward.
+   is active for a signed-in customer with `enable_partial_payment` on), yet an eligible shopper's `'on'` still reached the
+   event: the balance was replaced and **no discount was in the total** (executed: 500 → 10 points on a 10.00 deposit).
+   **Fixed at the COD / bank writer** — the arm now removes the flag from the event's payload, so the shopper keeps their points
+   and simply gets no discount on a deposit order (`test_an_eligible_redemption_is_not_spent_when_the_order_is_priced_by_partial_payments`,
+   mutation-killed). **Still open at the held generic gateway return**, which has the same arm; that handler is part of GAP-214.
 7. **The refusal's `'off'` is stripped by `NormaliseRewardRedemptionFlag`, not by the quote.** The vendored listener treats
    `'off'` as truthy (`$flag ?? …` precedence), so the COD and stored-state paths depend on that first-party listener being
    registered (`AppServiceProvider`). It is covered (`RewardRedemptionFlagTest`), but it is a dependency, and the WhatsApp

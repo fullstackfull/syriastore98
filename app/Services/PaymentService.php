@@ -3056,6 +3056,15 @@ $products_weight_array[] = [
                 $total_sub_price
             );
             \Workdo\PartialPayments\app\Models\OrderPartialPayments::OrderPartialPayments($order, $slug, $request);
+
+            /*
+             * D6 STAGE 1, found by the independent review. THIS ARM PRICES THE ORDER FROM THE MODULE'S DEPOSIT AND NEVER
+             * EVALUATES THE REWARD BRANCH BELOW, so no discount is in this total -- yet an eligible shopper's `'on'` still
+             * reached the event, and the vendored listener REPLACED their balance: points spent, nothing received (executed:
+             * RewardRedemptionCheckoutGateTest, balance 500 -> 10 on a 10.00 deposit). A refusal has to reach the event from
+             * EVERY arm that does not apply the discount, so the flag leaves the array the event is built from.
+             */
+            unset($requests_data['club_point_is_active']);
         } else {
 
             /*
