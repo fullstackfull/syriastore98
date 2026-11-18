@@ -322,9 +322,9 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/StockMovement.php:214` | stock movement not readable |
 | `app/Services/StockMovement.php:257` | stock movement not attributed |
 | `app/Services/StoreNotificationService.php:311` | No active Firebase devices found for store. |
-| `app/Services/StoredUpload.php:81` | a stored upload path points outside the uploads directory and was not touched |
-| `app/Services/StoredUpload.php:90` | a stored upload path names a platform default and was not touched |
-| `app/Services/StoredUpload.php:108` | a stored upload path names another tenant |
+| `app/Services/StoredUpload.php:90` | a stored upload path points outside the uploads directory and was not touched |
+| `app/Services/StoredUpload.php:99` | a stored upload path names a platform default and was not touched |
+| `app/Services/StoredUpload.php:117` | a stored upload path names another tenant |
 | `app/Services/WebuzoDomainService.php:170` | New Webuzo domain added but old domain could not be deleted |
 | `app/Http/Controllers/OtpIntegrationController.php:536` | OTP test refused: the provider address is not a permitted outbound host. |
 | `app/Http/Controllers/OtpIntegrationController.php:632` | OTP test refused: the provider address is not a permitted outbound host. |
