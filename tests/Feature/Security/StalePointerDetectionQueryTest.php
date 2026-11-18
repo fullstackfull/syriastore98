@@ -127,8 +127,8 @@ class StalePointerDetectionQueryTest extends SecurityTestCase
      * They are read as the platform's by every reader keyed on `created_by = 1` with no store predicate. The fixture holds the operator's own platform rows
      * (not returned), a merchant's own rows and a merchant's staff's rows re-stamped to the merchant (not returned), and rows stamped with the operator's
      * id inside a merchant's store, in NO store, or in a store that no longer exists (returned -- as is a legitimate "parked" save, which is why the document
-     * tells the owner to look before deleting). The first form of the query INNER JOINed `stores`, so a row with no store was invisible to it: the fifth
-     * review's finding, in the same class as the fourth review's.
+     * tells the owner to look before deleting). The first form of the query INNER JOINed `stores`, so a row with no store was invisible to it: the sixth
+     * review's finding (its lens B, B-03), in the same class as the fourth review's.
      */
     public function test_detect_c_finds_settings_rows_stamped_with_the_operators_id_inside_a_store_it_does_not_own(): void
     {
@@ -181,5 +181,49 @@ class StalePointerDetectionQueryTest extends SecurityTestCase
         // gate passed. That is why detect-A exists, and why detect-B must not be offered as the detector for them.
         $blind = array_intersect($this->idsOf($this->documentedQuery('detect-B')), [$u['demoted'], $u['operatorsStaff']]);
         $this->assertSame([], array_values($blind), 'detect-B is the negation of the old changeStore gate: it cannot return the users that gate wrote.');
+    }
+
+    /**
+     * detect-D (P1-SEC-67c): the users `getAdminAllSetting()` now resolves to NO settings. The SQL is read out of the document and executed as written. It is
+     * then held against the RULE the helper applies -- for every user who is not `admin` / `super admin`, "is on the list" must equal "`UserPolicy::isMerchantRow()`
+     * refuses their employer" -- and against the HELPER itself, on a fixture where the answer cannot be empty by accident: the operator's store holds a row, which is
+     * exactly what the helper served a principal rooted at the operator before the fix, and a real merchant's store holds one, which their staff must still be served.
+     */
+    public function test_detect_d_lists_exactly_the_users_the_settings_helper_now_resolves_to_nothing(): void
+    {
+        $u = $this->fixture();
+        $row = fn (int $ownerId, string $value) => DB::table('settings')->insert([
+            'name' => 'title_text', 'value' => $value, 'created_by' => $ownerId,
+            'store_id' => \App\Models\Store::withoutGlobalScopes()->where('created_by', $ownerId)->value('id'), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $row($u['operator'], 'operator-title-fixture');
+        $row($u['merchant'], 'merchant-title-fixture');
+
+        // an employer row that is missing altogether: the helper fails closed for it too
+        $orphan = User::factory()->create(['type' => 'staff', 'created_by' => 424242, 'is_active' => 1, 'email_verified_at' => now()]);
+
+        $found = $this->idsOf($this->documentedQuery('detect-D'));
+        $expected = [$u['demoted'], $u['operatorsStaff'], $u['demotedsStaff'], (int) $orphan->id];
+        sort($expected);
+
+        $this->assertSame($expected, $found, 'detect-D must return exactly: a self-demoted merchant, staff the operator created, staff of the demoted merchant, and a user whose creator row is missing.');
+
+        // THE RULE: on the list exactly when the merchant-row rule refuses the employer. Every non-admin user in the table, not a chosen few.
+        $checked = 0;
+        foreach (User::withoutGlobalScopes()->whereNotIn('type', ['admin', 'super admin'])->get() as $user) {
+            $refused = ! \App\Policies\UserPolicy::isMerchantRow(User::withoutGlobalScopes()->find($user->created_by));
+            $this->assertSame($refused, in_array((int) $user->id, $found, true), "detect-D and UserPolicy::isMerchantRow() disagree about user {$user->id} (type {$user->type}, created_by {$user->created_by}).");
+            $checked++;
+        }
+        $this->assertSame(5, $checked, 'Premise: the fixture holds five non-admin users (four on the list, and a real merchant\'s staff member who is not).');
+        $this->assertNotContains($u['operator'], $found, 'the operator is not a principal the helper empties');
+        $this->assertNotContains($u['merchant'], $found, 'a merchant is not');
+
+        // THE HELPER: nothing for everyone on the list -- and the demoted merchant is the case that could be served the operator's row above.
+        foreach ($found as $id) {
+            $this->assertSame([], getAdminAllSetting($id), "detect-D returned user {$id}, but the settings helper still serves them settings.");
+        }
+        $this->assertSame('merchant-title-fixture', getAdminAllSetting($u['staff'])['title_text'] ?? null, 'Premise: a real merchant\'s staff are still served their employer\'s row, so "resolves to nothing" separates the populations.');
+        $this->assertSame('operator-title-fixture', getAdminAllSetting($u['operator'])['title_text'] ?? null, 'Premise: the operator\'s row is readable -- it is what a principal rooted at the operator was served before the fix.');
     }
 }
