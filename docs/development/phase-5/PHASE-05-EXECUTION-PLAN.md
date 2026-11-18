@@ -491,7 +491,12 @@ period" but covered all time (the dated and undated gaps are now two disjoint nu
 as currencies; and — the one that mattered most for tenancy — **a test suite whose tenant was store 1**, so a
 `forStore(1, …)` regression passed every page test. The fixture now puts a distinctive decoy in store 1.
 **18 of 18 mutants killed** (one survived the first pass and was pinned); section J of the MariaDB script is 65
-checks, 0 failed. Owner items in `GAP-213(a)–(h)`. **Not done, unchanged:** the sales report and the exports.
+checks, 0 failed. Owner items in `GAP-213(a)–(h)`. **The Arabic-page claims were first made from a hand simulation; they are now
+measured in a real engine** (`tests/Browser/finance-rtl-money-isolation.mjs`, Chromium, no server needed): on the strings the first
+version produced a negative profit lays out as `USD 20.00 -` and a list of amounts as `USD 15,000,000.00 SYP 1,000.00` (pairing
+broken) — the review was right; on the strings the presenter produces now they lay out as `- 20.00 USD` and `1,000.00 USD
+15,000,000.00 SYP`, and the script **fails all three checks if the isolates are removed**. **Not done, unchanged:** the sales report
+and the exports.
 
 **The D1 rule is `LedgerCoverage`**, and it is data-driven: the verified period starts on **the day after the
 latest order the ledger cannot see** — no hard-coded cut-over date, so a single order lost to a race in the
