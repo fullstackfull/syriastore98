@@ -180,8 +180,10 @@ abstract class SecurityTestCase extends TestCase
      * A UNIQUE FIXTURE REFERENCE THAT CANNOT SPELL THE EPOCH. `uniqid()` is eight hex digits of the clock followed by five of the microseconds,
      * and about 1 value in 8,000 contains the four characters `1970` (simulated, 4,000,000 draws). Tests assert that a whole rendered PAGE
      * contains no `1970` (the epoch printed for a missing date, F19: OrderGridCardRendersTheDateTest), and that page prints the order reference
-     * and the store name. One full-suite run failed that assertion. The failing page was not kept, so the cause is established by mechanism, not
-     * by capture: a reference shaped like `ORD-6a0c1970abcde` (an example, not the captured value) fails it every time.
+     * and the store name. One full-suite run failed that assertion. The failing page was not kept, so this is ONE SUFFICIENT CAUSE shown by
+     * mechanism, not the cause shown by capture: a reference shaped like `ORD-6a0c1970abcde` (an example, not the captured value) fails it
+     * every time. It was not the only way that page could say `1970` -- the layout prints `time()` in six stylesheet links, and a Unix time
+     * reads `...1970...` 3 seconds in 10,000 -- which is why OrderGridCardRendersTheDateTest now reads the card and not the page.
      * A fixture must not be able to cause the defect the test hunts for.
      *
      * Every random-looking string that a fixture helper puts on a page goes through here: the order reference and the store's name, email and

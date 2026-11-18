@@ -7,12 +7,13 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 /**
  * THE SHARED FIXTURE MUST NOT BE ABLE TO SPELL THE DEFECT A TEST LOOKS FOR.
  *
- * Whole-page assertions that the epoch (`1970`) is absent -- OrderGridCardRendersTheDateTest -- ran against pages that print the fixture's order
- * reference and store name, both built from `uniqid()`, and one full-suite run failed because the reference read `ORD-6a0c1970...`. The fix is in
- * `SecurityTestCase::uniqueFixtureRef()`.
+ * Whole-page assertions that the epoch (`1970`) is absent -- OrderGridCardRendersTheDateTest, until it was rewritten to read the card -- ran
+ * against pages that print the fixture's order reference and store name, both built from `uniqid()`, and one full-suite run failed that
+ * assertion. The page was not kept: a reference such as `ORD-6a0c1970...` is one sufficient cause, shown by mechanism, and not the captured
+ * one. The fix for THAT cause is in `SecurityTestCase::uniqueFixtureRef()`.
  *
  * These tests are DETERMINISTIC on purpose. A first version drew 20,000 real `uniqid()` values and asserted none contained the epoch; with the
- * fix reverted it still passed, because the values of a tight loop sweep the clock too evenly to hit a 1-in-3,000 pattern reliably -- a check
+ * fix reverted it still passed, because the values of a tight loop sweep the clock too evenly to hit a 1-in-8,000 pattern reliably -- a check
  * that could not disagree. So the candidate source is overridden here, handed a reference that spells the epoch, and the fixture is asked what it
  * did with it. Each test fails if its own link in the chain (the loop, the order fixture, the store fixture) is reverted.
  */
