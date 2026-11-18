@@ -726,7 +726,18 @@ if (!function_exists('getAdminAllSetting')) {
         }
         // Check if the user is not 'company' or 'super admin' and find the creator
         if (isset($user->type) && !in_array($user->type, ['admin', 'super admin'])) {
-            $user = User::find($user->created_by);
+            // P1-SEC-67c. "The merchant who employs this staff member" is only that when `created_by` names a MERCHANT. For a principal whose `created_by` is
+            // the platform operator -- a merchant who demoted their own `type`, or staff the operator created -- it is the OPERATOR, and the Settings tabs
+            // that call this helper printed the platform's own mail, storage and gateway fields (executed in OperatorRootedSettingsTest). Fail CLOSED with
+            // no settings, and NOT with "no user": a missing user falls through below to the guest branches, the last of which serves the lowest-id
+            // merchant's settings (P1-SEC-18 F4) -- a worse leak than the one being closed. Staff of a real merchant resolve exactly as before.
+            $root = \App\Policies\UserPolicy::merchantTenantRoot($user);
+
+            if ($root === null) {
+                return [];
+            }
+
+            $user = User::find($root);
         }
         // P1-SEC-18 F4: with no user and no store named, the last branch below serves the LOWEST-ID MERCHANT ON THE PLATFORM
         // to whoever asked. A shopper's request is addressed to a store -- use it; null keeps the old behaviour.

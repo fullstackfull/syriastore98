@@ -249,8 +249,20 @@ class User extends Authenticatable implements LaratrustUser, MustVerifyEmail, \L
      */
     public function switchableStores()
     {
+        // P1-SEC-67c. This list "mirrors changeStore()'s predicate exactly", and changeStore() has asked for a MERCHANT tenant root since P1-SEC-66: for a
+        // principal rooted at the platform operator (a merchant who demoted their own `type`, or staff the operator created) `creatorId()` is the operator's id,
+        // so the chip printed the OPERATOR'S store names and offered a control changeStore() refuses. The operator is admitted first, as there, and keeps the
+        // list of their own stores.
+        $root = \App\Policies\UserPolicy::isOperator($this)
+            ? (int) $this->creatorId()
+            : \App\Policies\UserPolicy::merchantTenantRoot($this);
+
+        if ($root === null || $root <= 0) {
+            return new \Illuminate\Database\Eloquent\Collection();
+        }
+
         return Store::where('is_active', 1)
-            ->where('created_by', $this->creatorId())
+            ->where('created_by', $root)
             ->orderBy('name')
             ->get();
     }

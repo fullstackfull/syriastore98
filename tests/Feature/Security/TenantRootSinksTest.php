@@ -534,9 +534,11 @@ class TenantRootSinksTest extends SecurityTestCase
         $this->actingAs($collapsed->fresh())->delete('/menus/'.$demotedsOwnMenu->id);
         $this->assertFalse(DB::table('menus')->where('id', $demotedsOwnMenu->id)->exists(), 'Premise: the self-demoted merchant holds Delete Menu and reaches the handler, so a refusal below is the scope.');
 
-        // and the operator's menu: a 404 is what `Menu::findOrFail()` answers under the narrowed scope -- a permission refusal and a success are both redirects
-        $this->actingAs($collapsed->fresh())->delete('/menus/'.$operatorsMenu->id)->assertNotFound();
+        // and the operator's menu. The row is checked FIRST, so that a failure says what happened ("deleted") rather than only which status came back; then the 404 --
+        // what `Menu::findOrFail()` answers under the narrowed scope, where a permission refusal and a success are both redirects.
+        $response = $this->actingAs($collapsed->fresh())->delete('/menus/'.$operatorsMenu->id);
         $this->assertTrue(DB::table('menus')->where('id', $operatorsMenu->id)->exists(), "A self-demoted merchant deleted a menu of the operator's store through the global scope.");
+        $response->assertNotFound();
 
         // POSITIVE CONTROL: a merchant deletes their own menu, so "still there" cannot pass on a route that refuses everyone
         $this->actingAs($merchant->fresh())->delete('/menus/'.$ownMenu->id);
