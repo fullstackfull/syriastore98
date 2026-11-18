@@ -96,28 +96,47 @@ final class MarketingSendGate
             $reason = self::STORE_UNAVAILABLE;
 
             // The CLASS only. A QueryException's message is the failing statement with its values substituted, including the hash.
-            Log::warning('Marketing consent store could not be read', [
-                'store_id' => $storeId,
-                'channel' => $channel->value,
-                'mode' => $mode,
-                'exception' => get_class($e),
-            ]);
+            // THE LOG IS GUARDED, because a log channel that throws (an unwritable file, a full disk) must not turn into a different
+            // decision: the decision is computed from `$reason` below, never from whether this line was written.
+            try {
+                Log::warning('Marketing consent store could not be read', [
+                    'store_id' => $storeId,
+                    'channel' => $channel->value,
+                    'mode' => $mode,
+                    'exception' => get_class($e),
+                ]);
+            } catch (Throwable) {
+                // nothing: see above
+            }
         }
 
         if ($reason === null) {
             return SendDecision::allow('consent_granted', $mode);
         }
 
+        // The decision first, the log second and guarded: a broken log must never turn a hold into a send, or a send into an exception.
         if ($mode === self::MODE_ENFORCE) {
-            Log::warning('Marketing message held by consent enforcement', $this->logContext($storeId, $channel, $address, $reason, $mode));
+            $decision = SendDecision::hold($reason, $mode);
 
-            return SendDecision::hold($reason, $mode);
+            try {
+                Log::warning('Marketing message held by consent enforcement', $this->logContext($storeId, $channel, $address, $reason, $mode));
+            } catch (Throwable) {
+                // nothing: see above
+            }
+
+            return $decision;
         }
 
         // report: the send goes, and the owner is told what enforcement would have done.
-        Log::warning('Marketing message would be held by consent enforcement (report mode; it was sent)', $this->logContext($storeId, $channel, $address, $reason, $mode));
+        $decision = SendDecision::allowButWouldHold($reason, $mode);
 
-        return SendDecision::allowButWouldHold($reason, $mode);
+        try {
+            Log::warning('Marketing message would be held by consent enforcement (report mode; it was sent)', $this->logContext($storeId, $channel, $address, $reason, $mode));
+        } catch (Throwable) {
+            // nothing: see above
+        }
+
+        return $decision;
     }
 
     private function holdReason(int $storeId, Channel $channel, ?string $address): ?string

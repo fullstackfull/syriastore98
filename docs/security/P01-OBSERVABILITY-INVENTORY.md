@@ -95,7 +95,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 200 lines
+### `warning` — 204 lines
 
 > **[2026-11-02, second edit] 186 -> 190, and BOTH HEADINGS WERE STALE BEFORE IT.** Measured
 > against `app/` with the test's own regex: **27 `critical`, 190 `warning`, 217 total** — which is
@@ -286,9 +286,13 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/CodCollectionService.php:176` | COD collection refused: the amount collected does not settle the order |
 | `app/Services/CodCollectionService.php:187` | COD collection cannot be recorded: cod_collection_events has no table |
 | `app/Services/DeliveryBoyNotificationService.php:65` | No active Delivery Firebase devices found for delivery boy. |
-| `app/Services/Marketing/MarketingSendGate.php:99` | Marketing consent store could not be read |
-| `app/Services/Marketing/MarketingSendGate.php:112` | Marketing message held by consent enforcement |
-| `app/Services/Marketing/MarketingSendGate.php:118` | Marketing message would be held by consent enforcement (report mode; it was sent) |
+| `app/Services/Marketing/MarketingSendGate.php:102` | Marketing consent store could not be read |
+| `app/Services/Marketing/EnforceMarketingConsentOnMail.php:95` | Marketing consent listener failed |
+| `app/Services/Marketing/EnforceMarketingConsentOnMail.php:155` | Marketing email held by consent enforcement |
+| `app/Services/Marketing/EnforceMarketingConsentOnMail.php:157` | Marketing email would be held by consent enforcement (report mode; it was sent) |
+| `app/Services/Marketing/EnforceMarketingConsentOnMail.php:205` | Email sender is not classified for marketing consent |
+| `app/Services/Marketing/MarketingSendGate.php:122` | Marketing message held by consent enforcement |
+| `app/Services/Marketing/MarketingSendGate.php:134` | Marketing message would be held by consent enforcement (report mode; it was sent) |
 | `app/Services/OrderTaxResolver.php:88` | Checkout: non-numeric client tax_price discarded |
 | `app/Services/OrderTaxResolver.php:101` | Checkout: client-supplied tax_price discarded (server value used) |
 | `app/Services/OrderTotalReconciler.php:173` | Order total reconciliation mismatch (warn-only) |

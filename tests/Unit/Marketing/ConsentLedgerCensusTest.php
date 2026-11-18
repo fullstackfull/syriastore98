@@ -310,24 +310,59 @@ class ConsentLedgerCensusTest extends TestCase
         $this->assertGreaterThan(1000, count($this->sources()), 'the census read almost nothing, so passing proves nothing');
     }
 
-    public function test_the_gate_is_not_wired_into_any_sender_yet_and_that_is_deliberate(): void
-    {
-        // Enforcement is per channel and each seam needs its own classification of the senders behind it.
-        // Until a seam is wired on purpose, an unwired gate must read as unwired, not as protection.
-        $callers = [];
+    /**
+     * The files that may call `->decide(`. The gate is wired into EXACTLY ONE place, the email seam; adding a second caller is adding a
+     * second seam and needs its own classification of the senders behind it.
+     *
+     * @var list<string>
+     */
+    private const GATE_CALLERS = ['app/Services/Marketing/EnforceMarketingConsentOnMail.php'];
 
-        foreach ($this->sources() as $file => $code) {
-            if (str_starts_with($file, 'app/Services/Marketing/')) {
-                continue;
+    /**
+     * @param  array<string, string>  $sources
+     * @return list<string>
+     */
+    private function gateCallerOffenders(array $sources): array
+    {
+        $offenders = [];
+
+        foreach ($sources as $file => $code) {
+            $insideTheStore = str_starts_with($file, 'app/Services/Marketing/');
+
+            // Outside the store's own directory, naming the gate at all is wiring it.
+            if (! $insideTheStore && str_contains($code, 'MarketingSendGate')) {
+                $offenders[] = $file.' names MarketingSendGate';
             }
 
-            if (str_contains($code, 'MarketingSendGate')) {
-                $callers[] = $file;
+            if (preg_match('/->\s*decide\s*\(/', $code) && ! in_array($file, self::GATE_CALLERS, true)) {
+                $offenders[] = $file.' calls ->decide()';
             }
         }
 
-        $this->assertSame([], $callers,
-            'MarketingSendGate gained a caller. If that is the first wired seam, update this census AND the sender-classification '
-            .'census together, so "wired" is a statement about named files and not an assumption.');
+        return $offenders;
+    }
+
+    public function test_the_gate_is_called_from_the_email_seam_and_nowhere_else(): void
+    {
+        // Enforcement is per channel and each seam needs its own classification of the senders behind it. Email is wired, in one file; SMS,
+        // WhatsApp and push are not. Until a seam is wired on purpose, an unwired channel must read as unwired, not as protection.
+        $this->assertSame([], $this->gateCallerOffenders($this->sources()),
+            'MarketingSendGate gained a caller. A second seam needs its own sender census; add it to GATE_CALLERS together with that census, '
+            .'so "wired" is a statement about named files and not an assumption.');
+
+        $sources = $this->sources();
+        $this->assertArrayHasKey('app/Services/Marketing/EnforceMarketingConsentOnMail.php', $sources);
+        $this->assertStringContainsString('EnforceMarketingConsentOnMail::class', $sources['app/Providers/EventServiceProvider.php'] ?? '',
+            'the email seam exists but is not registered, so it protects nothing');
+    }
+
+    public function test_the_gate_census_would_catch_a_second_seam(): void
+    {
+        // Outside the store's directory, naming the gate AND calling it are two findings.
+        $this->assertCount(2, $this->gateCallerOffenders(['app/Models/Utility.php' => '(new MarketingSendGate($l))->decide(1, $c, $k, $a);']));
+        $this->assertCount(1, $this->gateCallerOffenders(['app/Models/Utility.php' => 'use App\\Services\\Marketing\\MarketingSendGate;']));
+        $this->assertCount(1, $this->gateCallerOffenders(['app/Services/Marketing/SomethingElse.php' => '$this->gate->decide(1, $c, $k, $a);']));
+        $this->assertSame([], $this->gateCallerOffenders(['app/Services/Marketing/EnforceMarketingConsentOnMail.php' => '$this->gate->decide(1, $c, $k, $a);']));
+        $this->assertSame([], $this->gateCallerOffenders(['app/Services/Marketing/MarketingSendGate.php' => 'public function decide(int $s) {}']));
     }
 }

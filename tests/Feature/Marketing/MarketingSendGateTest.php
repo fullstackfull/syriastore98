@@ -358,4 +358,43 @@ class MarketingSendGateTest extends TestCase
             return true;
         })->once();
     }
+
+    // ------------------------------------------------------------------ a log that throws changes no decision
+
+    private function throwingLog(): void
+    {
+        Log::swap(new class {
+            public function warning(...$args): void
+            {
+                throw new \RuntimeException('disk full');
+            }
+
+            public function __call($method, $args)
+            {
+                return null;
+            }
+        });
+    }
+
+    public function test_a_log_channel_that_throws_changes_no_decision_in_any_mode(): void
+    {
+        // The gate is called by seams that have no outer safety net of their own. Its decision is made first and its log lines are written
+        // inside a guard, so an unwritable log neither turns a hold into an exception nor a would-hold into one.
+        $this->throwingLog();
+
+        $this->mode('enforce');
+        $held = $this->gate()->decide(self::STORE, Channel::Email, MessageClass::Marketing, self::EMAIL);
+        $this->assertFalse($held->send, 'a broken log released a held message');
+        $this->assertSame('no_consent_recorded', $held->reason);
+
+        $this->mode('report');
+        $reported = $this->gate()->decide(self::STORE, Channel::Email, MessageClass::Marketing, self::EMAIL);
+        $this->assertTrue($reported->send);
+        $this->assertTrue($reported->wouldHold, 'a broken log hid what enforcement would have done');
+
+        DB::statement('DROP TABLE marketing_contact_states');
+        $this->mode('enforce');
+        $this->assertSame('consent_store_unavailable', $this->gate()->decide(self::STORE, Channel::Email, MessageClass::Marketing, self::EMAIL)->reason,
+            'a broken log changed the unreadable-store decision');
+    }
 }
