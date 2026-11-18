@@ -6319,8 +6319,11 @@ Agent findings are claims, not facts.
 | 6 | This write-up overstated: "seven module copies" (six); "any verified user" (the `verified` alias enforces only while `email_verification` is `on`); "the screen lists only the owner's" (item 3). | — | read | **CORRECTED** above |
 
 **A consequence worth stating plainly.** `sameTenant()` is shared, so a user whose tenant root is **not a merchant** — a demoted merchant, or **staff the platform operator
-created** — no longer passes `owner:email-template`, `owner:campaign` or `owner:helpdesk-ticket` for rows someone else owns in that broken tenant. They still pass for rows
-they created themselves; the operator is admitted first and is unaffected. If the platform has operator-created staff who are meant to handle operator-owned tickets or
+created** — no longer passes `owner:email-template`, `owner:campaign` or `owner:helpdesk-ticket` for rows someone else owns in that broken tenant. They still pass for **template and
+ticket** rows they created themselves (those columns hold the creator's own id) — **but not for campaigns**: `campaigns.created_by` stores the creator's `creatorId()`, the
+tenant root, which for such a user is the operator, so a user rooted at the operator who creates a campaign cannot toggle it afterwards (and the 403 shows nothing in the
+UI). *The first version of this paragraph said they pass for everything they created; the second independent review measured the campaign exception.* The operator is
+admitted first and is unaffected. If the platform has operator-created staff who are meant to handle operator-owned tickets or
 campaigns through these module screens, they now need the operator — the same choice `UserPolicy` made. **Owner: please confirm whether such staff exist** (read-only:
 `SELECT id, type FROM users WHERE created_by = <operator id> AND type NOT IN ('admin','super admin')`).
 
@@ -6348,3 +6351,25 @@ campaigns through these module screens, they now need the operator — the same 
    from here. `SELECT id, name, created_by FROM email_templates; SELECT id FROM users WHERE type = 'super admin';`
 2. **Are `LotteryPrizes` and the other six template modules enabled in `add_on_managers`, and on which plans?** That decides whether the Lottery door was ever reachable by a non-operator.
 3. **Does the platform have operator-created staff?** (see the consequence above).
+
+### d) The second independent review (of the P1-SEC-64b fix itself), 2026-11-18
+
+Two lenses, bounded: *is the fix sound* and *what is the blast radius of changing a shared rule*. **Verdict on the fix: sound.** `sameTenant()` only ever narrows; both manifest
+keys match what the router reports and the guard is registered on the route; the new tests fail when their fix is reverted. It found **no way for a non-operator to cross a
+tenant through the changed function.** Its low findings are recorded or fixed in the next commit (a dead branch after the identity limb, the guard's own wider `trim()` operator
+test where `UserPolicy::isOperator()` is "the one operator test", census exceptions not bound to a handler, positive controls missing on the Lottery GET door, and the campaign
+exception above).
+
+**What it found outside the changed lines is the larger result, and none of it is new code:** the same *"a root of 1 is a tenant"* predicate — the P0-TENANT-ROOT class — still
+decides **writes** in first-party code that neither that fix nor `ThemeEditorGate`'s covered. All are **OPEN**, found by reading, with the two noted verified further:
+
+| id | where | nature | state |
+|---|---|---|---|
+| **P1-SEC-66** | `StoreController::changeStore` | the store a non-operator may make their `current_store` is `stores.created_by = creatorId()`; for a user rooted at the operator that matches the operator's own store(s), and `current_store` is the discriminator many guards read. `ThemeEditorGate` already documents this exact case for its own consumer. | **read by me and by a skeptic that could not refute it;** fix and an executed test follow |
+| **P1-SEC-67** | `BulkDeleteTenantGuard` (owned-store set, roles branch), `VariantRemovalPolicy`, `Api\DashboardController::resolveOwnedStore` (the admin API the Flutter app calls; ~102 call sites), `RolePolicy::tenantOwner/ownsRole` | the same `created_by = creatorId()` ownership predicate with no merchant-root test | **OPEN, by reading only** — each has a single choke point; not yet read by me |
+| **P1-SEC-68** | Helpdesk's authenticated ticket routes (vendored module) | read or write a ticket by bare id behind a permission check alone; one of them rewrites `helpdesk_tickets.user_id`, the column `owner:helpdesk-ticket` trusts | **OPEN** — a skeptic traced it and could not refute it; vendored, so a guard rule is the host-side control |
+| **P1-SEC-69** | Campaigns list DataTable (vendored) | filters by tenant only for `type = 'admin'`, so a merchant's staff are served every tenant's campaigns | **OPEN, by reading only**; vendored |
+
+**The root cause is upstream of all of them:** a merchant can demote themselves through `PUT /users/{self}` (`docs/security/P0-USER-DELETION-CASCADE.md` §7 calls it "a supported
+action rather than a bypass"), which is what makes `creatorId()` collapse to the operator. **Owner decision:** closing the *enabling step* (a tenant root may not change their own
+`type`) is one choke point and ends the class; patching each sink is many. They are not exclusive. Whether to block self-demotion is a product-rule change and is yours.
