@@ -685,8 +685,12 @@ class StoreAndStaffRefusalNamesEveryFieldTest extends SecurityTestCase
                has always described. The exclusion itself is unchanged, and nothing was added to
                the known-outcome manifest -- the gate caught this drift exactly as its own failure
                message says it will, for the second time in two packages. */
+            /* RE-MEASURED AGAIN 2026-11-18 (P1-SEC-66): 926 -> 942, a +16 shift from the tenant-root guards added to StoreController::changeStore() and
+               ::resolveOwnedStore() above it. Confirmed by the ENCLOSING METHOD NAME and its validator, not by adding the offset: it is still the only
+               `$messages->first()` in the file, inside storeResetPasswordUpdate(), beside `required|confirmed|same:password_confirmation`. The exclusion is
+               unchanged and nothing was added to the known-outcome manifest. */
             'app/Http/Controllers/StoreController.php' => [
-                926 => 'password reset: `confirmed` and `same:password_confirmation` are one check '
+                942 => 'password reset: `confirmed` and `same:password_confirmation` are one check '
                     . 'written twice, so the bag says the same thing twice',
             ],
             /* RE-MEASURED 2026-11-11 (P2.5-ACCEPTANCE): 460/503/567 -> 488/531/595, a pure
@@ -697,7 +701,7 @@ class StoreAndStaffRefusalNamesEveryFieldTest extends SecurityTestCase
                at :488, editprofile at :531, password_update at :595. The exclusions themselves are
                unchanged, and nothing was added to the known-outcome manifest. */
             'app/Http/Controllers/UserController.php' => [
-                488 => 'updatePassword: the same duplicate rule pair as StoreController:926',
+                488 => 'updatePassword: the same duplicate rule pair as StoreController:942',
                 531 => 'editprofile already returns withErrors()+withInput(), so the bag reaches '
                     . 'the per-field @error blocks; the toast is a deliberate summary',
                 595 => 'password_update: the same Class A shape, and a password screen',

@@ -852,8 +852,17 @@ class ApiStoreOwnershipPredicateTest extends SecurityTestCase
         // The predicate itself, pinned: tenant-scoped via creatorId(), and the platform-operator
         // limb normalised the way PlatformOperatorOnly and PlanOrderPolicy normalise it rather
         // than compared case-sensitively.
-        $this->assertStringContainsString("where('created_by', \$user->creatorId())", $code,
-            'resolveOwnedStore() must narrow by the TENANT, not by the actor row.');
+        //
+        // P1-SEC-66: the TENANT is now spelled `UserPolicy::merchantTenantRoot($user)` -- `creatorId()` only when it names a MERCHANT -- because
+        // `where('created_by', $user->creatorId())` alone is the operator's id for a user rooted at the platform (a demoted merchant, or staff the
+        // operator created). The intent of this pin is unchanged and now stricter: narrow by the tenant, never by the actor row, and never by the raw
+        // `creatorId()` again (the two helpers below it in this class carry the same shape).
+        $this->assertStringContainsString('$root = \\App\\Policies\\UserPolicy::merchantTenantRoot($user);', $code,
+            'resolveOwnedStore() must resolve the tenant through UserPolicy::merchantTenantRoot().');
+        $this->assertStringContainsString("where('created_by', \$root)", $code,
+            'resolveOwnedStore() must narrow by the TENANT ROOT, not by the actor row.');
+        $this->assertStringNotContainsString("where('created_by', \$user->creatorId())", $code,
+            'resolveOwnedStore() or ownedStoreIds() went back to the raw creatorId() predicate: for a user rooted at the platform that is the OPERATOR\'s id (P1-SEC-66).');
         $this->assertStringContainsString(
             "strtolower(trim((string) \$user->type)) !== 'super admin'",
             $code,
@@ -876,7 +885,10 @@ class ApiStoreOwnershipPredicateTest extends SecurityTestCase
 
         $body = substr($source, $start, 2000);
 
-        $this->assertStringContainsString("where('created_by', \$user->creatorId())", $body);
+        // P1-SEC-66: same spelling as the admin-API helper (see the sibling test), and the raw collapsed predicate must not come back.
+        $this->assertStringContainsString('UserPolicy::merchantTenantRoot($user)', $body);
+        $this->assertStringContainsString("where('created_by', \$root)", $body);
+        $this->assertStringNotContainsString("where('created_by', \$user->creatorId())", $body);
         $this->assertStringContainsString(
             "strtolower(trim((string) \$user->type)) !== 'super admin'",
             $body,

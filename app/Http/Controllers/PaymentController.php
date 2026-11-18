@@ -1164,8 +1164,8 @@ private function paymeraOrderHighWaterMark(mixed $storeId): int
  * `$pending['processed']` still false, and **no in-process marker of either**: not a return
  * value, not a binding, not a flag. The only witness is the row.
  *
- * (Measured anchors: `DB::beginTransaction()` :4194, `DB::commit()` :4369, `$owner->email`
- * :4425, `OrderCompleteBinding::remember()` :4514. Re-measured twice on 2026-10-30: F210's
+ * (Measured anchors: `DB::beginTransaction()` :4200, `DB::commit()` :4375, `$owner->email`
+ * :4431, `OrderCompleteBinding::remember()` :4520. Re-measured twice on 2026-10-30: F210's
  * ownership gate moved them 71 lines, then F216's guard above this method moved them 49 more.
  * Re-measured TWICE MORE on 2026-10-31, and the second time is the lesson: F237's attribution
  * call inside this very transaction moved the last three by 4; correcting THIS COMMENT then added
