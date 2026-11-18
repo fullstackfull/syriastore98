@@ -202,7 +202,13 @@ class StalePointerDetectionQueryTest extends SecurityTestCase
         // an employer row that is missing altogether: the helper fails closed for it too
         $orphan = User::factory()->create(['type' => 'staff', 'created_by' => 424242, 'is_active' => 1, 'email_verified_at' => now()]);
 
-        $found = $this->idsOf($this->documentedQuery('detect-D'));
+        $rows = DB::select($this->documentedQuery('detect-D'));
+        $found = array_map(fn ($r) => (int) $r->id, $rows);
+        sort($found);
+        $byId = [];
+        foreach ($rows as $r) {
+            $byId[(int) $r->id] = $r;
+        }
         $expected = [$u['demoted'], $u['operatorsStaff'], $u['demotedsStaff'], (int) $orphan->id];
         sort($expected);
 
@@ -218,6 +224,12 @@ class StalePointerDetectionQueryTest extends SecurityTestCase
         $this->assertSame(5, $checked, 'Premise: the fixture holds five non-admin users (four on the list, and a real merchant\'s staff member who is not).');
         $this->assertNotContains($u['operator'], $found, 'the operator is not a principal the helper empties');
         $this->assertNotContains($u['merchant'], $found, 'a merchant is not');
+
+        // THE TRIAGE COLUMN: a demoted merchant and staff the operator created both have the operator as employer; only store ownership separates them.
+        $this->assertSame('super admin', (string) $byId[$u['demoted']]->employer_type);
+        $this->assertSame('super admin', (string) $byId[$u['operatorsStaff']]->employer_type);
+        $this->assertSame(1, (int) $byId[$u['demoted']]->stores_they_own, 'a merchant who demoted themselves still owns their store');
+        $this->assertSame(0, (int) $byId[$u['operatorsStaff']]->stores_they_own, 'staff the operator created own none');
 
         // THE HELPER: nothing for everyone on the list -- and the demoted merchant is the case that could be served the operator's row above.
         foreach ($found as $id) {
