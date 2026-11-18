@@ -211,6 +211,57 @@ class LedgerCoverageTest extends SecurityTestCase
         $this->assertTrue($coverage->window()->isAllTime());
     }
 
+    public function test_dated_and_undated_gaps_are_counted_apart_and_the_latest_gap_day_is_exposed(): void
+    {
+        // The consumer prints these two numbers in two sentences, so they must not overlap: the first version printed the
+        // all-time total and then its own undated subset ("3" then "2") and it read as five.
+        [, $store] = $this->makeTenant();
+        $this->orderOn($store, '2026-09-10 09:00:00', ledger: false);
+        $this->orderOn($store, '2026-10-30 23:59:00', ledger: false);
+        $this->orderOn($store, null, ledger: false);
+        $this->orderOn($store, null, ledger: false);
+        $this->orderOn($store, '2026-11-02 08:00:00');
+
+        $coverage = LedgerCoverage::forStore($store->id);
+
+        $this->assertSame(4, $coverage->ordersWithoutRow());
+        $this->assertSame(2, $coverage->undatedOrdersWithoutRow());
+        $this->assertSame(2, $coverage->datedOrdersWithoutRow());
+        $this->assertSame('2026-10-30', $coverage->latestOrderWithoutRowOn()->format('Y-m-d'), 'the day before the verified start');
+    }
+
+    public function test_with_no_dated_gap_there_is_no_latest_gap_day_and_the_dated_count_is_zero(): void
+    {
+        [, $store] = $this->makeTenant();
+        $this->orderOn($store, null, ledger: false);
+        $this->orderOn($store, '2026-11-02 08:00:00');
+
+        $coverage = LedgerCoverage::forStore($store->id);
+
+        $this->assertNull($coverage->latestOrderWithoutRowOn());
+        $this->assertSame(0, $coverage->datedOrdersWithoutRow());
+    }
+
+    public function test_the_future_is_judged_against_the_instant_the_coverage_was_read_not_the_clock_at_each_question(): void
+    {
+        // `window()` and the consumer's hint both ask `startsInTheFuture()`. With a clock read at each question a midnight
+        // between them gave a tile that withheld the figure for one reason and explained it with another. The instant is
+        // taken once, at construction, and can be injected -- which is also how this test can be exact about it.
+        [, $store] = $this->makeTenant();
+        $this->orderOn($store, '2026-10-01 08:00:00');                       // a covered order, so something IS verified
+        $this->orderOn($store, '2026-11-01 08:00:00', ledger: false);       // the start is therefore 2026-11-02 00:00
+
+        $before = LedgerCoverage::forStore($store->id, \Carbon\CarbonImmutable::parse('2026-11-01 23:59:59'));
+        $after = LedgerCoverage::forStore($store->id, \Carbon\CarbonImmutable::parse('2026-11-02 00:00:01'));
+
+        $this->assertTrue($before->startsInTheFuture());
+        $this->assertNull($before->window(), 'a start that has not arrived yet is no window');
+
+        $this->assertFalse($after->startsInTheFuture());
+        $this->assertNotNull($after->window());
+        $this->assertSame('2026-11-02', $after->window()->from()->format('Y-m-d'));
+    }
+
     public function test_it_asks_the_database_once_for_everything_but_the_empty_case(): void
     {
         // Query cost, from the review: four statements became one aggregate over the anti-join.

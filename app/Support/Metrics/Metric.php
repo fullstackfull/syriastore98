@@ -14,7 +14,14 @@ use Illuminate\Support\Facades\DB;
  * is how every money figure it produces came to count orders nobody paid for; this layer exists so
  * that the predicates live in one reviewable place with the reasoning attached.
  *
- * WHY THE FOUR TABLE ACCESSORS BELOW ARE THE ONLY RAW QUERIES IN THIS NAMESPACE.
+ * WHY THE FOUR TABLE ACCESSORS BELOW ARE THE ONLY RAW QUERIES IN THIS NAMESPACE **THAT A METRIC CAN REACH**. There is one
+ * other, deliberately outside this class: `LedgerCoverage` (P5-16) reads `orders` joined to the ledger to find where the
+ * ledger can be trusted from, which none of these accessors can express (an anti-join). It is NOT protected by
+ * construction: its store predicate is hand-written, once on `orders` and once on each side of the join, and is pinned by
+ * `LedgerCoverageTest` (the foreign-store tests) and by section J of the MariaDB script. Anything that adds a sixth must say
+ * so here.
+ *
+ * THE FOUR ACCESSORS, AND WHY THEY EXIST.
  *
  * Each one applies `whereIn('store_id', ...)` in the SAME expression that names the table, so a
  * subclass cannot obtain an unscoped builder even by accident. That matters more here than

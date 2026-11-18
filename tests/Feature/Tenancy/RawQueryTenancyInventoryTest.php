@@ -462,11 +462,14 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            `app/Support/Metrics/Metric.php`, and ALL FOUR NAME `store_id` -- so no unscoped half
            moves below.
 
-           They are the whole raw surface of the metric layer, and they are deliberately in ONE
-           file: `orders()`, `financials()`, `transactions()` and `wallets()`, each returning a
-           builder with `whereIn('<table>.store_id', $scope->storeIds())` applied IN THE SAME
-           EXPRESSION that names the table. Ten metric classes are built on them and none of the
-           ten can obtain an unscoped builder, by construction rather than by review.
+           They are the whole raw surface of the metric layer **that a metric can reach**, and
+           they are deliberately in ONE file: `orders()`, `financials()`, `transactions()` and
+           `wallets()`, each returning a builder with `whereIn('<table>.store_id',
+           $scope->storeIds())` applied IN THE SAME EXPRESSION that names the table. Ten metric
+           classes are built on them and none of the ten can obtain an unscoped builder, by
+           construction rather than by review. (`LedgerCoverage`, added by P5-16 below, is the one
+           raw query in that namespace OUTSIDE `Metric`, and is protected by review and by tests,
+           not by construction -- corrected after an independent review found this note untrue.)
 
            WHY RAW AND NOT ELOQUENT. `store_order_financials` has no model at all. The other three
            are GROUP BY aggregates over money columns; hydrating rows to sum them would be slower
@@ -485,7 +488,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            the per-table census and its tenant predicate comes from the order it belongs to. */
         /* 190 -> 191 on 2026-11-18 [P5-16, D1 Option A]: ONE new site, `LedgerCoverage::forStore()` in
            `app/Support/Metrics/LedgerCoverage.php`, and it NAMES `store_id` -- `->where('orders.store_id',
-           $storeId)` on the same expression that names the table -- so no unscoped half moves below.
+           $storeId)`, placed BEFORE the join so that this census, which reads a statement only up to its
+           first `;` (inside the join closure), sees the `where` as well as the join's own `store_id`
+           conditions (an independent review found the first ordering hid the `where` from it, so the
+           ratchet could not have seen that predicate deleted) -- so no unscoped half moves below.
 
            It asks one question of the books: from what day can the financial ledger vouch for every
            order of THIS store. The LEFT JOIN to `store_order_financials` repeats the store on the join

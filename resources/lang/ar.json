@@ -4121,15 +4121,15 @@
     "Financial ledger": "السجل المالي",
     "Payments received": "المبالغ المحصّلة",
     "Estimated gross profit": "إجمالي الربح التقديري",
-    "Money customers actually paid, including orders cancelled or refunded after payment. It is not order value and not profit.": "المبالغ التي دفعها العملاء فعلاً، بما فيها الطلبات التي أُلغيت أو استُردّت بعد الدفع. وهي ليست قيمة الطلبات وليست الربح.",
-    "Sales value minus product cost for settled orders. Excludes shipping and tax.": "قيمة المبيعات ناقص تكلفة المنتجات للطلبات المسدَّدة. لا تشمل الشحن والضريبة.",
-    "Settled orders with no cost price recorded: :count. Profit is overstated for those.": "الطلبات المسدَّدة التي لم تُسجَّل لها تكلفة: :count. الربح مبالغ فيه لهذه الطلبات.",
+    "Money customers actually paid, counted on the day it was paid, including orders cancelled or refunded after payment. It is not order value and not profit.": "المبالغ التي دفعها العملاء فعلاً، محسوبة في يوم دفعها، بما فيها الطلبات التي أُلغيت أو استُردّت بعد الدفع. وهي ليست قيمة الطلبات وليست الربح.",
+    "Sales value minus product cost for orders that have been paid, counted on the day they were paid. Shipping is not included. If your prices include tax, the tax is part of the sales value.": "قيمة المبيعات ناقص تكلفة المنتجات للطلبات المقبوضة، محسوبة في يوم قبضها. لا يشمل الشحن. وإذا كانت أسعارك شاملة للضريبة فالضريبة جزء من قيمة المبيعات.",
+    "At least :count paid orders have no product cost on record, so their profit may be overstated. Orders that mix products with and without a cost price are not counted here.": "هناك :count طلب مقبوض على الأقل بلا تكلفة منتجات مسجَّلة، لذلك قد يكون ربحه مبالغاً فيه. الطلبات التي تجمع منتجات لها سعر تكلفة ومنتجات بلا سعر تكلفة غير محسوبة هنا.",
     "no financial records yet": "لا توجد سجلات مالية بعد",
     "from :date": "من :date",
     "No order has a financial record yet, so this figure cannot be shown.": "لا يوجد سجل مالي لأي طلب بعد، لذلك لا يمكن عرض هذا الرقم.",
-    "Orders with no date and no financial record cannot be placed in any period. How many: :count.": "الطلبات التي لا تاريخ لها ولا سجل مالي لا يمكن وضعها في أي فترة. عددها: :count.",
-    "Orders without a financial record are not included, even if they were paid inside this period. How many: :count.": "الطلبات التي ليس لها سجل مالي غير محتسبة، حتى لو دُفعت خلال هذه الفترة. عددها: :count.",
-    "Includes :amount :currency from records that carry no currency, counted in your store currency.": "يشمل :amount :currency من سجلات بلا عملة مسجَّلة، وتُحتسب بعملة متجرك.",
+    "Orders with no date and no financial record cannot be placed in any period: :count.": "الطلبات التي لا تاريخ لها ولا سجل مالي لا يمكن إدراجها في أي فترة: :count.",
+    "Orders placed before :date with no financial record: :count. If any of them was paid inside this period, that payment is not included.": "الطلبات المقدَّمة قبل :date وليس لها سجل مالي: :count. وإذا دُفع أيٌّ منها خلال هذه الفترة فلا تُحتسب تلك الدفعة.",
+    "Includes :amount from records that carry no currency, counted in your store currency.": "يشمل :amount من سجلات بلا عملة مسجَّلة، وتُحتسب بعملة متجرك.",
     "These amounts are in more than one currency and are not combined: :amounts.": "هذه المبالغ بأكثر من عملة واحدة ولم تُجمع: :amounts.",
-    "The financial record is complete from :date, so there is nothing to show yet.": "السجل المالي مكتمل ابتداءً من :date، لذلك لا يوجد ما يُعرض بعد."
+    "The latest order without a financial record is dated :date. A verified period can begin on :next at the earliest, so there is nothing to show yet.": "تاريخ آخر طلب بلا سجل مالي هو :date. ولا يمكن أن تبدأ الفترة الموثَّقة قبل :next، لذلك لا يوجد ما يُعرض بعد."
 }

@@ -501,7 +501,7 @@ try {
      * DATETIME that Carbon can parse, and the day arithmetic has to land on the same midnight the suite asserts.
      * These checks are why `FinanceLedgerFiguresTest` is not the whole evidence for this slice.
      */
-    foreach ([3 => 'mysql-c', 4 => 'mysql-d', 5 => 'mysql-e', 6 => 'mysql-f', 7 => 'mysql-g', 8 => 'mysql-h'] as $id => $slug) {
+    foreach ([3 => 'mysql-c', 4 => 'mysql-d', 5 => 'mysql-e', 6 => 'mysql-f', 7 => 'mysql-g', 8 => 'mysql-h', 9 => 'mysql-i', 10 => 'mysql-j'] as $id => $slug) {
         $ownerId = DB::table('users')->insertGetId([
             'name' => 'Owner ' . $id, 'email' => $slug . '@example.test',
             'password' => bcrypt('x'), 'type' => 'admin',
@@ -571,19 +571,25 @@ try {
     check('J5 an undated unrowed order is counted separately and the window is all-time',
         $undated->undatedOrdersWithoutRow() === 1 && $undated->verifiedFrom() === null && $undated->window()->isAllTime());
 
-    // J6. The two figures, end to end on this server.
+    // J6. The two figures, end to end on this server. The presenter wraps every amount in U+2066 .. U+2069 (LRI .. PDI)
+    // so a right-to-left page keeps `amount CODE` together; the checks compare what a person reads, so strip them.
+    $plain = static fn (?string $text): ?string => $text === null ? null : str_replace(["\u{2066}", "\u{2069}"], '', $text);
     app()->setLocale('en');
     $figures = FinanceLedgerFigures::forStore(3, 'USD');
 
     check('J6 Payments received = 80.00 + 120.50, exactly (DECIMAL(15,2), not float)',
-        $figures['payments']['value'] === '200.50 USD', var_export($figures['payments']['value'], true));
+        $plain($figures['payments']['value']) === '200.50 USD', var_export($figures['payments']['value'], true));
     check('J6 and states where the verified period starts',
         $figures['payments']['period'] === 'from 31 October 2026', var_export($figures['payments']['period'], true));
-    check('J6 and says unrowed orders are excluded even when paid inside the period',
-        str_contains($figures['payments']['hint'], 'even if they were paid inside this period'));
+    check('J6 and says a payment on an unrowed order inside the period is not included, with the count of dated gaps (2)',
+        str_contains($figures['payments']['hint'], 'Orders placed before 31 October 2026 with no financial record: 2. If any of them was paid inside this period, that payment is not included.'),
+        $figures['payments']['hint']);
     check('J6 Estimated gross profit = 60.00 + 60.00',
-        $figures['profit']['value'] === '120.00 USD', var_export($figures['profit']['value'], true));
-    check('J6 and says it excludes shipping and tax', str_contains($figures['profit']['hint'], 'Excludes shipping and tax'));
+        $plain($figures['profit']['value']) === '120.00 USD', var_export($figures['profit']['value'], true));
+    check('J6 and says what it leaves out TRUTHFULLY (shipping; tax only when prices are entered without it)',
+        str_contains($figures['profit']['hint'], 'Shipping is not included.')
+        && str_contains($figures['profit']['hint'], 'If your prices include tax, the tax is part of the sales value.')
+        && ! str_contains($figures['profit']['hint'], 'Excludes shipping and tax'));
 
     // J7. Store 5 has nothing verified: the tile must say so rather than print zero.
     $nothing = FinanceLedgerFigures::forStore(5, 'USD');
@@ -594,17 +600,38 @@ try {
     $paidRow($order(['store_id' => 3, 'order_date' => '2026-11-10 08:00:00']), 3, '25.00', '2026-11-11 09:00:00', ['currency_code' => null]);
     $folded = FinanceLedgerFigures::forStore(3, 'USD');
     check('J8 a NULL-currency ledger row is counted in the store currency (225.50 USD)',
-        $folded['payments']['value'] === '225.50 USD', var_export($folded['payments']['value'], true));
+        $plain($folded['payments']['value']) === '225.50 USD', var_export($folded['payments']['value'], true));
     check('J8 and the page says how much was assumed',
-        str_contains($folded['payments']['hint'], 'Includes 25.00 USD'));
+        str_contains($plain($folded['payments']['hint']), 'Includes 25.00 USD'));
 
     // J9. Two REAL currencies are listed, never added.
     $paidRow($order(['store_id' => 3, 'order_date' => '2026-11-12 08:00:00']), 3, '900.00', '2026-11-13 09:00:00', ['currency_code' => 'SYP']);
     $mixed = FinanceLedgerFigures::forStore(3, 'USD');
     check('J9 two real currencies: no single number', $mixed['payments']['value'] === null);
     check('J9 and both amounts are listed',
-        str_contains($mixed['payments']['hint'], '225.50 USD') && str_contains($mixed['payments']['hint'], '900.00 SYP'),
+        str_contains($plain($mixed['payments']['hint']), '225.50 USD') && str_contains($plain($mixed['payments']['hint']), '900.00 SYP'),
         $mixed['payments']['hint']);
+    check('J9 and each `amount CODE` is its own isolated unit, listed alphabetically by code',
+        str_contains($mixed['payments']['hint'], "\u{2066}900.00 SYP\u{2069}, \u{2066}225.50 USD\u{2069}"),
+        $mixed['payments']['hint']);
+
+    // J10. The figures are dated by PAYMENT: a RECORDED order placed before the start and paid after it is counted.
+    // (Store 9: the latest unrowed order is 30 Oct, so the period starts 31 Oct; the rowed order was placed 20 Oct and
+    // collected 4 Nov. An `orders.order_date` predicate on the window would drop it and every other test would stay green.)
+    $order(['store_id' => 9, 'order_date' => '2026-10-30 09:00:00']);
+    $paidRow($order(['store_id' => 9, 'order_date' => '2026-10-20 08:00:00']), 9, '25.00', '2026-11-04 09:00:00', ['gross_profit' => 15]);
+    $byPaid = FinanceLedgerFigures::forStore(9, 'USD');
+    check('J10 a recorded order placed before the start and paid after it is counted (25.00 USD, profit 15.00 USD)',
+        $plain($byPaid['payments']['value']) === '25.00 USD' && $plain($byPaid['profit']['value']) === '15.00 USD',
+        var_export([$byPaid['payments']['value'], $byPaid['profit']['value']], true));
+
+    // J11. Currency codes are compared UPPER-CASED. This server's collation folds `usd` and `USD` in GROUP BY; PHP does not.
+    $paidRow($order(['store_id' => 10, 'order_date' => '2026-11-02 08:00:00']), 10, '10.00', '2026-11-03 09:00:00', ['currency_code' => 'usd']);
+    $paidRow($order(['store_id' => 10, 'order_date' => '2026-11-03 08:00:00']), 10, '5.00', '2026-11-04 09:00:00', ['currency_code' => 'USD']);
+    $paidRow($order(['store_id' => 10, 'order_date' => '2026-11-04 08:00:00']), 10, '1.00', '2026-11-05 09:00:00', ['currency_code' => null]);
+    $cased = FinanceLedgerFigures::forStore(10, 'usd');
+    check('J11 `usd`, `USD`, no currency and a lower-case store setting are ONE currency (16.00 USD), not "mixed"',
+        $plain($cased['payments']['value']) === '16.00 USD', var_export($cased['payments']['value'], true));
 
     echo "\n{$checks} checks, {$failures} failed\n";
     $exit = $failures > 0 ? 1 : 0;

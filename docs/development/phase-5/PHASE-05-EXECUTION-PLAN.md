@@ -477,8 +477,21 @@ received*, *Available to withdraw*, *Estimated gross profit with limitations*.
 | Figure | Where it comes from | What the tile says |
 |---|---|---|
 | **Available to withdraw** (AR المتاح للسحب) | `store_wallets.available_balance`, relabelled from "Available Balance" | "A running balance, not revenue." |
-| **Payments received** (AR المبالغ المحصّلة) | `CollectedCustomerPayments` over the verified period | the period ("all time" or "from 31 October 2026"), how many orders are left out and why, an assumed-currency amount if any |
-| **Estimated gross profit** (AR إجمالي الربح التقديري) | `StoreRevenueMargin(settled only)` over the same period | always "Excludes shipping and tax"; "Settled orders with no cost price recorded: N" when N > 0 |
+| **Payments received** (AR المبالغ المحصّلة) | `CollectedCustomerPayments` over the verified period | the period ("all time" or "from 31 October 2026"), **counted on the day the money was paid**, how many dated orders before the start have no record (and, separately, how many have no date), an assumed-currency amount if any |
+| **Estimated gross profit** (AR إجمالي الربح التقديري) | `StoreRevenueMargin(settled only)` over the same period | "Shipping is not included. **If your prices include tax, the tax is part of the sales value**" (the first wording said tax was always excluded, which is false for inclusive-tax stores); "**At least** N paid orders have no product cost on record, so their profit **may** be overstated" |
+
+**REVIEWED TWICE, 2026-11-18.** The first review's findings were fixed in `e91e9200` (CI green on it). A second,
+three-lens review of those fixes (SQL and period rule; what the tiles claim and their currency handling; do the
+tests bite and is tenancy intact) found **no defect in a number** and **two medium and several low findings in
+wording, direction and test strength**, all verified by reading or running and all now fixed: the profit sentence
+that was false for inclusive-tax stores; Arabic (RTL) amounts that could detach from their currency code or lose a
+negative sign (every amount is now an isolated left-to-right unit); a count that sat in a sentence about "this
+period" but covered all time (the dated and undated gaps are now two disjoint numbers); a hint that predicted
+"complete from tomorrow"; a clock read twice; currency codes compared case-sensitively and empty buckets counted
+as currencies; and — the one that mattered most for tenancy — **a test suite whose tenant was store 1**, so a
+`forStore(1, …)` regression passed every page test. The fixture now puts a distinctive decoy in store 1.
+**18 of 18 mutants killed** (one survived the first pass and was pinned); section J of the MariaDB script is 65
+checks, 0 failed. Owner items in `GAP-213(a)–(h)`. **Not done, unchanged:** the sales report and the exports.
 
 **The D1 rule is `LedgerCoverage`**, and it is data-driven: the verified period starts on **the day after the
 latest order the ledger cannot see** — no hard-coded cut-over date, so a single order lost to a race in the

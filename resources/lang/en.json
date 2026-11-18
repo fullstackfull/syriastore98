@@ -4125,15 +4125,15 @@
     "Financial ledger": "Financial ledger",
     "Payments received": "Payments received",
     "Estimated gross profit": "Estimated gross profit",
-    "Money customers actually paid, including orders cancelled or refunded after payment. It is not order value and not profit.": "Money customers actually paid, including orders cancelled or refunded after payment. It is not order value and not profit.",
-    "Sales value minus product cost for settled orders. Excludes shipping and tax.": "Sales value minus product cost for settled orders. Excludes shipping and tax.",
-    "Settled orders with no cost price recorded: :count. Profit is overstated for those.": "Settled orders with no cost price recorded: :count. Profit is overstated for those.",
+    "Money customers actually paid, counted on the day it was paid, including orders cancelled or refunded after payment. It is not order value and not profit.": "Money customers actually paid, counted on the day it was paid, including orders cancelled or refunded after payment. It is not order value and not profit.",
+    "Sales value minus product cost for orders that have been paid, counted on the day they were paid. Shipping is not included. If your prices include tax, the tax is part of the sales value.": "Sales value minus product cost for orders that have been paid, counted on the day they were paid. Shipping is not included. If your prices include tax, the tax is part of the sales value.",
+    "At least :count paid orders have no product cost on record, so their profit may be overstated. Orders that mix products with and without a cost price are not counted here.": "At least :count paid orders have no product cost on record, so their profit may be overstated. Orders that mix products with and without a cost price are not counted here.",
     "no financial records yet": "no financial records yet",
     "from :date": "from :date",
     "No order has a financial record yet, so this figure cannot be shown.": "No order has a financial record yet, so this figure cannot be shown.",
-    "Orders with no date and no financial record cannot be placed in any period. How many: :count.": "Orders with no date and no financial record cannot be placed in any period. How many: :count.",
-    "Orders without a financial record are not included, even if they were paid inside this period. How many: :count.": "Orders without a financial record are not included, even if they were paid inside this period. How many: :count.",
-    "Includes :amount :currency from records that carry no currency, counted in your store currency.": "Includes :amount :currency from records that carry no currency, counted in your store currency.",
+    "Orders with no date and no financial record cannot be placed in any period: :count.": "Orders with no date and no financial record cannot be placed in any period: :count.",
+    "Orders placed before :date with no financial record: :count. If any of them was paid inside this period, that payment is not included.": "Orders placed before :date with no financial record: :count. If any of them was paid inside this period, that payment is not included.",
+    "Includes :amount from records that carry no currency, counted in your store currency.": "Includes :amount from records that carry no currency, counted in your store currency.",
     "These amounts are in more than one currency and are not combined: :amounts.": "These amounts are in more than one currency and are not combined: :amounts.",
-    "The financial record is complete from :date, so there is nothing to show yet.": "The financial record is complete from :date, so there is nothing to show yet."
+    "The latest order without a financial record is dated :date. A verified period can begin on :next at the earliest, so there is nothing to show yet.": "The latest order without a financial record is dated :date. A verified period can begin on :next at the earliest, so there is nothing to show yet."
 }

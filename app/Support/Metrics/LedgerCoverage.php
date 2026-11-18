@@ -51,11 +51,17 @@ use Illuminate\Support\Facades\DB;
  * the order's payment date, which the ledger exists to record), so the tile must say that orders without a
  * record are excluded EVEN IF PAID INSIDE THE PERIOD. See `FinanceLedgerFigures`.
  *
- * TIMEZONE. Both sides of every comparison are PHP-formatted strings in the same session, so a constant
- * difference between the app and the database zones cancels. The codebase also flips PHP's default zone to
- * Asia/Kolkata inside some product accessors (`Product.php`, `ProductVariant.php`, `FlashSale.php`), which can
- * leave an `order_date` stamped up to five and a half hours ahead of the zone this class parses it in. That
- * is not caused here and was not traced to checkout; the effect is a start that may be a day early or late.
+ * TIMEZONE, TRACED. Both sides of every comparison are PHP-formatted strings, so a constant difference between the
+ * app and the database zones cancels. What does NOT cancel is that the codebase flips PHP's default zone to
+ * Asia/Kolkata inside model accessors (`Product::ProductPrice` and `getFinalPriceAttribute`, `ProductVariant`,
+ * `FlashSale`) and nothing restores it, so every stamp is made in the zone of the REQUEST that wrote it: a storefront
+ * checkout reaches those accessors through the cart readers before `PaymentService` writes `order_date`, and
+ * `OrderFinancialService` stamps `paid_at` with `now()` in the same request. A later admin action stamps in the app
+ * zone. The skew is up to five and a half hours, and it only ever runs EAST of UTC (every flip site that can precede
+ * an order write is Asia/Kolkata), so an `order_date` can be stamped later than the UTC calendar says and the start
+ * can therefore be LATE by up to about a day -- never early. It is conservative, it prints no wrong number, and an
+ * app already running in Asia/Kolkata sees no flip at all. The root cause (a process-wide
+ * `date_default_timezone_set()` inside accessors) belongs in its own change.
  *
  * THE START IS THE NEXT DAY, NOT THE NEXT SECOND. An order is dated, a window is dated, and a day that
  * contains an unseen order is a day whose total the ledger cannot give. Starting at the following
@@ -78,10 +84,19 @@ final class LedgerCoverage
         private readonly int $withoutRow,
         private readonly int $undatedWithoutRow,
         private readonly ?CarbonImmutable $verifiedFrom,
+        private readonly CarbonImmutable $now,
     ) {}
 
-    public static function forStore(int $storeId): self
+    /**
+     * @param  CarbonImmutable|null  $now  the moment "the future" is measured against. It is read ONCE, here, and kept:
+     *                                     `window()` and the consumer's hint both ask `startsInTheFuture()`, and two
+     *                                     reads of the clock either side of midnight gave a tile that withheld the
+     *                                     figure for one reason and explained it with another. Found by review.
+     */
+    public static function forStore(int $storeId, ?CarbonImmutable $now = null): self
     {
+        $now ??= CarbonImmutable::now();
+
         // MetricScope refuses these; accepting 0 here answered "no orders, complete" for a store that is nothing.
         if ($storeId <= 0) {
             throw new \InvalidArgumentException('LedgerCoverage needs a positive store id, got '.$storeId.'.');
@@ -95,11 +110,11 @@ final class LedgerCoverage
          * not cover (LedgerCoverageTest pins it).
          */
         $row = DB::table('orders')
+            ->where('orders.store_id', $storeId)
             ->leftJoin('store_order_financials', function ($join) {
                 $join->on('store_order_financials.order_id', '=', 'orders.id')
                     ->on('store_order_financials.store_id', '=', 'orders.store_id');
             })
-            ->where('orders.store_id', $storeId)
             ->selectRaw(
                 'COUNT(DISTINCT orders.id) as total_orders, '
                 .'COUNT(DISTINCT CASE WHEN store_order_financials.id IS NULL THEN orders.id END) as orders_without_row, '
@@ -114,14 +129,14 @@ final class LedgerCoverage
         $latest = $row->latest_unrowed ?? null;
 
         if ($withoutRow === 0) {
-            return new self($storeId, $total, 0, 0, null);
+            return new self($storeId, $total, 0, 0, null, $now);
         }
 
         $from = $latest === null
             ? null
             : CarbonImmutable::parse((string) $latest)->addDay()->startOfDay();
 
-        return new self($storeId, $total, $withoutRow, $undated, $from);
+        return new self($storeId, $total, $withoutRow, $undated, $from, $now);
     }
 
     /** Every order has a row, or there are no orders: all-time is verified. */
@@ -156,10 +171,27 @@ final class LedgerCoverage
         return $this->undatedWithoutRow;
     }
 
+    /**
+     * Orders with no ledger row that DO carry a date -- every one of them was placed before `verifiedFrom()`, by
+     * construction (the start is the day after the latest of them). Kept apart from the undated ones so a consumer
+     * never prints a count that contains the other: the first version printed "How many: 3" and then "How many: 2"
+     * for a store with three unrowed orders in all, and it read as five.
+     */
+    public function datedOrdersWithoutRow(): int
+    {
+        return $this->withoutRow - $this->undatedWithoutRow;
+    }
+
+    /** The day of the latest dated order the ledger cannot see: the day before `verifiedFrom()`. Null when none is dated. */
+    public function latestOrderWithoutRowOn(): ?CarbonImmutable
+    {
+        return $this->verifiedFrom?->subDay();
+    }
+
     /** The verified period has not begun: the latest order the ledger cannot see is dated today (or later). */
     public function startsInTheFuture(): bool
     {
-        return $this->verifiedFrom !== null && $this->verifiedFrom->greaterThan(CarbonImmutable::now());
+        return $this->verifiedFrom !== null && $this->verifiedFrom->greaterThan($this->now);
     }
 
     /**

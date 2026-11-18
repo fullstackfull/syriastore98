@@ -73,7 +73,7 @@ and the real `store-syria-ds.css`.
 (`reports/_sales_stats`, `order_brand_chart`, `order_category_chart`, `order_product_chart`,
 `dashboard/overview`, `customer/timeline`), which need an authenticated merchant and seeded data.
 The component emits identical markup on every one of them, and
-`StatHintIsVisibleTest::test_ten_hints_on_this_component_across_six_files` pins which surfaces use
+`StatHintIsVisibleTest::test_twelve_hints_on_this_component_across_seven_files` pins which surfaces use
 it — but the per-page claim here is inference from one component, not six captures, and is labelled
 as such. The one thing that genuinely differs per surface is how many tiles share a row, which
 drives row height; that is why the six-tile case above was measured separately rather than assumed

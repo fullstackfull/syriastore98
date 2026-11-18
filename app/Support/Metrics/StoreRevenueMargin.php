@@ -10,9 +10,14 @@ namespace App\Support\Metrics;
  *
  * TWO CAVEATS, AND THEY BEHAVE DIFFERENTLY ON PURPOSE.
  *
- * `EXCLUDES_SHIPPING_AND_TAX` is unconditional: it is true of the column's definition, so it is
- * true of every figure this metric can produce. A merchant comparing margin against a bank deposit
- * will find it smaller, and that is correct rather than missing money.
+ * `EXCLUDES_SHIPPING_AND_TAX` is unconditional, and IT IS ONLY HALF TRUE. Shipping is excluded for every store: the
+ * column is `(product_amount - discount_amount) - product_cost` and shipping is its own column. TAX is excluded only
+ * when the merchant enters prices WITHOUT tax. A store set to enter prices inclusive of tax (`TaxOption price_type =
+ * inclusive`) has tax inside `product_price` (`Cart::cart_list*` carry the tax-bearing line prices into
+ * `PaymentService`'s `$product_price`), so for that store this figure INCLUDES the tax and the caveat's claim is
+ * false. Found by independent review of P5-16; the `/finance` tile no longer makes the claim, but this class's caveat
+ * (`MetricCaveat::MESSAGES`) still does and is recorded as `GAP-213(d)`. A merchant comparing margin against a bank
+ * deposit will find it smaller for an exclusive-tax store, and that is correct rather than missing money.
  *
  * `COST_UNKNOWN` is attached only when rows in the answer actually carry `product_cost = 0`, and
  * `notes()['rows_without_cost']` says how many. `product_cost` is a snapshot of

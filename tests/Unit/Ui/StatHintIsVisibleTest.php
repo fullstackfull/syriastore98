@@ -277,8 +277,9 @@ class StatHintIsVisibleTest extends TestCase
     }
 
     /**
-     * THE CENSUS, so the scope of this change cannot drift silently. Ten hints on this component
-     * across six files, counted from the views themselves rather than restated from prose.
+     * THE CENSUS, so the scope of this change cannot drift silently. Twelve hints on this component
+     * across seven files (ten across six until P5-16 added the two ledger tiles on /finance), counted
+     * from the views themselves rather than restated from prose.
      *
      * Counted by walking BACK from each `:hint=` to the nearest `<x-` tag: a forward regex over
      * the tag body is wrong here, because `product/edit.blade.php` and `customer/timeline.blade.php`
@@ -287,7 +288,7 @@ class StatHintIsVisibleTest extends TestCase
      * measured as nine across five, and the error reached three committed documents before the
      * recount caught it.
      */
-    public function test_ten_hints_on_this_component_across_six_files(): void
+    public function test_twelve_hints_on_this_component_across_seven_files(): void
     {
         $views = base_path('resources/views');
         $hits = [];
