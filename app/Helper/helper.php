@@ -731,13 +731,22 @@ if (!function_exists('getAdminAllSetting')) {
             // that call this helper printed the platform's own mail, storage and gateway fields (executed in OperatorRootedSettingsTest). Fail CLOSED with
             // no settings, and NOT with "no user": a missing user falls through below to the guest branches, the last of which serves the lowest-id
             // merchant's settings (P1-SEC-18 F4) -- a worse leak than the one being closed. Staff of a real merchant resolve exactly as before.
-            $root = \App\Policies\UserPolicy::merchantTenantRoot($user);
+            //
+            // ONLY FOR A `User`. A `Customer` on the default guard (a test's `actingAs($customer, 'customers')`, or any `Auth::shouldUse('customers')`) also reaches this
+            // branch, and its `created_by` is the owner of ITS store -- the operator, for a customer of the platform's own storefront -- so "the creator" is the intended
+            // answer there and the merchant-root rule is a rule about admin-panel principals. (The first draft passed any principal to `merchantTenantRoot(?User)`:
+            // a TypeError for a Customer, caught by the full Feature run in PaidDownloadLinkInPagesTest, not by the targeted tests.)
+            if ($user instanceof User) {
+                $root = \App\Policies\UserPolicy::merchantTenantRoot($user);
 
-            if ($root === null) {
-                return [];
+                if ($root === null) {
+                    return [];
+                }
+
+                $user = User::find($root);
+            } else {
+                $user = User::find($user->created_by);
             }
-
-            $user = User::find($root);
         }
         // P1-SEC-18 F4: with no user and no store named, the last branch below serves the LOWEST-ID MERCHANT ON THE PLATFORM
         // to whoever asked. A shopper's request is addressed to a store -- use it; null keeps the old behaviour.

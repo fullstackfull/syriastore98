@@ -170,6 +170,22 @@ class OperatorRootedSettingsTest extends SecurityTestCase
         $this->assertStringNotContainsString(self::OPERATOR_HOST, $this->emailFields($staff->fresh()), "Staff of a self-demoted merchant were served the platform's mail host.");
     }
 
+    /**
+     * THE REGRESSION THE FULL FEATURE RUN CAUGHT IN THE FIRST DRAFT, which no targeted test had touched: a `Customer` on the default guard (`actingAs($customer,
+     * 'customers')` sets it) also reaches the branch where `$user->type` is not admin / super admin, and `merchantTenantRoot()` takes a `User`. The rule is about
+     * admin-panel principals; a customer resolves its creator exactly as before, and must not throw.
+     */
+    public function test_a_customer_principal_still_resolves_its_creators_settings_and_does_not_throw(): void
+    {
+        $customer = \App\Models\Customer::forceCreate([
+            'first_name' => 'Buyer', 'last_name' => 'Fixture', 'email' => 'buyer-'.uniqid().'@example.test', 'password' => bcrypt('secret'),
+            'store_id' => $this->store->id, 'type' => 'customer', 'created_by' => $this->merchant->id,
+        ]);
+        $this->actingAs($customer, 'customers');
+
+        $this->assertSame(self::MERCHANT_HOST, getAdminAllSetting()['MAIL_HOST'] ?? null, "Premise: a customer resolves its creator's (the store owner's) settings, as before.");
+    }
+
     /** The controls: every refusal above could be a route that refuses everyone, or a fixture that never wrote the rows. */
     public function test_the_screens_still_serve_the_settings_they_always_did(): void
     {
