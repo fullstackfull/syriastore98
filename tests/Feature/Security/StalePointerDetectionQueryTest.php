@@ -142,6 +142,7 @@ class StalePointerDetectionQueryTest extends SecurityTestCase
         $platform = $insert('storage_setting', (int) $operator->id, (int) $operatorStore->id);          // the platform's own row
         $own = $insert('s3_bucket', (int) $merchant->id, (int) $merchantStore->id);                      // a merchant's row, their id
         $contaminated = $insert('storage_setting', (int) $operator->id, (int) $merchantStore->id);       // stamped 1 inside a merchant's store
+        $demotedRow = $insert('storage_setting', (int) $this->makeMerchant()->id, (int) $merchantStore->id); // a non-operator's row in a foreign store: what the FIX now leaves behind
         $noStore = $insert('s3_key', (int) $operator->id, null);                                          // stamped 1 in NO store (a principal with an empty current_store)
         $dangling = $insert('disable_lang', (int) $operator->id, 987654);                                 // stamped 1 in a store that no longer exists
 
@@ -154,12 +155,14 @@ class StalePointerDetectionQueryTest extends SecurityTestCase
         $this->assertSame($expected, $ids, 'detect-C must return the rows stamped with the operator\'s id inside a store the operator does not own, in no store, or in a deleted one -- every one of which the pool readers read.');
         $this->assertNotContains($platform, $ids);
         $this->assertNotContains($own, $ids);
+        $this->assertNotContains($demotedRow, $ids, 'a row stamped with a NON-operator\'s own id -- what the fix leaves behind -- is not in the pool and must not be reported');
         $byId = [];
         foreach ($rows as $r) {
             $byId[(int) $r->id] = $r;
         }
         $this->assertSame((int) $merchant->id, (int) $byId[$contaminated]->store_owner, 'the triage column names the store\'s real owner');
         $this->assertNull($byId[$noStore]->store_owner, 'a row in no store has no owner to name');
+        $this->assertSame('admin', (string) $byId[$contaminated]->store_owner_type, 'the triage column names the store owner\'s TYPE: a demoted merchant\'s store would read otherwise');
     }
 
     public function test_detect_b_finds_pointers_into_another_tenant_and_cannot_find_what_the_old_change_store_wrote(): void

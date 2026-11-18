@@ -88,6 +88,19 @@ class OperatorRootedSettingsWritesTest extends SecurityTestCase
         return $fresh->fresh();
     }
 
+    /**
+     * THE COUPLING THE COPIED QUERY LACKS: `platformPool()` below is a COPY of the readers' query. If a reader gained a store predicate, this file would go on
+     * passing while measuring a pool nobody reads. So the readers' own source is pinned: both upload helpers still read the pool with exactly this statement. A
+     * failure here means the pool's semantics changed -- re-read the work queue's subsection i) before touching anything.
+     */
+    public function test_the_upload_helpers_still_read_the_pool_this_file_reads(): void
+    {
+        $source = (string) file_get_contents(app_path('Models/Utility.php'));
+
+        $this->assertGreaterThanOrEqual(2, substr_count($source, "Setting::where('created_by', 1)->pluck('value', 'name')->toArray()"),
+            'Utility::upload_file() and jsonUpload_file() no longer both read the created_by = 1 pool with this statement; platformPool() measures a copy.');
+    }
+
     /** THE POOL, read with the query `Utility::upload_file()` and `jsonUpload_file()` run. */
     private function platformPool(): array
     {
@@ -152,6 +165,8 @@ class OperatorRootedSettingsWritesTest extends SecurityTestCase
 
         $this->actingAs($operatorsStaff->fresh())->post('/customize-settings', ['storage_setting' => 's3']);
 
+        // PREMISE: the save reached the writer, into their own store -- otherwise "the pool is unchanged" would be a refusal measured, not a stamp.
+        $this->assertSame('s3', $this->row(Store::find($operatorsStaff->current_store), 'storage_setting')?->value, 'Premise: the operator-created staff member\'s save reached the writer.');
         $this->assertSame('local', $this->platformPool()['storage_setting'] ?? null, "Staff the operator created overwrote the platform's storage_setting.");
     }
 
@@ -190,8 +205,9 @@ class OperatorRootedSettingsWritesTest extends SecurityTestCase
         $this->actingAs($staff->fresh())->post('/customize-settings', ['metakeyword' => 'staff-wrote-this']);
         $this->assertSame((int) $merchant->id, (int) $this->row($store, 'metakeyword')?->created_by, "A merchant's staff must still write rows their MERCHANT owns -- the P1-PLT-07 normalisation.");
 
-        // and the operator writes the pool through the same route: this is what the pool is FOR
-        $this->actingAs($this->operator)->post('/customize-settings', ['storage_setting' => 'local']);
-        $this->assertSame(1, (int) $this->row($this->operatorStore, 'storage_setting')->created_by, 'The operator\'s own save stays stamped with their id.');
+        // and the operator writes the pool through the same route: this is what the pool is FOR. A NEW name, so the CREATE branch runs (an update of an existing name
+        // only restores the stored owner and could not tell a re-stamp from a no-op).
+        $this->actingAs($this->operator)->post('/customize-settings', ['operator_created_name_fixture' => 'x']);
+        $this->assertSame(1, (int) $this->row($this->operatorStore, 'operator_created_name_fixture')?->created_by, 'The operator\'s own CREATE stays stamped with their id.');
     }
 }
