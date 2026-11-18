@@ -500,7 +500,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            proves a row filed under another store is not cover. It lives beside the metric layer rather
            than inside `Metric` because it is not a metric: it decides which WINDOW a metric may be read
            over. `store_order_financials` still has no model, so the join adds no per-table row. */
-        $this->assertSame(['app' => 191, 'packages' => 45], $perDir,
+        /* 191 -> 192 [P1-SEC-67b]: `StoreScope::rootIsAMerchant()`, ONE raw read of `users.type` for the principal's own tenant root. It is the
+           only way the owned-store set can refuse a root that is not a merchant (a demoted merchant, or staff the operator created: `creatorId()` is
+           then the OPERATOR'S id, and the set held the operator's stores). `users` is the principals' registry -- on the do-not-scope list, not
+           tenant-owned data -- and the read is raw for the reason the scope's two `stores` reads are: it runs inside query compilation, so no model
+           and no `Cachable`. Classified on the `users` row below; asserted by what it reads in ResidualTenancyExposureTest. */
+        $this->assertSame(['app' => 192, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -604,7 +609,8 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            report a margin the data cannot support. Classified in full on the per-table row. */
         /* 235 -> 236 [P5-16]: `LedgerCoverage::forStore()`, which names `store_id`; the unscoped totals
            do not move. See the note on the per-directory figure above. */
-        $this->assertSame(236, array_sum($perDir));
+        /* 236 -> 237 [P1-SEC-67b]: the `users.type` probe in StoreScope (see the per-directory note); it names no `store_id`, so it is also +1 unscoped. */
+        $this->assertSame(237, array_sum($perDir));
     }
 
     /**
@@ -852,7 +858,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // theme_id AND name. The raw WRITE is gone -- see the note on the per-directory total.
             'theme_customizes' => [1, 0],
             'user_email_templates' => [1, 1], // P1-SEC-04: ModuleAdministrativeRouteGuard::ownsEmailTemplate (the row named in the body)
-            'users' => [5, 5],
+            // [6, 6], UP FROM [5, 5], WITH P1-SEC-67b: StoreScope::rootIsAMerchant() reads `users.type` of the principal's own tenant root. No `store_id`
+            // exists to predicate on (`users` carries none and is not scoped), and the value is one column of one row the principal already resolves
+            // through `creatorId()` -- it carries no tenant data out of the scope.
+            'users' => [6, 6],
             'zid_events' => [2, 2],
             'zid_orders' => [11, 9],   // 11 -> 9 with P1-SEC-10: the lookup and the local status write now carry the authenticated stores
             'zid_stores' => [7, 2],
@@ -964,7 +973,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         /* 183 -> 184 [P5-16]: `LedgerCoverage::forStore()` spells `orders` as a quoted literal and names
            `store_id`, so it lands in this per-table census (the `orders` row above, 6 -> 7) and the
            companion unscoped total below does NOT move. */
-        $this->assertSame(184, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        /* 184 -> 185 [P1-SEC-67b]: `StoreScope::rootIsAMerchant()`'s read of `users.type`. It spells the table as a quoted literal, so it lands in this
+           per-table census (the `users` row above, 5 -> 6). It names no `store_id` -- `users` has none -- so the companion UNSCOPED total below DOES move,
+           82 -> 83, and the argument for that is written beside it. */
+        $this->assertSame(185, array_sum(array_map(fn ($r) => $r[0], $actual)),
             'THE FIGURES INSIDE THIS MESSAGE ARE THE 2026-11-02 MEASUREMENT AND ARE NOT RATCHETED; '
             . 'the current totals are the ones ASSERTED above and in the dated notes beside them. '
             . 'That split is itself one of this file\'s findings, recorded rather than tidied away '
@@ -1025,7 +1037,15 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            on `orders`; the argument for why a tenant predicate would weaken rather than strengthen
            it is written in full beside that table's entry, and again as a declaration in
            OwnedPathRawQueryInventoryTest that is asserted to still match the statement. */
-        $this->assertSame(82, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        /* 82 -> 83 [P1-SEC-67b], AND AGAIN THIS IS THE UNSCOPED TOTAL, so the argument is written rather than assumed. The addition is
+           `StoreScope::rootIsAMerchant()`: `DB::table('users')->where('id', $rootId)->value('type')`. It is a statement with no `store_id`, but it is
+           NOT a cross-tenant read, for three reasons that can each be checked: (1) `users` has no `store_id` column (the sibling test classifies it as
+           not discriminated, and says why), so a tenant predicate is not expressible; (2) the id it reads is the principal's OWN tenant root, derived
+           from `creatorId()` of the authenticated user, never from request input; (3) it returns ONE COLUMN, a role name, and its only consumer is a
+           comparison that can make the owned-store set SMALLER (an empty set fails closed through admissibleStoreIds()) -- it cannot widen what a
+           principal reaches. It exists because the previous behaviour widened it: a root that is not a merchant (a demoted merchant, or staff the
+           operator created) resolved to the OPERATOR'S id and "the stores this principal owns" held the operator's stores. */
+        $this->assertSame(83, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**

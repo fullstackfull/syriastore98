@@ -1142,10 +1142,25 @@ class StoreScope implements Scope
         static::$resolvingOwnedStoreIds = true;
 
         try {
-            $ids = array_values(array_map(
-                static fn ($id) => (int) $id,
-                DB::table('stores')->where('created_by', $creatorId)->pluck('id')->all()
-            ));
+            // P1-SEC-67b -- THE OWNED SET IS A MERCHANT'S. `creatorId()` is the user's own id for type admin / super admin and `created_by` for every
+            // other type, and every merchant has `created_by = 1`, the operator, whose own store carries `created_by = 1`. A merchant who demotes their
+            // own `type` therefore had `creatorId() = 1`, and "the stores this principal owns" became the OPERATOR'S: every handler whose only tenant
+            // control is this scope (Menu and SupportTicket destroy; the Customer, Cart, OrderNote and DeliveryBoy reads) reached the operator's rows.
+            //
+            // A root that is not a type-`admin` merchant owns nothing here, so the set is EMPTY and `admissibleStoreIds()` degrades to
+            // `[current_store]` -- the narrow predicate, "never to zero rows and never to no predicate at all" (this method's own contract). That is why
+            // this fails CLOSED while changing `resolveTenant()`'s MODE would fail open under `null_tenant => 'open'`.
+            //
+            // A RAW query, like the one below and for the same reason: this runs inside query compilation, and a model read would re-enter the scope
+            // and the model-cache key machinery. Only a real `User` (something with `creatorId()`) is asked; any other principal keeps its old path.
+            if (is_object($user) && method_exists($user, 'creatorId') && ! static::rootIsAMerchant($creatorId)) {
+                $ids = [];
+            } else {
+                $ids = array_values(array_map(
+                    static fn ($id) => (int) $id,
+                    DB::table('stores')->where('created_by', $creatorId)->pluck('id')->all()
+                ));
+            }
         } catch (Throwable $e) {
             // No database, no `stores` table, or a connection that is mid-migration. Degrade to
             // the old predicate rather than to a broken one.
@@ -1155,6 +1170,19 @@ class StoreScope implements Scope
         }
 
         return static::$ownedStoreIdMemo[$creatorId] = $ids;
+    }
+
+    /**
+     * Is this tenant root a MERCHANT -- a type-`admin` user? The same question `UserPolicy::tenantRootIsAMerchant()` answers, asked with a raw query
+     * (no model, no scope, no `Cachable`) because this runs inside query compilation. `type` is normalised the way that method and `isOperator()`
+     * normalise it: lower-cased, trailing spaces ignored (MySQL's collation ignores them, case and all). A root that cannot be read is NOT a merchant.
+     * Throws only into `ownedStoreIds()`'s own catch, which degrades to an empty set.
+     */
+    protected static function rootIsAMerchant(int $rootId): bool
+    {
+        $type = DB::table('users')->where('id', $rootId)->value('type');
+
+        return is_string($type) && strtolower(rtrim($type, ' ')) === 'admin';
     }
 
     /**

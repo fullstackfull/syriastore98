@@ -5162,9 +5162,15 @@ public function DeleteReview($id)
             return $target;
         }
 
-        $tenant = $actor->creatorId();
+        // P1-SEC-67b: `creatorId()` is NOT a tenant for a user whose root is not a merchant. A merchant who demoted
+        // their own `type` (PUT /users/{self} with a role they created), or staff the OPERATOR created, resolves to
+        // the operator's id -- and every merchant has `created_by` = the operator's id, so the comparison below
+        // returned ANY merchant to that principal. merchantTenantRoot() answers null for such a root and the
+        // refusal is the same null a foreign target already gets. The operator was admitted above, and the
+        // principal's own row above that, so nothing a legitimate caller reaches changes.
+        $tenant = \App\Policies\UserPolicy::merchantTenantRoot($actor);
 
-        if (empty($tenant) || empty($target->created_by)) {
+        if ($tenant === null || empty($target->created_by)) {
             return null;
         }
 
