@@ -35,7 +35,8 @@ use PHPUnit\Framework\TestCase;
  * debited and no ledger row is written**: free money, recurring, with no record. This class treats
  * `club_point_enabled` as part of eligibility for exactly that reason.
  *
- * TWO DELIBERATE DIVERGENCES FROM THE BLADE GATE, both measured rather than assumed:
+ * THREE DELIBERATE DIVERGENCES FROM THE BLADE GATE, the first two measured rather than assumed and the third found by
+ * the independent review of D6 stage 1:
  *
  *   1. THE THRESHOLDS MUST BE NUMERIC. Measured on PHP 8.3 with the strings a `settings` row
  *      actually stores: `100 >= "abc"` is FALSE (the int is cast to string, so junk already fails
@@ -46,6 +47,11 @@ use PHPUnit\Framework\TestCase;
  *      gate should not depend on a validator two layers away.
  *   2. `club_point_enabled` IS REQUIRED, per the paragraph above. Strictly tighter than Blade,
  *      and the only reading under which a granted discount is always matched by a debit.
+ *   3. THE ACCRUAL ARITHMETIC MUST BE COMPUTABLE. The vendored listener computes `(product_price * order_points)
+ *      / order_point_price` BEFORE its redemption branch, and the settings validator is a bare `required`: a zero
+ *      divisor is a DivisionByZeroError and junk is a TypeError, thrown after the order is committed, so a granted
+ *      discount would have no debit behind it. `order_points` must be numeric and >= 0, `order_point_price` numeric
+ *      and > 0 (a negative accrual is refused too).
  *
  * EVERYTHING ELSE MATCHES BLADE EXACTLY, including `>=` rather than `>`, and including that a
  * threshold of `0` is satisfied by a balance of `0` — measured: `0 >= "0"` is true. A store that

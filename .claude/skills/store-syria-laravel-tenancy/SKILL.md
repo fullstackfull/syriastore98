@@ -231,7 +231,7 @@ vacuous tests repeatedly. Eleven ways they pass for the wrong reason, all measur
     because the request 500'd, and trimmed the assertion to the order total. An independent review caught it. Rules:
     (a) a 500 *after* a commit is a half-written state, not a refusal — assert the balance, the ledger and the
     stock, not just the status; (b) when a request must agree with the principal, **compare the bag with the
-    principal at the intake and refuse** (`PaymentController::refuseACustomerIdTheIntakeCannotTrust()`) rather
+    principal at the intake and refuse** (`PaymentController::customerIdTheIntakeCannotTrust()`) rather
     than patching one consumer; (c) a fix that moves a read from "the bag" to "the principal" can remove an
     *accidental* safety (a file part priced from nobody) — mutate the fix and run the hostile request before
     calling it consistent; (d) a check that can never disagree with the one before it (the COD writer's second

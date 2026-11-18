@@ -55,9 +55,11 @@ namespace App\Support\Money;
  *     balance against a small basket writes a NEGATIVE order total -- measured, 20.00 basket
  *     less a 50.00 discount stored as -30.00. Clamping changes what a customer pays in a case
  *     that currently succeeds, so it is not taken here.
- *   - WHETHER REDEMPTION IS ALLOWED AT ALL. The `checkout_points` / `checkout_price` thresholds
- *     are enforced in Blade views only; the server-side guard is
- *     `isset($requests_data['club_point_is_active']) && == 'on'`, which is caller-supplied.
+ *   - WHETHER REDEMPTION IS ALLOWED AT ALL. This class's `for()` does not decide it; `isRedeemable()`
+ *     below does. The thresholds were enforced in Blade views only, with `isset($requests_data[
+ *     'club_point_is_active']) && == 'on'` -- caller-supplied -- as the whole server-side guard, until D6
+ *     stage 1 asked `isRedeemable()` at the quote and at the WhatsApp / Telegram writer. The gateway-return
+ *     handlers still carry only that guard, now reading the value the quote decided at initiation.
  *   - WHETHER POINTS ARE RETURNED WHEN AN ORDER IS CANCELLED OR REFUNDED. They are not. MKT-006
  *     is unimplemented and the only write path lives in a vendored module.
  */
@@ -188,38 +190,35 @@ final class RewardPointDiscount
     /**
      * May this customer redeem against an order of `$orderValue` at all?  D6.
      *
-     * ████ THIS HAS ZERO CALL SITES TODAY AND ENFORCES NOTHING. ████
+     * ████ WIRED AT TWO PLACES, AND DELIBERATELY NOT AT THE REST. ████
      *
-     * `RewardRedemptionEligibilityTest::test_it_is_not_wired_yet_and_that_is_deliberate` asserts
-     * exactly that, so the day it IS wired the assertion fails and has to be updated on purpose.
-     * This project's own rule — written into this very class after three mutually-covering guards
-     * were each found deletable — is that a check which cannot fail reads as protection and is a
-     * trap. An unwired gate is the same trap, so it is labelled rather than quietly shipped.
+     * D6 stage 1 asks this at the QUOTE (`PaymentController::processRewardPoints()`) and at the WhatsApp / Telegram
+     * writer (`PaymentController::whatsapp()`), and
+     * `RewardRedemptionEligibilityTest::test_the_gate_is_wired_at_the_two_decision_points_and_deliberately_nowhere_else`
+     * pins exactly those two call sites, so a third appearing -- or one disappearing -- fails a census and has to be
+     * explained. The gateway-return handlers are NOT wired: five of them price the discount from a customer id stored at
+     * initiation while the vendored listener debits whoever is signed in at the return, which a threshold check does not
+     * repair. That is an owner decision (GAP-214, docs/development/phase-5/PHASE-05-D6-WIRING-MEASUREMENT.md).
      *
-     * WHY IT IS NOT WIRED, which is a FINDING and not a shortfall of effort. D6 asks for the
-     * thresholds to be enforced server-side. Adding this gate to the eleven sites that apply a
+     * WHY THE FLAG HAS TO BE OVERRIDDEN, NOT JUST THE DISCOUNT SKIPPED. Adding this gate to the sites that apply a
      * discount, and nothing else, would produce a WORSE defect than the one it closes:
      *
-     *     the eleven sites decide          -> no discount applied
+     *     the site decides                  -> no discount applied
      *     the client's `club_point_is_active=on` still rides into AddRewardClubPoint
      *     the vendored listener             -> spends the customer's WHOLE balance anyway
      *
-     * i.e. points debited with no discount given — the mirror image of the Khalti leak, and
-     * pointing against the customer. The server's refusal has to reach the event as well as the
-     * total. The mechanism exists: `App\Listeners\NormaliseRewardRedemptionFlag` already proves an
-     * absent flag makes the vendored listener take its accrual branch, so a refusing site must
-     * `unset($requests_data['club_point_is_active'])` as well as skip the discount. MEASURED that
-     * this is reachable: at `PaymentService` the decision (:3057) and the dispatch (:3435) are both
-     * inside `getProductStatus()` declared at :2443, so the same `$requests_data` is in scope at
-     * both. The remaining work is to confirm that for the other ten and to wire both halves
-     * together, in one slice, with the negative case tested.
+     * i.e. points debited with no discount given — the mirror image of the Khalti leak, and pointing against the
+     * customer. The server's refusal has to reach the event as well as the total. The quote therefore writes its
+     * decision back onto the request as `'on'` / `'off'` (a merge, not a removal: a query-string copy survives a
+     * removal), `App\Listeners\NormaliseRewardRedemptionFlag` strips `'off'` at dispatch so the vendored listener takes
+     * its accrual branch, and the WhatsApp writer removes the flag from the array the event is built from.
      *
      * WHAT THE PRODUCT ACTUALLY GATES ON, and what this mirrors. Both module partials carry the
      * identical condition (`clubPointApply.blade.php:1-9`, `clubPointPriceShow.blade.php:1-10`):
      * the six settings present, `total_club_point >= checkout_points`, and
-     * `final_price >= checkout_price`. Server-side there is no check at all — the eleven sites
-     * test `isset($requests_data['club_point_is_active']) && … == 'on'`, which compares the
-     * caller's own posted string with itself.
+     * `final_price >= checkout_price`. Before D6 stage 1 there was no server-side check at all —
+     * the eleven sites test `isset($requests_data['club_point_is_active']) && … == 'on'`, which
+     * compares the caller's own posted string with itself — and the gateway returns still test only that.
      *
      * `club_point_enabled` IS PART OF ELIGIBILITY HERE AND IS NOT IN THE BLADE GATE, deliberately.
      * `RewardClubPointController:45` writes it as `$request->club_point_enabled ?? 'off'` and
@@ -296,7 +295,7 @@ final class RewardPointDiscount
      * eligible, so the figure on the order cannot drift from the figure the module computes.
      * `test_forOrder_never_exceeds_what_for_would_give` pins that across the value range.
      *
-     * ████ ALSO UNWIRED — see `isRedeemable()` for why both halves must land together. ████
+     * Wired at the same two places as `isRedeemable()` — see there for why the refusal must also reach the event.
      */
     public static function forOrder(float $balance, float $orderValue, array $settings): float
     {

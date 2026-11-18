@@ -609,11 +609,67 @@ class RewardRedemptionCheckoutGateTest extends SecurityTestCase
         $customer = $this->shopper($store, 500);
         $this->basketFor($store, $customer);
 
+        \Illuminate\Support\Facades\Log::spy();
+
         $order = $this->whatsappWrite($store, $customer, 'on', [], ['customer_id' => UploadedFile::fake()->create('c.txt', 1)]);
 
         $this->assertNull($order, 'An order was committed with a discount and no debit: the request could not be trusted to name its customer.');
         $this->assertEqualsWithDelta(500.0, $this->balanceOf($customer), 0.005);
         $this->assertSame(0, DB::table('reward_club_points')->count(), 'a ledger row exists for a refused request');
+
+        // The refusal is the JSON envelope every other refusal in this method returns -- its only browser caller is AJAX that reads
+        // `status` -- and not a redirect it would follow into the storefront home page.
+        $this->lastResponse->assertOk()->assertJsonPath('status', 0);
+        \Illuminate\Support\Facades\Log::shouldHaveReceived('warning')->withArgs(
+            fn ($message) => is_string($message) && str_contains($message, 'Checkout refused: the request named a customer the intake did not resolve')
+        )->once();
+    }
+
+    public function test_a_file_array_named_customer_id_is_refused_and_not_a_500_from_the_guard_itself(): void
+    {
+        // `customer_id[]` makes the bag value an ARRAY, and `(string) []` is an "Array to string conversion" -- which this
+        // application's error handler throws. The first version of the guard cast, so it answered HTTP 500 from the guard.
+        [, $store] = $this->tenant();
+        $customer = $this->shopper($store, 500);
+        $this->basketFor($store, $customer);
+
+        $order = $this->codCheckout($store, $customer, 'on', ['customer_id' => [UploadedFile::fake()->create('c.txt', 1)]]);
+
+        $this->assertNull($order);
+        $this->assertNotSame(500, $this->lastResponse->getStatusCode(), 'the guard itself threw');
+        $this->lastResponse->assertRedirect();
+        $this->lastResponse->assertSessionHas('error');
+        $this->assertEqualsWithDelta(500.0, $this->balanceOf($customer), 0.005);
+    }
+
+    public function test_an_errored_upload_named_customer_id_is_not_the_guests_empty_id(): void
+    {
+        // An upload over `upload_max_filesize` has an EMPTY temporary name, so its string form is `''` -- exactly the id of a
+        // guest who has no customer. The first version compared string casts and let it through for a guest on the WhatsApp
+        // writer. A file is an object, not an id: it is never compared.
+        [, $store] = $this->tenant();
+        $customer = $this->shopper($store, 0);
+        $cookie = 'rwd-guest-' . uniqid();
+        $product = $this->productIn($store, self::LINE);
+        Cart::forceCreate([
+            'customer_id' => 0, 'product_id' => $product->id, 'variant_id' => 0,
+            'qty' => 1, 'price' => self::LINE, 'store_id' => $store->id, 'cookie_session_id' => $cookie,
+        ]);
+
+        $errored = new UploadedFile('', 'big.bin', 'application/octet-stream', UPLOAD_ERR_INI_SIZE, true);
+        $state = [
+            'slug' => $store->slug, 'store_id' => $store->id, 'customer_id' => '',
+            'payment_type' => 'whatsapp', 'shipping_final_price' => 0, 'tax_price' => 0,
+            'cartlist_final_price' => self::LINE, 'billing_info' => $this->billing($customer),
+        ];
+
+        $orders = (int) DB::table('orders')->count();
+        $this->lastResponse = $this->withCookie('cart', $cookie)
+            ->withSession(['request_data' => $state])
+            ->post('/' . $store->slug . '/whatsapp', ['wts_number' => '123456789', 'customer_id' => $errored]);
+
+        $this->assertSame($orders, (int) DB::table('orders')->count(), 'a guest order was written for a request whose customer id was an errored upload');
+        $this->lastResponse->assertOk()->assertJsonPath('status', 0);
     }
 
     public function test_an_ordinary_request_is_not_mistaken_for_a_tampered_one(): void
@@ -675,17 +731,7 @@ class RewardRedemptionCheckoutGateTest extends SecurityTestCase
         // is never evaluated -- so NO discount is in the total -- yet an eligible shopper's `'on'` still reached the event, and
         // the vendored listener REPLACED the balance. Points spent, nothing received: the mirror image of the leak D6 exists
         // to close. The refusal has to reach the event from this arm too.
-        [$merchant, $store] = $this->tenant();
-        DB::table('plans')->where('id', $merchant->plan_id)->update(['modules' => 'RewardClubPoint,PartialPayments']);
-        $failed = $this->enableWorkdoModules(['PartialPayments']);
-        $this->assertSame([], $failed, 'a PartialPayments migration threw');
-        foreach (['enable_partial_payment' => 'on', 'deposit_selection' => 'pay_deposit', 'deposit_type' => 'percent',
-            'deposit_amount' => '10', 'force_deposit' => 'on'] as $name => $value) {
-            DB::table('settings')->insert(['name' => $name, 'value' => $value, 'created_by' => $merchant->id,
-                'store_id' => $store->id, 'created_at' => now(), 'updated_at' => now()]);
-        }
-        (new \App\Models\Setting)->flushCache();
-        Cache::flush();
+        [, $store] = $this->partialPaymentsTenant();
 
         $customer = $this->shopper($store, 500);
         $this->basketFor($store, $customer);
@@ -697,6 +743,55 @@ class RewardRedemptionCheckoutGateTest extends SecurityTestCase
             'Premise: the PartialPayments arm priced this order (a 10% deposit on 100.00), so the reward discount is not in the total.');
         $this->assertEqualsWithDelta(510.0, $this->balanceOf($customer), 0.005,
             'No discount was given, so no points may be spent: the balance must ACCRUE, not be replaced by this order\'s earnings.');
+    }
+
+    /** A store whose owner's plan carries BOTH modules and whose partial-payment setting is on, so the deposit arm is the one taken. */
+    private function partialPaymentsTenant(): array
+    {
+        [$merchant, $store] = $this->tenant();
+        DB::table('plans')->where('id', $merchant->plan_id)->update(['modules' => 'RewardClubPoint,PartialPayments']);
+        $this->assertSame([], $this->enableWorkdoModules(['PartialPayments']), 'a PartialPayments migration threw');
+        foreach (['enable_partial_payment' => 'on', 'deposit_selection' => 'pay_deposit', 'deposit_type' => 'percent',
+            'deposit_amount' => '10', 'force_deposit' => 'on'] as $name => $value) {
+            DB::table('settings')->insert(['name' => $name, 'value' => $value, 'created_by' => $merchant->id,
+                'store_id' => $store->id, 'created_at' => now(), 'updated_at' => now()]);
+        }
+        (new \App\Models\Setting)->flushCache();
+        Cache::flush();
+
+        return [$merchant, $store];
+    }
+
+    public function test_a_partial_payments_checkout_that_sent_no_flag_stores_none(): void
+    {
+        // The withdrawal is conditional on the caller having sent the key, so an ordinary checkout's stored state keeps its shape.
+        [, $store] = $this->partialPaymentsTenant();
+        $customer = $this->shopper($store, 500);
+        $this->basketFor($store, $customer);
+
+        $state = $this->initiate($store, $customer, null);
+
+        $this->assertEqualsWithDelta(10.0, (float) ($state['cartlist_final_price'] ?? -1), 0.005, 'Premise: the deposit arm priced it.');
+        $this->assertArrayNotHasKey('club_point_is_active', $state);
+    }
+
+    public function test_the_partial_payments_initiation_withdraws_the_redemption_from_the_stored_state(): void
+    {
+        // THE SAME DEFECT AT INITIATION, where it also reaches a gateway return that the owner holds: the quote stores 'on',
+        // `prepareFinalRequestData()` then replaces the charge with the module's deposit -- so the discount is in no figure --
+        // and the held generic return's PartialPayments arm replaced the balance for it. The decision is withdrawn where it is
+        // STORED, so no writer has to be touched.
+        [, $store] = $this->partialPaymentsTenant();
+
+        $customer = $this->shopper($store, 500);
+        $this->basketFor($store, $customer);
+
+        $state = $this->initiate($store, $customer, 'on');
+
+        $this->assertEqualsWithDelta(10.0, (float) ($state['cartlist_final_price'] ?? -1), 0.005,
+            'Premise: the PartialPayments limb replaced the charge with the 10% deposit, so no reward discount is in it.');
+        $this->assertSame('off', $state['club_point_is_active'] ?? null,
+            'The redemption survived into the stored state of a checkout the module priced; a gateway return would spend the points for it.');
     }
 
     public function test_for_a_store_without_the_module_the_guest_override_does_not_run(): void

@@ -84,14 +84,21 @@ keeps its own base (D5 is untouched).
    session holds no state, so a direct POST reaches it without any quote. It tests the same Subtotal (`$final_price`)
    and, on refusal, removes the flag from `$requests_data` — the array the event is built from.
 
-6. **The intake refuses a request whose bag disagrees with it about who the customer is** (`refuseACustomerIdTheIntakeCannotTrust()`,
+6. **The intake refuses a request whose bag disagrees with it about who the customer is** (`customerIdTheIntakeCannotTrust()`,
    called after the id is merged in `processOrder()` and in `whatsapp()`). `Request::all()` is
    `array_replace_recursive(input, files)`, so an uploaded file named `customer_id` replaces the merged id for every reader of
    `$request->customer_id`. The post-commit `OrderNote::order_note_data()` calls read it, and `order_notes.customer_id` is a
    foreign key, so the request fails — **after the order row and before the event** — leaving a discounted order that was never
    paid for in points. The trigger is closed rather than one consumer, because the same file breaks anything else that reads
    the bag after the commit. Refusing early is also kinder: before, the shopper got a 500 with stock decremented and the basket
-   emptied. **Known limit:** a file part can replace *any* field the intake merges (`slug`, `store_id`, `payment_type` …); only
+   emptied. The refusal comes **before any order is written**, not before anything: for a guest `handleCustomerRegistration()` has
+   already found or created the customer (and for `register=on` signed them in) — nothing a plain registration could not do; an
+   earlier version of this sentence said "before anything", and the second review corrected it. **Only a scalar can agree**: the
+   first version compared string casts, so a file *array* (`customer_id[]`) made the guard itself throw an `Array to string
+   conversion` (HTTP 500) and an *errored upload* (an oversize file, whose temporary name is empty) cast to `''`, the id of a guest
+   with no customer. Both are now refused; a refusal is logged (`Checkout refused: the request named a customer the intake did not
+   resolve`, with the type of what arrived, never the value) and the WhatsApp writer answers with the JSON envelope its other refusals
+   use, because its only browser caller is AJAX that reads `status`. **Known limit:** a file part can replace *any* field the intake merges (`slug`, `store_id`, `payment_type` …); only
    `customer_id`, the one that decides whose balance moves, is closed (`GAP-214`). What the file puts in the bag is its server-side
    temporary path, so the caller cannot *choose* a value — only make the request fail where a replaced field is read. The gateway
    returns pin `customer_id` with a merge too (`adoptStoredCheckoutState()`) and are exposed to the same trick; that is reasoned
@@ -109,35 +116,44 @@ keeps its own base (D5 is untouched).
 | `PaymentController::getCartData` (guest arm) | the flag is overwritten with `'off'` when the caller sent it **and the module is active** |
 | `PaymentController::processOrder`, `::whatsapp` | a request whose bag disagrees with the intake about `customer_id` is refused before anything is written |
 | `PaymentController::whatsapp` | the reward arm gates with `forOrder()` against `$final_price` and removes the flag on refusal |
-| `PaymentService::getProductStatus` | the COD balance read is **unchanged** (a first-version change here caused the leak; a note says not to tidy it); the PartialPayments arm removes the flag from the event's payload |
+| `PaymentController::prepareFinalRequestData` | when PartialPayments prices the checkout (the module is active, the shopper is signed in, `enable_partial_payment` is on) and the caller sent the flag, the redemption is withdrawn (`'off'`) **where it is stored** — so the COD writer, the stored state and the held gateway return all read `'off'` |
+| `PaymentService::getProductStatus` | **comments only** — the COD balance read is unchanged (a first-version change here caused the leak; a note says not to tidy it) and the PartialPayments arm needs no removal of its own, because the flag is already `'off'` when it is reached |
 | `RewardPointDiscount::isRedeemable` | also requires `order_points` numeric and ≥ 0 and `order_point_price` numeric and > 0 |
 | `tests/Unit/Loyalty/RewardRedemptionEligibilityTest` | the "zero call sites" census was updated **on purpose**: it now pins exactly two call sites, both in `PaymentController`, and names what is deliberately unwired |
 
 For an **eligible**, signed-in shopper the arithmetic is unchanged: the same `for()` balance, the same `applyTo()` bases.
-**For a store whose module is not active, exactly one thing of this change still runs:** the intake guard, a comparison that
-refuses a request whose `customer_id` was replaced by an uploaded file. (The guest override is gated on the module; it was
-not, and an earlier version of this sentence said no line ran, which was false.)
+**For a store whose reward module is not active, two inert things still run:** the intake guard (a comparison that refuses a
+request whose `customer_id` was replaced by an uploaded file), and — only for a store that also has PartialPayments switched on —
+the withdrawal of a flag that nothing reads. (The guest override is gated on the module; it was not, and an earlier version of this
+sentence said no line ran, which was false twice over.)
 
 ## 5. Evidence
 
-* **`tests/Feature/Commerce/RewardRedemptionCheckoutGateTest` — 30 tests, 116 assertions** (the review added the two file-part
-  refusals, five flag shapes that are not the string `on`, the module-off guest case and the PartialPayments arm). Driven through the real
+* **`tests/Feature/Commerce/RewardRedemptionCheckoutGateTest` — 34 tests, 139 assertions** (the reviews added the file-part
+  refusals — a file, a file array and an errored upload —, five flag shapes that are not the string `on`, the module-off guest
+  case, and the PartialPayments arm at the COD writer and at initiation). **The five flag-shape tests pin behaviour that already
+  held** (each fails the loose `== 'on'` and is stripped by `NormaliseRewardRedemptionFlag` on the pre-D6 tree too): they cannot
+  fail if a D6 change is reverted, and are listed as pins, not as evidence of a fix. Driven through the real
   `process-order` route with the module enabled **through the production loader** (`EnablesWorkdoModules`), because a
   suite that never loads the module cannot see this code. Two premise tests prove the module is reached (500 points →
   50.00 off a 100.00 basket, balance replaced by the order's accrual, the vendored ledger row written). Before the fix
   five of the nine first tests failed — a 40.00 basket was written at **0.00**, a switched-off programme still discounted.
   Every refusal test asserts the **balance as well as the total**, because the failure that matters is points spent for
   nothing.
-* **Mutation: 20 of 20 killed** (`/tmp` harness, files restored byte-for-byte, md5 checked): gate removed at the quote;
-  refusal override deleted; merge → body-only removal; accepted flag not canonicalised; value threshold disabled at the
-  quote; guest override deleted / made unconditional / un-gated from the module; WhatsApp value threshold disabled;
-  WhatsApp refusal not reaching the event; WhatsApp gate removed; intake guard deleted at either entry, made to never refuse,
-  made to always refuse; the PartialPayments arm leaving the flag in the event payload; the accrual requirement removed, a zero divisor allowed, a negative multiplier allowed, a zero
-  multiplier refused (`RewardRedemptionEligibilityTest`, 75 loyalty unit tests).
+* **Mutation: 25 of 25 killed** (`/tmp` harness, files restored byte-for-byte, md5 checked each time): the gate removed at the
+  quote; the refusal override deleted; the merge replaced by a body-only removal (a query-string copy survives); the accepted flag
+  not canonicalised; the value threshold disabled at the quote; the guest override deleted / made independent of whether the key was
+  sent / un-gated from the module; the WhatsApp value threshold disabled, its refusal not reaching the event, its gate removed, and
+  its customer taken from the stored state instead of the signed-in customer; the intake guard deleted at either entry, made
+  never to refuse, made always to refuse, made to compare string casts again (not total), stripped of its log line, and the
+  WhatsApp refusal answered with a redirect; the PartialPayments withdrawal at initiation removed or made independent of whether the
+  key was sent; and the four accrual-eligibility mutants in `RewardRedemptionEligibilityTest` (75 loyalty unit tests).
 * **What the review's finding looked like before the fix** (executed, both writers): `final 50.00 · balance 500 · ledger rows 0 · HTTP 500`.
 * **Not killable, and therefore not written:** a second `forOrder()` at the COD writer, propagation of a zero discount
-  there, and the `$orderCustomerId` read. All three are unreachable through HTTP once the intake guard holds (the quote has
-  already decided in the same request and the bag equals the principal), so none could fail a test — and the third was the bug.
+  there, a second removal of the flag in the COD writer's PartialPayments arm (initiation already withdrew it), and the
+  `$orderCustomerId` read. All are unreachable through HTTP once the intake guard and the initiation withdrawal hold, so none could
+  fail a test — and the last was the bug. (The first version of the PartialPayments fix was exactly such a second removal; the
+  second review's reading showed the initiation was the better place, and the writer-level line was deleted.)
 * **Executed versus read.** *Executed:* everything in §3 items 1–7 above, on SQLite. *Read, not executed:* the
   gateway-return rows of §2 and the principal-switch path in §6. The suite runs on SQLite with `CACHE_STORE=array`;
   nothing here touched MySQL.
@@ -167,9 +183,12 @@ changing their reward block is not a "small slice" and was not done.
 6. **The PartialPayments arm** never evaluates the reward branch (`PaymentService::getProductStatus`, the arm taken when that module
    is active for a signed-in customer with `enable_partial_payment` on), yet an eligible shopper's `'on'` still reached the
    event: the balance was replaced and **no discount was in the total** (executed: 500 → 10 points on a 10.00 deposit).
-   **Fixed at the COD / bank writer** — the arm now removes the flag from the event's payload, so the shopper keeps their points
-   and simply gets no discount on a deposit order (`test_an_eligible_redemption_is_not_spent_when_the_order_is_priced_by_partial_payments`,
-   mutation-killed). **Still open at the held generic gateway return**, which has the same arm; that handler is part of GAP-214.
+   **Fixed at initiation** (`prepareFinalRequestData()` withdraws the redemption from the stored state whenever PartialPayments
+   prices the checkout), so the shopper keeps their points and simply gets no discount on a deposit order, at the COD writer
+   **and** at the held generic gateway return, which has the same arm and is not touched
+   (`test_an_eligible_redemption_is_not_spent_when_the_order_is_priced_by_partial_payments`,
+   `test_the_partial_payments_initiation_withdraws_the_redemption_from_the_stored_state`; mutation-killed). Orders already in a
+   session when this ships carry the old `'on'` (item 8).
 7. **The refusal's `'off'` is stripped by `NormaliseRewardRedemptionFlag`, not by the quote.** The vendored listener treats
    `'off'` as truthy (`$flag ?? …` precedence), so the COD and stored-state paths depend on that first-party listener being
    registered (`AppServiceProvider`). It is covered (`RewardRedemptionFlagTest`), but it is a dependency, and the WhatsApp
@@ -179,6 +198,14 @@ changing their reward block is not a "small slice" and was not done.
 9. **A refusal is silent.** Where the Blade offers *Apply points* but the server refuses (programme off, or the boundary), the
    shopper may see a discounted total in the browser and be charged in full with no message. The server and the control
    agree on the thresholds but the control does not know about `club_point_enabled` or the accrual settings.
+11. **The debit is the last step of an unguarded post-commit tail, and that needs no attacker.** Between the order commit and
+    `event(new AddRewardClubPoint(...))` the COD and WhatsApp writers run other first-party and module code — the SMS
+    module's `SendMsg` (an unguarded dereference of a template that may not exist), `Utility::affiliateTransaction()` (a
+    null-user dereference), pre-order history. Anything there that throws leaves a **committed, discounted order and no debit**.
+    The file-part trigger was one way in; a merchant's SMS or affiliate configuration is another, and modules do not load in the
+    suite, so no test sees it. The structural answer is D4's obligation record (an unmatched discount becomes an auditable row),
+    or moving the debit ahead of that tail — a change to nine order writers that is the owner's to take. Not done.
+
 10. **Legacy customers with a NULL `store_id`** pass the storefront customer predicate; the quote has no tenant predicate of its
     own and relies on `cart_list()` refusing a foreign-store customer. Speculative; noted.
 

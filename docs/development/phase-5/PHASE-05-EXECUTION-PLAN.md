@@ -359,8 +359,8 @@ quote** (`PaymentController::processRewardPoints()`), from the signed-in custome
 a query-string copy survives a removal) so the stored state, the COD/bank writer and the event all read it. A guest's flag
 is overwritten at the guest arm (a guest checkout adopts whichever store customer owns the typed e-mail). The COD/bank
 writer now reads the signed-in customer's balance; the WhatsApp/Telegram writer — reachable by a direct POST — re-checks
-and removes the flag on refusal. `RewardRedemptionCheckoutGateTest`: 30 tests / 116 assertions through the real
-`process-order` route with the module enabled via the production loader; **20 of 20 mutants killed**. **An independent review
+and removes the flag on refusal. `RewardRedemptionCheckoutGateTest`: 34 tests / 139 assertions through the real
+`process-order` route with the module enabled via the production loader; **25 of 25 mutants killed**. **An independent review
 found a real leak in the first version** (a multipart file part named `customer_id` committed a discounted order and failed
 before the debit — executed: 50.00 on a 100.00 basket, balance 500, no ledger row) and it is fixed at the intake; the COD
 writer's code is therefore unchanged and carries a note not to "tidy" it. **Not done:** the

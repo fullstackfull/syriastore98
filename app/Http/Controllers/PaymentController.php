@@ -1164,8 +1164,8 @@ private function paymeraOrderHighWaterMark(mixed $storeId): int
  * `$pending['processed']` still false, and **no in-process marker of either**: not a return
  * value, not a binding, not a flag. The only witness is the row.
  *
- * (Measured anchors: `DB::beginTransaction()` :4163, `DB::commit()` :4338, `$owner->email`
- * :4394, `OrderCompleteBinding::remember()` :4483. Re-measured twice on 2026-10-30: F210's
+ * (Measured anchors: `DB::beginTransaction()` :4194, `DB::commit()` :4369, `$owner->email`
+ * :4425, `OrderCompleteBinding::remember()` :4514. Re-measured twice on 2026-10-30: F210's
  * ownership gate moved them 71 lines, then F216's guard above this method moved them 49 more.
  * Re-measured TWICE MORE on 2026-10-31, and the second time is the lesson: F237's attribution
  * call inside this very transaction moved the last three by 4; correcting THIS COMMENT then added
@@ -1904,9 +1904,9 @@ public function handlePaymeraTrigger00($orderId)
         $this->processBillingInfo($request, $customer->id, $store);
 
         // D6 STAGE 1, found by the independent review: the merge above is a body value and `Request::all()` lets a multipart
-        // FILE part of the same name replace it. See refuseACustomerIdTheIntakeCannotTrust().
-        if ($refusal = $this->refuseACustomerIdTheIntakeCannotTrust($request, $customer->id)) {
-            return $refusal;
+        // FILE part of the same name replace it. See customerIdTheIntakeCannotTrust().
+        if ($this->customerIdTheIntakeCannotTrust($request, $customer->id)) {
+            return redirect()->back()->with('error', __('Something went wrong.'));
         }
         
         // Validate payment type
@@ -2458,7 +2458,7 @@ public function handlePaymeraTrigger00($orderId)
     }
 
     /**
-     * REFUSE A REQUEST WHOSE BAG DISAGREES WITH THE INTAKE ABOUT WHO THE CUSTOMER IS.  D6 stage 1, found by independent review.
+     * DOES THE REQUEST BAG DISAGREE WITH THE INTAKE ABOUT WHO THE CUSTOMER IS?  D6 stage 1, found by independent review.
      * =========================================================================================
      *
      * The intake resolves the customer itself -- the signed-in one, the one a guest's typed e-mail names, or the one the
@@ -2477,23 +2477,38 @@ public function handlePaymeraTrigger00($orderId)
      * WHY THE TRIGGER AND NOT THE SYMPTOM. The same file also breaks whatever else reads the bag after the commit, so
      * patching one consumer would leave the class open. A request that disagrees with the intake about the customer cannot be
      * trusted to describe the order either, and today it writes an order and then answers HTTP 500 -- stock decremented,
-     * basket emptied, shopper told it failed. Refusing it before anything is written is strictly better for the shopper too.
+     * basket emptied, shopper told it failed. Refusing it before ANY ORDER is written is strictly better for the shopper too.
+     * (Not before ANYTHING: for a guest, `handleCustomerRegistration()` has already found or created the customer, and for
+     * `register=on` signed them in. Nothing a plain registration could not already do; the second review corrected the
+     * sentence that said otherwise.)
      *
-     * COMPARED AS STRINGS, because the merge stores the id as the caller's type and the bag may hold either. A guest with no
-     * customer at all is `''` on both sides.
+     * ONLY A SCALAR CAN AGREE. The first version compared `(string)` casts, and two shapes got past that. A file ARRAY
+     * (`customer_id[]`) made the cast itself an `Array to string conversion` -- which this application's error handler throws,
+     * so the guard answered HTTP 500 -- and an ERRORED UPLOAD (an oversize file, whose temporary name is empty) casts to `''`,
+     * which is exactly the id of a guest with no customer. A file part is an object and an array is an array; neither is an
+     * id, so neither is compared. Both are refused. An EMPTY file input arrives as nothing at all and is `''`, as before.
      *
      * KNOWN LIMIT, recorded in `GAP-214`: a file part can replace ANY field the intake merges (`slug`, `store_id`,
      * `payment_type`, ...). Only `customer_id` is closed here, because it is the one that decides whose balance moves.
      *
      * @param  mixed  $principalId  the id the intake resolved
      */
-    private function refuseACustomerIdTheIntakeCannotTrust(Request $request, $principalId): ?\Illuminate\Http\RedirectResponse
+    private function customerIdTheIntakeCannotTrust(Request $request, $principalId): bool
     {
-        if ((string) ($request->all()['customer_id'] ?? '') === (string) $principalId) {
-            return null;
+        $bag = $request->all()['customer_id'] ?? '';
+
+        if (is_scalar($bag) && (string) $bag === (string) $principalId) {
+            return false;
         }
 
-        return redirect()->back()->with('error', __('Something went wrong.'));
+        // The VALUE is not logged: it is an object (a file) or whatever a caller chose to send. Its type says what happened.
+        \Illuminate\Support\Facades\Log::warning('Checkout refused: the request named a customer the intake did not resolve', [
+            'path' => $request->path(),
+            'resolved_customer_id' => (string) $principalId,
+            'bag_type' => get_debug_type($bag),
+        ]);
+
+        return true;
     }
 
     /**
@@ -2977,6 +2992,22 @@ public function handlePaymeraTrigger00($orderId)
                     ->toArray();
                 
                 if (isset($settings['enable_partial_payment']) && $settings['enable_partial_payment'] == 'on') {
+                    /*
+                     * D6 STAGE 1, found by the independent reviews. THIS CHECKOUT IS PRICED BY THE MODULE -- a deposit, or the
+                     * outstanding balance of an earlier order -- and never by the reward discount `processRewardPoints()` may
+                     * have quoted a moment ago. Every writer that takes the PartialPayments arm (COD / bank transfer here,
+                     * and the held generic gateway return) leaves the discount OUT of the total while the flag stays 'on', so
+                     * the vendored listener replaced an eligible shopper's balance for a discount nobody received (executed:
+                     * 500 -> 10 points on a 10.00 deposit). The decision is therefore withdrawn HERE, where it is stored,
+                     * rather than patched in each writer: the stored state, the COD writer and the event all read this one
+                     * value, and the held return handler is not touched. Only when the caller sent the flag, so an ordinary
+                     * checkout's stored state keeps its shape. Same signed-in-customer and module-active conditions as the
+                     * writers' PartialPayments arm.
+                     */
+                    if ($request->has('club_point_is_active')) {
+                        $new_array['club_point_is_active'] = 'off';
+                    }
+
                     $param = [
                         'tax_price' => $new_array['tax_price'] ?? 0,
                         'shipping_price' => $new_array['shipping_final_price'] ?? 0,
@@ -4906,9 +4937,10 @@ $result = app(\App\Services\StoreNotificationService::class)
 
         // D6 STAGE 1, found by the independent review: a multipart FILE part named `customer_id` replaces the id merged just
         // above in `Request::all()`, and every `$request->customer_id` below -- the three order notes, whose `customer_id` is a
-        // foreign key -- then reads the file. See refuseACustomerIdTheIntakeCannotTrust().
-        if ($refusal = $this->refuseACustomerIdTheIntakeCannotTrust($request, $customer_id)) {
-            return $refusal;
+        // foreign key -- then reads the file. See customerIdTheIntakeCannotTrust(). Answered with the JSON envelope every other
+        // refusal in this method uses: its only browser caller is the AJAX in `payment/whatsapp.blade.php`, which reads `status`.
+        if ($this->customerIdTheIntakeCannotTrust($request, $customer_id)) {
+            return $this->error(['message' => __('Something went wrong.')]);
         }
 
         /*

@@ -3058,13 +3058,14 @@ $products_weight_array[] = [
             \Workdo\PartialPayments\app\Models\OrderPartialPayments::OrderPartialPayments($order, $slug, $request);
 
             /*
-             * D6 STAGE 1, found by the independent review. THIS ARM PRICES THE ORDER FROM THE MODULE'S DEPOSIT AND NEVER
-             * EVALUATES THE REWARD BRANCH BELOW, so no discount is in this total -- yet an eligible shopper's `'on'` still
-             * reached the event, and the vendored listener REPLACED their balance: points spent, nothing received (executed:
-             * RewardRedemptionCheckoutGateTest, balance 500 -> 10 on a 10.00 deposit). A refusal has to reach the event from
-             * EVERY arm that does not apply the discount, so the flag leaves the array the event is built from.
+             * D6 STAGE 1. THIS ARM PRICES THE ORDER FROM THE MODULE'S DEPOSIT AND NEVER EVALUATES THE REWARD BRANCH BELOW, so
+             * no discount is in this total. The flag has already been withdrawn for exactly this configuration at the
+             * initiation (`PaymentController::prepareFinalRequestData()`, same module / signed-in / setting conditions), so it
+             * is `'off'` in `$requests_data` here and the event takes its accrual branch. It is NOT removed again in this
+             * arm: a second removal could never disagree with the first, and a check that cannot fail is a trap. If this arm
+             * is ever reachable without that step, the shopper's points are spent for nothing -- the test that pins the first
+             * is `RewardRedemptionCheckoutGateTest::test_an_eligible_redemption_is_not_spent_when_the_order_is_priced_by_partial_payments`.
              */
-            unset($requests_data['club_point_is_active']);
         } else {
 
             /*
@@ -3083,7 +3084,7 @@ $products_weight_array[] = [
              * DO NOT "TIDY" THE NEXT LINE TO `$orderCustomerId`, and this is the reason it is spelled this way.
              * `$customer_id` is `$requests_data['customer_id']`, a request-bag key; `processOrder()` has already refused
              * any request whose bag disagrees with the signed-in customer about it (see
-             * `refuseACustomerIdTheIntakeCannotTrust()`), so here it equals the principal. The first version of this
+             * `customerIdTheIntakeCannotTrust()`), so here it equals the principal. The first version of this
              * slice read the principal directly and an independent review found the consequence: a multipart FILE part
              * named `customer_id` replaces the merged id in `Request::all()`, the discount was then priced from the
              * principal, and the post-commit `OrderNote` inserts -- whose `customer_id` is a foreign key -- failed on the

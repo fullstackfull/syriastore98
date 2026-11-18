@@ -151,10 +151,12 @@ use App\Events\AddRewardClubPoint;
  *
  * WHAT IT DELIBERATELY DOES NOT DO:
  *
- *   - IT DOES NOT ENFORCE ELIGIBILITY. `checkout_points` and `checkout_price` are still checked in
- *     Blade only, so a hand-crafted `club_point_is_active=on` still redeems below both thresholds.
- *     That is D6, and it is a separate slice with its own owner-approved policy content. Putting
- *     it here would make this class a decision-maker and reintroduce the drift risk above.
+ *   - IT DOES NOT ENFORCE ELIGIBILITY. That is D6, and it lives where the decision is made: the
+ *     quote (`PaymentController::processRewardPoints()`) and the WhatsApp / Telegram writer ask
+ *     `RewardPointDiscount::isRedeemable()` and write the answer back as `'on'` / `'off'` -- this class
+ *     is what strips the `'off'` before the vendored listener sees it. Putting the decision here would
+ *     make this class a decision-maker and reintroduce the drift risk above. (The gateway-return
+ *     handlers do not ask; GAP-214.)
  *   - IT DOES NOT REPAIR AN EXISTING BALANCE. D4 forbids retrospectively altering balances
  *     without separate approval, and the history needed to reconstruct them may not exist.
  *   - IT DOES NOT ABORT ANYTHING. There is no refusal path: the event is dispatched after the
