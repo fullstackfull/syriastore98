@@ -6234,3 +6234,57 @@ two counters that diverge permanently after any redemption. Turning on an accura
 | **P1-SEC-63a** | `loyality_program_json` else branch: no 401, no caller-to-store check, any slug | **CLOSED** — `resolveStoreCustomer()` + 401. Demonstrated with a merchant token, a driver token and a foreign shopper; 2 mutations redden. The first version of those tests passed on a 500 and was replaced |
 | **P1-SEC-63b** (isolation) | the `point` query summed reward points across every store | **CLOSED** — `store_id` predicate added. No figure moves, because the result is discarded; the point is that the trap is gone |
 | **P1-SEC-63b** (display) | the `point` figure is always `0.00`: `CAST(SUM(…))` with no `AS` alias | **OPEN — OWNER DECISION.** Fixing the alias makes a real but **mislabelled** figure: `SUM(orders.reward_points)` is lifetime points EARNED, never decremented, while the spendable balance is `customers.total_club_point`, which the module REPLACES on redemption. Pinned by a tripwire test so it cannot be "fixed" silently |
+
+---
+
+## P1-SEC-64 — any verified user could rewrite the email bodies every store sends (`PUT /email_template_lang/{id}`)
+
+**Found 2026-11-18 by the independent review of the email consent seam (D8-2a), and OUTSIDE that change.** The reviewer was asked a consent
+question — *can promotional text reach a customer inside a message classified as transactional?* — and the answer ran through an
+authorisation gap that has nothing to do with consent.
+
+### a) What was wrong
+
+`EmailTemplateController::updateEmailSettings($request, $id)` took any `email_templates.id` from the URL and rewrote its `from` and the
+subject and body of its language row — and **created** a language row if the template had none for the requested language. It checked
+nothing: no permission, no ownership. The route (`routes/web.php:918`) sits behind `auth`, `xss`, `setlocate` and `verified`, which any
+merchant account that has confirmed its email address satisfies. (`xss` strips only `&lt;`, `&gt;`, `javascript` and `alert`, so HTML passes.)
+
+**The screen that edits templates was always the platform operator's** — `emailTemplate()` lists only `created_by = Auth::id()`, and
+`P01-EMAIL-TEMPLATE-TENANCY-PROPOSAL.md` says so — **but the route behind it was not**. And the six host templates are **one platform-global
+row each** (`EmailTemplateOwnerResolutionTest`: "one body per template for the whole platform"), so the blast radius was every store:
+
+* a merchant who had never been shown the screen could `PUT` their own HTML — a link, a form, a "pay here" button — into the **order
+  confirmation, the status-change notice and the owner notice that every other store's customers receive**, sent from each store's own SMTP
+  identity, which is what makes it persuasive;
+* the seven module copies of this write (ProductCatelog and the others) were fixed earlier with an ownership guard (`owner:email-template`,
+  `ModuleAdministrativeRouteGuard`); **the host's own route never was**;
+* it also let a merchant rewrite **another merchant's** per-tenant module template, and the read side (`manageEmailLang`) served any template to
+  any verified user.
+
+**Why it is also a consent finding.** `MailSenderRegistry` decides what a message is *for* from the template's **name**; its **body** is data. Whoever
+could write the body of `Order Created` could make a receipt carry a promotion, and nothing at the mail layer could tell. Closing this closes the
+easy route to that, not the hard one (the operator is trusted to write what they like).
+
+### b) What was done
+
+`updateEmailSettings` and `manageEmailLang` now require `email_templates.created_by = Auth::id()` — the rule the listing screen already follows —
+**before** validation and before anything is created, and answer `Permission Denied.` otherwise. The platform operator, who owns the six host
+templates, and a merchant, who owns the per-tenant rows their own modules seeded, keep exactly the access the UI gave them.
+`tests/Feature/Security/EmailTemplateWriteOwnershipTest.php` (8 tests): measured BEFORE the fix — four of the eight failed (a merchant rewrote the
+platform-wide template, rewrote another merchant's, a refused write still created a language row, a merchant read a template that was not theirs);
+**4 of 4 reverts of the fix make a test fail**, including moving the check to after the row is created.
+
+### c) What is deliberately not done
+
+* The per-tenant module template **resolution** (`EmailTemplate::where('name', 'LIKE', …)->first()` picking the lowest-id tenant's row) is a different
+  defect, analysed in `P01-EMAIL-TEMPLATE-TENANCY-PROPOSAL.md` and `EmailTemplateOwnerResolutionTest`; it is not changed here.
+* The platform operator cannot edit a tenant's module template through this route (ownership is strict, as on the screen). If the owner wants that, it is a
+  deliberate addition, not something this fix removes.
+* Nothing here checks the **content** written by an authorised editor.
+
+### Status
+
+| id | finding | state |
+|---|---|---|
+| **P1-SEC-64** | `PUT /email_template_lang/{id}` rewrites any template's `from`, subject and body for any verified user; the edit screen reads any template | **CLOSED** in this branch — ownership predicate on both, before validation; 8 tests, 4 mutations redden. **Needs the human security checklist like every authorisation change.** |

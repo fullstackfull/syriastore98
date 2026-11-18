@@ -69,8 +69,14 @@ class EmailTemplateController extends Controller
 
     public function manageEmailLang($id, $language = 'en')
     {
+        // The same rule as the write (P1-SEC-64): the screen opens for the owner of the template and for no one else.
+        $emailTemplate     = EmailTemplate::where('id', '=', $id)->where('created_by', \Auth::id())->first();
+
+        if ($emailTemplate === null) {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
         $languages         = Utility::languages();
-        $emailTemplate     = EmailTemplate::where('id', '=', $id)->first();
         $currEmailTempLang = EmailTemplateLang::where('parent_id', '=', $id)->where('language', $language)->first();
 
         if(!isset($currEmailTempLang) || empty($currEmailTempLang))
@@ -86,8 +92,24 @@ class EmailTemplateController extends Controller
         return view('email_templates.show', compact('emailTemplate', 'languages', 'currEmailTempLang','EmailTemplates'));
     }
 
+    /**
+     * P1-SEC-64. A TEMPLATE IS EDITED BY THE USER WHO OWNS IT, and until now nothing said so.
+     *
+     * The content-editing screen was always the platform operator's -- {@see self::emailTemplate()} lists only `created_by = Auth::id()` --
+     * but this write took any template id from the URL behind nothing but `auth` and `verified`. The six host templates are ONE platform-global
+     * row each (see EmailTemplateOwnerResolutionTest), so any verified merchant could PUT their own HTML into the order confirmation every other
+     * store's customers receive, or rewrite another merchant's module template. A merchant legitimately owns only the per-tenant rows their own
+     * modules seeded; the platform operator owns the six host templates. The ownership is checked BEFORE validation and before anything is
+     * created, so a refused write leaves no row behind.
+     */
     public function updateEmailSettings(Request $request,$id)
     {
+        $owned = EmailTemplate::where('id', $id)->where('created_by', \Auth::id())->first();
+
+        if ($owned === null) {
+            return redirect()->back()->with('error', __('Permission Denied.'));
+        }
+
         $validator = \Validator::make(
             $request->all(), [
                                'from' => 'required',
