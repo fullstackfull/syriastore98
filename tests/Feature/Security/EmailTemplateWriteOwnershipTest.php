@@ -15,8 +15,9 @@ use Illuminate\Support\Facades\DB;
  * ownership check, behind nothing but `auth`, `xss`, `setlocate` and `verified`. The content-editing SCREEN was always the platform operator's
  * -- `emailTemplate()` lists only `created_by = Auth::id()` -- and the six host templates are ONE platform-global row each
  * (`EmailTemplateOwnerResolutionTest`: "one body per template for the whole platform"), so a merchant who has never been shown the screen could
- * PUT to it and put their own HTML into the order confirmation that every other store's customers receive. The seven module copies of this same
- * write were fixed earlier with an ownership guard; the host's own route was not.
+ * PUT to it and put their own HTML into the order confirmation that every other store's customers receive. SIX of the module copies of this same
+ * write carry an ownership guard (`ModuleRouteManifest` `owner:email-template`); the seventh, LotteryPrizes, did not until P1-SEC-64b, and the host's
+ * own route did not either.
  *
  * THE RULE, the one the screen already follows: a template is edited by the user who owns it. The platform operator owns the six host templates;
  * a merchant owns the per-tenant rows their own modules seeded.
@@ -138,7 +139,36 @@ class EmailTemplateWriteOwnershipTest extends SecurityTestCase
         $admin = $this->makePlatformAdmin();
         [$template] = $this->template('Order Created', $admin->id);
 
-        $this->put(route('updateEmail.settings', $template->id), $this->payload())->assertRedirect();
+        // The TARGET is asserted, not just "a redirect": without the `auth` middleware the handler itself answers with `redirect()->back()` and leaves
+        // the row alone (a null id matches no NOT NULL created_by), so a bare assertRedirect() passed with the middleware removed. A guest is sent to
+        // the login page by `auth` and by nothing else.
+        $this->put(route('updateEmail.settings', $template->id), $this->payload())->assertRedirect(route('login'));
         $this->assertSame('original@example.test', DB::table('email_templates')->where('id', $template->id)->value('from'));
+    }
+
+    /**
+     * P1-SEC-64b. THE READ SCREEN HAD NO OWNER FILTER. `emailTemplate()` rendered `EmailTemplate::first()` -- the lowest id in the table, which is a
+     * platform-wide template -- to any verified user, inside a form whose action targets a row they cannot write. Only the dropdown beside it was
+     * filtered by owner, and the write-up said the screen "lists only created_by = Auth::id()".
+     */
+    public function test_the_read_screen_does_not_show_a_user_a_template_they_do_not_own(): void
+    {
+        $admin = $this->makePlatformAdmin();
+        [$merchant] = $this->makeTenant();
+        $this->template('Order Created', $admin->id);          // the platform-wide row, body '<p>ORIGINAL BODY</p>'
+
+        $response = $this->actingAs($merchant)->get(route('email_template'));
+
+        $this->assertStringNotContainsString('ORIGINAL BODY', (string) $response->getContent(), "The platform-wide template's body was rendered to a merchant who does not own it.");
+        $response->assertRedirect();
+        $response->assertSessionHas('error');
+    }
+
+    public function test_the_read_screen_still_shows_a_user_their_own_template(): void
+    {
+        [$merchant] = $this->makeTenant();
+        $this->template('Review Reminder', $merchant->id);
+
+        $this->actingAs($merchant)->get(route('email_template'))->assertOk()->assertSee('ORIGINAL BODY', false);
     }
 }

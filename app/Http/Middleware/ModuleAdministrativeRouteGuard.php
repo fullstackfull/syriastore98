@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Http\Middleware\Concerns\ComparesRowOwnership;
 use App\Models\User;
+use App\Policies\UserPolicy;
 use App\Services\StoreSettingsAccess;
 use App\Support\ModuleRouteManifest;
 use Closure;
@@ -60,7 +61,8 @@ use Symfony\Component\HttpFoundation\Response;
  *
  * The operator is tested FIRST in every ownership rule: Laratrust has no super-admin bypass and the operator holds no merchant role.
  *
- * "Tenant" is `User::creatorId()` equality, never a request-supplied id.
+ * "Tenant" is `User::creatorId()` equality, never a request-supplied id -- AND the tenant root must be a MERCHANT (a type-`admin` user), the rule
+ * UserPolicy::sameTenant() and ThemeEditorGate already follow. A root of 1 is the platform operator, not a tenant: see sameTenant().
  */
 class ModuleAdministrativeRouteGuard
 {
@@ -226,6 +228,23 @@ class ModuleAdministrativeRouteGuard
         // a user with NO tenant (creatorId() null/0, e.g. a NULL created_by) is nobody's colleague: (int) null === (int) null would otherwise
         // make any two such users "the same tenant"
         if ($otherUserId === null || (int) $user->creatorId() <= 0) {
+            return false;
+        }
+
+        // A USER IS ALWAYS THEIR OWN COLLEAGUE, whatever their tenant root (UserPolicy::sameTenant()'s first limb): the creator of a row keeps it. A
+        // demoted merchant, or staff of one, still edits the templates, tickets and campaigns they themselves created; only the OTHER side of the
+        // comparison is refused them below.
+        if ($otherUserId === (int) $user->id) {
+            return true;
+        }
+
+        // THE TENANT ROOT MUST BE A MERCHANT (P1-SEC-64b; the same rule P0-TENANT-ROOT put in UserPolicy::sameTenant() and ThemeEditorGate).
+        // `creatorId()` equality alone treated a root of 1 as a tenant: every merchant has created_by = 1, and a merchant can demote their own
+        // `type`, which drops their `creatorId()` to 1 -- the operator's own id, and the `creatorId()` the operator's rows resolve to. That user was then
+        // "the same tenant" as the operator and passed every ownership rule here for the operator's campaigns, tickets and (platform-wide) e-mail
+        // templates. A user rooted at the operator -- a demoted merchant, or staff the operator created -- is nobody's colleague; the operator
+        // themselves is admitted before any rule is asked (handle()).
+        if (! UserPolicy::tenantRootIsAMerchant((int) $user->creatorId())) {
             return false;
         }
 

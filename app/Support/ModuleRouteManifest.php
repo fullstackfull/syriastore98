@@ -170,6 +170,10 @@ final class ModuleRouteManifest
         'POST linkedin-setting' => 'settings:global',
         'POST lottery-order-return' => 'auth',
         'POST lottery-order-status-change/{id}' => 'auth',
+        // P1-SEC-64b: the SEVENTH template door. LotteryPrizes' handlers read and rewrite EmailTemplate::where('id', $id) with no ownership check, behind only
+        // `auth` and its plan check -- the write-up said seven module copies were guarded; this table named six.
+        'GET lottery_email_lang/{id}/{lang?}' => 'owner:email-template',
+        'PUT lottery_email_lang/{id}' => 'owner:email-template',
         'POST mail-settings' => 'auth',
         'GET mail-settings/create' => 'auth',
         'DELETE marketing/store/domain-store/{id}' => 'settings:global',

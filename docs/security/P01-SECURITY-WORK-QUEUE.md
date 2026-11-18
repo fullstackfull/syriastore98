@@ -6248,17 +6248,21 @@ authorisation gap that has nothing to do with consent.
 `EmailTemplateController::updateEmailSettings($request, $id)` took any `email_templates.id` from the URL and rewrote its `from` and the
 subject and body of its language row — and **created** a language row if the template had none for the requested language. It checked
 nothing: no permission, no ownership. The route (`routes/web.php:918`) sits behind `auth`, `xss`, `setlocate` and `verified`, which any
-merchant account that has confirmed its email address satisfies. (`xss` strips only `&lt;`, `&gt;`, `javascript` and `alert`, so HTML passes.)
+signed-in web user satisfies: the `verified` alias enforces email verification only while the platform setting `email_verification` is `on`
+(`EmailIsVerified`), so the reach was **any signed-in user, staff included** — and, with the setting on, any whose address is confirmed. *(An earlier version of this
+section said "any verified user"; the independent review of the fix measured the wider reach — see P1-SEC-64b.)* (`xss` strips only `&lt;`, `&gt;`, `javascript` and `alert`, so HTML passes.)
 
-**The screen that edits templates was always the platform operator's** — `emailTemplate()` lists only `created_by = Auth::id()`, and
+**The screen that edits templates was always the platform operator's** — its menu entry is the operator's, and the dropdown beside the form lists only
+`created_by = Auth::id()` (**but the template the form showed was `EmailTemplate::first()`, which was not owner-filtered: P1-SEC-64b**), and
 `P01-EMAIL-TEMPLATE-TENANCY-PROPOSAL.md` says so — **but the route behind it was not**. And the six host templates are **one platform-global
 row each** (`EmailTemplateOwnerResolutionTest`: "one body per template for the whole platform"), so the blast radius was every store:
 
 * a merchant who had never been shown the screen could `PUT` their own HTML — a link, a form, a "pay here" button — into the **order
   confirmation, the status-change notice and the owner notice that every other store's customers receive**, sent from each store's own SMTP
   identity, which is what makes it persuasive;
-* the seven module copies of this write (ProductCatelog and the others) were fixed earlier with an ownership guard (`owner:email-template`,
-  `ModuleAdministrativeRouteGuard`); **the host's own route never was**;
+* **six** of the seven module copies of this write (ProductCatelog and the others) carry an ownership guard (`owner:email-template`,
+  `ModuleAdministrativeRouteGuard`); **the host's own route never did, and neither did the seventh, LotteryPrizes (P1-SEC-64b)** — an earlier version of this
+  bullet said "fixed earlier" for all seven, which the manifest does not support;
 * it also let a merchant rewrite **another merchant's** per-tenant module template, and the read side (`manageEmailLang`) served any template to
   any verified user.
 
@@ -6287,4 +6291,60 @@ platform-wide template, rewrote another merchant's, a refused write still create
 
 | id | finding | state |
 |---|---|---|
-| **P1-SEC-64** | `PUT /email_template_lang/{id}` rewrites any template's `from`, subject and body for any verified user; the edit screen reads any template | **CLOSED** in this branch — ownership predicate on both, before validation; 8 tests, 4 mutations redden. **Needs the human security checklist like every authorisation change.** |
+| **P1-SEC-64** | `PUT /email_template_lang/{id}` rewrites any template's `from`, subject and body for any signed-in user | **CLOSED for the host route** — ownership predicate before validation; 8 tests. **Incomplete as first reported: see P1-SEC-64b.** |
+| **P1-SEC-64b** | the second doors an independent review of that fix found (below) | **CLOSED in this branch** (items 1–6); mutation 10 of 10 killed |
+| **P1-SEC-65** | PDFVouchers `POST coupencode/Status/store` — cross-tenant status write + email send | **OPEN** — recorded, not fixed |
+
+**Both authorisation changes need the human security checklist.** Nothing here has been deployed.
+
+---
+
+## P1-SEC-64b — the second doors the independent review of the fix found
+
+**Found 2026-11-18 by an independent, read-only review of the P1-SEC-64 fix**: three lenses (second doors, predicate soundness, legitimate use), each finding then put
+to two skeptics — one trying to refute it from the code, one reproducing it on paper. **The result file was truncated by a full disk.** The three lens reports and 26
+skeptic verdicts survived in the workflow journal; **the skeptic verdicts for the third lens were lost**. So everything below that was acted on was **re-verified by me
+against the code, and the three changes in behaviour were executed before the fix** — each new test failed first, passes now, and fails again when its fix is reverted.
+Agent findings are claims, not facts.
+
+### a) What the review found, how it was verified, and what was done
+
+| # | finding | severity | verified | disposition |
+|---|---|---|---|---|
+| 1 | **A seventh module door.** LotteryPrizes' `PUT lottery_email_lang/{id}` and `GET lottery_email_lang/{id}/{lang?}` read and rewrite `EmailTemplate::where('id', $id)->first()` with no ownership check, behind only `auth` and the plan check, and were in no table of `ModuleRouteManifest`. The P1-SEC-64 write-up said seven module copies were guarded; **six were**. | HIGH while the module is enabled for any non-operator plan | read both handlers; **executed** — a merchant rewrote the platform-wide template through it | **FIXED**: two `owner:email-template` entries in `ModuleRouteManifest` (first-party; nothing in `packages/workdo/` touched) |
+| 2 | **The module guard's own copy of the tenant rule.** `ModuleAdministrativeRouteGuard::sameTenant()` was `creatorId()` equality alone — the rule `UserPolicy` and `ThemeEditorGate` were corrected away from in P0-TENANT-ROOT. A user **rooted at the operator** (a merchant who demoted themselves, or staff the operator created) has the operator's `creatorId()`, so the operator's rows were "their tenant's" for every rule that function decides: **e-mail templates, campaigns and helpdesk tickets**. | HIGH | read; **executed** for all three rules, and with a fixture whose root is a demoted merchant who is *not* user 1 (a narrower "root is user 1" check survives without it) | **FIXED**: the tenant root must be a merchant (`UserPolicy::tenantRootIsAMerchant()`, the one shared predicate), and a user is always their own colleague (a row's creator keeps it, as `UserPolicy::sameTenant()`'s first limb) |
+| 3 | `GET /email_template_lang/{lang?}` rendered `EmailTemplate::first()` — the lowest id, a platform-wide template — to any signed-in user, inside a form whose action targets a row they cannot write. Only the dropdown beside it was owner-filtered. | MEDIUM (customer-facing boilerplate, not a secret) | **executed** — a merchant was served the platform template's body | **FIXED**: the screen shows the caller's own first template. `EmailTemplateEmptyStateTest`'s populated cases now use the template's owner as the viewer (they had relied on a viewer who did not own it, and the "no language row" case would have silently stopped reaching its second null branch) |
+| 4 | `test_a_guest_is_sent_to_log_in` could not fail: with `auth` removed the handler still answered a redirect and left the row alone. | LOW (test gap) | mutation: remove `auth` from the route group | **FIXED**: asserts the redirect *target*; the mutant is killed |
+| 5 | The route census judged only module routes with **no** authentication middleware, so an authenticated template writer was never looked at — the reason item 1 survived. | LOW | read `RouteCensusGateTest` | **FIXED**: every module route whose URI or handler names an e-mail template (17 today) must be `owner:email-template`, two named exceptions with reasons, a non-vacuity floor, and a synthetic self-test that includes "a weaker rule does not satisfy it" |
+| 6 | This write-up overstated: "seven module copies" (six); "any verified user" (the `verified` alias enforces only while `email_verification` is `on`); "the screen lists only the owner's" (item 3). | — | read | **CORRECTED** above |
+
+**A consequence worth stating plainly.** `sameTenant()` is shared, so a user whose tenant root is **not a merchant** — a demoted merchant, or **staff the platform operator
+created** — no longer passes `owner:email-template`, `owner:campaign` or `owner:helpdesk-ticket` for rows someone else owns in that broken tenant. They still pass for rows
+they created themselves; the operator is admitted first and is unaffected. If the platform has operator-created staff who are meant to handle operator-owned tickets or
+campaigns through these module screens, they now need the operator — the same choice `UserPolicy` made. **Owner: please confirm whether such staff exist** (read-only:
+`SELECT id, type FROM users WHERE created_by = <operator id> AND type NOT IN ('admin','super admin')`).
+
+### b) Recorded, not changed
+
+* **P1-SEC-65 (NEW, OPEN) — PDFVouchers `POST coupencode/Status/store` (`MailSettingController::status`).** It takes a `coupon_requests` id from the body, applies no store
+  predicate, and sits behind the manifest rule `auth` only (P1-SEC-04 closed the anonymous half; the cross-tenant half never was). Any signed-in merchant can set the status of
+  **another tenant's** coupon request and, on `accept`, make the platform send **their own** coupon PDF to that tenant's customer's address from their own SMTP identity.
+  **Verified by reading; not yet executed.** The fix is a guard rule that reads the body id strictly (digits only, never a file part) and compares `coupon_requests.store_id` with
+  the caller's current store — the vendored handler cannot be edited. Not done here: it adds a rule type to the guard and deserves its own tests and review.
+* `updateEmailNotificationStatus` (`POST /email-notification-status`): own `user_email_templates` rows only, so no cross-tenant write, but every posted key is used as a template id
+  unchecked — an unknown key makes the handler throw after it has switched **all** the caller's toggles off. Self-inflicted; not a security finding.
+* The vendored `manage*EmailLang` **GET** handlers change state (`is_default`, the caller's `is_active`) and carry no CSRF token. They act on the caller's own rows, so this is
+  request-forgery hygiene in code this repository does not own.
+* `manageEmailLang` answers 500 for the owner when the template has no row in the requested language **or** `en` (the view dereferences null). Pre-existing; the production dump
+  ships six templates and five language rows, so the operator can reach it. The row is created by saving the very form that screen fails to render, so a guard alone would not
+  help — a UX decision.
+* The per-tenant module template **resolution by name** (the lowest-id tenant's row serves everyone) is unchanged: `P01-EMAIL-TEMPLATE-TENANCY-PROPOSAL.md`.
+* Three ownership rules across three doors (host: the row's creator only; module doors: the operator, or the same tenant including staff). Recorded so nobody reads them as one.
+
+### c) Owner questions — read-only production checks; none is decided here
+
+1. **Does the operator's `users.id` equal `email_templates.created_by` on the six platform rows?** The host screen and both handlers key on that column. If it does not, the
+   operator is locked out of the one screen that exists for them — fail-closed, and the listing already depended on the same predicate, so not a new dependency, but unverified
+   from here. `SELECT id, name, created_by FROM email_templates; SELECT id FROM users WHERE type = 'super admin';`
+2. **Are `LotteryPrizes` and the other six template modules enabled in `add_on_managers`, and on which plans?** That decides whether the Lottery door was ever reachable by a non-operator.
+3. **Does the platform have operator-created staff?** (see the consequence above).

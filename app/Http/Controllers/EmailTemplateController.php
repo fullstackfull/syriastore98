@@ -22,7 +22,9 @@ class EmailTemplateController extends Controller
     {
         // $usr = \Auth::user();
         $languages         = Utility::languages();
-        $emailTemplate     = EmailTemplate::first();
+        // P1-SEC-64b: the template shown is the caller's OWN, like the dropdown below and the write. This was `EmailTemplate::first()` -- the lowest id in the
+        // table, a platform-wide template -- rendered to any verified user inside a form whose action targets a row they cannot write.
+        $emailTemplate     = EmailTemplate::where('created_by', \Auth::id())->first();
 
         /* P2.5 -- AN EMPTY TABLE WAS A 500, NOT AN EMPTY STATE.
            =========================================================================================
