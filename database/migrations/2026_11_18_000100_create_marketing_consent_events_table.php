@@ -89,7 +89,9 @@ return new class extends Migration
             $table->string('actor_type', 16)->nullable();
             $table->unsignedBigInteger('actor_id')->nullable();
 
-            /* When the person acted, which for an import differs from when the row was written. */
+            /* When the person acted. The fold that decides a contact's state is ALWAYS by `id` (the order the events were written under the
+               contact's lock), never by this column: an imported old `granted` would otherwise fold BEFORE a newer withdrawal, and an
+               importer must be written knowing it folds AFTER. ConsentLedger cannot set this column today (it is `now()`). */
             $table->timestamp('occurred_at')->nullable();
 
             /* `created_at` only. See the docblock. */

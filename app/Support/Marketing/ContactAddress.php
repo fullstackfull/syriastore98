@@ -16,12 +16,25 @@ namespace App\Support\Marketing;
  * namespaced by store and channel so the same person at two merchants, or on two channels, is two
  * independent decisions -- consent is never shared across tenants.
  *
- * KNOWN LIMIT, recorded rather than smoothed over. Phone numbers are compared as the digits the
- * merchant stored. `0912345678` and `963912345678` are the same handset and two different keys
- * here; making them one needs the customer's country, which this repository does not reliably
- * hold. The failure is in the safe direction for marketing -- a mismatch reads as "no consent" and
- * the send is held -- and a customer who opted in under one spelling is simply not recognised under
- * the other until the spelling is reconciled.
+ * THE HASH IS PART OF EVERY STORED ROW, SO ITS RECIPE IS PART OF THE DATA. `hash()` and `normalise()` together decide which
+ * stored decision a message is checked against. Changing either -- most likely to make phone numbers canonical, below --
+ * silently re-keys every grant, withdrawal and suppression already written: the old rows become unreachable, the contact
+ * reads as `none` (held, which is safe), but an old WITHDRAWAL or SUPPRESSION is then invisible and a fresh opt-in under the
+ * new key reads `granted` (which is not). `ContactAddressTest::test_the_recipe_is_pinned_by_known_answers` fails on any such
+ * change, so it is made on purpose, together with a migration that re-keys the stored rows.
+ *
+ * KNOWN LIMIT, recorded rather than smoothed over, and an earlier version of this paragraph understated it. Phone numbers
+ * are compared as the digits the merchant stored. `0912345678` and `963912345678` are the same handset and two different
+ * keys here; making them one needs the customer's country, which this repository does not reliably hold and for which no
+ * phone-number library is installed. The two directions are NOT alike:
+ *
+ *   * a missing GRANT under the other spelling reads as "no consent" and the send is held. That is the safe direction.
+ *   * a WITHDRAWAL or SUPPRESSION recorded under one spelling (a provider's STOP webhook arrives in international form, a
+ *     merchant types the local form) is invisible to a send addressed under the other, so a person who opted out is still
+ *     `granted` to the sender. That is NOT safe, and it is why no phone channel may be switched to `enforce` until phone
+ *     identity is made canonical (an owner decision: a store-level default country plus a library such as libphonenumber).
+ *
+ * An unsubscribe TOKEN does not have the problem, because it is issued for the exact normalised address the message went to.
  */
 final class ContactAddress
 {
@@ -50,31 +63,41 @@ final class ContactAddress
         return hash('sha256', $storeId.'|'.$channel->value.'|'.$normalised);
     }
 
-    /** A form safe to show a person or print in an audit view: enough to recognise, not enough to use. */
+    /** The longest run of `*` a mask shows. A push token can be 4096 characters; the hint column holds 191. */
+    private const MASK_MAX_STARS = 12;
+
+    /** A form safe to show a person or print in an audit view: enough to recognise, not enough to use. Always fits `address_hint`. */
     public static function mask(Channel $channel, string $normalised): string
     {
         if ($channel === Channel::Email && str_contains($normalised, '@')) {
             [$local, $domain] = explode('@', $normalised, 2);
 
-            return mb_substr($local, 0, 1).'***@'.$domain;
+            return mb_substr(mb_substr($local, 0, 1).'***@'.$domain, 0, 191);
         }
 
         $length = mb_strlen($normalised);
 
-        return $length <= 4 ? str_repeat('*', $length) : str_repeat('*', $length - 4).mb_substr($normalised, -4);
+        return $length <= 4 ? str_repeat('*', $length) : str_repeat('*', min($length - 4, self::MASK_MAX_STARS)).mb_substr($normalised, -4);
     }
 
     private static function email(string $raw): ?string
     {
-        $email = mb_strtolower($raw);
+        // VALIDATE THE STRING AS GIVEN, THEN FOLD CASE. The first version lower-cased first, and `mb_strtolower` maps the KELVIN SIGN
+        // (U+212A) to an ASCII `k`, so a non-ASCII address validated as a different, ASCII one and shared its key. `FILTER_VALIDATE_EMAIL`
+        // accepts no non-ASCII character, so validating first refuses it; and once the string is known to be ASCII, `strtolower` is exact.
+        if (filter_var($raw, FILTER_VALIDATE_EMAIL) === false) {
+            return null;
+        }
 
-        return filter_var($email, FILTER_VALIDATE_EMAIL) === false ? null : $email;
+        return strtolower($raw);
     }
 
     private static function phone(string $raw): ?string
     {
-        // `+963 912-345 678`, `00963912345678` and `(963) 912 345 678` are all the same digits.
-        $digits = preg_replace('/\D+/', '', $raw) ?? '';
+        // `+963 912-345 678`, `00963912345678` and `(963) 912 345 678` are all the same digits. Arabic-Indic, Persian and full-width
+        // digits are digits too: `\D` below works on BYTES (no `u` modifier) and would DELETE every one of them, turning an all-Arabic
+        // number into nothing and a partly-Arabic one into a shorter, valid-looking number that is somebody else's key.
+        $digits = preg_replace('/\D+/', '', self::asciiDigits($raw)) ?? '';
 
         if (str_starts_with($digits, '00')) {
             $digits = substr($digits, 2);
@@ -83,6 +106,24 @@ final class ContactAddress
         $length = strlen($digits);
 
         return ($length >= 7 && $length <= 15) ? $digits : null;
+    }
+
+    /** Arabic-Indic (U+0660..), Extended Arabic-Indic (U+06F0.., Persian and Urdu) and full-width (U+FF10..) digits to 0-9. */
+    private static function asciiDigits(string $text): string
+    {
+        static $map = null;
+
+        if ($map === null) {
+            $map = [];
+
+            foreach ([0x0660, 0x06F0, 0xFF10] as $zero) {
+                for ($digit = 0; $digit < 10; $digit++) {
+                    $map[mb_chr($zero + $digit, 'UTF-8')] = (string) $digit;
+                }
+            }
+        }
+
+        return strtr($text, $map);
     }
 
     private static function deviceToken(string $raw): ?string

@@ -6,10 +6,15 @@ use Illuminate\Database\Eloquent\Builder;
 use LogicException;
 
 /**
- * A builder that only ever reads and inserts. The model events of an append-only model guard the
- * INSTANCE path (`$event->save()`, `$event->delete()`); a mass statement such as
- * `Model::where(...)->update([...])` never loads an instance and so never fires them. This closes
- * that path. It is a guard against accidents and against well-meaning code, not against raw SQL.
+ * The Eloquent builder of an append-only model: it refuses the mass statements BY NAME, with a message that says the table
+ * is append-only. The model events of such a model guard the INSTANCE path (`$event->save()`, `$event->delete()`); a mass
+ * statement such as `Model::where(...)->update([...])` never loads an instance and so never fires them. This closes the
+ * ones listed here.
+ *
+ * IT IS NOT THE WHOLE GUARANTEE, and an earlier version of this comment said it was. A list of method names cannot be
+ * exhaustive (`touch()`, `updateOrInsert()`, `incrementEach()` and `decrementEach()` were missing), so the model also
+ * returns {@see AppendOnlyQueryBuilder}, which refuses at the statement level where all of them end. This class remains for
+ * the clearer message. Neither is a defence against raw SQL.
  */
 class AppendOnlyEloquentBuilder extends Builder
 {

@@ -317,4 +317,81 @@ class ConsentLedgerTest extends TestCase
         $this->assertSame(1, DB::table('marketing_consent_events')->count());
         $this->assertSame('granted', DB::table('marketing_consent_events')->value('event'));
     }
+
+    public function test_every_statement_that_ends_in_an_update_or_delete_is_refused_even_the_ones_nobody_named(): void
+    {
+        // An independent review found four UPDATE paths the by-name list missed: touch(), updateOrInsert(), incrementEach() and
+        // decrementEach() -- and toBase(), which hands out the query builder itself. They all end in Query\Builder::update()/delete(),
+        // which the model's own query builder now refuses, so the property no longer depends on someone having thought of the name.
+        $this->ledger()->grant(self::STORE, Channel::Email, self::EMAIL, 'account_settings');
+        $id = (int) DB::table('marketing_consent_events')->value('id');
+
+        foreach ([
+            'touch' => fn () => MarketingConsentEvent::query()->touch('occurred_at'),
+            'updateOrInsert' => fn () => MarketingConsentEvent::query()->updateOrInsert(['id' => $id], ['event' => 'withdrawn']),
+            'incrementEach' => fn () => MarketingConsentEvent::query()->incrementEach(['actor_id' => 1]),
+            'decrementEach' => fn () => MarketingConsentEvent::query()->decrementEach(['actor_id' => 1]),
+            'toBase()->update' => fn () => MarketingConsentEvent::query()->toBase()->update(['event' => 'withdrawn']),
+            'toBase()->delete' => fn () => MarketingConsentEvent::query()->toBase()->delete(),
+            'toBase()->truncate' => fn () => MarketingConsentEvent::query()->toBase()->truncate(),
+            'getQuery()->update' => fn () => MarketingConsentEvent::query()->getQuery()->update(['source' => 'tampered']),
+            'withoutGlobalScopes()->update' => fn () => MarketingConsentEvent::withoutGlobalScopes()->update(['source' => 'tampered']),
+        ] as $path => $attempt) {
+            try {
+                $attempt();
+                $this->fail("{$path} reached the append-only table");
+            } catch (LogicException $e) {
+                $this->assertStringContainsString('append-only', $e->getMessage(), $path);
+            }
+        }
+
+        $stored = DB::table('marketing_consent_events')->where('id', $id)->first();
+        $this->assertSame('granted', $stored->event);
+        $this->assertSame('account_settings', $stored->source);
+        $this->assertSame(1, DB::table('marketing_consent_events')->count());
+    }
+
+    public function test_appending_is_still_allowed_through_every_insert_path(): void
+    {
+        // The guard must not make the table unwritable: inserting is how an append-only table is written.
+        $row = [
+            'store_id' => self::STORE, 'channel' => 'email', 'purpose' => 'marketing', 'address_hash' => str_repeat('a', 64),
+            'event' => 'withdrawn', 'source' => 'import_check', 'occurred_at' => now(), 'created_at' => now(),
+        ];
+
+        MarketingConsentEvent::query()->insert($row);
+        MarketingConsentEvent::query()->insertOrIgnore($row);
+        MarketingConsentEvent::query()->insertGetId($row);
+        MarketingConsentEvent::create($row);
+
+        $this->assertSame(4, DB::table('marketing_consent_events')->count());
+    }
+
+    public function test_the_models_accept_only_the_columns_the_ledger_writes(): void
+    {
+        // `$guarded = []` let `create($request->all())` set any column, including store_id, status and the primary key. Each model now
+        // lists what its writers actually pass.
+        $event = new MarketingConsentEvent();
+        $this->assertFalse($event->isFillable('id'));
+        $this->assertFalse($event->isFillable('surprise_column'));
+        $this->assertTrue($event->isFillable('store_id'));
+
+        $state = new MarketingContactState();
+        $this->assertFalse($state->isFillable('id'));
+        $this->assertFalse($state->isFillable('created_at'), 'timestamps are the framework\'s on the projection');
+        $this->assertTrue($state->isFillable('status'));
+
+        $token = new \App\Models\MarketingUnsubscribeToken();
+        $this->assertFalse($token->isFillable('used_at'), 'used_at is stamped by one conditional UPDATE, never mass-assigned');
+        $this->assertFalse($token->isFillable('id'));
+        $this->assertTrue($token->isFillable('token_hash'));
+
+        // And through the real path: a stray key in create() is dropped, not written.
+        $created = MarketingConsentEvent::create([
+            'store_id' => self::STORE, 'channel' => 'email', 'purpose' => 'marketing', 'address_hash' => str_repeat('b', 64),
+            'event' => 'granted', 'source' => 'fillable_check', 'id' => 999999,
+        ]);
+
+        $this->assertNotSame(999999, (int) $created->id, 'mass assignment set the primary key');
+    }
 }

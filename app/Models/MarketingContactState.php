@@ -18,7 +18,8 @@ class MarketingContactState extends Model
 {
     protected $table = 'marketing_contact_states';
 
-    protected $guarded = [];
+    /** Everything the ledger writes, and nothing else. */
+    protected $fillable = ['store_id', 'channel', 'purpose', 'address_hash', 'status', 'last_event_id'];
 
     protected $casts = [
         'last_event_id' => 'integer',

@@ -23,7 +23,8 @@ class MarketingUnsubscribeToken extends Model
     /* `created_at` and `used_at` are written explicitly; there is no `updated_at` column. */
     public $timestamps = false;
 
-    protected $guarded = [];
+    /** Everything `UnsubscribeTokens` writes, and nothing else. `used_at` is stamped by a single conditional UPDATE, not mass-assigned. */
+    protected $fillable = ['store_id', 'channel', 'purpose', 'address_hash', 'address_hint', 'customer_id', 'token_hash', 'created_at'];
 
     protected $casts = [
         'used_at' => 'datetime',

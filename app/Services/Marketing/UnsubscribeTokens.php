@@ -18,8 +18,21 @@ use InvalidArgumentException;
  *
  * WHAT A TOKEN CAN DO IS EXACTLY ONE THING: withdraw the contact it was issued for, at the store it was
  * issued for, on the channel it was issued for. It cannot grant, cannot name another contact and cannot
- * be turned into the address (the row holds a hash and a masked hint). Redeeming it twice is a no-op in
- * effect -- withdrawing consent that is withdrawn changes nothing -- and is still recorded as evidence.
+ * be turned into the address (the row holds a hash and a masked hint).
+ *
+ * A TOKEN IS REUSABLE, BY DESIGN, and earlier versions of this comment and the design document called it
+ * "single use". A recipient who clicks an old link, or a mail scanner that has already followed it, must not
+ * find it dead: an unsubscribe link that stops working is a failure to honour an unsubscribe. So every
+ * redemption withdraws again and is appended as evidence, and `used_at` records only the FIRST. Three things
+ * follow, and they belong to the route that will call this, not to this class:
+ *
+ *   * a GET must never redeem. Link prefetchers and scanners follow GETs, and a replay of an old link
+ *     after the person has opted in AGAIN withdraws the new opt-in. Redeem on POST (RFC 8058 one-click) or
+ *     behind a confirmation step.
+ *   * the route must be throttled. Every recipient holds a working link and each redemption appends a row to a
+ *     table nothing may prune.
+ *   * the page that opens a link passes the store it is served under as `$expectedStoreId`, which is a REQUIRED argument, so a
+ *     token for store A cannot be honoured as if it had been opened at store B.
  *
  * ONE ROW PER ISSUED LINK. A deterministic token would avoid the growth but would need a server-side
  * secret that is not in git, and that is a key-management decision for the owner; a random one needs
@@ -46,6 +59,8 @@ final class UnsubscribeTokens
             throw new InvalidArgumentException('An unsubscribe link needs a store and a usable address.');
         }
 
+        ConsentLedger::assertPurpose($purpose);
+
         $token = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
 
         MarketingUnsubscribeToken::create([
@@ -67,23 +82,35 @@ final class UnsubscribeTokens
      *
      * `mixed`, not `?string`: a value read from a request can be an ARRAY (`?token[]=x`), and a type error
      * there would be a 500 on a public page. Anything that is not a well-formed string is simply no token.
+     *
+     * THE TOKEN IS A CAPABILITY, so this is the one query in the consent store that has no store predicate of its own: the
+     * token names the store. The store the page is SERVED UNDER is therefore a required argument, not an optional one -- the safe
+     * call is the only call -- and a token that belongs to another store is answered exactly like an unknown one (no hint that it
+     * exists elsewhere).
      */
-    public function find(mixed $token): ?MarketingUnsubscribeToken
+    public function find(mixed $token, int $expectedStoreId): ?MarketingUnsubscribeToken
     {
         if (! is_string($token) || strlen($token) !== self::TOKEN_LENGTH || ! preg_match('/^[A-Za-z0-9_-]{43}$/', $token)) {
             return null;
         }
 
-        return MarketingUnsubscribeToken::query()->where('token_hash', self::hashOf($token))->first();
+        $row = MarketingUnsubscribeToken::query()->where('token_hash', self::hashOf($token))->first();
+
+        if ($row !== null && (int) $row->store_id !== $expectedStoreId) {
+            return null;
+        }
+
+        return $row;
     }
 
     /**
      * Withdraw the contact the token names. Returns the recorded event, or null for an unknown token.
-     * `$evidence` is whatever the redeeming request can honestly say about itself (ip, user agent, one-click or page).
+     * `$evidence` is whatever the redeeming request can honestly say about itself (ip, user agent, one-click or page);
+     * the ledger makes it encodable, so a hostile header cannot stop the withdrawal from being recorded.
      */
-    public function redeem(mixed $token, string $source = 'unsubscribe_link', array $evidence = []): ?MarketingConsentEvent
+    public function redeem(mixed $token, int $expectedStoreId, string $source = 'unsubscribe_link', array $evidence = []): ?MarketingConsentEvent
     {
-        $row = $this->find($token);
+        $row = $this->find($token, $expectedStoreId);
 
         if ($row === null) {
             return null;
@@ -106,9 +133,13 @@ final class UnsubscribeTokens
             (string) $row->purpose,
         );
 
-        if ($row->used_at === null) {
-            $row->forceFill(['used_at' => now()])->save();
-        }
+        // The FIRST use is stamped by one conditional UPDATE, so two redemptions that overlap cannot both believe they were first
+        // and a later one cannot move the time. (A read-then-save here let both write, and the test that was meant to catch it
+        // could not: two writes inside one second look identical to the date cast.)
+        MarketingUnsubscribeToken::query()
+            ->whereKey($row->getKey())
+            ->whereNull('used_at')
+            ->update(['used_at' => now()]);
 
         return $event;
     }

@@ -15,10 +15,19 @@ use PHPUnit\Framework\TestCase;
  *      exhaustive list of files allowed to call a granting method, and it is EMPTY in this change: no
  *      opt-in surface has been built. The day one is, it is added here deliberately and a reviewer sees
  *      which file now records permission and from what form.
- *   2. ONLY `ConsentLedger` WRITES THE PROJECTION. A second writer could put a row in `granted` that no
- *      event supports, and `ConsentLedger::rebuildState()` would then disagree with it.
- *   3. NOTHING WRITES THE EVIDENCE THROUGH RAW SQL. Raw `DB::table('marketing_consent_events')` goes around
- *      the append-only model and builder.
+ *   2. ONLY THE LEDGER (AND THE TOKEN SERVICE) TOUCH THE CONSENT TABLES. A second writer could put a row in `granted`
+ *      that no event supports, or append an event the projection never hears about, and the send gate reads the
+ *      projection. The first version of this census matched a handful of write verbs -- `::create`, `::query()->update`,
+ *      `DB::table('...')` -- and an independent review showed it missed `::where()->update()`, `::forceCreate`,
+ *      `::updateOrInsert`, `::truncate`, `::destroy`, `app(Model::class)`, `DB::connection('x')->table(...)` and
+ *      `DELETE FROM`, and did not look at the evidence model's Eloquent INSERTs at all. A list of verbs cannot be
+ *      exhaustive, so this census inverts the question: it does not ask "does this file WRITE", it asks "does this file
+ *      NAME the model or the table", and the answer must be on an explicit list per class (MAY_NAME_THE_MODEL). A file
+ *      that only reads consent through `ConsentLedger::stateOf()` or `MarketingSendGate` never names a model and needs
+ *      nothing; a file that wants to must be added here, on purpose, where a reviewer sees it.
+ *   3. THE TABLE NAMES APPEAR ONLY IN THEIR OWN MODEL AND THEIR MIGRATIONS, which is what keeps raw SQL
+ *      (`DB::table`, `DB::connection()->table`, `DELETE FROM`, `TRUNCATE`) out. A table name assembled at run time cannot
+ *      be seen by any text census, and that limit is stated here instead of implied.
  *
  * Comments are stripped before searching, so prose that names these things cannot satisfy or trip a check.
  */
@@ -27,13 +36,51 @@ class ConsentLedgerCensusTest extends TestCase
     /** @var list<string> repo-relative files allowed to call grant()/liftSuppression() on a ConsentLedger. EMPTY on purpose. */
     private const GRANT_CALLERS = [];
 
+    /**
+     * Who may call `withdrawByHash()`. The hash of (store, channel, address) is computable by anyone who knows a store id and can guess an
+     * address -- by design, the sender must be able to recompute it -- so a bare hash is NOT a credential. The only thing that turns one
+     * into permission to withdraw is a TOKEN, and `UnsubscribeTokens` is the one class that holds the token-to-hash binding. A route
+     * that forwarded a request-supplied hash here would be an unauthenticated "withdraw anyone" endpoint, so a new caller is added on purpose.
+     *
+     * @var list<string>
+     */
+    private const WITHDRAW_BY_HASH_CALLERS = ['app/Services/Marketing/UnsubscribeTokens.php'];
+
+    /**
+     * Who may NAME each consent model (import it, type-hint it, `::` it, `app()` it). Anything not listed is a finding.
+     *
+     * @var array<string, list<string>>
+     */
+    private const MAY_NAME_THE_MODEL = [
+        'MarketingConsentEvent' => [
+            'app/Models/MarketingConsentEvent.php',
+            'app/Services/Marketing/ConsentLedger.php',
+            'app/Services/Marketing/UnsubscribeTokens.php', // return type of redeem()
+        ],
+        'MarketingContactState' => [
+            'app/Models/MarketingContactState.php',
+            'app/Services/Marketing/ConsentLedger.php',
+        ],
+        'MarketingUnsubscribeToken' => [
+            'app/Models/MarketingUnsubscribeToken.php',
+            'app/Services/Marketing/UnsubscribeTokens.php',
+        ],
+    ];
+
+    /** @var array<string, string> table => the one non-migration file that may name it */
+    private const TABLE_OWNER = [
+        'marketing_consent_events' => 'app/Models/MarketingConsentEvent.php',
+        'marketing_contact_states' => 'app/Models/MarketingContactState.php',
+        'marketing_unsubscribe_tokens' => 'app/Models/MarketingUnsubscribeToken.php',
+    ];
+
     /** @return array<string, string> repo-relative path => comment-stripped source */
     private function sources(): array
     {
         $root = dirname(__DIR__, 3);
         $out = [];
 
-        foreach (['app', 'packages/workdo', 'routes', 'bootstrap'] as $dir) {
+        foreach (['app', 'packages/workdo', 'routes', 'bootstrap', 'config', 'database', 'resources'] as $dir) {
             $path = $root.'/'.$dir;
 
             if (! is_dir($path)) {
@@ -101,36 +148,134 @@ class ConsentLedgerCensusTest extends TestCase
             .implode("\n  ", $offenders));
     }
 
-    public function test_only_the_ledger_writes_the_projection(): void
+    /**
+     * @param  array<string, string>  $sources  repo-relative path => comment-stripped source
+     * @return list<string>
+     */
+    private function modelNameOffenders(array $sources): array
     {
         $offenders = [];
 
-        foreach ($this->sources() as $file => $code) {
-            if ($file === 'app/Services/Marketing/ConsentLedger.php' || $file === 'app/Models/MarketingContactState.php') {
+        foreach ($sources as $file => $code) {
+            foreach (self::MAY_NAME_THE_MODEL as $model => $allowed) {
+                if (preg_match('/\b'.$model.'\b/', $code) && ! in_array($file, $allowed, true)) {
+                    $offenders[] = $file.' names '.$model;
+                }
+            }
+        }
+
+        return $offenders;
+    }
+
+    /**
+     * @param  array<string, string>  $sources
+     * @return list<string>
+     */
+    private function tableNameOffenders(array $sources): array
+    {
+        $offenders = [];
+
+        foreach ($sources as $file => $code) {
+            foreach (self::TABLE_OWNER as $table => $owner) {
+                if (! str_contains($code, $table)) {
+                    continue;
+                }
+
+                if ($file === $owner || str_starts_with($file, 'database/migrations/2026_11_18_')) {
+                    continue;
+                }
+
+                $offenders[] = $file.' names '.$table;
+            }
+        }
+
+        return $offenders;
+    }
+
+    /**
+     * @param  array<string, string>  $sources
+     * @return list<string>
+     */
+    private function bareHashWithdrawalOffenders(array $sources): array
+    {
+        $offenders = [];
+
+        foreach ($sources as $file => $code) {
+            if ($file === 'app/Services/Marketing/ConsentLedger.php' || in_array($file, self::WITHDRAW_BY_HASH_CALLERS, true)) {
                 continue;
             }
 
-            if (preg_match('/MarketingContactState\s*::\s*(create|insert|upsert|updateOrCreate|firstOrCreate|query\s*\(\s*\)\s*->\s*(update|delete|insert))/', $code)
-                || preg_match('/new\s+MarketingContactState\b/', $code)) {
+            if (preg_match('/\bwithdrawByHash\b/', $code)) {
                 $offenders[] = $file;
             }
         }
 
-        $this->assertSame([], $offenders, 'a second writer of marketing_contact_states: '.implode(', ', $offenders));
+        return $offenders;
     }
 
-    public function test_nothing_writes_the_consent_tables_through_raw_sql(): void
+    public function test_only_the_token_service_withdraws_from_a_bare_hash(): void
     {
-        $offenders = [];
+        $this->assertSame([], $this->bareHashWithdrawalOffenders($this->sources()),
+            'withdrawByHash() accepts a hash, and a hash is not a credential. Only UnsubscribeTokens may call it, because only a token proves the holder was sent the link.');
+    }
 
-        foreach ($this->sources() as $file => $code) {
-            if (preg_match('/DB\s*::\s*table\s*\(\s*[\'"]marketing_(consent_events|contact_states|unsubscribe_tokens)[\'"]\s*\)/', $code)
-                || preg_match('/(insert|update|delete)\s+(into\s+)?[`"\']?marketing_(consent_events|contact_states|unsubscribe_tokens)/i', $code)) {
-                $offenders[] = $file;
-            }
+    public function test_only_the_listed_files_name_a_consent_model(): void
+    {
+        $this->assertSame([], $this->modelNameOffenders($this->sources()),
+            "These files name a consent model and are not on its list. The projection is what the send gate reads, so a file that can write it "
+            ."can grant consent no event supports; a file that can write the evidence can append what the projection never hears about. "
+            ."Add a file to MAY_NAME_THE_MODEL on purpose, after reading what it does with the model.");
+    }
+
+    public function test_the_consent_table_names_appear_only_in_their_model_and_their_migration(): void
+    {
+        $this->assertSame([], $this->tableNameOffenders($this->sources()),
+            'A consent table name outside its own model and its migration is raw SQL or a second model, and either bypasses the append-only guards.');
+    }
+
+    public function test_the_census_catches_the_shapes_the_first_version_missed_and_spares_the_listed_files(): void
+    {
+        // A census that cannot fail is a trap. The rules are run here over SYNTHETIC sources, so each shape an independent review
+        // showed the verb list let through must be an offence, and a listed file must not be.
+        $shapes = [
+            'MarketingContactState::where("store_id", 1)->update(["status" => "granted"]);',
+            'MarketingContactState::forceCreate([]);',
+            'MarketingContactState::query()->where("a", 1)->update([]);',
+            'MarketingContactState::truncate();',
+            'MarketingContactState::destroy(1);',
+            'app(MarketingContactState::class)->newQuery();',
+            'MarketingConsentEvent::insert($rows);',
+            'MarketingUnsubscribeToken::query()->delete();',
+        ];
+
+        foreach ($shapes as $i => $code) {
+            $this->assertCount(1, $this->modelNameOffenders(['app/Http/Controllers/ImportController.php' => $code]), "not seen: {$code}");
         }
 
-        $this->assertSame([], $offenders, 'raw SQL against a consent table bypasses the append-only guard: '.implode(', ', $offenders));
+        foreach ([
+            'DB::connection("x")->table("marketing_consent_events")->delete();',
+            'DELETE FROM marketing_consent_events',
+            'TRUNCATE TABLE marketing_contact_states',
+            'DB::table($t = "marketing_unsubscribe_tokens")->delete();',
+        ] as $code) {
+            $this->assertCount(1, $this->tableNameOffenders(['app/Console/Commands/Purge.php' => $code]), "not seen: {$code}");
+        }
+
+        $this->assertCount(1, $this->bareHashWithdrawalOffenders(['app/Http/Controllers/QuickUnsub.php' => '$ledger->withdrawByHash($s, $c, $request->hash, null, "x");']));
+        $this->assertSame([], $this->bareHashWithdrawalOffenders(['app/Services/Marketing/UnsubscribeTokens.php' => '$this->ledger->withdrawByHash($a, $b, $c, $d, $e);']));
+
+        // The listed files are not offenders, and neither is a file that never names a model.
+        $this->assertSame([], $this->modelNameOffenders([
+            'app/Services/Marketing/ConsentLedger.php' => 'MarketingContactState::query(); MarketingConsentEvent::create([]);',
+            'app/Http/Controllers/Unrelated.php' => '$ledger->stateOf(1, $channel, $address);',
+        ]));
+        $this->assertSame([], $this->tableNameOffenders([
+            'app/Models/MarketingConsentEvent.php' => "protected \$table = 'marketing_consent_events';",
+            'database/migrations/2026_11_18_000100_create_marketing_consent_events_table.php' => "Schema::create('marketing_consent_events');",
+        ]));
+
+        // And the census reads the real tree, so the same rules over it are not vacuous.
+        $this->assertGreaterThan(1000, count($this->sources()), 'the census read almost nothing, so passing proves nothing');
     }
 
     public function test_the_gate_is_not_wired_into_any_sender_yet_and_that_is_deliberate(): void

@@ -193,6 +193,16 @@ class TenantModelClassificationTest extends TestCase
             // control. The explicit pair is the control of record and reverting either one fails
             // a dedicated test in SavedViewIsolationTest.
             \App\Models\SavedView::class => 'SavedView filters on store_id AND created_by explicitly, and fails closed with no tenant; the scope would add only store_id.',
+
+            // D8 / MKT-008. The three consent models. Every method of ConsentLedger takes an explicit `$storeId` and puts it in the query,
+            // and the unsubscribe path is a PUBLIC STOREFRONT page opened by an anonymous visitor holding a token -- exactly the shape
+            // `config/tenancy.php` documents as the one a global scope breaks: a merchant with a live admin session browsing a storefront
+            // resolves THEIR store, not the page's. And `null_tenant => 'open'` means the scope adds no predicate when no tenant resolves,
+            // so it would be a second, maskable predicate beside the explicit one that is the control of record. These three were
+            // pinned only by COUNT before an independent review pointed out that a count does not notice a model gaining the trait.
+            \App\Models\MarketingConsentEvent::class => 'D8: explicit store_id on every ledger query; the unsubscribe page is anonymous and a scope would blank it or mask a missing predicate.',
+            \App\Models\MarketingContactState::class => 'D8: the projection the send gate reads; explicit store_id on every read and write, and a cached or scoped answer to "may I send" is the wrong kind of convenience.',
+            \App\Models\MarketingUnsubscribeToken::class => 'D8: a capability looked up by the hash of a random token; the token names the store, and the page that redeems it is public.',
         ];
     }
 
@@ -448,6 +458,19 @@ class TenantModelClassificationTest extends TestCase
                 BelongsToStore::class,
                 class_uses_recursive($class),
                 $class . ' must not carry the trait. Reason on record: ' . $reason
+            );
+        }
+    }
+
+    public function test_the_consent_models_are_never_cached(): void
+    {
+        // A cached read of consent is a STALE answer to "may I send this", and a raw write (which the model cache cannot see) would leave it
+        // serving the pre-write row until the cache expired -- measured elsewhere in this repository. These three are read by the send gate.
+        foreach ([\App\Models\MarketingConsentEvent::class, \App\Models\MarketingContactState::class, \App\Models\MarketingUnsubscribeToken::class] as $class) {
+            $this->assertNotContains(
+                \GeneaLabs\LaravelModelCaching\Traits\Cachable::class,
+                class_uses_recursive($class),
+                $class.' must never be Cachable: a stale answer to "may I send this" is a consent defect.'
             );
         }
     }

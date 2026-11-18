@@ -420,6 +420,15 @@ run_one verify-top-five-reports-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
+# D8-1 independent review, F1 and F2 -- the consent ledger under concurrency. SQLite compiles lockForUpdate() to
+# nothing and :memory: is one connection, so neither race is observable in the suite. This uses several REAL PROCESSES
+# on a real server running the REAL ledger, and forces the interleaving with a query listener. Before the fix: log
+# `1:granted 2:granted 3:withdrawn` with the projection `granted` (a withdrawal lost in the table the send gate reads), and
+# a `1213 Deadlock found` that rolled back a first-ever event. After: both hold; with the deadlock retry removed, S2 fails.
+run_one verify-consent-ledger-concurrency-on-mysql \
+  "CONSENT_MYSQL_SOCKET=${SOCK}" "CONSENT_MYSQL_HOST=${HOST}" "CONSENT_MYSQL_PORT=${PORT}" \
+  "CONSENT_MYSQL_USERNAME=${USER_NAME}" "CONSENT_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

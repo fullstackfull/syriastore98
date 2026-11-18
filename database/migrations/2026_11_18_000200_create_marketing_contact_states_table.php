@@ -19,7 +19,9 @@ use Illuminate\Support\Facades\Schema;
  *
  * THE UNIQUE KEY IS THE WHOLE POINT. One row per (store, channel, purpose, address hash), so the same
  * person is a separate decision at every store and on every channel, and two racing writers cannot
- * create two answers for one contact -- the loser meets the unique key and re-reads.
+ * create two answers for one contact. At READ COMMITTED the loser meets the unique key and re-reads; at REPEATABLE READ (the
+ * server default) two first-ever writers deadlock on the gap lock instead and `ConsentLedger` retries the transaction. Both
+ * were measured on MariaDB 10.11 (`verify-consent-ledger-concurrency-on-mysql.php`).
  */
 return new class extends Migration
 {
@@ -44,7 +46,9 @@ return new class extends Migration
             $table->string('purpose', 32)->default('marketing');
             $table->char('address_hash', 64);
 
-            /* `granted` | `withdrawn` | `suppressed`. Absence of a row is `none`, which is NOT consent. */
+            /* `granted` | `withdrawn` | `suppressed`. Absence of a row is `none`, which is NOT consent. A row can also read `none`:
+               ConsentLedger creates it that way so there is a row to LOCK before the first event is written, and a lift of a contact
+               that was never suppressed leaves it there. The gate treats a `none` row exactly like no row. */
             $table->string('status', 16);
 
             /* The event this row reflects. Not a foreign key, for the reason on the events table. */
