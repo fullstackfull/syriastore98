@@ -6365,11 +6365,38 @@ decides **writes** in first-party code that neither that fix nor `ThemeEditorGat
 
 | id | where | nature | state |
 |---|---|---|---|
-| **P1-SEC-66** | `StoreController::changeStore` | the store a non-operator may make their `current_store` is `stores.created_by = creatorId()`; for a user rooted at the operator that matches the operator's own store(s), and `current_store` is the discriminator many guards read. `ThemeEditorGate` already documents this exact case for its own consumer. | **read by me and by a skeptic that could not refute it;** fix and an executed test follow |
-| **P1-SEC-67** | `BulkDeleteTenantGuard` (owned-store set, roles branch), `VariantRemovalPolicy`, `Api\DashboardController::resolveOwnedStore` (the admin API the Flutter app calls; ~102 call sites), `RolePolicy::tenantOwner/ownsRole` | the same `created_by = creatorId()` ownership predicate with no merchant-root test | **OPEN, by reading only** — each has a single choke point; not yet read by me |
+| **P1-SEC-66** | `StoreController::changeStore` | the store a non-operator may make their `current_store` is `stores.created_by = creatorId()`; for a user rooted at the operator that matches the operator's own store(s), and `current_store` is the discriminator many guards read. `ThemeEditorGate` already documents this exact case for its own consumer. | **FIXED in this branch.** Executed before the fix (the discriminator moved to the operator's store), refused after; see the paragraph below |
+| **P1-SEC-67** | the same `created_by = creatorId()` predicate with no merchant-root test, in `VariantRemovalPolicy`, `Api\DashboardController::resolveOwnedStore` (~102 call sites) and `ownedStoreIds`, `StoreController::resolveOwnedStore`, `ApiController::resolveViewableOrder`, `UserController::UserUnable` (store branch), the Paymera payment-trigger gate, the delivery-boy API gate and the AI key resolver; and, **not fixed**, in `BulkDeleteTenantGuard` / `StoreScope::resolveTenant()` and `RolePolicy::tenantOwner/ownsRole` | **PARTLY FIXED.** The ten sinks named first are fixed and each was executed before the fix. **OPEN:** `StoreScope::resolveTenant()` and, through it, `BulkDeleteTenantGuard` (the same owned-store set; `null_tenant => 'open'` means a one-line patch would fail OPEN — it needs a closed mode), `RolePolicy` (not analysed), and the read-only listings scoped by `created_by = creatorId()` (the pervasive WorkDo pattern: `User` counters, the user and role lists) |
 | **P1-SEC-68** | Helpdesk's authenticated ticket routes (vendored module) | read or write a ticket by bare id behind a permission check alone; one of them rewrites `helpdesk_tickets.user_id`, the column `owner:helpdesk-ticket` trusts | **OPEN** — a skeptic traced it and could not refute it; vendored, so a guard rule is the host-side control |
 | **P1-SEC-69** | Campaigns list DataTable (vendored) | filters by tenant only for `type = 'admin'`, so a merchant's staff are served every tenant's campaigns | **OPEN, by reading only**; vendored |
 
 **The root cause is upstream of all of them:** a merchant can demote themselves through `PUT /users/{self}` (`docs/security/P0-USER-DELETION-CASCADE.md` §7 calls it "a supported
 action rather than a bypass"), which is what makes `creatorId()` collapse to the operator. **Owner decision:** closing the *enabling step* (a tenant root may not change their own
 `type`) is one choke point and ends the class; patching each sink is many. They are not exclusive. Whether to block self-demotion is a product-rule change and is yours.
+
+### e) What was done about P1-SEC-66 and P1-SEC-67, and what was executed
+
+**One definition:** `UserPolicy::merchantTenantRoot(?User): ?int` — the user's `creatorId()` **only if** it names a type-`admin` merchant, otherwise `null` (the operator is not a tenant; every caller
+admits the operator first). Each sink asks it and **fails closed on null**. Nothing changes for a merchant, their staff or the operator.
+
+**Executed, through the real demotion route (`PUT /users/{self}`, with its premise asserted), before any fix** — each test failed on the vulnerable assertion and passes now:
+
+| sink | what a self-demoted merchant could do (before) |
+|---|---|
+| `StoreController::changeStore` | make the operator's store their `current_store` (the discriminator) |
+| `StoreController::resolveOwnedStore` (`POST store/change-status`) | take the operator's storefront offline |
+| `Api\DashboardController::resolveOwnedStore` (`GET api/admin/categorylist`) and `ownedStoreIds` | have the operator's store resolved as theirs through the admin API the Flutter app calls |
+| `VariantRemovalPolicy::authorize` | pass the ownership limb for the operator's product |
+| `ApiController::resolveViewableOrder` (`POST api/{slug}/order-detail`) | read an order of the operator's store |
+| `UserController::UserUnable` (`POST user-unable`, store branch) | deactivate the operator's store |
+| `PaymentController::handlePaymeraTrigger` | reach the payment trigger of the operator's store (a payment-completion endpoint; **only the caller set narrows** — no payment logic changed) |
+| `DeliveryBoyApiController::refuseUnlessOperatorOwns` | be admitted to the operator's store through the delivery-boy API |
+| `AITemplateController::resolveApiKeyForActor` | **resolve the platform's own AI API key — the thing the owner's 2026-10-22 decision says a merchant must not consume** |
+
+**Mutation proof: 14 of 14 reverts make a test fail** (each fix reverted on the real file, restore checksum-verified), after two survivors were closed — one by a fixture whose root is a demoted
+merchant who is *not* user 1 (a narrower "root is user 1" check survives every test without it), one by a second operator account (the resolver's own-key limb is otherwise indistinguishable from the
+platform fallback). 156 neighbouring tests (store switching, the admin API surface, the Flutter contract, the P0 test, the variant and catalogue policies) still pass.
+
+**The class is not closed.** Patching sinks one at a time is whack-a-mole: the predicate is the WorkDo way of scoping almost every list. The enabling step is that a tenant root can demote itself
+(`docs/security/P0-USER-DELETION-CASCADE.md` §7). **Owner decision:** refusing a tenant root (type `admin`) the ability to change its own `type` is one choke point and ends the class; it changes a
+supported action, so it is yours.

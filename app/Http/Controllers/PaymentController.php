@@ -1573,9 +1573,15 @@ public function handlePaymeraTrigger($orderId)
     }
 
     if (! \App\Policies\UserPolicy::isOperator($ssCaller)) {
+        // P1-SEC-66: the tenant root must be a MERCHANT. `creatorId()` alone is the operator's id for a user rooted at the platform (a demoted merchant,
+        // or staff the operator created), which made the operator's store "theirs" and let them trigger completion of its pending payments. A null root
+        // owns nothing. This narrows WHO may call; it changes nothing about the payment flow for a merchant, their staff or the operator.
+        $ssRoot = \App\Policies\UserPolicy::merchantTenantRoot($ssCaller);
+
         $ssOwns = $ssPendingStore !== null
+            && $ssRoot !== null
             && \App\Models\Store::where('id', $ssPendingStore)
-                ->where('created_by', $ssCaller->creatorId())
+                ->where('created_by', $ssRoot)
                 ->exists();
 
         if (! $ssOwns) {

@@ -143,6 +143,27 @@ class UserPolicy
         return strtolower(rtrim((string) $root->type, ' ')) === 'admin';
     }
 
+    /**
+     * THE TENANT ROOT A STORE-OWNERSHIP PREDICATE MAY USE -- or NULL when the principal belongs to no merchant tenant (P1-SEC-66 / P1-SEC-67).
+     *
+     * `Store::where('created_by', $user->creatorId())` was copied into ten first-party places as "the stores this user owns" (or "my own key"). It is only that when
+     * `creatorId()` names a MERCHANT. For a user rooted at the platform operator -- a merchant who demoted their own `type`, or staff the operator
+     * created -- `creatorId()` is the operator's id, and the predicate selects the OPERATOR'S stores. One definition, so the next copy cannot be the
+     * wrong one: it is `creatorId()` when `tenantRootIsAMerchant()` says that id is a type-`admin` user, and nothing otherwise.
+     *
+     * The operator is not a tenant and gets null here. Every caller admits the operator BEFORE asking, as `tenantRootIsAMerchant()`'s callers do.
+     */
+    public static function merchantTenantRoot(?User $user): ?int
+    {
+        if ($user === null) {
+            return null;
+        }
+
+        $root = (int) $user->creatorId();
+
+        return $root > 0 && self::tenantRootIsAMerchant($root) ? $root : null;
+    }
+
     protected function isPlatformAdmin(?User $actor): bool
     {
         return self::isOperator($actor);

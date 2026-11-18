@@ -875,7 +875,15 @@ AuditLog::record(
                 $storeQuery = Store::where('id', $request->id);
 
                 if (strtolower(trim((string) $actor->type)) !== 'super admin') {
-                    $storeQuery->where('created_by', $actor->creatorId());
+                    // P1-SEC-66: the tenant root must be a MERCHANT -- `creatorId()` alone is the operator's id for a user rooted at the platform (a
+                    // demoted merchant, or staff the operator created), and this branch rewrites a store's `is_active` and its users' login gate.
+                    $root = \App\Policies\UserPolicy::merchantTenantRoot($actor);
+
+                    if ($root === null) {
+                        return response()->json(['error' => __('Permission denied.'),'users_data' => null, 'store_data' => null], 403);
+                    }
+
+                    $storeQuery->where('created_by', $root);
                 }
 
                 $targetStore = $storeQuery->first();

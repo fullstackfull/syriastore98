@@ -7974,7 +7974,15 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 return $order;
             }
 
-            $ownedStoreIds = Store::where('created_by', $actor->creatorId())->pluck('id')->all();
+            // P1-SEC-66: the tenant root must be a MERCHANT. `creatorId()` alone is the operator's id for a user rooted at the platform (a demoted
+            // merchant, or staff the operator created), which made the operator's stores -- and so their orders -- "owned". A null root owns nothing.
+            $root = \App\Policies\UserPolicy::merchantTenantRoot($actor);
+
+            if ($root === null) {
+                return null;
+            }
+
+            $ownedStoreIds = Store::where('created_by', $root)->pluck('id')->all();
 
             return in_array((int) $order->store_id, array_map('intval', $ownedStoreIds), true) ? $order : null;
         }

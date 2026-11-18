@@ -4831,7 +4831,16 @@ public function DeleteReview($id)
         // 102 call sites in this file, so it is the last place that should be comparing an
         // unnormalised `type` string.
         if (strtolower(trim((string) $user->type)) !== 'super admin') {
-            $query->where('created_by', $user->creatorId());
+            // P1-SEC-66: the tenant root must be a MERCHANT. This helper carries the tenancy decision for 102 call sites, and `creatorId()` alone is
+            // the operator's id for a user rooted at the platform (a demoted merchant, or staff the operator created), which selected the
+            // operator's stores. A null root resolves no store; every caller already answers a null store with its 403 envelope, never a 401.
+            $root = \App\Policies\UserPolicy::merchantTenantRoot($user);
+
+            if ($root === null) {
+                return null;
+            }
+
+            $query->where('created_by', $root);
         }
 
         return $query->first();
@@ -4872,7 +4881,14 @@ public function DeleteReview($id)
         $query = Store::query();
 
         if ($user->type !== 'super admin') {
-            $query->where('created_by', $user->creatorId());
+            // P1-SEC-66: no merchant tenant root, no owned stores -- an empty set makes every whereIn() using it match nothing (fail closed).
+            $root = \App\Policies\UserPolicy::merchantTenantRoot($user);
+
+            if ($root === null) {
+                return [];
+            }
+
+            $query->where('created_by', $root);
         }
 
         return $query->pluck('id')->all();

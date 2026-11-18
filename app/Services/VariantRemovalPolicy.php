@@ -149,9 +149,17 @@ final class VariantRemovalPolicy
          * regression invented by the guard, not a tightening. The web doors keep their own narrower
          * `current_store` checks, which is theirs to decide, not this policy's.
          */
+        // P1-SEC-66: the tenant root must be a MERCHANT. `creatorId()` alone is the operator's id for a user rooted at the platform (a demoted
+        // merchant, or staff the operator created), which made the operator's own products "theirs". A null root owns nothing.
+        $root = UserPolicy::merchantTenantRoot($user);
+
+        if ($root === null) {
+            return self::denied();
+        }
+
         $ownsTheStore = \App\Models\Store::withoutGlobalScopes()
             ->whereKey($product->store_id)
-            ->where('created_by', $user->creatorId())
+            ->where('created_by', $root)
             ->exists();
 
         return $ownsTheStore ? null : self::denied();
