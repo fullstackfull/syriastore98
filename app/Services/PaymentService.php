@@ -3058,6 +3058,30 @@ $products_weight_array[] = [
             \Workdo\PartialPayments\app\Models\OrderPartialPayments::OrderPartialPayments($order, $slug, $request);
         } else {
 
+            /*
+             * D6 STAGE 1. THIS WRITER CONSUMES A DECISION; IT DOES NOT MAKE ONE.
+             *
+             * Whether this shopper may redeem is decided once, earlier in this same request, by
+             * `PaymentController::processRewardPoints()` -- the only way here is `processOrder()` ->
+             * `getCartData()` -> `processPayment()` -> `process()` -- and that decision is written onto the request
+             * as `'on'` or `'off'`, which is what `$requests_data` was copied from. So the `== 'on'` test below IS the
+             * gate. It is deliberately NOT repeated with `forOrder()`: this writer runs in the quote's own request,
+             * with the quote's own principal, basket and settings, so a second evaluation could only agree with the
+             * first, and a check that cannot disagree cannot fail a test -- which this codebase's own rule
+             * (`RewardPointDiscount::for()`) calls a trap, not depth. The WhatsApp writer is different and DOES
+             * re-check, because a direct POST reaches it without any quote.
+             *
+             * DO NOT "TIDY" THE NEXT LINE TO `$orderCustomerId`, and this is the reason it is spelled this way.
+             * `$customer_id` is `$requests_data['customer_id']`, a request-bag key; `processOrder()` has already refused
+             * any request whose bag disagrees with the signed-in customer about it (see
+             * `refuseACustomerIdTheIntakeCannotTrust()`), so here it equals the principal. The first version of this
+             * slice read the principal directly and an independent review found the consequence: a multipart FILE part
+             * named `customer_id` replaces the merged id in `Request::all()`, the discount was then priced from the
+             * principal, and the post-commit `OrderNote` inserts -- whose `customer_id` is a foreign key -- failed on the
+             * file's temporary path AFTER the order was committed and BEFORE the event that debits the points. A
+             * discount with no debit, repeatable at will (executed: RewardRedemptionCheckoutGateTest). Read from the bag,
+             * a tampered request prices from nobody and is no worse than before; with the intake guard it never gets here.
+             */
             if (module_is_active('RewardClubPoint') && isset($requests_data['club_point_is_active']) && $requests_data['club_point_is_active'] == 'on') {
                 $customerDetail = Customer::find($customer_id);
                 $rewardSetting = getAdminAllSetting($store->created_by, $store->id) ?? null;

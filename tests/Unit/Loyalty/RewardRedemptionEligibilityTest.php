@@ -154,6 +154,35 @@ class RewardRedemptionEligibilityTest extends TestCase
         $this->assertFalse(RewardPointDiscount::isRedeemable(100.0, 20.0, $this->configured(['checkout_price' => ''])));
     }
 
+    /** @return array<string, array{0: string, 1: mixed}> */
+    public static function accrualSettingsTheListenerCannotCompute(): array
+    {
+        return [
+            'a zero divisor' => ['order_point_price', '0'],
+            'a negative divisor' => ['order_point_price', '-5'],
+            'a non-numeric divisor' => ['order_point_price', 'free'],
+            'a non-numeric multiplier' => ['order_points', 'lots'],
+            'a negative multiplier' => ['order_points', '-1'],
+        ];
+    }
+
+    /** @dataProvider accrualSettingsTheListenerCannotCompute */
+    public function test_a_store_whose_accrual_arithmetic_would_throw_after_the_order_cannot_be_redeemed_against(string $key, mixed $value): void
+    {
+        // The vendored listener computes the accrual BEFORE it debits, from these two settings, and the module's validator
+        // is a bare `required`. A zero divisor is a DivisionByZeroError and junk is a TypeError, both AFTER the order
+        // is committed -- so a discount granted here would be an order with no debit behind it.
+        $this->assertFalse(RewardPointDiscount::isRedeemable(500.0, 100.0, $this->configured([$key => $value])));
+        $this->assertSame(0.0, RewardPointDiscount::forOrder(500.0, 100.0, $this->configured([$key => $value])));
+    }
+
+    public function test_a_multiplier_of_zero_is_a_valid_programme_that_simply_earns_nothing(): void
+    {
+        // Not every refusal is right: `order_points = 0` means orders earn no points, which is a configuration, and it does
+        // not stop a customer spending the points they have.
+        $this->assertTrue(RewardPointDiscount::isRedeemable(500.0, 100.0, $this->configured(['order_points' => '0'])));
+    }
+
     public function test_an_empty_settings_array_refuses(): void
     {
         $this->assertFalse(RewardPointDiscount::isRedeemable(100.0, 20.0, []));
@@ -241,22 +270,31 @@ class RewardRedemptionEligibilityTest extends TestCase
         $this->assertSame(0.0, RewardPointDiscount::forOrder(100.0, 20.0, $this->configured(['club_point_enabled' => 'off'])));
     }
 
-    public function test_it_is_not_wired_yet_and_that_is_deliberate(): void
+    public function test_the_gate_is_wired_at_the_two_decision_points_and_deliberately_nowhere_else(): void
     {
         /*
-         * THE POINT OF THIS TEST IS THAT IT WILL FAIL, and that failing is how the next person
-         * finds the paragraph below rather than discovering it in production.
+         * THIS CENSUS USED TO ASSERT ZERO CALL SITES, and said it would fail the day the gate was wired. It did, and
+         * this is the update it asked for -- made on purpose, with the set it now pins.
          *
-         * D6 is NOT closed by this class. Adding `isRedeemable()` to the eleven sites that apply a
-         * discount, and nothing else, produces a WORSE defect than the one it closes: the server
-         * declines the discount while the client's `club_point_is_active=on` still rides into
-         * `AddRewardClubPoint`, so the vendored listener spends the customer's whole balance
-         * anyway. Points debited, no discount given — against the customer.
+         * D6 STAGE 1 wires `forOrder()` at exactly TWO places, both in `PaymentController`:
          *
-         * A refusing site must therefore ALSO `unset($requests_data['club_point_is_active'])`, so
-         * the vendored listener takes its accrual branch, which `NormaliseRewardRedemptionFlag`'s
-         * tests already prove it does on an absent flag. Both halves land in one slice, with the
-         * negative case tested, or neither does.
+         *   1. `processRewardPoints()` -- the QUOTE. The redemption is decided once, at initiation, from the signed-in
+         *      customer's own balance, and the decision is written back onto the request as `'on'` / `'off'`. That is
+         *      what reaches the stored checkout state, the COD / bank-transfer writer and the event.
+         *   2. `whatsapp()` -- the WhatsApp / Telegram writer, which a direct POST reaches without any quote.
+         *
+         * Every refusing site must ALSO remove `club_point_is_active` before the event is built: refusing the discount
+         * while the flag still rides into `AddRewardClubPoint` makes the vendored listener spend the customer's whole
+         * balance on a discount nobody received. The quote does it by overriding the flag on the request; the WhatsApp
+         * writer does it by unsetting it from `$requests_data`. Both are pinned by RewardRedemptionCheckoutGateTest.
+         *
+         * WHAT IS DELIBERATELY NOT WIRED, and why this test fails if somebody wires it without reading on: the
+         * gateway RETURN handlers (`PaymentController::getProductStatus` and the AuthorizeNet, PayU, NMI, Khalti,
+         * Easebuzz, PaiementPro and CinetPay controllers). They re-read the stored state in a LATER request, and
+         * measured, five of them price the discount from the customer id the guest chose at initiation while the
+         * vendored listener debits whoever is signed in at the return -- a divergence a threshold check does not
+         * repair. Deciding what a return handler should do about that changes a payment path and is an owner decision.
+         * See docs/development/phase-5/PHASE-05-D6-WIRING-MEASUREMENT.md.
          */
         $roots = [dirname(__DIR__, 3).'/app', dirname(__DIR__, 3).'/packages'];
         $sites = [];
@@ -286,31 +324,33 @@ class RewardRedemptionEligibilityTest extends TestCase
                         $code .= $token;
                     }
                 }
-                foreach (explode("\n", $code) as $n => $line) {
-                    // CLASS-QUALIFIED, and that is not laziness. A bare `/\bforOrder\s*\(/`
-                    // matches `StockMovement::forOrder($storeId, $orderId)` at
-                    // app/Services/StockMovement.php:343 -- an unrelated, pre-existing method
-                    // whose arguments mean something else entirely. Measured: that is the only
-                    // collision in the tree today. Every call site in this codebase spells the
-                    // class (`RewardPointDiscount::for(`, `::applyTo(`), so this matches the house
-                    // style; the blind spot is an aliased or imported bare call, which would not
-                    // be caught.
-                    if (preg_match('/RewardPointDiscount::\s*(isRedeemable|forOrder)\s*\(/', $line)) {
-                        $sites[] = str_replace(dirname(__DIR__, 3).'/', '', $file->getPathname()).':'.($n + 1);
-                    }
+                $relative = str_replace(dirname(__DIR__, 3).'/', '', $file->getPathname());
+                // The declarations themselves are in the helper and are not call sites.
+                if (str_starts_with($relative, 'app/Support/Money/RewardPointDiscount.php')) {
+                    continue;
+                }
+                // CLASS-QUALIFIED, and that is not laziness. A bare `/\bforOrder\s*\(/`
+                // matches `StockMovement::forOrder($storeId, $orderId)` at
+                // app/Services/StockMovement.php -- an unrelated, pre-existing method
+                // whose arguments mean something else entirely. Every call site in this codebase
+                // spells the class (`RewardPointDiscount::for(`, `::applyTo(`), so this matches the
+                // house style; the blind spot is an aliased or imported bare call, which would not
+                // be caught.
+                $count = preg_match_all('/RewardPointDiscount::\s*(isRedeemable|forOrder)\s*\(/', $code);
+                if ($count > 0) {
+                    $sites[$relative] = $count;
                 }
             }
         }
 
-        // The declarations themselves are in the helper and are not call sites.
-        $sites = array_values(array_filter($sites, static fn (string $s) => ! str_starts_with($s, 'app/Support/Money/RewardPointDiscount.php')));
-
         $this->assertSame(
-            [],
+            ['app/Http/Controllers/PaymentController.php' => 2],
             $sites,
-            "D6's eligibility gate now has call sites. Read this test's docblock BEFORE deleting it:\n"
-            ."a refusing site must also unset club_point_is_active, or the vendored listener debits\n"
-            ."the balance with no discount given. Sites found:\n  ".implode("\n  ", $sites)
+            "D6's eligibility gate is wired somewhere new, or somewhere it was wired is gone.\n"
+            ."Read this test's docblock BEFORE changing the expectation: a refusing site must also remove\n"
+            ."club_point_is_active, or the vendored listener debits the balance with no discount given, and\n"
+            ."the gateway-return handlers are an owner decision (PHASE-05-D6-WIRING-MEASUREMENT.md). Found:\n  "
+            .json_encode($sites)
         );
     }
 

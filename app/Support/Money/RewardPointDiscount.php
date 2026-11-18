@@ -266,6 +266,18 @@ final class RewardPointDiscount
             return false;
         }
 
+        // THE VENDORED LISTENER'S ACCRUAL ARITHMETIC RUNS BEFORE ITS REDEMPTION BRANCH, so a store whose accrual settings it
+        // cannot compute never reaches the debit at all: `($order['product_price'] * $setting['order_points'] ?? 0) /
+        // ($setting['order_point_price'] ?? 0)` is a DivisionByZeroError when `order_point_price` is 0 and a TypeError when
+        // either is not numeric -- thrown AFTER the order is committed, so a discount this class granted would never be
+        // matched by a debit. The settings validator is a bare `required`, so a merchant CAN save these. Same reason
+        // `club_point_enabled` is part of eligibility: a granted discount must imply a matching debit. (Found by the
+        // independent review of D6 stage 1; the divisor must be positive, because a negative one makes a negative accrual.)
+        if (! is_numeric($settings['order_points']) || (float) $settings['order_points'] < 0.0
+            || ! is_numeric($settings['order_point_price']) || (float) $settings['order_point_price'] <= 0.0) {
+            return false;
+        }
+
         // Defensive and NOT claimed unreachable: `orders.final_price` was MEASURED negative in
         // this very family before `applyTo()` bounded it, and a negative balance would otherwise
         // satisfy a negative threshold.

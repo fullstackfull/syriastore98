@@ -348,10 +348,26 @@ report.
 production is not answerable from this container, where `add_on_managers` has zero rows and no
 WorkDo module loads at all.
 
-### P5-13 — D6 server-side redemption eligibility — **HELPER LANDED, NOT WIRED, D6 NOT CLOSED**
+### P5-13 — D6 server-side redemption eligibility — **STAGE 1 WIRED LOCALLY (quote + WhatsApp writer); GATEWAY RETURNS NOT WIRED — OWNER DECISION (GAP-214); D6 NOT CLOSED**
 
 **Owner decision D6:** *"Enforce reward redemption thresholds and eligibility server-side.
 Client-submitted values must not bypass them."*
+
+**STAGE 1 (2026-11-18) — what changed, in one paragraph.** The redemption is now decided **once per checkout, at the
+quote** (`PaymentController::processRewardPoints()`), from the signed-in customer's own balance, with
+`RewardPointDiscount::forOrder()`; the decision is written back onto the request as `'on'` / `'off'` (a *merge*, because
+a query-string copy survives a removal) so the stored state, the COD/bank writer and the event all read it. A guest's flag
+is overwritten at the guest arm (a guest checkout adopts whichever store customer owns the typed e-mail). The COD/bank
+writer now reads the signed-in customer's balance; the WhatsApp/Telegram writer — reachable by a direct POST — re-checks
+and removes the flag on refusal. `RewardRedemptionCheckoutGateTest`: 29 tests / 111 assertions through the real
+`process-order` route with the module enabled via the production loader; **19 of 19 mutants killed**. **An independent review
+found a real leak in the first version** (a multipart file part named `customer_id` committed a discounted order and failed
+before the debit — executed: 50.00 on a 100.00 basket, balance 500, no ledger row) and it is fixed at the intake; the COD
+writer's code is therefore unchanged and carries a note not to "tidy" it. **Not done:** the
+gateway-return handlers (a defect there is not a threshold problem — the stored customer id and the signed-in one can
+differ) — measurement, options and recommendation in
+[`PHASE-05-D6-WIRING-MEASUREMENT.md`](PHASE-05-D6-WIRING-MEASUREMENT.md); gap rows `GAP-203` (narrowed) and `GAP-214`.
+The paragraphs below are the measurement that led here and are kept as written.
 
 **The gap, measured.** Both module partials carry the identical gate
 (`clubPointApply.blade.php:1-9`, `clubPointPriceShow.blade.php:1-10`): the six reward settings
@@ -385,8 +401,9 @@ dispatch (`:3435`) are both inside `getProductStatus()` declared at `:2443`, so 
 `$requests_data` is in scope. Confirming that for the other ten, and wiring both halves together
 with the negative case tested, is the next slice.
 
-**The helper is labelled dead rather than shipped quietly.**
-`test_it_is_not_wired_yet_and_that_is_deliberate` asserts **zero call sites** via a
+**The helper was labelled dead rather than shipped quietly** — and the label did its job: stage 1 wired it, the census
+(`test_the_gate_is_wired_at_the_two_decision_points_and_deliberately_nowhere_else`) was updated on purpose to pin the two
+call sites. Before that, `test_it_is_not_wired_yet_and_that_is_deliberate` asserted **zero call sites** via a
 comment-stripped, class-qualified census, so the day it is wired the assertion fails and must be
 updated on purpose. An unwired gate reads as protection, and this repository's own rule — written
 into `RewardPointDiscount` after three mutually-covering guards each proved deletable — is that a
