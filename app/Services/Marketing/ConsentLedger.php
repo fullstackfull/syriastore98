@@ -8,7 +8,6 @@ use App\Support\Marketing\Channel;
 use App\Support\Marketing\ConsentEvent;
 use App\Support\Marketing\ConsentState;
 use App\Support\Marketing\ContactAddress;
-use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -40,14 +39,10 @@ use InvalidArgumentException;
  * projection `granted`, replay `withdrawn`. So the row is locked FIRST, the event is inserted while the lock is held,
  * and the fold happens before the lock is released: id order, lock order and fold order are then the same thing.
  *
- * A FIRST-EVER EVENT FOR A CONTACT HAS NO ROW TO LOCK. Two such writers both read the absent key under `FOR UPDATE`,
- * which at REPEATABLE READ (the server default; nothing in config/database.php changes it) takes a gap lock, so both
- * then INSERT the row and each waits for the other's gap lock: InnoDB kills one (error 1213) and its whole transaction,
- * event included, is rolled back. Measured the same way. The transaction is therefore RETRIED; the second attempt finds
- * the row the winner created and waits on it like any other writer. Under READ COMMITTED the loser instead meets the
- * unique key, and is handled below. A retry needs the ledger to own the outermost transaction: inside a caller's
- * transaction Laravel raises a `DeadlockException` instead of retrying, so a seam must call this OUTSIDE any transaction
- * that can fail afterwards (a withdrawal recorded inside a checkout that then rolls back is a withdrawal not recorded).
+ * A FIRST-EVER EVENT FOR A CONTACT HAS NO ROW TO LOCK, so the row is created first (`lockProjection()` says how, and why the
+ * obvious read-then-insert deadlocks even for two DIFFERENT contacts). The transaction is also retried on a deadlock as a seatbelt:
+ * inside a caller's transaction Laravel raises a `DeadlockException` instead of retrying, so a seam must call this OUTSIDE any
+ * transaction that can fail afterwards (a withdrawal recorded inside a checkout that then rolls back is a withdrawal not recorded).
  */
 final class ConsentLedger
 {
@@ -396,33 +391,37 @@ final class ConsentLedger
     }
 
     /**
-     * The projection row for this contact, locked FOR UPDATE and created as `none` if the contact has never been seen.
+     * The projection row for this contact, locked FOR UPDATE, created as `none` if the contact has never been seen.
      *
-     * `none` is what the absence of a row already means, so creating it changes no answer; it exists so there is a row
-     * to lock. A writer that loses the race to create it meets the unique key (READ COMMITTED) or a deadlock (REPEATABLE
-     * READ, which the transaction retry above absorbs) and takes the winner's row under the lock.
+     * `none` is what the absence of a row already means, so creating it changes no answer; it exists so there is a row to lock.
+     *
+     * THE ROW IS CREATED BEFORE IT IS LOCKED, never the other way round, and that order is what removes a deadlock rather than
+     * retrying it. The first version read the (possibly absent) row under `FOR UPDATE` and inserted it if the read found nothing.
+     * At REPEATABLE READ -- the server default -- a locking read of an ABSENT unique key takes a GAP lock, and a gap lock covers the
+     * whole range between two neighbouring keys, so two writers whose keys fall in the same gap both pass the read and then each waits
+     * for the other's gap lock to be released before it can insert: `1213 Deadlock found`, one request rolled back and lost. It is not
+     * limited to two writers for the SAME contact: measured on MariaDB 10.11, eight processes writing 200 DIFFERENT first-ever contacts
+     * lost three of them on every run. A retry absorbs it; it does not remove it.
+     *
+     * `INSERT ... ON DUPLICATE KEY UPDATE` (Laravel's `upsert`) takes no gap lock: a new contact's row is inserted and X-locked by this
+     * transaction, and an existing one is X-locked on the duplicate record (the update list is a no-op, `store_id` to itself, and
+     * above all does NOT include `status`, or a racing writer's decision would be reset). The `SELECT ... FOR UPDATE` that follows then
+     * finds a row that exists, so it takes a record lock and no gap. Two writers for one contact queue on that record lock; writers for
+     * different contacts never conflict. Neither the deadlock retry on the transaction nor the unique-key handling the first version
+     * needed for READ COMMITTED is load-bearing any more: both are kept as seatbelts, and the script that measured the problem passes
+     * with the retry removed.
      *
      * @param  array{store_id: int, channel: string, purpose: string, address_hash: string}  $key
      */
     private function lockProjection(array $key): MarketingContactState
     {
-        $locked = fn (): ?MarketingContactState => MarketingContactState::query()->where($key)->lockForUpdate()->first();
+        MarketingContactState::query()->upsert(
+            [$key + ['status' => ConsentState::None->value, 'last_event_id' => 0, 'created_at' => now()]],
+            ['store_id', 'channel', 'purpose', 'address_hash'],
+            ['store_id'],
+        );
 
-        $current = $locked();
-
-        if ($current !== null) {
-            return $current;
-        }
-
-        try {
-            return MarketingContactState::create($key + [
-                'status' => ConsentState::None->value,
-                'last_event_id' => 0,
-            ]);
-        } catch (UniqueConstraintViolationException) {
-            // A concurrent first writer created it between our read and our insert. Take theirs, under the lock.
-            return MarketingContactState::query()->where($key)->lockForUpdate()->firstOrFail();
-        }
+        return MarketingContactState::query()->where($key)->lockForUpdate()->firstOrFail();
     }
 
     /**

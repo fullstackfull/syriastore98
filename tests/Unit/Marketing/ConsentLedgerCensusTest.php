@@ -67,6 +67,18 @@ class ConsentLedgerCensusTest extends TestCase
         ],
     ];
 
+    /**
+     * The three migrations that create the consent tables, by EXACT name. An earlier version exempted every file whose name began with
+     * the date they were written, which would also have exempted a backfill migration written that day -- and D8 forbids a backfill.
+     *
+     * @var list<string>
+     */
+    private const MIGRATIONS = [
+        'database/migrations/2026_11_18_000100_create_marketing_consent_events_table.php',
+        'database/migrations/2026_11_18_000200_create_marketing_contact_states_table.php',
+        'database/migrations/2026_11_18_000300_create_marketing_unsubscribe_tokens_table.php',
+    ];
+
     /** @var array<string, string> table => the one non-migration file that may name it */
     private const TABLE_OWNER = [
         'marketing_consent_events' => 'app/Models/MarketingConsentEvent.php',
@@ -124,28 +136,38 @@ class ConsentLedgerCensusTest extends TestCase
         }
     }
 
-    public function test_only_the_listed_files_call_a_granting_method(): void
+    /**
+     * @param  array<string, string>  $sources
+     * @return list<string>
+     */
+    private function grantOffenders(array $sources): array
     {
         $offenders = [];
 
-        foreach ($this->sources() as $file => $code) {
-            if ($file === 'app/Services/Marketing/ConsentLedger.php') {
+        foreach ($sources as $file => $code) {
+            if ($file === 'app/Services/Marketing/ConsentLedger.php' || ! str_contains($code, 'ConsentLedger')) {
                 continue;
             }
 
-            if (! str_contains($code, 'ConsentLedger')) {
-                continue;
-            }
+            // A direct call, the verb as a string (`[$ledger, 'grant']`, `call_user_func`), or a dynamic method name (`$ledger->{$verb}(...)`).
+            // Only files that name the ledger are examined, so the dynamic-call test is not a ban on `->{` anywhere else.
+            $grants = preg_match('/->\s*(grant|liftSuppression)\s*\(/', $code)
+                || preg_match('/[\'"](grant|liftSuppression)[\'"]/', $code)
+                || preg_match('/->\s*\{/', $code);
 
-            if (preg_match('/->\s*(grant|liftSuppression)\s*\(/', $code) && ! in_array($file, self::GRANT_CALLERS, true)) {
+            if ($grants && ! in_array($file, self::GRANT_CALLERS, true)) {
                 $offenders[] = $file;
             }
         }
 
-        $this->assertSame([], $offenders,
+        return $offenders;
+    }
+
+    public function test_only_the_listed_files_call_a_granting_method(): void
+    {
+        $this->assertSame([], $this->grantOffenders($this->sources()),
             "These files call a granting method on the consent ledger and are not on the allow-list. Consent is never inferred "
-            ."from an order, a registration or an import; a new opt-in surface must be added to GRANT_CALLERS on purpose:\n  "
-            .implode("\n  ", $offenders));
+            ."from an order, a registration or an import; a new opt-in surface must be added to GRANT_CALLERS on purpose.");
     }
 
     /**
@@ -181,7 +203,7 @@ class ConsentLedgerCensusTest extends TestCase
                     continue;
                 }
 
-                if ($file === $owner || str_starts_with($file, 'database/migrations/2026_11_18_')) {
+                if ($file === $owner || in_array($file, self::MIGRATIONS, true)) {
                     continue;
                 }
 
@@ -261,6 +283,16 @@ class ConsentLedgerCensusTest extends TestCase
             $this->assertCount(1, $this->tableNameOffenders(['app/Console/Commands/Purge.php' => $code]), "not seen: {$code}");
         }
 
+        foreach ([
+            '$ledger = app(ConsentLedger::class); $ledger->grant(1, $c, $a, "x");',
+            '$ledger = app(ConsentLedger::class); $ledger->{$verb}(1, $c, $a, "x");',
+            'use App\\Services\\Marketing\\ConsentLedger; call_user_func([$ledger, "grant"], 1, $c, $a, "x");',
+            'ConsentLedger $l; [$l, \'liftSuppression\'](1, $c, $a, "x");',
+        ] as $code) {
+            $this->assertCount(1, $this->grantOffenders(['app/Http/Controllers/Import.php' => $code]), "not seen: {$code}");
+        }
+        $this->assertSame([], $this->grantOffenders(['app/Http/Controllers/Reader.php' => '$x->{$y}(); // no ledger here']), 'a dynamic call in a file that never names the ledger is not this census\'s business');
+
         $this->assertCount(1, $this->bareHashWithdrawalOffenders(['app/Http/Controllers/QuickUnsub.php' => '$ledger->withdrawByHash($s, $c, $request->hash, null, "x");']));
         $this->assertSame([], $this->bareHashWithdrawalOffenders(['app/Services/Marketing/UnsubscribeTokens.php' => '$this->ledger->withdrawByHash($a, $b, $c, $d, $e);']));
 
@@ -271,7 +303,7 @@ class ConsentLedgerCensusTest extends TestCase
         ]));
         $this->assertSame([], $this->tableNameOffenders([
             'app/Models/MarketingConsentEvent.php' => "protected \$table = 'marketing_consent_events';",
-            'database/migrations/2026_11_18_000100_create_marketing_consent_events_table.php' => "Schema::create('marketing_consent_events');",
+            self::MIGRATIONS[0] => "Schema::create('marketing_consent_events');",
         ]));
 
         // And the census reads the real tree, so the same rules over it are not vacuous.

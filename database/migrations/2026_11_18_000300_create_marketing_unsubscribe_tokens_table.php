@@ -22,8 +22,14 @@ use Illuminate\Support\Facades\Schema;
  * shows `address_hint`, a masked rendering, and nothing else, so possessing a link does not reveal who
  * it belongs to.
  *
- * NO FOREIGN KEYS, like its siblings. `used_at` records the first use only; using a link again is a
- * no-op, because withdrawing consent that is already withdrawn changes nothing.
+ * NO FOREIGN KEYS, like its siblings. `used_at` records the first use only. A link is REUSABLE: using it
+ * again withdraws again and appends another event, and if the person has opted in since, the replay
+ * withdraws that too (see UnsubscribeTokens). A link that stops working would be a failure to honour an
+ * unsubscribe, so a token also never expires; rows are therefore never pruned by this change, and what
+ * retention applies to them is the owner's decision, recorded in the design document.
+ *
+ * ONE INDEX, because only one lookup is built: by `token_hash`. An earlier draft also indexed (store,
+ * channel, address hash), which is written for every recipient of every message and read by nothing.
  */
 return new class extends Migration
 {
@@ -32,7 +38,7 @@ return new class extends Migration
         ThemeSchemaGuard::assertCompatible(
             'marketing_unsubscribe_tokens',
             ['store_id', 'channel', 'purpose', 'address_hash', 'address_hint', 'customer_id', 'token_hash', 'created_at', 'used_at'],
-            ['mut_token_hash_unique', 'mut_contact_index'],
+            ['mut_token_hash_unique'],
             []
         );
 
@@ -57,7 +63,6 @@ return new class extends Migration
             $table->timestamp('used_at')->nullable();
 
             $table->unique('token_hash', 'mut_token_hash_unique');
-            $table->index(['store_id', 'channel', 'address_hash'], 'mut_contact_index');
         });
     }
 

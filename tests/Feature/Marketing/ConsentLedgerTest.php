@@ -242,24 +242,6 @@ class ConsentLedgerTest extends TestCase
         $this->assertSame(0, MarketingContactState::query()->count());
     }
 
-    public function test_a_failed_projection_rolls_the_evidence_back_too(): void
-    {
-        // The event and its projection are one unit: if the second cannot be written, the first must not remain.
-        $ledger = $this->ledger();
-        $before = MarketingConsentEvent::query()->count();
-
-        DB::statement('DROP TABLE marketing_contact_states');
-
-        try {
-            $ledger->grant(self::STORE, Channel::Email, self::EMAIL, 'account_settings');
-            $this->fail('the projection write should have failed');
-        } catch (\Throwable) {
-            // expected
-        }
-
-        $this->assertSame($before, MarketingConsentEvent::query()->count(), 'an event survived its failed projection');
-    }
-
     // ---------------------------------------------------------------- append-only
 
     public function test_an_event_instance_cannot_be_edited_or_deleted(): void

@@ -18,4 +18,10 @@ enum Channel: string
     case Sms = 'sms';
     case Whatsapp = 'whatsapp';
     case Push = 'push';
+
+    /** A channel addressed by telephone number, whose identity is NOT yet canonical (see ContactAddress and MarketingSendGate::mode()). */
+    public function isPhoneNumber(): bool
+    {
+        return $this === self::Sms || $this === self::Whatsapp;
+    }
 }

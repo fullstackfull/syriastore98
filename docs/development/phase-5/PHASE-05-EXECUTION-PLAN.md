@@ -549,7 +549,7 @@ complete while any promotional path can bypass enforcement**. Design and honest 
 
 | Slice | State |
 |---|---|
-| D8-1 — events (append-only), projection, ledger, hashed single-use unsubscribe tokens, send gate (`off` / `report` / `enforce`) | **BUILT, dev/test only.** 99 tests / 322 assertions, mutation-checked. Three migrations **applied nowhere**. Gate **called by nothing**. `MARKETING_CONSENT_ENFORCEMENT` defaults to `off` and the gate then issues no query |
+| D8-1 — events (append-only), projection, ledger, hashed **reusable** unsubscribe tokens, send gate (`off` / `report` / `enforce`) | **BUILT, dev/test only, and independently reviewed (2026-11-18, design document §10).** 142 tests / 532 assertions; 35 of 35 reverted fixes make a test fail; two concurrency defects the review found were **reproduced on MariaDB and fixed** (`verify-consent-ledger-concurrency-on-mysql.php`, 17 checks). Three migrations **applied nowhere** — but they sit in `database/migrations/`. Gate **called by nothing**. `MARKETING_CONSENT_ENFORCEMENT` defaults to `off` and the gate then issues no query. **SMS and WhatsApp cannot be enforced until phone identity is canonical (owner decision)** |
 | D8-2 — seams at the send boundaries (mail listener, `sendEmailTemplate`, `SendMsgs`, `send_twilio_msg`, `sendFCM`), `report` mode first, a census per seam | **NOT STARTED** |
 | D8-3 — a place to opt in, the unsubscribe route and page (bilingual, RTL and LTR) | **NOT STARTED** |
 | D8-B — classify the 214 sender sites | **40 of 214** classified in the committed census, ten of those refuted; a further run was in progress and is **not relied on** |

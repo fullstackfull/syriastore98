@@ -196,10 +196,13 @@ class UnsubscribeTokensTest extends TestCase
         $this->assertSame(ConsentState::Suppressed, $this->ledger()->stateOf(self::STORE, Channel::Email, self::EMAIL),
             'withdrawing is not lifting');
 
-        foreach (get_class_methods(UnsubscribeTokens::class) as $method) {
-            $this->assertDoesNotMatchRegularExpression('/^(grant|suppress|lift)/i', $method,
-                'the token service must not expose a way to give consent: '.$method);
-        }
+        // THE WHOLE PUBLIC SURFACE, not a blocklist of method NAMES (a granting method called `reinstate()` would have passed the old check).
+        // A new public method is a new thing a public page can be made to call, so adding one must change this list on purpose.
+        $this->assertEqualsCanonicalizing(
+            ['__construct', 'issue', 'find', 'redeem', 'hashOf'],
+            get_class_methods(UnsubscribeTokens::class),
+            'the token service gained a public method; read what a public page can now make it do'
+        );
     }
 
     #[DataProvider('malformedTokens')]

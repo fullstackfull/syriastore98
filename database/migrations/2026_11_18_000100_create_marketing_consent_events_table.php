@@ -97,7 +97,8 @@ return new class extends Migration
             /* `created_at` only. See the docblock. */
             $table->timestamp('created_at')->nullable();
 
-            /* The gate's read: this contact's history at this store on this channel, newest last. */
+            /* This contact's history at this store on this channel, in id order: what rebuildState() replays. (The send gate does NOT read this
+               table; it reads the projection.) */
             $table->index(['store_id', 'channel', 'address_hash', 'id'], 'mce_store_contact_index');
             $table->index('customer_id', 'mce_customer_index');
         });

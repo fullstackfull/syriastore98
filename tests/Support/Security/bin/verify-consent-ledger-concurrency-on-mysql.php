@@ -156,6 +156,19 @@ function runChild(string $role, array $argv): int
                 $hook('barrier');
                 $event = $ledger->grant(STORE, Channel::Email, $address, 'verify_barrier_' . $name);
                 break;
+            case 'distinct':      // S4: many DIFFERENT first-ever contacts, written concurrently
+                $applied = 0; $errors = [];
+                for ($i = 0; $i < (int) option($argv, 'ops', '25'); $i++) {
+                    try {
+                        $ledger->grant(STORE, Channel::Email, "{$name}-{$i}@distinct.example.com", 'verify_distinct_' . $name);
+                        $applied++;
+                    } catch (Throwable $e) {
+                        $errors[] = classify($e);
+                    }
+                }
+                $out += ['applied' => $applied, 'errors' => $errors];
+                $event = null;
+                break;
             case 'stress':        // S3
                 mt_srand((int) option($argv, 'seed', '1'));
                 $applied = 0; $errors = [];
@@ -366,6 +379,47 @@ echo '        projection: ' . projected($addr) . '   replay: ' . replayed($addr)
 check('every accepted request left exactly one event', $events === $applied, "accepted={$applied} events={$events}");
 check('THE INVARIANT holds after 72 concurrent events', projected($addr) === replayed($addr));
 check('no request surfaced a database error', $errors === [], count($errors) . ' surfaced');
+
+/* ---- S4 ------------------------------------------------------------------------------------------------------ */
+echo "\nS4  first-ever writes for many DIFFERENT contacts at once (they can share an index gap)\n";
+$dir = scratch();
+$procs = [];
+for ($i = 1; $i <= 8; $i++) {
+    $procs[$i] = spawn(['--child=distinct', "--dir={$dir}", "--name=D{$i}", '--ops=25']);
+}
+$applied = 0; $errors = [];
+foreach ($procs as $i => $h) {
+    $r = finish($procs[$i]);
+    $applied += (int) ($r['applied'] ?? 0);
+    $errors = array_merge($errors, $r['errors'] ?? [$r['error'] ?? 'unknown']);
+}
+$events = DB::table('marketing_consent_events')->where('source', 'like', 'verify_distinct_%')->count();
+$rowsMade = DB::table('marketing_contact_states')->count();
+$disagree = 0;
+foreach (DB::table('marketing_contact_states')->get() as $row) {
+    $state = ConsentState::None;
+    foreach (DB::table('marketing_consent_events')->where('address_hash', $row->address_hash)->orderBy('id')->get() as $e) {
+        $k = ConsentEvent::tryFrom((string) $e->event);
+        $state = $k === null ? $state : $state->after($k);
+    }
+    $disagree += $state->value === $row->status ? 0 : 1;
+}
+echo "        requested: 200   accepted: {$applied}   events in the log: {$events}   errors surfaced: " . count($errors) . "\n";
+foreach (array_slice(array_count_values($errors), 0, 3, true) as $msg => $n) { echo "          x{$n} {$msg}\n"; }
+check('all 200 first-ever contacts were recorded', $applied === 200 && $events === 200, "accepted={$applied} events={$events}");
+check('no request surfaced a database error', $errors === [], count($errors) . ' surfaced');
+check('every projection row equals the replay of its log', $disagree === 0, "{$disagree} disagree");
+
+/* ---- the migrations are safe to run again on a real server ----------------------------------------------------- */
+echo "\nM   running each migration's up() a SECOND time against tables that already exist (ThemeSchemaGuard reads information_schema)\n";
+foreach ($migrations as $path) {
+    try {
+        (require base_path($path))->up();
+        check('re-running ' . basename($path) . ' is a no-op and the guard accepts the table it built', true);
+    } catch (Throwable $e) {
+        check('re-running ' . basename($path) . ' is a no-op and the guard accepts the table it built', false, classify($e));
+    }
+}
 
 DB::connection('consent_boot')->statement("DROP DATABASE IF EXISTS `{$database}`");
 

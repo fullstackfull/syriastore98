@@ -51,17 +51,20 @@ class ConsentLedgerOrderingAndEvidenceTest extends TestCase
 
         $statements = array_map(fn (array $q) => strtolower($q['query']), DB::getQueryLog());
 
+        $create = $this->firstMatching($statements, '/^insert into ["`]?marketing_contact_states["`]?/');
         $lockRead = $this->firstMatching($statements, '/^select .*from ["`]?marketing_contact_states["`]?/');
         $eventInsert = $this->firstMatching($statements, '/^insert into ["`]?marketing_consent_events["`]?/');
         $fold = $this->firstMatching($statements, '/^update ["`]?marketing_contact_states["`]?/');
 
-        $this->assertNotNull($lockRead, 'the projection row was never read: '.implode(' | ', $statements));
-        $this->assertNotNull($eventInsert, 'the event was never inserted');
-        $this->assertNotNull($fold, 'the projection was never updated');
+        foreach (['row creation' => $create, 'lock read' => $lockRead, 'event insert' => $eventInsert, 'fold' => $fold] as $what => $at) {
+            $this->assertNotNull($at, "the {$what} never happened: ".implode(' | ', $statements));
+        }
 
-        // The ORDER is the correctness argument: an event gets its id at INSERT, a replay folds in id order, so the lock that
-        // serialises the contact must be held before the id exists and until the fold is done. Locking after the insert lets a
-        // later-id withdrawal be folded first and then overwritten by an earlier-id grant (measured on MariaDB).
+        // THE ORDER IS THE CORRECTNESS ARGUMENT, and there are two orderings in it. An event gets its id at INSERT and a replay folds in id
+        // order, so the lock that serialises the contact must be held before the id exists and until the fold is done (locking after the
+        // insert let a later-id withdrawal be folded first and overwritten by an earlier-id grant: measured on MariaDB). And the row is
+        // CREATED before it is READ for update, because a locking read of an absent key takes a gap lock and two writers then deadlock.
+        $this->assertLessThan($lockRead, $create, 'the row was read for update before it was created: that is the gap-lock deadlock');
         $this->assertLessThan($eventInsert, $lockRead, 'the event was inserted before the contact was locked: the log and the projection can now disagree');
         $this->assertLessThan($fold, $eventInsert, 'the projection was updated before the event existed');
     }
@@ -78,35 +81,89 @@ class ConsentLedgerOrderingAndEvidenceTest extends TestCase
         return null;
     }
 
-    // ------------------------------------------------------------------ F2: the loser of a first-event race
-
-    public function test_a_first_writer_that_loses_the_race_to_create_the_row_folds_on_top_of_the_winner(): void
+    public function test_the_row_creation_is_an_upsert_that_cannot_reset_a_decision(): void
     {
-        // The window: this writer has read "no row" and is about to create one. A concurrent writer (here: a nested ledger call
-        // fired from the query listener, right after that read) creates it first. On a real server at READ COMMITTED the loser meets
-        // the unique key; at REPEATABLE READ it is the deadlock the retry absorbs. Either way the loser must fold ON TOP of the
-        // winner's row, not duplicate it, lose its event, or overwrite the winner's answer with its own.
-        $fired = false;
+        // The creation statement runs for EVERY event, not only the first, so what it does to an existing row matters. It must be a no-op:
+        // an update list that included `status` would reset a racing writer's withdrawal to `none` between its commit and our read.
+        $this->ledger()->grant(self::STORE, Channel::Email, self::EMAIL, 'checkout_checkbox');
+        $this->ledger()->suppress(self::STORE, Channel::Email, self::EMAIL, 'complaint_feedback');
 
-        DB::listen(function ($query) use (&$fired) {
-            if ($fired || ! preg_match('/^select .*from ["`]?marketing_contact_states["`]?/i', $query->sql)) {
-                return;
+        DB::enableQueryLog();
+        $event = $this->ledger()->grant(self::STORE, Channel::Email, self::EMAIL, 'account_settings');
+
+        $creates = array_values(array_filter(DB::getQueryLog(), fn (array $q) => (bool) preg_match('/^insert into ["`]?marketing_contact_states["`]?/i', $q['query'])));
+        $this->assertCount(1, $creates, 'the creation statement did not run for an existing contact');
+        $this->assertDoesNotMatchRegularExpression('/"?`?status"?`?\s*=\s*["`]?excluded|values\(["`]?status/i', $creates[0]['query'], 'the upsert updates `status` on a duplicate');
+
+        // Behaviourally: a suppressed contact stays suppressed after the grant, and the row names the new event.
+        $this->assertSame(ConsentState::Suppressed, $this->ledger()->stateOf(self::STORE, Channel::Email, self::EMAIL));
+        $this->assertSame((int) $event->id, (int) MarketingContactState::query()->where('store_id', self::STORE)->value('last_event_id'));
+        $this->assertSame(1, MarketingContactState::query()->where('store_id', self::STORE)->count());
+    }
+
+    public function test_the_lock_the_insert_and_the_fold_happen_inside_one_transaction_the_ledger_opened(): void
+    {
+        // SQLite compiles `lockForUpdate()` to nothing, so the LOCK cannot be seen here; what can be seen is that the three statements share a
+        // transaction deeper than the caller's, which is what makes the lock last until the fold is committed (and the event roll back with it).
+        $baseline = DB::transactionLevel();
+        $levels = [];
+
+        DB::listen(function ($query) use (&$levels) {
+            $sql = strtolower($query->sql);
+
+            if (preg_match('/^select .*from ["`]?marketing_contact_states["`]?/', $sql)) {
+                $levels['lock'] = DB::transactionLevel();
+            } elseif (preg_match('/^insert into ["`]?marketing_consent_events["`]?/', $sql)) {
+                $levels['event'] = DB::transactionLevel();
+            } elseif (preg_match('/^update ["`]?marketing_contact_states["`]?/', $sql)) {
+                $levels['fold'] = DB::transactionLevel();
             }
-            $fired = true;
-            $this->ledger()->withdraw(self::STORE, Channel::Email, self::EMAIL, 'unsubscribe_link');
         });
 
         $this->ledger()->grant(self::STORE, Channel::Email, self::EMAIL, 'checkout_checkbox');
 
-        $this->assertTrue($fired, 'the interleaving was never produced, so this test proved nothing');
-        $this->assertSame(1, MarketingContactState::query()->where('store_id', self::STORE)->count(), 'a duplicate projection row was created');
+        $this->assertSame(['lock', 'event', 'fold'], array_keys($levels));
+        foreach ($levels as $statement => $level) {
+            $this->assertGreaterThan($baseline, $level, "the {$statement} statement ran outside the transaction the ledger opened");
+        }
+        $this->assertSame(1, count(array_unique($levels)), 'the three statements did not share one transaction level');
+    }
 
-        $events = MarketingConsentEvent::query()->where('store_id', self::STORE)->orderBy('id')->pluck('event')->all();
-        $this->assertSame(['withdrawn', 'granted'], $events, 'the winner was recorded first and the loser second');
+    public function test_the_projection_read_asks_for_a_lock(): void
+    {
+        // The statements above cannot show a lock on SQLite, so this pins it at the source: the method that fetches the row must request one.
+        $method = new \ReflectionMethod(ConsentLedger::class, 'lockProjection');
+        $lines = file((string) $method->getFileName());
+        $body = implode('', array_slice($lines, $method->getStartLine() - 1, $method->getEndLine() - $method->getStartLine() + 1));
 
-        // The loser's grant has the HIGHER id, so it is correctly the last word, and the row agrees with the log.
-        $this->assertSame(ConsentState::Granted, $this->ledger()->stateOf(self::STORE, Channel::Email, self::EMAIL));
-        $this->assertSame([], $this->ledger()->divergences(self::STORE));
+        $this->assertStringContainsString('lockForUpdate()', $body, 'the projection row is read without a lock, so two writers can fold out of order');
+        $this->assertStringContainsString('upsert(', $body, 'the row is no longer created by an upsert, which is what avoids the gap lock');
+    }
+
+    // ------------------------------------------------------------------ the event and its fold are one unit
+
+    public function test_a_failure_after_the_event_is_inserted_rolls_the_event_back(): void
+    {
+        // The failure has to land AFTER the event insert, on the fold. (The earlier version dropped the projection table, which since the
+        // lock-first order fails on the very first statement, before any event exists -- so it no longer tested rollback at all.)
+        $this->ledger()->grant(self::STORE, Channel::Email, self::EMAIL, 'checkout_checkbox');
+        $before = MarketingConsentEvent::query()->count();
+
+        MarketingContactState::updating(function () {
+            throw new \RuntimeException('the fold failed');
+        });
+
+        try {
+            $this->ledger()->withdraw(self::STORE, Channel::Email, self::EMAIL, 'unsubscribe_link');
+            $this->fail('the fold should have thrown');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('the fold failed', $e->getMessage());
+        } finally {
+            MarketingContactState::flushEventListeners();
+        }
+
+        $this->assertSame($before, MarketingConsentEvent::query()->count(), 'an event survived the failure of its fold');
+        $this->assertSame(ConsentState::Granted, $this->ledger()->stateOf(self::STORE, Channel::Email, self::EMAIL), 'the projection moved without its event');
     }
 
     // ------------------------------------------------------------------ F5: evidence cannot lose a withdrawal
