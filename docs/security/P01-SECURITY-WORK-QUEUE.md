@@ -6366,7 +6366,7 @@ decides **writes** in first-party code that neither that fix nor `ThemeEditorGat
 | id | where | nature | state |
 |---|---|---|---|
 | **P1-SEC-66** | `StoreController::changeStore` | the store a non-operator may make their `current_store` is `stores.created_by = creatorId()`; for a user rooted at the operator that matches the operator's own store(s), and `current_store` is the discriminator many guards read. `ThemeEditorGate` already documents this exact case for its own consumer. | **FIXED in this branch.** Executed before the fix (the discriminator moved to the operator's store), refused after; see the paragraph below |
-| **P1-SEC-67** | the same `created_by = creatorId()` predicate with no merchant-root test, in `VariantRemovalPolicy`, `Api\DashboardController::resolveOwnedStore` (~102 call sites) and `ownedStoreIds`, `StoreController::resolveOwnedStore`, `ApiController::resolveViewableOrder`, `UserController::UserUnable` (store branch), the Paymera payment-trigger gate, the delivery-boy API gate and the AI key resolver; and, **not fixed**, in `BulkDeleteTenantGuard` / `StoreScope::resolveTenant()` and `RolePolicy::tenantOwner/ownsRole` | **PARTLY FIXED.** The ten sinks named first are fixed and each was executed before the fix. **OPEN:** `StoreScope::resolveTenant()` and, through it, `BulkDeleteTenantGuard` (the same owned-store set; `null_tenant => 'open'` means a one-line patch would fail OPEN — it needs a closed mode), `RolePolicy` (not analysed), and the read-only listings scoped by `created_by = creatorId()` (the pervasive WorkDo pattern: `User` counters, the user and role lists) |
+| **P1-SEC-67** | the same `created_by = creatorId()` predicate with no merchant-root test, in `VariantRemovalPolicy`, `Api\DashboardController::resolveOwnedStore` (~102 call sites) and `ownedStoreIds`, `StoreController::resolveOwnedStore`, `ApiController::resolveViewableOrder`, `UserController::UserUnable` (store branch), the Paymera payment-trigger gate, the delivery-boy API gate and the AI key resolver; and, **not fixed**, in `BulkDeleteTenantGuard` / `StoreScope::resolveTenant()` and `RolePolicy::tenantOwner/ownsRole` | **PARTLY FIXED.** The ten sinks named first are fixed and each was executed before the fix. **OPEN:** `StoreScope::ownedStoreIds()`, the owned-store set that the global scope AND `BulkDeleteTenantGuard` both read — *an earlier version of this row said a one-line patch would fail open; that is true only of changing `resolveTenant()`'s mode, because an EMPTY owned set degrades to `[current_store]` (`StoreScope.php:1116-1119`, "never to no predicate at all"), so narrowing it fails closed; a skeptic traced two scope-only handlers and could not refute the exposure, so it is the next change, #118*, `RolePolicy` (not analysed), and the read-only listings scoped by `created_by = creatorId()` (the pervasive WorkDo pattern: `User` counters, the user and role lists) |
 | **P1-SEC-68** | Helpdesk's authenticated ticket routes (vendored module) | read or write a ticket by bare id behind a permission check alone; one of them rewrites `helpdesk_tickets.user_id`, the column `owner:helpdesk-ticket` trusts | **OPEN** — a skeptic traced it and could not refute it; vendored, so a guard rule is the host-side control |
 | **P1-SEC-69** | Campaigns list DataTable (vendored) | filters by tenant only for `type = 'admin'`, so a merchant's staff are served every tenant's campaigns | **OPEN, by reading only**; vendored |
 
@@ -6377,7 +6377,7 @@ action rather than a bypass"), which is what makes `creatorId()` collapse to the
 ### e) What was done about P1-SEC-66 and P1-SEC-67, and what was executed
 
 **One definition:** `UserPolicy::merchantTenantRoot(?User): ?int` — the user's `creatorId()` **only if** it names a type-`admin` merchant, otherwise `null` (the operator is not a tenant; every caller
-admits the operator first). Each sink asks it and **fails closed on null**. Nothing changes for a merchant, their staff or the operator.
+admits the operator first). Each sink asks it and **fails closed on null**. Nothing changes for a merchant, their staff or the operator. **It does change for staff the operator created** (see subsection f).
 
 **Executed, through the real demotion route (`PUT /users/{self}`, with its premise asserted), before any fix** — each test failed on the vulnerable assertion and passes now:
 
@@ -6400,3 +6400,42 @@ platform fallback). 156 neighbouring tests (store switching, the admin API surfa
 **The class is not closed.** Patching sinks one at a time is whack-a-mole: the predicate is the WorkDo way of scoping almost every list. The enabling step is that a tenant root can demote itself
 (`docs/security/P0-USER-DELETION-CASCADE.md` §7). **Owner decision:** refusing a tenant root (type `admin`) the ability to change its own `type` is one choke point and ends the class; it changes a
 supported action, so it is yours.
+
+### f) The third independent review (of P1-SEC-66/67), 2026-11-18
+
+Two lenses and 13 agents; every HIGH or MEDIUM finding got a skeptic. **Verdict on the fix: the helper and all ten sinks are sound.** `merchantTenantRoot()` fails closed on every edge traced (a missing or
+dangling root, the operator, a non-admin root, a root typed `'Admin '`); each sink admits the operator first; none introduces a 401 (the shipped Flutter admin app forces a logout on any 401); the Paymera gate only
+narrows who may call; the AI-key trace matches the owner's 2026-10-22 decision; and each fix, reverted, reddens a test.
+
+**It corrected two things I wrote:**
+
+1. **"A one-line patch to `StoreScope` would fail open" was too broad.** That holds for changing `resolveTenant()`'s mode, where `null_tenant => 'open'` adds no predicate. It does not hold for the owned-store
+   set: `ownedStoreIds()` has one consumer chain (`admissibleStoreIds()` → `resolveTenant()` → `MODE_TENANT`), and its own docblock says an empty set falls back to `[current_store]`. Narrowing it for a non-merchant
+   root fails **closed**, and narrows `BulkDeleteTenantGuard`'s store set with it. The row above is corrected; the change itself is not in this commit.
+2. **"Nothing changes for the operator's staff" was wrong for staff the operator created.** `RolePolicy` documents them as a designed population ("legitimate operator-side delegation"), and a demoted merchant
+   is indistinguishable from one by `creatorId()`. All ten sinks now refuse such staff the operator's stores. A skeptic could not refute that on the code, but found that such users cannot be created through the
+   product in a database seeded from this repository, so it is **latent unless legacy rows exist**. **This is the owner's fork:** (a) keep the refusals — secure by default, possible lockout of such staff;
+   or (b) close the *enabling step* instead — a refusal placed before the `type` write at `UserController.php:333` (about three lines) — and let the sinks keep reading a root of 1 as the platform. They are not
+   exclusive, but (a) is the one with a cost.
+
+**Found outside the change.** All OPEN, all by reading unless stated; none is new code and none is exploitable through the ten fixed sinks:
+
+| id | where | state |
+|---|---|---|
+| **P1-SEC-67b** | `StoreScope::ownedStoreIds()` — handlers whose only tenant control is the scope (Menu and SupportTicket destroy; Customer, Cart, OrderNote, DeliveryBoy reads) | **HIGH.** A skeptic traced the two destroy handlers to the claimed effect and could not refute it. `BulkDeleteTenantGuard` shares the set, but its scenario was **refuted as written**: `PlanModuleCheck:BulkDelete` refuses a demoted merchant first |
+| `RolePolicy::tenantOwner()` / `ownsRole()` | a demoted merchant's role-grant ceiling is the operator's seeded grant | **MEDIUM → LOW.** Mechanism confirmed; under the shipped seeds only `Manage Email Template` falls outside a merchant's own grant |
+| `StoredUpload` rule 3, `ProductMediaReclaimer` | the operator's cross-tenant-folder exemption is inherited by an operator-rooted principal, via a stored path planted in a `settings` row | **MEDIUM**, not refuted |
+| `Utility` storage helpers | an operator-rooted uploader mutates the operator's own storage counter and applies the operator's plan | **MEDIUM**, web surface not refuted |
+| `Api\DashboardController::resolveManageableUser` | an unpatched third copy of the P0 predicate, safe only because `resolveOwnedStore()` runs first | **LOW** (hardening); not reachable today |
+| not retroactive | a `users.current_store` that the OLD `changeStore` already pointed at the operator's store keeps it | read-only query below |
+| within-tenant | `UserUnable`'s store branch and `changeStatus` check ownership but no permission: zero-permission staff of a merchant can switch that merchant's stores | **LOW**, pre-existing, not cross-tenant |
+| drift | `config/tenancy.php` lists `DeliveryBoy` as scoped (batch 4); the project notes say it is not | documentation |
+
+**Read-only detection for the owner** (nothing here touches production): users already pointed outside their own tenant by the old `changeStore`:
+
+    SELECT u.id, u.type, u.created_by, u.current_store, s.created_by AS store_owner
+    FROM users u JOIN stores s ON s.id = u.current_store
+    WHERE u.type <> 'super admin'
+      AND s.created_by <> CASE WHEN u.type = 'admin' THEN u.id ELSE u.created_by END;
+
+**What the mutation figure covers.** "14 of 14" speaks only for the ten fixed sinks; none of the sites in the table above is driven by `TenantRootSinksTest`.
