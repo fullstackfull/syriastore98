@@ -125,8 +125,10 @@ class StalePointerDetectionQueryTest extends SecurityTestCase
     /**
      * detect-C (P1-SEC-67c): the settings rows a self-demoted merchant's saves left stamped with the operator's id inside a store the operator does not own.
      * They are read as the platform's by every reader keyed on `created_by = 1` with no store predicate. The fixture holds the operator's own platform rows
-     * (not returned), a merchant's own rows and a merchant's staff's rows re-stamped to the merchant (not returned), and one row stamped with the operator's
-     * id inside a merchant's store (returned -- as is a legitimate "parked" save, which is why the document tells the owner to look before deleting).
+     * (not returned), a merchant's own rows and a merchant's staff's rows re-stamped to the merchant (not returned), and rows stamped with the operator's
+     * id inside a merchant's store, in NO store, or in a store that no longer exists (returned -- as is a legitimate "parked" save, which is why the document
+     * tells the owner to look before deleting). The first form of the query INNER JOINed `stores`, so a row with no store was invisible to it: the fifth
+     * review's finding, in the same class as the fourth review's.
      */
     public function test_detect_c_finds_settings_rows_stamped_with_the_operators_id_inside_a_store_it_does_not_own(): void
     {
@@ -134,20 +136,30 @@ class StalePointerDetectionQueryTest extends SecurityTestCase
         $operatorStore = $this->makeStore($operator);
         [$merchant, $merchantStore] = $this->makeTenant();
 
-        $insert = fn (string $name, int $createdBy, int $storeId) => DB::table('settings')->insertGetId([
+        $insert = fn (string $name, int $createdBy, ?int $storeId) => DB::table('settings')->insertGetId([
             'name' => $name, 'value' => 'x', 'created_by' => $createdBy, 'store_id' => $storeId, 'created_at' => now(), 'updated_at' => now(),
         ]);
         $platform = $insert('storage_setting', (int) $operator->id, (int) $operatorStore->id);          // the platform's own row
         $own = $insert('s3_bucket', (int) $merchant->id, (int) $merchantStore->id);                      // a merchant's row, their id
         $contaminated = $insert('storage_setting', (int) $operator->id, (int) $merchantStore->id);       // stamped 1 inside a merchant's store
+        $noStore = $insert('s3_key', (int) $operator->id, null);                                          // stamped 1 in NO store (a principal with an empty current_store)
+        $dangling = $insert('disable_lang', (int) $operator->id, 987654);                                 // stamped 1 in a store that no longer exists
 
         $rows = DB::select($this->documentedQuery('detect-C'));
         $ids = array_map(fn ($r) => (int) $r->id, $rows);
+        sort($ids);
 
-        $this->assertSame([$contaminated], $ids, 'detect-C must return exactly the row stamped with the operator\'s id inside a store the operator does not own.');
+        $expected = [$contaminated, $noStore, $dangling];
+        sort($expected);
+        $this->assertSame($expected, $ids, 'detect-C must return the rows stamped with the operator\'s id inside a store the operator does not own, in no store, or in a deleted one -- every one of which the pool readers read.');
         $this->assertNotContains($platform, $ids);
         $this->assertNotContains($own, $ids);
-        $this->assertSame((int) $merchant->id, (int) $rows[0]->store_owner, 'the triage column names the store\'s real owner');
+        $byId = [];
+        foreach ($rows as $r) {
+            $byId[(int) $r->id] = $r;
+        }
+        $this->assertSame((int) $merchant->id, (int) $byId[$contaminated]->store_owner, 'the triage column names the store\'s real owner');
+        $this->assertNull($byId[$noStore]->store_owner, 'a row in no store has no owner to name');
     }
 
     public function test_detect_b_finds_pointers_into_another_tenant_and_cannot_find_what_the_old_change_store_wrote(): void

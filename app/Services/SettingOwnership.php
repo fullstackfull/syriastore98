@@ -43,6 +43,28 @@ use App\Models\User;
  * included, wherever a caller passes a store id it has not validated. That is a wider and riskier change than this one, it would need
  * all 36 call sites audited for where their store id comes from, and it is recorded rather than taken.
  *
+ * P1-SEC-67c -- THE RE-STAMP IS FOR A MERCHANT'S STAFF, AND THE "TENANT ROOT" HAS TO BE A MERCHANT.
+ *
+ *   `User::creatorId()` is the OPERATOR's id for a principal rooted at the platform -- a merchant who demoted their own `type` through
+ *   PUT /users/{self}, or staff the operator created -- so a row such a principal created was re-stamped `created_by = 1`. `Utility::
+ *   upload_file()` and `jsonUpload_file()` read EVERY row stamped with the operator's id, in every store and with no store predicate, as
+ *   the platform's storage configuration; the same pool feeds `Utility::languages()` and the layouts' `disable_lang`, and
+ *   `defaultSetting()` copies 17 names from it into every NEW store. A registered merchant could replace the platform's `storage_setting`
+ *   and `s3_*` values (executed: tests/Feature/Security/OperatorRootedSettingsWritesTest). `keep()` now re-stamps only to
+ *   `UserPolicy::merchantTenantRoot()` and otherwise leaves the writer's OWN id, outside the pool.
+ *
+ *   WHAT THAT COSTS -- the owner's fork, docs/security/P01-SECURITY-WORK-QUEUE.md f)(2): staff the operator created, and staff of a
+ *   self-demoted merchant, regain for NEW names the symptom this file was written to remove (their rows are invisible to the owner-keyed
+ *   readers while the store-keyed readers see them), and a user who owns a settings row cannot be deleted (UserDeletionSafety). The
+ *   first sentence of the next paragraph, "it does work only for a member of staff", now means staff of a MERCHANT.
+ *
+ *   WHAT IT DOES NOT CLOSE: the UPDATE branch above keeps the stored owner. A row ALREADY stamped with an operator's id -- planted before
+ *   this fix, saved by the operator while parked in a merchant's store, or in a store a principal's `current_store` points at -- is still
+ *   rewritten IN PLACE by anyone who reaches the writer for that name, and no settings handler checks that `getCurrentStore()` is a store
+ *   the caller owns (the missing control recorded below). Deploying this change does not cut off a principal who has already planted a
+ *   row. Cleanup of existing rows is the owner's (detect-C, docs/security/P01-SECURITY-WORK-QUEUE.md subsection i)); the real fix is
+ *   that ownership control, which is open.
+ *
  * TWO THINGS THIS DELIBERATELY DOES NOT DO.
  *
  *   It does not touch the PLATFORM OPERATOR on create, and it needs no special case to manage that: `User::creatorId()` returns

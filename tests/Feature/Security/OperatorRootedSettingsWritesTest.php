@@ -137,7 +137,13 @@ class OperatorRootedSettingsWritesTest extends SecurityTestCase
         $this->assertSame('local', $this->platformPool()['storage_setting'] ?? null, "A single posted name from a self-demoted merchant overwrote the platform's storage_setting.");
     }
 
-    public function test_staff_the_operator_created_do_not_write_the_platforms_pool_either(): void
+    /**
+     * CREATION ONLY, and the name says so: this staff member's `current_store` is a FRESH operator store that holds no rows, so every name takes the create path.
+     * Pointed at the store that holds the platform's own rows, the same POST would UPDATE them in place (an update keeps the stored owner) -- a delegate of the
+     * operator acting on the operator's store, which the owner's fork f)(2) leaves open and which this change does NOT close. The ownership control the Settings
+     * handlers lack (`getCurrentStore()` is never checked against the caller) is the real fix and is open.
+     */
+    public function test_staff_the_operator_created_do_not_create_rows_in_the_platforms_pool_either(): void
     {
         $operatorsStaff = User::factory()->create([
             'type' => 'staff', 'created_by' => $this->operator->id, 'current_store' => $this->makeStore($this->operator)->id, 'is_active' => 1, 'email_verified_at' => now(),
