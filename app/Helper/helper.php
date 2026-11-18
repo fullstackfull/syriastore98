@@ -612,38 +612,85 @@ if (!function_exists('SetConfigEmail')) {
 }
 
 if (!function_exists('upload_theme_image')) {
-    function upload_theme_image($theme_image, $key = 0, $user_id = 0)
+    /**
+     * Store one uploaded IMAGE under `uploads/<store id>/` and report where it went.
+     *
+     * P1-SEC-72. This used to store whatever it was handed, under the extension the CLIENT named, below the application root --
+     * and its first caller is reachable by anyone who registers on a storefront. What may be stored, and under which extension,
+     * is now decided by App\Services\ThemeImageUpload for all seven call sites (two are vendored and cannot be edited, which is
+     * why the rule is here and not at the callers). Read that class before changing anything below.
+     *
+     * THE ORDER IS THE SECOND HALF OF THE FIX: decide -> store -> charge.
+     *   - It used to charge the plan's storage FIRST, so a refused file would still have been billed -- and for the avatar the
+     *     bill goes to the merchant, on a stranger's request.
+     *   - It then reported success whatever `putFileAs()` answered (the `theme` disk does not throw), so a failed write handed the
+     *     caller `image_path => false`. A write that fails now charges nothing and reports failure.
+     *
+     * THE STORED NAME IS THE SERVER'S: a sanitised `$key`, the date, the time, twelve random hex characters and the extension
+     * ThemeImageUpload derived from the file's BYTES. The random part replaces `rand(0, 100)`, with which two uploads in the same
+     * second landed on the same name once in 101 and the second silently replaced the first.
+     *
+     * @param  mixed  $theme_image  whatever the request carried: only a valid uploaded image is stored
+     * @param  int|string  $key  a caller-chosen prefix for the stored name
+     * @param  int  $user_id  whose plan storage is charged. 0 charges NOBODY, and six of the seven callers pass nothing: the
+     *                        `??` below never reaches its right-hand side, because 0 is not null. Recorded, not changed here --
+     *                        what a merchant's plan is charged for is the owner's (P01-SECURITY-WORK-QUEUE, storage counters)
+     * @param  int|null  $store_id  the folder to store under when the caller is not a panel user: `getCurrentStore()` reads the
+     *                              panel's guard and answers nothing for a storefront customer, whose avatar therefore used to
+     *                              land loose in `uploads/`, beside every other store's
+     * @param  bool  $for_customer  true for a storefront customer's upload: raster images only, and a fixed size ceiling
+     * @return array{status: bool, image_url: string, image_path: string, message: string}
+     */
+    function upload_theme_image($theme_image, $key = 0, $user_id = 0, $store_id = null, $for_customer = false)
     {
         $return['status'] = false;
         $return['image_url'] = '';
         $return['image_path'] = '';
         $return['message'] = __('Something went wrong.');
 
-        if (!empty($theme_image)) {
-            $theme_image = $theme_image;
-            $result = Utility::updateStorageLimit($user_id ?? \Auth::user()->creatorId(), $theme_image->getSize());
-            if ($result == 1) {
-                $filenameWithExt = $theme_image->getClientOriginalName();
-                $filename = pathinfo($filenameWithExt, PATHINFO_FILENAME);
-                $extension = $theme_image->getClientOriginalExtension();
-                $filedownloadable1 = $key . rand(0, 100) . date('Ymd') . '_' . time() . '.' . $extension;
-                $dir = 'uploads/' . getCurrentStore() ;
-                $save = Storage::disk('theme')->putFileAs(
-                    $dir,  // upload path
-                    $theme_image, // image name
-                    $filedownloadable1  // image new name
-                );
-                $return['status'] = true;
-                $return['image_url'] = url('uploads/' . $save);
-                $return['image_path'] = $save;
-                $return['message'] = __('Image upload succcessfully.');
-            } else {
-                $return['status'] = false;
-                $return['image_url'] = '';
-                $return['image_path'] = '';
-                $return['message'] = __('Plan storage limit is over so please upgrade the plan.');
-            }
+        if (empty($theme_image)) {
+            return $return;
         }
+
+        $refusal = \App\Services\ThemeImageUpload::refusal($theme_image, (bool) $for_customer);
+        $extension = $refusal === null ? \App\Services\ThemeImageUpload::storedExtension($theme_image, (bool) $for_customer) : null;
+
+        if ($refusal !== null || $extension === null) {
+            // Written for whoever asks, afterwards, whether anybody tried: what was refused, never the file's name or its bytes.
+            \Illuminate\Support\Facades\Log::warning('an image upload was refused', \App\Services\ThemeImageUpload::describe($theme_image) + [
+                'customer_upload' => (bool) $for_customer,
+                'store' => (int) $store_id > 0 ? (int) $store_id : getCurrentStore(),
+            ]);
+            $return['message'] = $refusal ?? $return['message'];
+
+            return $return;
+        }
+
+        $folder = (int) $store_id > 0 ? (int) $store_id : getCurrentStore();
+        $dir = rtrim('uploads/' . $folder, '/');
+        $name = preg_replace('/[^A-Za-z0-9_-]/', '', (string) $key) . date('Ymd') . '_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $extension;
+
+        $save = Storage::disk('theme')->putFileAs($dir, $theme_image, $name);
+
+        if (! is_string($save) || $save === '') {
+            return $return;
+        }
+
+        $result = Utility::updateStorageLimit($user_id ?? \Auth::user()->creatorId(), $theme_image->getSize());
+
+        if ($result != 1) {
+            // Over the plan's storage: the file just written is this request's own, so removing it is not a tenancy question.
+            Storage::disk('theme')->delete($save);
+            $return['message'] = __('Plan storage limit is over so please upgrade the plan.');
+
+            return $return;
+        }
+
+        $return['status'] = true;
+        $return['image_url'] = url('uploads/' . $save);
+        $return['image_path'] = $save;
+        $return['message'] = __('Image upload succcessfully.');
+
         return $return;
     }
 }

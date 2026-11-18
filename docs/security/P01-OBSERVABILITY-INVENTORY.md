@@ -45,7 +45,7 @@ entirely pre-existing third-party-integration failure reporting, `info` (22) and
 diagnostics; none of them is a security signal and enumerating them would bury the ones that are.
 
 
-### `critical` — 31 lines
+### `critical` — 36 lines
 
 > **[2026-11-01] THIS COUNT WAS STALE, AND NOT BY THIS CHANGE'S DOING.** It read **21** against a
 > table of **28** rows before F241 and F263 added two more; the `warning` heading read **166**
@@ -95,7 +95,13 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 204 lines
+### `warning` — 212 lines
+
+> **[2026-11-18] 211 -> 212, AND BOTH HEADINGS HAD DRIFTED AGAIN.** One line added by P1-SEC-72 (the first row below, with its
+> destination and reader in its own section). Counting the rows for that edit: the tables held **36 `critical` and 211
+> `warning`** -- 247, the figure `resync-observability-inventory.py` reports as `source lines` -- while the headings read 31 and
+> 204. Both are corrected here. Nothing was wrong with the rows, which the ratchet compares against `app/` one by one; what
+> drifted is, once more, the number in prose that nothing asserts.
 
 > **[2026-11-02, second edit] 186 -> 190, and BOTH HEADINGS WERE STALE BEFORE IT.** Measured
 > against `app/` with the test's own regex: **27 `critical`, 190 `warning`, 217 total** — which is
@@ -120,6 +126,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 
 | line | message |
 |---|---|
+| `app/Helper/helper.php:660` | an image upload was refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:407` | theme settings write refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:138` | Theme editor read refused. |
 | `app/Http/Controllers/ThemeVersionController.php:333` | Theme publication refused. |
@@ -161,18 +168,18 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Api/ApiController.php:3704` | Storefront order intake refused as a duplicate submission |
 | `app/Http/Controllers/Api/ApiController.php:4253` | Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered. |
 | `app/Http/Controllers/Api/ApiController.php:4391` | Storefront intake claim could not be released; it will expire on its own. |
-| `app/Http/Controllers/Api/ApiController.php:10062` | Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered. |
-| `app/Http/Controllers/Api/ApiController.php:10111` | Storefront intake claim could not be released; it will expire on its own. |
-| `app/Http/Controllers/Api/ApiController.php:9347` | Storefront order intake refused as a duplicate submission |
+| `app/Http/Controllers/Api/ApiController.php:10077` | Storefront intake claim could not record the order id; a retry inside the window will be refused rather than answered. |
+| `app/Http/Controllers/Api/ApiController.php:10126` | Storefront intake claim could not be released; it will expire on its own. |
+| `app/Http/Controllers/Api/ApiController.php:9362` | Storefront order intake refused as a duplicate submission |
 | `app/Http/Controllers/PaymentController.php:2174` | Web checkout intake refused as a duplicate submission |
 | `app/Http/Controllers/Api/ApiController.php:135` | Coupon refused: the basket could not be priced |
 | `app/Http/Controllers/Api/ApiController.php:3519` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:7506` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:7597` | coupon: refused an implausible discounted total |
-| `app/Http/Controllers/Api/ApiController.php:8429` | payment_sheet refused: basket names a product from another store |
-| `app/Http/Controllers/Api/ApiController.php:8455` | payment_sheet: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:9069` | order: refused, basket holds a non-positive quantity |
-| `app/Http/Controllers/Api/ApiController.php:9194` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:7521` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:7612` | coupon: refused an implausible discounted total |
+| `app/Http/Controllers/Api/ApiController.php:8444` | payment_sheet refused: basket names a product from another store |
+| `app/Http/Controllers/Api/ApiController.php:8470` | payment_sheet: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:9084` | order: refused, basket holds a non-positive quantity |
+| `app/Http/Controllers/Api/ApiController.php:9209` | coupon: refused an implausible discounted total |
 | `app/Http/Controllers/Api/AuthController.php:186` | register: social identity verification refused |
 | `app/Http/Controllers/Api/DeliverySyriaOrderController.php:84` | Delivery Syria invalid credentials |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:356` | Pending partial payment refused: the balance named does not belong to this customer. |
@@ -586,6 +593,28 @@ not belong to, and is worth reading as such. Same fields: route, user id, gate r
 **None is reachable anonymously**: every theme route sits behind `auth` and the `theme.editor`
 middleware, and the middleware redirects an unauthenticated caller to sign-in before any of this
 runs.
+
+### The row added 2026-11-18 (P1-SEC-72), with its destination and reader
+
+**`upload_theme_image()` -- "an image upload was refused", `warning`.** The helper behind seven upload call sites (a storefront
+customer's avatar, the admin API's three payment images, the web payment settings, two vendored sign-in settings handlers) used
+to store whatever it was handed under the extension the client named; it now stores images only, and this is the line it
+writes when it refuses. It goes where every row in this table goes (section 2).
+
+- **What it holds:** `sent` (`file`, or the PHP type of whatever came instead of one), `client_extension` (the one piece of
+  client text kept: letters and digits only, at most twelve), `sniffed_type` (what the bytes are), `kilobytes`,
+  `customer_upload` (true for the storefront avatar, false for the panel's callers) and `store`. **Not the file's name** -- it is
+  a stranger's text and may be a person's name -- and never its content. `ThemeImageUploadTypeTest` pins both halves.
+- **How to read it:** a `client_extension` of `php`, `phtml`, `phar`, `html`, `js`, `htaccess` or `svg` with
+  `customer_upload: true` is somebody trying the door P1-SEC-72 closed, and a run of them from one store is somebody working
+  at it. An image type with an image extension and a large `kilobytes` is a shopper with a picture over the ceiling. From the
+  panel (`customer_upload: false`) the ordinary cause is a merchant who picked a PDF for a gateway logo.
+- **How often:** the storefront path is behind the API group's throttle (120 requests a minute for one client), which is the
+  ceiling on this line too.
+- **WHAT IT CANNOT TELL ANYONE, and this is the part to read twice:** it records attempts made AFTER the fix is deployed.
+  Before the fix the same request SUCCEEDED and nothing was logged, so an empty log is not evidence that nothing was ever
+  stored. Whether anything was is answered by looking at what is in `uploads/` on the server, which is the owner's to do
+  (P01-SECURITY-WORK-QUEUE, P1-SEC-72).
 
 ## 2. Where these lines actually go
 

@@ -7396,8 +7396,23 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             // Was Store::findOrFail($user->store_id), which 404s when the customer's store_id is
             // null -- and that column is nullable. The slug's store is already confirmed to be
             // this customer's by the check above, so it is the right one to bill.
-            $cover_image = upload_theme_image( $theme_image, 0, $store->created_by);
-            \App\Services\StoredUpload::delete($user->profile_image, $store->created_by);
+            // P1-SEC-72: a customer's upload -- raster images only, stored in THIS store's folder (the slug's store, confirmed
+            // above to be this customer's), under an extension the server chose. See App\Services\ThemeImageUpload.
+            $cover_image = upload_theme_image($theme_image, 0, $store->created_by, $store->id, true);
+
+            // A REFUSED UPLOAD CHANGES NOTHING. The result used to be taken on trust: the previous avatar was unlinked and
+            // `image_path` stored whatever it held, so an upload refused for the plan's storage erased the avatar it was meant to
+            // replace and wrote '' in its place. HTTP 200 with status 0, never 401: a client signs out on a 401.
+            if (empty($cover_image['status'])) {
+                return $this->error(['message' => $cover_image['message']], $cover_image['message']);
+            }
+
+            // THE PREVIOUS AVATAR IS UNLINKED AND ITS SIZE HANDED BACK. Every avatar is charged to the store owner's plan storage
+            // (above), and this used to unlink the old file without crediting it: MEASURED, one registered visitor replacing a
+            // 300 KB picture moved the merchant's used-storage figure 0.29, 0.58, 0.87... with one file on disk, until the plan
+            // refused the next upload -- the merchant's own included. Utility::changeStorageLimit() is what the panel's
+            // replace-an-image handlers call: the same StoredUpload rule decides the file, and the id credited is the id charged.
+            Utility::changeStorageLimit($store->created_by, $user->profile_image);
             $user->profile_image = $cover_image['image_path'];
             $user->save();
         }

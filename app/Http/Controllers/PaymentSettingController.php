@@ -18,6 +18,9 @@ class PaymentSettingController extends Controller
     /** Gateways the caller asked to enable that were left off for want of a required field. */
     protected $incomplete = [];
 
+    /** @var array<string, string> gateway name => why the image sent for it was not stored. */
+    protected $refusedImages = [];
+
     /**
      * Process payment settings form submission
      */
@@ -30,6 +33,19 @@ class PaymentSettingController extends Controller
             return redirect()->back()->with('error', __('Permission denied.'));
         }
         $this->store_id = !empty(getCurrentStore()) ? getCurrentStore() : '1';
+
+        /*
+         * THIS REQUEST'S OWN STATE, AND NOTHING LEFT FROM ANOTHER ONE. The three lists live on the controller, and a Route keeps
+         * the controller it resolved (Route::getController()), so one application instance serving two requests hands the second
+         * the first one's lists. MEASURED while writing ThemeImageUploadTypeTest: a second save with a valid image repeated the
+         * first save's refusal. Under PHP-FPM or mod_php an instance serves one request and none of this can happen, and no
+         * long-running server is installed (composer.json names none); but `$this->post` is every key the save will WRITE, so
+         * the day one is, a stale list is one store's gateway settings written into the next caller's store. A test that drives
+         * two saves has always had the first one's keys in the second, which is a way of passing for the wrong reason.
+         */
+        $this->post = [];
+        $this->incomplete = [];
+        $this->refusedImages = [];
 
         // Handle currency settings
         $this->handleBasicSettings($request);
@@ -50,6 +66,8 @@ class PaymentSettingController extends Controller
          * over a gateway that is still off would be worse than the old behaviour of enabling it
          * broken — at least that failed visibly, at checkout.
          */
+        $problems = [];
+
         if ($this->incomplete !== []) {
             $names = array_map(function (array $row): string {
                 return __($row['gateway']) . ' (' . implode(', ', array_map(
@@ -57,10 +75,24 @@ class PaymentSettingController extends Controller
                 )) . ')';
             }, $this->incomplete);
 
-            return redirect()->back()->with('error', __(
+            $problems[] = __(
                 'Saved, but these gateways were left switched off because a required value is missing: :list',
                 ['list' => implode(' · ', $names)]
-            ));
+            );
+        }
+
+        // P1-SEC-72: an image that was sent and not stored, by gateway, with the reason. See handleImageUpload().
+        if ($this->refusedImages !== []) {
+            $rows = [];
+            foreach ($this->refusedImages as $gatewayName => $reason) {
+                $rows[] = __($gatewayName) . ' (' . $reason . ')';
+            }
+
+            $problems[] = __('Saved, but these images were not uploaded: :list', ['list' => implode(' · ', $rows)]);
+        }
+
+        if ($problems !== []) {
+            return redirect()->back()->with('error', implode(' ', $problems));
         }
 
         return redirect()->back()->with('success', __('Setting successfully updated.'));
@@ -112,7 +144,7 @@ class PaymentSettingController extends Controller
         if ($request->$enableKey == 'on') {
             // Handle image upload if provided
             if (!empty($request->$imageKey)) {
-                $this->handleImageUpload($request->$imageKey, $imageKey);
+                $this->handleImageUpload($request->$imageKey, $imageKey, (string) ($gateway['name'] ?? $id));
             }
             
             /*
@@ -222,12 +254,21 @@ class PaymentSettingController extends Controller
     /**
      * Handle image upload for payment gateway
      */
-    private function handleImageUpload($image, $imageKey)
+    private function handleImageUpload($image, $imageKey, string $gatewayName = '')
     {
         $uploadResult = upload_theme_image($image);
-        
+
+        /*
+         * P1-SEC-72. A REFUSED IMAGE IS REPORTED, NOT RETURNED. This used to `return redirect()->back()->with('error', ...)`
+         * from a private method whose only caller discards the value -- the F142 shape again -- so a refusal built a response
+         * nobody sent, the save carried on and the merchant read "Setting successfully updated." over an image that had not
+         * changed. It mattered little while the only refusal was the plan's storage; `upload_theme_image()` now also refuses
+         * anything that is not an image, so a merchant who picks the wrong file has to be told. update() reads this list.
+         */
         if ($uploadResult['status'] == false) {
-            return redirect()->back()->with('error', $uploadResult['message']);
+            $this->refusedImages[$gatewayName !== '' ? $gatewayName : $imageKey] = (string) $uploadResult['message'];
+
+            return;
         }
         
         $where = ['name' => $imageKey, 'store_id' => $this->store_id];
