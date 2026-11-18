@@ -221,6 +221,22 @@ vacuous tests repeatedly. Eleven ways they pass for the wrong reason, all measur
     copy** and run the mutants on **all copies identically** — a mutation applied to one view is
     killed by the equality test between the copies and tells you nothing about the census.
 
+12. **A merge into the request does not protect a reader, and a test that "sees" a 500 and shrugs is hiding a finding.**
+    `Request::all()` is `array_replace_recursive($this->input(), $this->allFiles())`, so a multipart FILE part
+    named like a field the intake just merged (here `customer_id`) **replaces the merge** for every reader of
+    `$request->field`. D6 stage 1 first read the principal's balance at the COD writer as a consistency fix; the
+    discount was then granted, the post-commit `OrderNote` insert (a foreign key on the file's temp path) threw
+    **after the commit and before the event that debits the points** — final price 50.00, balance still 500, no
+    ledger row, HTTP 500, repeatable. My own test had measured exactly that, written it up as "not an exploit"
+    because the request 500'd, and trimmed the assertion to the order total. An independent review caught it. Rules:
+    (a) a 500 *after* a commit is a half-written state, not a refusal — assert the balance, the ledger and the
+    stock, not just the status; (b) when a request must agree with the principal, **compare the bag with the
+    principal at the intake and refuse** (`PaymentController::refuseACustomerIdTheIntakeCannotTrust()`) rather
+    than patching one consumer; (c) a fix that moves a read from "the bag" to "the principal" can remove an
+    *accidental* safety (a file part priced from nobody) — mutate the fix and run the hostile request before
+    calling it consistent; (d) a check that can never disagree with the one before it (the COD writer's second
+    `forOrder()` in the quote's own request) is a trap, not depth: it cannot fail a test.
+
 **Assert through `DB::table()`.** `User`, `Product` and `Order` are `Cachable`; an Eloquent read can
 serve a mutated in-memory instance. That produced a false *reproduction* once — a model read
 reported a hijacked row while the raw row was untouched.
