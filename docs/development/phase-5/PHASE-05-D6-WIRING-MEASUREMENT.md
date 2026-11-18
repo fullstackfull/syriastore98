@@ -92,7 +92,10 @@ keeps its own base (D5 is untouched).
    paid for in points. The trigger is closed rather than one consumer, because the same file breaks anything else that reads
    the bag after the commit. Refusing early is also kinder: before, the shopper got a 500 with stock decremented and the basket
    emptied. **Known limit:** a file part can replace *any* field the intake merges (`slug`, `store_id`, `payment_type` …); only
-   `customer_id`, the one that decides whose balance moves, is closed (`GAP-214`).
+   `customer_id`, the one that decides whose balance moves, is closed (`GAP-214`). What the file puts in the bag is its server-side
+   temporary path, so the caller cannot *choose* a value — only make the request fail where a replaced field is read. The gateway
+   returns pin `customer_id` with a merge too (`adoptStoredCheckoutState()`) and are exposed to the same trick; that is reasoned
+   from the mechanism and **not executed**.
 7. **`isRedeemable()` also requires the accrual arithmetic to be computable.** The listener divides by `order_point_price` and
    multiplies by `order_points` *before* its redemption branch; the settings validator is a bare `required`. A zero divisor is a
    `DivisionByZeroError` and junk is a `TypeError`, thrown after the commit, so a granted discount would again have no debit.
