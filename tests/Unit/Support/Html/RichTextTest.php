@@ -15,8 +15,10 @@ use Tests\Support\Security\RichTextCorpus;
  * from the parse of the input -- an element only if it is on its list, an attribute only if the element lists it and the value passes that attribute's own check, every text node
  * and attribute value entity-escaped -- so what a test has to show is the CONTRACT of that output, not the cleverness of a filter.
  *
- * THE CONTRACT IS WRITTEN HERE A SECOND TIME, on purpose (ALLOWED below): the class's own lists are not the oracle, because a test that asked the class what it allows would pass for any
- * list. Widening the class's lists fails this file until somebody widens this one and says why.
+ * THE CONTRACT IS WRITTEN HERE A SECOND TIME, on purpose (ALLOWED and KEPT below): the class's own lists are not the oracle, because a test that asked the class what it allows would pass for any
+ * list. Widening the class's lists fails this file until somebody widens this one and says why -- and that is TRUE only because of two tests that make it so, which the first version of this
+ * sentence lacked (a reviewer ran 94 widenings and loosenings against it and more than half passed): the class's own constants are compared with this file's by reflection, and every
+ * element is offered every attribute any element keeps (and some that none does) in a generated cross-product.
  *
  * ORACLE for the corpus cases: the output is parsed again and every node of it is checked against ALLOWED and against the value rules. `Tests\Support\Security\RichTextCorpus` is the
  * input (hand-written evasions plus seeded random tag soup); tests/Support/Security/bin/verify-rich-text-in-chromium.php runs the same corpus through a real browser, which is the evidence
@@ -31,6 +33,34 @@ final class RichTextTest extends TestCase
         'h1' => ['dir', 'style'], 'h2' => ['dir', 'style'], 'h3' => ['dir', 'style'], 'h4' => ['dir', 'style'], 'h5' => ['dir', 'style'], 'h6' => ['dir', 'style'],
         'table' => ['dir'], 'thead' => [], 'tbody' => [], 'tfoot' => [], 'tr' => [], 'th' => ['colspan', 'rowspan', 'style'], 'td' => ['colspan', 'rowspan', 'style'],
         'a' => ['href', 'title', 'rel', 'target'], 'img' => ['src', 'alt', 'title', 'width', 'height'],
+    ];
+
+    /** what the class KEEPS of each element: its ELEMENTS constant, written out a second time (ALLOWED is what the OUTPUT may hold: `a` also carries the rel and target the class writes) */
+    private const KEPT = [
+        'p' => ['dir', 'style'], 'div' => ['dir', 'style'], 'span' => ['dir', 'style'], 'br' => [], 'hr' => [],
+        'b' => [], 'strong' => [], 'i' => [], 'em' => [], 'u' => [], 's' => [], 'strike' => [], 'del' => [], 'ins' => [], 'sub' => [], 'sup' => [], 'small' => [], 'mark' => [],
+        'ul' => ['dir'], 'ol' => ['dir', 'start'], 'li' => ['dir'], 'blockquote' => ['dir'], 'pre' => [], 'code' => [],
+        'h1' => ['dir', 'style'], 'h2' => ['dir', 'style'], 'h3' => ['dir', 'style'], 'h4' => ['dir', 'style'], 'h5' => ['dir', 'style'], 'h6' => ['dir', 'style'],
+        'table' => ['dir'], 'thead' => [], 'tbody' => [], 'tfoot' => [], 'tr' => [], 'th' => ['colspan', 'rowspan', 'style'], 'td' => ['colspan', 'rowspan', 'style'],
+        'a' => ['href', 'title'], 'img' => ['src', 'alt', 'title', 'width', 'height'],
+    ];
+
+    /** the elements whose CONTENT is dropped with them */
+    private const DROPPED = [
+        'script', 'style', 'iframe', 'frame', 'frameset', 'object', 'embed', 'applet', 'noscript', 'noframes', 'noembed', 'template', 'title', 'head', 'xmp', 'plaintext', 'listing',
+        'svg', 'math', 'textarea', 'select', 'option', 'optgroup', 'button', 'input', 'form', 'link', 'meta', 'base', 'audio', 'video', 'source', 'track', 'canvas', 'map', 'area', 'dialog', 'portal',
+    ];
+
+    /** the declarations a `style` may carry: property => [values that are kept, values that are not] */
+    private const STYLES = [
+        'text-align'       => [['left', 'RIGHT', 'center', 'justify', 'start', 'end'], ['left !important', 'url(x)', 'inherit', 'middle', '']],
+        'direction'        => [['ltr', 'RTL'], ['ltr !important', 'inherit', 'auto']],
+        'color'            => [['#fff', '#FF8800', '#ff880080', 'red', 'Tomato', 'rgb(1, 2, 3)', 'rgba(1,2,3,0.5)'], ['url(x)', 'expression(x)', 'red !important', '#ggg', 'ab', 'a', 'rgb(1,2)', 'rgb(1,2,3,4)', 'var(--x)']],
+        'background-color' => [['#fff', 'red', 'rgb(1, 2, 3)'], ['url(x)', 'expression(x)', 'red !important', '#12', 'rgb(1)', 'attr(x)']],
+        'font-weight'      => [['bold', 'BOLD', 'normal', '700', '900', 'bolder', 'lighter'], ['1000', '650', 'bold !important', 'boldd', '', 'inherit']],
+        'font-style'       => [['italic', 'normal', 'oblique'], ['slanted', 'italic !important', 'inherit']],
+        'text-decoration'  => [['none', 'underline', 'line-through', 'underline line-through', 'line-through underline'], ['overline', 'underline dotted', 'blink', 'underline !important', 'underline underline']],
+        'font-size'        => [['12px', '14pt', '1.5em', '2rem', '100%', '999px'], ['12', '12vw', '1000px', '12px !important', 'calc(1px)', 'large', '1.555px', '-1px']],
     ];
 
     private const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAHnOcQAAAAABJRU5ErkJggg==';
@@ -167,15 +197,18 @@ final class RichTextTest extends TestCase
         ];
     }
 
+    /** the URL rule is the class's own business (it is private); what it decides is seen through the link the class writes, or does not */
     #[DataProvider('urls')]
     public function test_which_urls_are_links(string $url, bool $accepted): void
     {
-        $this->assertSame($accepted, RichText::url($url, ['http', 'https', 'mailto', 'tel']) !== null, json_encode($url, JSON_INVALID_UTF8_SUBSTITUTE));
+        $out = RichText::clean('<a href="' . htmlspecialchars($url, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">x</a>');
+
+        $this->assertSame($accepted, str_contains($out, 'href="'), json_encode($url, JSON_INVALID_UTF8_SUBSTITUTE) . ' -> ' . $out);
     }
 
     public function test_a_link_is_written_without_the_characters_a_browser_would_ignore(): void
     {
-        $this->assertSame('https://example.com/a', RichText::url("ht\ttps://exam\nple.com/a", ['https']));
+        $this->assertStringContainsString('href="https://example.com/a"', RichText::clean("<a href=\"ht\ttps://exam\nple.com/a\">x</a>"));
     }
 
     /** every input of the corpus, written out and read back */
@@ -264,6 +297,276 @@ final class RichTextTest extends TestCase
 
         $this->assertSame([], self::offences($out));
         $this->assertSame(0, preg_match('/\sonmouseover=|\sonfocus=|\sonerror=/', preg_replace('/"[^"]*"/', '""', $out)), 'no handler exists outside a quoted value');
+    }
+
+    // ---- the lists are the lists, and everything off them is refused ------------------------------------
+
+    /** @return array<string, mixed> the class's own constants, private ones included */
+    private static function constantsOfTheClass(): array
+    {
+        return (new \ReflectionClass(RichText::class))->getConstants();
+    }
+
+    public function test_the_class_keeps_exactly_what_this_file_says_it_keeps(): void
+    {
+        $class = self::constantsOfTheClass();
+
+        $elements = $class['ELEMENTS'];
+        ksort($elements);
+        foreach ($elements as &$attributes) {
+            sort($attributes);
+        }
+        unset($attributes);
+
+        $expected = self::KEPT;
+        ksort($expected);
+        foreach ($expected as &$attributes) {
+            sort($attributes);
+        }
+        unset($attributes);
+
+        $this->assertSame($expected, $elements, 'The class keeps a different set of elements or attributes than this file says. Widening it is a decision: write it down here, with the reason, in KEPT and ALLOWED.');
+        $this->assertEqualsCanonicalizing(self::DROPPED, $class['DROP_WITH_CONTENT'], 'The elements dropped WITH their content are not the ones this file lists.');
+        $this->assertSame(['br' => true, 'hr' => true, 'img' => true], $class['VOID']);
+        $this->assertEqualsCanonicalizing(array_keys(self::STYLES), array_keys($class['STYLE']), 'The class allows a different set of style properties than this file lists (a `position` here is what a page-covering overlay needs).');
+        $this->assertSame(32, $class['MAX_DEPTH']);
+        $this->assertSame(2097152, $class['MAX_BYTES']);
+        $this->assertSame(400, $class['MAX_TAG']);
+
+        // ALLOWED is the output's side of KEPT: the same, plus what the class itself writes on a link
+        foreach (self::ALLOWED as $element => $attributes) {
+            $this->assertEqualsCanonicalizing($element === 'a' ? array_merge(self::KEPT['a'], ['rel', 'target']) : self::KEPT[$element], $attributes, $element);
+        }
+    }
+
+    /** @return array<string, array{string, string, string, bool}> an element, an attribute, a value of the SHAPE that attribute takes, and whether the element may keep it */
+    public static function everyElementWithEveryAttribute(): array
+    {
+        $values = [
+            // what some element keeps
+            'dir' => 'rtl', 'style' => 'color: red', 'start' => '3', 'colspan' => '2', 'rowspan' => '2', 'href' => 'https://example.com/', 'title' => 'a title', 'src' => 'data:image/png;base64,' . self::PNG,
+            'alt' => 'an alt', 'width' => '10', 'height' => '5',
+            // what no element keeps, with a value that is harmless in itself: it must never come out
+            'class' => 'x', 'id' => 'x', 'name' => 'x', 'lang' => 'ar', 'onclick' => 'x()', 'onerror' => 'x()', 'onload' => 'x()', 'srcset' => 'a.png 1x', 'target' => '_self', 'rel' => 'opener', 'data-x' => '1',
+            'tabindex' => '0', 'contenteditable' => 'true', 'draggable' => 'true', 'accesskey' => 'x', 'formaction' => 'https://example.com/', 'xlink:href' => 'https://example.com/', 'background' => 'x',
+            'poster' => 'x', 'ping' => 'x', 'action' => 'https://example.com/', 'content' => 'x', 'http-equiv' => 'refresh', 'is' => 'x', 'slot' => 'x', 'hidden' => 'hidden', 'align' => 'center', 'bgcolor' => 'red',
+        ];
+        $rows = [];
+
+        foreach (self::KEPT as $element => $kept) {
+            foreach ($values as $attribute => $value) {
+                $rows["{$element}@{$attribute}"] = [$element, $attribute, $value, in_array($attribute, $kept, true)];
+            }
+        }
+
+        return $rows;
+    }
+
+    #[DataProvider('everyElementWithEveryAttribute')]
+    public function test_an_element_keeps_the_attributes_on_its_list_and_no_other(string $element, string $attribute, string $value, bool $kept): void
+    {
+        $picture = $element === 'img' ? ' src="data:image/png;base64,' . self::PNG . '"' : '';   // a picture with no acceptable source is not written at all
+        $out = RichText::clean("<{$element}{$picture} {$attribute}=\"" . htmlspecialchars($value, ENT_QUOTES) . "\">t</{$element}>");
+
+        if ($kept) {
+            $this->assertStringContainsString(" {$attribute}=\"" . htmlspecialchars($value, ENT_QUOTES) . '"', $out, "{$element} keeps {$attribute}");
+        } else {
+            $this->assertStringNotContainsString(" {$attribute}=", $out, "{$element} must not keep {$attribute}: " . $out);
+        }
+    }
+
+    /** @return array<string, array{string, string, bool}> */
+    public static function declarations(): array
+    {
+        $rows = [];
+
+        foreach (self::STYLES as $property => [$kept, $refused]) {
+            foreach ($kept as $value) {
+                $rows["{$property}: {$value}"] = [$property, $value, true];
+            }
+
+            foreach ($refused as $value) {
+                $rows["{$property}: {$value} (refused)"] = [$property, $value, false];
+            }
+        }
+
+        return $rows;
+    }
+
+    #[DataProvider('declarations')]
+    public function test_a_style_declaration_is_kept_when_it_matches_its_pattern_and_refused_when_it_does_not(string $property, string $value, bool $kept): void
+    {
+        $out = RichText::clean('<p style="' . htmlspecialchars($property . ': ' . $value, ENT_QUOTES) . '">x</p>');
+
+        if ($kept) {
+            $this->assertSame('<p style="' . $property . ': ' . strtolower(preg_replace('/\s+/', ' ', $value)) . '">x</p>', $out);
+        } else {
+            $this->assertSame('<p>x</p>', $out);
+        }
+    }
+
+    /** @return array<string, array{string, string}> an attribute with a value that is not of its shape: the picture or the cell is written, the attribute is not */
+    public static function valuesOfTheWrongShape(): array
+    {
+        $rows = [];
+
+        foreach (['1" onload="alert(1)', '12345', '-1', '1e3', '0x10', '10px', '', 'ten', '1.5'] as $value) {
+            foreach (['width', 'height'] as $attribute) {
+                $rows["img {$attribute}={$value}"] = ['<img src="data:image/png;base64,' . self::PNG . '" ' . $attribute . '="' . htmlspecialchars($value, ENT_QUOTES) . '">', '<img src="data:image/png;base64,' . self::PNG . '">'];
+            }
+        }
+
+        foreach (['1000', '-1', '2" x="', 'two', '1.5', ''] as $value) {
+            foreach (['colspan', 'rowspan'] as $attribute) {
+                $rows["td {$attribute}={$value}"] = ['<td ' . $attribute . '="' . htmlspecialchars($value, ENT_QUOTES) . '">x</td>', '<td>x</td>'];
+            }
+
+            $rows["ol start={$value}"] = ['<ol start="' . htmlspecialchars($value, ENT_QUOTES) . '"><li>x</li></ol>', '<ol><li>x</li></ol>'];
+        }
+
+        foreach (['sideways', 'ltr" onclick="x', '', 'RTL ltr'] as $value) {
+            $rows["p dir={$value}"] = ['<p dir="' . htmlspecialchars($value, ENT_QUOTES) . '">x</p>', '<p>x</p>'];
+        }
+
+        return $rows;
+    }
+
+    #[DataProvider('valuesOfTheWrongShape')]
+    public function test_a_value_that_is_not_of_its_attributes_shape_is_not_written(string $in, string $expected): void
+    {
+        $this->assertSame($expected, RichText::clean($in));
+    }
+
+    public function test_a_direction_is_written_in_lower_case_and_trimmed(): void
+    {
+        $this->assertSame('<p dir="ltr">x</p><p dir="rtl">y</p><p dir="auto">z</p>', RichText::clean('<p dir=" LTR ">x</p><p dir="rtl">y</p><p dir="Auto">z</p>'));
+    }
+
+    public function test_a_title_and_an_alt_lose_control_characters_and_are_cut_at_three_hundred(): void
+    {
+        $out = RichText::clean("<img src=\"data:image/png;base64," . self::PNG . "\" alt=\"a\x01b\x7Fc\x1Fd\te\nf\" title=\"" . str_repeat('é', 400) . '">');
+
+        $this->assertStringContainsString("alt=\"abcd\te\nf\"", $out, 'Control characters go; tab and line feed stay.');
+        $this->assertStringContainsString('title="' . str_repeat('é', 300) . '"', $out);
+        $this->assertStringNotContainsString(str_repeat('é', 301), $out);
+    }
+
+    public function test_whitespace_inside_a_colour_is_one_space(): void
+    {
+        $this->assertSame('<p style="color: rgb(1, 2, 3)">x</p>', RichText::clean("<p style=\"color: rgb(1,\f2,\v3)\">x</p>"));
+        $this->assertSame('rgb(1, 2, 3)', RichText::cssColor("rgb(1,\n2,\t3)"));
+    }
+
+    // ---- what the parser is not asked to read -----------------------------------------------------------
+
+    /** @return array<string, array{string}> start tags that crowd, in the shapes libxml would count attributes in -- and some it would not, which are counted all the same */
+    public static function crowdedTags(): array
+    {
+        $n = 5000;
+        $names = fn (string $separator) => implode($separator, array_map(fn ($i) => "a{$i}", range(1, $n)));
+
+        return [
+            'spaces'                        => ['<p ' . $names(' ') . '>x</p>'],
+            'tabs'                          => ['<p ' . $names("\t") . '>x</p>'],
+            'line feeds'                    => ['<p ' . $names("\n") . '>x</p>'],
+            'carriage returns'              => ['<p ' . $names("\r") . '>x</p>'],
+            'form feeds'                    => ['<p ' . $names("\f") . '>x</p>'],
+            'slashes'                       => ['<p ' . $names('/') . '>x</p>'],
+            'values in double quotes'       => ['<p ' . implode(' ', array_map(fn ($i) => "a{$i}=\"1\"", range(1, $n))) . '>x</p>'],
+            'values in single quotes'       => ['<p ' . implode(' ', array_map(fn ($i) => "a{$i}='1'", range(1, $n))) . '>x</p>'],
+            'values without quotes'         => ['<p ' . implode(' ', array_map(fn ($i) => "a{$i}=1", range(1, $n))) . '>x</p>'],
+            'blanks around the equals sign' => ['<p ' . implode(' ', array_map(fn ($i) => "a{$i} = \"1\"", range(1, $n))) . '>x</p>'],
+            'a form feed before a quote'    => ["<p x=\f\"" . $names(' ') . ' ">x</p>'],
+            'a quoted > first'              => ['<p x=">" ' . $names(' ') . '>x</p>'],
+            'an unterminated quote'         => ['<p x="' . $names(' ') . '>x</p>'],
+            'a tag name that starts with _' => ['<_p ' . $names(' ') . '>x</_p>'],
+            'upper case'                    => ['<P ' . strtoupper($names(' ')) . '>x</P>'],
+            'an end tag with attributes'    => ['<p>x</p ' . $names(' ') . '>'],
+            'an unknown element'            => ['<x:y ' . $names(' ') . '>x</x:y>'],
+            'a picture'                     => ['<img src="data:image/png;base64,' . self::PNG . '" ' . $names(' ') . '>'],
+            'duplicates of a few names'     => ['<p ' . implode(' ', array_map(fn ($i) => 'a' . ($i % 40), range(1, $n))) . '>x</p>'],
+        ];
+    }
+
+    #[DataProvider('crowdedTags')]
+    public function test_a_tag_that_crowds_is_shown_as_text_and_never_parsed(string $in): void
+    {
+        $this->assertSame(htmlspecialchars($in, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'), RichText::clean($in), 'libxml compares each attribute with all the ones before it: a tag of 39,000 costs 7-9 s on every view of the page.');
+    }
+
+    public function test_what_an_editor_writes_is_not_a_crowd(): void
+    {
+        $cell = '<td style="width: 16.6667%; border: 1px solid rgb(0, 0, 0); padding: 5pt; vertical-align: top;" colspan="1" rowspan="1"><span style="font-size: 11pt; font-family: Arial, sans-serif; color: rgb(0, 0, 0); background-color: transparent;">cell</span></td>';
+        $table = '<table style="width: 100%;" class="table table-bordered" dir="rtl"><tbody>' . str_repeat('<tr>' . str_repeat($cell, 6) . '</tr>', 200) . '</tbody></table>';
+        $paste = str_repeat('<p class="MsoNormal" dir="rtl" style="margin: 0cm 0cm 8pt; text-align: right; line-height: 107%; font-size: 11pt;"><span lang="AR-SA" style="font-size: 14pt;">نص عربي</span></p>', 3000);
+        $eighty = '<p ' . implode(' ', array_map(fn ($i) => "a{$i}", range(1, 80))) . ' dir="rtl">x</p>';
+
+        $this->assertStringStartsWith('<table dir="rtl"><tbody><tr><td colspan="1" rowspan="1">', RichText::clean($table), 'A table of 1,200 cells is parsed.');
+        $this->assertStringContainsString('<p dir="rtl" style="text-align: right; font-size: 11pt">', RichText::clean($paste));
+        $this->assertSame('<p dir="rtl">x</p>', RichText::clean($eighty), 'A tag with eighty attributes is still parsed (the limit is 400 units).');
+    }
+
+    /**
+     * The guard against what libxml does with it, as a property: for random tag shapes, whenever libxml BUILDS an element with 250 attributes or more, clean() has not parsed the input. The
+     * generator re-uses a few uniform shapes (separator, name, value) so that a good share of the inputs really do reach libxml's attribute list; the count of those is asserted.
+     */
+    public function test_whenever_libxml_would_build_a_crowded_element_clean_does_not_parse(): void
+    {
+        mt_srand(20261119);
+        $names = ['a', 'b1', 'a-b', 'a:b', 'a.b', '_a', 'é', '@a', '[x]', '#a', '"x', "'x", 'on', 'href', 'style', '0', '-', '$', '*', '<', '\\', '/x', '=x'];
+        $separators = [' ', "\t", "\n", "\r", "\f", "\v", '/', '', "\0", "\xc2\xa0", '  ', ' / '];
+        $values = ['', '', '', '=1', '=a', '="1"', "='1'", '= "1"', "=\f\"1\"", '="a>b"', "='a>b'", '=`x`', '=""', '=', '==', '="', "='"];
+        $tags = ['p', 'P', '_p', ':p', '.p', 'x:p', 'a', 'img', 'div', ''];
+        $beforeTag = ['', '', 'x', '<!-- ', '<p x=">" ', "<p x='>' ", '<a href=', '</'];
+        $afterTag = ['>', '>', '/>', '', ' >', '">'];
+
+        $crowded = 0;
+
+        for ($i = 0; $i < 600; $i++) {
+            $mode = mt_rand(0, 3);
+            [$separator, $name, $value] = [$separators[array_rand($separators)], $names[array_rand($names)], $values[array_rand($values)]];
+            $html = $beforeTag[array_rand($beforeTag)] . '<' . $tags[array_rand($tags)];
+
+            for ($k = 0, $count = mt_rand(250, 700); $k < $count; $k++) {
+                $html .= ($mode === 3 ? $separators[array_rand($separators)] : $separator) . ($mode === 3 ? $names[array_rand($names)] : $name) . $k . ($mode === 3 ? $values[array_rand($values)] : $value);
+            }
+
+            $html .= $afterTag[array_rand($afterTag)] . '<p>tail</p>';
+
+            $previous = libxml_use_internal_errors(true);
+            $document = new \DOMDocument();
+            @$document->loadHTML('<?xml encoding="UTF-8"><body>' . $html . '</body>', LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+
+            $widest = 0;
+            foreach ($document->getElementsByTagName('*') as $element) {
+                $widest = max($widest, $element->attributes->length);
+            }
+
+            if ($widest >= 250) {
+                $crowded++;
+                $this->assertSame(htmlspecialchars($html, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'), RichText::clean($html), "libxml built {$widest} attributes on one element and clean() parsed it: " . json_encode(substr($html, 0, 120)));
+            }
+        }
+
+        $this->assertGreaterThan(15, $crowded, 'Premise: the generator reaches libxml\'s attribute list often enough for the property to mean something.');
+    }
+
+    public function test_a_pasted_picture_of_a_realistic_size_survives_with_the_text_around_it(): void
+    {
+        $picture = 'data:image/png;base64,' . str_repeat('A', 1400000);
+
+        $out = RichText::clean('<p>before</p><img src="' . $picture . '" alt="screenshot"><p>after</p>');
+
+        $this->assertSame('<p>before</p><img src="' . $picture . '" alt="screenshot"><p>after</p>', $out, 'A screenshot of 1.4 MB of base64, and the text on both sides of it, come through whole.');
+    }
+
+    public function test_a_picture_over_the_cap_is_dropped_and_only_the_picture(): void
+    {
+        $out = RichText::clean('<p>before</p><img src="data:image/png;base64,' . str_repeat('A', 1600000) . '"><p>after</p>');
+
+        $this->assertSame('<p>before</p><p>after</p>', $out);
     }
 
     /** @return list<string> what in $html is not allowed: an element, an attribute or a value */

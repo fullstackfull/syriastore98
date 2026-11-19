@@ -21,13 +21,22 @@ namespace App\Support\Html;
  * against a pattern and re-written, never copied. WHAT IS DROPPED: every other element (its text is kept; `script`, `style`, `iframe` and the like lose their content too),
  * every other attribute (so every `on*` handler, `class`, `id`, `name`, `srcset`, `xlink:href`, `formaction`), comments, processing instructions, CDATA.
  *
- * LIMITS. The input is cut at MAX_BYTES and the tree is followed to MAX_DEPTH levels: an editor's output is a few kilobytes, and a hostile one is not owed a stack.
- * If the parser cannot read the input at all the result is the input ESCAPED as text, never the input.
+ * LIMITS. The input is cut at MAX_BYTES (2 MiB: an editor writes a pasted picture as a base64 `data:` URL inside the text, and a screenshot is hundreds of kilobytes), and an element
+ * deeper than MAX_DEPTH is not written (its text is). Two kinds of input are not parsed at all and are shown as TEXT -- escaped, never raw: input with a start tag that crowds
+ * (see crowded(): libxml's cost grows with the SQUARE of the attributes of one tag) and input libxml cannot read -- a belt that is unreachable on libxml 2.9.14: 43,000 inputs, among
+ * them random bytes, floods, NULs and 60,000-deep nests, never made loadHTML fail, so no test reaches it. What libxml itself drops silently is dropped here too: everything after a NUL
+ * byte, after a literal `</body>`, and below 256 levels of nesting. Measured on 2 MiB of hostile input: at most about 1 s and 75 MB per call.
+ *
+ * libxml's error buffer: clean() turns the parser's own error collection on, restores the caller's setting, and clears the buffer -- so errors a CALLER had collected before calling it are
+ * lost. Nothing in this application parses markup around a Blade print; a caller that did would have to read its errors first.
  */
 final class RichText
 {
-    public const MAX_BYTES = 262144;
+    public const MAX_BYTES = 2097152;
     public const MAX_DEPTH = 32;
+
+    /** the longest start tag, in units, that is parsed: one per byte outside a quoted value, one per quoted value whatever its length. An editor writes tens; see crowded() */
+    public const MAX_TAG = 400;
 
     /** element => attributes it may keep ('style' and 'dir' are checked by their own rules below) */
     private const ELEMENTS = [
@@ -75,6 +84,11 @@ final class RichText
         // libxml wants valid UTF-8; an invalid byte becomes `?` rather than ending the parse
         $html = mb_convert_encoding($html, 'UTF-8', 'UTF-8');
 
+        // decided BEFORE the parser sees it: a tag of 39,000 attributes costs libxml 7-9 s, and it costs it on every view of the page
+        if (self::crowded($html)) {
+            return htmlspecialchars($html, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }
+
         $previous = libxml_use_internal_errors(true);
 
         try {
@@ -94,6 +108,53 @@ final class RichText
         $body = $document->getElementsByTagName('body')->item(0);
 
         return $body === null ? '' : self::children($body, 0);
+    }
+
+    /**
+     * libxml's HTML parser compares every attribute of a start tag with the ones before it, so the cost of ONE tag grows with the square of its attributes: 5,645 distinct attributes
+     * cost 0.07 s, 20,310 cost 1.1 s, 39,035 (256 KB) cost 7-9 s. An editor writes a handful. This reads the tags once, in linear time, and says whether any is longer than MAX_TAG
+     * units -- one for every byte of the tag outside a quoted value, and one for a quoted value whatever its length (a pasted picture is a single very long value).
+     *
+     * It is conservative on purpose: a quote only starts a value after `=` and blanks that libxml itself skips (space, tab, LF, CR -- no more: a byte libxml does not skip is not a
+     * quote's start, and what follows is counted byte by byte), an unterminated quote is counted byte by byte, and `<` is taken for a tag's start wherever it is, except before `!` and
+     * `?`. It over-counts rather than under-counts: an unquoted attribute value of more than MAX_TAG bytes, which an editor does not write, is shown as text.
+     */
+    private static function crowded(string $html): bool
+    {
+        $length = strlen($html);
+        $at = 0;
+
+        while (($at = strpos($html, '<', $at)) !== false) {
+            $at++;
+
+            if ($at >= $length || $html[$at] === '!' || $html[$at] === '?') {
+                continue;   // a comment, a doctype, a processing instruction: no attribute list
+            }
+
+            for ($units = 0; $at < $length && $html[$at] !== '>'; $units++) {
+                if ($units >= self::MAX_TAG) {
+                    return true;
+                }
+
+                if ($html[$at] === '=') {
+                    $next = $at + 1 + strspn($html, " \t\n\r", $at + 1);
+
+                    if ($next < $length && ($html[$next] === '"' || $html[$next] === "'")) {
+                        $close = strpos($html, $html[$next], $next + 1);
+
+                        if ($close !== false) {
+                            $at = $close + 1;
+
+                            continue;
+                        }
+                    }
+                }
+
+                $at++;
+            }
+        }
+
+        return false;
     }
 
     private static function children(\DOMNode $parent, int $depth): string
@@ -209,7 +270,7 @@ final class RichText
 
                 case 'alt':
                 case 'title':
-                    $out .= ' ' . $name . '="' . htmlspecialchars(mb_substr($value, 0, 300), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+                    $out .= ' ' . $name . '="' . htmlspecialchars(mb_substr(self::printable($value), 0, 300), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
 
                     break;
             }
@@ -224,7 +285,7 @@ final class RichText
     }
 
     /** @param list<string> $schemes */
-    public static function url(string $value, array $schemes): ?string
+    private static function url(string $value, array $schemes): ?string
     {
         $url = preg_replace(self::URL_NOISE, '', $value);
 
@@ -254,7 +315,13 @@ final class RichText
     {
         $value = trim((string) $value);
 
-        return preg_match(self::COLOR, $value) === 1 ? strtolower($value) : null;
+        return preg_match(self::COLOR, $value) === 1 ? strtolower(preg_replace('/\s+/', ' ', $value)) : null;
+    }
+
+    /** a text without the control characters libxml leaves in an attribute value (it drops them from text itself); tab, line feed and carriage return stay */
+    private static function printable(string $text): string
+    {
+        return preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $text) ?? '';
     }
 
     private static function dataImage(string $value): ?string
@@ -284,7 +351,7 @@ final class RichText
             $setting = trim($pair[1]);
 
             if (isset(self::STYLE[$property]) && preg_match(self::STYLE[$property], $setting) === 1) {
-                $kept[$property] = $property . ': ' . strtolower($setting);
+                $kept[$property] = $property . ': ' . strtolower(preg_replace('/\s+/', ' ', $setting));
             }
         }
 

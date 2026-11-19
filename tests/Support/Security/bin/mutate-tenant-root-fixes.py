@@ -70,6 +70,9 @@ DECLARED_SURVIVORS = {
     'RT17': "A NUL byte is kept in a text node: `str_replace(\"\\0\", '', $node->data)` becomes `$node->data`. EQUIVALENT ON THIS PARSER: libxml 2.9.14 (PHP 8.3.6) never hands a NUL to "
             "a text node or an attribute value -- it reads it as a space, or ends the parse there and drops the rest of the input (probe in the work queue, P1-SEC-75) -- so the line cannot "
             "change an output today. It is kept as the belt for a libxml that does; the Chromium differential and the corpus (which holds NUL bytes) would show it if one did.",
+    'RT52': "The parser's own refusal returns the input RAW: `return htmlspecialchars($html, ...)` becomes `return $html`. UNREACHABLE ON THIS PARSER, so no test can reach it: libxml 2.9.14 never made "
+            "loadHTML fail or throw on 43,000 inputs (random bytes, 400 KB attribute floods, 60,000-deep nests, NULs, invalid UTF-8, meta charsets -- two reviewers' fuzz and the author's), and the "
+            "wrapper in front of the input is never empty. The branch is a belt for a libxml that refuses; it returns the input ESCAPED on purpose, and the docblock says it cannot be reached.",
     'SD27': "A delete that is ALLOWED and then FAILS must answer false, as Filesystem::delete() does: `$success = parent::delete($real) && $success;` becomes "
             "`parent::delete($real);`. UNTESTED, NOT EQUIVALENT: a failure after the verdict (a read-only directory, an immutable file) cannot be provoked by a test that "
             "runs as root, for whom neither fails, and the class is final, so its parent's call cannot be replaced. Recorded in the work queue (P1-SEC-70 d).",
@@ -2324,6 +2327,141 @@ GROUPS = [
                 ('resources/views/vendor/helpdesk/helpdesk_ticket/show.blade.php',
                  '{!! \\App\\Support\\Html\\RichText::clean($conversion->description) !!}',
                  '{!! $conversion->description !!}'),
+            ]),
+            ('RT31 a link may carry a style', [
+                ('app/Support/Html/RichText.php',
+                 "'a' => ['href', 'title'], 'img' =>",
+                 "'a' => ['href', 'title', 'style'], 'img' =>"),
+            ]),
+            ('RT32 a picture may carry a style', [
+                ('app/Support/Html/RichText.php',
+                 "'img' => ['src', 'alt', 'title', 'width', 'height'],",
+                 "'img' => ['src', 'alt', 'title', 'width', 'height', 'style'],"),
+            ]),
+            ('RT33 a table cell may carry a width', [
+                ('app/Support/Html/RichText.php',
+                 "'td' => ['colspan', 'rowspan', 'style'],",
+                 "'td' => ['colspan', 'rowspan', 'style', 'width'],"),
+            ]),
+            ('RT34 a list item may carry a style', [
+                ('app/Support/Html/RichText.php',
+                 "'li' => ['dir'],",
+                 "'li' => ['dir', 'style'],"),
+            ]),
+            ('RT35 an element that is not on the list is allowed (section)', [
+                ('app/Support/Html/RichText.php',
+                 "'a' => ['href', 'title'], 'img' =>",
+                 "'section' => [], 'a' => ['href', 'title'], 'img' =>"),
+            ]),
+            ('RT36 a style element is unwrapped instead of dropped', [
+                ('app/Support/Html/RichText.php',
+                 "'script', 'style', 'iframe',",
+                 "'script', 'iframe',"),
+            ]),
+            ('RT37 a style may set a position', [
+                ('app/Support/Html/RichText.php',
+                 "        'text-align'       => '/^(left|right|center|justify|start|end)$/i',",
+                 "        'position' => '/^(fixed|absolute)$/i',\n        'text-align'       => '/^(left|right|center|justify|start|end)$/i',"),
+            ]),
+            ('RT38 a text-align may be anything', [
+                ('app/Support/Html/RichText.php',
+                 "'text-align'       => '/^(left|right|center|justify|start|end)$/i',",
+                 "'text-align'       => '/^.+$/',"),
+            ]),
+            ('RT39 a font-size may be anything', [
+                ('app/Support/Html/RichText.php',
+                 "'font-size'        => '/^\\d{1,3}(\\.\\d{1,2})?(px|pt|em|rem|%)$/i',",
+                 "'font-size'        => '/^.+$/',"),
+            ]),
+            ('RT40 a width or a height may be anything, written as it is', [
+                ('app/Support/Html/RichText.php',
+                 "if (preg_match('/^\\d{1,4}$/', trim($value)) === 1) {",
+                 "if (trim($value) !== '') {"),
+            ]),
+            ('RT41 a direction may be anything, written as it is', [
+                ('app/Support/Html/RichText.php',
+                 "if (preg_match('/^(ltr|rtl|auto)$/i', trim($value)) === 1) {",
+                 "if (trim($value) !== '') {"),
+            ]),
+            ('RT42 a colspan, a rowspan or a start may be anything, written as it is', [
+                ('app/Support/Html/RichText.php',
+                 "if (preg_match('/^\\d{1,3}$/', trim($value)) === 1) {",
+                 "if (trim($value) !== '') {"),
+            ]),
+            ('RT43 a crowded tag is parsed', [
+                ('app/Support/Html/RichText.php',
+                 'if (self::crowded($html)) {',
+                 'if (false) {'),
+            ]),
+            ('RT44 the limit on a tag is raised', [
+                ('app/Support/Html/RichText.php',
+                 'public const MAX_TAG = 400;',
+                 'public const MAX_TAG = 400000;'),
+            ]),
+            ('RT45 a byte libxml does not skip counts as a blank before a quote', [
+                ('app/Support/Html/RichText.php',
+                 'strspn($html, " \\t\\n\\r", $at + 1)',
+                 'strspn($html, " \\t\\n\\r\\f", $at + 1)'),
+            ]),
+            ('RT46 an unterminated quote is taken for a quoted value', [
+                ('app/Support/Html/RichText.php',
+                 '                        if ($close !== false) {\n                            $at = $close + 1;\n\n                            continue;\n                        }\n',
+                 '                        $at = $close === false ? $length : $close + 1;\n\n                        continue;\n'),
+            ]),
+            ('RT47 the input is cut at 256 KiB again', [
+                ('app/Support/Html/RichText.php',
+                 'public const MAX_BYTES = 2097152;',
+                 'public const MAX_BYTES = 262144;'),
+            ]),
+            ('RT48 the picture cap is out of reach', [
+                ('app/Support/Html/RichText.php',
+                 'strlen($m[2]) > 1500000',
+                 'strlen($m[2]) > 15000000'),
+            ]),
+            ('RT49 an alt or a title keeps its control characters', [
+                ('app/Support/Html/RichText.php',
+                 'mb_substr(self::printable($value), 0, 300)',
+                 'mb_substr($value, 0, 300)'),
+            ]),
+            ('RT50 whitespace inside a colour is kept as it is', [
+                ('app/Support/Html/RichText.php',
+                 "strtolower(preg_replace('/\\s+/', ' ', $value)) : null;",
+                 'strtolower($value) : null;'),
+            ]),
+            ('RT51 whitespace inside a style value is kept as it is', [
+                ('app/Support/Html/RichText.php',
+                 "$property . ': ' . strtolower(preg_replace('/\\s+/', ' ', $setting));",
+                 "$property . ': ' . strtolower($setting);"),
+            ]),
+            ('RT52 input libxml cannot read is returned raw', [
+                ('app/Support/Html/RichText.php',
+                 "        if ($loaded === false) {\n            return htmlspecialchars($html, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');",
+                 '        if ($loaded === false) {\n            return $html;'),
+            ]),
+            ('RT53 the category list is not the escaping subclass', [
+                ('app/Providers/AppServiceProvider.php',
+                 '        $this->app->bind(\\Workdo\\Helpdesk\\DataTables\\HelpdeskCategoryData::class, \\App\\DataTables\\SafeHelpdeskCategoryData::class);\n',
+                 ''),
+            ]),
+            ('RT54 the status list is not the escaping subclass', [
+                ('app/Providers/AppServiceProvider.php',
+                 '        $this->app->bind(\\Workdo\\Helpdesk\\DataTables\\HelpdeskStatusData::class, \\App\\DataTables\\SafeHelpdeskStatusData::class);\n',
+                 ''),
+            ]),
+            ('RT55 the category colour is written as it is', [
+                ('app/DataTables/SafeHelpdeskCategoryData.php',
+                 '$color = RichText::cssColor($color);',
+                 "$color = $color === '' ? null : $color;"),
+            ]),
+            ('RT56 the status colour is written as it is', [
+                ('app/DataTables/SafeHelpdeskStatusData.php',
+                 '$color = RichText::cssColor($color);',
+                 "$color = $color === '' ? null : $color;"),
+            ]),
+            ("RT57 the creator's name is read without the null-safe operator", [
+                ('app/DataTables/SafeHelpdeskData.php',
+                 'e($ticket->createdBy?->name)',
+                 'e($ticket->createdBy->name)'),
             ]),
         ],
     },
