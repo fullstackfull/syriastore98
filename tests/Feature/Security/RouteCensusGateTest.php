@@ -29,7 +29,7 @@ class RouteCensusGateTest extends TestCase
     private const MODULE_ROUTE_FLOOR = 1400;
     private const ANONYMOUS_MODULE_ROUTE_FLOOR = 400;
 
-    private const RULES = ['auth', 'operator', 'owner:campaign', 'owner:campaign-route', 'owner:helpdesk-ticket', 'owner:helpdesk-ticket-link', 'owner:email-template', 'owner:duo-setting', 'settings:store', 'settings:global'];
+    private const RULES = ['auth', 'operator', 'owner:campaign', 'owner:campaign-route', 'owner:helpdesk-ticket', 'owner:helpdesk-ticket-link', 'owner:helpdesk-ticket-row', 'owner:email-template', 'owner:duo-setting', 'settings:store', 'settings:global'];
 
     private static ?array $census = null;
 

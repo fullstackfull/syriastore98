@@ -133,10 +133,19 @@ So **every class in `app/Listeners` with a typed `handle()` is auto-registered**
   `Event::listen` reddened only the registration test while the behavioural test stayed green,
   because discovery was still registering the listener. Match with `str_starts_with`.
 
+**A module route behind `auth` and a permission is not protected, and the census does not look at it.** `RouteCensusGateTest` classifies only
+module routes with NO authentication, so the seven Helpdesk ticket routes in the module's own `['auth','web','PlanModuleCheck:…']` group were never read:
+each looked a ticket up by its identifier alone, the permissions are granted to the global `admin` role every merchant holds, and the number in the URL was
+`time()` under an APP_KEY that is public (P1-SEC-68). The manifest takes ownership rules for authenticated routes too (`owner:helpdesk-ticket-row`,
+`store-row:<table>:<param>`); `tests/Support/Security/bin/map-module-id-lookups.py` lists the authenticated handlers that still have the shape (**leads, not
+findings** -- P1-SEC-76). Two corollaries: judge the ROW an encrypted id names, never the encryption; and request bytes never reach `unserialize()` -- the container's
+encrypter refuses anything that is not plain data -- an object, an enum (`ObjectFreeEncrypter`, P1-SEC-77) -- and a guard that decodes a segment itself does it WITHOUT unserialize and refuses what is not exactly
+the shape it expects, **for the operator as well** (the operator is admitted before an ownership rule is asked, so a shape check must come first).
+
 ## 6. Tests that actually bite
 
 **After writing a regression test, revert the fix and confirm the test fails.** This has caught
-vacuous tests repeatedly. Fifteen ways they pass for the wrong reason, all measured in this project:
+vacuous tests repeatedly. Seventeen ways they pass for the wrong reason, all measured in this project:
 
 1. **The endpoint 500s for everyone**, so "the row didn't change" holds either way. And a handler
    that `catch (\Exception)`es its own failure returns **200**, so even `assertNotSame(500, …)` is
@@ -259,6 +268,17 @@ vacuous tests repeatedly. Fifteen ways they pass for the wrong reason, all measu
     were ONE number and four wrong-folder mutants survived. Build the store under test so that its id is neither 1 nor its owner's
     (`PlatformUploaderDoorsTest::aStoreWhoseIdIsNobodyElses()`); and when the claim is about a shopper who also holds a panel login, hold
     that session too with the default guard on `web` and assert as a premise that `getCurrentStore()` answers for the OTHER tenant.
+16. **The principal never reaches the rule.** The first version of "a user rooted at the operator is nobody's colleague" PASSED against the unguarded
+    Helpdesk routes: such a user has `creatorId() = 1`, `ActivatedModule()` reads the OPERATOR's `user_active_modules` (none), and `PlanModuleCheck` refused
+    them before the ownership rule was ever asked. Assert the premise (`assertContains('Helpdesk', ActivatedModule($user->id))`) for every principal a negative
+    case depends on. **Same family:** assert on the field the screen PRINTS (the reply screen prints the description, not the subject); and give every
+    negative leg a reason only the control produces (`HelpdeskTicketOwnershipTest::refusedByTheGuard()` asserts the 302 to the dashboard AND the flash
+    `Permission denied`, which differs from the plan gate's `Permission denied ` and the handlers' `Permission Denied !!`).
+17. **A run with `LARAVEL_STORAGE_PATH` on a private directory is a different run.** The census-based tests print nothing and fail (the census subprocess inherits
+    the variable), and `RegisteredUserController::__construct` calls `die()` when `storage/installed` is missing -- `tests/bootstrap.php` creates it only in the
+    repository's own storage -- so the whole run can END SILENTLY with exit 0 and no summary line, having executed part of the suite. A `--bootstrap` override
+    skips `tests/bootstrap.php` altogether. Create `installed` and the `framework/{cache/data,sessions,views,testing}`, `logs` and `app` folders in a private storage,
+    read the summary line (not the exit code), and leave the census tests to the default storage.
 
 **Assert through `DB::table()`.** `User`, `Product` and `Order` are `Cachable`; an Eloquent read can
 serve a mutated in-memory instance. That produced a false *reproduction* once — a model read
