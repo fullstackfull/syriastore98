@@ -135,6 +135,18 @@ class MenuController extends Controller
                 return response()->json(['status' => false, 'message' => __('Invalid menu structure.')]);
             }
 
+            /*
+             * P1-SEC-80 round 3 (C-6). Every id in the posted structure -- an item, its children, theirs -- is written by `MenuItem::where('id', ...)->update(...)`, and `MenuItem` has no `store_id`
+             * and is not in `scoped_models`: the ids were never compared with the menu above (`Menu::find` is the only thing here that is store-scoped). A merchant who held `Edit Menu` re-ordered,
+             * re-parented and re-iconed ANOTHER store's items by id. `deleteItem` and `deleteCustomLink` ask the owning store one hop away; this asks the menu, which is stricter -- an item of
+             * the same store's OTHER menu is refused too -- and is what a structure posted for THIS menu can only contain.
+             */
+            $ownIds = MenuItem::where('menu_id', $menu->id)->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+            if (array_diff($this->postedMenuItemIds($menuData), $ownIds) !== []) {
+                return response()->json(['status' => false, 'message' => __('Invalid menu structure.')], 403);
+            }
+
             foreach ($menuData as $menuItem) {
                 // Update parent level items
                 MenuItem::where('id', $menuItem['id'])->update([
@@ -155,6 +167,22 @@ class MenuController extends Controller
         } else {
             return response()->json(['status' => false, 'message' => __('Permission denied.')]);
         }
+    }
+
+    /** @return list<int> every item id in a posted menu structure, children included; a missing or non-numeric id is 0, which no item has */
+    private function postedMenuItemIds($structure): array
+    {
+        $ids = [];
+
+        foreach ((array) $structure as $item) {
+            $ids[] = is_array($item) ? (int) ($item['id'] ?? 0) : 0;
+
+            if (is_array($item) && ! empty($item['children'])) {
+                array_push($ids, ...$this->postedMenuItemIds($item['children']));
+            }
+        }
+
+        return $ids;
     }
 
     private function updateMenuHierarchy($children, $parentId)

@@ -27,9 +27,7 @@ final class PanelViewsBuildOptionsFromNodesTest extends TestCase
      * Views the scan flags that are KNOWN and not fixed yet. An entry is a lead with a reason; it is deleted when the view is fixed, and the second test fails on an entry that is no longer
      * flagged, so the list cannot rot. A view that is not here and is flagged fails the first test.
      */
-    private const OPEN = [
-        'resources/views/menu/script.blade.php' => 'the menu builder writes a stored category, page, brand, product or blog NAME and a URL into a template literal that becomes markup (the work queue, P1-SEC-80 round 3, finding C-3)',
-    ];
+    private const OPEN = [];
 
     /** @return list<string> */
     private static function views(): array
@@ -73,10 +71,19 @@ final class PanelViewsBuildOptionsFromNodesTest extends TestCase
 
             $before = substr($js, max(0, $offset - 40), min(40, $offset));
             $after = substr($js, $offset + strlen($literal), 40);
-            // an interpolation that only chooses between two constants (`${v === 'sale' ? 'selected' : ''}`) puts nothing of a value into the markup
-            $withoutFlags = preg_replace('/\$\{[^{}]*\?\s*\'(?:selected|checked)\'\s*:\s*\'\'\s*\}/', '', $literal) ?? $literal;
+            // an interpolation that puts nothing of a value into the markup: a choice between two constant strings (`${v === 'sale' ? 'selected' : ''}`), a call of the page's own escape helper
+            // (`${ssEsc(v)}`, the menu builder's), or an id the server sent (`${item.id}`)
+            $withoutFlags = preg_replace(
+                ['/\$\{[^{}]*\?\s*\'[^\'$\\\\]*\'\s*:\s*\'[^\'$\\\\]*\'\s*\}/', '/\$\{\s*ssEsc\((?:[^{}()]|\([^{}()]*\))*\)\s*\}/', '/\$\{\s*[A-Za-z_$][\w$]*\.id\s*\}/'],
+                '',
+                $literal
+            ) ?? $literal;
             $template = $literal[0] === '`' && str_contains($withoutFlags, '${');
-            $adjacent = preg_match('/\+=?\s*$/', $before) === 1 || preg_match('/^\s*\+/', $after) === 1;
+            // next to a `+`, the value is being concatenated into the markup; a quoted literal appended with `+=` (`h += '<option value="'; h += v;`) is the same shape. A TEMPLATE literal appended
+            // with `+=` is the menu builder's constant markup accumulating, and the values in it are caught by the `${` rule above, so only a plain `+` counts for it.
+            $adjacent = preg_match('/\+(?!=)\s*$/', $before) === 1
+                || preg_match('/^\s*\+/', $after) === 1
+                || ($literal[0] !== '`' && preg_match('/\+=\s*$/', $before) === 1);
 
             if ($template || $adjacent) {
                 $found[] = $literal;
@@ -109,6 +116,13 @@ final class PanelViewsBuildOptionsFromNodesTest extends TestCase
             'a constant' => ["\$('.city').html('<option value=\"0\">Select City</option>');", false],
             'a constant template literal' => ["var h = `<option value=\"0\">Select</option>`;", false],
             'a selected flag chosen by comparison' => ["var h = `<option value=\"a\" \${v === 'a' ? 'selected' : ''}>A</option>`;", false],
+            'an escaped value' => ["var h = `<option value=\"\${ssEsc(v)}\">A</option>`;", false],
+            'an id the server sent' => ["var h = `<option value=\"\${item.id}\">A</option>`;", false],
+            'a value that is not escaped, next to an id' => ["var h = `<option value=\"\${item.name}\" data-id=\"\${item.id}\">A</option>`;", true],
+            'a template literal appended with +=' => ["h += `<option value=\"0\">A</option>`;", false],
+            'a template literal with a value after it' => ["h = `<option value=\"` + v + `\">A</option>`;", true],
+            'a choice between two constants' => ["var h = `<option style=\"display: \${v ? 'block' : 'none'}\">A</option>`;", false],
+            'a value chosen by a ternary' => ["var h = `<option value=\"\${v ? item.name : ''}\">A</option>`;", true],
             'a value next to a selected flag' => ["var h = `<option value=\"\${v}\" \${v === 'a' ? 'selected' : ''}>A</option>`;", true],
             'a tag that is not an option' => ["x = '<div>' + name + '</div>';", false],
         ];

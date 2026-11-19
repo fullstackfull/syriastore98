@@ -341,7 +341,7 @@ public function store(Request $request)
                 );
 
                 if (!$variantDecrement['applied']) {
-                    throw new \Exception("المخزون غير كافٍ للمتغير: {$variant->name}. المتاح: {$variant->stock}، المطلوب: {$qty}");
+                    throw new \Exception("المخزون غير كافٍ للمتغير: " . e($variant->name) . ". المتاح: {$variant->stock}، المطلوب: {$qty}"); // P1-SEC-80 round 3 (C-4): flashed, and the layout's toast writes it with innerHTML
                 }
 
                 $productJson[] = [
@@ -371,7 +371,7 @@ public function store(Request $request)
                 );
 
                 if (!$productDecrement['applied']) {
-                    throw new \Exception("المخزون غير كافٍ للمنتج: {$product->name}. المتاح: {$product->product_stock}، المطلوب: {$qty}");
+                    throw new \Exception("المخزون غير كافٍ للمنتج: " . e($product->name) . ". المتاح: {$product->product_stock}، المطلوب: {$qty}"); // P1-SEC-80 round 3 (C-4): see the variant branch above
                 }
 
                 $productJson[] = [

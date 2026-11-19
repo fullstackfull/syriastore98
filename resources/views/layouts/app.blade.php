@@ -335,8 +335,9 @@
         {!! isset($setting['storecss']) ? $setting['storecss'] :  '' !!}
 
         :root {
-            --color-customColor: <?= $color ?? 'linear-gradient(141.55deg, rgba(240, 244, 243, 0) 3.46%, #ffffff 99.86%)' ?>;
-            --bs-custom-color-border: <?= $color ?? '#ffff' ?>;
+            /* P1-SEC-80 round 3 (C-1): the store's colour is a stored value; StoreColour prints a colour and nothing else */
+            --color-customColor: {{ \App\Support\Branding\StoreColour::forCss($color ?? null, 'linear-gradient(141.55deg, rgba(240, 244, 243, 0) 3.46%, #ffffff 99.86%)') }};
+            --bs-custom-color-border: {{ \App\Support\Branding\StoreColour::forCss($color ?? null, '#ffff') }};
         }
 
         #storeList {

@@ -954,6 +954,21 @@ class OrderStoreOwnershipTest extends TestCase
     }
 
     /**
+     * The refusal names the product, it is flashed, and the layout's toast writes a flashed error with innerHTML: a product's name is text somebody typed, so the message must not carry it
+     * as markup.  P1-SEC-80, round 3 (C-4).
+     */
+    public function test_a_shortfall_message_does_not_carry_the_products_name_as_markup(): void
+    {
+        $product = $this->makeProduct(self::STORE_A, ['product_stock' => 2, 'name' => '<img src=x onerror=XSS-7>']);
+
+        $response = $this->callStore([$this->line($product->id, 5, 10.0)]);
+
+        $message = $this->errorFrom($response);
+        $this->assertStringContainsString('XSS-7', $message, 'premise: the refusal names the product, in some form');
+        $this->assertStringNotContainsString('<img', $message, 'the refusal carries the product\'s name as markup');
+    }
+
+    /**
      * Assert the write was refused, and say so usefully when it was not.
      *
      * Deliberately asserts the DATA first and the message second. When the

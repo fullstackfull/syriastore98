@@ -321,7 +321,7 @@ $u->save();
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 
-        session()->put(['setting_tab' => 'brand_setting']);
+        if (($colourRefusal = \App\Support\Branding\StoreColour::refusalFor($request)) !== null) { return $colourRefusal; } session()->put(['setting_tab' => 'brand_setting']); // P1-SEC-80 round 3 (C-1): see StoreColour; ONE line so the line-keyed inventories below do not move
         // Get the authenticated user
         $user = auth()->user();
 

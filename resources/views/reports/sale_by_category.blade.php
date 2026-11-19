@@ -105,7 +105,8 @@
 
                         data.NetSaleTotal.forEach(function(category) {
                             var series = {
-                                name: category.name,
+                                // P1-SEC-80 round 3 (C-2): ApexCharts writes a series name into the legend and the tooltip with innerHTML, and a category's name is text somebody typed
+                                name: $('<div>').text(category.name == null ? '' : String(category.name)).html(),
                                 type: 'column',
                                 data: category.data,
                             };
