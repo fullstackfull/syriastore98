@@ -271,9 +271,7 @@ class PaymentSettingController extends Controller
 
         foreach ($method->invoke(app(SettingController::class)) as $definition) {
             if (($definition['enable_key'] ?? null) === "is_{$id}_enabled" && is_string($definition['name'] ?? null) && $definition['name'] !== '') {
-                $label = __($definition['name']);        // the screen prints `__($gateway['name'])`, so an Arabic merchant reads Arabic
-
-                return is_string($label) ? $label : $definition['name'];
+                return $definition['name'];            // already translated where the definition is built: `'name' => __('Bank Transfer')`
             }
         }
 

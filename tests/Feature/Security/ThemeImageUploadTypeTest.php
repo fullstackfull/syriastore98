@@ -775,7 +775,7 @@ class ThemeImageUploadTypeTest extends SecurityTestCase
         $this->assertSame(['COD', 'Bank Transfer', 'Stripe', 'MyFatoorah'], array_map(fn ($id) => $displayName->invoke($controller, $id), ['cod', 'bank_transfer', 'stripe', 'myfatoorah']));
         $this->assertIsArray(__('myfatoorah'), 'Premise: `myfatoorah` is a translation group, which is why an id must never be translated as a label.');
 
-        // the name goes through the translator, as the screen's own `__($gateway['name'])` does: an Arabic merchant reads Arabic
+        // the definition translates its own name where it is built (`'name' => __('Bank Transfer')`): an Arabic merchant reads Arabic
         $locale = app()->getLocale();
         try {
             app()->setLocale('ar');

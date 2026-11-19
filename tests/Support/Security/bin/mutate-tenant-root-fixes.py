@@ -58,12 +58,6 @@ ROOT = Path(__file__).resolve().parents[4]
 
 # label prefix => why this mutant is expected to survive
 DECLARED_SURVIVORS = {
-    'I2': "TWO LOCKS, AND THIS REMOVES ONE. Without `mimes:` the validator no longer reads the bytes, but ThemeImageUpload::storedExtension() "
-          "does, and upload_theme_image() stores nothing when it answers null -- with the same sentence, so no assertion can tell which lock "
-          "refused. I3 removes the other lock alone and is killed; I4 removes both and is killed. A refusal that survives either lock failing "
-          "is the design, not a gap in the tests.",
-    'I20': "`mimes:` already refuses whatever is not a valid uploaded file (Validator::isValidFileInstance), with a sentence of the same "
-           "shape, so the `file` rule in front of it changes nothing a caller can observe. It is kept for the reader.",
     'W5': "It asks the merchant question of the writer's CREATOR instead of the writer. For the six principal kinds the tests build "
           "(operator, merchant, a merchant's staff, a self-demoted merchant, their staff, staff the operator created) the two questions "
           "have the same answer. A user created BY a merchant's staff member separates them (UserController::store stamps created_by "
@@ -427,36 +421,37 @@ GROUPS = [
     },
     {
         "key": 'themeimage',
-        "title": "P1-SEC-72 -- upload_theme_image() stores images only, under the server's extension, in the store's folder; and its three first-party callers",
+        "title": "P1-SEC-72 -- upload_theme_image() stores images only, under the server's extension, in the store's folder; and its first-party callers",
         "tests": ['tests/Feature/Security/ThemeImageUploadTypeTest.php'],
         "mutants": [
+            # ------------------------------------------------------------------------------------------------ the two type locks
             ("I1 helper: the stored extension is the client's again", [
                 ('app/Helper/helper.php',
                  '        $extension = $refusal === null ? \\App\\Services\\ThemeImageUpload::storedExtension($theme_image, (bool) $for_customer) : null;',
                  '        $extension = $refusal === null ? strtolower($theme_image->getClientOriginalExtension()) : null;'),
             ]),
-            ('I2 rules: `mimes:` removed (the extension lock is still there)', [
+            ('I2 rules: `mimes:` removed (the name lock and the stored-extension lock are still there)', [
                 ('app/Services/ThemeImageUpload.php',
-                 "            ['image' => ['required', 'file', 'mimes:' . $list, 'extensions:' . $list, 'max:' . self::maxKb($forCustomer)]],",
-                 "            ['image' => ['required', 'file', 'extensions:' . $list, 'max:' . self::maxKb($forCustomer)]],"),
+                 "            ['image' => ['mimes:' . $types, 'extensions:' . implode(',', self::clientNameExtensions($forCustomer)), 'max:' . self::maxKb($forCustomer)]],",
+                 "            ['image' => ['extensions:' . implode(',', self::clientNameExtensions($forCustomer)), 'max:' . self::maxKb($forCustomer)]],"),
             ]),
             ("I3 storedExtension(): reads the client's name instead of the bytes", [
                 ('app/Services/ThemeImageUpload.php',
                  '        $guessed = strtolower((string) $file->guessExtension());',
                  '        $guessed = strtolower((string) $file->getClientOriginalExtension());'),
             ]),
-            ('I4 both locks gone: no `mimes:` and the name decides the extension', [
+            ('I4 both type locks gone: no `mimes:` and the name decides the extension', [
                 ('app/Services/ThemeImageUpload.php',
-                 "            ['image' => ['required', 'file', 'mimes:' . $list, 'extensions:' . $list, 'max:' . self::maxKb($forCustomer)]],",
-                 "            ['image' => ['required', 'file', 'extensions:' . $list, 'max:' . self::maxKb($forCustomer)]],"),
+                 "            ['image' => ['mimes:' . $types, 'extensions:' . implode(',', self::clientNameExtensions($forCustomer)), 'max:' . self::maxKb($forCustomer)]],",
+                 "            ['image' => ['extensions:' . implode(',', self::clientNameExtensions($forCustomer)), 'max:' . self::maxKb($forCustomer)]],"),
                 ('app/Services/ThemeImageUpload.php',
                  '        $guessed = strtolower((string) $file->guessExtension());',
                  '        $guessed = strtolower((string) $file->getClientOriginalExtension());'),
             ]),
             ('I5 rules: `extensions:` removed', [
                 ('app/Services/ThemeImageUpload.php',
-                 "            ['image' => ['required', 'file', 'mimes:' . $list, 'extensions:' . $list, 'max:' . self::maxKb($forCustomer)]],",
-                 "            ['image' => ['required', 'file', 'mimes:' . $list, 'max:' . self::maxKb($forCustomer)]],"),
+                 "            ['image' => ['mimes:' . $types, 'extensions:' . implode(',', self::clientNameExtensions($forCustomer)), 'max:' . self::maxKb($forCustomer)]],",
+                 "            ['image' => ['mimes:' . $types, 'max:' . self::maxKb($forCustomer)]],"),
             ]),
             ('I6 the customer list gains svg', [
                 ('app/Services/ThemeImageUpload.php',
@@ -480,9 +475,10 @@ GROUPS = [
             ]),
             ('I10 avatar handler: the refusal is not checked', [
                 ('app/Http/Controllers/Api/ApiController.php',
-                 "            if (empty($cover_image['status'])) {\n                return $this->error(['message' => $cover_image['message']], $cover_image['message']);\n            }\n",
-                 ''),
+                 "            if (empty($cover_image['status'])) {\n                // The state of the merchant's plan",
+                 "            if (false) {\n                // The state of the merchant's plan"),
             ]),
+            # ------------------------------------------------------------------------------------------------ decide, store, then charge
             ('I11 helper: the plan is charged before the file is looked at', [
                 ('app/Helper/helper.php',
                  '        if (empty($theme_image)) {\n            return $return;\n        }\n',
@@ -490,8 +486,8 @@ GROUPS = [
             ]),
             ('I12 helper: over the plan, the stored file is left on disk', [
                 ('app/Helper/helper.php',
-                 "            Storage::disk('theme')->delete($save);\n",
-                 ''),
+                 "            $disk->delete($save);\n            $return['message'] = __('Plan storage limit is over so please upgrade the plan.');\n",
+                 "            $return['message'] = __('Plan storage limit is over so please upgrade the plan.');\n"),
             ]),
             ('I13 helper: a failed write is reported as success', [
                 ('app/Helper/helper.php',
@@ -510,17 +506,18 @@ GROUPS = [
             ]),
             ('I16 rules: `max:` removed', [
                 ('app/Services/ThemeImageUpload.php',
-                 "            ['image' => ['required', 'file', 'mimes:' . $list, 'extensions:' . $list, 'max:' . self::maxKb($forCustomer)]],",
-                 "            ['image' => ['required', 'file', 'mimes:' . $list, 'extensions:' . $list]],"),
+                 "            ['image' => ['mimes:' . $types, 'extensions:' . implode(',', self::clientNameExtensions($forCustomer)), 'max:' . self::maxKb($forCustomer)]],",
+                 "            ['image' => ['mimes:' . $types, 'extensions:' . implode(',', self::clientNameExtensions($forCustomer))]],"),
             ]),
             ('I17 helper: the named store is ignored (the panel guard decides the folder)', [
                 ('app/Helper/helper.php',
                  '        $folder = (int) $store_id > 0 ? (int) $store_id : getCurrentStore();',
                  '        $folder = getCurrentStore();'),
             ]),
+            # ------------------------------------------------------------------------------------------------ the web payment settings
             ('I18 web payment settings: a refused image is not recorded', [
                 ('app/Http/Controllers/PaymentSettingController.php',
-                 "            $this->refusedImages[$gatewayName !== '' ? $gatewayName : $imageKey] = (string) $uploadResult['message'];\n",
+                 "            $this->refusedImages[$gatewayId !== '' ? $gatewayId : $imageKey] = (string) $uploadResult['message'];\n",
                  ''),
             ]),
             ('I19 web payment settings: the refusal list is not reset per request', [
@@ -528,15 +525,15 @@ GROUPS = [
                  '        $this->refusedImages = [];\n\n        // Handle currency settings',
                  '        // Handle currency settings'),
             ]),
-            ('I20 rules: `file` removed (`mimes:` refuses a non-file by itself)', [
+            ('I20 rules: the not-an-uploaded-file pre-check removed (a string would reach `extensions:`)', [
                 ('app/Services/ThemeImageUpload.php',
-                 "            ['image' => ['required', 'file', 'mimes:' . $list, 'extensions:' . $list, 'max:' . self::maxKb($forCustomer)]],",
-                 "            ['image' => ['required', 'mimes:' . $list, 'extensions:' . $list, 'max:' . self::maxKb($forCustomer)]],"),
+                 "        if (! $file instanceof UploadedFile) {\n            return (string) str_replace(':attribute', $attribute, trans('validation.file'));\n        }\n\n",
+                 ''),
             ]),
-            ('I21 the customer ceiling is raised', [
+            ('I21 the customer ceiling is raised (in maxKb)', [
                 ('app/Services/ThemeImageUpload.php',
-                 '            return self::CUSTOMER_MAX_KB;\n        }\n\n        try {',
-                 '            return 999999;\n        }\n\n        try {'),
+                 '        return $forCustomer ? self::CUSTOMER_MAX_KB : self::PANEL_MAX_KB;',
+                 '        return $forCustomer ? 999999 : self::PANEL_MAX_KB;'),
             ]),
             ('I22 helper: the folder keeps its trailing slash', [
                 ('app/Helper/helper.php',
@@ -545,8 +542,8 @@ GROUPS = [
             ]),
             ('I23 avatar handler: a refusal answers 401', [
                 ('app/Http/Controllers/Api/ApiController.php',
-                 "                return $this->error(['message' => $cover_image['message']], $cover_image['message']);",
-                 "                return $this->error(['message' => $cover_image['message']], $cover_image['message'], 401);"),
+                 "                return $this->error(['message' => $message], $message);",
+                 "                return $this->error(['message' => $message], $message, 401);"),
             ]),
             ('I24 storedExtension(): the list is not consulted', [
                 ('app/Services/ThemeImageUpload.php',
@@ -555,9 +552,10 @@ GROUPS = [
             ]),
             ('I25 avatar handler: the replaced avatar is unlinked without a credit', [
                 ('app/Http/Controllers/Api/ApiController.php',
-                 '            Utility::changeStorageLimit($store->created_by, $user->profile_image);',
-                 '            \\App\\Services\\StoredUpload::delete($user->profile_image, $store->created_by);'),
+                 '            Utility::changeStorageLimit($store->created_by, $previous);',
+                 '            \\App\\Services\\StoredUpload::delete($previous, $store->created_by);'),
             ]),
+            # ------------------------------------------------------------------------------------------------ the refusal log line
             ('I26 helper: a refusal is not logged', [
                 ('app/Helper/helper.php',
                  "            \\Illuminate\\Support\\Facades\\Log::warning('an image upload was refused', \\App\\Services\\ThemeImageUpload::describe($theme_image) + [",
@@ -572,6 +570,137 @@ GROUPS = [
                 ('app/Helper/helper.php',
                  '        $refusal = \\App\\Services\\ThemeImageUpload::refusal($theme_image, (bool) $for_customer);',
                  '        $refusal = null;'),
+            ]),
+            # ------------------------------------------------------------------------------------------------ added by the review (tests lens T-01..T-14, bypass, regression)
+            ('I29 helper: with no store named the folder is the acting USER\'s id (not the current store)', [
+                ('app/Helper/helper.php',
+                 '        $folder = (int) $store_id > 0 ? (int) $store_id : getCurrentStore();',
+                 '        $folder = (int) $store_id > 0 ? (int) $store_id : \\Auth::id();'),
+            ]),
+            ('I30 helper: a folder it creates is left at the disk\'s private mode', [
+                ('app/Helper/helper.php',
+                 '            @chmod($disk->path($dir), 0755);\n',
+                 ''),
+            ]),
+            ('I31 helper: a charge that throws leaves the stored file behind', [
+                ('app/Helper/helper.php',
+                 '            $disk->delete($save);\n\n            throw $e;\n',
+                 '            throw $e;\n'),
+            ]),
+            ("I32 helper: a plan refusal is reported as a type refusal (the avatar handler cannot tell them apart)", [
+                ('app/Helper/helper.php',
+                 "            $return['reason'] = 'plan';\n",
+                 "            $return['reason'] = 'invalid';\n"),
+            ]),
+            ('I33 describe(): an upload PHP itself refused is treated as readable', [
+                ('app/Services/ThemeImageUpload.php',
+                 '        $valid = $file->isValid();',
+                 '        $valid = true;'),
+            ]),
+            ('I34 helper: the random part of the name is a constant', [
+                ('app/Helper/helper.php',
+                 'bin2hex(random_bytes(6))',
+                 "'000000000000'"),
+            ]),
+            ('I35 the customer ceiling constant is 8192', [
+                ('app/Services/ThemeImageUpload.php',
+                 '    public const CUSTOMER_MAX_KB = 2048;',
+                 '    public const CUSTOMER_MAX_KB = 8192;'),
+            ]),
+            ("I36 the panel's ceiling constant is the customer's", [
+                ('app/Services/ThemeImageUpload.php',
+                 '    public const PANEL_MAX_KB = 2048000;',
+                 '    public const PANEL_MAX_KB = 2048;'),
+            ]),
+            ("I37 describe(): the log carries the client's own extension text", [
+                ('app/Services/ThemeImageUpload.php',
+                 "            'client_extension' => $named === '' ? 'none' : (in_array($named, self::LOGGED_EXTENSIONS, true) ? $named : 'other'),",
+                 "            'client_extension' => $named,"),
+            ]),
+            ('I38 the JPEG name aliases (.jfif, .jpe) are not accepted', [
+                ('app/Services/ThemeImageUpload.php',
+                 '        return array_merge(self::types($forCustomer), self::JPEG_NAME_ALIASES);',
+                 '        return self::types($forCustomer);'),
+            ]),
+            ('I39 avatar handler: the previous avatar is unlinked and credited BEFORE the upload is judged', [
+                ('app/Http/Controllers/Api/ApiController.php',
+                 '            $cover_image = upload_theme_image($theme_image, 0, $store->created_by, $store->id, true);\n',
+                 '            Utility::changeStorageLimit($store->created_by, $user->profile_image);\n            $cover_image = upload_theme_image($theme_image, 0, $store->created_by, $store->id, true);\n'),
+            ]),
+            ("I40 avatar handler: the credit goes to the CUSTOMER's id, not the store owner's", [
+                ('app/Http/Controllers/Api/ApiController.php',
+                 '            Utility::changeStorageLimit($store->created_by, $previous);',
+                 '            Utility::changeStorageLimit($user->id, $previous);'),
+            ]),
+            ("I41 avatar handler: the store's folder is the owner's USER id", [
+                ('app/Http/Controllers/Api/ApiController.php',
+                 '            $cover_image = upload_theme_image($theme_image, 0, $store->created_by, $store->id, true);',
+                 '            $cover_image = upload_theme_image($theme_image, 0, $store->created_by, $store->created_by, true);'),
+            ]),
+            ('I42 avatar handler: the previous avatar is unlinked before the new path is saved', [
+                ('app/Http/Controllers/Api/ApiController.php',
+                 '            $previous = $user->profile_image;\n            $user->profile_image = $cover_image[\'image_path\'];\n',
+                 '            $previous = $user->profile_image;\n            Utility::changeStorageLimit($store->created_by, $previous);\n            $user->profile_image = $cover_image[\'image_path\'];\n'),
+            ]),
+            ("I43 avatar handler: the plan's state is told to the shopper", [
+                ('app/Http/Controllers/Api/ApiController.php',
+                 "                $message = ($cover_image['reason'] ?? '') === 'plan' ? __('The image could not be saved.') : $cover_image['message'];",
+                 "                $message = $cover_image['message'];"),
+            ]),
+            ('I44 avatar handler: a save that fails leaves the new file stored and charged', [
+                ('app/Http/Controllers/Api/ApiController.php',
+                 "                Utility::changeStorageLimit($store->created_by, $cover_image['image_path']);   // not kept: unlink it, hand its charge back\n\n                throw $e;",
+                 '                throw $e;'),
+            ]),
+            ("I45 admin API cod-payment: the store the handler authorised is not named", [
+                ('app/Http/Controllers/Api/DashboardController.php',
+                 '                $theme_image = $request->cod_image;\n                $image = upload_theme_image($theme_image, 0, 0, $store->id);',
+                 '                $theme_image = $request->cod_image;\n                $image = upload_theme_image($theme_image);'),
+            ]),
+            ("I46 admin API bank-payment: the store the handler authorised is not named", [
+                ('app/Http/Controllers/Api/DashboardController.php',
+                 '                $theme_image = $request->bank_transfer_image;\n                $image = upload_theme_image($theme_image, 0, 0, $store->id);',
+                 '                $theme_image = $request->bank_transfer_image;\n                $image = upload_theme_image($theme_image);'),
+            ]),
+            ("I47 admin API stripe-payment: the store the handler authorised is not named", [
+                ('app/Http/Controllers/Api/DashboardController.php',
+                 '                $theme_image = $request->stripe_image;\n                $image = upload_theme_image($theme_image, 0, 0, $store->id);',
+                 '                $theme_image = $request->stripe_image;\n                $image = upload_theme_image($theme_image);'),
+            ]),
+            ('I48 admin API cod-payment: a refusal answers in the old, bare shape', [
+                ('app/Http/Controllers/Api/DashboardController.php',
+                 "                $theme_image = $request->cod_image;\n                $image = upload_theme_image($theme_image, 0, 0, $store->id);\n                if ($image['status'] == false) {\n                    return $this->error(['message' => $image['message']], $image['message']);",
+                 "                $theme_image = $request->cod_image;\n                $image = upload_theme_image($theme_image, 0, 0, $store->id);\n                if ($image['status'] == false) {\n                    return $this->error($image['message']);"),
+            ]),
+            ('I49 web payment settings: the written-keys list is not reset per request', [
+                ('app/Http/Controllers/PaymentSettingController.php',
+                 '        $this->post = [];\n        $this->incomplete = [];\n        $this->refusedImages = [];\n',
+                 '        $this->incomplete = [];\n        $this->refusedImages = [];\n'),
+            ]),
+            ('I50 web payment settings: the incomplete-gateways list is not reset per request', [
+                ('app/Http/Controllers/PaymentSettingController.php',
+                 '        $this->post = [];\n        $this->incomplete = [];\n        $this->refusedImages = [];\n',
+                 '        $this->post = [];\n        $this->refusedImages = [];\n'),
+            ]),
+            ('I51 web payment settings: the missing-field message names a gateway by `__($id)` (an array for myfatoorah)', [
+                ('app/Http/Controllers/PaymentSettingController.php',
+                 "                return $this->gatewayDisplayName($row['gateway']) . ' (' . implode(', ', array_map(",
+                 "                return __($row['gateway']) . ' (' . implode(', ', array_map("),
+            ]),
+            ('I52 web payment settings: the refused-image message names a gateway by `__($id)`', [
+                ('app/Http/Controllers/PaymentSettingController.php',
+                 "                $rows[] = $this->gatewayDisplayName((string) $gatewayId) . ' (' . $reason . ')';",
+                 "                $rows[] = __($gatewayId) . ' (' . $reason . ')';"),
+            ]),
+            ('I54 web payment settings: the store whose row is written is not named for the image', [
+                ('app/Http/Controllers/PaymentSettingController.php',
+                 '        $uploadResult = upload_theme_image($image, 0, 0, $this->store_id);',
+                 '        $uploadResult = upload_theme_image($image);'),
+            ]),
+            ('I53 web payment settings: the two sentences of one message are run together', [
+                ('app/Http/Controllers/PaymentSettingController.php',
+                 "            return redirect()->back()->with('error', implode('. ', $problems));",
+                 "            return redirect()->back()->with('error', implode(' ', $problems));"),
             ]),
         ],
     },
