@@ -465,6 +465,11 @@ class StoredFilePathSafetyTest extends SecurityTestCase
             // comments are not calls
             $code = preg_replace('#/\*.*?\*/|(?<!:)//[^\n]*|^\s*\*[^\n]*#ms', '', $source);
             $n = preg_match_all('/\b(?:\\\\?File::delete|unlink)\s*\(/', $code);
+            // the store-bound filesystem (P1-SEC-70) unlinks through its parent's methods, which the pattern above does not see: its two `parent::` calls (`delete()` and `deleteDirectory()`; the framework's `cleanDirectory()`
+            // reaches the latter) are the containment itself, and they are counted so that a third is a decision
+            if (str_ends_with($file->getPathname(), 'app/Support/StoreBoundFilesystem.php')) {
+                $n += preg_match_all('/\bparent::(?:delete|deleteDirectory|cleanDirectory)\s*\(/', $code);
+            }
             if ($n) {
                 $found[substr($file->getPathname(), strlen(base_path()) + 1)] = $n;
             }
@@ -479,6 +484,7 @@ class StoredFilePathSafetyTest extends SecurityTestCase
             'app/Http/Controllers/SettingController.php' => 3,         // logo files: the path is a constant 'uploads/logo/<fixed name>', not a stored value
             'app/Models/Utility.php' => 3,                             // rmdir-style directory helper + the two loops that unlink ONLY what StoredUpload::resolveAll() returned
             'app/Services/StoredUpload.php' => 1,                      // THE deleter
+            'app/Support/StoreBoundFilesystem.php' => 2,               // the containment (P1-SEC-70): delegates to the real Filesystem only AFTER judging the path
         ], $found, 'A filesystem removal was added or removed in app/. A path that came from the database must go through StoredUpload::delete().');
     }
 }

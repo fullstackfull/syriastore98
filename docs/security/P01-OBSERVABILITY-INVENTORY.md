@@ -337,7 +337,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/StoredUpload.php:90` | a stored upload path points outside the uploads directory and was not touched |
 | `app/Services/StoredUpload.php:99` | a stored upload path names a platform default and was not touched |
 | `app/Services/StoredUpload.php:117` | a stored upload path names another tenant |
-| `app/Support/StoreBoundFilesystem.php:55` | a delete of an upload outside the current store was refused |
+| `app/Support/StoreBoundFilesystem.php:170` | a delete outside the current store was refused |
 | `app/Support/Security/ObjectFreeEncrypter.php:59` | a decrypted payload was not plain data and was refused |
 | `app/Services/WebuzoDomainService.php:170` | New Webuzo domain added but old domain could not be deleted |
 | `app/Http/Controllers/OtpIntegrationController.php:536` | OTP test refused: the provider address is not a permitted outbound host. |
@@ -660,21 +660,27 @@ line when it refuses a file for ANY reason. It goes where every row in this tabl
 
 ### The row added 2026-11-19 (P1-SEC-70), with its destination and reader
 
-**`StoreBoundFilesystem::delete()` -- "a delete of an upload outside the current store was refused", `warning`.** During a POST to one of
-the two vendored sign-in settings routes (`facebooklogin.settings`, `linkedinlogin.settings`) the `File` facade is a
-`StoreBoundFilesystem` (`SignInImageDeleteGuard`, on the `web` group), and the vendored handler's `File::delete(base_path($row->value))`
-of a path under `uploads/` that is not the signed-in user's own store's (or one its owner also runs) is refused and this line is
-written. It goes where every row in this table goes (section 2).
+**`StoreBoundFilesystem::refused()` -- "a delete outside the current store was refused", `warning`.** During a POST to one of the two vendored
+sign-in handlers (`SignInWithFacebookController@facebookSettings`, `SignInWithLinkedInController@LinkedinSettings`) the `File` facade is a
+`StoreBoundFilesystem` (`SignInImageDeleteGuard`, on the `web` group). The vendored handler's `File::delete(base_path($row->value))` is carried out
+only if the file, **as the operating system resolves it**, is in a folder the signed-in user's CURRENT store (or one its owner also runs) may delete
+from AND the row the handler chose is that store's; otherwise it is refused and this line is written. It goes where every row in this table goes
+(section 2).
 
-- **What it holds:** `store`, the signed-in user's current store (an integer; null when no store resolves). **Not the path** -- the path
-  is a settings row's value, which another tenant may have written -- and not the other store's id.
-- **How to read it:** one line means a handler was about to delete a file that is not this store's. That is either the first-row defect
-  doing what it always did (the tenant that first saved the form owns the row the handler finds, so every LATER tenant's save names that
-  tenant's file: expect one line per save by every tenant but the first, for as long as the modules stay as they are) or a merchant who
-  wrote a `*_sign_in_image` row naming somebody else's file. **The first is common and harmless now; the second is somebody trying a
-  door**, and what tells them apart is the row -- its `store_id` and `value` in `settings` -- not the log.
-- **WHAT IT CANNOT TELL ANYONE:** attempts made before it was deployed; and that the same defect leaves a tenant's *own* previous image
-  on disk (the handler never finds that tenant's row), which is a leak of disk and is not logged.
+- **What it holds:** `store`, the signed-in user's current store (an integer; `0` when no store resolves), and `reason`: **`row`** (the row the
+  handler chose is not this store's -- another tenant's, or one with no store), **`path`** (the file is in an upload folder this store may not delete
+  from), **`outside`** (the file is neither in an upload folder nor in a framework working area: `.env`, `config/...`, a vendored asset), **`no store`**,
+  or **`directory`** (a `deleteDirectory()` / `cleanDirectory()` call). **Not the path** -- the path is a settings row's value, which another tenant may
+  have written -- and not the other store's id.
+- **How to read it:** one line means a handler was about to delete a file that this store may not. **`row` is common and harmless**: the tenant that
+  first saved the form owns the row the handler finds, so every LATER tenant's save names that tenant's file -- expect one `row` line per save by
+  every tenant but the first, for as long as the modules stay as they are. **`path` and `outside` are somebody trying a door**: a merchant wrote a
+  `*_sign_in_image` row naming somebody else's file, or a file that is not an upload at all (and, on a case-insensitive collation, probably under an
+  accent-spelled name that the write-side rule never saw), and what tells them apart is the row -- its `name` (compare `HEX(name)`), `store_id` and
+  `value` in `settings` -- not the log.
+- **WHAT IT CANNOT TELL ANYONE:** attempts made before it was deployed; **an allowed delete writes nothing, so the absence of a line proves nothing
+  about what was deleted**; and that the same defect leaves a tenant's *own* previous image on disk when an older row of that name is somebody
+  else's (a leak of disk, not logged).
 
 ### The row added 2026-11-19 (P1-SEC-77), with its destination and reader
 

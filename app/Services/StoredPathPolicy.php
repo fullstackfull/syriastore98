@@ -75,27 +75,6 @@ final class StoredPathPolicy
         return false;
     }
 
-    /**
-     * Does this RELATIVE path point under one of the roots uploads live in? Only where it points, not whether it is safe: a path under a root
-     * with a `..` in it still answers true, because it is the caller's question (StoreBoundFilesystem asks it of the path as written AND of the
-     * path a `..` earlier in it resolves to) whether that is a place a deleter may touch. P1-SEC-70.
-     */
-    public static function isUploadPath(string $path): bool
-    {
-        $segments = explode('/', $path);
-
-        foreach (self::ROOTS as $root) {
-            $rootSegments = explode('/', $root);
-
-            // something must follow the root: `uploads` and `uploads/` are the root itself, not a place under it
-            if (array_slice($segments, 0, count($rootSegments)) === $rootSegments && array_filter(array_slice($segments, count($rootSegments)), 'strlen') !== []) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     /** @param list<string> $segments what follows the root; the gallery helper prepends `uploads/` a second time */
     private static function inStoreFolder(array $segments, $storeId): bool
     {
@@ -105,17 +84,34 @@ final class StoredPathPolicy
 
         $folder = $segments[0] ?? '';
 
-        if (! ctype_digit($folder) || count($segments) < 2) {
+        // a store's folder is its id in its canonical spelling: `007` is a folder no store owns, not store 7's (the owner lookup below casts it)
+        if (! ctype_digit($folder) || $folder !== (string) (int) $folder || count($segments) < 2) {
             return false;
         }
 
-        if ((string) $folder === (string) $storeId) {
+        return self::sameTenantStores((int) $folder, $storeId);
+    }
+
+    /**
+     * Is store $a the store $b, or another store the same owner runs? A store that is not a store (null, 0 or less) is nobody's: a folder that
+     * happens to be called `0` belongs to no store, and an ownerless store is only itself.  P1-SEC-70.
+     *
+     * @param int|string|null $a
+     * @param int|string|null $b
+     */
+    public static function sameTenantStores($a, $b): bool
+    {
+        if ($a === null || $b === null || (int) $a <= 0 || (int) $b <= 0) {
+            return false;
+        }
+
+        if ((int) $a === (int) $b) {
             return true;
         }
 
-        $owner = \App\Models\Store::query()->whereKey($storeId)->value('created_by');
+        $owner = \App\Models\Store::query()->whereKey((int) $b)->value('created_by');
 
-        return $owner !== null && (string) \App\Models\Store::query()->whereKey((int) $folder)->value('created_by') === (string) $owner;
+        return $owner !== null && (string) \App\Models\Store::query()->whereKey((int) $a)->value('created_by') === (string) $owner;
     }
 
     /**
