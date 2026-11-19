@@ -90,6 +90,10 @@ DECLARED_SURVIVORS = {
     'PW1': "The four WooCommerce import lists decode the entities WordPress returns (`Hats &amp; Caps`) so that yajra, which escapes every column that is not raw, shows the text once; this mutant removes "
            "all six decode sites. Removing them is a VISIBLE regression (an entity shows literally), not a door. NOT TESTED: the lists call the external shop through a client the suite does not drive "
            "(a test would have to fake that client). Recorded in the work queue (P1-SEC-80 g, h).",
+    'OR2': "The VARIANT branch of the manual order's stock refusal escapes the variant's name; the mutant restores the raw name. NOT TESTED: the case drives the product branch, and a variant needs a "
+           "variant-product fixture the test file does not build. EQUIVALENT in shape to OR1, which is killed.",
+    'DB1': "A dead function in dashboard.blade.php (`add_more_customer_choice_option`, no caller anywhere in resources/, public/js or packages/) builds an option's label from a name; the fix escapes it like its live twin "
+           "in the layout. NOT TESTED because nothing calls it, so no page or script can reach the line.",
 }
 
 GROUPS = [
@@ -3011,6 +3015,104 @@ GROUPS = [
                 ('app/Http/Controllers/WoocomCouponController.php',
                  "html_entity_decode((string) ($data->code ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8')",
                  "(string) ($data->code ?? '')"),
+            ]),
+        ],
+    },
+    {
+        "key": 'round3',
+        "title": "P1-SEC-80 round 3 -- the store's colour is a colour where it is stored and where it is printed, a menu's items belong to the menu, a chart's series names and the menu builder's values are text, and a refusal does not carry a name as markup",
+        "tests": ['tests/Feature/Security/AdminLayoutColourStoredXssTest.php', 'tests/Feature/Security/MenuItemOrderUpdateTenancyTest.php', 'tests/Unit/Ui/ReportChartsEscapeSeriesNamesTest.php', 'tests/Unit/Ui/NoRawShortEchoInPanelViewsTest.php', 'tests/Unit/Ui/PanelViewsBuildOptionsFromNodesTest.php', 'tests/Unit/Ui/MenuBuilderEscapesStoredValuesTest.php', 'tests/Feature/Commerce/OrderStoreOwnershipTest.php'],
+        "mutants": [
+            ('LC1 the Settings handler stops refusing a value that is not a colour', [
+                ('app/Support/Branding/StoreColour.php',
+                 'if ($request->has($name) && ! self::isValid($request->input($name))) {',
+                 'if ($request->has($name) && false) {'),
+            ]),
+            ('LC2 the admin layout prints the colour raw again', [
+                ('resources/views/layouts/app.blade.php',
+                 "--color-customColor: {{ \\App\\Support\\Branding\\StoreColour::forCss($color ?? null, 'linear-gradient(141.55deg, rgba(240, 244, 243, 0) 3.46%, #ffffff 99.86%)') }};",
+                 "--color-customColor: <?= $color ?? 'linear-gradient(141.55deg, rgba(240, 244, 243, 0) 3.46%, #ffffff 99.86%)' ?>;"),
+                ('resources/views/layouts/app.blade.php',
+                 "--bs-custom-color-border: {{ \\App\\Support\\Branding\\StoreColour::forCss($color ?? null, '#ffff') }};",
+                 "--bs-custom-color-border: <?= $color ?? '#ffff' ?>;"),
+            ]),
+            ('LC3 forCss no longer asks whether the value is a colour', [
+                ('app/Support/Branding/StoreColour.php',
+                 "return is_string($value) && trim($value) !== '' && self::isValid($value) ? trim($value) : $fallback;",
+                 "return is_string($value) && trim($value) !== '' ? trim($value) : $fallback;"),
+            ]),
+            ('LC4 isValid accepts everything', [
+                ('app/Support/Branding/StoreColour.php',
+                 'return preg_match(self::THEME, $value) === 1 || RichText::cssColor($value) !== null;',
+                 'return true;'),
+            ]),
+            ('LC5 the theme layout prints the colour raw again (no view extends it)', [
+                ('resources/views/layouts/theme_layout.blade.php',
+                 "--color-customColor: {{ \\App\\Support\\Branding\\StoreColour::forCss($color ?? null, 'linear-gradient(141.55deg, rgba(240, 244, 243, 0) 3.46%, #ffffff 99.86%)') }};",
+                 "--color-customColor: <?=$color ?? 'linear-gradient(141.55deg, rgba(240, 244, 243, 0) 3.46%, #ffffff 99.86%)' ?>;"),
+                ('resources/views/layouts/theme_layout.blade.php',
+                 "--bs-custom-color-border: {{ \\App\\Support\\Branding\\StoreColour::forCss($color ?? null, '#ffff') }};",
+                 "--bs-custom-color-border: <?=$color ?? '#ffff' ?>;"),
+            ]),
+            ("LC6 the guest layout prints the operator's colour raw again", [
+                ('resources/views/layouts/guest.blade.php',
+                 "--color-customColor: {{ \\App\\Support\\Branding\\StoreColour::forCss($setting['color'] ?? null, 'linear-gradient(141.55deg, rgba(240, 244, 243, 0) 3.46%, #ffffff 99.86%)') }};",
+                 "--color-customColor: <?=$setting['color'] ?? 'linear-gradient(141.55deg, rgba(240, 244, 243, 0) 3.46%, #ffffff 99.86%)' ?>;"),
+            ]),
+            ('MI1 updateOrder stops comparing the posted ids with the menu', [
+                ('app/Http/Controllers/MenuController.php',
+                 'if (array_diff($this->postedMenuItemIds($menuData), $ownIds) !== []) {',
+                 'if (false) {'),
+            ]),
+            ('MI2 the comparison ignores the children of an item', [
+                ('app/Http/Controllers/MenuController.php',
+                 "array_push($ids, ...$this->postedMenuItemIds($item['children']));",
+                 '// children are not collected'),
+            ]),
+            ("MI3 the comparison asks for every item of every menu instead of this menu's", [
+                ('app/Http/Controllers/MenuController.php',
+                 "$ownIds = MenuItem::where('menu_id', $menu->id)->pluck('id')",
+                 "$ownIds = MenuItem::where('menu_id', '>', 0)->pluck('id')"),
+            ]),
+            ("MS1 the menu builder writes an item's name into markup unescaped", [
+                ('resources/views/menu/script.blade.php',
+                 '<div data-update="title" class="fw-medium">${ssEsc(itemTitle)}</div>',
+                 '<div data-update="title" class="fw-medium">${itemTitle}</div>'),
+            ]),
+            ("MS2 the menu builder's Visit Link no longer limits the URL's scheme", [
+                ('resources/views/menu/script.blade.php',
+                 '<a href="${ssEsc(ssSafeHref(url))}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-info">',
+                 '<a href="${ssEsc(url)}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-info">'),
+            ]),
+            ('MS3 the icon preview writes a class name into markup again', [
+                ('resources/views/menu/script.blade.php',
+                 'glyph.className = iconValue;',
+                 'iconPreview.innerHTML = \'<i class="\' + iconValue + \'"></i>\';'),
+            ]),
+            ('AP1 the brand report hands ApexCharts a brand name raw', [
+                ('resources/views/reports/sale_by_brand.blade.php',
+                 "name: $('<div>').text(brand.name == null ? '' : String(brand.name)).html(),",
+                 'name: brand.name,'),
+            ]),
+            ('AP2 the category report hands ApexCharts a category name raw', [
+                ('resources/views/reports/sale_by_category.blade.php',
+                 "name: $('<div>').text(category.name == null ? '' : String(category.name)).html(),",
+                 'name: category.name,'),
+            ]),
+            ("OR1 the manual order's stock refusal names the product as markup", [
+                ('app/Http/Controllers/OrderController.php',
+                 '" . e($product->name) . "',
+                 '{$product->name}'),
+            ]),
+            ("OR2 the manual order's stock refusal names the variant as markup", [
+                ('app/Http/Controllers/OrderController.php',
+                 '" . e($variant->name) . "',
+                 '{$variant->name}'),
+            ]),
+            ("DB1 the dashboard's dead option builder writes a name into markup again (no caller)", [
+                ('resources/views/dashboard.blade.php',
+                 '\'<label for="choice_attributes">\' + $(\'<div>\').text(name).html() + \':</label>\' +',
+                 '\'<label for="choice_attributes">\' + name + \':</label>\' +'),
             ]),
         ],
     },
