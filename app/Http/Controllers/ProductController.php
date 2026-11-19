@@ -4689,7 +4689,7 @@ $Product->cost_price = $request->cost_price;
 
                         $productprice = currency_format_with_sym($productprice, $store_id->id);
                         $output .= ' <div class="col-xl-4 col-lg-6 col-sm-6 col-xs-6 col-12">
-                                    <div class="tab-pane fade show active toacart w-100" data-url="' . url('/addToCart/' . $product->id . '/' . $lastsegment) . '">
+                                    <div class="tab-pane fade show active toacart w-100" data-url="' . e(url('/addToCart/' . $product->id . '/' . $lastsegment)) . '">
                                         <div class="btn-primary position-relative card">
                                             <img alt="Image placeholder" src="' . e(asset($image_url)) . '" class="card-image avatar hover-shadow-lg" style=" height: 6rem; width: 100%;">
                                             <div class="p-0 custom-card-body card-body d-flex ">
@@ -4706,7 +4706,7 @@ $Product->cost_price = $request->cost_price;
                     } else {
 
                         $output .= ' <div class="col-xl-4 col-lg-6 col-sm-6 col-xs-6 col-12">
-                                <div class="tab-pane fade show active toacart w-100" data-url="' . url('/pos/product-variant/' . $product->id . '/' . $lastsegment) . '" data-ajax-popup="true" data-size="lg" data-align="centered" data-title="Product Variant">
+                                <div class="tab-pane fade show active toacart w-100" data-url="' . e(url('/pos/product-variant/' . $product->id . '/' . $lastsegment)) . '" data-ajax-popup="true" data-size="lg" data-align="centered" data-title="Product Variant">
                                     <div class="btn-primary position-relative card">
                                         <img alt="Image placeholder" src="' . e(asset($image_url)) . '" class="card-image avatar hover-shadow-lg" style=" height: 6rem; width: 100%;">
                                         <div class="p-0 custom-card-body card-body d-flex ">
@@ -4810,7 +4810,7 @@ $Product->cost_price = $request->cost_price;
 
                         $productprice = currency_format_with_sym($productprice, $store_id->id);
                         $output .= ' <div class="col-xl-4 col-lg-6 col-sm-6 col-xs-6 col-12">
-                                    <div class="tab-pane fade show active toacart w-100" data-url="' . url('/addToCart/' . $product->id . '/' . $lastsegment) . '">
+                                    <div class="tab-pane fade show active toacart w-100" data-url="' . e(url('/addToCart/' . $product->id . '/' . $lastsegment)) . '">
                                         <div class="btn-primary position-relative card">
                                             <img alt="Image placeholder" src="' . e(asset($image_url)) . '" class="card-image avatar hover-shadow-lg" style=" height: 6rem; width: 100%;">
                                             <div class="p-0 custom-card-body card-body d-flex ">
@@ -4827,7 +4827,7 @@ $Product->cost_price = $request->cost_price;
                     } else {
 
                         $output .= ' <div class="col-xl-4 col-lg-6 col-sm-6 col-xs-6 col-12">
-                                <div class="tab-pane fade show active toacart w-100" data-url="' . url('/pos/product-variant/' . $product->id . '/' . $lastsegment) . '" data-ajax-popup="true" data-size="lg" data-align="centered" data-title="Product Variant">
+                                <div class="tab-pane fade show active toacart w-100" data-url="' . e(url('/pos/product-variant/' . $product->id . '/' . $lastsegment)) . '" data-ajax-popup="true" data-size="lg" data-align="centered" data-title="Product Variant">
                                     <div class="btn-primary position-relative card">
                                         <img alt="Image placeholder" src="' . e(asset($image_url)) . '" class="card-image avatar hover-shadow-lg" style=" height: 6rem; width: 100%;">
                                         <div class="p-0 custom-card-body card-body d-flex ">
@@ -4996,11 +4996,11 @@ $Product->cost_price = $request->cost_price;
             }
         }
 
-        $model_delete_id = 'delete-form-' . $id;
+        $model_delete_id = 'delete-form-' . e($id);
 
         $carthtml = '';
 
-        $carthtml .= '<tr data-product-id="' . $id . '" id="product-id-' . $id . '">
+        $carthtml .= '<tr data-product-id="' . e($id) . '" id="product-id-' . e($id) . '">
                         <td class="cart-images">
                             <img alt="Image placeholder" src="' . e($image_url) . '" class="card-image avatar shadow hover-shadow-lg">
                         </td>
@@ -5010,7 +5010,7 @@ $Product->cost_price = $request->cost_price;
                         <td class="">
                                 <span class="quantity buttons_added">
                                         <input type="button" value="-" class="minus bg-primary">
-                                        <input type="number" step="1" min="1" max="" name="quantity" title="' . __('Quantity') . '" class="input-number" size="4" data-url="' . url('update-cart/') . '" data-id="' . $id . '" style="width:50px;">
+                                        <input type="number" step="1" min="1" max="" name="quantity" title="' . __('Quantity') . '" class="input-number" size="4" data-url="' . url('update-cart/') . '" data-id="' . e($id) . '" style="width:50px;">
                                         <input type="button" value="+" class="plus bg-primary">
                                 </span>
                         </td>
@@ -5028,7 +5028,7 @@ $Product->cost_price = $request->cost_price;
                                 <input name="_method" type="hidden" value="DELETE">
                                 <input name="_token" type="hidden" value="' . csrf_token() . '">
                                 <input type="hidden" name="session_key" value="' . e($session_key) . '">
-                                <input type="hidden" name="id" value="' . $id . '">
+                                <input type="hidden" name="id" value="' . e($id) . '">
                             </form>
                         </td>
                     </td>';

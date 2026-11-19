@@ -788,8 +788,8 @@ document.addEventListener('DOMContentLoaded', function() {
         $currentSearchValue = is_scalar($currentSearchValue) ? (string) $currentSearchValue : '';
         $currentSearchValueHtml = e($currentSearchValue);
     @endphp
-    const currentSearchValue = {!! json_encode($currentSearchValue) !!};
-    const currentSearchValueHtml = {!! json_encode($currentSearchValueHtml) !!};
+    const currentSearchValue = {!! json_encode($currentSearchValue, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) !!};
+    const currentSearchValueHtml = {!! json_encode($currentSearchValueHtml, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) !!};
 
     searchField.addEventListener('change', function() {
         const selectedField = this.value;

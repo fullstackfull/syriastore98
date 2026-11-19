@@ -65,6 +65,14 @@ final class DataTableRawColumnsTest extends TestCase
         'app/Http/Controllers/WoocomProductController.php' => ['cover_image' => ['E']],
     ];
 
+    /**
+     * Columns that return a view but are NOT named in `rawColumns()`, so the manifest above does not hold them: yajra prints an Htmlable as it is, so they are raw cells, and each is recorded here
+     * with what it prints. A stale entry (the closure no longer returns a view) fails the test that reads this.
+     */
+    private const HTMLABLE = [
+        'app/Http/Controllers/ReportController.php' => ['stock_status' => 'three `DsBadge` views (`reports.{low,out,most}_stock_status`) of a stock state the controller computed: no stored text'],
+    ];
+
     /** every first-party PHP file under app/ (a raw column is declared wherever a DataTable is built, not only in app/DataTables) */
     private static function files(): array
     {
@@ -205,6 +213,53 @@ final class DataTableRawColumnsTest extends TestCase
         $this->assertGreaterThanOrEqual(60, array_sum(array_map('count', $declared)), 'premise: the parse found too few raw columns');
         $this->assertArrayHasKey('app/DataTables/OrderDataTable.php', $declared, 'premise: the list with the most raw columns must be among those found');
         $this->assertArrayNotHasKey('app/DataTables/NewsletterDataTable.php', $declared, 'premise: a list whose only raw column is `action` has nothing to classify');
+    }
+
+    /**
+     * yajra does not escape an Htmlable value whatever `rawColumns()` says (`DataProcessor` runs `e()` on it, and `e()` returns an Htmlable's `toHtml()` as it is): a closure that returns a
+     * `view(...)` or an `HtmlString` prints markup even from a column that is not named raw. So a column that returns one is a raw column, and has to be declared like one (a reason in the
+     * manifest, which this test then also keeps true). `action` is exempt: it is raw in every list and is made of the host's own buttons.
+     */
+    public function test_a_column_that_returns_a_view_or_an_htmlable_is_declared_raw(): void
+    {
+        $root = dirname(__DIR__, 3);
+        $checked = 0;
+        $undeclared = [];
+        $seen = [];
+
+        foreach (self::files() as $path) {
+            $code = self::code($path);
+            $relative = ltrim(str_replace($root, '', $path), '/');
+
+            if (! preg_match_all('/->(?:editColumn|addColumn)\(\s*[\'"]([A-Za-z0-9_.\-]+)[\'"]/', $code, $names)) {
+                continue;
+            }
+
+            foreach (array_unique($names[1]) as $column) {
+                $closure = self::closureOf($code, $column) ?? '';
+
+                if (preg_match('/\bHtmlString\b|\bHtmlable\b|->toHtml\s*\(|\bview\s*\(|->render\s*\(/', $closure) !== 1) {
+                    continue;
+                }
+
+                $checked++;
+
+                $seen[$relative][$column] = true;
+
+                if ($column !== 'action' && ! isset(self::MANIFEST[$relative][$column]) && ! isset(self::HTMLABLE[$relative][$column])) {
+                    $undeclared[] = $relative . ': ' . $column;
+                }
+            }
+        }
+
+        foreach (self::HTMLABLE as $file => $columns) {
+            foreach (array_keys($columns) as $column) {
+                $this->assertArrayHasKey($column, $seen[$file] ?? [], $file . ': `' . $column . '` no longer returns a view: delete its entry from HTMLABLE');
+            }
+        }
+
+        $this->assertGreaterThanOrEqual(40, $checked, 'premise: too few closures that return a view were found to mean anything');
+        $this->assertSame([], $undeclared, 'these columns return a view or an Htmlable, which yajra prints unescaped even when the column is not named in rawColumns(): declare each as a raw column with its reason');
     }
 
     public function test_every_raw_column_has_a_reason_and_every_reason_has_a_raw_column(): void

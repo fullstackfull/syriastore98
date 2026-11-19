@@ -4,6 +4,7 @@ namespace Tests\Feature\Security;
 
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\ProductVariant;
 use App\Models\Tax;
 use App\Models\TaxMethod;
 use App\Models\TaxOption;
@@ -117,8 +118,9 @@ class PanelFragmentStoredXssTest extends SecurityTestCase
 
         $response->assertOk();
         $this->assertFragmentIsInert($response->json('carthtml'), 'the POS cart row');
-        // the success message is shown by the page's toast, which writes it with innerHTML
-        $this->assertSame([], $this->activeMarkupIn((string) $response->json('success')), 'the "added to cart" message carries the product name as markup');
+        // No shipped script displays this message today (the till reads `code`, `product`, `carttotal` and `carthtml`), so escaping it is HARDENING and not a door: it is pinned so that the day
+        // somebody shows it, it is already safe. `assertMessageIsInert` carries the premise that the product's name is in it.
+        $this->assertMessageIsInert($response->json('success'), 'the "added to cart" message (an empty cart)');
     }
 
     public function test_a_product_name_is_not_printed_raw_in_the_testimonial_product_select(): void
@@ -200,6 +202,7 @@ class PanelFragmentStoredXssTest extends SecurityTestCase
         $response = $this->actingAs($merchant)->withSession([$key => [$other->id => $this->cartLine($other)]])->withHeaders(self::AJAX)->getJson('/addToCart/' . $product->id . '/' . $key);
 
         $response->assertOk();
+        $this->assertArrayHasKey('carttotal', (array) $response->json(), 'premise: the answer is the non-empty-cart one (only the empty-cart answer has no `carttotal`)');
         $this->assertMessageIsInert($response->json('success'), 'the "cart holds other lines" path');
         $this->assertFragmentIsInert($response->json('carthtml'), 'the POS cart row (a cart that holds other lines)');
     }
@@ -214,16 +217,67 @@ class PanelFragmentStoredXssTest extends SecurityTestCase
         return 'uploads/' . $store->id . '/cover_image_path/a" onerror="XSS-1.png';
     }
 
-    public function test_a_cover_image_path_is_not_printed_raw_on_the_pos_tiles(): void
+    /** @return array<string,array{0:string,1:bool}> the four copies of the tile print: two builders, each written once for a product without variants and once for a product with */
+    public static function everyTilePrint(): array
+    {
+        return [
+            'product tiles, no variants' => ['/search-products', false],
+            'product tiles, variants' => ['/search-products', true],
+            'SKU tiles, no variants' => ['/search-products-sku', false],
+            'SKU tiles, variants' => ['/search-products-sku', true],
+        ];
+    }
+
+    #[DataProvider('everyTilePrint')]
+    public function test_a_cover_image_path_is_not_printed_raw_on_the_pos_tiles(string $route, bool $withVariants): void
     {
         [$merchant, $store] = $this->till();
-        $this->productNamed($store, 'Plain')->forceFill(['cover_image_path' => $this->hostileCover($store)])->save();
+        $this->productNamed($store, 'Plain', $withVariants)->forceFill(['cover_image_path' => $this->hostileCover($store)])->save();
 
         $response = $this->actingAs($merchant)->withHeaders(self::AJAX)
-            ->getJson('/search-products?' . http_build_query(['session_key' => 'pos_' . $store->id, 'cat_id' => '0', 'search' => '']));
+            ->getJson($route . '?' . http_build_query(['session_key' => 'pos_' . $store->id, 'cat_id' => '0', 'search' => '']));
 
         $response->assertOk();
-        $this->assertFragmentIsInert($response->json('html'), 'the POS product tiles (a hostile cover image path)');
+        $this->assertSame($withVariants, str_contains((string) $response->json('html'), 'In Variant'), 'premise: the product took the branch of the tile builder this case is about');
+        $this->assertFragmentIsInert($response->json('html'), $route . ' (a hostile cover image path' . ($withVariants ? ', a product with variants' : '') . ')');
+    }
+
+    /**
+     * The tiles carry the REQUEST's `session_key` into four `data-url` attributes (`url()` encodes only the query string, never the path). Nobody can make the victim's till ask with a key of
+     * their choosing, so this is hardening, but it is a stated rule ("e() every interpolated value") and the print is two tile builders x two branches: a product of each kind is present.
+     */
+    #[DataProvider('tileBuilders')]
+    public function test_the_requests_session_key_is_not_printed_raw_in_the_tile_urls(string $route): void
+    {
+        [$merchant, $store] = $this->till();
+        $this->productNamed($store, 'Plain');
+        $this->productNamed($store, 'Varied', true);
+
+        $response = $this->actingAs($merchant)->withHeaders(self::AJAX)
+            ->getJson($route . '?' . http_build_query(['session_key' => 'x"><img src=x onerror=XSS-1>', 'cat_id' => '0', 'search' => '']));
+
+        $response->assertOk();
+        $html = (string) $response->json('html');
+        $this->assertStringContainsString('In Variant', $html, 'premise: both branches of the tile builder are in the answer');
+        $this->assertFragmentIsInert($html, $route . ' (a hostile session key)');
+    }
+
+    /**
+     * With a `variants` parameter `addToCart` does NOT refuse a key other than the till's own (that refusal lives in the other branch), so the cart row's hidden `session_key` input carries
+     * whatever the route segment holds, and the cart is written under it. Nobody can make the victim's till ask with a key of their choosing, so the print is hardening; the other half
+     * -- a GET that writes a cart array under ANY session key -- is recorded in the work queue as a lead (P1-SEC-80 h).
+     */
+    public function test_the_requests_session_key_is_not_printed_raw_in_the_cart_row(): void
+    {
+        [$merchant, $store] = $this->till();
+        $product = $this->productNamed($store, 'Plain');
+        $this->minimalRow(ProductVariant::class, ['product_id' => $product->id, 'store_id' => $store->id, 'variant' => 'red', 'sku' => 'S1', 'price' => 10, 'stock' => 5]);
+
+        $response = $this->actingAs($merchant)->withHeaders(self::AJAX)
+            ->getJson('/addToCart/' . $product->id . '/' . rawurlencode('x"><img src=x onerror=XSS-1>') . '?variants=red');
+
+        $response->assertOk();
+        $this->assertFragmentIsInert($response->json('carthtml'), 'the POS cart row (a hostile session key, with a variants parameter)');
     }
 
     public function test_a_cover_image_path_is_not_printed_raw_in_the_pos_cart_row(): void
@@ -275,6 +329,30 @@ class PanelFragmentStoredXssTest extends SecurityTestCase
         $this->assertStringContainsString('searchInputContainer.innerHTML', $html, 'premise: the page carries the script that writes the search control');
         $this->assertDoesNotMatchRegularExpression('/value="\$\{currentSearchValue\b/', $html, 'the script writes the raw request value into an HTML attribute');
         $this->assertStringContainsString('currentSearchValueHtml', $html, 'the script is handed an HTML-escaped copy for markup contexts');
-        $this->assertStringContainsString('&quot;&gt;&lt;img src=x onerror=XSS-3&gt;', $html, 'the escaped copy really is escaped');
+
+        // What the script SEES is the constants' value, so decode them as the script's parser would: the escaped copy is HTML-escaped, the raw copy is the request's value, and the request's
+        // value is printed nowhere in the page as the characters it is made of (the constants are JSON with JSON_HEX_*, so a `<`, `&` or quote is a \u escape in the page source).
+        $this->assertSame(1, preg_match('/const currentSearchValueHtml = (".*");/', $html, $escaped), 'premise: the escaped constant is in the page');
+        $this->assertSame('&quot;&gt;&lt;img src=x onerror=XSS-3&gt;', json_decode($escaped[1]), 'the escaped copy really is escaped');
+        $this->assertSame(1, preg_match('/const currentSearchValue = (".*");/', $html, $raw), 'premise: the raw constant is in the page');
+        $this->assertSame('"><img src=x onerror=XSS-3>', json_decode($raw[1]), 'the raw copy is the request\'s value, kept for comparisons');
+        $this->assertStringNotContainsString('<img src=x onerror=XSS-3>', $html, 'the request\'s value is printed in the page as the characters it is made of');
+    }
+
+    /**
+     * The constants sit inside a `<script>` element. `json_encode` leaves `<`, `>` and `&` alone, and the HTML tokenizer's "script data double escaped" state starts at `<!--<script>`: after
+     * it the element's own `</script>` no longer closes it, the script runs on to the NEXT `</script>`, and the page's scripts do not compile. Not code execution -- the loss of the page's own
+     * scripts for whoever opens a link -- and one flag away.
+     */
+    public function test_the_finance_search_value_cannot_change_the_html_parsers_state_inside_the_script(): void
+    {
+        [$merchant] = $this->makeTenant();
+        $this->grantPermission($merchant, 'View Finance Dashboard');
+
+        $response = $this->actingAs($merchant)->get('/finance?' . http_build_query(['search_field' => 'description', 'search_value' => '<!--<script>']));
+
+        $response->assertOk();
+        $this->assertStringContainsString('const currentSearchValue =', $response->getContent(), 'premise: the page carries the constant');
+        $this->assertStringNotContainsString('<!--<script>', $response->getContent(), 'the request\'s value reached the page with the characters that start the double-escaped script state');
     }
 }
