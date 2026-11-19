@@ -78,17 +78,18 @@ DECLARED_SURVIVORS = {
             "runs as root, for whom neither fails, and the class is final, so its parent's call cannot be replaced. Recorded in the work queue (P1-SEC-70 d).",
     'TX2': "The in-cart branch of ProductController::addToCart builds the tax badge (`$product_tax .= ...`) and NEVER RETURNS it: the branch answers with `success`, `product` and `carttotal`, and the "
            "badge markup lives only in the `carthtml` the other two branches build. A value nothing reads cannot reach a browser. The `e()` is kept so the line is safe the day somebody returns it; "
-           "EQUIVALENT TODAY, and the in-cart case asserts that the answer carries no `carthtml`, so the day it does that case fails and asks for a tax-badge test of its own.",
-    'TX3': "ProductController::updateCart builds the same tax badge and never returns it (it answers `success`, `product` and `discount`). EQUIVALENT TODAY, read from the code; unlike TX2 no test asserts the answer's keys.",
-    'SK1': "The hidden `session_key` input of the cart row is written from the ROUTE SEGMENT, and the row is built only for the till's own key `pos_<store>` -- or, with a `variants` parameter, for any key. "
-           "It is a JSON answer a browser does not render and that the till's own script requests with the key it was built with; no stranger can make the victim's page ask for a key of the stranger's "
-           "choosing. NOT A DOOR; the `e()` is a belt and no test drives the variants path with a hostile key.",
+           "EQUIVALENT TODAY. The in-cart case asserts that the answer carries no `carthtml`; that tripwire watches that ONE key, so a badge returned under another key would trip nothing.",
+    'TX3': "ProductController::updateCart builds the same tax badge and never returns it (it answers `success`, `product` and `discount`). EQUIVALENT TODAY, read from the code; no test watches the answer's keys.",
+    'ID1': "The cart row prints the route's `{id}` in five places (the row's two data attributes and its id, the quantity input's `data-id`, the delete form's id and the hidden `id` input), now through `e()`. "
+           "UNREACHABLE ON THE SUITE'S ENGINE: `Product::where('id', '5<img ...>')` matches no row on SQLite (the text is not a number, so the comparison is false), while MySQL coerces the numeric prefix and "
+           "matches product 5, so only a MySQL run could drive it. Nobody can make the victim's till request with an id of their choosing (the page builds the URL from database ids): hardening, not a door.",
     'LY1': "The merchant panel's layout writes an attribute NAME -- read back from a rendered `<option>` with `.text()`, so decoded -- into markup. The fix escapes it (`$('<div>').text(name).html()`). "
-           "UNTESTED IN THE SUITE: it is JavaScript inside a layout, and the suite runs no browser. The Chromium harness this was checked with (a `<template>` read back with innerHTML, and an escaped value "
-           "written with innerHTML, each with the old raw form as its premise) ran once and is not committed, because it tests the PATTERN, not the layout. A source ratchet cannot see this shape "
-           "(`+ name +` is not an `<option>` literal). Recorded in the work queue (P1-SEC-80 g).",
-    'PW1': "The four WooCommerce import lists decode the entities WordPress returns (`Hats &amp; Caps`) so that yajra, which escapes every column that is not raw, shows the text once. Removing the "
-           "decode is a VISIBLE regression (the entity shows literally), not a door. UNTESTED: the lists call the external shop through a client the suite cannot drive. Recorded in the work queue (P1-SEC-80 g).",
+           "NOT TESTED, by choice and not by limit: the suite runs no browser, and a source pin of the one line was not written (it would pin a spelling). The Chromium harness this was checked with "
+           "(a `<template>` read back with innerHTML, and an escaped value written with innerHTML, each with the old raw form as its premise) ran once and is not committed, because it tests the PATTERN, "
+           "not the layout. A source ratchet for `+ name +` is possible and was not written. Recorded in the work queue (P1-SEC-80 g, h).",
+    'PW1': "The four WooCommerce import lists decode the entities WordPress returns (`Hats &amp; Caps`) so that yajra, which escapes every column that is not raw, shows the text once; this mutant removes "
+           "all six decode sites. Removing them is a VISIBLE regression (an entity shows literally), not a door. NOT TESTED: the lists call the external shop through a client the suite does not drive "
+           "(a test would have to fake that client). Recorded in the work queue (P1-SEC-80 g, h).",
 }
 
 GROUPS = [
@@ -2772,15 +2773,25 @@ GROUPS = [
         "title": "P1-SEC-80 round 2 -- HTML a controller builds and script a view writes carry stored text only as text (the till's tiles, cart row and messages, the order form, the finance search, the option builders)",
         "tests": ['tests/Feature/Security/PanelFragmentStoredXssTest.php', 'tests/Unit/Ui/PanelViewsBuildOptionsFromNodesTest.php', 'tests/Unit/Security/DataTableRawColumnsTest.php'],
         "mutants": [
-            ("PF1 the POS tiles print a product's name and slug raw (a product without variants)", [
+            ("PF1a the POS product tiles print a product's name and slug raw (a product without variants)", [
                 ('app/Http/Controllers/ProductController.php',
                  '                                                <h6 class="mb-2 text-dark product-title-name">\' . e($product->name) . \'</h6>\n                                                <p class="mb-2 text-dark product-title-name small">\' . e($product->slug) . \'</p>\n                                                <small class="text-primary">\' . $productprice',
-                 '                                                <h6 class="mb-2 text-dark product-title-name">\' . $product->name . \'</h6>\n                                                <p class="mb-2 text-dark product-title-name small">\' . $product->slug . \'</p>\n                                                <small class="text-primary">\' . $productprice', 2),
+                 '                                                <h6 class="mb-2 text-dark product-title-name">\' . $product->name . \'</h6>\n                                                <p class="mb-2 text-dark product-title-name small">\' . $product->slug . \'</p>\n                                                <small class="text-primary">\' . $productprice', 2, 1),
             ]),
-            ("PF2 the POS tiles print a product's name and slug raw (a product with variants)", [
+            ("PF1b the POS SKU tiles print a product's name and slug raw (a product without variants)", [
+                ('app/Http/Controllers/ProductController.php',
+                 '                                                <h6 class="mb-2 text-dark product-title-name">\' . e($product->name) . \'</h6>\n                                                <p class="mb-2 text-dark product-title-name small">\' . e($product->slug) . \'</p>\n                                                <small class="text-primary">\' . $productprice',
+                 '                                                <h6 class="mb-2 text-dark product-title-name">\' . $product->name . \'</h6>\n                                                <p class="mb-2 text-dark product-title-name small">\' . $product->slug . \'</p>\n                                                <small class="text-primary">\' . $productprice', 2, 2),
+            ]),
+            ("PF2a the POS product tiles print a product's name and slug raw (a product with variants)", [
                 ('app/Http/Controllers/ProductController.php',
                  '                                                <h6 class="mb-2 text-dark product-title-name">\' . e($product->name) . \'</h6>\n                                                <p class="mb-2 text-dark product-title-name small">\' . e($product->slug) . \'</p>\n                                                <small class="text-primary">In Variant</small>',
-                 '                                                <h6 class="mb-2 text-dark product-title-name">\' . $product->name . \'</h6>\n                                                <p class="mb-2 text-dark product-title-name small">\' . $product->slug . \'</p>\n                                                <small class="text-primary">In Variant</small>', 2),
+                 '                                                <h6 class="mb-2 text-dark product-title-name">\' . $product->name . \'</h6>\n                                                <p class="mb-2 text-dark product-title-name small">\' . $product->slug . \'</p>\n                                                <small class="text-primary">In Variant</small>', 2, 1),
+            ]),
+            ("PF2b the POS SKU tiles print a product's name and slug raw (a product with variants)", [
+                ('app/Http/Controllers/ProductController.php',
+                 '                                                <h6 class="mb-2 text-dark product-title-name">\' . e($product->name) . \'</h6>\n                                                <p class="mb-2 text-dark product-title-name small">\' . e($product->slug) . \'</p>\n                                                <small class="text-primary">In Variant</small>',
+                 '                                                <h6 class="mb-2 text-dark product-title-name">\' . $product->name . \'</h6>\n                                                <p class="mb-2 text-dark product-title-name small">\' . $product->slug . \'</p>\n                                                <small class="text-primary">In Variant</small>', 2, 2),
             ]),
             ("PF3 the POS cart row prints the product's name raw", [
                 ('app/Http/Controllers/ProductController.php',
@@ -2817,10 +2828,25 @@ GROUPS = [
                  '\n                                $product_tax .= !empty($Tax) ? "<span class=\'badge bg-primary\'>" . e($method->name) . \' (\' . e($method->tax_rate) . \'%)\' . "</span><br>" : \'\';',
                  '\n                                $product_tax .= !empty($Tax) ? "<span class=\'badge bg-primary\'>" . $method->name . \' (\' . $method->tax_rate . \'%)\' . "</span><br>" : \'\';'),
             ]),
-            ('IM1 the POS tiles print the image URL raw', [
+            ('IM1a the POS product tiles (no variants) print the image URL raw', [
                 ('app/Http/Controllers/ProductController.php',
                  'src="\' . e(asset($image_url)) . \'"',
-                 'src="\' . asset($image_url) . \'"', 4),
+                 'src="\' . asset($image_url) . \'"', 4, 1),
+            ]),
+            ('IM1b the POS product tiles (variants) print the image URL raw', [
+                ('app/Http/Controllers/ProductController.php',
+                 'src="\' . e(asset($image_url)) . \'"',
+                 'src="\' . asset($image_url) . \'"', 4, 2),
+            ]),
+            ('IM1c the POS SKU tiles (no variants) print the image URL raw', [
+                ('app/Http/Controllers/ProductController.php',
+                 'src="\' . e(asset($image_url)) . \'"',
+                 'src="\' . asset($image_url) . \'"', 4, 3),
+            ]),
+            ('IM1d the POS SKU tiles (variants) print the image URL raw', [
+                ('app/Http/Controllers/ProductController.php',
+                 'src="\' . e(asset($image_url)) . \'"',
+                 'src="\' . asset($image_url) . \'"', 4, 4),
             ]),
             ('IM2 the POS cart row prints the image URL raw', [
                 ('app/Http/Controllers/ProductController.php',
@@ -2831,6 +2857,40 @@ GROUPS = [
                 ('app/Http/Controllers/ProductController.php',
                  'value="\' . e($session_key) . \'"',
                  'value="\' . $session_key . \'"'),
+            ]),
+            ("UR1a the POS product tiles print the request's session key raw in a plain product's data-url", [
+                ('app/Http/Controllers/ProductController.php',
+                 'data-url="\' . e(url(\'/addToCart/\' . $product->id . \'/\' . $lastsegment)) . \'">',
+                 'data-url="\' . url(\'/addToCart/\' . $product->id . \'/\' . $lastsegment) . \'">', 2, 1),
+            ]),
+            ("UR1b the POS SKU tiles print the request's session key raw in a plain product's data-url", [
+                ('app/Http/Controllers/ProductController.php',
+                 'data-url="\' . e(url(\'/addToCart/\' . $product->id . \'/\' . $lastsegment)) . \'">',
+                 'data-url="\' . url(\'/addToCart/\' . $product->id . \'/\' . $lastsegment) . \'">', 2, 2),
+            ]),
+            ("UR2a the POS product tiles print the request's session key raw in a variant product's data-url", [
+                ('app/Http/Controllers/ProductController.php',
+                 'data-url="\' . e(url(\'/pos/product-variant/\' . $product->id . \'/\' . $lastsegment)) . \'" data-ajax-popup=',
+                 'data-url="\' . url(\'/pos/product-variant/\' . $product->id . \'/\' . $lastsegment) . \'" data-ajax-popup=', 2, 1),
+            ]),
+            ("UR2b the POS SKU tiles print the request's session key raw in a variant product's data-url", [
+                ('app/Http/Controllers/ProductController.php',
+                 'data-url="\' . e(url(\'/pos/product-variant/\' . $product->id . \'/\' . $lastsegment)) . \'" data-ajax-popup=',
+                 'data-url="\' . url(\'/pos/product-variant/\' . $product->id . \'/\' . $lastsegment) . \'" data-ajax-popup=', 2, 2),
+            ]),
+            ("ID1 the POS cart row prints the route's product id raw (four statements, five sites)", [
+                ('app/Http/Controllers/ProductController.php',
+                 "$model_delete_id = 'delete-form-' . e($id);",
+                 "$model_delete_id = 'delete-form-' . $id;"),
+                ('app/Http/Controllers/ProductController.php',
+                 '$carthtml .= \'<tr data-product-id="\' . e($id) . \'" id="product-id-\' . e($id) . \'">',
+                 '$carthtml .= \'<tr data-product-id="\' . $id . \'" id="product-id-\' . $id . \'">'),
+                ('app/Http/Controllers/ProductController.php',
+                 'data-url="\' . url(\'update-cart/\') . \'" data-id="\' . e($id) . \'" style="width:50px;">',
+                 'data-url="\' . url(\'update-cart/\') . \'" data-id="\' . $id . \'" style="width:50px;">'),
+                ('app/Http/Controllers/ProductController.php',
+                 '<input type="hidden" name="id" value="\' . e($id) . \'">',
+                 '<input type="hidden" name="id" value="\' . $id . \'">'),
             ]),
             ('PF8 the POS category buttons print a category name raw', [
                 ('app/Http/Controllers/CategoryController.php',
@@ -2851,6 +2911,11 @@ GROUPS = [
                 ('resources/views/finance/index.blade.php',
                  '$currentSearchValueHtml = e($currentSearchValue);',
                  '$currentSearchValueHtml = $currentSearchValue;'),
+            ]),
+            ("PF13 the finance script's constants are encoded without the JSON_HEX flags (the request's value can start the double-escaped script state)", [
+                ('resources/views/finance/index.blade.php',
+                 ', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) !!};',
+                 ') !!};', 2),
             ]),
             ("PF12 the order form writes the product names into its script's template literal", [
                 ('resources/views/order/createOrder.blade.php',
@@ -2927,7 +2992,7 @@ GROUPS = [
                  '\'<label for="choice_attributes" class="col-6">\' + $(\'<div>\').text(name).html() + \':</label></div>\' + // P1-SEC-80: `name` is the attribute\'s text() read back from the DOM; escape it before it becomes markup again',
                  '\'<label for="choice_attributes" class="col-6">\' + name + \':</label></div>\' +'),
             ]),
-            ('PW1 the WooCommerce import lists stop decoding the entities WordPress returns (a visible regression, not a door)', [
+            ('PW1 the WooCommerce import lists stop decoding the entities WordPress returns (six sites; a visible regression, not a door)', [
                 ('app/Http/Controllers/WoocomCategoryController.php',
                  "html_entity_decode((string) ($data->name ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8')",
                  "(string) ($data->name ?? '')"),
@@ -2937,6 +3002,15 @@ GROUPS = [
                 ('app/Http/Controllers/WoocomProductController.php',
                  "html_entity_decode((string) ($data->name ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8')",
                  "(string) ($data->name ?? '')"),
+                ('app/Http/Controllers/WoocomProductController.php',
+                 "html_entity_decode((string) ($data->categories['0']->name ?? '-'), ENT_QUOTES | ENT_HTML5, 'UTF-8')",
+                 "(string) ($data->categories['0']->name ?? '-')"),
+                ('app/Http/Controllers/WoocomCouponController.php',
+                 "html_entity_decode((string) $data->code, ENT_QUOTES | ENT_HTML5, 'UTF-8')",
+                 '(string) $data->code'),
+                ('app/Http/Controllers/WoocomCouponController.php',
+                 "html_entity_decode((string) ($data->code ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8')",
+                 "(string) ($data->code ?? '')"),
             ]),
         ],
     },
@@ -2945,6 +3019,16 @@ GROUPS = [
 
 def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def replace_nth(source, old, new, nth):
+    """Replace ONLY the nth (1-based) occurrence of `old`: each copy of a repeated print is then a mutant of its own, and "killed" says which copy a test covers."""
+    index = -1
+    for _ in range(nth):
+        index = source.find(old, index + 1)
+        if index < 0:
+            raise ValueError(f"occurrence {nth} of the string to replace does not exist")
+    return source[:index] + new + source[index + len(old):]
 
 
 def declared(label):
@@ -3017,13 +3101,14 @@ def main(argv):
                 applied = True
                 for edit in edits:
                     f, old, new = edit[:3]
-                    expected = edit[3] if len(edit) > 3 else 1      # an optional fourth element: how many times the string is meant to occur (all are replaced)
+                    expected = edit[3] if len(edit) > 3 else 1      # an optional fourth element: how many times the string is meant to occur (all are replaced, unless a fifth element names one)
+                    nth = edit[4] if len(edit) > 4 else None        # an optional fifth element: replace ONLY this (1-based) occurrence, so each copy of a repeated print is a mutant of its own
                     source = Path(f).read_text()
                     if source.count(old) != expected:
                         print(f"[{label}] NOT APPLIED: the string to replace occurs {source.count(old)} times in {f}, not {expected}", flush=True)
                         applied = False
                         break
-                    Path(f).write_text(source.replace(old, new))
+                    Path(f).write_text(source.replace(old, new) if nth is None else replace_nth(source, old, new, nth))
                 if applied and any(subprocess.run(['php', '-l', f], capture_output=True).returncode for f in touched if f.endswith('.php')):
                     print(f"[{label}] MUTANT DOES NOT PARSE", flush=True)
                     applied = False
