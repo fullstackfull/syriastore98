@@ -40,6 +40,12 @@ use PHPUnit\Framework\Attributes\DataProvider;
  *
  * ORACLE. The table, read raw: `settings` is a Cachable model, and a model read would answer from the cache.
  */
+/** the migration's width, spelled once for this file (HostClaims::NAME_LENGTH is the production constant; this pins its value) */
+final class HostClaimsWidth
+{
+    public const VALUE = 255;
+}
+
 class SettingNameAtTheWriterTest extends SecurityTestCase
 {
     use RefreshDatabase;
@@ -59,6 +65,8 @@ class SettingNameAtTheWriterTest extends SecurityTestCase
         // a user-defined SQLite function lives as long as the PDO, and the in-memory connection outlives the test (HostClaimsTest installs its own fold and does not
         // take it out): start from a connection that compares bytes, and leave one
         $this->asciiOnlyLower();
+        $this->generalCiAsBytes();
+        StoredPathPolicy::useNameColumn(null);
 
         [$this->merchant, $this->store] = $this->makeTenant();
     }
@@ -66,8 +74,29 @@ class SettingNameAtTheWriterTest extends SecurityTestCase
     protected function tearDown(): void
     {
         $this->asciiOnlyLower();
+        $this->generalCiAsBytes();
+        StoredPathPolicy::useNameColumn(null);
 
         parent::tearDown();
+    }
+
+    /** a collation of the column's, as SQLite knows it only if it is registered: bytes until a test says otherwise (it lives as long as the PDO, like the function above) */
+    private function generalCiAsBytes(): void
+    {
+        DB::connection()->getPdo()->sqliteCreateCollation('utf8mb4_general_ci', 'strcmp');
+    }
+
+    /**
+     * utf8mb4_general_ci as far as the spellings under test go -- case, accents, PAD SPACE, and `ß` read as `s` (in utf8mb4_unicode_ci it is `ss`, which is the difference that
+     * matters) -- registered under the name MySQL gives it, so that the SQL the rule really generates, with its `collate`, runs on SQLite.
+     */
+    private function generalCiAsTheColumnHasIt(): void
+    {
+        DB::connection()->getPdo()->sqliteCreateCollation('utf8mb4_general_ci', function ($a, $b) {
+            $fold = fn ($text) => rtrim(strtr(mb_strtolower((string) $text), ['ß' => 's', 'é' => 'e', 'è' => 'e', 'à' => 'a']), ' ');
+
+            return strcmp($fold($a), $fold($b));
+        });
     }
 
     /** SQLite's own `lower()`: ASCII letters only. (PHP 8's strtolower is the same function, and locale-insensitive.) */
@@ -109,7 +138,7 @@ class SettingNameAtTheWriterTest extends SecurityTestCase
                 return null;
             }
 
-            $folded = strtr(mb_strtolower((string) $value), ['é' => 'e', 'è' => 'e', 'à' => 'a', "\u{200B}" => '', "\u{FF49}" => 'i', "\x01" => '', "\x7F" => '']);
+            $folded = strtr(mb_strtolower((string) $value), ['é' => 'e', 'è' => 'e', 'à' => 'a', "\u{200B}" => '', "\u{FF49}" => 'i', "\x00" => '', "\x01" => '', "\x7F" => '']);
 
             return preg_replace('/\x{00A0}+$/u', '', $folded);
         }, 1);
@@ -129,6 +158,9 @@ class SettingNameAtTheWriterTest extends SecurityTestCase
             'case and an accent together'            => ["FACEBOOK_SIGN_IN_IMAG\u{00C9}"],
             'a leading space and an accent'          => [" facebook_sign_in_imag\u{00E9}"],
             'a folded spelling the column cuts'      => ["facebook_sign_in_imag\u{00E9}" . str_repeat(' ', 300) . 'x'],
+            'the other provider, an accent'          => ["linkedin_sign_in_imag\u{00E9}"],
+            'the other provider, a zero-width space' => ["linkedin_sign_in_image\u{200B}"],
+            'a hundred ignorable characters, then a folded suffix' => [str_repeat("\u{200B}", 100) . "facebook_sign_in_imag\u{00E9}"],
         ];
     }
 
@@ -452,5 +484,190 @@ class SettingNameAtTheWriterTest extends SecurityTestCase
         $this->create("th\u{00E8}me_" . str_repeat('x', 300), '#fff');
         $this->assertCount(2, $asked);
         $this->assertSame(255, mb_strlen($asked[1][0]), 'The engine is asked about the name as the column keeps it, not as it was posted.');
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // the review of the first form: the question is asked under the COLUMN's collation and width, and an engine that does not answer has not said no
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * The vendored lookup compares under the COLUMN's collation; the connection's can be another one (production is documented as MariaDB 11.4.9 with a mixed estate: `audit_logs` is
+     * utf8mb4_general_ci while the application default is utf8mb4_unicode_ci). `ß` is `s` in the first and `ss` in the second, so under the connection's collation the
+     * spelling below is NOT the sign-in name, and under the column's it IS. The first form asked the connection; this asks the column.
+     */
+    public function test_the_engine_is_asked_under_the_columns_collation_and_not_the_connections(): void
+    {
+        $name = "facebook_\u{00DF}ign_in_image";
+        $this->generalCiAsTheColumnHasIt();
+
+        // the connection's collation: ASCII-only, no `ß`. This is what the first form asked, and it says no.
+        StoredPathPolicy::useNameColumn(['collation' => null, 'length' => 255]);
+        $this->assertFalse(StoredPathPolicy::isSignInName($name), 'Premise: under a collation that does not read ß as s the spelling is not the sign-in name.');
+        $this->create($name, self::POISON);   // ... and so the first form let the poisoned value in
+        DB::table('settings')->where('store_id', $this->store->id)->delete();
+
+        // the column's collation: this is what the lookup compares under, and it says yes
+        StoredPathPolicy::useNameColumn(['collation' => 'utf8mb4_general_ci', 'length' => 255]);
+        $this->assertTrue(StoredPathPolicy::isSignInName($name));
+
+        try {
+            $this->create($name, self::POISON);
+            $this->fail('A spelling the column\'s collation reads as the sign-in name was written with a poisoned value.');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('value', $e->errors());
+        }
+
+        $this->assertSame(0, $this->rowCount());
+        $this->create($name, $this->own());
+        $this->assertSame([$name => $this->own()], $this->rows(), 'The value rule is the path rule: a path in the store\'s folder is still saved.');
+    }
+
+    public function test_the_live_column_is_read_once_and_a_connection_with_no_information_schema_keeps_the_old_answer(): void
+    {
+        // SQLite has no information_schema: the connection's collation and the migration's width, which is what the rule did before
+        $this->assertSame(['collation' => null, 'length' => HostClaimsWidth::VALUE], StoredPathPolicy::nameColumn());
+
+        StoredPathPolicy::useNameColumn(['collation' => 'utf8mb4_general_ci', 'length' => 191]);
+        $this->assertSame(['collation' => 'utf8mb4_general_ci', 'length' => 191], StoredPathPolicy::nameColumn());
+
+        StoredPathPolicy::useNameColumn(null);
+        $this->assertSame(['collation' => null, 'length' => HostClaimsWidth::VALUE], StoredPathPolicy::nameColumn());
+    }
+
+    public function test_the_question_has_one_shape_per_collation_and_refuses_a_name_that_is_not_one(): void
+    {
+        [$sql, $bindings] = StoredPathPolicy::engineQuestion('x', null);
+        $this->assertSame('select lower(trim(?)) in (?, ?) as hit', $sql);
+        $this->assertSame(['x', 'facebook_sign_in_image', 'linkedin_sign_in_image'], $bindings);
+
+        [$sql, $bindings] = StoredPathPolicy::engineQuestion('x', 'utf8mb4_general_ci');
+        $this->assertSame('select lower(trim(?)) collate utf8mb4_general_ci in (? collate utf8mb4_general_ci, ? collate utf8mb4_general_ci) as hit', $sql);
+        $this->assertSame(['x', 'facebook_sign_in_image', 'linkedin_sign_in_image'], $bindings, 'The collation is part of the text and the names are bound.');
+
+        foreach (['utf8mb4_x; drop table settings', 'latin1_swedish_ci', '', "utf8mb4_general_ci\n", 'UTF8MB4_GENERAL_CI', 'utf8mb4_', "utf8mb4_a'b", 'utf8mb4 general_ci'] as $bad) {
+            try {
+                StoredPathPolicy::engineQuestion('x', $bad);
+                $this->fail('A string that is not a collation name was put into SQL: ' . json_encode($bad));
+            } catch (\InvalidArgumentException $e) {
+                $this->assertSame('That is not a utf8mb4 collation name.', $e->getMessage());
+            }
+        }
+    }
+
+    /** the question, as generated for a collation, runs and answers on the engine the tests have (the collation registered under its MySQL name) */
+    public function test_the_generated_question_runs_and_means_what_it_says(): void
+    {
+        $this->generalCiAsTheColumnHasIt();
+
+        foreach ([["FACEBOOK_SIGN_IN_IMAG\u{00C9}", 1], ["facebook_\u{00DF}ign_in_image", 1], ["linkedin_sign_in_image   ", 1], ['facebook_sign_in_images', 0], ['thème_color', 0]] as [$stored, $expected]) {
+            [$sql, $bindings] = StoredPathPolicy::engineQuestion($stored, 'utf8mb4_general_ci');
+            $this->assertSame($expected, (int) DB::selectOne($sql, $bindings)->hit, json_encode($stored));
+        }
+    }
+
+    /** the column keeps a name cut to ITS width, which the migration's 255 is only a guess at (the migrations are not the schema) */
+    public function test_a_name_is_judged_as_the_column_of_this_width_keeps_it(): void
+    {
+        $name = 'facebook_sign_in_image' . str_repeat(' ', 169) . 'x';   // 191 characters, and an `x` as the 192nd
+
+        StoredPathPolicy::useNameColumn(['collation' => null, 'length' => 255]);
+        $this->assertFalse(StoredPathPolicy::isSignInName($name), 'Premise: kept whole, the `x` is part of the name.');
+
+        StoredPathPolicy::useNameColumn(['collation' => null, 'length' => 191]);
+        $this->assertTrue(StoredPathPolicy::isSignInName($name), 'A column of 191 characters keeps the name and its padding and not the `x`: the name is the sign-in name.');
+
+        try {
+            $this->create($name, self::POISON);
+            $this->fail('A name that a 191-character column stores as the sign-in name was written with a poisoned value.');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('value', $e->errors());
+        }
+
+        StoredPathPolicy::useNameColumn(['collation' => null, 'length' => 300]);
+        $this->assertFalse(StoredPathPolicy::isSignInName('facebook_sign_in_image' . str_repeat(' ', 250) . 'x'), 'A column of 300 does not cut a name of 273.');
+    }
+
+    /**
+     * Characters, not bytes: 255 characters of three bytes each are 765 bytes and are kept whole. A hundred zero-width spaces and then a sign-in name whose last letter has an
+     * accent is 122 characters and 322 bytes; only if all of them reach the engine is it the sign-in name.
+     */
+    public function test_the_width_is_counted_in_characters_and_not_in_bytes(): void
+    {
+        $this->foldLikeTheProductionCollation();
+        $name = str_repeat("\u{200B}", 100) . "facebook_sign_in_imag\u{00E9}";
+
+        $this->assertTrue(StoredPathPolicy::isSignInName($name));
+        $this->assertSame($name, \App\Services\HostClaims::asStored($name), 'No character is lost below 255, whatever it costs in bytes.');
+        $this->assertSame(255, mb_strlen(\App\Services\HostClaims::asStored(str_repeat("\u{20AC}", 300))));
+        $this->assertSame(765, strlen(\App\Services\HostClaims::asStored(str_repeat("\u{20AC}", 300))));
+        $this->assertSame(7, mb_strlen(\App\Services\HostClaims::asStored(str_repeat("\u{20AC}", 300), 7)));
+    }
+
+    /** an engine that does not answer has not said no: a NULL is "yes", and the value is judged */
+    public function test_an_engine_that_gives_no_answer_has_not_said_no(): void
+    {
+        DB::connection()->getPdo()->sqliteCreateFunction('lower', fn () => null, 1);
+
+        $this->assertTrue(StoredPathPolicy::isSignInName("th\u{00E8}me_color"), 'A name PHP cannot judge and an engine that will not either is judged.');
+        $this->assertFalse(StoredPathPolicy::isSignInName('metakeyword'), 'A plain name never reaches the engine.');
+
+        try {
+            $this->create("th\u{00E8}me_color", self::POISON);
+            $this->fail('The engine did not answer and a poisoned value was written.');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('value', $e->errors());
+        }
+
+        $this->create("th\u{00E8}me_color", $this->own());
+        $this->assertSame(["th\u{00E8}me_color" => $this->own()], $this->rows());
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // the doors the review found untested
+    // ---------------------------------------------------------------------------------------------
+
+    /** `POST /theme-settings` writes through Setting::putForStore inside a transaction and turns a refusal into the page's error: all or nothing */
+    #[DataProvider('spellingsTheEngineFolds')]
+    public function test_the_theme_settings_door_does_not_plant_one_either(string $name): void
+    {
+        $this->foldLikeTheProductionCollation();
+
+        $response = $this->actingAs($this->merchant)->post('/theme-settings', ['store_city' => 'Aleppo', $name => self::POISON]);
+
+        $response->assertSessionHas('error');
+        $this->assertNotContains(self::POISON, array_values($this->rows()), 'The door planted a row whose value leaves the upload folder.');
+        $this->assertArrayNotHasKey('store_city', $this->rows(), 'The door is all or nothing: what came before the refused name is not kept either.');
+    }
+
+    public function test_premise_the_theme_settings_door_writes_an_ordinary_name(): void
+    {
+        $this->actingAs($this->merchant)->post('/theme-settings', ['store_city' => 'Aleppo'])->assertSessionMissing('error');
+
+        $this->assertSame('Aleppo', $this->rows()['store_city'] ?? null);
+    }
+
+    /** a JSON body is the one way to post a key a form cannot: a NUL, a leading space, a DEL */
+    public static function keysOnlyJsonCanCarry(): array
+    {
+        return [
+            'a trailing NUL'                     => ["facebook_sign_in_image\x00"],
+            'a leading space and an accent'      => [" facebook_sign_in_imag\u{00E9}"],
+            'a trailing DEL'                     => ["facebook_sign_in_image\x7F"],
+            'a trailing zero-width space'        => ["facebook_sign_in_image\u{200B}"],
+            'an interior NUL and an accent'      => ["facebook\x00_sign_in_imag\u{00E9}"],
+        ];
+    }
+
+    #[DataProvider('keysOnlyJsonCanCarry')]
+    public function test_a_json_body_cannot_plant_what_a_form_cannot_post(string $name): void
+    {
+        $this->foldLikeTheProductionCollation();
+
+        $this->actingAs($this->merchant)
+            ->postJson('/seo-setting', ['google_analytic' => 'g', 'fbpixel_code' => 'f', 'metakeyword' => 'k', 'metadesc' => 'd', $name => self::POISON])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('value');
+
+        $this->assertNotContains(self::POISON, array_values($this->rows()));
     }
 }

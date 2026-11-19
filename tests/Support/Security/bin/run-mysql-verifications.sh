@@ -233,6 +233,18 @@ run_one verify-host-claims-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_DATABASE=hostclaims_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
+# P1-SEC-78 (and the review of its first form). The write-side rule for the sign-in image rows (StoredPathPolicy::setting) decided "is this such a row" in PHP,
+# on the name as posted; the vendored lookups compare under the COLUMN's collation and the column keeps a name cut to ITS width. The script asks the engine which of
+# ~200,000 candidate names a lookup would find once stored, and whether the hook refuses a poisoned value under each. It is run under three (column, connection) collation
+# pairs, because the first form asked under the connection's and was red when they differed; the UCA 14 pair (utf8mb4_uca1400_ai_ci, MariaDB >= 10.10) is run by hand.
+for pair in "utf8mb4_unicode_ci utf8mb4_unicode_ci" "utf8mb4_general_ci utf8mb4_unicode_ci" "utf8mb4_unicode_ci utf8mb4_general_ci"; do
+  set -- ${pair}
+  run_one verify-setting-name-writer-on-mysql \
+    "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+    "FRESH_MYSQL_DATABASE=signinname_writer_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}" \
+    "FRESH_COLUMN_COLLATION=${1}" "FRESH_CONNECTION_COLLATION=${2}"
+done
+
 # P1-INV-05 / ACCEPTANCE CRITERION E3, which names the engine in its own text: "Concurrent checkout of the last unit cannot oversell --
 # on MySQL (SQLite cannot show it)". Until this script there was no MySQL evidence for E3 and none of the other scripts covered stock.
 # tests/Feature/Commerce/OrderStockConcurrencyTest.php proves the decrement is not a read-modify-write, by giving ten callers the stale

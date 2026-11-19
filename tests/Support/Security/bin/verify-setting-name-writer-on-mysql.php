@@ -6,7 +6,12 @@
  * Precondition (this script states its own, and does nothing without a server): a MySQL or MariaDB you control, reachable by FRESH_MYSQL_* (or the default
  * socket). It creates and drops its own database and refuses a name without 'fresh' or 'verify'. NEVER point it at the development or production server.
  *
- *   FRESH_MYSQL_DATABASE=settingname_verify FRESH_MYSQL_SOCKET=/path/to/mysqld.sock php tests/Support/Security/bin/verify-setting-name-writer-on-mysql.php
+ *   FRESH_MYSQL_DATABASE=signinname_writer_verify FRESH_MYSQL_SOCKET=/path/to/mysqld.sock php tests/Support/Security/bin/verify-setting-name-writer-on-mysql.php
+ *
+ * TWO COLLATIONS, BECAUSE THEY CAN DIFFER (the review of the first form). The vendored lookup compares under the COLUMN's collation; a question asked from PHP with only parameters
+ * is asked under the CONNECTION's. Production is documented as MariaDB 11.4.9 with a mixed estate (`audit_logs` is utf8mb4_general_ci, the application default utf8mb4_unicode_ci), so
+ * the script takes both: FRESH_COLUMN_COLLATION (the `settings.name` column and the probe table; default utf8mb4_unicode_ci) and FRESH_CONNECTION_COLLATION (default
+ * utf8mb4_unicode_ci). Run it with them DIFFERENT -- tests/Support/Security/bin/run-mysql-verifications.sh runs it four times -- and it is red against a rule that asks the connection.
  *
  * THE FINDING (the skeptics of P1-SEC-70). StoredPathPolicy::setting(), the `saving` hook of the Setting model, held the value of a row named `*_sign_in_image` to the
  * upload-path rule -- because two vendored handlers `File::delete(base_path($row->value))` on the row they find by NAME -- and decided "is this one of those rows" with
@@ -21,7 +26,7 @@
  *   3. that the hook, through the model, now refuses a poisoned value under every one of them, on create and on rename, and that the lookup the vendored handler runs
  *      finds no planted row afterwards;
  *   4. the controls: the same spellings with a path in an upload folder are saved, a non-sign-in accented name is saved, a name the column cuts onto a non-sign-in name is saved;
- *   5. a DIFFERENTIAL over about two hundred thousand candidate names -- every byte appended, prepended and inserted; every code point from U+0080 to U+FFFF appended; a
+ *   5. a DIFFERENTIAL over about two hundred thousand candidate names -- every byte appended, prepended and inserted at two interior positions of each name; every code point from U+0080 to U+FFFF appended; a
  *      long list of letter lookalikes substituted at every position of both names -- asking the ENGINE which of them a vendored lookup would find once stored (ground truth,
  *      through a table with the column's own definition, so the cut and the collation are the real ones) and then asking the MODEL whether a poisoned value under that name
  *      is refused. Soundness is: every name the engine finds is refused. The count of the names the hook let through is the headline, and it is the same script that
@@ -38,7 +43,16 @@ use App\Models\Setting;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
-$database = getenv('FRESH_MYSQL_DATABASE') ?: 'settingname_verify';
+$database = getenv('FRESH_MYSQL_DATABASE') ?: 'signinname_writer_verify';
+$columnCollation = getenv('FRESH_COLUMN_COLLATION') ?: 'utf8mb4_unicode_ci';
+$connectionCollation = getenv('FRESH_CONNECTION_COLLATION') ?: 'utf8mb4_unicode_ci';
+
+foreach ([$columnCollation, $connectionCollation] as $collation) {
+    if (preg_match('/\\Autf8mb4_[a-z0-9_]+\\z/', $collation) !== 1) {
+        fwrite(STDERR, "REFUSING: [{$collation}] is not a utf8mb4 collation name.\n");
+        exit(2);
+    }
+}
 
 if (! str_contains($database, 'fresh') && ! str_contains($database, 'verify')) {
     fwrite(STDERR, "REFUSING: database name [{$database}] contains neither 'fresh' nor 'verify'.\n");
@@ -64,7 +78,7 @@ $base = [
     'username' => getenv('FRESH_MYSQL_USERNAME') ?: 'root',
     'password' => getenv('FRESH_MYSQL_PASSWORD') ?: '',
     'charset' => 'utf8mb4',
-    'collation' => 'utf8mb4_unicode_ci',   // config/database.php's default, which production does not override
+    'collation' => $connectionCollation,    // config/database.php's default is utf8mb4_unicode_ci; production's is not known
     'prefix' => '',
     'strict' => false,                      // production's setting
 ];
@@ -105,11 +119,19 @@ try {
     // exactly the shape of database/migrations/2023_12_11_100148_create_settings_table.php (no unique key)
     $db->statement('CREATE TABLE settings (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, '
         . 'value LONGTEXT NULL, created_by VARCHAR(255) NOT NULL, store_id BIGINT UNSIGNED NULL, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, KEY (store_id)) '
-        . 'DEFAULT CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci');
+        . "DEFAULT CHARSET utf8mb4 COLLATE {$columnCollation}");
     // the same column, to ask the engine what a stored name is equal to without touching `settings`
-    $db->statement('CREATE TABLE name_probe (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL) DEFAULT CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci');
+    $db->statement("CREATE TABLE name_probe (id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL) DEFAULT CHARSET utf8mb4 COLLATE {$columnCollation}");
     $column = $db->selectOne("SELECT COLLATION_NAME AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'settings' AND COLUMN_NAME = 'name'", [$database]);
-    echo "  settings.name collation = {$column->c}\n\n";
+    echo "  settings.name collation = {$column->c}\n";
+    // the first form of the rule (before the review) has no nameColumn(): the script still runs against it, which is how the divergence was measured
+    $read = method_exists(App\Services\StoredPathPolicy::class, 'nameColumn') ? App\Services\StoredPathPolicy::nameColumn() : null;
+    if ($read === null) {
+        echo "  the rule under test does not read the live column: it asks under the connection's collation\n\n";
+    } else {
+        echo "  what the rule reads from the engine: collation = " . ($read['collation'] ?? 'none') . ", width = {$read['length']}\n\n";
+        $out('the rule read the live column (its collation and width), not the connection\'s', $read['collation'] === $column->c && $read['length'] === 255, json_encode($read));
+    }
 
     $label = fn (string $name): string => json_encode($name, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR) ?: bin2hex($name);
     $short = fn (string $name): string => mb_strlen($label($name)) > 60 ? mb_substr($label($name), 0, 57) . '...' : $label($name);
@@ -138,6 +160,10 @@ try {
 
             return true;   // written
         } catch (ValidationException $e) {
+            if (! array_key_exists('value', $e->errors())) {
+                throw new RuntimeException('A refusal that is not the path rule\'s: ' . json_encode($e->errors()));
+            }
+
             return false;
         }
     };
@@ -172,8 +198,10 @@ try {
         printf("         %-44s %-34s %s\n", $what, $short($name), $engineSays[$what] ? 'FOUND by a vendored lookup' : 'not found');
         $i++;
     }
+    // the expectations below were measured on utf8mb4_unicode_ci (the project's collation); under any other column collation the table above is the measurement and nothing is asserted from it
+    $measuredFor = $columnCollation === 'utf8mb4_unicode_ci';
     foreach ($classes as $what => [$name, $expected]) {
-        if ($expected !== null) {
+        if ($expected !== null && $measuredFor) {
             $out("premise: {$what} " . ($expected ? 'IS' : 'is NOT') . ' found by the lookup', $engineSays[$what] === $expected);
         }
     }
@@ -187,21 +215,21 @@ try {
     echo "\n  2. what did the OLD rule judge?\n";
     $blind = [];
     foreach ($classes as $what => [$name, $expected]) {
-        if ($expected === true && ! $oldRuleJudges($name)) {
+        if ($engineSays[$what] && ! $oldRuleJudges($name)) {
             $blind[] = $what;
         }
     }
     foreach ($blind as $what) {
         echo "         the old rule never judged the value of: {$what}\n";
     }
-    $out('the old rule was blind to the suffix-folded and the cut spellings (the finding)', count($blind) >= 6, count($blind) . ' of the spellings the engine finds were never judged');
+    $out('the old rule was blind to the suffix-folded and the cut spellings (the finding)', count($blind) >= ($measuredFor ? 6 : 0), count($blind) . ' of the spellings the engine finds were never judged');
 
     // ------------------------------------------------------------------------------------------------------------------------------------------
     echo "\n  3. through the model: is a poisoned value refused under each of them?\n";
     $wipe();
     $writtenBy = [];
     foreach ($classes as $what => [$name, $expected]) {
-        if ($expected === true) {
+        if ($engineSays[$what]) {
             $writtenBy[$what] = $createPoisoned($name);
         }
     }
@@ -218,19 +246,20 @@ try {
     $legit = Setting::create(['name' => 'facebook_sign_in_image', 'value' => 'uploads/1/sign-in.png', 'store_id' => 1, 'created_by' => '1']);
     $renamed = [];
     foreach ($classes as $what => [$name, $expected]) {
-        if ($expected !== true) {
+        if (! $engineSays[$what]) {
             continue;
         }
-        $row = Setting::find($legit->id);
-        $row->name = $name;
-        $row->value = POISON;
+        // exactly the call /seo-setting makes: the posted name is the match key AND is written again by the second argument
         try {
-            $row->save();
+            Setting::updateOrCreate(['name' => $name, 'store_id' => 1], ['value' => POISON, 'name' => $name, 'store_id' => 1, 'created_by' => '1']);
             $renamed[] = $what;
-            $row->name = 'facebook_sign_in_image';   // put it back for the next spelling
-            $row->value = 'uploads/1/sign-in.png';
             $db->table('settings')->where('id', $legit->id)->update(['name' => 'facebook_sign_in_image', 'value' => 'uploads/1/sign-in.png']);
+            $db->table('settings')->where('id', '<>', $legit->id)->delete();
+            (new Setting())->flushCache();
         } catch (ValidationException $e) {
+            if (! array_key_exists('value', $e->errors())) {
+                throw new RuntimeException('A refusal that is not the path rule\'s: ' . json_encode($e->errors()));
+            }
         }
     }
     (new Setting())->flushCache();
@@ -243,7 +272,7 @@ try {
     $wipe();
     $controlsFailed = [];
     foreach ($classes as $what => [$name, $expected]) {
-        if ($expected !== true) {
+        if (! $engineSays[$what]) {
             continue;
         }
         try {
@@ -330,14 +359,17 @@ try {
         echo "           let through: {$short($name)}  (hex " . substr(bin2hex($name), 0, 80) . ")\n";
     }
     $out('no name the engine finds was let through with a poisoned value', $letThrough === [], count($letThrough) . ' were');
-    $out('the probe was not vacuous: the engine found a real number of the candidates', count($foundAll) > 1000, count($foundAll) . ' found');
+    // a binary column folds nothing: it finds only the names themselves, and that is a measurement, not a vacuous probe
+    $out('the probe was not vacuous: the engine found a real number of the candidates', count($foundAll) > (str_ends_with($columnCollation, '_bin') ? 0 : 1000), count($foundAll) . ' found');
 
     // ------------------------------------------------------------------------------------------------------------------------------------------
     echo "\n  6. the owner's query in the work queue, extracted as written and executed\n";
     $doc = file_get_contents(__DIR__ . '/../../../../docs/security/P01-SECURITY-WORK-QUEUE.md');
     $queryFound = preg_match("/`(SELECT id, name, HEX\\(name\\) AS name_hex, store_id, created_by, value FROM settings WHERE name = 'facebook_sign_in_image' OR name = 'linkedin_sign_in_image' ORDER BY id;)`/", $doc, $m) === 1;
     $out('the query is in the document', $queryFound);
-    if ($queryFound) {
+    if ($queryFound && ! in_array($columnCollation, ['utf8mb4_unicode_ci', 'utf8mb4_uca1400_ai_ci'], true)) {
+        echo "         skipped: the query in the document is written for the UCA collation the project names, and this column is {$columnCollation}\n";
+    } elseif ($queryFound) {
         $wipe();
         $seed = fn (string $name, string $value, int $store) => $db->table('settings')->insert(['name' => $name, 'value' => $value, 'created_by' => '1', 'store_id' => $store]);
         $seed('facebook_sign_in_image', 'uploads/1/honest.png', 1);                          // honest

@@ -2027,7 +2027,7 @@ GROUPS = [
         "mutants": [
             ('SN1 the name is judged as POSTED, not as the column stores it', [
                 ('app/Services/StoredPathPolicy.php',
-                 '        $stored = HostClaims::asStored($name);\n',
+                 "        $stored = HostClaims::asStored($name, $column['length']);\n",
                  '        $stored = $name;\n'),
             ]),
             ('SN2 the pattern is no longer applied: only a name PHP cannot judge is looked at', [
@@ -2062,8 +2062,8 @@ GROUPS = [
             ]),
             ('SN8 the engine is asked about the name as POSTED, not as stored', [
                 ('app/Services/StoredPathPolicy.php',
-                 '[$stored, ...self::SIGN_IN_ROWS]);',
-                 '[$name, ...self::SIGN_IN_ROWS]);'),
+                 "[$sql, $bindings] = self::engineQuestion($stored, $column['collation']);",
+                 "[$sql, $bindings] = self::engineQuestion($name, $column['collation']);"),
             ]),
             ('SN9 the engine is asked without trim()', [
                 ('app/Services/StoredPathPolicy.php',
@@ -2122,8 +2122,48 @@ GROUPS = [
             ]),
             ('SN20 HostClaims::asStored keeps one character too many (256)', [
                 ('app/Services/HostClaims.php',
-                 "        return mb_substr($name, 0, self::NAME_LENGTH, 'UTF-8');\n",
-                 "        return mb_substr($name, 0, self::NAME_LENGTH + 1, 'UTF-8');\n"),
+                 "        return mb_substr($name, 0, $length, 'UTF-8');\n",
+                 "        return mb_substr($name, 0, $length + 1, 'UTF-8');\n"),
+            ]),
+            ('SN21 HostClaims::asStored cuts the name by BYTES (the window of N characters is N bytes)', [
+                ('app/Services/HostClaims.php',
+                 "        $name = substr($name, 0, 4 * $length + 4);\n",
+                 "        $name = substr($name, 0, $length);\n"),
+            ]),
+            ('SN22 HostClaims::asStored keeps N BYTES, not N characters', [
+                ('app/Services/HostClaims.php',
+                 "        return mb_substr($name, 0, $length, 'UTF-8');\n",
+                 "        return substr($name, 0, $length);\n"),
+            ]),
+            ('SN23 an engine that gives no answer has said no', [
+                ('app/Services/StoredPathPolicy.php',
+                 '        return ($row->hit ?? 1) != 0;\n',
+                 '        return ($row->hit ?? 0) != 0;\n'),
+            ]),
+            ('SN24 the live width of the column is not used', [
+                ('app/Services/StoredPathPolicy.php',
+                 "        $stored = HostClaims::asStored($name, $column['length']);\n",
+                 '        $stored = HostClaims::asStored($name);\n'),
+            ]),
+            ('SN25 the engine is asked under the CONNECTION\'s collation, not the column\'s (the first form)', [
+                ('app/Services/StoredPathPolicy.php',
+                 "[$sql, $bindings] = self::engineQuestion($stored, $column['collation']);",
+                 '[$sql, $bindings] = self::engineQuestion($stored, null);'),
+            ]),
+            ('SN26 the collation is put inside the function, where SQLite does not carry it', [
+                ('app/Services/StoredPathPolicy.php',
+                 "return ['select lower(trim(?))' . $by . ' in (' .",
+                 "return ['select lower(trim(?' . $by . ')) in (' ."),
+            ]),
+            ('SN27 a string that is not a collation name is put into SQL', [
+                ('app/Services/StoredPathPolicy.php',
+                 "        if (preg_match('/\\Autf8mb4_[a-z0-9_]+\\z/', $collation) !== 1) {\n            throw",
+                 "        if (false) {\n            throw"),
+            ]),
+            ('SN28 the column the test stands in for is ignored', [
+                ('app/Services/StoredPathPolicy.php',
+                 '        if (self::$nameColumnOverride !== null) {\n',
+                 '        if (false) {\n'),
             ]),
         ],
     },
