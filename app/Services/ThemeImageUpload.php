@@ -105,6 +105,18 @@ final class ThemeImageUpload
         'exe', 'sh', 'bat', 'cmd', 'py', 'pl', 'cgi', 'asp', 'aspx', 'jsp',
     ];
 
+    /**
+     * A client's extension as a WORD from a fixed list, `none`, or `other` -- never the client's own characters. An "extension" is
+     * whatever follows the last dot of a name a stranger typed (`scan.Jane Roe` has the extension `JaneRoe`), so a log line carries
+     * this and not the extension itself. Shared with PlatformUploadPolicy's refusal line.
+     */
+    public static function extensionWord(string $extension): string
+    {
+        $named = strtolower($extension);
+
+        return $named === '' ? 'none' : (in_array($named, self::LOGGED_EXTENSIONS, true) ? $named : 'other');
+    }
+
     /** @return list<string> the types that may be stored; the stored extension is always one of these */
     public static function types(bool $forCustomer): array
     {
@@ -184,11 +196,10 @@ final class ThemeImageUpload
 
         // An upload PHP itself refused (over upload_max_filesize, cut short) has no readable file behind it.
         $valid = $file->isValid();
-        $named = strtolower($file->getClientOriginalExtension());
 
         return [
             'sent' => 'file',
-            'client_extension' => $named === '' ? 'none' : (in_array($named, self::LOGGED_EXTENSIONS, true) ? $named : 'other'),
+            'client_extension' => self::extensionWord($file->getClientOriginalExtension()),
             'sniffed_type' => $valid ? (string) $file->getMimeType() : null,
             'kilobytes' => $valid ? (int) ceil($file->getSize() / 1024) : null,
         ];

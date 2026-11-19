@@ -84,7 +84,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PaymentController.php:5882` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Services/OrderFinancialService.php:321` | OrderFinancialService: an order line names a product that is not |
 | `app/Services/PaymentService.php:232` | Insufficient stock on an order path that cannot refuse; order kept, stock oversold |
-| `app/Services/PaymentService.php:3362` | Order write failed and was rolled back; stock decrements were given back |
+| `app/Services/PaymentService.php:3368` | Order write failed and was rolled back; stock decrements were given back |
 | `app/Services/ProductStockService.php:139` | Stock decremented below zero on an order path that cannot refuse |
 | `app/Services/ProductStockService.php:250` | Stock decremented below zero on an order path that cannot refuse |
 | `app/Helper/helper.php:429` | paid download url not issued |
@@ -95,7 +95,11 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 212 lines
+### `warning` — 213 lines
+
+> **[2026-11-19] 212 -> 213.** One line added by P1-SEC-73 (the second row below, `a platform upload was refused`, with its
+> destination and reader in its own section, after the P1-SEC-72 one). The tables now hold **36 `critical` and 212 `warning`** --
+> 248 -- plus this one.
 
 > **[2026-11-18] 211 -> 212, AND BOTH HEADINGS HAD DRIFTED AGAIN.** One line added by P1-SEC-72 (the first row below, with its
 > destination and reader in its own section). Counting the rows for that edit: the tables held **36 `critical` and 211
@@ -127,6 +131,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | line | message |
 |---|---|
 | `app/Helper/helper.php:672` | an image upload was refused |
+| `app/Services/PlatformUploadPolicy.php:122` | a platform upload was refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:407` | theme settings write refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:138` | Theme editor read refused. |
 | `app/Http/Controllers/ThemeVersionController.php:333` | Theme publication refused. |
@@ -285,8 +290,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Middleware/ModuleResourceOwnershipGuard.php:559` | module resource mutation refused |
 | `app/Models/Order.php:1099` | Order return refused: the order carries no readable product_json |
 | `app/Models/Order.php:1110` | Order return refused: the order lines are not in a shape this workflow can return |
-| `app/Models/Utility.php:2268` | New Order webhook skipped: no store could be resolved for the order |
-| `app/Models/Utility.php:2278` | New Order webhook skipped: the resolved store does not exist |
+| `app/Models/Utility.php:2254` | New Order webhook skipped: no store could be resolved for the order |
+| `app/Models/Utility.php:2264` | New Order webhook skipped: the resolved store does not exist |
 | `app/Providers/PackageServiceProvider.php:80` | addon loader: the dynamic add-on pass failed, so some modules are not loaded |
 | `app/Providers/PackageServiceProvider.php:144` | addon loader: a module failed to load and its features are absent |
 | `app/Services/CodCollectionService.php:161` | COD collection refused: the event is not verifiable |
@@ -305,11 +310,11 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/OrderTotalReconciler.php:173` | Order total reconciliation mismatch (warn-only) |
 | `app/Services/PaymentFailure.php:22` | Payment could not be started |
 | `app/Services/PaymentService.php:1877` | Benefit charge returned no redirect url |
-| `app/Services/PaymentService.php:2530` | Pending partial payment refused: the balance named does not belong to this customer. |
-| `app/Services/PaymentService.php:2633` | cod/bank_transfer order writer refused: basket names a product from another store |
-| `app/Services/PaymentService.php:2652` | cod/bank_transfer order writer refused: basket holds an unusable quantity |
-| `app/Services/PaymentService.php:2745` | Checkout: client-supplied shipping_final_price discarded (server value used) |
-| `app/Services/PaymentService.php:4011` | PayHere storefront checkout refused: the integration is retired (owner decision). |
+| `app/Services/PaymentService.php:2536` | Pending partial payment refused: the balance named does not belong to this customer. |
+| `app/Services/PaymentService.php:2639` | cod/bank_transfer order writer refused: basket names a product from another store |
+| `app/Services/PaymentService.php:2658` | cod/bank_transfer order writer refused: basket holds an unusable quantity |
+| `app/Services/PaymentService.php:2751` | Checkout: client-supplied shipping_final_price discarded (server value used) |
+| `app/Services/PaymentService.php:4017` | PayHere storefront checkout refused: the integration is retired (owner decision). |
 | `app/Services/PaymentVerificationService.php:340` | Order recorded as PENDING: no gateway verification for this payment |
 | `app/Services/PaymentVerificationService.php:365` | Order recorded as PENDING: the verification belongs to a different checkout |
 | `app/Services/PaymentVerificationService.php:378` | Order recorded as PENDING: the verification record is for another payment type |
@@ -625,6 +630,29 @@ that first. It goes where every row in this table goes (section 2).
   was used, and it expires. For the three admin payment routes it says that a file was sent, not where it went; for the web
   payment settings, nothing. Whether anything was stored is answered by looking at `uploads/` and at `storage/logs/api-*.log`
   on the server, which is the owner's to do (P01-SECURITY-WORK-QUEUE, P1-SEC-72 f).
+
+### The row added 2026-11-19 (P1-SEC-73), with its destination and reader
+
+**`PlatformUploadPolicy::refusal()` -- "a platform upload was refused", `warning`.** The policy behind the platform's four
+uploader functions (`Utility::upload_file`, `keyWiseUpload_file`, `jsonUpload_file`, and `multi_upload_file` in helper.php: about
+180 call sites, two dozen of them vendored) writes this line when it refuses a file for ANY reason. It goes where every row in this
+table goes (section 2).
+
+- **What it holds:** `reason` (`not_a_file`, `no_types`, `name`, `inner_extension`, `rule`, `client_extension`), `sent` (`file`, or
+  the PHP type of whatever came instead of one), `client_extension` (a word from the fixed list in
+  `ThemeImageUpload::extensionWord()`, `none` or `other`; null when no file came -- never the client's own characters) and
+  `shopper` (true when the request had no `web` session: a storefront customer, a delivery driver, a visitor). **Not the file's
+  name**, and never its content. `PlatformUploaderTypeTest` pins the keys and the vocabulary.
+- **How to read it:** `reason: name` or `inner_extension`, with `shopper: true` and an extension of `php`, `html`, `js` or
+  `htaccess`, is somebody trying a door. `reason: rule` with an image extension is a file whose bytes are not what its name says,
+  or one over the size. **`reason: name` with `shopper: false` and an ordinary extension is a LEGITIMATE upload refused because a
+  caller builds a stored name that does not end in its extension** -- the one thing to watch for after this is deployed: it means
+  that caller needs the shape fixed, as the guest checkout's receipt did.
+- **How often:** the API paths are behind the API group's throttle; the storefront paths (tickets, a guest checkout) have none, so
+  a run of these from one visitor is an unthrottled door being tried.
+- **WHAT IT CANNOT TELL ANYONE:** it records attempts made after the policy is deployed. Before it the same files were stored and
+  nothing was logged, so an empty log of this kind is not evidence that nothing was ever stored; what is on disk is the owner's to
+  look at (P01-SECURITY-WORK-QUEUE, P1-SEC-73 f).
 
 ## 2. Where these lines actually go
 

@@ -2453,7 +2453,13 @@ private function processPaymera00000($request, $slug)
             if ($requests_data['payment_receipt']) {
                 $dir = 'uploads/receipt';
                 if($requests_data['payment_receipt']) {
-                    $fileName = $requests_data['payment_receipt']->getClientOriginalName() . '_' . time();
+                    // P1-SEC-73. The stored name ENDS IN THE EXTENSION. It was `<client name>_<time>` -- `icon.png_1783941141` -- which no server maps to
+                    // an image type, and whose inner extensions survived (`shell.php.png_...`). The base is the client's name with everything but letters,
+                    // digits, `_` and `-` replaced, so no dot of the client's survives into the middle of the name. This door needs no account, and
+                    // the six-argument call below used to run no validator at all; it runs PlatformUploadPolicy now, which would refuse the old shape.
+                    $receiptFile = $requests_data['payment_receipt'];
+                    $receiptBase = trim((string) preg_replace('/[^A-Za-z0-9_-]+/', '_', pathinfo($receiptFile->getClientOriginalName(), PATHINFO_FILENAME)), '_');
+                    $fileName = ($receiptBase !== '' ? $receiptBase : 'receipt') . '_' . time() . '.' . strtolower($receiptFile->getClientOriginalExtension());
                     $path = Utility::upload_file($requests_data, 'payment_receipt', $fileName, $dir,[],$requests_data['payment_receipt']);
                 }
                 if ($path['flag'] == 1) {

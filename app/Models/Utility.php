@@ -430,27 +430,16 @@ class Utility extends Model
 
 
                 $file = !empty($image) ? $image : (is_array($request) ? $request[$key_name] : $request->$key_name);
-                if (count($custom_validation) > 0) {
-                    $validation = $custom_validation;
-                } else {
 
-                    $validation = [
-                        'mimes:' . $mimes,
-                        'max:' . $max_size,
-                    ];
-                }
+                // P1-SEC-73: ONE decision for every caller -- see App\Services\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only
+                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a
+                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.
+                $refusal = \App\Services\PlatformUploadPolicy::refusal($file, (string) $name, (string) $mimes, $max_size, $custom_validation);
 
-                if (empty($image)) {
-                    $validator = \Validator::make((is_array($request) ? $request : $request->all()), [
-                        $key_name => $validation
-                    ]);
-                }
-
-
-                if (empty($image) && $validator->fails()) {
+                if ($refusal !== null) {
                     $res = [
                         'flag' => 0,
-                        'msg' => $validator->messages()->first(),
+                        'msg' => $refusal,
                     ];
                     return $res;
                 } else {
@@ -462,11 +451,15 @@ class Utility extends Model
                         createAndSetPermissionsRecursively($path, 'theme');
                        
                         $image = !empty($image) ? $image : (is_array($request) ? $request[$key_name] : $request->file($key_name));
-                        \Storage::disk('theme')->putFileAs(
+                        $written = \Storage::disk('theme')->putFileAs(
                             $path,
                             $image,
                             $name
                         );
+                        // P1-SEC-73: `putFileAs()` answers false when the write fails, and this reported success with a URL for a file that was never written.
+                        if (! is_string($written) || $written === '') {
+                            return ['flag' => 0, 'msg' => __('The file could not be saved.')];
+                        }
                         $path = $path . $name;
                     } else if ($settings['storage_setting'] == 'wasabi') {
                         $image = !empty($image) ? $image : (is_array($request) ? $request[$key_name] : $request->file($key_name));
@@ -1016,26 +1009,15 @@ class Utility extends Model
 
                 $file = $request->$key_name;
 
+                // P1-SEC-73: ONE decision for every caller -- see App\Services\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only
+                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a
+                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.
+                $refusal = \App\Services\PlatformUploadPolicy::refusal($multifile[$key_name], (string) $name, (string) $mimes, $max_size, $custom_validation);
 
-                if (count($custom_validation) > 0) {
-                    $validation = $custom_validation;
-                } else {
-
-                    $validation = [
-                        'mimes:' . $mimes,
-                        'max:' . $max_size,
-                    ];
-                }
-
-                $validator = \Validator::make($multifile, [
-                    $key_name => $validation
-                ]);
-
-
-                if ($validator->fails()) {
+                if ($refusal !== null) {
                     $res = [
                         'flag' => 0,
-                        'msg' => $validator->messages()->first(),
+                        'msg' => $refusal,
                     ];
                     return $res;
                 } else {
@@ -1046,11 +1028,15 @@ class Utility extends Model
                         // $path = $path . '/';
                         $path = 'uploads/' . $path . '/';
                         createAndSetPermissionsRecursively($path, 'theme');
-                        \Storage::disk('theme')->putFileAs(
+                        $written = \Storage::disk('theme')->putFileAs(
                             $path,
                             $request->file($key_name)[$data_key],
                             $name
                         );
+                        // P1-SEC-73: a failed write is a failure, not a URL for a file that does not exist.
+                        if (! is_string($written) || $written === '') {
+                            return ['flag' => 0, 'msg' => __('The file could not be saved.')];
+                        }
 
 
                         $path = $path . $name;
@@ -3747,7 +3733,7 @@ class Utility extends Model
         try {
             $settings = Setting::where('created_by', 1)->pluck('value', 'name')->toArray();
             if (!isset($settings['storage_setting'])) {
-                $settings = Utility::Seting();
+                $settings = Utility::Setting();
             }
 
             if (!empty($settings['storage_setting'])) {
@@ -3784,27 +3770,16 @@ class Utility extends Model
 
 
                 $file = !empty($image) ? $image : (is_array($request) ? $request[$key_name] : $request->$key_name);
-                if (count($custom_validation) > 0) {
-                    $validation = $custom_validation;
-                } else {
 
-                    $validation = [
-                        'mimes:' . $mimes,
-                        'max:' . $max_size,
-                    ];
-                }
+                // P1-SEC-73: ONE decision for every caller -- see App\Services\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only
+                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a
+                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.
+                $refusal = \App\Services\PlatformUploadPolicy::refusal($file, (string) $name, (string) $mimes, $max_size, $custom_validation);
 
-                if (empty($image)) {
-                    $validator = \Validator::make((is_array($request) ? $request : $request->all()), [
-                        $key_name => $validation
-                    ]);
-                }
-
-
-                if (empty($image) && $validator->fails()) {
+                if ($refusal !== null) {
                     $res = [
                         'flag' => 0,
-                        'msg' => $validator->messages()->first(),
+                        'msg' => $refusal,
                     ];
                     return $res;
                 } else {
@@ -3813,11 +3788,15 @@ class Utility extends Model
                         createAndSetPermissionsRecursively($path, 'theme');
                        
                         $image = !empty($image) ? $image : (is_array($request) ? $request[$key_name] : $request->file($key_name));
-                        \Storage::disk('theme')->putFileAs(
+                        $written = \Storage::disk('theme')->putFileAs(
                             $path,
                             $image,
                             $name
                         );
+                        // P1-SEC-73: `putFileAs()` answers false when the write fails, and this reported success with a URL for a file that was never written.
+                        if (! is_string($written) || $written === '') {
+                            return ['flag' => 0, 'msg' => __('The file could not be saved.')];
+                        }
                         $path = $path . $name;
                     } else if ($settings['storage_setting'] == 'wasabi') {
                         $image = !empty($image) ? $image : (is_array($request) ? $request[$key_name] : $request->file($key_name));
