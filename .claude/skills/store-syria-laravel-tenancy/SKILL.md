@@ -170,6 +170,11 @@ pages. Five rules, each of which cost something:
    In a view, Blade `{{ }}` inside a script's template literal escapes HTML, not JavaScript (a backtick and `${` run): read the data back from a `<template>` with `.innerHTML`, or build nodes
    (`$('<option>').val(v).text(t)`). Both are pinned (`PanelFragmentStoredXssTest`, `PanelViewsBuildOptionsFromNodesTest`). A test that drives one copy of a print that is written twice leaves the other open;
    the mutation tool shows which, because each copy is a mutant of its own (an occurrence index in the edit tuple; `panelfragments`: planning the mutants found five uncovered copies in a test that had passed, and a reviewer found three more after the tool had replaced all four copies of one print at once and reported it killed).
+10. **A stored SETTING that a layout prints is a sink on every page, and a settings writer takes every posted name.** `BusinessSettings` writes `$request->all()` into `settings`, and the admin layout printed
+   the store's `color` with `<?= $color ?>` inside a `<style>` block: a staff member holding `Manage Setting` ran script in the owner's next page (P1-SEC-80 round 3, C-1). Validate where it is PRINTED
+   (`StoreColour::forCss()`), not only where it is written -- other handlers write the same table, and rows exist from before any rule -- and keep Blade's `{{ }}` for every print:
+   `NoRawShortEchoInPanelViewsTest` lists the views that still echo with PHP. A line you add above a pinned handler in `SettingController` moves `SettingsRefusalNamesEveryFieldTest`'s pins and the
+   observability inventory: ask the question in ONE line (`StoreColour::refusalFor()`), or re-point them (6b).
 
 ## 6. Tests that actually bite
 
