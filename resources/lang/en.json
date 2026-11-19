@@ -3261,6 +3261,7 @@
     "The image could not be saved.": "The image could not be saved.",
     "No file type is enabled for uploads.": "No file type is enabled for uploads.",
     "An attachment was not accepted. Check its type and size and try again.": "An attachment was not accepted. Check its type and size and try again.",
+    "Your request was sent, but an attachment was not accepted. Check its type and size, then contact the store to add it.": "Your request was sent, but an attachment was not accepted. Check its type and size, then contact the store to add it.",
     "The file name is not accepted.": "The file name is not accepted.",
     "The file could not be saved.": "The file could not be saved.",
     "file": "file",

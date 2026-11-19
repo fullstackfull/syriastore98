@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * P1-SEC-73 -- THE DOORS: WHO CAN REACH THE PLATFORM UPLOADER, AND DO THEY STILL GET THROUGH WITH A REAL FILE.
@@ -142,6 +143,7 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
 
         $this->actingAs($stranger, 'web');
         $this->actingAs($customer, 'customers');
+        $this->app['auth']->shouldUse('web');          // production's default guard: `actingAs(..., 'customers')` made it `customers`
 
         $this->assertTrue(auth('web')->check() && auth('customers')->check(), 'Premise: both guards hold a principal.');
     }
@@ -152,7 +154,7 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
 
     private function postTicket($store, Customer $customer, array $attachments)
     {
-        return $this->actingAs($customer, 'customers')->post('/' . $store->slug . '/store-ticket', [
+        return $this->asAShopper($customer)->post('/' . $store->slug . '/store-ticket', [
             'title' => 'A problem', 'description' => 'It does not work', 'attachments' => $attachments,
         ]);
     }
@@ -648,6 +650,8 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
     // ===========================================================================================================================
 
     private const REFUSED_SENTENCE = 'An attachment was not accepted. Check its type and size and try again.';
+    /** The refund door's own (one refund is allowed per delivered order, so "try again" would send the shopper to a refusal) and the plan-full answer. */
+    private const CONTACT_THE_STORE_SENTENCE = 'Your request was sent, but an attachment was not accepted. Check its type and size, then contact the store to add it.';
 
     private function aTicketOf(Customer $customer, $store): SupportTicket
     {
@@ -788,8 +792,10 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
         $one = $this->aCustomerOf($store);
         $two = $this->aCustomerOf($store);
 
-        $this->postRefund($store, $one, $this->aRefundableOrder($store, $one), [$this->upload('proof.png', $this->png() . 'FIRST')]);
-        $this->postRefund($store, $two, $this->aRefundableOrder($store, $two), [$this->upload('proof.png', $this->png() . 'SECOND')]);
+        $orderOne = $this->aRefundableOrder($store, $one);
+        $orderTwo = $this->aRefundableOrder($store, $two);
+        $this->postRefund($store, $one, $orderOne, [$this->upload('proof.png', $this->png() . 'FIRST')]);
+        $this->postRefund($store, $two, $orderTwo, [$this->upload('proof.png', $this->png() . 'SECOND')]);
 
         $this->assertSame(2, DB::table('order_refunds')->count(), 'Premise: both refund requests were recorded.');
         $stored = $this->stored();
@@ -798,6 +804,14 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
             $this->assertMatchesRegularExpression('#^uploads/uploads/' . $store->id . '/order_refund/proof_\d{10}_[0-9a-f]{8}\.png$#', $path);
         }
         $this->assertSame(['FIRST', 'SECOND'], $this->survivors());
+
+        // each refund row points at ITS OWN evidence (TST-06: the files were checked, the rows were not)
+        foreach ([[$orderOne, 'FIRST'], [$orderTwo, 'SECOND']] as [$order, $marker]) {
+            $row = DB::table('order_refunds')->where('order_id', $order->id)->first();
+            $pointers = json_decode((string) $row->attachments, true);
+            $this->assertCount(1, $pointers, "The {$marker} refund does not point at exactly one file.");
+            $this->assertSame($marker, substr((string) Storage::disk('theme')->get($pointers[0]), strlen($this->png())), "The {$marker} refund points at somebody else's evidence.");
+        }
     }
 
     /**
@@ -835,7 +849,7 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
         $response = $this->postRefund($store, $customer, $this->aRefundableOrder($store, $customer), [$this->upload('page.html', $this->png())]);
         $this->assertSame(1, DB::table('order_refunds')->count(), 'Premise: the refund request itself is still recorded.');
         $this->assertSame([], $this->stored());
-        $response->assertSessionHas('error', $sentence);
+        $response->assertSessionHas('error', __(self::CONTACT_THE_STORE_SENTENCE));   // its own sentence: the same refund cannot be sent again
 
         // a hostile name changes nothing in what is said
         $response = $this->postReply($store, $customer, $ticket, [$this->upload($hostile, $this->png())]);
@@ -887,6 +901,336 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
         $this->emptyTheDisk();
         $edit($one, $this->upload('page.html', $this->png()))->assertSessionHas('error', $sentence);
         $this->assertSame([], $this->stored());
+    }
+
+    /** A file PHP itself rejected -- larger than `upload_max_filesize`, a partial upload -- has an EMPTY path and an error code. */
+    private function phpRejected(string $name = 'big-photo.png'): UploadedFile
+    {
+        return new UploadedFile('', $name, null, \UPLOAD_ERR_INI_SIZE, true);
+    }
+
+    /**
+     * P1-SEC-71 REVIEW, BYP-1: `hasFile()` asks for a non-empty path, so a file PHP itself rejected made it answer false and the whole block under it
+     * -- the new counting included -- never ran. The ticket, reply or refund was recorded and the shopper told it had succeeded: the dropped-file-looks-
+     * saved defect, for probably the commonest cause of a dropped photo (a phone's 5 MB picture).
+     */
+    public function test_a_file_php_itself_rejected_is_reported_at_every_door(): void
+    {
+        [, $store] = $this->tenant();
+        $customer = $this->aCustomerOf($store);
+        $sentence = __(self::REFUSED_SENTENCE);
+
+        $response = $this->postTicket($store, $customer, [$this->phpRejected()]);
+        $this->assertSame(1, SupportTicket::withoutGlobalScopes()->where('store_id', $store->id)->count(), 'Premise: the ticket itself is still created.');
+        $response->assertSessionHas('error', $sentence);
+
+        $ticket = SupportTicket::withoutGlobalScopes()->where('store_id', $store->id)->first();
+        $this->postTicketEdit($store, $customer, $ticket, [$this->phpRejected()])->assertSessionHas('error', $sentence);
+        $this->postReply($store, $customer, $ticket, [$this->phpRejected()])->assertSessionHas('error', $sentence);
+
+        $response = $this->postRefund($store, $customer, $this->aRefundableOrder($store, $customer), [$this->phpRejected()]);
+        $this->assertSame(1, DB::table('order_refunds')->count(), 'Premise: the refund request itself is still recorded.');
+        $response->assertSessionHas('error', __(self::CONTACT_THE_STORE_SENTENCE));
+
+        $this->assertSame([], $this->stored());
+    }
+
+    /** A file PHP rejected next to a good one has no path, and `getSize()` on it raises: the good one must still be stored and the bad one said. */
+    public function test_a_file_php_rejected_next_to_a_good_one_does_not_stop_the_good_one(): void
+    {
+        [, $store] = $this->tenant();
+        $customer = $this->aCustomerOf($store);
+        $sentence = __(self::REFUSED_SENTENCE);
+
+        $response = $this->postTicket($store, $customer, [$this->phpRejected(), $this->upload('proof.png', $this->png())]);
+        $this->assertCount(1, $this->stored(), 'Premise: the good file is stored and nothing crashed. Files: ' . json_encode($this->stored()));
+        $response->assertSessionHas('error', $sentence);
+        $response->assertSessionHas('success');
+
+        $ticket = SupportTicket::withoutGlobalScopes()->where('store_id', $store->id)->first();
+        $this->postTicketEdit($store, $customer, $ticket, [$this->phpRejected(), $this->upload('second.png', $this->png())])->assertSessionHas('error', $sentence);
+        $this->assertCount(2, $this->stored(), 'The edit did not store the good file beside the rejected one: ' . json_encode($this->stored()));
+    }
+
+    /**
+     * R71-TEN-01 (tenancy lens): the route's store for a shopper who ALSO holds a panel login. `getCurrentStore()` reads the DEFAULT guard (`web`);
+     * a visitor who registered a merchant account holds both, and then it answers for THAT merchant. Every other edit and reply case signs the
+     * shopper in with asAShopper(), where the default guard is EMPTY and `getCurrentStore()` is null -- so a `(getCurrentStore() ?: $store->id)`
+     * fallback answered identically there and wrote into the OTHER tenant's folder as soon as a web login existed.
+     */
+    private function asAShopperHoldingAPanelLogin(Customer $customer, \App\Models\User $merchantOfAnotherTenant, int $theirStoreId): self
+    {
+        $this->actingAs($merchantOfAnotherTenant, 'web');
+        $this->actingAs($customer, 'customers');
+        $this->app['auth']->shouldUse('web');       // the default guard is the merchant's, as in a browser that holds both sessions
+
+        $this->assertSame($theirStoreId, (int) getCurrentStore(), 'Premise: getCurrentStore() answers for the OTHER tenant.');
+
+        return $this;
+    }
+
+    public function test_a_shopper_who_also_holds_a_panel_login_still_stores_in_the_routes_store_at_every_door(): void
+    {
+        [, $store] = $this->aStoreWhoseIdIsNobodyElses();     // so that the route's store is not store 1 and not its owner's user id either (TST-01)
+        [$other, $otherStore] = $this->tenant();
+        $this->assertNotSame((int) $store->id, (int) $otherStore->id, 'Premise: two stores.');
+        $customer = $this->aCustomerOf($store);
+        $ticket = $this->aTicketOf($customer, $store);
+        $order = $this->aRefundableOrder($store, $customer);
+        $slug = '/' . $store->slug;
+
+        $this->asAShopperHoldingAPanelLogin($customer, $other, (int) $otherStore->id)->post($slug . '/store-ticket', ['title' => 'A problem', 'description' => 'It does not work', 'attachments' => [$this->upload('one.png', $this->png())]]);
+        $this->asAShopperHoldingAPanelLogin($customer, $other, (int) $otherStore->id)->post($slug . '/update-support-ticket/' . $ticket->id, ['title' => 'Edited', 'description' => 'Edited text', 'attachments' => [$this->upload('two.png', $this->png())]]);
+        $this->asAShopperHoldingAPanelLogin($customer, $other, (int) $otherStore->id)->post($slug . '/support-ticket/' . $ticket->id, ['reply_description' => 'See the attached', 'reply_attachments' => [$this->upload('three.png', $this->png())]]);
+        $this->asAShopperHoldingAPanelLogin($customer, $other, (int) $otherStore->id)->post($slug . '/order-refund-request/' . $order->id, [
+            'order_id' => $order->id, 'product_refund_id' => [501], 'quantity' => [1, 0], 'return_price' => ['P', 'P'], 'product_sub_total' => 100,
+            'refund_reason' => 'Other', 'custom_refund_reason' => 'x', 'attachments' => [$this->upload('four.png', $this->png())],
+        ]);
+
+        $stored = $this->stored();
+        $this->assertCount(4, $stored, 'Premise: all four doors stored their file. Files: ' . json_encode($stored));
+        foreach ($stored as $path) {
+            $this->assertStringStartsWith('uploads/uploads/' . $store->id . '/', $path, 'A shopper holding another tenant\'s panel login stored a file outside the route\'s store: ' . $path);
+            $this->assertStringNotContainsString('uploads/uploads/' . $otherStore->id . '/', $path, 'A file landed in the OTHER tenant\'s folder: ' . $path);
+        }
+    }
+
+    /** R71-TEN-02: the merchant's plan is full. The state of the plan is not a shopper's business: the file is refused like any other, said without naming it. */
+    public function test_a_full_plan_is_not_told_to_the_shopper_and_does_not_stop_the_rest_of_the_edit(): void
+    {
+        [$merchant, $store] = $this->tenant();
+        $customer = $this->aCustomerOf($store);
+        $customer->created_by = $merchant->id;      // as a customer made at a guest checkout is: creatorId() is then the store's owner
+        $customer->save();
+        $merchant->storage_limit = 1000;            // the plan's storage_limit is 100
+        $merchant->save();
+        $contact = __(self::CONTACT_THE_STORE_SENTENCE);
+
+        $response = $this->postTicket($store, $customer, [$this->upload('proof.png', $this->png())]);
+        $this->assertSame([], $this->stored(), 'Premise: nothing is stored when the plan is full.');
+        $this->assertSame(1, SupportTicket::withoutGlobalScopes()->where('store_id', $store->id)->count(), 'Premise: the ticket itself is created.');
+        $response->assertSessionHas('error', $contact);
+        $this->assertStringNotContainsString('plan', strtolower((string) session('error')), 'The shopper was told about the merchant\'s plan.');
+
+        $ticket = SupportTicket::withoutGlobalScopes()->where('store_id', $store->id)->first();
+        $response = $this->postTicketEdit($store, $customer, $ticket, [$this->upload('proof.png', $this->png())]);
+        $response->assertSessionHas('error', $contact);
+        $this->assertSame('Edited', SupportTicket::withoutGlobalScopes()->find($ticket->id)->title, 'A full plan stopped the rest of the edit from being saved.');
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------------------
+    // the review's tests lens (TST-01 ... TST-06, TST-15): what the first form of these tests could not tell apart
+    // ---------------------------------------------------------------------------------------------------------------------------
+
+    /**
+     * A store whose id is neither 1, nor its owner's user id: the first form built its store first, so "the route's store", "store 1", "its owner's
+     * user id" and `getCurrentStore() ?? 1` (what `Utility::upload_file()` writes for a caller with no store) were ONE number, and four ways of
+     * choosing the wrong folder passed every folder assertion (TST-01; each was executed as a mutant and survived).
+     */
+    private function aStoreWhoseIdIsNobodyElses(): array
+    {
+        $this->tenant();                         // store 1, owned by user 1
+        $this->makeMerchant();                   // user 2 owns nothing
+        [$merchant, $store] = $this->tenant();   // store 2, owned by user 3
+
+        $this->assertNotSame((int) $store->id, (int) $store->created_by, 'Premise: the store id is not its owner\'s user id.');
+        $this->assertGreaterThan(1, (int) $store->id, 'Premise: the store id is not 1.');
+
+        return [$merchant, $store];
+    }
+
+    /** One request to each door with the fields the caller names (the plural field, the single one, or both), as a shopper as production sees one. */
+    private function createWith(Customer $customer, $store, array $fields)
+    {
+        return $this->asAShopper($customer)->post('/' . $store->slug . '/store-ticket', ['title' => 'A problem', 'description' => 'It does not work'] + $fields);
+    }
+
+    private function editWith(Customer $customer, $store, SupportTicket $ticket, array $fields)
+    {
+        return $this->asAShopper($customer)->post('/' . $store->slug . '/update-support-ticket/' . $ticket->id, ['title' => 'Edited', 'description' => 'Edited text'] + $fields);
+    }
+
+    private function replyWith(Customer $customer, $store, SupportTicket $ticket, array $fields)
+    {
+        return $this->asAShopper($customer)->post('/' . $store->slug . '/support-ticket/' . $ticket->id, ['reply_description' => 'Please see the attached file'] + $fields);
+    }
+
+    private function refundWith(Customer $customer, $store, $order, array $fields)
+    {
+        return $this->asAShopper($customer)->post('/' . $store->slug . '/order-refund-request/' . $order->id, [
+            'order_id' => $order->id, 'product_refund_id' => [501], 'quantity' => [1, 0], 'return_price' => ['P', 'P'], 'product_sub_total' => 100,
+            'refund_reason' => 'Other', 'custom_refund_reason' => 'x',
+        ] + $fields);
+    }
+
+    /** TST-01: every door and field writes under the route's store when no id in the fixture equals another one. */
+    public function test_every_door_writes_under_the_routes_store_when_no_id_in_the_fixture_equals_another(): void
+    {
+        [, $store] = $this->aStoreWhoseIdIsNobodyElses();
+        $customer = $this->aCustomerOf($store);
+        $ticket = $this->aTicketOf($customer, $store);
+        $id = $store->id;
+
+        $cases = [
+            'create (plural)' => [fn () => $this->createWith($customer, $store, ['attachments' => [$this->upload('proof.png', $this->png())]]), '#^uploads/uploads/' . $id . '/tickets/proof_\d{10}_[0-9a-f]{8}\.png$#'],
+            'create (single)' => [fn () => $this->createWith($customer, $store, ['attachment' => $this->upload('proof.png', $this->png())]), '#^uploads/' . $id . '/tickets/proof_\d{10}_[0-9a-f]{8}\.png$#'],
+            'edit (plural)' => [fn () => $this->editWith($customer, $store, $ticket, ['attachments' => [$this->upload('proof.png', $this->png())]]), '#^uploads/uploads/' . $id . '/tickets/proof_\d{10}_[0-9a-f]{8}\.png$#'],
+            'edit (single)' => [fn () => $this->editWith($customer, $store, $ticket, ['attachment' => $this->upload('proof.png', $this->png())]), '#^uploads/' . $id . '/tickets/proof_\d{10}_[0-9a-f]{8}\.png$#'],
+            'reply' => [fn () => $this->replyWith($customer, $store, $ticket, ['reply_attachments' => [$this->upload('proof.png', $this->png())]]), '#^uploads/uploads/' . $id . '/reply_tickets/proof_\d{10}_[0-9a-f]{8}\.png$#'],
+            'refund' => [fn () => $this->refundWith($customer, $store, $this->aRefundableOrder($store, $customer), ['attachments' => [$this->upload('proof.png', $this->png())]]), '#^uploads/uploads/' . $id . '/order_refund/proof_\d{10}_[0-9a-f]{8}\.png$#'],
+        ];
+
+        foreach ($cases as $door => [$request, $pattern]) {
+            $this->emptyTheDisk();
+            $request();
+            $this->assertCount(1, $this->stored(), "{$door}: premise, one file stored. Files: " . json_encode($this->stored()));
+            $this->assertMatchesRegularExpression($pattern, $this->stored()[0], "{$door}: the file is not under the route's own store folder (store {$id}).");
+        }
+    }
+
+    /**
+     * TST-03: an ACCEPTED attachment is never reported as refused, at any door and for either field. The first form checked this at the reply door
+     * alone, so a counter that over-counted, or a branch that took the refusal for an acceptance, survived at the other five.
+     */
+    public function test_an_accepted_attachment_is_never_reported_as_refused_at_any_door_or_field(): void
+    {
+        [, $store] = $this->tenant();
+        $customer = $this->aCustomerOf($store);
+        $ticket = $this->aTicketOf($customer, $store);
+
+        $doors = [
+            'create (plural)' => fn () => $this->createWith($customer, $store, ['attachments' => [$this->upload('proof.png', $this->png())]]),
+            'create (single)' => fn () => $this->createWith($customer, $store, ['attachment' => $this->upload('proof.png', $this->png())]),
+            'edit (plural)' => fn () => $this->editWith($customer, $store, $ticket, ['attachments' => [$this->upload('proof.png', $this->png())]]),
+            'edit (single)' => fn () => $this->editWith($customer, $store, $ticket, ['attachment' => $this->upload('proof.png', $this->png())]),
+            'reply' => fn () => $this->replyWith($customer, $store, $ticket, ['reply_attachments' => [$this->upload('proof.png', $this->png())]]),
+            'refund' => fn () => $this->refundWith($customer, $store, $this->aRefundableOrder($store, $customer), ['attachments' => [$this->upload('proof.png', $this->png())]]),
+        ];
+
+        foreach ($doors as $door => $request) {
+            $this->emptyTheDisk();
+            $response = $request();
+            $this->assertCount(1, $this->stored(), "Premise: {$door} stored the attachment.");
+            $response->assertSessionHas('success');
+            $response->assertSessionMissing('error');
+        }
+    }
+
+    /**
+     * TST-04: SEVERAL files in one request, as every shipped form posts them (`attachments[]` with `multiple`): the good ones are stored, once each,
+     * and the bad one is said -- wherever it stands in the list. The first form posted ONE file everywhere, so the per-file counter, the per-file
+     * index and "the first refusal ends the loop" were untested.
+     */
+    public function test_several_files_in_one_request_store_the_good_ones_and_say_the_bad_one_at_every_door(): void
+    {
+        [, $store] = $this->tenant();
+        $customer = $this->aCustomerOf($store);
+        $ticket = $this->aTicketOf($customer, $store);
+        $sentence = __(self::REFUSED_SENTENCE);
+        $contact = __(self::CONTACT_THE_STORE_SENTENCE);      // the refund door's own: the same refund cannot be sent again
+
+        $files = fn (array $order) => array_map(fn (string $kind) => match ($kind) {
+            'bad' => $this->upload('page.html', $this->png()),
+            'a' => $this->upload('a.png', $this->png() . 'A'),
+            'b' => $this->upload('b.png', $this->png() . 'B'),
+        }, $order);
+
+        $doors = [
+            'create' => [fn (array $list) => $this->createWith($customer, $store, ['attachments' => $list]), $sentence],
+            'edit' => [fn (array $list) => $this->editWith($customer, $store, $ticket, ['attachments' => $list]), $sentence],
+            'reply' => [fn (array $list) => $this->replyWith($customer, $store, $ticket, ['reply_attachments' => $list]), $sentence],
+            'refund' => [fn (array $list) => $this->refundWith($customer, $store, $this->aRefundableOrder($store, $customer), ['attachments' => $list]), $contact],
+        ];
+
+        foreach ($doors as $door => [$request, $expected]) {
+            foreach ([['bad', 'a', 'b'], ['a', 'bad', 'b'], ['a', 'b', 'bad']] as $order) {
+                $this->emptyTheDisk();
+                $response = $request($files($order));
+                $this->assertSame(['A', 'B'], $this->survivors(), "{$door} [" . implode(',', $order) . ']: the two good files are stored, each once.');
+                $response->assertSessionHas('error', $expected);
+            }
+        }
+    }
+
+    /** TST-04: two GOOD files in one request are two files, each stored from its own index. */
+    public function test_two_good_files_in_one_request_are_two_files_at_the_reply_and_refund_doors(): void
+    {
+        [, $store] = $this->tenant();
+        $customer = $this->aCustomerOf($store);
+        $ticket = $this->aTicketOf($customer, $store);
+
+        $this->replyWith($customer, $store, $ticket, ['reply_attachments' => [$this->upload('a.png', $this->png() . 'A'), $this->upload('b.png', $this->png() . 'B')]]);
+        $this->assertSame(['A', 'B'], $this->survivors(), 'reply');
+
+        $this->emptyTheDisk();
+        $this->refundWith($customer, $store, $this->aRefundableOrder($store, $customer), ['attachments' => [$this->upload('a.png', $this->png() . 'A'), $this->upload('b.png', $this->png() . 'B')]]);
+        $this->assertSame(['A', 'B'], $this->survivors(), 'refund');
+    }
+
+    /** TST-05: BOTH fields posted at once (the counter is shared between the two branches): a refusal of either is said. */
+    public function test_a_refusal_of_either_field_is_said_when_both_are_posted(): void
+    {
+        [, $store] = $this->tenant();
+        $customer = $this->aCustomerOf($store);
+        $ticket = $this->aTicketOf($customer, $store);
+        $sentence = __(self::REFUSED_SENTENCE);
+
+        $this->createWith($customer, $store, ['attachments' => [$this->upload('page.html', $this->png())], 'attachment' => $this->upload('proof.png', $this->png())])
+            ->assertSessionHas('error', $sentence);
+
+        $this->editWith($customer, $store, $ticket, ['attachment' => $this->upload('page.html', $this->png()), 'attachments' => [$this->upload('proof.png', $this->png())]])
+            ->assertSessionHas('error', $sentence);
+    }
+
+    /** TST-06: the refund's evidence, and the single field of a new ticket, are READ BACK from the row they belong to. */
+    public function test_the_stored_file_is_linked_to_the_row_it_belongs_to(): void
+    {
+        [, $store] = $this->tenant();
+        $customer = $this->aCustomerOf($store);
+
+        $order = $this->aRefundableOrder($store, $customer);
+        $this->refundWith($customer, $store, $order, ['attachments' => [$this->upload('proof.png', $this->png() . 'E')]]);
+        $stored = $this->stored();
+        $this->assertCount(1, $stored);
+        $row = DB::table('order_refunds')->where('order_id', $order->id)->first();
+        $this->assertNotNull($row, 'Premise: the refund was recorded.');
+        $this->assertSame($stored, json_decode((string) $row->attachments, true), 'The refund row does not point at its evidence.');
+
+        $this->emptyTheDisk();
+        $this->createWith($customer, $store, ['attachment' => $this->upload('proof.png', $this->png() . 'S')]);
+        $stored = $this->stored();
+        $this->assertCount(1, $stored);
+        $ticket = DB::table('support_tickets')->where('store_id', $store->id)->orderByDesc('id')->first();
+        $this->assertSame($stored[0], $ticket->attachment, 'The new ticket does not point at its single attachment.');
+    }
+
+    /**
+     * TST-15: the refusal sentences sit in a script string, printed as raw HTML, in three of the four storefront layouts
+     * (`notifier.show('Error', '{!! $message !!}')`): a translator's apostrophe or angle bracket would break the page's script. Both languages must
+     * carry a text of their own (an Arabic store would otherwise show the English one), and none may hold a quote, a bracket or a backslash.
+     */
+    public static function theRefusalSentences(): array
+    {
+        return [
+            'the refusal' => ['An attachment was not accepted. Check its type and size and try again.'],
+            'the one that says to contact the store' => ['Your request was sent, but an attachment was not accepted. Check its type and size, then contact the store to add it.'],
+        ];
+    }
+
+    #[DataProvider('theRefusalSentences')]
+    public function test_a_refusal_sentence_has_a_text_in_both_languages_with_nothing_a_script_string_would_choke_on(string $key): void
+    {
+        foreach (['en', 'ar'] as $language) {
+            $texts = json_decode((string) file_get_contents(base_path("resources/lang/{$language}.json")), true, 512, JSON_THROW_ON_ERROR);
+
+            $this->assertArrayHasKey($key, $texts, "resources/lang/{$language}.json has no text for: {$key}");
+            $this->assertNotSame('', trim((string) $texts[$key]), "{$language}: the text is empty.");
+            $this->assertDoesNotMatchRegularExpression('/[\'"<>\\\\]/', (string) $texts[$key], "{$language}: the text holds a quote, an angle bracket or a backslash.");
+
+            if ($language === 'ar') {
+                $this->assertNotSame($key, $texts[$key], 'The Arabic text is the English one.');
+            }
+        }
     }
 
     // --- the vendored CheckoutAttachment module's door -----------------------------------------------------------------------

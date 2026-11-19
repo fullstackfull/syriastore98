@@ -136,6 +136,11 @@ class PlatformUploaderTypeTest extends SecurityTestCase
             }
         }
 
+        if ($backend === 'wasabi') {
+            $rows['wasabi_root'] = '';                                   // multi_upload_file's wasabi branch reads these two as well
+            $rows['wasabi_url'] = 'https://s3.example.test';
+        }
+
         foreach ([1, (int) $this->merchant->id] as $createdBy) {
             foreach ($rows as $name => $value) {
                 DB::table('settings')->updateOrInsert(
@@ -252,6 +257,12 @@ class PlatformUploaderTypeTest extends SecurityTestCase
             'a stored name with a tab at its end' => ['logo.png', $png, "logo.png\t", 'name'],
             'a stored name with a right-to-left mark glued to its extension' => ['logo.png', $png, "logo.png\u{200F}", 'name'],
             'a stored name with a space at its end (read as an extension of its own)' => ['logo.png', $png, 'logo.png ', 'extension'],
+            // P1-SEC-71 review (BYP-3): with /u the engine answers FALSE for a subject that is not valid UTF-8, and `=== 1` let ONE bad byte carry a format or
+            // control character past both this policy and Flysystem's own check
+            'a stored name with a right-to-left mark and one invalid UTF-8 byte' => ['logo.png', $png, "lo\u{202E}go\xFF.png", 'name'],
+            'a stored name with a C1 control and one invalid UTF-8 byte' => ['logo.png', $png, "lo\u{0085}go\xFF.png", 'name'],
+            'a stored name with a zero-width space and one invalid UTF-8 byte' => ['logo.png', $png, "lo\u{200B}go\xFF.png", 'name'],
+            'a stored name with one invalid UTF-8 byte and nothing else' => ['logo.png', $png, "lo\xFFgo.png", 'name'],
             // the CLIENT's name is judged even when the caller's own name is harmless (a fixed name over a client-named upload)
             'an HTML name the caller replaced with a fixed one' => ['page.html', $png, 'fixed_logo.png', 'rule'],
             // the shape the guest checkout's receipt used to have: the extension is not the LAST thing in the name
@@ -1101,6 +1112,7 @@ class PlatformUploaderTypeTest extends SecurityTestCase
 
         $first = $this->through($form, $this->upload('logo.png', $this->png() . 'ORIGINAL'), 'logo.png');
         $this->assertSame(1, (int) ($first['flag'] ?? -1), "Premise: {$form} stores a file for a request on a public route. Answer: " . json_encode($first));
+        $this->assertStringEndsWith('/logo.png', (string) $first['url'], "{$form}: the FIRST upload under a name nobody holds was renamed.");
 
         $second = $this->through($form, $this->upload('logo.png', $this->png() . 'REPLACEMENT'), 'logo.png');
         $this->assertSame(1, (int) ($second['flag'] ?? -1), "{$form} refused the second upload instead of storing it beside the first. Answer: " . json_encode($second));
@@ -1204,5 +1216,149 @@ class PlatformUploaderTypeTest extends SecurityTestCase
             PlatformUploadPolicy::storedName($this->upload('proof.png', $this->png())),
             'Two names built for the same client name in the same second were equal.'
         );
+    }
+
+    /** P1-SEC-71 review, CR-07: sixty characters can end on an underscore, and `__` before the time reads as a mistake. */
+    public function test_the_sixty_character_cut_does_not_leave_a_double_underscore(): void
+    {
+        $name = PlatformUploadPolicy::storedName($this->upload(str_repeat('ab ', 30) . '.png', $this->png()));
+
+        $this->assertDoesNotMatchRegularExpression('/__/', $name);
+        $this->assertMatchesRegularExpression('#^(ab_){19}ab_\d{10}_[0-9a-f]{8}\.png$#', $name);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------------------
+    // P1-SEC-71 review: CR-02 / BYP-5 (a disk that cannot answer `exists()`) and CR-06 (a vendored administrative route)
+    // ---------------------------------------------------------------------------------------------------------------------------
+
+    /** A disk whose `exists()` throws, as an s3 or wasabi credential that may write but not read or list does (a HEAD, a LIST, a 403); the writes work. */
+    private function aDiskWhoseExistsThrows(string $backend): void
+    {
+        $real = Storage::fake($backend);
+        $disk = \Mockery::mock($real);
+        $disk->shouldReceive('exists')->andThrow(new \RuntimeException('403 Forbidden'));
+        Storage::set($backend, $disk);
+    }
+
+    /**
+     * EVERY SHOPPER'S UPLOAD DEPENDED ON A REMOTE `exists()` THAT CAN THROW: with a credential that may write but not read or list, shoppers were
+     * refused (a ticket's file lost, the guest receipt answering with the exception's own text) while a merchant -- who never reaches the check --
+     * still stored. A name that cannot be checked is treated as taken: renamed, not refused, and never replacing.
+     */
+    #[DataProvider('theRemoteForms')]
+    public function test_a_remote_disk_that_cannot_say_whether_a_name_is_taken_still_stores_a_strangers_upload_under_a_new_name(string $form, string $backend): void
+    {
+        $this->platformStorage(backend: $backend);
+        $this->aDiskWhoseExistsThrows($backend);
+        $this->reachingAPublicRoute();
+
+        $answer = $this->through($form, $this->upload('logo.png', $this->png()), 'logo.png');
+
+        $this->assertSame(1, (int) ($answer['flag'] ?? -1), "{$form} on {$backend}: a stranger's upload was refused because the disk could not answer exists(): " . json_encode($answer));
+        $this->assertMatchesRegularExpression('#/logo_\d{10}_[0-9a-f]{16}\.png$#', (string) $answer['url'], "{$form} on {$backend}: the upload was not stored under a new name.");
+    }
+
+    #[DataProvider('theRemoteForms')]
+    public function test_a_panel_request_never_asks_a_remote_disk_whether_a_name_is_taken(string $form, string $backend): void
+    {
+        $this->platformStorage(backend: $backend);
+        $this->aDiskWhoseExistsThrows($backend);
+        $this->reachingAPanelRoute();
+
+        $answer = $this->through($form, $this->upload('logo.png', $this->png()), 'logo.png');
+
+        $this->assertSame(1, (int) ($answer['flag'] ?? -1), "{$form} on {$backend}: a merchant's upload was refused by a check it should never reach: " . json_encode($answer));
+        $this->assertStringEndsWith('/logo.png', (string) $answer['url'], "{$form} on {$backend}: a merchant's upload was renamed.");
+    }
+
+    /**
+     * ProductBadgeManagement's `POST Imagebadge-store` declares `['web']` ALONE; App\Support\ModuleRouteManifest lists it as administrative and
+     * ModuleAdministrativeRouteGuard makes it require a signed-in web user at runtime. The policy read only the route's own middleware, so a merchant's
+     * badge image was a SHOPPER's upload: no SVG, and no replacing its own file.
+     */
+    public function test_a_vendored_route_that_declares_only_web_but_is_listed_as_administrative_is_a_panel_route(): void
+    {
+        $this->actingAs($this->merchant);
+        request()->setMethod('POST');
+
+        $listed = new \Illuminate\Routing\Route(['POST'], 'Imagebadge-store', fn () => null);
+        request()->setRouteResolver(fn () => $listed);
+        $this->assertTrue(PlatformUploadPolicy::panelSession(), 'A merchant on a vendored administrative route that declares only `web` was classed a shopper.');
+
+        // the controls: the same signed-in user on a route the manifest does not list, and the same route with the wrong method
+        $unlisted = new \Illuminate\Routing\Route(['POST'], 'some-public-endpoint', fn () => null);
+        request()->setRouteResolver(fn () => $unlisted);
+        $this->assertFalse(PlatformUploadPolicy::panelSession(), 'A route the manifest does not list was classed a panel route.');
+
+        request()->setMethod('GET');
+        $listedForPost = new \Illuminate\Routing\Route(['GET'], 'Imagebadge-store', fn () => null);
+        request()->setRouteResolver(fn () => $listedForPost);
+        $this->assertFalse(PlatformUploadPolicy::panelSession(), 'The manifest lists `POST Imagebadge-store`; a GET of it was classed a panel route.');
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------------------
+    // the review's tests lens (TST-07, TST-08) and tenancy lens (R71-TEN-04)
+    // ---------------------------------------------------------------------------------------------------------------------------
+
+    /** TST-07: receiptName() delegates to storedName(), whose sixty-character cap is NEW for the guest receipt; no receipt test used a long name. */
+    public function test_the_guest_receipts_stored_name_is_capped_at_sixty_characters(): void
+    {
+        $name = PlatformUploadPolicy::receiptName($this->upload(str_repeat('a', 200) . '.png', $this->png()));
+
+        $this->assertMatchesRegularExpression('#^a{60}_\d{10}_[0-9a-f]{8}\.png$#', $name);
+    }
+
+    /** @return array<string, array{0: string}> */
+    public static function theRemoteBackends(): array
+    {
+        return ['s3' => ['s3'], 'wasabi' => ['wasabi']];
+    }
+
+    /**
+     * TST-08: `multi_upload_file()` has remote branches of its own and was left out of theRemoteForms() (whose other test asks a failed WRITE of it):
+     * the existence check was never made against the disk it writes to, so a check on the wrong disk survived.
+     */
+    #[DataProvider('theRemoteBackends')]
+    public function test_multi_upload_file_never_replaces_a_strangers_target_on_a_remote_disk(string $backend): void
+    {
+        $this->platformStorage(backend: $backend);
+        Storage::fake($backend);
+        $this->reachingAPublicRoute();
+        $this->actingAsTheMerchant();
+
+        $first = multi_upload_file($this->upload('logo.png', $this->png() . 'ORIGINAL'), 'file', 'logo.png', 'uploads/1');
+        $second = multi_upload_file($this->upload('logo.png', $this->png() . 'REPLACEMENT'), 'file', 'logo.png', 'uploads/1');
+
+        $this->assertSame(1, (int) ($first['flag'] ?? -1), "Premise: the first upload is stored on {$backend}: " . json_encode($first));
+        $this->assertSame(1, (int) ($second['flag'] ?? -1), "Premise: the second upload is stored on {$backend}: " . json_encode($second));
+        $this->assertCount(2, Storage::disk($backend)->allFiles(), "The second upload replaced the first on {$backend}: " . json_encode(Storage::disk($backend)->allFiles()));
+    }
+
+    /**
+     * R71-TEN-04: a visitor who names uploads after gallery images renames nothing visible to them, so the exact attack the rule closes would
+     * leave no trace. A rename logs the disk and the folder -- never the file's name, which is a stranger's text.
+     */
+    public function test_a_rename_leaves_a_trace_with_the_disk_and_the_folder_and_never_the_file_name(): void
+    {
+        $this->reachingAPublicRoute();
+        $logged = [];
+        Event::listen(MessageLogged::class, function ($event) use (&$logged) {
+            $logged[] = $event;
+        });
+        // a closure, not an arrow function: an arrow function copies `$logged` when it is made, and would never see what the listener adds
+        $renames = function () use (&$logged) {
+            return array_values(array_filter($logged, fn ($event) => str_contains((string) $event->message, 'stored under a new name')));
+        };
+
+        $this->through('upload_file', $this->upload('logo.png', $this->png() . 'ORIGINAL'), 'logo.png');
+        $this->assertSame([], $renames(), 'A first upload under a name nobody holds was logged as a rename.');
+
+        $this->through('upload_file', $this->upload('logo.png', $this->png() . 'REPLACEMENT'), 'logo.png');
+        $this->assertCount(1, $renames(), 'A rename left no trace.');
+
+        $event = $renames()[0];
+        $this->assertSame('info', $event->level);
+        $this->assertSame(['disk' => 'theme', 'folder' => 'uploads/1'], $event->context);
+        $this->assertStringNotContainsString('logo', json_encode([$event->message, $event->context]), 'The log line carries the file name.');
     }
 }

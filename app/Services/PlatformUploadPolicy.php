@@ -156,7 +156,9 @@ final class PlatformUploadPolicy
 
         // 1. THE NAME, structurally: a name a disk can hold. (Flysystem refuses a control or format character by itself, with its own
         //    exception text; this says so in the product's words.)
-        if ($name === '' || preg_match('/[\x00-\x1F\x7F\/\\\\]/', $name) === 1 || preg_match('/\p{C}/u', $name) === 1) {
+        // (`!== 0`, not `=== 1`: with /u the engine answers FALSE for a subject that is not valid UTF-8, and one bad byte then carried a right-to-left
+        //  mark or a C1 control past this check AND past Flysystem's, which uses the same pattern. A name that is not UTF-8 is refused.)
+        if ($name === '' || preg_match('/[\x00-\x1F\x7F\/\\\\]/', $name) === 1 || preg_match('/\p{C}/u', $name) !== 0) {
             return self::refused('name', $file, __('The file name is not accepted.'));
         }
 
@@ -229,17 +231,20 @@ final class PlatformUploadPolicy
 
     /**
      * The stored name of ANY file a stranger sends to a door that lets the platform name it (P1-SEC-71): a ticket's attachment, a reply's,
-     * a refund's evidence. The shape is receiptName()'s -- the client's name reduced to letters, digits, `_` and `-` and at most sixty of
-     * them, the time, eight random hex digits, the client's extension lower-cased and LAST -- and for the same reasons. The ticket doors
-     * stored the client's own name, VERBATIM, in a folder every ticket of the store shares (and, on the edit and reply paths, in a
-     * folder every STORE shares), so two shoppers who both attached `proof.png` were one file: the second replaced the first under the
-     * first one's database row (EXECUTED, two stores' replies). A name that carries eight random hex digits cannot be named in advance.
+     * a refund's evidence. The shape is receiptName()'s -- the client's name reduced to letters, digits, `_` and `-`, the time, eight random
+     * hex digits, the client's extension lower-cased and LAST -- and for the same reasons; the base is cut at sixty characters, which is NEW
+     * for the guest receipt and the plan slip (receiptName() delegates here, so a receipt named over sixty characters is now stored shorter).
+     * The ticket doors stored the client's own name, VERBATIM, in a folder every ticket of the store shares (and, on the edit and reply
+     * paths, in a folder every STORE shares), so two shoppers who both attached `proof.png` were one file: the second replaced the first
+     * under the first one's database row (EXECUTED, two stores' replies). A name that carries eight random hex digits cannot be named in
+     * advance.
      *
      * @param  string  $fallback  the base used when nothing of the client's name survives the reduction (a name of `ملف.png`)
      */
     public static function storedName(UploadedFile $file, string $fallback = 'file'): string
     {
-        $base = substr(trim((string) preg_replace('/[^A-Za-z0-9_-]+/', '_', pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)), '_'), 0, 60);
+        // rtrim AFTER the cut: sixty characters can end on an underscore, and `__` before the time reads as a mistake
+        $base = rtrim(substr(trim((string) preg_replace('/[^A-Za-z0-9_-]+/', '_', pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)), '_'), 0, 60), '_');
 
         return ($base !== '' ? $base : $fallback) . '_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . strtolower($file->getClientOriginalExtension());
     }
@@ -274,9 +279,23 @@ final class PlatformUploadPolicy
         $storage = Storage::disk($disk);
         $folder = rtrim($directory, '/');
 
-        if (! $storage->exists($folder . '/' . $name)) {
+        try {
+            $taken = $storage->exists($folder . '/' . $name);
+        } catch (\Throwable $e) {
+            // A disk that cannot ANSWER is treated as TAKEN: an s3 or wasabi credential that may write but not read or list makes `exists()` (a
+            // HEAD, then a LIST) throw on a 403, and every shopper's upload would then be refused while a merchant's -- who never reaches this --
+            // still worked. Renaming can neither replace a file nor refuse an upload, which is the whole of what this is for.
+            $taken = true;
+        }
+
+        if (! $taken) {
             return $name;
         }
+
+        // Written for whoever asks, afterwards, whether anybody probed for a name (a visitor naming uploads after gallery images renames nothing
+        // visible to them): that a stranger's upload was stored under a new name, on which disk and in which folder -- never the file's name.
+        // `info`, not `warning`: two shoppers who both attach `IMG_0001.jpg` land here too.
+        Log::info('a stranger\'s upload was stored under a new name because its name was taken', ['disk' => $disk, 'folder' => $folder]);
 
         $base = pathinfo($name, PATHINFO_FILENAME);
         $extension = pathinfo($name, PATHINFO_EXTENSION);
@@ -407,6 +426,9 @@ final class PlatformUploadPolicy
             }
         }
 
-        return false;
+        // A vendored route that declares only `web` but is a merchant screen or writer: ModuleAdministrativeRouteGuard makes it require a signed-in `web`
+        // user at runtime (App\Support\ModuleRouteManifest), so it IS a panel route. ProductBadgeManagement's `POST Imagebadge-store` declares
+        // `['web']` alone and a merchant's badge image was held to the shopper's list (no SVG) and to the shopper's no-replace rule.
+        return \App\Support\ModuleRouteManifest::administrativeRule(request()->method(), $route->uri()) !== null;
     }
 }

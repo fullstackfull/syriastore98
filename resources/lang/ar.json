@@ -2476,6 +2476,7 @@
     "The image could not be saved.": "تعذّر حفظ الصورة.",
     "No file type is enabled for uploads.": "لا يوجد نوع ملف مفعّل للرفع.",
     "An attachment was not accepted. Check its type and size and try again.": "لم يتم قبول أحد المرفقات. تحقق من نوعه وحجمه وحاول مرة أخرى.",
+    "Your request was sent, but an attachment was not accepted. Check its type and size, then contact the store to add it.": "تم إرسال طلبك، لكن أحد المرفقات لم يُقبل. تحقق من نوعه وحجمه ثم تواصل مع المتجر لإضافته.",
     "The file name is not accepted.": "اسم الملف غير مقبول.",
     "The file could not be saved.": "تعذّر حفظ الملف.",
     "file": "ملف",
