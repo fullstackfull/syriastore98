@@ -2167,6 +2167,168 @@ GROUPS = [
             ]),
         ],
     },
+    {
+        "key": 'richtext',
+        "title": "P1-SEC-75 -- a merchant's Helpdesk ticket text reaches the operator's browser only through an allowlist sanitizer (two host-side view overrides) and an escaping subclass of the module's ticket list",
+        "tests": ['tests/Unit/Support/Html/RichTextTest.php', 'tests/Feature/Security/HelpdeskStoredXssTest.php'],
+        "mutants": [
+            ('RT1 a script is unwrapped instead of dropped (its code reads as text)', [
+                ('app/Support/Html/RichText.php',
+                 "        'script', 'style', 'iframe',",
+                 "        'style', 'iframe',"),
+            ]),
+            ('RT2 a stylesheet is unwrapped instead of dropped', [
+                ('app/Support/Html/RichText.php',
+                 "        'script', 'style', 'iframe',",
+                 "        'script', 'iframe',"),
+            ]),
+            ('RT3 a link may use a script scheme', [
+                ('app/Support/Html/RichText.php',
+                 "self::url($value, ['http', 'https', 'mailto', 'tel'])",
+                 "self::url($value, ['http', 'https', 'mailto', 'tel', 'javascript'])"),
+            ]),
+            ('RT4 a link may use a data scheme', [
+                ('app/Support/Html/RichText.php',
+                 "self::url($value, ['http', 'https', 'mailto', 'tel'])",
+                 "self::url($value, ['http', 'https', 'mailto', 'tel', 'data'])"),
+            ]),
+            ('RT5 the characters a browser ignores are not taken out of a URL before its scheme is read', [
+                ('app/Support/Html/RichText.php',
+                 "$url = preg_replace(self::URL_NOISE, '', $value);",
+                 '$url = $value;'),
+            ]),
+            ('RT6 a web link may have no host', [
+                ('app/Support/Html/RichText.php',
+                 "        if (($scheme === 'http' || $scheme === 'https') && preg_match(",
+                 "        if (false && preg_match("),
+            ]),
+            ('RT7 an image may be an SVG', [
+                ('app/Support/Html/RichText.php',
+                 "#^data:image/(png|jpe?g|gif|webp);base64,",
+                 "#^data:image/(png|jpe?g|gif|webp|svg\\+xml);base64,"),
+            ]),
+            ('RT8 an image with no acceptable source is written anyway', [
+                ('app/Support/Html/RichText.php',
+                 "        if ($tag === 'img' && ! str_contains($out, ' src=\"')) {\n            return null;\n        }\n",
+                 ''),
+            ]),
+            ('RT9 text is not escaped', [
+                ('app/Support/Html/RichText.php',
+                 "                $out .= htmlspecialchars(str_replace(\"\\0\", '', $node->data), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');\n",
+                 "                $out .= str_replace(\"\\0\", '', $node->data);\n"),
+            ]),
+            ('RT10 a URL is not escaped inside its attribute', [
+                ('app/Support/Html/RichText.php',
+                 "' href=\"' . htmlspecialchars($url, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '\"'",
+                 "' href=\"' . $url . '\"'"),
+            ]),
+            ('RT11 a title or an alt is not escaped inside its attribute', [
+                ('app/Support/Html/RichText.php',
+                 "htmlspecialchars(mb_substr($value, 0, 300), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')",
+                 "mb_substr($value, 0, 300)"),
+            ]),
+            ('RT12 a style declaration is copied, not matched and re-written', [
+                ('app/Support/Html/RichText.php',
+                 "            if (isset(self::STYLE[$property]) && preg_match(self::STYLE[$property], $setting) === 1) {",
+                 "            if (true) {"),
+            ]),
+            ('RT13 a colour may be anything of letters', [
+                ('app/Support/Html/RichText.php',
+                 "'/^(#[0-9a-f]{3,8}|[a-z]{3,20}|rgba?\\(",
+                 "'/^(#[0-9a-f]{3,8}|[a-z]{3,20}|[^;]{3,60}|rgba?\\("),
+            ]),
+            ('RT14 a link is written without rel and target', [
+                ('app/Support/Html/RichText.php',
+                 "        return $linked ? $out . ' rel=\"noopener noreferrer nofollow\" target=\"_blank\"' : $out;",
+                 "        return $out;"),
+            ]),
+            ('RT15 the input is not cut at the limit', [
+                ('app/Support/Html/RichText.php',
+                 "        $html = substr($html, 0, self::MAX_BYTES);\n",
+                 ''),
+            ]),
+            ('RT16 the depth limit is gone', [
+                ('app/Support/Html/RichText.php',
+                 "$inner = $depth >= self::MAX_DEPTH ? self::text($node) : self::children($node, $depth + 1);",
+                 "$inner = self::children($node, $depth + 1);"),
+            ]),
+            ('RT17 past the depth limit the text of a dropped element is kept', [
+                ('app/Support/Html/RichText.php',
+                 "            } elseif ($child instanceof \\DOMElement && ! in_array(strtolower($child->nodeName), self::DROP_WITH_CONTENT, true)) {",
+                 "            } elseif ($child instanceof \\DOMElement) {"),
+            ]),
+            ('RT18 a null byte is kept in the text', [
+                ('app/Support/Html/RichText.php',
+                 "                $out .= htmlspecialchars(str_replace(\"\\0\", '', $node->data), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');\n",
+                 "                $out .= htmlspecialchars($node->data, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');\n"),
+            ]),
+            ('RT19 an element that is not on the list keeps nothing (its text is dropped too)', [
+                ('app/Support/Html/RichText.php',
+                 "            if (! isset(self::ELEMENTS[$tag]) || $depth >= self::MAX_DEPTH) {\n                $out .= $inner;\n\n                continue;\n            }",
+                 "            if (! isset(self::ELEMENTS[$tag]) || $depth >= self::MAX_DEPTH) {\n                continue;\n            }"),
+            ]),
+            ('RT20 a colour that is not a colour reaches the badge', [
+                ('app/Support/Html/RichText.php',
+                 "        return preg_match(self::COLOR, $value) === 1 ? strtolower($value) : null;",
+                 "        return $value === '' ? null : $value;"),
+            ]),
+            ('RT21 the ticket list is not the escaping subclass', [
+                ('app/Providers/AppServiceProvider.php',
+                 "        $this->app->bind(\\Workdo\\Helpdesk\\DataTables\\HelpdeskData::class, \\App\\DataTables\\SafeHelpdeskData::class);\n",
+                 ''),
+            ]),
+            ('RT22 the name cell is not escaped', [
+                ('app/DataTables/SafeHelpdeskData.php',
+                 "'<span class=\"white-space\">' . e($ticket->name) . '</span>'",
+                 "'<span class=\"white-space\">' . $ticket->name . '</span>'"),
+            ]),
+            ('RT23 the subject cell is not escaped', [
+                ('app/DataTables/SafeHelpdeskData.php',
+                 "'<span class=\"white-space\">' . e($ticket->subject) . '</span>'",
+                 "'<span class=\"white-space\">' . $ticket->subject . '</span>'"),
+            ]),
+            ('RT24 the creator profile name is not escaped', [
+                ('app/DataTables/SafeHelpdeskData.php',
+                 "'<span class=\"text-primary\">' . e($ticket->createdBy?->name) . '</span>'",
+                 "'<span class=\"text-primary\">' . $ticket->createdBy?->name . '</span>'"),
+            ]),
+            ('RT25 the category name is not escaped', [
+                ('app/DataTables/SafeHelpdeskData.php',
+                 "'>' . e($ticket->getTicketCategory->name ?? '') . '</span>'",
+                 "'>' . ($ticket->getTicketCategory->name ?? '') . '</span>'"),
+            ]),
+            ('RT26 the status name is not escaped', [
+                ('app/DataTables/SafeHelpdeskData.php',
+                 "'>' . e($ticket->getTicketStatus->status_name ?? '') . '</span>'",
+                 "'>' . ($ticket->getTicketStatus->status_name ?? '') . '</span>'"),
+            ]),
+            ('RT27 the badge background is written from the stored colour as it is', [
+                ('app/DataTables/SafeHelpdeskData.php',
+                 "        $color = RichText::cssColor($color);\n",
+                 ''),
+            ]),
+            ('RT28 the conversation view prints the description raw', [
+                ('resources/views/vendor/helpdesk/helpdesk_ticket/ticket_reply.blade.php',
+                 '{!! \\App\\Support\\Html\\RichText::clean($ticket->description) !!}',
+                 '{!! $ticket->description !!}'),
+            ]),
+            ('RT29 the conversation view prints a reply raw', [
+                ('resources/views/vendor/helpdesk/helpdesk_ticket/ticket_reply.blade.php',
+                 '{!! \\App\\Support\\Html\\RichText::clean($conversion->description) !!}',
+                 '{!! $conversion->description !!}'),
+            ]),
+            ('RT30 the ticket page prints the description raw', [
+                ('resources/views/vendor/helpdesk/helpdesk_ticket/show.blade.php',
+                 '{!! \\App\\Support\\Html\\RichText::clean($ticket->description) !!}',
+                 '{!! $ticket->description !!}'),
+            ]),
+            ('RT31 the ticket page prints a reply raw', [
+                ('resources/views/vendor/helpdesk/helpdesk_ticket/show.blade.php',
+                 '{!! \\App\\Support\\Html\\RichText::clean($conversion->description) !!}',
+                 '{!! $conversion->description !!}'),
+            ]),
+        ],
+    },
 ]
 
 

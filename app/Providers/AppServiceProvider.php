@@ -36,6 +36,11 @@ class AppServiceProvider extends ServiceProvider
                 ->previousKeys($encrypter->getPreviousKeys());
         });
 
+        // P1-SEC-75. The Helpdesk module's ticket list builds the name, subject, creator, category and status cells as raw markup (`rawColumns`) from text a merchant typed. The
+        // controller injects the module's class, so binding the subclass that escapes those cells over it is what changes what the operator's browser is handed. Bound by NAME:
+        // nothing here loads either class, so this costs nothing while the module is off.
+        $this->app->bind(\Workdo\Helpdesk\DataTables\HelpdeskData::class, \App\DataTables\SafeHelpdeskData::class);
+
         $this->app->singleton('module', function ($app) {
             return new Module();
         });
