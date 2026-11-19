@@ -186,6 +186,8 @@ class PanelFragmentStoredXssTest extends SecurityTestCase
 
         $response->assertOk();
         $this->assertMessageIsInert($response->json('success'), 'the "line already in the cart" path');
+        // this branch builds a tax badge too, and answers with NO cart row: the badge is a value nothing reads. If it ever returns the row, it needs its own tax-badge case (mutant TX2).
+        $this->assertArrayNotHasKey('carthtml', (array) $response->json(), 'the in-cart branch now returns the cart row: give it a tax-badge case like the empty-cart one');
     }
 
     public function test_a_product_name_is_not_printed_raw_in_the_message_or_row_when_the_cart_holds_other_lines(): void
@@ -200,6 +202,40 @@ class PanelFragmentStoredXssTest extends SecurityTestCase
         $response->assertOk();
         $this->assertMessageIsInert($response->json('success'), 'the "cart holds other lines" path');
         $this->assertFragmentIsInert($response->json('carthtml'), 'the POS cart row (a cart that holds other lines)');
+    }
+
+    /**
+     * A product's cover image is stored as a PATH, and the last segment of it is the CLIENT's file name (`rand_time_<getClientOriginalName()>` in `ProductController::store/update`); a file
+     * name may hold a quote, and the till prints the resulting URL inside `src="..."`. The path is stored text like any other.
+     */
+    private function hostileCover(\App\Models\Store $store): string
+    {
+        // StoredPathPolicy (P1-SEC-28) judges the path's ROOT and the store folder, and on purpose not these characters: real upload names hold them (`photo[1].jpg`)
+        return 'uploads/' . $store->id . '/cover_image_path/a" onerror="XSS-1.png';
+    }
+
+    public function test_a_cover_image_path_is_not_printed_raw_on_the_pos_tiles(): void
+    {
+        [$merchant, $store] = $this->till();
+        $this->productNamed($store, 'Plain')->forceFill(['cover_image_path' => $this->hostileCover($store)])->save();
+
+        $response = $this->actingAs($merchant)->withHeaders(self::AJAX)
+            ->getJson('/search-products?' . http_build_query(['session_key' => 'pos_' . $store->id, 'cat_id' => '0', 'search' => '']));
+
+        $response->assertOk();
+        $this->assertFragmentIsInert($response->json('html'), 'the POS product tiles (a hostile cover image path)');
+    }
+
+    public function test_a_cover_image_path_is_not_printed_raw_in_the_pos_cart_row(): void
+    {
+        [$merchant, $store] = $this->till();
+        $product = $this->productNamed($store, 'Plain');
+        $product->forceFill(['cover_image_path' => $this->hostileCover($store)])->save();
+
+        $response = $this->actingAs($merchant)->withHeaders(self::AJAX)->getJson('/addToCart/' . $product->id . '/pos_' . $store->id);
+
+        $response->assertOk();
+        $this->assertFragmentIsInert($response->json('carthtml'), 'the POS cart row (a hostile cover image path)');
     }
 
     // ------------------------------------------------------------------ pages: is the payload ever placed where the browser parses it as markup or as code?

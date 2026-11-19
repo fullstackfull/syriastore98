@@ -76,6 +76,19 @@ DECLARED_SURVIVORS = {
     'SD27': "A delete that is ALLOWED and then FAILS must answer false, as Filesystem::delete() does: `$success = parent::delete($real) && $success;` becomes "
             "`parent::delete($real);`. UNTESTED, NOT EQUIVALENT: a failure after the verdict (a read-only directory, an immutable file) cannot be provoked by a test that "
             "runs as root, for whom neither fails, and the class is final, so its parent's call cannot be replaced. Recorded in the work queue (P1-SEC-70 d).",
+    'TX2': "The in-cart branch of ProductController::addToCart builds the tax badge (`$product_tax .= ...`) and NEVER RETURNS it: the branch answers with `success`, `product` and `carttotal`, and the "
+           "badge markup lives only in the `carthtml` the other two branches build. A value nothing reads cannot reach a browser. The `e()` is kept so the line is safe the day somebody returns it; "
+           "EQUIVALENT TODAY, and the in-cart case asserts that the answer carries no `carthtml`, so the day it does that case fails and asks for a tax-badge test of its own.",
+    'TX3': "ProductController::updateCart builds the same tax badge and never returns it (it answers `success`, `product` and `discount`). EQUIVALENT TODAY, read from the code; unlike TX2 no test asserts the answer's keys.",
+    'SK1': "The hidden `session_key` input of the cart row is written from the ROUTE SEGMENT, and the row is built only for the till's own key `pos_<store>` -- or, with a `variants` parameter, for any key. "
+           "It is a JSON answer a browser does not render and that the till's own script requests with the key it was built with; no stranger can make the victim's page ask for a key of the stranger's "
+           "choosing. NOT A DOOR; the `e()` is a belt and no test drives the variants path with a hostile key.",
+    'LY1': "The merchant panel's layout writes an attribute NAME -- read back from a rendered `<option>` with `.text()`, so decoded -- into markup. The fix escapes it (`$('<div>').text(name).html()`). "
+           "UNTESTED IN THE SUITE: it is JavaScript inside a layout, and the suite runs no browser. The Chromium harness this was checked with (a `<template>` read back with innerHTML, and an escaped value "
+           "written with innerHTML, each with the old raw form as its premise) ran once and is not committed, because it tests the PATTERN, not the layout. A source ratchet cannot see this shape "
+           "(`+ name +` is not an `<option>` literal). Recorded in the work queue (P1-SEC-80 g).",
+    'PW1': "The four WooCommerce import lists decode the entities WordPress returns (`Hats &amp; Caps`) so that yajra, which escapes every column that is not raw, shows the text once. Removing the "
+           "decode is a VISIBLE regression (the entity shows literally), not a door. UNTESTED: the lists call the external shop through a client the suite cannot drive. Recorded in the work queue (P1-SEC-80 g).",
 }
 
 GROUPS = [
@@ -2751,6 +2764,179 @@ GROUPS = [
                 ('app/DataTables/CouponDataTable.php',
                  'e($coupon->discount_amount)',
                  '$coupon->discount_amount'),
+            ]),
+        ],
+    },
+    {
+        "key": 'panelfragments',
+        "title": "P1-SEC-80 round 2 -- HTML a controller builds and script a view writes carry stored text only as text (the till's tiles, cart row and messages, the order form, the finance search, the option builders)",
+        "tests": ['tests/Feature/Security/PanelFragmentStoredXssTest.php', 'tests/Unit/Ui/PanelViewsBuildOptionsFromNodesTest.php', 'tests/Unit/Security/DataTableRawColumnsTest.php'],
+        "mutants": [
+            ("PF1 the POS tiles print a product's name and slug raw (a product without variants)", [
+                ('app/Http/Controllers/ProductController.php',
+                 '                                                <h6 class="mb-2 text-dark product-title-name">\' . e($product->name) . \'</h6>\n                                                <p class="mb-2 text-dark product-title-name small">\' . e($product->slug) . \'</p>\n                                                <small class="text-primary">\' . $productprice',
+                 '                                                <h6 class="mb-2 text-dark product-title-name">\' . $product->name . \'</h6>\n                                                <p class="mb-2 text-dark product-title-name small">\' . $product->slug . \'</p>\n                                                <small class="text-primary">\' . $productprice', 2),
+            ]),
+            ("PF2 the POS tiles print a product's name and slug raw (a product with variants)", [
+                ('app/Http/Controllers/ProductController.php',
+                 '                                                <h6 class="mb-2 text-dark product-title-name">\' . e($product->name) . \'</h6>\n                                                <p class="mb-2 text-dark product-title-name small">\' . e($product->slug) . \'</p>\n                                                <small class="text-primary">In Variant</small>',
+                 '                                                <h6 class="mb-2 text-dark product-title-name">\' . $product->name . \'</h6>\n                                                <p class="mb-2 text-dark product-title-name small">\' . $product->slug . \'</p>\n                                                <small class="text-primary">In Variant</small>', 2),
+            ]),
+            ("PF3 the POS cart row prints the product's name raw", [
+                ('app/Http/Controllers/ProductController.php',
+                 '<td class="name">\' . e($productname) . \'</td>',
+                 '<td class="name">\' . $productname . \'</td>'),
+            ]),
+            ("PF4 the 'added to cart' message prints the product's name raw (an empty cart)", [
+                ('app/Http/Controllers/ProductController.php',
+                 "\n                    'success' => e($productname) . __(' added to cart successfully!'),\n                    'product' => $cart[$id],\n                    'carthtml' => $carthtml,",
+                 "\n                    'success' => $productname . __(' added to cart successfully!'),\n                    'product' => $cart[$id],\n                    'carthtml' => $carthtml,"),
+            ]),
+            ("PF5 the 'added to cart' message prints the product's name raw (the line is already in the cart)", [
+                ('app/Http/Controllers/ProductController.php',
+                 "\n                    'success' => e($productname) . __(' added to cart successfully!'),\n                    'product' => $cart[$id],\n                    'carttotal' => $cart,",
+                 "\n                    'success' => $productname . __(' added to cart successfully!'),\n                    'product' => $cart[$id],\n                    'carttotal' => $cart,"),
+            ]),
+            ("PF6 the 'added to cart' message prints the product's name raw (the cart holds other lines)", [
+                ('app/Http/Controllers/ProductController.php',
+                 "\n                'success' => e($productname) . __(' added to cart successfully!'),",
+                 "\n                'success' => $productname . __(' added to cart successfully!'),"),
+            ]),
+            ("PF7 the POS cart row prints a tax method's name raw", [
+                ('app/Http/Controllers/ProductController.php',
+                 '\n                    $product_tax .= !empty($method) ? "<span class=\'badge bg-primary\'>" . e($method->name) . \' (\' . e($method->tax_rate) . \'%)\' . "</span><br>" : \'\';',
+                 '\n                    $product_tax .= !empty($method) ? "<span class=\'badge bg-primary\'>" . $method->name . \' (\' . $method->tax_rate . \'%)\' . "</span><br>" : \'\';'),
+            ]),
+            ("TX2 the in-cart branch prints a tax method's name raw (a value nothing returns)", [
+                ('app/Http/Controllers/ProductController.php',
+                 '\n                        $product_tax .= !empty($method) ? "<span class=\'badge bg-primary\'>" . e($method->name) . \' (\' . e($method->tax_rate) . \'%)\' . "</span><br>" : \'\';',
+                 '\n                        $product_tax .= !empty($method) ? "<span class=\'badge bg-primary\'>" . $method->name . \' (\' . $method->tax_rate . \'%)\' . "</span><br>" : \'\';'),
+            ]),
+            ("TX3 updateCart prints a tax method's name raw (a value nothing returns)", [
+                ('app/Http/Controllers/ProductController.php',
+                 '\n                                $product_tax .= !empty($Tax) ? "<span class=\'badge bg-primary\'>" . e($method->name) . \' (\' . e($method->tax_rate) . \'%)\' . "</span><br>" : \'\';',
+                 '\n                                $product_tax .= !empty($Tax) ? "<span class=\'badge bg-primary\'>" . $method->name . \' (\' . $method->tax_rate . \'%)\' . "</span><br>" : \'\';'),
+            ]),
+            ('IM1 the POS tiles print the image URL raw', [
+                ('app/Http/Controllers/ProductController.php',
+                 'src="\' . e(asset($image_url)) . \'"',
+                 'src="\' . asset($image_url) . \'"', 4),
+            ]),
+            ('IM2 the POS cart row prints the image URL raw', [
+                ('app/Http/Controllers/ProductController.php',
+                 'src="\' . e($image_url) . \'"',
+                 'src="\' . $image_url . \'"'),
+            ]),
+            ('SK1 the POS cart row prints the session key raw', [
+                ('app/Http/Controllers/ProductController.php',
+                 'value="\' . e($session_key) . \'"',
+                 'value="\' . $session_key . \'"'),
+            ]),
+            ('PF8 the POS category buttons print a category name raw', [
+                ('app/Http/Controllers/CategoryController.php',
+                 'pos-product-text">\'.e($cat->name).\'</button>',
+                 'pos-product-text">\'.$cat->name.\'</button>'),
+            ]),
+            ('PF9 the testimonial product select prints a name raw', [
+                ('app/Http/Controllers/TestimonialController.php',
+                 "'>' . e($Category->name) . '</option>'",
+                 "'>' . $Category->name . '</option>'"),
+            ]),
+            ("PF10 the finance script writes the request's search value into markup unescaped (5 templates)", [
+                ('resources/views/finance/index.blade.php',
+                 'value="${currentSearchValueHtml || \'\'}"',
+                 'value="${currentSearchValue || \'\'}"', 5),
+            ]),
+            ("PF11 the finance script's 'escaped' copy is not escaped", [
+                ('resources/views/finance/index.blade.php',
+                 '$currentSearchValueHtml = e($currentSearchValue);',
+                 '$currentSearchValueHtml = $currentSearchValue;'),
+            ]),
+            ("PF12 the order form writes the product names into its script's template literal", [
+                ('resources/views/order/createOrder.blade.php',
+                 "${document.getElementById('ss-product-options').innerHTML}",
+                 '<option value="">{{ __(\'Select Product\') }}</option>\n                        @foreach($products as $product)\n                            <option value="{{ $product->id }}" data-price="{{ $product->price }}">{{ $product->name }} - {{ number_format($product->price, 2) }}</option>\n                        @endforeach'),
+            ]),
+            ('VW1 the flash sale create form builds its option lists from markup', [
+                ('resources/views/flash-sale/create.blade.php',
+                 "                        $(options).append($('<option>').val(i).text(item)); // P1-SEC-80: a DOM node, not concatenated markup\n",
+                 '                        $(options).append(\'<option value="\' + i + \'">\' + item +\n                            \'</option>\');\n', 2),
+            ]),
+            ('VW2 the flash sale create form builds its product list from markup', [
+                ('resources/views/flash-sale/create.blade.php',
+                 "                        $(option).append($('<option>').val(item.id).text(item.name)); // P1-SEC-80: a product name is text\n",
+                 '                        $(option).append(\'<option value="\' + item.id + \'">\' +\n                            item.name + \'</option>\');\n'),
+            ]),
+            ('VW3 the flash sale edit form builds its option lists from markup', [
+                ('resources/views/flash-sale/edit.blade.php',
+                 "                            $(options).append($('<option>').val(i).text(item)); // P1-SEC-80: a DOM node, not concatenated markup\n",
+                 '                            $(options).append(\'<option value="\' + i + \'">\' + item +\n                                \'</option>\');\n', 2),
+            ]),
+            ('VW4 the flash sale edit form builds its product list from markup', [
+                ('resources/views/flash-sale/edit.blade.php',
+                 "                            $(option).append($('<option>').val(item.id).text(item.name)); // P1-SEC-80: a product name is text\n",
+                 '                            $(option).append(\'<option value="\' + item.id + \'">\' +\n                                item.name + \'</option>\');\n'),
+            ]),
+            ("VW5 the product create form builds an attribute's options from markup", [
+                ('resources/views/product/create.blade.php',
+                 '              $(".attribute").append($(\'<option class="option-item">\').val(key).text(value)); // P1-SEC-80: an attribute option\'s name is text\n',
+                 '              $(".attribute").append(\n                \'<option class="option-item" value="\' + key + \'">\' +\n                value + \'</option>\');\n'),
+            ]),
+            ("VW6 the product edit form builds an attribute's options from markup", [
+                ('resources/views/product/edit.blade.php',
+                 '                            $(".attribute").append($(\'<option>\').val(value).text(value)); // P1-SEC-80: an attribute option\'s name is text\n',
+                 '                            $(".attribute").append(\'<option value="\' + value + \'">\' +\n                                value + \'</option>\');\n'),
+            ]),
+            ('VW7 the country page builds its city list from markup', [
+                ('resources/views/country/index.blade.php',
+                 "                            $('#city_state_id').append($('<option>').val(key).text(value));\n",
+                 '                            $(\'#city_state_id\').append(\'<option value="\' + key + \'">\' + value + \'</option>\');\n'),
+            ]),
+            ("VW8 the shipping zone create form builds a country's state list from markup", [
+                ('resources/views/shippingzone/create.blade.php',
+                 "                // P1-SEC-80: state names become <option> NODES (text), never concatenated markup.\n                var $stateSelect = $(this).closest('.row').find('.state_chage').empty();\n                $.each(response, function(i, item) {\n                    $stateSelect.append($('<option>').val(i).text(item));\n                });\n",
+                 '                var option = \'\';\n                $.each(response, function(i, item) {\n                    var checked = \'\';\n                    if (i == state) {\n                        var checked = \'checked\';\n                    }\n                    option += \'<option value="\' + i + \'" \' + checked + \'>\' + item +\n                        \'</option>\';\n                });\n                $(this).closest(\'.row\').find(\'.state_chage\').html(option);\n'),
+            ]),
+            ("VW9 the shipping zone edit form builds a country's state list from markup", [
+                ('resources/views/shippingzone/edit.blade.php',
+                 "                // P1-SEC-80: state names become <option> NODES (text), never concatenated markup.\n                var $stateSelect = $(this).closest('.row').find('.state_chage').empty();\n                $.each(response, function(i, item) {\n                    $stateSelect.append($('<option>').val(i).text(item));\n                });\n",
+                 '                var option = \'\';\n                $.each(response, function(i, item) {\n                    var checked = \'\';\n                    if (i == state) {\n                        var checked = \'checked\';\n                    }\n                    option += \'<option value="\' + i + \'" \' + checked + \'>\' + item +\n                        \'</option>\';\n                });\n                $(this).closest(\'.row\').find(\'.state_chage\').html(option);\n'),
+            ]),
+            ("VW10 the tax method create form builds a country's state list from markup", [
+                ('resources/views/taxes-method/create.blade.php',
+                 "                // P1-SEC-80: state names become <option> NODES (text), never concatenated markup.\n                var $stateSelect = $(this).closest('.row').find('.state_chage').empty();\n                $.each(response, function(i, item) {\n                    $stateSelect.append($('<option>').val(i).text(item));\n                });\n",
+                 '                var option = \'\';\n                $.each(response, function(i, item) {\n                    var checked = \'\';\n                    if (i == state) {\n                        var checked = \'checked\';\n                    }\n                    option += \'<option value="\' + i + \'" \' + checked + \'>\' + item +\n                        \'</option>\';\n                });\n                $(this).closest(\'.row\').find(\'.state_chage\').html(option);\n'),
+            ]),
+            ("VW11 the tax method create form builds a state's city list from markup", [
+                ('resources/views/taxes-method/create.blade.php',
+                 "                // P1-SEC-80: city names become <option> NODES (text), never concatenated markup.\n                var $citySelect = $(this).closest('.row').find('.city_chage').empty();\n                $.each(response, function(i, item) {\n                    $citySelect.append($('<option>').val(i).text(item));\n                });\n",
+                 '                var option = \'\';\n                $.each(response, function(i, item) {\n                    var selected = (i == city) ? \'selected\' : \'\';\n                    option += \'<option value="\' + i + \'" \' + selected + \'>\' + item +\n                        \'</option>\';\n                });\n                $(this).closest(\'.row\').find(\'.city_chage\').html(option);\n'),
+            ]),
+            ("VW12 the tax method edit form builds a country's state list from markup", [
+                ('resources/views/taxes-method/edit.blade.php',
+                 "                // P1-SEC-80: state names become <option> NODES (text), never concatenated markup.\n                var $stateSelect = $(this).closest('.row').find('.state_chage').empty();\n                $.each(response, function(i, item) {\n                    $stateSelect.append($('<option>').val(i).text(item));\n                });\n",
+                 '                var option = \'\';\n                $.each(response, function(i, item) {\n                    var checked = \'\';\n                    if (i == state) {\n                        var checked = \'checked\';\n                    }\n                    option += \'<option value="\' + i + \'" \' + checked + \'>\' + item +\n                        \'</option>\';\n                });\n                $(this).closest(\'.row\').find(\'.state_chage\').html(option);\n'),
+            ]),
+            ("VW13 the tax method edit form builds a state's city list from markup", [
+                ('resources/views/taxes-method/edit.blade.php',
+                 "                // P1-SEC-80: city names become <option> NODES (text), never concatenated markup.\n                var $citySelect = $(this).closest('.row').find('.city_chage').empty();\n                $.each(response, function(i, item) {\n                    $citySelect.append($('<option>').val(i).text(item));\n                });\n",
+                 '                var option = \'\';\n                $.each(response, function(i, item) {\n                    var selected = (i == city) ? \'selected\' : \'\';\n                    option += \'<option value="\' + i + \'" \' + selected + \'>\' + item +\n                        \'</option>\';\n                });\n                $(this).closest(\'.row\').find(\'.city_chage\').html(option);\n'),
+            ]),
+            ("LY1 the layout writes an attribute's text back into markup unescaped", [
+                ('resources/views/layouts/app.blade.php',
+                 '\'<label for="choice_attributes" class="col-6">\' + $(\'<div>\').text(name).html() + \':</label></div>\' + // P1-SEC-80: `name` is the attribute\'s text() read back from the DOM; escape it before it becomes markup again',
+                 '\'<label for="choice_attributes" class="col-6">\' + name + \':</label></div>\' +'),
+            ]),
+            ('PW1 the WooCommerce import lists stop decoding the entities WordPress returns (a visible regression, not a door)', [
+                ('app/Http/Controllers/WoocomCategoryController.php',
+                 "html_entity_decode((string) ($data->name ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8')",
+                 "(string) ($data->name ?? '')"),
+                ('app/Http/Controllers/WoocomCustomerController.php',
+                 "html_entity_decode((string) ($customer->first_name ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8')",
+                 "(string) ($customer->first_name ?? '')"),
+                ('app/Http/Controllers/WoocomProductController.php',
+                 "html_entity_decode((string) ($data->name ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8')",
+                 "(string) ($data->name ?? '')"),
             ]),
         ],
     },
