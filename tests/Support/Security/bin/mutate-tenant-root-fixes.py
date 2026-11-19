@@ -2463,6 +2463,56 @@ GROUPS = [
                  'e($ticket->createdBy?->name)',
                  'e($ticket->createdBy->name)'),
             ]),
+            ('RT58 a list item, a cell, a row or a table section may be anywhere', [
+                ('app/Support/Html/RichText.php',
+                 'if (isset(self::PARENT_OF[$tag]) && ! in_array($parent, self::PARENT_OF[$tag], true)) {',
+                 'if (false) {'),
+            ]),
+            ('RT59 a list may hold anything', [
+                ('app/Support/Html/RichText.php',
+                 "if (($parent === 'ul' || $parent === 'ol') && $tag !== 'li') {",
+                 'if (false) {'),
+            ]),
+            ('RT60 a table or a table section may hold anything', [
+                ('app/Support/Html/RichText.php',
+                 "if (in_array($parent, ['table', 'thead', 'tbody', 'tfoot'], true) && ! isset(self::PARENT_OF[$tag])) {",
+                 'if (false) {'),
+            ]),
+            ('RT61 a row may hold anything', [
+                ('app/Support/Html/RichText.php',
+                 "if ($parent === 'tr' && $tag !== 'td' && $tag !== 'th') {",
+                 'if (false) {'),
+            ]),
+            ('RT62 a block may be inside a paragraph, a heading or preformatted text', [
+                ('app/Support/Html/RichText.php',
+                 'if ($insidePhrasing && in_array($tag, self::BLOCKS, true)) {',
+                 'if (false) {'),
+            ]),
+            ('RT63 a link may be inside a link', [
+                ('app/Support/Html/RichText.php',
+                 "return ! ($tag === 'a' && $insideLink);",
+                 'return true;'),
+            ]),
+            ('RT64 the paragraph rule looks only at the parent, not at every ancestor', [
+                ('app/Support/Html/RichText.php',
+                 '$insidePhrasing || ($keep && in_array($tag, self::PHRASING_ONLY, true))',
+                 '($keep && in_array($tag, self::PHRASING_ONLY, true))'),
+            ]),
+            ('RT65 an element that was unwrapped hands its own name down as the parent', [
+                ('app/Support/Html/RichText.php',
+                 '$keep ? $tag : $parentTag',
+                 '$tag'),
+            ]),
+            ('RT66 a picture is judged by what was written, not by its source', [
+                ('app/Support/Html/RichText.php',
+                 "if ($tag === 'img' && ! $sourced) {",
+                 'if ($tag === \'img\' && ! str_contains($out, \' src="\')) {'),
+            ]),
+            ('RT67 the host of a web link is a prefix', [
+                ('app/Support/Html/RichText.php',
+                 "(?:[/?\\#]|$)#i', $url) !== 1) {",
+                 "#i', $url) !== 1) {"),
+            ]),
         ],
     },
     {
