@@ -35,7 +35,8 @@ if (trim((string) $probe) !== 'ok') {
     exit(2);
 }
 
-$inputs = array_merge(RichTextCorpus::hostile(), RichTextCorpus::soup($count - count(RichTextCorpus::hostile()), $seed));
+$rest = $count - count(RichTextCorpus::hostile());
+$inputs = array_merge(RichTextCorpus::hostile(), RichTextCorpus::soup(intdiv($rest, 2), $seed), RichTextCorpus::structure($rest - intdiv($rest, 2), $seed));
 $rows = [];
 foreach ($inputs as $in) {
     $rows[] = ['in' => $in, 'out' => RichText::clean($in)];
@@ -54,11 +55,11 @@ if ($selfTest !== 0) {
     exit(3);
 }
 
-echo "\n  " . count($rows) . " inputs (" . count(RichTextCorpus::hostile()) . " hand-written, seed {$seed})\n\n";
+echo "\n  " . count($rows) . " inputs (" . count(RichTextCorpus::hostile()) . " hand-written, " . intdiv($rest, 2) . " tag soups, " . ($rest - intdiv($rest, 2)) . " random trees; seed {$seed}); each output is printed in a div, in a p and in quirks mode\n\n";
 
 $status = 0;
 passthru('node ' . escapeshellarg(__DIR__ . '/rich-text-browser-run.cjs') . ' ' . escapeshellarg($file), $status);
 @unlink($file);
 
-echo "\n  " . ($status === 0 ? '[ OK ] the sanitized side did nothing: no dialog, no navigation, no popup, no request, nothing off the lists, stable under an innerHTML round trip' : '[FAIL] the sanitized output did something (see the lines above)') . "\n";
+echo "\n  " . ($status === 0 ? '[ OK ] the sanitized side did nothing: no dialog, no navigation, no popup, no request, nothing off the lists, the page around it keeps its shape, stable under an innerHTML round trip' : '[FAIL] the sanitized output did something (see the lines above)') . "\n";
 exit($status === 0 ? 0 : 1);

@@ -6,14 +6,21 @@ namespace App\Support\Html;
  * An ALLOWLIST sanitizer for the rich text a person types into an editor (a ticket's description, a reply) and somebody else's browser prints.  P1-SEC-75.
  *
  * WHY IT EXISTS. The vendored Helpdesk views print a ticket's description and every reply with `{!! !!}`, because the editor produces markup. The text is a merchant's; the
- * page is the platform operator's. There is no HTML purifier in vendor/ and the project's input filter (`XSS` middleware) is a substring blocklist on an opt-in alias. So the
- * output is cleaned where it is printed -- by a host-side override of the two views -- and this is what cleans it.
+ * page is the platform operator's. The project's input filter (`XSS` middleware) is a substring blocklist on an opt-in alias. HTMLPurifier (and masterminds/html5) ARE in vendor/,
+ * but only as transitive dependencies of phpoffice/phpspreadsheet and dompdf: nothing here depends on them directly, nothing configures them for this, and a transitive dependency
+ * goes when its parent does. So the output is cleaned where it is printed -- by a host-side override of the views -- and this is what cleans it; HTMLPurifier with an allowlist is the
+ * alternative if keeping this one proves costlier than adopting that.
  *
  * HOW. The input is parsed (libxml's HTML parser, no network), and a NEW string is built from the parse tree: an element only if it is on the list below, an attribute only if the
  * element lists it and its value passes that attribute's own check, every text node and every attribute value entity-escaped. Nothing of the input is copied through: not a
- * tag, not an attribute, not a comment, not a style declaration. So a parser that disagrees with a browser cannot matter in the way that makes sanitisers fail (the cleaned
- * output re-parsed as something else): the output contains no raw-text element, no namespace switch (`svg`, `math`), no `<` or `>` or `&` or quote that was not escaped by
- * this class, and so no way to be read as anything but the markup this class wrote.
+ * tag, not an attribute, not a comment, not a style declaration. So a parser that disagrees with a browser cannot make the output RUN anything: it contains no raw-text element, no
+ * namespace switch (`svg`, `math`), no `<` or `>` or `&` or quote that was not escaped by this class. What it CAN change is the STRUCTURE, which is the next paragraph.
+ *
+ * STRUCTURE. libxml's tree is an HTML4 tree, and writing it back out hands a browser's HTML5 tree builder a string it repairs differently for some nestings: in `<li><div><li>x</li></div></li>`
+ * the inner `li` pops the open `div`, so the output's own `</div>` closes an element of the HOST page -- one per repetition (found by an independent review of P1-SEC-75: a merchant could pull
+ * the operator's reply form out of its card). So the class writes only the nestings the two tree builders agree on (belongsIn()): a list item only in a list and a list only of list items,
+ * table parts only in their table, no block inside a paragraph, a heading or `pre`, no link inside a link; anything else is UNWRAPPED (its text stays). tests/Support/Security/bin/
+ * verify-rich-text-in-chromium.php is the gate: it prints the output into the real page's shape and fails if the element AFTER it is no longer where it was.
  *
  * WHAT IS KEPT: paragraphs, line breaks, rules, emphasis, lists, quotes, code, headings, tables, `a` (http, https, mailto, tel only; opened with rel=noopener noreferrer nofollow),
  * `img` (a base64 png, jpeg, gif or webp DATA url only: an editor pastes pictures that way, and any other source is a request the operator's browser would make with the
@@ -55,6 +62,16 @@ final class RichText
         'script', 'style', 'iframe', 'frame', 'frameset', 'object', 'embed', 'applet', 'noscript', 'noframes', 'noembed', 'template', 'title', 'head', 'xmp', 'plaintext', 'listing',
         'svg', 'math', 'textarea', 'select', 'option', 'optgroup', 'button', 'input', 'form', 'link', 'meta', 'base', 'audio', 'video', 'source', 'track', 'canvas', 'map', 'area', 'dialog', 'portal',
     ];
+
+    /** the only parents these elements may have among the elements this class writes (the HTML4 and the HTML5 tree builders agree on these nestings, and on little else) */
+    private const PARENT_OF = [
+        'li' => ['ul', 'ol'], 'tr' => ['table', 'thead', 'tbody', 'tfoot'], 'td' => ['tr'], 'th' => ['tr'], 'thead' => ['table'], 'tbody' => ['table'], 'tfoot' => ['table'],
+    ];
+
+    /** a paragraph, a heading and `pre` hold phrasing content: a block start tag closes them in HTML5, however many inline elements lie between */
+    private const PHRASING_ONLY = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre'];
+
+    private const BLOCKS = ['p', 'div', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre', 'blockquote', 'hr'];
 
     /** @var array<string, string> style property => the pattern its value has to match, whole */
     private const STYLE = [
@@ -107,7 +124,7 @@ final class RichText
 
         $body = $document->getElementsByTagName('body')->item(0);
 
-        return $body === null ? '' : self::children($body, 0);
+        return $body === null ? '' : self::children($body, 0, 'body', false, false);
     }
 
     /**
@@ -157,7 +174,37 @@ final class RichText
         return false;
     }
 
-    private static function children(\DOMNode $parent, int $depth): string
+    /**
+     * Whether an element of this name may be written with this parent -- the nearest ancestor that WAS written --, with a link open around it, or with a paragraph, a heading or `pre` open
+     * around it. See STRUCTURE in the class docblock.
+     */
+    private static function belongsIn(string $tag, string $parent, bool $insideLink, bool $insidePhrasing): bool
+    {
+        if (isset(self::PARENT_OF[$tag]) && ! in_array($parent, self::PARENT_OF[$tag], true)) {
+            return false;   // a list item outside a list, a cell outside a row, a row outside a table, a table part outside its table
+        }
+
+        if (($parent === 'ul' || $parent === 'ol') && $tag !== 'li') {
+            return false;   // a list holds list items
+        }
+
+        if (in_array($parent, ['table', 'thead', 'tbody', 'tfoot'], true) && ! isset(self::PARENT_OF[$tag])) {
+            return false;   // a table holds its sections and rows, a section its rows
+        }
+
+        if ($parent === 'tr' && $tag !== 'td' && $tag !== 'th') {
+            return false;   // a row holds cells
+        }
+
+        if ($insidePhrasing && in_array($tag, self::BLOCKS, true)) {
+            return false;   // a block inside a paragraph, a heading or `pre`, directly or through inline elements
+        }
+
+        return ! ($tag === 'a' && $insideLink);
+    }
+
+    /** @param string $parentTag the nearest ancestor that was WRITTEN ('body' at the top: what an element that was unwrapped hands down to its children) */
+    private static function children(\DOMNode $parent, int $depth, string $parentTag, bool $insideLink, bool $insidePhrasing): string
     {
         $out = '';
 
@@ -178,10 +225,12 @@ final class RichText
                 continue;
             }
 
-            $inner = self::children($node, $depth + 1);
+            $keep = isset(self::ELEMENTS[$tag]) && $depth < self::MAX_DEPTH && self::belongsIn($tag, $parentTag, $insideLink, $insidePhrasing);
 
-            // an element that is not on the list, and every element past the depth limit, is unwrapped: its (escaped) text stays, its tag does not
-            if (! isset(self::ELEMENTS[$tag]) || $depth >= self::MAX_DEPTH) {
+            $inner = self::children($node, $depth + 1, $keep ? $tag : $parentTag, $insideLink || ($keep && $tag === 'a'), $insidePhrasing || ($keep && in_array($tag, self::PHRASING_ONLY, true)));
+
+            // an element that is not on the list, that is past the depth limit, or that does not belong where it is, is unwrapped: its (escaped) text stays, its tag does not
+            if (! $keep) {
                 $out .= $inner;
 
                 continue;
@@ -204,6 +253,7 @@ final class RichText
     {
         $out = '';
         $linked = false;
+        $sourced = false;
         $allowed = self::ELEMENTS[$tag];
 
         foreach ($element->attributes as $attribute) {
@@ -231,6 +281,7 @@ final class RichText
 
                     if ($src !== null) {
                         $out .= ' src="' . $src . '"';
+                        $sourced = true;
                     }
 
                     break;
@@ -276,7 +327,7 @@ final class RichText
             }
         }
 
-        if ($tag === 'img' && ! str_contains($out, ' src="')) {
+        if ($tag === 'img' && ! $sourced) {   // (the first form searched the output for ` src="`, which an alt ending in ` src=` supplies)
             return null;
         }
 
@@ -299,8 +350,9 @@ final class RichText
             return null;
         }
 
-        // a web link names a host; `https:` alone, `https:///x` and `https:\\x` are not links
-        if (($scheme === 'http' || $scheme === 'https') && preg_match('#^https?://[^/?\#\\\\@\s]+#i', $url) !== 1) {
+        // a web link names a host and NOTHING BUT a host before the path: `https:` alone, `https:///x`, `https:\\x` and a userinfo (`https://good.example@evil.example/`, which a person reads as
+        // the first name and a browser as the second) are not links
+        if (($scheme === 'http' || $scheme === 'https') && preg_match('#^https?://[^/?\#\\\\@\s]+(?:[/?\#]|$)#i', $url) !== 1) {
             return null;
         }
 

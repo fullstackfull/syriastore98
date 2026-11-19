@@ -37,6 +37,45 @@ final class RichTextCorpus
         ];
     }
 
+    /**
+     * Random TREES of the elements the sanitizer keeps (and a few it does not), nested WITHOUT REGARD to any content model: a list item in a div in a list item, a table in a div in a table, a
+     * block in a paragraph, a link in a link, tags left open. This is the family where libxml's HTML4 tree and a browser's HTML5 tree builder disagree, and where an end tag of the output can
+     * close an element of the page around it. Seeded.
+     *
+     * @return list<string>
+     */
+    public static function structure(int $count, int $seed): array
+    {
+        mt_srand($seed);
+        $containers = ['p', 'div', 'span', 'b', 'i', 'u', 'em', 'strong', 'a', 'ul', 'ol', 'li', 'li', 'blockquote', 'pre', 'code', 'h1', 'h2', 'h3', 'table', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'font', 'center', 'section', 'small', 'sub', 'sup', 'del', 'mark', 'div', 'p'];
+        $leaves = ['hello', 'a', 'b c', '&amp;', 'x<y', 'نص', '1', '', '<br>', '<hr>', '<img src="data:image/png;base64,iVBORw0KGgo=">'];
+        $open = fn (string $tag): string => '<' . $tag . ($tag === 'a' ? ' href="https://example.com/"' : '') . ($tag === 'ol' && mt_rand(0, 4) === 0 ? ' start="2"' : '') . '>';
+        $tree = function (int $depth) use (&$tree, $containers, $leaves, $open): string {
+            $out = '';
+
+            for ($n = mt_rand(1, 3); $n > 0; $n--) {
+                if ($depth <= 0 || mt_rand(0, 3) === 0) {
+                    $out .= $leaves[array_rand($leaves)];
+
+                    continue;
+                }
+
+                $tag = $containers[array_rand($containers)];
+                $out .= $open($tag) . $tree($depth - 1) . (mt_rand(0, 9) === 0 ? '' : '</' . $tag . '>');   // now and then left open
+            }
+
+            return $out;
+        };
+
+        $out = [];
+
+        while (count($out) < $count) {
+            $out[] = $tree(mt_rand(2, 7));
+        }
+
+        return $out;
+    }
+
     /** @return list<string> */
     public static function soup(int $count, int $seed): array
     {

@@ -193,6 +193,8 @@ final class RichTextTest extends TestCase
             'script after control bytes' => ["\x00\x01javascript:alert(1)", false], 'script after a zero-width space' => ["\u{200B}javascript:alert(1)", false], 'script after a no-break space' => ["\u{00A0}javascript:alert(1)", false],
             'script after a byte-order mark' => ["\u{FEFF}javascript:alert(1)", false], 'script with a soft hyphen inside' => ["java\u{00AD}script:alert(1)", false], 'vbscript' => ['vbscript:x', false],
             'data' => ['data:text/html,x', false], 'file' => ['file:///etc/passwd', false], 'ftp' => ['ftp://example.com', false], 'protocol-relative' => ['//example.com', false], 'relative' => ['/x', false], 'bare word' => ['example.com', false],
+            'userinfo that reads as the first name' => ['https://good.example@evil.example/', false], 'userinfo with a port' => ['https://good.example:80@evil.example', false], 'a backslash then userinfo' => ['https://good.example\\@evil.example/', false],
+            'a port' => ['https://example.com:8080/x', true], 'a host and a query' => ['https://example.com?a=b', true], 'a host and a fragment' => ['https://example.com#a', true], 'a bare host' => ['https://example.com', true], 'an IPv6 literal' => ['https://[::1]/x', true],
             'web link without a host' => ['https://', false], 'three slashes' => ['https:///x', false], 'backslashes' => ['https:\\\\example.com', false], 'userinfo only' => ['https://@', false], 'empty' => ['', false], 'spaces only' => ['   ', false],
         ];
     }
@@ -328,6 +330,13 @@ final class RichTextTest extends TestCase
         $this->assertSame($expected, $elements, 'The class keeps a different set of elements or attributes than this file says. Widening it is a decision: write it down here, with the reason, in KEPT and ALLOWED.');
         $this->assertEqualsCanonicalizing(self::DROPPED, $class['DROP_WITH_CONTENT'], 'The elements dropped WITH their content are not the ones this file lists.');
         $this->assertSame(['br' => true, 'hr' => true, 'img' => true], $class['VOID']);
+        $this->assertSame(
+            ['li' => ['ul', 'ol'], 'tr' => ['table', 'thead', 'tbody', 'tfoot'], 'td' => ['tr'], 'th' => ['tr'], 'thead' => ['table'], 'tbody' => ['table'], 'tfoot' => ['table']],
+            $class['PARENT_OF'],
+            'The parents an element may have are the content model (STRUCTURE in the class docblock): changing them changes what a browser can do to the page around the output.'
+        );
+        $this->assertSame(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre'], $class['PHRASING_ONLY']);
+        $this->assertEqualsCanonicalizing(['p', 'div', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre', 'blockquote', 'hr'], $class['BLOCKS']);
         $this->assertEqualsCanonicalizing(array_keys(self::STYLES), array_keys($class['STYLE']), 'The class allows a different set of style properties than this file lists (a `position` here is what a page-covering overlay needs).');
         $this->assertSame(32, $class['MAX_DEPTH']);
         $this->assertSame(2097152, $class['MAX_BYTES']);
@@ -362,11 +371,22 @@ final class RichTextTest extends TestCase
         return $rows;
     }
 
+    /** the markup that puts an element where the content model lets it be written: a list item in a list, a cell in a row in a table, a row or a section in a table */
+    private static function whereItBelongs(string $element, string $markup): string
+    {
+        return match ($element) {
+            'li' => "<ul>{$markup}</ul>",
+            'tr', 'thead', 'tbody', 'tfoot' => "<table>{$markup}</table>",
+            'td', 'th' => "<table><tr>{$markup}</tr></table>",
+            default => $markup,
+        };
+    }
+
     #[DataProvider('everyElementWithEveryAttribute')]
     public function test_an_element_keeps_the_attributes_on_its_list_and_no_other(string $element, string $attribute, string $value, bool $kept): void
     {
         $picture = $element === 'img' ? ' src="data:image/png;base64,' . self::PNG . '"' : '';   // a picture with no acceptable source is not written at all
-        $out = RichText::clean("<{$element}{$picture} {$attribute}=\"" . htmlspecialchars($value, ENT_QUOTES) . "\">t</{$element}>");
+        $out = RichText::clean(self::whereItBelongs($element, "<{$element}{$picture} {$attribute}=\"" . htmlspecialchars($value, ENT_QUOTES) . "\">t</{$element}>"));
 
         if ($kept) {
             $this->assertStringContainsString(" {$attribute}=\"" . htmlspecialchars($value, ENT_QUOTES) . '"', $out, "{$element} keeps {$attribute}");
@@ -418,7 +438,7 @@ final class RichTextTest extends TestCase
 
         foreach (['1000', '-1', '2" x="', 'two', '1.5', ''] as $value) {
             foreach (['colspan', 'rowspan'] as $attribute) {
-                $rows["td {$attribute}={$value}"] = ['<td ' . $attribute . '="' . htmlspecialchars($value, ENT_QUOTES) . '">x</td>', '<td>x</td>'];
+                $rows["td {$attribute}={$value}"] = ['<table><tr><td ' . $attribute . '="' . htmlspecialchars($value, ENT_QUOTES) . '">x</td></tr></table>', '<table><tr><td>x</td></tr></table>'];
             }
 
             $rows["ol start={$value}"] = ['<ol start="' . htmlspecialchars($value, ENT_QUOTES) . '"><li>x</li></ol>', '<ol><li>x</li></ol>'];
@@ -455,6 +475,141 @@ final class RichTextTest extends TestCase
     {
         $this->assertSame('<p style="color: rgb(1, 2, 3)">x</p>', RichText::clean("<p style=\"color: rgb(1,\f2,\v3)\">x</p>"));
         $this->assertSame('rgb(1, 2, 3)', RichText::cssColor("rgb(1,\n2,\t3)"));
+    }
+
+    // ---- the structure: only the nestings the HTML4 and the HTML5 tree builders agree on --------------------
+
+    /**
+     * @return array<string, array{string, string}> a nesting that libxml keeps (through an element in between, or because it has no rule for it) and a browser would repair, and what is written
+     *         instead: the element that does not belong is unwrapped and its text stays. (`<p><div>`, `<li><li>`, `<td><td>` and the like never get here: libxml closes the first itself.)
+     */
+    public static function nestingsThatDoNotBelong(): array
+    {
+        return [
+            // the two found by the independent review: the inner start tag pops the open `div`, and the output's own `</div>` then closes an element of the HOST page
+            'a list item in a div in a list item'      => ['<li><div><li>x</li></div></li>', '<div>x</div>'],
+            'a table in a div in a table'              => ['<table><div><table>x</table></div></table>', '<table>x</table>'],
+            'a list item outside a list'               => ['<li>a</li>', 'a'],
+            'a list item in a paragraph'               => ['<p><li>a</li></p>', '<p></p>a'],
+            'a list in a list with no item between'    => ['<ul><ul><li>a</li></ul></ul>', '<ul><li>a</li></ul>'],
+            'a div directly in a list'                 => ['<ul><div><li>a</li></div></ul>', '<ul><li>a</li></ul>'],
+            'a cell outside a row'                     => ['<td>a</td>', 'a'],
+            'a row in a bold in a cell'                => ['<table><tr><td><b><tr><td>a</td></tr></b></td></tr></table>', '<table><tr><td><b>a</b></td></tr></table>'],
+            'a row outside a table'                    => ['<tr><td>a</td></tr>', 'a'],
+            'a table section in a table section'       => ['<table><tbody><thead><tr><td>a</td></tr></thead></tbody></table>', '<table><tbody><tr><td>a</td></tr></tbody></table>'],
+            'a div directly in a table'                => ['<table><div><tr><td>a</td></tr></div></table>', '<table><tr><td>a</td></tr></table>'],
+            'a paragraph in a row'                     => ['<table><tr><p>a</p></tr></table>', '<table><tr>a</tr></table>'],
+            'a table in a table'                       => ['<table><table><tr><td>a</td></tr></table></table>', '<table><tr><td>a</td></tr></table>'],
+            // a block in a paragraph, a heading or `pre`, THROUGH an inline element (directly, libxml closes the paragraph itself)
+            'a div in a bold in a paragraph'           => ['<p><b><div>x</div></b></p>', '<p><b>x</b></p>'],
+            'a quote in a bold in a heading'           => ['<h2>a<b><blockquote>b</blockquote></b></h2>', '<h2>a<b>b</b></h2>'],
+            'a div in a span in preformatted text'     => ['<pre>a<span><div>b</div></span></pre>', '<pre>a<span>b</span></pre>'],
+            'a list in a link in a paragraph'          => ['<p><a href="https://example.com/"><ul><li>a</li></ul></a></p>', '<p><a href="https://example.com/" rel="noopener noreferrer nofollow" target="_blank">a</a></p>'],
+            'a heading in a heading'                   => ['<h1>a<h2>b</h2></h1>', '<h1>ab</h1>'],
+            'preformatted text in preformatted text'   => ['<pre>a<pre>b</pre></pre>', '<pre>ab</pre>'],
+            'a link in a span in a link'               => ['<a href="https://example.com/">a<span><a href="https://example.org/">b</a></span></a>', '<a href="https://example.com/" rel="noopener noreferrer nofollow" target="_blank">a<span>b</span></a>'],
+        ];
+    }
+
+    #[DataProvider('nestingsThatDoNotBelong')]
+    public function test_an_element_that_does_not_belong_where_it_is_is_unwrapped(string $in, string $expected): void
+    {
+        $this->assertSame($expected, RichText::clean($in));
+    }
+
+    /** @return array<string, array{string}> what an editor really writes, nested as the content model allows: nothing is unwrapped */
+    public static function nestingsThatBelong(): array
+    {
+        return [
+            'a list'                                  => ['<ul><li>a</li><li>b</li></ul>'],
+            'a list in a list item'                   => ['<ul><li>a<ul><li>b</li></ul></li></ul>'],
+            'an ordered list of lists with text'      => ['<ol start="2"><li><p>a</p><ul><li>b</li></ul></li></ol>'],
+            'a table with a head and a body'          => ['<table><thead><tr><th>h</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>'],
+            'a table of rows only'                    => ['<table><tr><td>a</td></tr></table>'],
+            'a table in a cell'                       => ['<table><tr><td><table><tr><td>a</td></tr></table></td></tr></table>'],
+            'a list and a paragraph in a cell'        => ['<table><tr><td><p>a</p><ul><li>b</li></ul></td></tr></table>'],
+            'a quote of paragraphs'                   => ['<blockquote><p>a</p><p>b</p></blockquote>'],
+            'a div of blocks'                         => ['<div><p>a</p><ul><li>b</li></ul><table><tr><td>c</td></tr></table></div>'],
+            'phrasing in a paragraph'                 => ['<p>a <b>b <i>c</i></b> <a href="https://example.com/" rel="noopener noreferrer nofollow" target="_blank">d <u>e</u></a> <code>f</code> <img src="data:image/png;base64,' . self::PNG . '"></p>'],
+            'phrasing in a heading'                   => ['<h3>a <b>b</b> <span style="color: red">c</span></h3>'],
+            'phrasing in preformatted text'           => ['<pre>a <code>b</code> <b>c</b></pre>'],
+            'a link around a picture'                 => ['<a href="https://example.com/" rel="noopener noreferrer nofollow" target="_blank"><img src="data:image/png;base64,' . self::PNG . '"></a>'],
+            'two links side by side'                  => ['<a href="https://example.com/" rel="noopener noreferrer nofollow" target="_blank">a</a> <a href="https://example.org/" rel="noopener noreferrer nofollow" target="_blank">b</a>'],
+        ];
+    }
+
+    #[DataProvider('nestingsThatBelong')]
+    public function test_what_belongs_where_it_is_is_written_as_it_is(string $markup): void
+    {
+        $this->assertSame($markup, RichText::clean($markup));
+    }
+
+    public function test_the_unit_that_closed_the_hosts_div_closes_nothing_however_often_it_repeats(): void
+    {
+        $this->assertSame(str_repeat('<div>x</div>', 40), RichText::clean(str_repeat('<li><div><li>x</li></div></li>', 40)));
+        $this->assertSame(str_repeat('<table>x</table>', 40), RichText::clean(str_repeat('<table><div><table>x</table></div></table>', 40)));
+    }
+
+    /**
+     * The same rules, written a second time in this file and applied to the OUTPUT of random trees: whatever was unwrapped, whatever the depth, no element in the output has a parent the content
+     * model does not allow. (The browser differential is the check that the page around the output keeps its shape; this one runs without a browser.)
+     */
+    public function test_nothing_in_the_output_of_a_random_tree_has_a_parent_the_content_model_forbids(): void
+    {
+        $parentOf = ['li' => ['ul', 'ol'], 'tr' => ['table', 'thead', 'tbody', 'tfoot'], 'td' => ['tr'], 'th' => ['tr'], 'thead' => ['table'], 'tbody' => ['table'], 'tfoot' => ['table']];
+        $blocks = ['p', 'div', 'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre', 'blockquote', 'hr'];
+        $checked = 0;
+
+        foreach (RichTextCorpus::structure(600, 5) as $html) {
+            $document = new \DOMDocument();
+            $previous = libxml_use_internal_errors(true);
+            $document->loadHTML('<?xml encoding="UTF-8"><body>' . RichText::clean($html) . '</body>', LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+
+            foreach ($document->getElementsByTagName('*') as $element) {
+                $tag = $element->nodeName;
+                $parent = $element->parentNode->nodeName;
+                $checked++;
+
+                if (isset($parentOf[$tag])) {
+                    $this->assertContains($parent, $parentOf[$tag], "<{$tag}> in <{$parent}>: " . $html);
+                }
+
+                if ($parent === 'ul' || $parent === 'ol') {
+                    $this->assertSame('li', $tag, "<{$tag}> in <{$parent}>: " . $html);
+                }
+
+                if (in_array($parent, ['table', 'thead', 'tbody', 'tfoot'], true)) {
+                    $this->assertArrayHasKey($tag, $parentOf, "<{$tag}> in <{$parent}>: " . $html);
+                }
+
+                if ($parent === 'tr') {
+                    $this->assertContains($tag, ['td', 'th'], "<{$tag}> in <tr>: " . $html);
+                }
+
+                if (in_array($tag, $blocks, true)) {
+                    for ($up = $element->parentNode; $up instanceof \DOMElement; $up = $up->parentNode) {
+                        $this->assertNotContains($up->nodeName, ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre'], "<{$tag}> inside <{$up->nodeName}>: " . $html);
+                    }
+                }
+
+                if ($tag === 'a') {
+                    for ($up = $element->parentNode; $up instanceof \DOMElement; $up = $up->parentNode) {
+                        $this->assertNotSame('a', $up->nodeName, 'a link in a link: ' . $html);
+                    }
+                }
+            }
+        }
+
+        $this->assertGreaterThan(2000, $checked, 'Premise: the random trees leave enough elements in the output for the rules to be tested.');
+    }
+
+    public function test_a_picture_with_no_acceptable_source_is_not_written_whatever_its_alt_says(): void
+    {
+        $this->assertSame('', RichText::clean('<img alt="x src=" src="https://evil.example/p.png">'));
+        $this->assertSame('', RichText::clean('<img title="x src=" width="100" height="100">'));
+        $this->assertSame('<img alt="x src=" src="data:image/png;base64,' . self::PNG . '">', RichText::clean('<img alt="x src=" src="data:image/png;base64,' . self::PNG . '">'));
     }
 
     // ---- what the parser is not asked to read -----------------------------------------------------------

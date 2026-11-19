@@ -9,6 +9,11 @@
 // page alone does not reach (a reviewer executed that) -- is aborted before it leaves the browser; the only thing recorded is the URL it tried. No navigation to any address is ever issued
 // by this script. Preconditions: node and the `playwright` package with its Chromium (`require('playwright')` resolves).
 //
+// THE PAGE AROUND THE OUTPUT. The sanitizer writes libxml's HTML4 tree, and a browser's HTML5 tree builder repairs some nestings differently (`<li><div><li>x</li></div></li>`: the inner `li` pops
+// the open `div`, and the output's own `</div>` then closes an element of the HOST page). So the output is printed into the shape of the real page -- `<div id=page><div|p id=o>OUT</..>
+// <span id=sentinel>` in standards mode, in a `p` too, and in quirks mode -- and the run fails if the sentinel is no longer the child of #page, or #page no longer the child of <body>
+// (`leak`). An independent review found this class with exactly that check; the first version of this harness had none, and said the output could not matter.
+//
 // WHAT DETECTS WHAT. A dialog is seen through Playwright's `dialog` event (alert, confirm, prompt, beforeunload); a request through the abort route; a navigation or a popup through the page's
 // events; everything else a script could build through the DOM checks (`bad`: an element or an attribute that is not on the allowlist; `active`: a script, frame, form, svg ...; `unstable`: the
 // serialisation changes when it is parsed again). There is NO "did a script run" counter: a script that neither opens a dialog nor builds anything off the lists nor requests anything is not
@@ -39,6 +44,8 @@ const SELF_TEST = [
   { name: 'a script that opens a popup', html: '<script>window.open("https://popup.example/")</script>', flagged: true },
   { name: 'an element that is not on the list', html: '<form action="https://form.example/"><input autofocus onfocus="alert(1)"></form>', flagged: true },
   { name: 'an attribute that is not on the list', html: '<p class="x" id="y">z</p>', flagged: true },
+  { name: 'a list item in a div in a list item (the structure leak)', html: '<li><div><li>x</li></div></li>', flagged: true, why: 'leak' },
+  { name: 'a table in a div in a table (the structure leak)', html: '<table><div><table>x</table></div></table>', flagged: true, why: 'leak' },
   { name: 'a serialisation that changes when it is parsed again', html: '<math><mtext><table><mglyph><style><!--</style><img title="--&gt;&lt;img src=1 onerror=alert(1)&gt;"></table></mtext></math>', flagged: true },
   { name: 'a clean paragraph with a link and a picture (the control)', html: '<p dir="rtl" style="color: red">ok <b>bold</b> <a href="https://link.example/" rel="noopener noreferrer nofollow" target="_blank">l</a><img src="data:image/png;base64,iVBORw0KGgo=" alt="a"></p>', flagged: false },
 ];
@@ -55,8 +62,12 @@ const SELF_TEST = [
 
   const inspectPage = (page) => page.evaluate((ALLOWED) => {
     const o = document.getElementById('o');
+    const pageDiv = document.getElementById('page');
+    const sentinel = document.getElementById('sentinel');
+    // the whole output, wherever the browser put it: in a <p> context a block closes the paragraph and the rest lands beside it, inside #page
     const bad = [];
-    for (const el of o.querySelectorAll('*')) {
+    for (const el of pageDiv.querySelectorAll('*')) {
+      if (el === o || el === sentinel) continue;
       const t = el.localName;
       if (!(t in ALLOWED) || el.namespaceURI !== 'http://www.w3.org/1999/xhtml') { bad.push('element:' + el.namespaceURI + ' ' + t); continue; }
       for (const a of el.attributes) {
@@ -70,11 +81,18 @@ const SELF_TEST = [
     const first = o.innerHTML;
     const t = document.createElement('div'); t.innerHTML = first;
     const second = t.innerHTML;
-    return { bad, stable: first === second, active: o.querySelectorAll('script,iframe,object,embed,svg,math,form,input,style,link,meta,base,template,noscript').length };
+    const leak = !(sentinel && sentinel.parentElement === pageDiv && pageDiv.parentElement === document.body && document.body.parentElement === document.documentElement);
+    return { bad, leak, stable: first === second, active: pageDiv.querySelectorAll('script,iframe,object,embed,svg,math,form,input,style,link,meta,base,template,noscript').length };
   }, ALLOWED);
 
   // one fresh page per input: an image's `onerror` or an iframe's load fires AFTER setContent resolves, and must not be charged to the next input
-  async function observe(html) {
+  const wrapper = {
+    div: (html) => '<!doctype html><html><body><div id="page"><div id="o">' + html + '</div><span id="sentinel">s</span></div></body></html>',
+    p: (html) => '<!doctype html><html><body><div id="page"><p id="o">' + html + '</p><span id="sentinel">s</span></div></body></html>',
+    quirks: (html) => '<html><body><div id="page"><p id="o">' + html + '</p><span id="sentinel">s</span></div></body></html>',
+  };
+
+  async function observe(html, ctx = 'div') {
     const page = await context.newPage();
     const seen = { requests: [], dialogs: 0, popups: 0, navigated: false };
     await page.route('**/*', (route) => { const u = route.request().url(); if (!u.startsWith('about:') && !u.startsWith('data:')) seen.requests.push(u); route.abort(); });
@@ -83,34 +101,49 @@ const SELF_TEST = [
     page.on('framenavigated', (f) => { if (f === page.mainFrame() && f.url() !== 'about:blank') seen.navigated = true; });
     let r;
     try {
-      await page.setContent('<!doctype html><html><body><div id="o">' + html + '</div></body></html>', { waitUntil: 'load' });
+      await page.setContent(wrapper[ctx](html), { waitUntil: 'load' });
       await page.waitForTimeout(40);
       r = await inspectPage(page);
     } catch (e) {
-      r = { bad: ['navigated away or crashed: ' + String(e.message).slice(0, 60)], stable: true, active: 1 };
+      r = { bad: ['navigated away or crashed: ' + String(e.message).slice(0, 60)], leak: false, stable: true, active: 1 };
     }
     await page.close();
     return { r, seen };
   }
 
-  // did this page do anything at all
-  const didSomething = (obs) => obs.r.bad.length > 0 || !obs.r.stable || obs.r.active > 0 || obs.seen.requests.length > 0 || obs.seen.dialogs > 0 || obs.seen.popups > 0 || obs.seen.navigated;
+  // what did this page do (empty: nothing)
+  const whatItDid = (obs) => {
+    const why = [];
+    if (obs.r.bad.length > 0) why.push('bad');
+    if (obs.r.leak) why.push('leak');
+    if (!obs.r.stable) why.push('unstable');
+    if (obs.r.active > 0) why.push('active');
+    if (obs.seen.requests.length > 0) why.push('request');
+    if (obs.seen.dialogs > 0) why.push('dialog');
+    if (obs.seen.popups > 0) why.push('popup');
+    if (obs.seen.navigated) why.push('navigation');
+    return why;
+  };
+  const didSomething = (obs) => whatItDid(obs).length > 0;
 
   if (selfTest) {
     let wrong = 0;
     for (const t of SELF_TEST) {
-      const obs = await observe(t.html);
-      const flagged = didSomething(obs);
-      const ok = flagged === t.flagged;
+      // a structure case is judged in the contexts the page really has; the others in the plain one
+      const contexts = t.why === 'leak' ? ['div', 'p', 'quirks'] : ['div'];
+      const seenWhy = new Set();
+      for (const c of contexts) { for (const w of whatItDid(await observe(t.html, c))) seenWhy.add(w); }
+      const flagged = seenWhy.size > 0;
+      const ok = flagged === t.flagged && (!t.why || seenWhy.has(t.why));
       if (!ok) wrong++;
-      console.log((ok ? 'ok   ' : 'WRONG') + ' ' + (t.flagged ? 'flagged ' : 'clean   ') + t.name + (ok ? '' : '  <- the detectors said ' + (flagged ? 'FLAGGED' : 'CLEAN')));
+      console.log((ok ? 'ok   ' : 'WRONG') + ' ' + (t.flagged ? 'flagged ' : 'clean   ') + t.name + (ok ? '' : '  <- the detectors said ' + (flagged ? 'FLAGGED ' + [...seenWhy].join(',') : 'CLEAN')));
     }
     await browser.close();
     console.log(wrong === 0 ? 'self-test: every known-bad output is flagged and the control is clean' : 'self-test: ' + wrong + ' wrong -- the detectors cannot be trusted');
     process.exit(wrong === 0 ? 0 : 1);
   }
 
-  const stats = { total: cases.length, raw: { active: 0, requests: 0, dialogs: 0, popups: 0 }, out: { bad: 0, active: 0, unstable: 0, requests: 0, dialogs: 0, popups: 0, navigated: 0 } };
+  const stats = { total: cases.length, raw: { active: 0, requests: 0, dialogs: 0, popups: 0 }, out: { bad: 0, leak: 0, active: 0, unstable: 0, requests: 0, dialogs: 0, popups: 0, navigated: 0 } };
   const fails = [];
   let next = 0;
   async function worker() {
@@ -123,15 +156,18 @@ const SELF_TEST = [
       if (raw.seen.requests.length > 0) stats.raw.requests++;
       if (raw.seen.dialogs > 0) stats.raw.dialogs++;
       if (raw.seen.popups > 0) stats.raw.popups++;
-      const out = await observe(c.out);
-      const o = stats.out;
-      if (out.r.active > 0) o.active++;
-      if (out.r.bad.length) { o.bad++; if (fails.length < 15) fails.push({ i, why: out.r.bad.slice(0, 3), in: c.in.slice(0, 120), out: c.out.slice(0, 160) }); }
-      if (!out.r.stable) { o.unstable++; if (fails.length < 15) fails.push({ i, why: ['unstable under innerHTML round trip'], in: c.in.slice(0, 120), out: c.out.slice(0, 160) }); }
-      if (out.seen.requests.length) { o.requests++; if (fails.length < 15) fails.push({ i, why: ['requested', out.seen.requests.slice(0, 2)], in: c.in.slice(0, 120), out: c.out.slice(0, 160) }); }
-      if (out.seen.dialogs) o.dialogs++;
-      if (out.seen.popups) o.popups++;
-      if (out.seen.navigated) o.navigated++;
+      for (const ctx of ['div', 'p', 'quirks']) {
+        const out = await observe(c.out, ctx);
+        const o = stats.out;
+        if (out.r.active > 0) o.active++;
+        if (out.r.bad.length) { o.bad++; if (fails.length < 15) fails.push({ i, ctx, why: out.r.bad.slice(0, 3), in: c.in.slice(0, 120), out: c.out.slice(0, 160) }); }
+        if (out.r.leak) { o.leak++; if (fails.length < 15) fails.push({ i, ctx, why: ['the element after the output is no longer where it was (structure leak)'], in: c.in.slice(0, 120), out: c.out.slice(0, 160) }); }
+        if (ctx === 'div' && !out.r.stable) { o.unstable++; if (fails.length < 15) fails.push({ i, ctx, why: ['unstable under innerHTML round trip'], in: c.in.slice(0, 120), out: c.out.slice(0, 160) }); }
+        if (out.seen.requests.length) { o.requests++; if (fails.length < 15) fails.push({ i, ctx, why: ['requested', out.seen.requests.slice(0, 2)], in: c.in.slice(0, 120), out: c.out.slice(0, 160) }); }
+        if (out.seen.dialogs) o.dialogs++;
+        if (out.seen.popups) o.popups++;
+        if (out.seen.navigated) o.navigated++;
+      }
     }
   }
   await Promise.all(Array.from({ length: 6 }, worker));
@@ -140,5 +176,5 @@ const SELF_TEST = [
   console.log(JSON.stringify(stats));
   for (const f of fails.slice(0, 15)) console.log('FAIL', JSON.stringify(f));
   const o = stats.out;
-  process.exit(o.bad || o.active || o.unstable || o.requests || o.dialogs || o.popups || o.navigated ? 1 : 0);
+  process.exit(o.bad || o.leak || o.active || o.unstable || o.requests || o.dialogs || o.popups || o.navigated ? 1 : 0);
 })();
