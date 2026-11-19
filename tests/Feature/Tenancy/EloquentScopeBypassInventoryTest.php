@@ -232,9 +232,9 @@ class EloquentScopeBypassInventoryTest extends SecurityTestCase
             // instead.
             // SHIFTED BY +2 on 2026-11-19 (P1-SEC-73: the uploader functions above gained the remote-write checks). THE SITES ARE UNCHANGED -- each
             // was verified to be the same construct it named before.
-            'app/Models/Utility.php:3409',   // City::truncate()
-            'app/Models/Utility.php:3434',   // State::truncate()
-            'app/Models/Utility.php:3450',   // Country::truncate()
+            'app/Models/Utility.php:3411',   // City::truncate()
+            'app/Models/Utility.php:3436',   // State::truncate()
+            'app/Models/Utility.php:3452',   // Country::truncate()
         ], $hits, 'The truncate inventory changed. `truncate()` is forwarded straight to the base '
             . 'query builder (Builder.php:2123) and so empties the WHOLE TABLE for EVERY tenant. '
             . 'A new site is only acceptable on a model with no tenant discriminator -- verify '

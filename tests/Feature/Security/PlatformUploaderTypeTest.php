@@ -1052,4 +1052,157 @@ class PlatformUploaderTypeTest extends SecurityTestCase
 
         $this->assertSame(0, (int) ($failed['flag'] ?? -1), "{$form} reported a write that failed on {$backend} as a stored file: " . json_encode($failed));
     }
+
+    // ---------------------------------------------------------------------------------------------------------------------------
+    // P1-SEC-71 -- a stranger's upload is never a replacement
+    // ---------------------------------------------------------------------------------------------------------------------------
+
+    /** A request that reached a route no `auth` middleware stands in front of (the storefront's): a shopper's, whatever else the browser holds. */
+    private function reachingAPublicRoute(): void
+    {
+        $route = new \Illuminate\Routing\Route('POST', '/{slug}/checkout', fn () => null);
+        request()->setRouteResolver(fn () => $route);
+    }
+
+    /** A request that reached a route behind `auth`, as every merchant screen is, with a merchant signed in. */
+    private function reachingAPanelRoute(): void
+    {
+        $route = (new \Illuminate\Routing\Route('POST', '/settings', fn () => null))->middleware('auth');
+        request()->setRouteResolver(fn () => $route);
+        $this->actingAs($this->merchant);
+    }
+
+    /** @return array<string, string> the bytes of every file the two disks hold, by path (the `local` disk's paths are prefixed `local:`) */
+    private function heldBytes(): array
+    {
+        $held = [];
+
+        foreach (Storage::disk('theme')->allFiles() as $path) {
+            $held[$path] = (string) Storage::disk('theme')->get($path);
+        }
+
+        foreach (Storage::disk('local')->allFiles() as $path) {
+            $held['local:' . $path] = (string) Storage::disk('local')->get($path);
+        }
+
+        return $held;
+    }
+
+    /**
+     * THE VENDORED CheckoutAttachment MODULE hands the uploader the client's own file name and the folder `uploads/<store id>`, which
+     * `keyWiseUpload_file()` writes under `uploads/` again -- where a merchant's product-gallery images are written, under names the
+     * storefront prints in its own HTML. A visitor at a checkout needs no account. EXECUTED here at function level, as the review's
+     * tenancy lens did: the second upload under a taken name REPLACED the first.
+     */
+    #[DataProvider('theForms')]
+    public function test_a_strangers_upload_never_replaces_a_file_that_is_already_there(string $form): void
+    {
+        $this->reachingAPublicRoute();
+
+        $first = $this->through($form, $this->upload('logo.png', $this->png() . 'ORIGINAL'), 'logo.png');
+        $this->assertSame(1, (int) ($first['flag'] ?? -1), "Premise: {$form} stores a file for a request on a public route. Answer: " . json_encode($first));
+
+        $second = $this->through($form, $this->upload('logo.png', $this->png() . 'REPLACEMENT'), 'logo.png');
+        $this->assertSame(1, (int) ($second['flag'] ?? -1), "{$form} refused the second upload instead of storing it beside the first. Answer: " . json_encode($second));
+
+        $held = $this->heldBytes();
+        $this->assertCount(2, $held, "{$form}: a stranger's second upload under a taken name replaced the first file: " . json_encode(array_keys($held)));
+        $this->assertNotSame($first['url'], $second['url'], "{$form} answered the same address for two different files.");
+        $this->assertMatchesRegularExpression('#/logo_\d{10}_[0-9a-f]{16}\.png$#', (string) $second['url'], "{$form}: the second file's name is the first's plus a time and a random part, and still ends in its own extension.");
+
+        $contents = array_map(fn (string $bytes) => substr($bytes, strlen($this->png())), array_values($held));
+        sort($contents);
+        $this->assertSame(['ORIGINAL', 'REPLACEMENT'], $contents, "{$form}: the first file's bytes were changed.");
+    }
+
+    /** The two controls the rule above is scoped by: a merchant on a panel route, and a call with no router at all, may still replace. */
+    #[DataProvider('theForms')]
+    public function test_a_panel_request_may_still_replace_its_own_file(string $form): void
+    {
+        $this->reachingAPanelRoute();
+
+        $first = $this->through($form, $this->upload('logo.png', $this->png() . 'ORIGINAL'), 'logo.png');
+        $second = $this->through($form, $this->upload('logo.png', $this->png() . 'REPLACEMENT'), 'logo.png');
+
+        $held = $this->heldBytes();
+        $this->assertCount(1, $held, "{$form}: a merchant's replacement of their own file under its own name was turned into a second file: " . json_encode(array_keys($held)));
+        $this->assertSame($first['url'], $second['url']);
+        $this->assertSame($this->png() . 'REPLACEMENT', array_values($held)[0]);
+    }
+
+    #[DataProvider('theForms')]
+    public function test_a_call_with_no_router_may_still_replace_a_file(string $form): void
+    {
+        $first = $this->through($form, $this->upload('logo.png', $this->png() . 'ORIGINAL'), 'logo.png');
+        $second = $this->through($form, $this->upload('logo.png', $this->png() . 'REPLACEMENT'), 'logo.png');
+
+        $held = $this->heldBytes();
+        $this->assertCount(1, $held, "{$form}: a console or queue call regenerating a file under its own name was turned into a second file: " . json_encode(array_keys($held)));
+        $this->assertSame($first['url'], $second['url']);
+        $this->assertSame($this->png() . 'REPLACEMENT', array_values($held)[0]);
+    }
+
+    /** `POST /register` is open and the guards are separate sessions, so a shopper commonly holds a `web` login too: the ROUTE decides. */
+    #[DataProvider('theForms')]
+    public function test_a_stranger_who_also_holds_a_panel_login_is_still_not_allowed_to_replace(string $form): void
+    {
+        $this->actingAs($this->merchant);
+        $this->reachingAPublicRoute();
+        $this->assertTrue(auth('web')->check(), 'Premise: a panel login is held.');
+
+        $this->through($form, $this->upload('logo.png', $this->png() . 'ORIGINAL'), 'logo.png');
+        $this->through($form, $this->upload('logo.png', $this->png() . 'REPLACEMENT'), 'logo.png');
+
+        $this->assertCount(2, $this->heldBytes(), "{$form}: a visitor holding a `web` login replaced a file on a public route.");
+    }
+
+    /** The same rule on the two remote disks: the existence check is made on the disk the write goes to. */
+    #[DataProvider('theRemoteForms')]
+    public function test_a_strangers_upload_never_replaces_a_file_on_a_remote_disk(string $form, string $backend): void
+    {
+        $this->platformStorage(backend: $backend);
+        Storage::fake($backend);
+        $this->reachingAPublicRoute();
+
+        $this->through($form, $this->upload('logo.png', $this->png() . 'ORIGINAL'), 'logo.png');
+        $second = $this->through($form, $this->upload('logo.png', $this->png() . 'REPLACEMENT'), 'logo.png');
+
+        $this->assertSame(1, (int) ($second['flag'] ?? -1), "Premise: {$form} stores on {$backend}. Answer: " . json_encode($second));
+        $this->assertCount(2, Storage::disk($backend)->allFiles(), "{$form} on {$backend}: the second upload replaced the first: " . json_encode(Storage::disk($backend)->allFiles()));
+    }
+
+    /** What the rename may not do: change the extension the policy judged, or break a name the policy would refuse. */
+    public function test_the_renamed_file_keeps_its_extension_and_a_name_the_policy_still_accepts(): void
+    {
+        $this->reachingAPublicRoute();
+        Storage::disk('theme')->put('uploads/1/Amazon.com.png', 'TAKEN');
+
+        $answer = Utility::upload_file(['file' => $this->upload('Amazon.com.png', $this->png())], 'file', 'Amazon.com.png', 'uploads/1');
+
+        $this->assertSame(1, (int) ($answer['flag'] ?? -1), 'The renamed upload was refused: ' . json_encode($answer));
+        $this->assertMatchesRegularExpression('#^uploads/1/Amazon\.com_\d{10}_[0-9a-f]{16}\.png$#', (string) $answer['url']);
+        $this->assertNull(PlatformUploadPolicy::refusal($this->upload('Amazon.com.png', $this->png()), basename((string) $answer['url']), 'jpg,jpeg,png,csv,svg,pdf', '2048000'), 'The renamed name is one the policy accepts.');
+        $this->assertSame('TAKEN', Storage::disk('theme')->get('uploads/1/Amazon.com.png'));
+    }
+
+    public function test_the_stored_name_of_an_attachment_carries_a_random_part_and_nothing_of_the_clients_punctuation(): void
+    {
+        $names = [
+            'proof.png' => '#^proof_\d{10}_[0-9a-f]{8}\.png$#',
+            'My Receipt (final).PNG' => '#^My_Receipt_final_\d{10}_[0-9a-f]{8}\.png$#',
+            'shell.php.png' => '#^shell_php_\d{10}_[0-9a-f]{8}\.png$#',
+            'ملف.png' => '#^attachment_\d{10}_[0-9a-f]{8}\.png$#',
+            str_repeat('a', 200) . '.png' => '#^a{60}_\d{10}_[0-9a-f]{8}\.png$#',
+        ];
+
+        foreach ($names as $client => $pattern) {
+            $this->assertMatchesRegularExpression($pattern, PlatformUploadPolicy::storedName($this->upload($client, $this->png()), 'attachment'), "Client name {$client}");
+        }
+
+        $this->assertNotSame(
+            PlatformUploadPolicy::storedName($this->upload('proof.png', $this->png())),
+            PlatformUploadPolicy::storedName($this->upload('proof.png', $this->png())),
+            'Two names built for the same client name in the same second were equal.'
+        );
+    }
 }

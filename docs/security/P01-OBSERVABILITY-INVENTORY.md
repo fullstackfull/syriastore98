@@ -131,7 +131,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | line | message |
 |---|---|
 | `app/Helper/helper.php:672` | an image upload was refused |
-| `app/Services/PlatformUploadPolicy.php:233` | a platform upload was refused |
+| `app/Services/PlatformUploadPolicy.php:302` | a platform upload was refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:407` | theme settings write refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:138` | Theme editor read refused. |
 | `app/Http/Controllers/ThemeVersionController.php:333` | Theme publication refused. |
@@ -290,8 +290,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Middleware/ModuleResourceOwnershipGuard.php:559` | module resource mutation refused |
 | `app/Models/Order.php:1099` | Order return refused: the order carries no readable product_json |
 | `app/Models/Order.php:1110` | Order return refused: the order lines are not in a shape this workflow can return |
-| `app/Models/Utility.php:2270` | New Order webhook skipped: no store could be resolved for the order |
-| `app/Models/Utility.php:2280` | New Order webhook skipped: the resolved store does not exist |
+| `app/Models/Utility.php:2272` | New Order webhook skipped: no store could be resolved for the order |
+| `app/Models/Utility.php:2282` | New Order webhook skipped: the resolved store does not exist |
 | `app/Providers/PackageServiceProvider.php:80` | addon loader: the dynamic add-on pass failed, so some modules are not loaded |
 | `app/Providers/PackageServiceProvider.php:144` | addon loader: a module failed to load and its features are absent |
 | `app/Services/CodCollectionService.php:161` | COD collection refused: the event is not verifiable |

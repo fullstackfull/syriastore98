@@ -1088,6 +1088,207 @@ GROUPS = [
             ]),
         ],
     },
+    {
+        "key": 'shopperattachments',
+        "title": "P1-SEC-71 -- a shopper's attachment lands in its own store's folder under a name the server built, a refusal is said, and the platform uploader never lets a stranger's file replace another file",
+        "tests": ['tests/Feature/Security/PlatformUploaderTypeTest.php', 'tests/Feature/Security/PlatformUploaderDoorsTest.php'],
+        "mutants": [
+            ("SA1 ticket create: the stored name is the client's own", [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "                        $imageName = \\App\\Services\\PlatformUploadPolicy::storedName($file, 'attachment');\n                        $path = Utility::keyWiseUpload_file($request,'attachments',$imageName,$dir,$filekey,[]);",
+                 "                        $imageName = $file->getClientOriginalName();\n                        $path = Utility::keyWiseUpload_file($request,'attachments',$imageName,$dir,$filekey,[]);"),
+            ]),
+            ("SA2 ticket create (single field): the stored name is the client's own", [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "            $fileName = \\App\\Services\\PlatformUploadPolicy::storedName($request->attachment, 'attachment');\n            $path = Utility::upload_file($request, 'attachment', $fileName, $dir, []);",
+                 "            $fileName = $request->attachment->getClientOriginalName();\n            $path = Utility::upload_file($request, 'attachment', $fileName, $dir, []);",
+                 2),
+            ]),
+            ("SA3 ticket edit: the stored name is the client's own", [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "                    $imageName = \\App\\Services\\PlatformUploadPolicy::storedName($file, 'attachment');\n                    $path = Utility::keyWiseUpload_file($request, 'attachments', $imageName, $dir, $filekey, []);",
+                 "                    $imageName = $file->getClientOriginalName();\n                    $path = Utility::keyWiseUpload_file($request, 'attachments', $imageName, $dir, $filekey, []);"),
+            ]),
+            ("SA4 ticket reply: the stored name is the client's own", [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "                    $imageName = \\App\\Services\\PlatformUploadPolicy::storedName($file, 'attachment');\n                    $dir    = $this->shopperAttachmentDir($store, 'reply_tickets');",
+                 "                    $imageName = $file->getClientOriginalName();\n                    $dir    = $this->shopperAttachmentDir($store, 'reply_tickets');"),
+            ]),
+            ("SA5 refund evidence: the stored name is the client's own", [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "                $imageName = \\App\\Services\\PlatformUploadPolicy::storedName($file, 'attachment');\n                $dir        = $this->shopperAttachmentDir($store, 'order_refund');",
+                 "                $imageName = $file->getClientOriginalName();\n                $dir        = $this->shopperAttachmentDir($store, 'order_refund');"),
+            ]),
+            ("SA6 ticket reply: the folder is getCurrentStore()'s again (null for a shopper)", [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "                    $dir    = $this->shopperAttachmentDir($store, 'reply_tickets');",
+                 "                    $dir    = 'uploads/' . getCurrentStore() . '/reply_tickets';"),
+            ]),
+            ("SA7 the shopper folder helper asks getCurrentStore() instead of the route's store", [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "        return 'uploads/' . $store->id . '/' . $kind;",
+                 "        return 'uploads/' . getCurrentStore() . '/' . $kind;"),
+            ]),
+            ('SA8 the shopper folder helper drops the kind of attachment', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "        return 'uploads/' . $store->id . '/' . $kind;",
+                 "        return 'uploads/' . $store->id . '/tickets';"),
+            ]),
+            ('SA9 ticket create: the folder is assigned only inside the plural loop again (undefined for the single field)', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "        $dir               = $this->shopperAttachmentDir($store, 'tickets');\n        $refused           = 0;",
+                 '        $refused           = 0;'),
+                ('app/Http/Controllers/AccountProfileController.php',
+                 '                    if($result==1)\n                    {\n                        // P1-SEC-71: a name the SERVER builds',
+                 "                    if($result==1)\n                    {\n                        $dir = $this->shopperAttachmentDir($store, 'tickets');\n                        // P1-SEC-71: a name the SERVER builds"),
+            ]),
+            ('SA10 ticket create: a refused attachment is not counted', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 '                            // P1-SEC-71: counted and SAID. The answer was assigned to a variable nobody read, so a dropped file looked like a saved one.\n                            $refused++;',
+                 "                            // P1-SEC-71: counted and SAID. The answer was assigned to a variable nobody read, so a dropped file looked like a saved one.\n                            $errors = __($path['msg']);"),
+            ]),
+            ('SA11 ticket create (single field): a refused attachment is not counted', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "            if ($path['flag'] == '0') {\n                $refused++;\n            } else {\n                $tickets->attachment    = $path['url'];",
+                 "            if ($path['flag'] == '0') {\n                $errors = $path['msg'];\n            } else {\n                $tickets->attachment    = $path['url'];"),
+            ]),
+            ('SA12 ticket edit: a refused attachment is not counted', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "                        $data[] = $path['url'];\n                    } else {\n                        $refused++;\n                    }\n                } else {\n                    return redirect()->back()->with('error', $result);",
+                 "                        $data[] = $path['url'];\n                    } else {\n                        $errors = __($path['msg']);\n                    }\n                } else {\n                    return redirect()->back()->with('error', $result);"),
+            ]),
+            ('SA13 ticket edit (single field): a refused attachment is not counted', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "            if ($path['flag'] == '0') {\n                $refused++;\n            } else {\n                $ticket->attachment      = $path['url'];",
+                 "            if ($path['flag'] == '0') {\n                $errors = $path['msg'];\n            } else {\n                $ticket->attachment      = $path['url'];"),
+            ]),
+            ('SA14 ticket reply: a refused attachment is not counted', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "                        $data[] = $path['url'];\n                    } else {\n                        $refused++;\n                    }\n                }\n            }\n            $post['attachments']",
+                 "                        $data[] = $path['url'];\n                    } else {\n                        $errors = __($path['msg']);\n                    }\n                }\n            }\n            $post['attachments']"),
+            ]),
+            ('SA15 refund evidence: a refused attachment is not counted', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "                    $data[] = $path['url'];\n                } else {\n                    $refused++;\n                }\n                $order_refund->attachments",
+                 "                    $data[] = $path['url'];\n                } else {\n                    $errors = __($path['msg']);\n                }\n                $order_refund->attachments"),
+            ]),
+            ('SA16 the refusal helper never says anything', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "        return $refused > 0\n            ? $response->with('error',",
+                 "        return false\n            ? $response->with('error',"),
+            ]),
+            ('SA17 the refusal helper says it as a success', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "            ? $response->with('error', __('An attachment was not accepted.",
+                 "            ? $response->with('success', __('An attachment was not accepted."),
+            ]),
+            ('SA18 the refusal helper says something else', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "            ? $response->with('error', __('An attachment was not accepted. Check its type and size and try again.'))",
+                 "            ? $response->with('error', __('Something went wrong.'))"),
+            ]),
+            ('SA19 storedName: no random part', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "        return ($base !== '' ? $base : $fallback) . '_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . strtolower($file->getClientOriginalExtension());",
+                 "        return ($base !== '' ? $base : $fallback) . '_' . time() . '.' . strtolower($file->getClientOriginalExtension());"),
+            ]),
+            ('SA20 storedName: the base is not truncated', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "'_'), 0, 60);",
+                 "'_'), 0, 600);"),
+            ]),
+            ("SA21 storedName: a dot of the client's survives into the name", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "preg_replace('/[^A-Za-z0-9_-]+/', '_', pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)), '_'), 0, 60);",
+                 "preg_replace('/[^A-Za-z0-9_.-]+/', '_', pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)), '_'), 0, 60);"),
+            ]),
+            ("SA22 storedName: the fallback word is fixed, not the caller's", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "return ($base !== '' ? $base : $fallback) . '_' . time() . '_' . bin2hex(random_bytes(4))",
+                 "return ($base !== '' ? $base : 'file') . '_' . time() . '_' . bin2hex(random_bytes(4))"),
+            ]),
+            ('SA23 storedName: the extension is not lower-cased', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "'.' . strtolower($file->getClientOriginalExtension());\n    }\n\n    /**\n     * A SHOPPER'S UPLOAD NEVER REPLACES",
+                 "'.' . $file->getClientOriginalExtension();\n    }\n\n    /**\n     * A SHOPPER'S UPLOAD NEVER REPLACES"),
+            ]),
+            ('SA24 receiptName: no longer the same shape (the fallback word is lost)', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "        return self::storedName($file, 'receipt');",
+                 '        return self::storedName($file);'),
+            ]),
+            ('SA25 nonReplacingName: nobody is a shopper request', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 '        if (! self::shopperRequest()) {\n            return $name;\n        }',
+                 '        if (true) {\n            return $name;\n        }'),
+            ]),
+            ('SA26 nonReplacingName: the existence check is skipped', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "        if (! $storage->exists($folder . '/' . $name)) {\n            return $name;\n        }",
+                 '        if (true) {\n            return $name;\n        }'),
+            ]),
+            ('SA27 nonReplacingName: the new name loses its extension', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "($extension !== '' ? '.' . $extension : '');",
+                 "'';"),
+            ]),
+            ('SA28 nonReplacingName: the new name has no random part', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "return $base . '_' . time() . '_' . bin2hex(random_bytes(8))",
+                 "return $base . '_' . time()"),
+            ]),
+            ('SA29 nonReplacingName: the check is made on the wrong disk', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 '        $storage = Storage::disk($disk);',
+                 "        $storage = Storage::disk('theme');"),
+            ]),
+            ("SA30 shopperRequest: a call with no router is a stranger's request too", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 '        return request()->route() instanceof Route && ! self::panelSession();',
+                 '        return ! self::panelSession();'),
+            ]),
+            ("SA31 shopperRequest: a panel request is a stranger's request too", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 '        return request()->route() instanceof Route && ! self::panelSession();',
+                 '        return request()->route() instanceof Route;'),
+            ]),
+            ('SA32 upload_file: the call is gone (a stranger replaces)', [
+                ('app/Models/Utility.php',
+                 "                    $name = \\App\\Services\\PlatformUploadPolicy::nonReplacingName($settings['storage_setting'] == 'local' ? 'theme' : (string) $settings['storage_setting'], (string) $path, $name);\n\n                    if ($settings['storage_setting'] == 'local') {\n                        $path = Str::finish($path, '/');\n                        createAndSetPermissionsRecursively($path, 'theme');\n                       \n                        $image = !empty($image) ? $image : (is_array($request) ? $request[$key_name] : $request->file($key_name));\n                        $written = \\Storage::disk('theme')->putFileAs(\n                            $path,\n                            $image,\n                            $name\n                        );\n                        // P1-SEC-73 (upload_file):",
+                 "                    $name = $name;\n\n                    if ($settings['storage_setting'] == 'local') {\n                        $path = Str::finish($path, '/');\n                        createAndSetPermissionsRecursively($path, 'theme');\n                       \n                        $image = !empty($image) ? $image : (is_array($request) ? $request[$key_name] : $request->file($key_name));\n                        $written = \\Storage::disk('theme')->putFileAs(\n                            $path,\n                            $image,\n                            $name\n                        );\n                        // P1-SEC-73 (upload_file):"),
+            ]),
+            ('SA33 keyWiseUpload_file: the call is gone (a stranger replaces)', [
+                ('app/Models/Utility.php',
+                 "                    $name = \\App\\Services\\PlatformUploadPolicy::nonReplacingName($settings['storage_setting'] == 'local' ? 'theme' : (string) $settings['storage_setting'], $settings['storage_setting'] == 'local' ? 'uploads/' . $path : (string) $path, $name);",
+                 '                    $name = $name;'),
+            ]),
+            ('SA34 jsonUpload_file: the call is gone (a stranger replaces)', [
+                ('app/Models/Utility.php',
+                 "                    // P1-SEC-71 (jsonUpload_file): a stranger's upload never replaces a file that is already there -- see PlatformUploadPolicy::nonReplacingName().\n                    $name = \\App\\Services\\PlatformUploadPolicy::nonReplacingName($settings['storage_setting'] == 'local' ? 'theme' : (string) $settings['storage_setting'], (string) $path, $name);\n",
+                 "                    // P1-SEC-71 (jsonUpload_file): a stranger's upload never replaces a file that is already there -- see PlatformUploadPolicy::nonReplacingName().\n"),
+            ]),
+            ('SA35 multi_upload_file: the call is gone (a stranger replaces)', [
+                ('app/Helper/helper.php',
+                 "                    $name = \\App\\Services\\PlatformUploadPolicy::nonReplacingName((string) $storage_settings['storage_setting'], (string) $path, $name);\n",
+                 '                    $name = $name;\n'),
+            ]),
+            ('SA36 keyWiseUpload_file: the folder it checks is not the folder it writes to (the `uploads/` prefix is missing)', [
+                ('app/Models/Utility.php',
+                 "$settings['storage_setting'] == 'local' ? 'uploads/' . $path : (string) $path, $name);",
+                 '(string) $path, $name);'),
+            ]),
+            ('SA37 upload_file: the local branch is checked on the wrong disk', [
+                ('app/Models/Utility.php',
+                 "                    // P1-SEC-71 (upload_file): a stranger's upload never replaces a file that is already there -- see PlatformUploadPolicy::nonReplacingName().\n                    $name = \\App\\Services\\PlatformUploadPolicy::nonReplacingName($settings['storage_setting'] == 'local' ? 'theme' : (string) $settings['storage_setting']",
+                 "                    // P1-SEC-71 (upload_file): a stranger's upload never replaces a file that is already there -- see PlatformUploadPolicy::nonReplacingName().\n                    $name = \\App\\Services\\PlatformUploadPolicy::nonReplacingName($settings['storage_setting'] == 'local' ? 'local' : (string) $settings['storage_setting']"),
+            ]),
+            ('SA38 multi_upload_file: the check is made on the wrong disk', [
+                ('app/Helper/helper.php',
+                 "nonReplacingName((string) $storage_settings['storage_setting'], (string) $path, $name);",
+                 "nonReplacingName('theme', (string) $path, $name);"),
+            ]),
+        ],
+    },
 ]
 
 

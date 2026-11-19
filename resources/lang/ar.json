@@ -2475,6 +2475,7 @@
     "The file name must end in one of: :values.": "يجب أن ينتهي اسم الملف بأحد الامتدادات التالية: :values.",
     "The image could not be saved.": "تعذّر حفظ الصورة.",
     "No file type is enabled for uploads.": "لا يوجد نوع ملف مفعّل للرفع.",
+    "An attachment was not accepted. Check its type and size and try again.": "لم يتم قبول أحد المرفقات. تحقق من نوعه وحجمه وحاول مرة أخرى.",
     "The file name is not accepted.": "اسم الملف غير مقبول.",
     "The file could not be saved.": "تعذّر حفظ الملف.",
     "file": "ملف",

@@ -1349,7 +1349,8 @@ if (!function_exists('multi_upload_file')) {
                     ];
                     return $res;
                 } else {
-                    $name = $name;
+                    // P1-SEC-71 (multi_upload_file): a stranger's upload never replaces a file that is already there -- see PlatformUploadPolicy::nonReplacingName().
+                    $name = \App\Services\PlatformUploadPolicy::nonReplacingName((string) $storage_settings['storage_setting'], (string) $path, $name);
                     $save = Storage::disk($storage_settings['storage_setting'])->putFileAs(
                         $path,
                         $file,

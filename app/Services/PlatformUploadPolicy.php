@@ -5,6 +5,7 @@ namespace App\Services;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 
 /**
@@ -54,7 +55,12 @@ use Illuminate\Support\Facades\Validator;
  *    its own rule (ThemeImageUpload); nor an upload that never goes through these functions at all -- `DashboardController::
  *    updateStoreOwnerInfo()` was one (fixed beside this, with a server-built name, not through this class), and P1-SEC-74 in
  *    the work queue carries the others.
- *  - It does not change where a file goes or what it is called when it is acceptable.
+ *  - It does not change where a file goes or what it is called when it is acceptable -- with ONE exception, for a stranger's request:
+ *    nonReplacingName() gives a shopper's file a new name when its own is already taken (P1-SEC-71, below), because a shopper's
+ *    upload is the one thing that must never be a replacement.
+ *
+ *  5. A SHOPPER'S UPLOAD NEVER REPLACES A FILE. (P1-SEC-71; see nonReplacingName().) And a door that lets the platform name the file
+ *     gives a shopper's attachment a name no one can choose in advance (storedName()).
  */
 final class PlatformUploadPolicy
 {
@@ -218,9 +224,65 @@ final class PlatformUploadPolicy
      */
     public static function receiptName(UploadedFile $file): string
     {
-        $base = trim((string) preg_replace('/[^A-Za-z0-9_-]+/', '_', pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)), '_');
+        return self::storedName($file, 'receipt');
+    }
 
-        return ($base !== '' ? $base : 'receipt') . '_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . strtolower($file->getClientOriginalExtension());
+    /**
+     * The stored name of ANY file a stranger sends to a door that lets the platform name it (P1-SEC-71): a ticket's attachment, a reply's,
+     * a refund's evidence. The shape is receiptName()'s -- the client's name reduced to letters, digits, `_` and `-` and at most sixty of
+     * them, the time, eight random hex digits, the client's extension lower-cased and LAST -- and for the same reasons. The ticket doors
+     * stored the client's own name, VERBATIM, in a folder every ticket of the store shares (and, on the edit and reply paths, in a
+     * folder every STORE shares), so two shoppers who both attached `proof.png` were one file: the second replaced the first under the
+     * first one's database row (EXECUTED, two stores' replies). A name that carries eight random hex digits cannot be named in advance.
+     *
+     * @param  string  $fallback  the base used when nothing of the client's name survives the reduction (a name of `ملف.png`)
+     */
+    public static function storedName(UploadedFile $file, string $fallback = 'file'): string
+    {
+        $base = substr(trim((string) preg_replace('/[^A-Za-z0-9_-]+/', '_', pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)), '_'), 0, 60);
+
+        return ($base !== '' ? $base : $fallback) . '_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . strtolower($file->getClientOriginalExtension());
+    }
+
+    /**
+     * A SHOPPER'S UPLOAD NEVER REPLACES A FILE THAT IS ALREADY THERE (P1-SEC-71).
+     *
+     * The vendored CheckoutAttachment module (`CheckoutAttachmentStore()`, called from every payment path of PaymentService) hands the
+     * uploader the client's own file name and the folder `uploads/<store id>` -- which `keyWiseUpload_file()` writes under `uploads/`
+     * again, the folder the merchant's product-gallery images are written to under names that are printed in the storefront's own
+     * HTML. A visitor at a checkout needs no account: naming an upload after a gallery image replaced it (EXECUTED at function level,
+     * with the arguments the module passes). The module is vendored and is not edited, so the uploader says the one thing a shopper's
+     * file is never allowed to be: a replacement. When the name is taken the file is stored under that name with the time and sixteen
+     * random hex digits before its extension -- the extension is unchanged, so the policy's judgement of it still holds -- and the
+     * caller, which persists what the function returns, is none the wiser.
+     *
+     * A PANEL request is not touched (a merchant replacing their own image under its own name is the product), and neither is a call
+     * with no router at all (a console command, a queue job): `shopperRequest()` says why. What this does not close: two shoppers
+     * writing the same NEW name at the same instant (neither sees the other's file, and one replaces the other -- both are shoppers'
+     * files), a name the shopper guesses before the merchant creates it (nothing is there to replace when they write), and the
+     * 2^-64 chance that the random part of the new name is already taken (it is not looked up again).
+     *
+     * @param  string  $disk  the filesystem disk the caller is about to write to
+     * @param  string  $directory  the folder on it, as the caller's `putFileAs()` is given it
+     */
+    public static function nonReplacingName(string $disk, string $directory, string $name): string
+    {
+        if (! self::shopperRequest()) {
+            return $name;
+        }
+
+        $storage = Storage::disk($disk);
+        $folder = rtrim($directory, '/');
+
+        if (! $storage->exists($folder . '/' . $name)) {
+            return $name;
+        }
+
+        $base = pathinfo($name, PATHINFO_FILENAME);
+        $extension = pathinfo($name, PATHINFO_EXTENSION);
+
+        // sixteen random hex digits (64 bits): the name is a stranger's collision escape, so it is long rather than short
+        return $base . '_' . time() . '_' . bin2hex(random_bytes(8)) . ($extension !== '' ? '.' . $extension : '');
     }
 
     /**
@@ -319,6 +381,16 @@ final class PlatformUploadPolicy
         } catch (\Throwable $e) {
             return false;
         }
+    }
+
+    /**
+     * Is this a request a STRANGER can make: it reached a route (so it is a request, not a console command or a queue job that happens
+     * to hold an authenticated user or none) and is not a panel request? A call with no router at all is somebody's own code
+     * regenerating a file under a name it chose, which is the legitimate case of "replace"; it is not a door.
+     */
+    private static function shopperRequest(): bool
+    {
+        return request()->route() instanceof Route && ! self::panelSession();
     }
 
     private static function routeDemandsAPanelUser(Route $route): bool

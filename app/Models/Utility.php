@@ -444,7 +444,8 @@ class Utility extends Model
                     return $res;
                 } else {
 
-                    $name = $name;
+                    // P1-SEC-71 (upload_file): a stranger's upload never replaces a file that is already there -- see PlatformUploadPolicy::nonReplacingName().
+                    $name = \App\Services\PlatformUploadPolicy::nonReplacingName($settings['storage_setting'] == 'local' ? 'theme' : (string) $settings['storage_setting'], (string) $path, $name);
 
                     if ($settings['storage_setting'] == 'local') {
                         $path = Str::finish($path, '/');
@@ -1030,7 +1031,8 @@ class Utility extends Model
                     return $res;
                 } else {
 
-                    $name = $name;
+                    // P1-SEC-71 (keyWiseUpload_file): a stranger's upload never replaces a file that is already there -- see PlatformUploadPolicy::nonReplacingName().
+                    $name = \App\Services\PlatformUploadPolicy::nonReplacingName($settings['storage_setting'] == 'local' ? 'theme' : (string) $settings['storage_setting'], $settings['storage_setting'] == 'local' ? 'uploads/' . $path : (string) $path, $name);
 
                     if ($settings['storage_setting'] == 'local') {
                         // $path = $path . '/';
@@ -3799,6 +3801,9 @@ class Utility extends Model
                     ];
                     return $res;
                 } else {
+                    // P1-SEC-71 (jsonUpload_file): a stranger's upload never replaces a file that is already there -- see PlatformUploadPolicy::nonReplacingName().
+                    $name = \App\Services\PlatformUploadPolicy::nonReplacingName($settings['storage_setting'] == 'local' ? 'theme' : (string) $settings['storage_setting'], (string) $path, $name);
+
                     if ($settings['storage_setting'] == 'local') {
                         $path = Str::finish($path, '/');
                         createAndSetPermissionsRecursively($path, 'theme');
