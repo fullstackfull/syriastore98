@@ -1800,7 +1800,7 @@ if (!$currencyRate) {
     );
 }
 
-if ($newCurrency !== 'USD' && (float) $currencyRate->rate_per_usd <= 1) {
+$post['defult_currancy_symbol'] = $post['CURRENCY'] = \App\Support\Money\CurrencySymbol::clean($currencyRate->symbol); if ($newCurrency !== 'USD' && (float) $currencyRate->rate_per_usd <= 1) { // P1-SEC-80 round 4: the symbol is the store's own currency row's, not the request's
     return redirect()->back()->with(
         'error',
         __('Please set a valid exchange rate before changing the store currency.')

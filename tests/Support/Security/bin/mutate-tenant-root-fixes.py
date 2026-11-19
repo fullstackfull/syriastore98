@@ -3116,6 +3116,112 @@ GROUPS = [
             ]),
         ],
     },
+    {
+        "key": 'round4',
+        "title": "P1-SEC-80 round 4 -- a currency symbol is cleaned where it is read, and the Settings handler takes it from the store's own currency row",
+        "tests": ['tests/Feature/Security/CurrencySymbolStoredXssTest.php', 'tests/Unit/Security/CurrencySymbolTest.php'],
+        "mutants": [
+            ('CS-W1 the Settings handler stores the symbol the request names', [
+                ('app/Http/Controllers/SettingController.php',
+                 "$post['defult_currancy_symbol'] = $post['CURRENCY'] = \\App\\Support\\Money\\CurrencySymbol::clean($currencyRate->symbol); if ($newCurrency !== 'USD'",
+                 "if ($newCurrency !== 'USD'"),
+            ]),
+            ("CS-W2 the Settings handler copies the currency row's symbol as it is stored", [
+                ('app/Http/Controllers/SettingController.php',
+                 "$post['defult_currancy_symbol'] = $post['CURRENCY'] = \\App\\Support\\Money\\CurrencySymbol::clean($currencyRate->symbol);",
+                 "$post['defult_currancy_symbol'] = $post['CURRENCY'] = $currencyRate->symbol;"),
+            ]),
+            ("CS-R1 the store's formatter prints the symbol as it is stored", [
+                ('app/Helper/helper.php',
+                 '$currancy_symbol = \\App\\Support\\Money\\CurrencySymbol::clean($currancy_symbol); return ( // P1-SEC-80 round 4: whichever branch chose it, the symbol is cleaned where it is printed',
+                 'return (',
+                 2,
+                 1),
+            ]),
+            ("CS-R2 the platform's formatter prints the symbol as it is stored", [
+                ('app/Helper/helper.php',
+                 '$currancy_symbol = \\App\\Support\\Money\\CurrencySymbol::clean($currancy_symbol); return ( // P1-SEC-80 round 4: whichever branch chose it, the symbol is cleaned where it is printed',
+                 'return (',
+                 2,
+                 2),
+            ]),
+            ("CS-R3 the order's formatter prints the order's snapshot of the symbol as it is stored", [
+                ('app/Helper/helper.php',
+                 "$currancy_symbol = \\App\\Support\\Money\\CurrencySymbol::clean($currancy_symbol); return ( // P1-SEC-80 round 4: the order's snapshot of the symbol is a stored value too",
+                 'return ('),
+            ]),
+            ('CS-R4 SetNumberFormat prints the symbol as it is stored', [
+                ('app/Helper/helper.php',
+                 "$currency = \\App\\Support\\Money\\CurrencySymbol::clean($settings['defult_currancy_symbol'] ?? ($settings['CURRENCY'] ?? '$'));",
+                 "$currency = $settings['defult_currancy_symbol'] ?? ($settings['CURRENCY'] ?? '$');"),
+            ]),
+            ('CS-G1 the settings reader hands out a symbol as it is stored', [
+                ('app/Models/Utility.php',
+                 '\\App\\Support\\Money\\CurrencySymbol::cleanSetting($name, $return);',
+                 '$return;'),
+            ]),
+            ('CS-C1 the cleaner keeps the angle brackets', [
+                ('app/Support/Money/CurrencySymbol.php',
+                 '[\'<\', \'>\', \'"\', "\'", \'`\', \'\\\\\']',
+                 '[\'"\', "\'", \'`\', \'\\\\\']'),
+            ]),
+            ('CS-C2 the cleaner keeps the double quote', [
+                ('app/Support/Money/CurrencySymbol.php',
+                 '[\'<\', \'>\', \'"\', "\'", \'`\', \'\\\\\']',
+                 '[\'<\', \'>\', "\'", \'`\', \'\\\\\']'),
+            ]),
+            ('CS-C3 the cleaner keeps the single quote', [
+                ('app/Support/Money/CurrencySymbol.php',
+                 '[\'<\', \'>\', \'"\', "\'", \'`\', \'\\\\\']',
+                 '[\'<\', \'>\', \'"\', \'`\', \'\\\\\']'),
+            ]),
+            ('CS-C4 the cleaner keeps the backtick', [
+                ('app/Support/Money/CurrencySymbol.php',
+                 '[\'<\', \'>\', \'"\', "\'", \'`\', \'\\\\\']',
+                 '[\'<\', \'>\', \'"\', "\'", \'\\\\\']'),
+            ]),
+            ('CS-C5 the cleaner keeps the backslash', [
+                ('app/Support/Money/CurrencySymbol.php',
+                 '[\'<\', \'>\', \'"\', "\'", \'`\', \'\\\\\']',
+                 '[\'<\', \'>\', \'"\', "\'", \'`\']'),
+            ]),
+            ('CS-C6 the cleaner keeps control characters', [
+                ('app/Support/Money/CurrencySymbol.php',
+                 "$value = preg_replace('/[\\x00-\\x1F\\x7F]+/u', '', $value) ?? '';",
+                 '$value = $value;'),
+            ]),
+            ('CS-C7 the cleaner has no length bound', [
+                ('app/Support/Money/CurrencySymbol.php',
+                 'return mb_substr(trim($value), 0, self::MAX_LENGTH);',
+                 'return trim($value);'),
+            ]),
+            ('CS-C8 the bound counts bytes, not characters', [
+                ('app/Support/Money/CurrencySymbol.php',
+                 'return mb_substr(trim($value), 0, self::MAX_LENGTH);',
+                 'return substr(trim($value), 0, self::MAX_LENGTH);'),
+            ]),
+            ('CS-C9 a value that is not text is cast and printed', [
+                ('app/Support/Money/CurrencySymbol.php',
+                 'if (! is_string($stored) && ! is_int($stored) && ! is_float($stored)) {',
+                 'if (false) {'),
+            ]),
+            ('CS-N1 the reader cleans every setting, not the symbol names', [
+                ('app/Support/Money/CurrencySymbol.php',
+                 'return $value !== null && is_string($name) && in_array($name, self::SETTING_NAMES, true) ? self::clean($value) : $value;',
+                 'return $value !== null ? self::clean($value) : $value;'),
+            ]),
+            ('CS-N2 the reader turns an absent symbol into an empty one', [
+                ('app/Support/Money/CurrencySymbol.php',
+                 'return $value !== null && is_string($name) && in_array(',
+                 'return is_string($name) && in_array('),
+            ]),
+            ('CS-N3 a name is dropped from the list the reader cleans', [
+                ('app/Support/Money/CurrencySymbol.php',
+                 "'CURRENCY_NAME', 'currency_symbol', 'currency'];",
+                 "'CURRENCY_NAME', 'currency_symbol'];"),
+            ]),
+        ],
+    },
 ]
 
 

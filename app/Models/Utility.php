@@ -232,7 +232,7 @@ class Utility extends Model
             }
         }
 
-        return \App\Payments\RetiredGateways::providerForEnableKey($name) !== null ? 'off' : $return;
+        return \App\Payments\RetiredGateways::providerForEnableKey($name) !== null ? 'off' : \App\Support\Money\CurrencySymbol::cleanSetting($name, $return); // P1-SEC-80 round 4: a symbol or a code is cleaned where it is read
     }
 
     public static function GetValByName($name = '', $store_id = '')

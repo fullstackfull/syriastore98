@@ -280,7 +280,7 @@ if (!function_exists('SetNumberFormat')) {
     function SetNumberFormat($number = 0)
     {
         $settings = getAdminAllSetting();
-        $currency = $settings['defult_currancy_symbol'] ?? ($settings['CURRENCY'] ?? '$');
+        $currency = \App\Support\Money\CurrencySymbol::clean($settings['defult_currancy_symbol'] ?? ($settings['CURRENCY'] ?? '$')); // P1-SEC-80 round 4: a stored symbol is printed raw in lists and at the till
         $number_output = number_format($number, 2);
         return $currency . str_replace(',', '', $number_output);
     }
@@ -1649,7 +1649,7 @@ if (!function_exists('currency_format_with_sym')) {
             $defult_currancy_symbol = $company_settings['defult_currancy_symbol'];
             $currancy_symbol = $company_settings['site_currency_symbol_name'] == 'symbol' ? $defult_currancy_symbol : $defult_currancy;
         }
-        return (
+        $currancy_symbol = \App\Support\Money\CurrencySymbol::clean($currancy_symbol); return ( // P1-SEC-80 round 4: whichever branch chose it, the symbol is cleaned where it is printed
             ($symbol_position == "pre") ? $currancy_symbol : '') . ((isset($currency_space) && $currency_space) == 'withspace' ? ' ' : '')
             . number_format($price, $format, $decimal_separator, $thousand_separator) . ((isset($currency_space) && $currency_space) == 'withspace' ? ' ' : '') .
             (($symbol_position == "post") ? $currancy_symbol : '');
@@ -2344,7 +2344,7 @@ if (!function_exists('default_currency_format_with_sym')) {
             $currancy_symbol = $company_settings['site_currency_symbol_name'] == 'symbol' ? $defult_currancy_symbol : $defult_currancy;
         }
 
-        return (
+        $currancy_symbol = \App\Support\Money\CurrencySymbol::clean($currancy_symbol); return ( // P1-SEC-80 round 4: whichever branch chose it, the symbol is cleaned where it is printed
             ($symbol_position == "pre") ? $currancy_symbol : '') . ((isset($currency_space) && $currency_space) == 'withspace' ? ' ' : '')
             . number_format($price, $format, $decimal_separator, $thousand_separator) . ((isset($currency_space) && $currency_space) == 'withspace' ? ' ' : '') .
             (($symbol_position == "post") ? $currancy_symbol : '');
@@ -2432,7 +2432,7 @@ if (!function_exists('order_currency_format_with_sym')) {
             $currancy_symbol = $use_symbol_not_name ? $defult_currancy_symbol : $defult_currancy;
         }
 
-        return (
+        $currancy_symbol = \App\Support\Money\CurrencySymbol::clean($currancy_symbol); return ( // P1-SEC-80 round 4: the order's snapshot of the symbol is a stored value too
             ($symbol_position == "pre") ? $currancy_symbol : '') . (($currency_space === 'withspace') ? ' ' : '')
             . number_format((float) $price, (int) $format, $decimal_separator, $thousand_separator) . (($currency_space === 'withspace') ? ' ' : '') .
             (($symbol_position == "post") ? $currancy_symbol : '');
