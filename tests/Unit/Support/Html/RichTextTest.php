@@ -64,6 +64,36 @@ final class RichTextTest extends TestCase
         $this->assertSame($expected, RichText::clean($in));
     }
 
+    /** @return array<string, array{?string, ?string}> a stored colour that is one, and what is written for it; and a value that is not, which is NOTHING */
+    public static function colours(): array
+    {
+        return [
+            'a hex colour, written in lower case' => ['#FF8800', '#ff8800'],
+            'a short hex colour'                  => ['#fff', '#fff'],
+            'a hex colour with an alpha'          => ['#ff880080', '#ff880080'],
+            'a colour name'                       => ['Red', 'red'],
+            'rgb'                                 => ['rgb(1, 2, 3)', 'rgb(1, 2, 3)'],
+            'rgba'                                => ['rgba(1,2,3,0.5)', 'rgba(1,2,3,0.5)'],
+            'surrounding space'                   => ['  #fff ', '#fff'],
+            'a null'                              => [null, null],
+            'an empty string'                     => ['', null],
+            'a quote that would close the attribute'      => ['red;" onmouseover="alert(1)', null],
+            'a second declaration'                        => ['red; background: url(x)', null],
+            'a url'                                       => ['url(javascript:alert(1))', null],
+            'a script URL'                                => ['javascript:alert(1)', null],
+            'a function that is not a colour'             => ['expression(alert(1))', null],
+            'a hex of two digits'                         => ['#ff', null],
+            'a run of letters longer than any colour name' => [str_repeat('a', 21), null],
+            'an rgb with a fourth channel'                => ['rgb(1,2,3,4)', null],
+        ];
+    }
+
+    #[DataProvider('colours')]
+    public function test_a_colour_is_written_when_it_is_one_and_dropped_when_it_is_not(?string $in, ?string $expected): void
+    {
+        $this->assertSame($expected, RichText::cssColor($in));
+    }
+
     public function test_a_null_is_nothing_and_a_number_is_text(): void
     {
         $this->assertSame('', RichText::clean(null));

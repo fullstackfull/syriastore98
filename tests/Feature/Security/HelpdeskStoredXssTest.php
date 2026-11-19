@@ -22,7 +22,8 @@ use Workdo\Helpdesk\DataTables\HelpdeskData;
  *                   and declares them `rawColumns` -- so what a merchant types into a ticket's name or subject, or into their own profile name, is HTML in the first page the operator opens.
  *
  * The operator has to open tickets, so this is the shortest path from a registered merchant to a platform-operator session. (The project's `XSS` middleware is an opt-in alias, is on none
- * of these routes, and is a substring blocklist.) `GET helpdesk-ticket-show/{ticketId}` has no `auth` at all, so the same text also reaches whoever follows a ticket link.
+ * of these routes, and is a substring blocklist.) `GET helpdesk-ticket-show/{ticketId}` is DECLARED with no `auth` middleware, but a request with no session is redirected to the login
+ * page (executed, below), so its reader is a signed-in user (the case below is the operator's).
  *
  * THE CONTROL IS HOST-SIDE, because the module is vendored: `resources/views/vendor/helpdesk/helpdesk_ticket/{show,ticket_reply}.blade.php` override the two views (the namespace is
  * `helpdesk`, and `loadViewsFrom()` looks in `resources/views/vendor/<namespace>` first) and print the rich text through `App\Support\Html\RichText::clean()`;
@@ -229,9 +230,34 @@ class HelpdeskStoredXssTest extends SecurityTestCase
         $row = $this->listRows($w['operator']);
 
         $this->assertSame([], $this->offences($row['category_id'] . $row['status_id']));
+
+        // the names of the category and the status are text, in both cells
         $this->assertStringContainsString('&lt;b&gt;cat&lt;/b&gt;', $row['category_id']);
-        $this->assertStringNotContainsString('onmouseover="', $row['category_id']);
-        $this->assertStringNotContainsString('onfocus="', $row['status_id']);
+        $this->assertStringContainsString('&lt;i&gt;st&lt;/i&gt;', $row['status_id']);
+
+        // a value that is not a colour is DROPPED WITH ITS ATTRIBUTE: there is no `style` left to close, and nothing of the value is printed (escaping alone would leave a style attribute holding the junk)
+        $this->assertStringNotContainsString('style=', $row['category_id']);
+        $this->assertStringNotContainsString('style=', $row['status_id']);
+        $this->assertStringNotContainsString('onmouseover', $row['category_id']);
+        $this->assertStringNotContainsString('onfocus', $row['status_id']);
+    }
+
+    /** a CONTROL: a colour a merchant really stores still paints the badge (an over-strict colour rule would turn every badge grey and no other test would notice) */
+    public function test_a_stored_colour_still_paints_the_badge(): void
+    {
+        $this->enable();
+        $w = $this->world();
+
+        $category = (int) DB::table('helpdesk_categories')->insertGetId(['name' => 'Billing', 'color' => '#FF8800', 'created_by' => $w['merchant']->id, 'created_at' => now(), 'updated_at' => now()]);
+        $status = (int) DB::table('helpdesk_statuses')->insertGetId(['status_name' => 'Open', 'status_color' => 'rgb(1, 2, 3)', 'created_by' => $w['merchant']->id, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('helpdesk_tickets')->where('id', $w['ticketId'])->update(['category_id' => $category, 'status_id' => $status]);
+
+        $row = $this->listRows($w['operator']);
+
+        $this->assertStringContainsString('style="background: #ff8800;"', $row['category_id'], 'The colour is written, normalised to lower case.');
+        $this->assertStringContainsString('>Billing</span>', $row['category_id']);
+        $this->assertStringContainsString('style="background: rgb(1, 2, 3);"', $row['status_id']);
+        $this->assertStringContainsString('>Open</span>', $row['status_id']);
     }
 
     // ---- the overrides are verbatim copies -------------------------------------------------------

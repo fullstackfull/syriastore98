@@ -117,9 +117,9 @@ final class RichText
                 continue;
             }
 
-            // past the depth limit only the TEXT of what is left is kept (not the code of a script that is in it)
-            $inner = $depth >= self::MAX_DEPTH ? self::text($node) : self::children($node, $depth + 1);
+            $inner = self::children($node, $depth + 1);
 
+            // an element that is not on the list, and every element past the depth limit, is unwrapped: its (escaped) text stays, its tag does not
             if (! isset(self::ELEMENTS[$tag]) || $depth >= self::MAX_DEPTH) {
                 $out .= $inner;
 
@@ -133,22 +133,6 @@ final class RichText
             }
 
             $out .= isset(self::VOID[$tag]) ? '<' . $tag . $attributes . '>' : '<' . $tag . $attributes . '>' . $inner . '</' . $tag . '>';
-        }
-
-        return $out;
-    }
-
-    /** the text of a subtree, escaped, without the content of the elements that are dropped with it */
-    private static function text(\DOMNode $node): string
-    {
-        $out = '';
-
-        foreach ($node->childNodes as $child) {
-            if ($child instanceof \DOMText) {
-                $out .= htmlspecialchars(str_replace("\0", '', $child->data), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-            } elseif ($child instanceof \DOMElement && ! in_array(strtolower($child->nodeName), self::DROP_WITH_CONTENT, true)) {
-                $out .= self::text($child);
-            }
         }
 
         return $out;

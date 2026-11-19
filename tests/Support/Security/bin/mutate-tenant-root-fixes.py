@@ -67,6 +67,9 @@ DECLARED_SURVIVORS = {
             "could build an object -- an object, an enum, a custom-serialised object, a reference -- before unserialize() is called, so over the bytes that reach it "
             "the option cannot change the answer: EQUIVALENT BY CONSTRUCTION. It is kept as the belt to the grammar's braces (a future grammar bug would otherwise be an "
             "object-injection door again), and the grammar's own fuzz case pins that PHP agrees with it on everything it accepts.",
+    'RT17': "A NUL byte is kept in a text node: `str_replace(\"\\0\", '', $node->data)` becomes `$node->data`. EQUIVALENT ON THIS PARSER: libxml 2.9.14 (PHP 8.3.6) never hands a NUL to "
+            "a text node or an attribute value -- it reads it as a space, or ends the parse there and drops the rest of the input (probe in the work queue, P1-SEC-75) -- so the line cannot "
+            "change an output today. It is kept as the belt for a libxml that does; the Chromium differential and the corpus (which holds NUL bytes) would show it if one did.",
     'SD27': "A delete that is ALLOWED and then FAILS must answer false, as Filesystem::delete() does: `$success = parent::delete($real) && $success;` becomes "
             "`parent::delete($real);`. UNTESTED, NOT EQUIVALENT: a failure after the verdict (a read-only directory, an immutable file) cannot be provoked by a test that "
             "runs as root, for whom neither fails, and the class is final, so its parent's call cannot be replaced. Recorded in the work queue (P1-SEC-70 d).",
@@ -2249,80 +2252,75 @@ GROUPS = [
             ]),
             ('RT16 the depth limit is gone', [
                 ('app/Support/Html/RichText.php',
-                 "$inner = $depth >= self::MAX_DEPTH ? self::text($node) : self::children($node, $depth + 1);",
-                 "$inner = self::children($node, $depth + 1);"),
+                 "            if (! isset(self::ELEMENTS[$tag]) || $depth >= self::MAX_DEPTH) {\n                $out .= $inner;",
+                 "            if (! isset(self::ELEMENTS[$tag])) {\n                $out .= $inner;"),
             ]),
-            ('RT17 past the depth limit the text of a dropped element is kept', [
-                ('app/Support/Html/RichText.php',
-                 "            } elseif ($child instanceof \\DOMElement && ! in_array(strtolower($child->nodeName), self::DROP_WITH_CONTENT, true)) {",
-                 "            } elseif ($child instanceof \\DOMElement) {"),
-            ]),
-            ('RT18 a null byte is kept in the text', [
+            ('RT17 a null byte is kept in the text', [
                 ('app/Support/Html/RichText.php',
                  "                $out .= htmlspecialchars(str_replace(\"\\0\", '', $node->data), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');\n",
                  "                $out .= htmlspecialchars($node->data, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');\n"),
             ]),
-            ('RT19 an element that is not on the list keeps nothing (its text is dropped too)', [
+            ('RT18 an element that is not on the list keeps nothing (its text is dropped too)', [
                 ('app/Support/Html/RichText.php',
                  "            if (! isset(self::ELEMENTS[$tag]) || $depth >= self::MAX_DEPTH) {\n                $out .= $inner;\n\n                continue;\n            }",
                  "            if (! isset(self::ELEMENTS[$tag]) || $depth >= self::MAX_DEPTH) {\n                continue;\n            }"),
             ]),
-            ('RT20 a colour that is not a colour reaches the badge', [
+            ('RT19 a colour that is not a colour reaches the badge', [
                 ('app/Support/Html/RichText.php',
                  "        return preg_match(self::COLOR, $value) === 1 ? strtolower($value) : null;",
                  "        return $value === '' ? null : $value;"),
             ]),
-            ('RT21 the ticket list is not the escaping subclass', [
+            ('RT20 the ticket list is not the escaping subclass', [
                 ('app/Providers/AppServiceProvider.php',
                  "        $this->app->bind(\\Workdo\\Helpdesk\\DataTables\\HelpdeskData::class, \\App\\DataTables\\SafeHelpdeskData::class);\n",
                  ''),
             ]),
-            ('RT22 the name cell is not escaped', [
+            ('RT21 the name cell is not escaped', [
                 ('app/DataTables/SafeHelpdeskData.php',
                  "'<span class=\"white-space\">' . e($ticket->name) . '</span>'",
                  "'<span class=\"white-space\">' . $ticket->name . '</span>'"),
             ]),
-            ('RT23 the subject cell is not escaped', [
+            ('RT22 the subject cell is not escaped', [
                 ('app/DataTables/SafeHelpdeskData.php',
                  "'<span class=\"white-space\">' . e($ticket->subject) . '</span>'",
                  "'<span class=\"white-space\">' . $ticket->subject . '</span>'"),
             ]),
-            ('RT24 the creator profile name is not escaped', [
+            ('RT23 the creator profile name is not escaped', [
                 ('app/DataTables/SafeHelpdeskData.php',
                  "'<span class=\"text-primary\">' . e($ticket->createdBy?->name) . '</span>'",
                  "'<span class=\"text-primary\">' . $ticket->createdBy?->name . '</span>'"),
             ]),
-            ('RT25 the category name is not escaped', [
+            ('RT24 the category name is not escaped', [
                 ('app/DataTables/SafeHelpdeskData.php',
                  "'>' . e($ticket->getTicketCategory->name ?? '') . '</span>'",
                  "'>' . ($ticket->getTicketCategory->name ?? '') . '</span>'"),
             ]),
-            ('RT26 the status name is not escaped', [
+            ('RT25 the status name is not escaped', [
                 ('app/DataTables/SafeHelpdeskData.php',
                  "'>' . e($ticket->getTicketStatus->status_name ?? '') . '</span>'",
                  "'>' . ($ticket->getTicketStatus->status_name ?? '') . '</span>'"),
             ]),
-            ('RT27 the badge background is written from the stored colour as it is', [
+            ('RT26 the badge background is written from the stored colour as it is', [
                 ('app/DataTables/SafeHelpdeskData.php',
                  "        $color = RichText::cssColor($color);\n",
                  ''),
             ]),
-            ('RT28 the conversation view prints the description raw', [
+            ('RT27 the conversation view prints the description raw', [
                 ('resources/views/vendor/helpdesk/helpdesk_ticket/ticket_reply.blade.php',
                  '{!! \\App\\Support\\Html\\RichText::clean($ticket->description) !!}',
                  '{!! $ticket->description !!}'),
             ]),
-            ('RT29 the conversation view prints a reply raw', [
+            ('RT28 the conversation view prints a reply raw', [
                 ('resources/views/vendor/helpdesk/helpdesk_ticket/ticket_reply.blade.php',
                  '{!! \\App\\Support\\Html\\RichText::clean($conversion->description) !!}',
                  '{!! $conversion->description !!}'),
             ]),
-            ('RT30 the ticket page prints the description raw', [
+            ('RT29 the ticket page prints the description raw', [
                 ('resources/views/vendor/helpdesk/helpdesk_ticket/show.blade.php',
                  '{!! \\App\\Support\\Html\\RichText::clean($ticket->description) !!}',
                  '{!! $ticket->description !!}'),
             ]),
-            ('RT31 the ticket page prints a reply raw', [
+            ('RT30 the ticket page prints a reply raw', [
                 ('resources/views/vendor/helpdesk/helpdesk_ticket/show.blade.php',
                  '{!! \\App\\Support\\Html\\RichText::clean($conversion->description) !!}',
                  '{!! $conversion->description !!}'),
