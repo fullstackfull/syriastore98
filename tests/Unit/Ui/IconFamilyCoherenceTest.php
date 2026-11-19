@@ -41,9 +41,9 @@ class IconFamilyCoherenceTest extends TestCase
     /**
      * Verbatim copies of a VENDORED module's screens, kept in the host only so that the text a merchant typed is printed through the sanitizer (P1-SEC-75). They print what the module's own
      * markup prints -- the same reason `vendor/installer/` is counted below and left alone -- and tests/Feature/Security/HelpdeskStoredXssTest pins each of them equal to the vendored view
-     * except for the two expressions that print the text, so they cannot become a place where new first-party markup hides.
+     * except for the expressions that print the text. THE TWO FILES ARE NAMED, not the directory: a third view added under `vendor/helpdesk/` is first-party markup and is counted.
      */
-    private const VERBATIM_VENDORED = ['vendor/helpdesk'];
+    private const VERBATIM_VENDORED = ['vendor/helpdesk/helpdesk_ticket/show.blade.php', 'vendor/helpdesk/helpdesk_ticket/ticket_reply.blade.php'];
 
     /**
      * Matched INSIDE a class attribute only. A bare prefix match is what produced the wrong
@@ -117,10 +117,13 @@ class IconFamilyCoherenceTest extends TestCase
                 continue;
             }
             $rel = substr($file->getPathname(), strlen($base) + 1);
-            foreach (array_merge(self::NOT_MERCHANT, self::VERBATIM_VENDORED) as $skip) {
+            foreach (self::NOT_MERCHANT as $skip) {
                 if (str_starts_with($rel, $skip . '/')) {
                     continue 2;
                 }
+            }
+            if (in_array($rel, self::VERBATIM_VENDORED, true)) {
+                continue;
             }
             $src = $this->withoutBladeComments((string) file_get_contents($file->getPathname()));
             foreach (self::FAMILIES as $family => $pattern) {

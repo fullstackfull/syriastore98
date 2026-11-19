@@ -49,8 +49,9 @@ class BreadcrumbContractTest extends TestCase
             if (! $file->isFile() || ! str_ends_with($file->getFilename(), '.blade.php')) {
                 continue;
             }
-            // Verbatim copies of a vendored module's screens (P1-SEC-75): the module's own markup, pinned equal to the vendored view by tests/Feature/Security/HelpdeskStoredXssTest
-            if (str_starts_with(str_replace($root . '/', '', $file->getPathname()), 'vendor/helpdesk/')) {
+            // Verbatim copies of a vendored module's screens (P1-SEC-75): the module's own markup, pinned equal to the vendored view by tests/Feature/Security/HelpdeskStoredXssTest.
+            // The two files are NAMED, not the directory: a third view under `vendor/helpdesk/` is first-party markup and is held to the contract.
+            if (in_array(str_replace($root . '/', '', $file->getPathname()), ['vendor/helpdesk/helpdesk_ticket/show.blade.php', 'vendor/helpdesk/helpdesk_ticket/ticket_reply.blade.php'], true)) {
                 continue;
             }
             $src = (string) file_get_contents($file->getPathname());
