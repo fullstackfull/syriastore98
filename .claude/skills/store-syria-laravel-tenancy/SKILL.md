@@ -159,9 +159,12 @@ vacuous tests repeatedly. Seventeen ways they pass for the wrong reason, all mea
    string in an INTEGER column, NULL into NOT NULL under `strict => false`, and case/accent-
    insensitive `whereIn`. Evidence that cannot live in the suite goes in
    `tests/Support/Security/bin/` as a script stating its own preconditions. **A NAME compared in PHP is not the engine's comparison**: `utf8mb4_unicode_ci` also
-   folds accents, zero-width and no-break spaces and full-width letters, so a write-side rule keyed on a setting's name (`/_sign_in_image$/`) never sees a row that
-   the handler's `where name = ...` finds (P1-SEC-70, executed on MariaDB; S46 on MySQL 8.0.46; the writer is P1-SEC-78, open). Put the name to the engine, or refuse a
-   name that is not printable ASCII (`StoreSettingsAccess` already says no form posts one).
+   folds accents, zero-width and no-break spaces and full-width letters, and the 255-character column CUTS a longer name (MySQL 8.0 also at an invalid byte), so a
+   write-side rule keyed on a setting's name (`/_sign_in_image$/`) never saw a row that the handler's `where name = ...` finds (P1-SEC-70/78, executed on MariaDB: of
+   197,624 candidate names the engine found 2,331 and the old rule let 1,696 through; S46 on MySQL 8.0.46). **Judge the name as the COLUMN stores it and put a name that is
+   not plain printable ASCII to the engine -- `HostClaims`, `StoredPathPolicy::isSignInName` -- do NOT refuse it:** the first form of P1-SEC-78 refused every such name and
+   broke 23 `HostClaimsTest` cases that pin a review's decision ("an accented name that is not a host name is still saved"); running the tests that name the neighbouring
+   rules, before committing, is what found it. A stand-in `lower()` for SQLite lives as long as the PDO, so take it out after the test.
 5. **`actingAs` tightened the scope the test was meant to measure.**
    `actingAs($customer, 'customers')` also calls `shouldUse('customers')`, so `auth()->user()` —
    which `StoreScope::resolveTenant()` calls, web-guard-only by design — starts returning the
