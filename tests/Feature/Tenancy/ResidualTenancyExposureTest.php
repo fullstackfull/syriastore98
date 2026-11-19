@@ -523,7 +523,9 @@ class ResidualTenancyExposureTest extends TestCase
             // across all of them.
             // DELIBERATELY NOT FIXED here: the correct store id on the anonymous branch has to
             // come from the slug-resolved store, which is plumbing in app/Http/** and themes/**.
-            'app/Models/Utility.php:910',
+            // SHIFTED (+1 here, +2 below) on 2026-11-19: P1-SEC-73 added the remote-write checks to the uploader functions above these sites.
+            // THE SITES ARE UNCHANGED -- each was verified to be the same construct it named before.
+            'app/Models/Utility.php:911',
 
             // ------------------------------------------------------------------------------
             // FOREIGN_KEY_CHECKS toggles around the country/state/city reference-data import.
@@ -537,12 +539,12 @@ class ResidualTenancyExposureTest extends TestCase
             // numbers moves whenever a comment does, which is why the D13 store-less
             // declaration in OwnedPathRawQueryInventoryTest keys on a statement fragment
             // instead.
-            'app/Models/Utility.php:3406',
             'app/Models/Utility.php:3408',
-            'app/Models/Utility.php:3431',
+            'app/Models/Utility.php:3410',
             'app/Models/Utility.php:3433',
-            'app/Models/Utility.php:3447',
+            'app/Models/Utility.php:3435',
             'app/Models/Utility.php:3449',
+            'app/Models/Utility.php:3451',
 
         ], $sites, 'The raw-query inventory in the owned models changed. A NEW site here is '
             . 'invisible to every global scope and needs an explicit predicate written at the '
