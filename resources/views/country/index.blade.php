@@ -485,7 +485,7 @@
                         $('#city_state_id').append('<option value="" disabled>{{ __('Select State') }}</option>');
 
                         $.each(data, function(key, value) {
-                            $('#city_state_id').append('<option value="' + key + '">' + value + '</option>');
+                            $('#city_state_id').append($('<option>').val(key).text(value));
                         });
                         $('#city_state_id').val('');
                     }

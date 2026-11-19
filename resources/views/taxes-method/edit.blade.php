@@ -72,16 +72,11 @@
                 $(this).closest('.row').find('.nice-select.state_chage').remove();
                 var state = $(this).closest('.row').find('.state_chage').attr('data-select');
 
-                var option = '';
+                // P1-SEC-80: state names become <option> NODES (text), never concatenated markup.
+                var $stateSelect = $(this).closest('.row').find('.state_chage').empty();
                 $.each(response, function(i, item) {
-                    var checked = '';
-                    if (i == state) {
-                        var checked = 'checked';
-                    }
-                    option += '<option value="' + i + '" ' + checked + '>' + item +
-                        '</option>';
+                    $stateSelect.append($('<option>').val(i).text(item));
                 });
-                $(this).closest('.row').find('.state_chage').html(option);
                 $(this).closest('.row').find('.state_chage').val(state);
 
                 /* A new country invalidates the city as well as the state. Without this the city select kept
@@ -113,13 +108,11 @@
                 $(this).closest('.row').find('.nice-select.city_chage').remove();
                 var city = $(this).closest('.row').find('.city_chage').attr('data-select');
 
-                var option = '';
+                // P1-SEC-80: city names become <option> NODES (text), never concatenated markup.
+                var $citySelect = $(this).closest('.row').find('.city_chage').empty();
                 $.each(response, function(i, item) {
-                    var selected = (i == city) ? 'selected' : '';
-                    option += '<option value="' + i + '" ' + selected + '>' + item +
-                        '</option>';
+                    $citySelect.append($('<option>').val(i).text(item));
                 });
-                $(this).closest('.row').find('.city_chage').html(option);
                 $(this).closest('.row').find('.city_chage').val(city);
                 if (city != 0) {
                     $(this).closest('.row').find('.city_chage').trigger('change');

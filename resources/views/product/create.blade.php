@@ -857,9 +857,7 @@
             $.each(data, function(key, value) {
               $('.attribute_options_datas').empty();
 
-              $(".attribute").append(
-                '<option class="option-item" value="' + key + '">' +
-                value + '</option>');
+              $(".attribute").append($('<option class="option-item">').val(key).text(value)); // P1-SEC-80: an attribute option's name is text
             });
 
             var multipleCancelButton = new Choices('#attribute' + attribute_id, {

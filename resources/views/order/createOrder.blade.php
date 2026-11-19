@@ -322,6 +322,17 @@
 @endpush
 
 @push('custom-script')
+{{--
+    P1-SEC-80. The product options used to be written INTO the template literal below with Blade `{{ }}`. That escapes HTML, not JavaScript: a product named with a backtick and `${` ran as code
+    on this page, with no tag in it. The options are real markup in a <template> now (Blade escapes them for the context they are in), and the script reads that markup back with
+    `.innerHTML`, which never puts a product name into the SCRIPT.
+--}}
+<template id="ss-product-options">
+    <option value="">{{ __('Select Product') }}</option>
+    @foreach($products as $product)
+        <option value="{{ $product->id }}" data-price="{{ $product->price }}">{{ $product->name }} - {{ number_format($product->price, 2) }}</option>
+    @endforeach
+</template>
 <script>
     let productIndex = 1;
 
@@ -366,12 +377,7 @@
                 <div class="col-md-4">
                     <label class="form-label">{{ __('Product') }}</label><span class="ss-label__required" aria-hidden="true">*</span>
                     <select name="products[${productIndex}][product_id]" class="form-control product-select" required>
-                        <option value="">{{ __('Select Product') }}</option>
-                        @foreach($products as $product)
-                            <option value="{{ $product->id }}" data-price="{{ $product->price }}">
-                                {{ $product->name }} - {{ number_format($product->price, 2) }}
-                            </option>
-                        @endforeach
+                        ${document.getElementById('ss-product-options').innerHTML}
                     </select>
                 </div>
                 <div class="col-md-2">

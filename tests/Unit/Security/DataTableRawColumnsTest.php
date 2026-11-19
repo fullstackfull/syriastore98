@@ -65,15 +65,19 @@ final class DataTableRawColumnsTest extends TestCase
         'app/Http/Controllers/WoocomProductController.php' => ['cover_image' => ['E']],
     ];
 
-    /** the first-party files that declare raw columns: the DataTables and the controllers that build their own */
+    /** every first-party PHP file under app/ (a raw column is declared wherever a DataTable is built, not only in app/DataTables) */
     private static function files(): array
     {
-        $root = dirname(__DIR__, 3);
-        $files = array_merge(
-            glob($root . '/app/DataTables/*.php') ?: [],
-            glob($root . '/app/Http/Controllers/*.php') ?: [],
-            glob($root . '/app/Http/Controllers/*/*.php') ?: [],
-        );
+        $files = [];
+        $root = dirname(__DIR__, 3) . '/app';
+
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS)) as $file) {
+            if ($file->isFile() && $file->getExtension() === 'php') {
+                $files[] = $file->getPathname();
+            }
+        }
+
+        sort($files);
 
         return $files;
     }
@@ -167,6 +171,30 @@ final class DataTableRawColumnsTest extends TestCase
         }
 
         return implode("\n", $sources);
+    }
+
+    /**
+     * The ratchet reads `rawColumns([ 'a', 'b' ])`. A call it cannot read (a variable, `array_merge(...)`, a constant) would be a raw column it never sees, so such a call fails here
+     * until it is rewritten in the readable shape, and so does any call that reconfigures what yajra escapes.
+     */
+    public function test_every_rawcolumns_call_is_one_the_parser_can_read_and_nobody_changes_what_is_escaped(): void
+    {
+        $root = dirname(__DIR__, 3);
+        $calls = 0;
+
+        foreach (self::files() as $path) {
+            $code = self::code($path);
+            $relative = ltrim(str_replace($root, '', $path), '/');
+
+            $all = preg_match_all('/rawColumns\s*\(/', $code);
+            $readable = preg_match_all('/rawColumns\(\s*\[(.*?)\]\s*\)/s', $code);
+            $this->assertSame($all, $readable, $relative . ': a rawColumns() call is not a literal list, so a raw column in it would be invisible to this ratchet');
+            $this->assertSame(0, preg_match_all('/->\s*(?:escapeColumns|setEscapeColumns)\s*\(/', $code), $relative . ': escapeColumns() changes what yajra escapes; every column it exempts is a raw column the ratchet cannot see');
+
+            $calls += $all;
+        }
+
+        $this->assertGreaterThanOrEqual(30, $calls, 'premise: the scan found too few rawColumns() calls to mean anything');
     }
 
     public function test_the_parse_finds_what_it_is_meant_to_find(): void

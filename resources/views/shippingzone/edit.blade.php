@@ -59,16 +59,11 @@
                 $(this).closest('.row').find('.nice-select.state_chage').remove();
                 var state = $(this).closest('.row').find('.state_chage').attr('data-select');
 
-                var option = '';
+                // P1-SEC-80: state names become <option> NODES (text), never concatenated markup.
+                var $stateSelect = $(this).closest('.row').find('.state_chage').empty();
                 $.each(response, function(i, item) {
-                    var checked = '';
-                    if (i == state) {
-                        var checked = 'checked';
-                    }
-                    option += '<option value="' + i + '" ' + checked + '>' + item +
-                        '</option>';
+                    $stateSelect.append($('<option>').val(i).text(item));
                 });
-                $(this).closest('.row').find('.state_chage').html(option);
                 $(this).closest('.row').find('.state_chage').val(state);
 
                 if (state != 0) {

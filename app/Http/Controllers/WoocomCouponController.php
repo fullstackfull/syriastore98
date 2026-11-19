@@ -49,9 +49,11 @@ class WoocomCouponController extends Controller
                     if (request()->ajax()) {
                         $upddata = WoocommerceConection::where('store_id', getCurrentStore())->where('module','=','coupon')->get()->pluck('woocomerce_id')->toArray();
                         return DataTables::of($jsonData)
+                            // P1-SEC-80. WooCommerce returns text entity-encoded: decode to text here, and yajra escapes once.
                             ->addColumn('name', function ($data) {
-                                return !empty($data->code) ? $data->code : "-";
+                                return !empty($data->code) ? html_entity_decode((string) $data->code, ENT_QUOTES | ENT_HTML5, 'UTF-8') : "-";
                             })
+                            ->editColumn('code', fn ($data) => html_entity_decode((string) ($data->code ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'))
                             ->editColumn('amount', function ($data) {
                                 // Determine the icon based on the discount type
                                 if ($data->discount_type == 'fixed_cart') {

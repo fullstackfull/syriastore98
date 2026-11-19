@@ -782,8 +782,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
     @php
         $currentSearchValue = request('search_value', '');
+        // P1-SEC-80. The search field is written below with innerHTML, and `search_value` is the REQUEST's: a link carrying `?search_field=description&search_value="><img ...>` fired this
+        // script's change handler on load and put the value into the markup unescaped. The script gets TWO copies: the raw one, which is only ever COMPARED (the select templates), and an
+        // HTML-escaped one for every `value="..."` it writes.
+        $currentSearchValue = is_scalar($currentSearchValue) ? (string) $currentSearchValue : '';
+        $currentSearchValueHtml = e($currentSearchValue);
     @endphp
     const currentSearchValue = {!! json_encode($currentSearchValue) !!};
+    const currentSearchValueHtml = {!! json_encode($currentSearchValueHtml) !!};
 
     searchField.addEventListener('change', function() {
         const selectedField = this.value;
@@ -800,9 +806,9 @@ document.addEventListener('DOMContentLoaded', function() {
         searchInputContainer.innerHTML = '';
 
         if (selectedField === 'id') {
-            searchInputContainer.innerHTML = `<input type="number" name="search_value" id="searchValue" class="form-control" placeholder="{{ __('Enter Transaction ID...') }}" value="${currentSearchValue || ''}" min="1">`;
+            searchInputContainer.innerHTML = `<input type="number" name="search_value" id="searchValue" class="form-control" placeholder="{{ __('Enter Transaction ID...') }}" value="${currentSearchValueHtml || ''}" min="1">`;
         } else if (selectedField === 'created_at') {
-            searchInputContainer.innerHTML = `<input type="date" name="search_value" id="searchValue" class="form-control" value="${currentSearchValue || ''}">`;
+            searchInputContainer.innerHTML = `<input type="date" name="search_value" id="searchValue" class="form-control" value="${currentSearchValueHtml || ''}">`;
         } else if (selectedField === 'type') {
             searchInputContainer.innerHTML = `
                 <select name="search_value" id="searchValue" class="form-select">
@@ -821,11 +827,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     <option value="adjustment" ${currentSearchValue === 'adjustment' ? 'selected' : ''}>{{ __('Adjustment') }}</option>
                 </select>`;
         } else if (selectedField === 'description') {
-            searchInputContainer.innerHTML = `<input type="text" name="search_value" id="searchValue" class="form-control" placeholder="{{ __('Enter description...') }}" value="${currentSearchValue || ''}">`;
+            searchInputContainer.innerHTML = `<input type="text" name="search_value" id="searchValue" class="form-control" placeholder="{{ __('Enter description...') }}" value="${currentSearchValueHtml || ''}">`;
         } else if (selectedField === 'currency_code') {
-            searchInputContainer.innerHTML = `<input type="text" name="search_value" id="searchValue" class="form-control" placeholder="{{ __('e.g., USD, SYP, EUR') }}" value="${currentSearchValue || ''}" style="text-transform: uppercase;">`;
+            searchInputContainer.innerHTML = `<input type="text" name="search_value" id="searchValue" class="form-control" placeholder="{{ __('e.g., USD, SYP, EUR') }}" value="${currentSearchValueHtml || ''}" style="text-transform: uppercase;">`;
         } else if (selectedField === 'credit' || selectedField === 'debit' || selectedField === 'balance_before' || selectedField === 'balance_after') {
-            searchInputContainer.innerHTML = `<input type="number" name="search_value" id="searchValue" class="form-control" placeholder="{{ __('Enter amount...') }}" value="${currentSearchValue || ''}" min="0" step="0.01">`;
+            searchInputContainer.innerHTML = `<input type="number" name="search_value" id="searchValue" class="form-control" placeholder="{{ __('Enter amount...') }}" value="${currentSearchValueHtml || ''}" min="0" step="0.01">`;
         } else if (selectedField === 'status') {
             searchInputContainer.innerHTML = `
                 <select name="search_value" id="searchValue" class="form-select">

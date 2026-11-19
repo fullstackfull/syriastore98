@@ -62,8 +62,10 @@ class WoocomProductController extends Controller
                             $imgSrc = !empty($data->images) ? get_file($data->images['0']->src) : asset(Storage::url('uploads/woocommerce.png'));
                             return '<img src="' . e($imgSrc) . '" alt="" width="100" class="cover_img">';
                         })   
+                        // P1-SEC-80. WordPress returns names entity-encoded (`Hats &amp; Caps`): decode to text here, and yajra escapes once.
+                        ->editColumn('name', fn ($data) => html_entity_decode((string) ($data->name ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'))
                         ->editColumn('category_name', function ($data) {
-                            return $data->categories['0']->name ?? '-';
+                            return html_entity_decode((string) ($data->categories['0']->name ?? '-'), ENT_QUOTES | ENT_HTML5, 'UTF-8');
                         })      
                         ->addColumn('action', function ($customer) use ($upddata) {
                             return view('woocommerce.product_action', compact('customer','upddata'));

@@ -62,6 +62,8 @@ class WoocomCustomerController extends Controller
                             ->editColumn('phone', function ($customer) {
                                 return !empty($customer->billing) ? $customer->billing->phone : ($customer->shipping->phone ?? '-');
                             })
+                            // P1-SEC-80. WordPress returns a user's name entity-encoded: decode to text here, and yajra escapes once.
+                            ->editColumn('first_name', fn ($customer) => html_entity_decode((string) ($customer->first_name ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'))
                             ->addColumn('action', function ($customer) use ($upddata) {
                                 return view('woocommerce.customer_action', compact('customer','upddata'));
                             })

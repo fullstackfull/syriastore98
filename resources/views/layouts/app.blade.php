@@ -887,7 +887,7 @@
 
             '<div class="row">' +
             '<div class="form-group col-lg-6 col-12">' +
-            '<label for="choice_attributes" class="col-6">' + name + ':</label></div>' +
+            '<label for="choice_attributes" class="col-6">' + $('<div>').text(name).html() + ':</label></div>' + // P1-SEC-80: `name` is the attribute's text() read back from the DOM; escape it before it becomes markup again
 
             '<div class="form-group col-lg-6 col-12 d-flex justify-content-end all-button-box">' +
             '<a href="#" class="btn btn-sm btn-primary add_attribute btn-badge" data-ajax-popup="true" data-title="{{ __('Add Attribute Option') }}" data-size="md" ' +
