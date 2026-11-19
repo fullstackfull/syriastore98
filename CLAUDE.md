@@ -42,7 +42,7 @@ Each of these has produced a real defect. Do not assume the framework default.
 **Authentication**
 
 - Three *session* guards: `web`, `customers`, `deliveryboy`, and **no `api` guard**. There **is** a
-  `sanctum` one: `config('auth.guards')` has **four** at runtime, the config file three.
+  `sanctum` one: `config('auth.guards')` has **four** at runtime, the config file three. **`getCurrentStore()` and `auth()->user()` read the DEFAULT guard (`web`): null for a shopper, and for one who also holds a panel login they answer for *that merchant*** -- a storefront handler takes its store from the route (`getStore($slug)`); P1-SEC-71 stored ticket edits in a folder no store's id is part of. `actingAs($c, 'customers')` makes `customers` the default guard and hides it: use `asAShopper()` (`PlatformUploaderDoorsTest`).
 - `app/Http/Middleware/CustomAuth.php` (`custom.auth`) resolves a Sanctum token and logs its owner
   into whichever guard matches the **tokenable class**: `Customer`→`customers`, `User`→`web`,
   `DeliveryBoy`→`deliveryboy`. **A merchant's or driver's token passes `custom.auth` while

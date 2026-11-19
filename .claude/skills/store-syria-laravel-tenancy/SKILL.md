@@ -136,7 +136,7 @@ So **every class in `app/Listeners` with a typed `handle()` is auto-registered**
 ## 6. Tests that actually bite
 
 **After writing a regression test, revert the fix and confirm the test fails.** This has caught
-vacuous tests repeatedly. Fourteen ways they pass for the wrong reason, all measured in this project:
+vacuous tests repeatedly. Fifteen ways they pass for the wrong reason, all measured in this project:
 
 1. **The endpoint 500s for everyone**, so "the row didn't change" holds either way. And a handler
    that `catch (\Exception)`es its own failure returns **200**, so even `assertNotSame(500, …)` is
@@ -248,6 +248,13 @@ vacuous tests repeatedly. Fourteen ways they pass for the wrong reason, all meas
     "refused" with the policy's own check deleted. Give each hostile case the **reason** it is a case for and assert it (the
     platform-upload policy logs one per refusal, and the test reads it), and when a mutant changes *which* rule refuses rather than
     whether, a test that asks only "whether" cannot see it.
+15. **A shopper signed in with `actingAs($customer, 'customers')` is not a production shopper.** It also calls `shouldUse('customers')`, so
+    `auth()->user()` -- the DEFAULT guard, which `getCurrentStore()` reads -- is the customer, and `getCurrentStore()` answered with
+    whichever store had a `created_by` equal to the customer's id: by an accident of the fixture's ids the ticket edit and reply paths
+    appeared to store in the store's own folder, and the cross-store collision measured on the real code did not reproduce. In
+    production the default guard is `web` with nobody in it, and the answer is null (`PlatformUploaderDoorsTest::asAShopper()` signs a
+    customer in and puts the default guard back; the folder and the collision then reproduce). Any storefront test whose handler calls
+    `getCurrentStore()`, `auth()->user()` or `Auth::user()` needs it.
 
 **Assert through `DB::table()`.** `User`, `Product` and `Order` are `Cachable`; an Eloquent read can
 serve a mutated in-memory instance. That produced a false *reproduction* once — a model read

@@ -1304,8 +1304,11 @@ def declared(label):
 
 
 def run_tests(tests):
-    result = subprocess.run(['php', 'artisan', 'test', *tests], capture_output=True, text=True)
-    out = result.stdout + result.stderr
+    # BYTES, decoded leniently: a failing assertion over an upload prints the file's bytes (a PNG header is not UTF-8), and `text=True`
+    # raised UnicodeDecodeError in the middle of a group -- the run died with the mutant it was judging still applied until the
+    # restore handler ran, and the rest of the group was never judged.
+    result = subprocess.run(['php', 'artisan', 'test', *tests], capture_output=True)
+    out = (result.stdout + result.stderr).decode('utf-8', errors='replace')
     summary = ' / '.join(re.findall(r'Tests:\s+(.*)', out)) or 'no summary line'
     failed = sorted({re.sub(r'\s+[\d.]+s\s*$', '', line.strip()[2:])[:70] for line in out.splitlines() if line.strip().startswith('⨯')})
     return result.returncode, summary, failed
