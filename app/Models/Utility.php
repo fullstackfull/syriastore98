@@ -431,7 +431,7 @@ class Utility extends Model
 
                 $file = !empty($image) ? $image : (is_array($request) ? $request[$key_name] : $request->$key_name);
 
-                // P1-SEC-73: ONE decision for every caller -- see App\Services\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only
+                // P1-SEC-73 (upload_file): ONE decision for every caller -- see App\Services\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only
                 // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a
                 // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.
                 $refusal = \App\Services\PlatformUploadPolicy::refusal($file, (string) $name, (string) $mimes, $max_size, $custom_validation);
@@ -456,7 +456,7 @@ class Utility extends Model
                             $image,
                             $name
                         );
-                        // P1-SEC-73: `putFileAs()` answers false when the write fails, and this reported success with a URL for a file that was never written.
+                        // P1-SEC-73 (upload_file): `putFileAs()` answers false when the write fails, and this reported success with a URL for a file that was never written.
                         if (! is_string($written) || $written === '') {
                             return ['flag' => 0, 'msg' => __('The file could not be saved.')];
                         }
@@ -1009,7 +1009,7 @@ class Utility extends Model
 
                 $file = $request->$key_name;
 
-                // P1-SEC-73: ONE decision for every caller -- see App\Services\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only
+                // P1-SEC-73 (keyWiseUpload_file): ONE decision for every caller -- see App\Services\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only
                 // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a
                 // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.
                 $refusal = \App\Services\PlatformUploadPolicy::refusal($multifile[$key_name], (string) $name, (string) $mimes, $max_size, $custom_validation);
@@ -1033,7 +1033,7 @@ class Utility extends Model
                             $request->file($key_name)[$data_key],
                             $name
                         );
-                        // P1-SEC-73: a failed write is a failure, not a URL for a file that does not exist.
+                        // P1-SEC-73 (keyWiseUpload_file): a failed write is a failure, not a URL for a file that does not exist.
                         if (! is_string($written) || $written === '') {
                             return ['flag' => 0, 'msg' => __('The file could not be saved.')];
                         }
@@ -3771,7 +3771,7 @@ class Utility extends Model
 
                 $file = !empty($image) ? $image : (is_array($request) ? $request[$key_name] : $request->$key_name);
 
-                // P1-SEC-73: ONE decision for every caller -- see App\Services\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only
+                // P1-SEC-73 (jsonUpload_file): ONE decision for every caller -- see App\Services\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only
                 // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a
                 // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.
                 $refusal = \App\Services\PlatformUploadPolicy::refusal($file, (string) $name, (string) $mimes, $max_size, $custom_validation);
@@ -3793,7 +3793,7 @@ class Utility extends Model
                             $image,
                             $name
                         );
-                        // P1-SEC-73: `putFileAs()` answers false when the write fails, and this reported success with a URL for a file that was never written.
+                        // P1-SEC-73 (jsonUpload_file): `putFileAs()` answers false when the write fails, and this reported success with a URL for a file that was never written.
                         if (! is_string($written) || $written === '') {
                             return ['flag' => 0, 'msg' => __('The file could not be saved.')];
                         }

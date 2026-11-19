@@ -9,7 +9,8 @@ suite (it would have to edit application code while the suite runs), so the evid
 cannot be a test requires. Until 2026-11-18 these mutants lived in a session scratchpad and the pull request quoted their counts; an audit
 of that description pointed out that a reader could not re-run them. Now they can.
 
-WHAT IT DOES. For each mutant below it edits ONE OR TWO REAL SOURCE FILES (an exact, single-occurrence string replacement), runs the named
+WHAT IT DOES. For each mutant below it edits ONE OR TWO REAL SOURCE FILES (an exact string replacement, which must occur exactly once unless
+an edit names a count as its fourth element, in which case every one of that many occurrences is replaced), runs the named
 test files, and restores the files byte for byte, verified by sha256. A mutant is KILLED when the test run exits non-zero. Each group's
 tests are first run UNMUTATED and must pass, so that "non-zero" can only mean "the mutant was noticed" (a baseline that is red would make
 every mutant look killed).
@@ -704,6 +705,158 @@ GROUPS = [
             ]),
         ],
     },
+    {
+        "key": 'platformuploader',
+        "title": "P1-SEC-73 -- the platform uploader's four functions judge the name as well as the bytes (PlatformUploadPolicy), and the guest checkout's receipt name ends in its extension",
+        "tests": ['tests/Feature/Security/PlatformUploaderTypeTest.php', 'tests/Feature/Security/PlatformUploaderDoorsTest.php'],
+        "mutants": [
+            ('P1 policy: a value that is not a valid upload is not refused as one', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 '        if (! $file instanceof UploadedFile || ! $file->isValid()) {',
+                 '        if (false) {'),
+            ]),
+            ('P2 policy: an empty list is not refused as an empty list', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 '        if ($customRules === [] && $allowed === []) {',
+                 '        if (false) {'),
+            ]),
+            ('P3 policy: a stored name with a path, a backslash or a control character is accepted', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "preg_match('/[\\x00-\\x1F\\x7F\\/\\\\\\\\]/', $name) === 1 || ",
+                 ''),
+            ]),
+            ('P4 policy: a stored name with no dot is accepted', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 'count($segments) < 2 || ',
+                 ''),
+            ]),
+            ("P5 policy: the stored name's own extension is not checked against a script list", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 '            || in_array($final, self::SCRIPT_CAPABLE, true) || ($customRules',
+                 '            || ($customRules'),
+            ]),
+            ("P6 policy: the stored name's extension need not be in the configured list", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 ' || ($customRules === [] && ! in_array($final, $allowed, true))) {',
+                 ') {'),
+            ]),
+            ('P7 policy: a script extension INSIDE the stored name is not looked for', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 'foreach (array_slice($segments, 1, -1) as $inner) {',
+                 'foreach ([] as $inner) {'),
+            ]),
+            ('P8 policy: the base of a name is judged as an extension too (a logo called js.png)', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 'foreach (array_slice($segments, 1, -1) as $inner) {',
+                 'foreach (array_slice($segments, 0, -1) as $inner) {'),
+            ]),
+            ('P9 policy: the stored extension is not lower-cased', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 '$final = strtolower((string) end($segments));',
+                 '$final = (string) end($segments);'),
+            ]),
+            ('P10 rules: `mimes:` removed', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "['mimes:' . $list, 'extensions:' . $list, 'max:' . $maxKb]",
+                 "['extensions:' . $list, 'max:' . $maxKb]"),
+            ]),
+            ("P11 rules: `extensions:` removed (the client's own name is not judged)", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "['mimes:' . $list, 'extensions:' . $list, 'max:' . $maxKb]",
+                 "['mimes:' . $list, 'max:' . $maxKb]"),
+            ]),
+            ('P12 rules: `max:` removed', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "['mimes:' . $list, 'extensions:' . $list, 'max:' . $maxKb]",
+                 "['mimes:' . $list, 'extensions:' . $list]"),
+            ]),
+            ("P13 policy: a caller's own rules are not checked for the client's script extension", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 'if ($customRules !== [] && in_array(strtolower($file->getClientOriginalExtension()), self::SCRIPT_CAPABLE, true)) {',
+                 'if (false) {'),
+            ]),
+            ('P14 allowed(): jpg and jpeg no longer travel together', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "        if (in_array('jpg', $list, true) || in_array('jpeg', $list, true)) {\n            $list = array_merge($list, ['jpg', 'jpeg']);\n        }\n\n",
+                 ''),
+            ]),
+            ("P15 allowed(): a shopper's list is the panel's (an SVG is stored by a visitor)", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 '$denied = $panelSession ? self::SCRIPT_CAPABLE : array_merge(self::SCRIPT_CAPABLE, self::SHOPPER_DENIED);',
+                 '$denied = self::SCRIPT_CAPABLE;'),
+            ]),
+            ('P16 panelSession(): everyone is a panel user', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "            return auth('web')->check();",
+                 '            return true;'),
+            ]),
+            ('P17 panelSession(): nobody is a panel user', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "            return auth('web')->check();",
+                 '            return false;'),
+            ]),
+            ('P18 refused(): a refusal is not logged', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "        \\Illuminate\\Support\\Facades\\Log::warning('a platform upload was refused', [",
+                 "        (fn (...$x) => null)('a platform upload was refused', ["),
+            ]),
+            ("P19 refused(): the log carries the client's own extension text", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 'ThemeImageUpload::extensionWord($file->getClientOriginalExtension()) : null,',
+                 'strtolower($file->getClientOriginalExtension()) : null,'),
+            ]),
+            ('W1 upload_file: the policy is not asked', [
+                ('app/Models/Utility.php',
+                 "                // P1-SEC-73 (upload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = \\App\\Services\\PlatformUploadPolicy::refusal($file, (string) $name, (string) $mimes, $max_size, $custom_validation);\n",
+                 "                // P1-SEC-73 (upload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = null;\n"),
+            ]),
+            ('W2 upload_file: the policy is asked only when no sixth argument is given (the old hole)', [
+                ('app/Models/Utility.php',
+                 "                // P1-SEC-73 (upload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = \\App\\Services\\PlatformUploadPolicy::refusal($file, (string) $name, (string) $mimes, $max_size, $custom_validation);\n",
+                 "                // P1-SEC-73 (upload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = empty($image) ? \\App\\Services\\PlatformUploadPolicy::refusal($file, (string) $name, (string) $mimes, $max_size, $custom_validation) : null;\n"),
+            ]),
+            ('W3 keyWiseUpload_file: the policy is not asked', [
+                ('app/Models/Utility.php',
+                 "                // P1-SEC-73 (keyWiseUpload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = \\App\\Services\\PlatformUploadPolicy::refusal($multifile[$key_name], (string) $name, (string) $mimes, $max_size, $custom_validation);\n",
+                 "                // P1-SEC-73 (keyWiseUpload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = null;\n"),
+            ]),
+            ('W4 jsonUpload_file: the policy is not asked', [
+                ('app/Models/Utility.php',
+                 "                // P1-SEC-73 (jsonUpload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = \\App\\Services\\PlatformUploadPolicy::refusal($file, (string) $name, (string) $mimes, $max_size, $custom_validation);\n",
+                 "                // P1-SEC-73 (jsonUpload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = null;\n"),
+            ]),
+            ('W5 multi_upload_file: the policy is not asked', [
+                ('app/Helper/helper.php',
+                 "                // P1-SEC-73 (multi_upload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = \\App\\Services\\PlatformUploadPolicy::refusal($file, (string) $name, (string) $mimes, $max_size, $custom_validation);\n",
+                 "                // P1-SEC-73 (multi_upload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = null;\n"),
+            ]),
+            ('W6 uploaders: a failed write is reported as success (all three theme-disk writers)', [
+                ('app/Models/Utility.php',
+                 "if (! is_string($written) || $written === '') {",
+                 'if (false) {', 3),
+            ]),
+            ('W7 multi_upload_file: a failed write is reported as success', [
+                ('app/Helper/helper.php',
+                 "                    if (! is_string($save) || $save === '') {",
+                 '                    if (false) {'),
+            ]),
+            ('W8 jsonUpload_file: the settings helper is mistyped again (Seting)', [
+                ('app/Models/Utility.php',
+                 "$name, $path, $custom_validation = [])\n    {\n        try {\n            $settings = Setting::where('created_by', 1)->pluck('value', 'name')->toArray();\n            if (!isset($settings['storage_setting'])) {\n                $settings = Utility::Setting();",
+                 "$name, $path, $custom_validation = [])\n    {\n        try {\n            $settings = Setting::where('created_by', 1)->pluck('value', 'name')->toArray();\n            if (!isset($settings['storage_setting'])) {\n                $settings = Utility::Seting();"),
+            ]),
+            ('W9 guest checkout: the receipt keeps the shape <client name>_<time>', [
+                ('app/Services/PaymentService.php',
+                 "$fileName = ($receiptBase !== '' ? $receiptBase : 'receipt') . '_' . time() . '.' . strtolower($receiptFile->getClientOriginalExtension());",
+                 "$fileName = $receiptFile->getClientOriginalName() . '_' . time();"),
+            ]),
+            ("W10 guest checkout: the receipt's base keeps the client's punctuation", [
+                ('app/Services/PaymentService.php',
+                 "preg_replace('/[^A-Za-z0-9_-]+/', '_', pathinfo($receiptFile->getClientOriginalName(), PATHINFO_FILENAME))",
+                 'pathinfo($receiptFile->getClientOriginalName(), PATHINFO_FILENAME)'),
+            ]),
+        ],
+    },
 ]
 
 
@@ -776,13 +929,15 @@ def main(argv):
             outcome = None
             try:
                 applied = True
-                for f, old, new in edits:
+                for edit in edits:
+                    f, old, new = edit[:3]
+                    expected = edit[3] if len(edit) > 3 else 1      # an optional fourth element: how many times the string is meant to occur (all are replaced)
                     source = Path(f).read_text()
-                    if source.count(old) != 1:
-                        print(f"[{label}] NOT APPLIED: the string to replace occurs {source.count(old)} times in {f}", flush=True)
+                    if source.count(old) != expected:
+                        print(f"[{label}] NOT APPLIED: the string to replace occurs {source.count(old)} times in {f}, not {expected}", flush=True)
                         applied = False
                         break
-                    Path(f).write_text(source.replace(old, new, 1))
+                    Path(f).write_text(source.replace(old, new))
                 if applied and any(subprocess.run(['php', '-l', f], capture_output=True).returncode for f in touched if f.endswith('.php')):
                     print(f"[{label}] MUTANT DOES NOT PARSE", flush=True)
                     applied = False

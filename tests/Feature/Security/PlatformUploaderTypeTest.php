@@ -163,8 +163,10 @@ class PlatformUploaderTypeTest extends SecurityTestCase
     // ---------------------------------------------------------------------------------------------------------------------------
 
     /**
-     * @return array<string, array{0: string, 1: string}> the client's file name, what is in the file. The comment on each says which
-     *         rule refuses it, because a case that would be refused anyway says nothing about the lock it seems to be about.
+     * @return array<string, array{0: string, 1: string, 2?: string}> the client's file name, what is in the file, and optionally the
+     *         STORED name the caller built (default `x_<client name>`; a caller with a fixed name, or a hostile one, is not the client).
+     *         The comment on each says which rule refuses it, because a case that would be refused anyway says nothing about the lock
+     *         it seems to be about.
      */
     public static function whatMustNotBeStored(): array
     {
@@ -195,14 +197,25 @@ class PlatformUploaderTypeTest extends SecurityTestCase
             'an HTML page under its own name' => ['page.html', self::HTML],
             'an SVG carrying a script under an HTML name' => ['logo.html', self::SVG],
             'a PDF header under an HTML name' => ['doc.html', self::PDF],
+            // the STORED name is the caller's, and it is judged on its own
+            'a stored name that is only an extension' => ['logo.png', $png, 'png'],
+            'a stored name with a path in it' => ['logo.png', $png, 'sub/../logo.png'],
+            'a stored name with a backslash in it' => ['logo.png', $png, 'sub\\logo.png'],
+            'a stored name with a NUL in it' => ['logo.png', $png, "logo\0.png"],
+            'a stored name with a control character in it' => ['logo.png', $png, "lo\x07go.png"],
+            // the CLIENT's name is judged even when the caller's own name is harmless (a fixed name over a client-named upload)
+            'an HTML name the caller replaced with a fixed one' => ['page.html', $png, 'fixed_logo.png'],
+            // the shape the guest checkout's receipt used to have: the extension is not the LAST thing in the name
+            'an extension followed by a suffix, as the receipt was named' => ['logo.png', $png, 'logo.png_1795000000'],
         ];
     }
 
     #[DataProvider('theForms')]
     public function test_every_form_of_the_uploader_refuses_what_a_server_would_act_on(string $form): void
     {
-        foreach (self::whatMustNotBeStored() as $label => [$clientName, $bytes]) {
-            $result = $this->through($form, $this->upload($clientName, $bytes), 'x_' . $clientName);
+        foreach (self::whatMustNotBeStored() as $label => $case) {
+            [$clientName, $bytes] = $case;
+            $result = $this->through($form, $this->upload($clientName, $bytes), $case[2] ?? 'x_' . $clientName);
 
             $this->assertSame(0, (int) ($result['flag'] ?? -1), "{$form} stored or crashed on: {$label} ({$clientName}). Answer: " . json_encode($result));
             $this->assertSame([], $this->stored(), "{$form} left a file on disk for: {$label} ({$clientName}): " . json_encode($this->stored()));
@@ -224,6 +237,9 @@ class PlatformUploaderTypeTest extends SecurityTestCase
             'a PDF' => ['invoice.pdf', self::PDF],
             'a name with spaces and brackets, as a phone saves one' => ['IMG 0042 (1).png', (string) base64_decode(self::PNG)],
             'a name with a version in it' => ['logo-v2.final.png', (string) base64_decode(self::PNG)],
+            // a script word as the BASE of a name is not a script extension: a technology logo is a legitimate upload
+            'a logo named after a language' => ['js.png', (string) base64_decode(self::PNG)],
+            'a logo named after a markup language' => ['html.png', (string) base64_decode(self::PNG)],
         ];
     }
 
@@ -255,7 +271,27 @@ class PlatformUploaderTypeTest extends SecurityTestCase
         $php = Utility::upload_file(['file' => $this->upload('x.png', self::PHP)], 'file', 'x.png', 'uploads/1');
 
         $this->assertSame(0, (int) $php['flag'], 'PHP source was stored under an image name because the configured list was empty: ' . json_encode($php));
+        $this->assertSame('No file type is enabled for uploads.', $php['msg'], 'An empty list is refused as one, not by whichever rule happens to fail first.');
         $this->assertSame([], $this->stored());
+    }
+
+    /** The configured size ceiling still applies on every form, the sixth-argument one included. */
+    public function test_the_configured_size_ceiling_applies_to_every_form(): void
+    {
+        $this->platformStorage(maxKb: '1');
+        $big = $this->png() . str_repeat("\0", 3 * 1024);
+
+        foreach (self::theForms() as $form => [$name]) {
+            Storage::fake('theme');
+            Storage::fake('local');
+
+            $over = $this->through($name, $this->upload('big.png', $big), '41_1795000000_big.png');
+            $this->assertSame(0, (int) ($over['flag'] ?? -1), "{$form} stored a 3 KB file under a 1 KB ceiling: " . json_encode($over));
+            $this->assertSame([], $this->stored(), "{$form} left an over-size file on disk.");
+
+            $under = $this->through($name, $this->upload('small.png', $this->png()), '41_1795000000_small.png');
+            $this->assertSame(1, (int) ($under['flag'] ?? -1), "{$form} refused a small file under a 1 KB ceiling: " . json_encode($under));
+        }
     }
 
     /** A merchant can write the platform list; it can not be made to carry what a server would run. */
@@ -323,6 +359,12 @@ class PlatformUploaderTypeTest extends SecurityTestCase
             $result = Utility::upload_file(['file' => $this->upload($client, $mp4)], 'file', $stored, 'uploads/1/video', $rules);
             $this->assertSame(0, (int) $result['flag'], "{$client} stored as {$stored} was accepted: " . json_encode($result));
         }
+        $this->assertSame([], $this->stored());
+
+        // A caller's rules that name NO `extensions:` (UploadRules refuses such a list, but a direct caller can pass one): the client's own
+        // extension is still not allowed to be a script, whatever name the caller then gives the file.
+        $bare = Utility::upload_file(['file' => $this->upload('page.html', $this->png())], 'file', 'fixed_logo.png', 'uploads/1', ['mimes:png', 'max:100']);
+        $this->assertSame(0, (int) $bare['flag'], 'A client-named HTML file was stored under a fixed name because the caller\'s own rules named no extension: ' . json_encode($bare));
         $this->assertSame([], $this->stored());
     }
 

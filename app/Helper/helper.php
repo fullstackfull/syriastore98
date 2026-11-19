@@ -1338,7 +1338,7 @@ if (!function_exists('multi_upload_file')) {
                     $mimes =  !empty($storage_settings['local_storage_validation']) ? $storage_settings['local_storage_validation'] : 'jpeg,jpg,png,svg,zip,txt,gif,docx';
                 }
                 $file = $request;
-                // P1-SEC-73: ONE decision for every caller -- see App\Services\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only
+                // P1-SEC-73 (multi_upload_file): ONE decision for every caller -- see App\Services\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only
                 // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a
                 // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.
                 $refusal = \App\Services\PlatformUploadPolicy::refusal($file, (string) $name, (string) $mimes, $max_size, $custom_validation);
