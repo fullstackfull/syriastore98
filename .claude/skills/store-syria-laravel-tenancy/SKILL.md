@@ -240,6 +240,9 @@ vacuous tests repeatedly. Seventeen ways they pass for the wrong reason, all mea
    Where no ruling exists, rewrite the case to pin the *new* contract with the same premise
    assertions — a case that only asserts "no longer throws" can pass by returning early, so also
    assert the order was written once and the stock taken once.
+   **The same holds for a test that greps a view's SOURCE for the old literal.** P1-SEC-80 round 2 rewrote an option builder to build nodes and `VariantCombinationVocabularyTest` (it pinned
+   `'<option class="option-item" value="' + key + '">'`) failed; the related-files run, chosen by the names of the changed surfaces, had missed it, and only the full Feature gate found it.
+   Rewrite such a pin to the property it was written for (the option's value is the id), and check it both ways.
 9. **The test cannot tell the two readings apart.** A placeholder test posted `0` for every
    jurisdiction level, and a mutant that read `0` as a *selection* survived — because with every
    level `0`, "zero is a value" and "zero is unset" give the same answer. The cases that bite are
