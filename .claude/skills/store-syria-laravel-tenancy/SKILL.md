@@ -159,6 +159,12 @@ pages. Five rules, each of which cost something:
    output (`<li><div><li>x</li></div></li>`) can still close the HOST page's `div`s. `tests/Support/Security/bin/verify-rich-text-in-chromium.php` prints every output into a div, a p and quirks
    mode followed by a sentinel and fails if the sentinel moves, after a self-test proves its detectors can fail. A corpus that looks only at the output cannot see this; neither can a
    sentence in a docblock that says it cannot happen. And do not run the mutation tool while anything else reads the tree.
+6. **A yajra DataTable escapes every column that is NOT named in `rawColumns()`.** The safe cell is a plain-text column that is not raw. A raw column with no `editColumn`/`addColumn` prints the
+   model's attribute as stored, which is the shape of every defect P1-SEC-80 found (about forty cells, a visitor's newsletter address to a merchant's staff list); `DataTableRawColumnsTest` fails
+   on a raw column with no stated reason or no closure. Do not trust an old comment that says otherwise: one said yajra escapes nothing by default, and it was wrong.
+7. **An `email` rule is not a markup filter.** `"<img src=x onerror=1>"@example.com` passes `email`, `email:rfc` and `email:rfc,dns`; print an address through `e()` like any other string.
+8. **Green local gates are not the required CI.** The runner is `ubuntu-26.04` with PHP 8.3.36 and a newer libxml than the 24.04 machine the sanitizer was written on, and two exact-text pins of a
+   parser edge failed there while their outputs were inert. Pin the PROPERTY that must hold ("no `<` in the answer"), or a closed list of the known builds' answers, never one build's text.
 
 ## 6. Tests that actually bite
 
