@@ -23,8 +23,10 @@ use Tests\TestCase;
  *     bytes) and then requires the guessed type to match a named extension, so the proof is a file
  *     whose NAME is permitted and whose CONTENT is not. Measured in this container:
  *     a PHP script named `.mp4` guesses `text/x-php`, and a PNG renamed `.mp4` guesses `image/png`.
- *     Both are refused. `mimetypes:` would have matched the CLIENT-SUPPLIED MIME string instead,
- *     which is why it is not used.
+ *     Both are refused. (`mimes:` is used rather than `mimetypes:` because it maps the sniffed type
+ *     onto an extension list. This sentence first said `mimetypes:` would match the CLIENT-SUPPLIED
+ *     MIME string; it does not -- on this framework version it reads the bytes too, which the review
+ *     of P1-SEC-72 measured. The choice stands; the reason given for it did not.)
  *
  *  3. NO EXECUTABLE OR SCRIPT-CAPABLE EXTENSION IS REACHABLE, and `svg` is in that set — the
  *     decision's "address the SVG risk the old list permits". What this can and cannot reach is
