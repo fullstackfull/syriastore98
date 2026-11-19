@@ -228,7 +228,7 @@ class PlatformUploaderTypeTest extends SecurityTestCase
     // what must still be stored -- unchanged
     // ---------------------------------------------------------------------------------------------------------------------------
 
-    /** @return array<string, array{0: string, 1: string}> */
+    /** @return array<string, array{0: string, 1: string, 2?: string}> the client's name, the bytes, and optionally the stored name (default `41_1795000000_<client name>`) */
     public static function whatMustStillBeStored(): array
     {
         return [
@@ -240,22 +240,27 @@ class PlatformUploaderTypeTest extends SecurityTestCase
             // a script word as the BASE of a name is not a script extension: a technology logo is a legitimate upload
             'a logo named after a language' => ['js.png', (string) base64_decode(self::PNG)],
             'a logo named after a markup language' => ['html.png', (string) base64_decode(self::PNG)],
+            // ... including when the language word is the whole BASE of the stored name (a fixed name, not a prefixed one)
+            'a stored name whose base is a script word' => ['js.png', (string) base64_decode(self::PNG), 'js.png'],
+            'a stored name whose base is php' => ['php.png', (string) base64_decode(self::PNG), 'php.png'],
         ];
     }
 
     #[DataProvider('theForms')]
     public function test_every_form_of_the_uploader_still_stores_a_file_under_the_name_the_caller_chose(string $form): void
     {
-        foreach (self::whatMustStillBeStored() as $label => [$clientName, $bytes]) {
+        foreach (self::whatMustStillBeStored() as $label => $case) {
+            [$clientName, $bytes] = $case;
+            $storedName = $case[2] ?? '41_1795000000_' . $clientName;
             Storage::fake('theme');
             Storage::fake('local');
 
-            $result = $this->through($form, $this->upload($clientName, $bytes), '41_1795000000_' . $clientName);
+            $result = $this->through($form, $this->upload($clientName, $bytes), $storedName);
 
-            $this->assertSame(1, (int) ($result['flag'] ?? -1), "{$form} refused: {$label} ({$clientName}). Answer: " . json_encode($result));
+            $this->assertSame(1, (int) ($result['flag'] ?? -1), "{$form} refused: {$label} ({$clientName} as {$storedName}). Answer: " . json_encode($result));
             $stored = $this->stored();
             $this->assertCount(1, $stored, "{$form}: exactly one file is stored for {$label}.");
-            $this->assertStringEndsWith('41_1795000000_' . $clientName, $stored[0], "{$form} renamed {$label}: the callers persist what the function returns, but a rename is a change for every one of them.");
+            $this->assertStringEndsWith($storedName, $stored[0], "{$form} renamed {$label}: the callers persist what the function returns, but a rename is a change for every one of them.");
         }
     }
 
@@ -417,10 +422,14 @@ class PlatformUploaderTypeTest extends SecurityTestCase
     // a write that failed is a failure
     // ---------------------------------------------------------------------------------------------------------------------------
 
-    /** The `theme` disk is configured `throw => false`, so a failed write is a `false` return that used to be reported as success. */
-    public function test_a_write_that_failed_is_reported_as_a_failure(): void
+    /**
+     * The `theme` disk is configured `throw => false`, so a failed write is a `false` return that used to be reported as success --
+     * by every one of the writers, each of which has its own check. `multi_upload_file` writes to the disk NAMED by the storage setting.
+     */
+    #[DataProvider('theForms')]
+    public function test_a_write_that_failed_is_reported_as_a_failure_by_every_form(string $form): void
     {
-        Storage::set('theme', new class {
+        $failing = new class {
             public function exists(...$arguments)
             {
                 return true;
@@ -440,10 +449,12 @@ class PlatformUploaderTypeTest extends SecurityTestCase
             {
                 return false;
             }
-        });
+        };
 
-        $result = Utility::upload_file(['file' => $this->upload('logo.png', $this->png())], 'file', '41_1795000000_logo.png', 'uploads/1');
+        Storage::set($form === 'multi_upload_file' ? 'local' : 'theme', $failing);
 
-        $this->assertSame(0, (int) $result['flag'], 'A write that failed was reported as a stored file: ' . json_encode($result));
+        $result = $this->through($form, $this->upload('logo.png', $this->png()), '41_1795000000_logo.png');
+
+        $this->assertSame(0, (int) ($result['flag'] ?? -1), "{$form} reported a write that failed as a stored file: " . json_encode($result));
     }
 }

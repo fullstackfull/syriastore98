@@ -830,10 +830,20 @@ GROUPS = [
                  "                // P1-SEC-73 (multi_upload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = \\App\\Services\\PlatformUploadPolicy::refusal($file, (string) $name, (string) $mimes, $max_size, $custom_validation);\n",
                  "                // P1-SEC-73 (multi_upload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = null;\n"),
             ]),
-            ('W6 uploaders: a failed write is reported as success (all three theme-disk writers)', [
+            ('W6a upload_file: a failed write is reported as success', [
                 ('app/Models/Utility.php',
-                 "if (! is_string($written) || $written === '') {",
-                 'if (false) {', 3),
+                 "                        // P1-SEC-73 (upload_file): `putFileAs()` answers false when the write fails, and this reported success with a URL for a file that was never written.\n                        if (! is_string($written) || $written === '') {",
+                 '                        // P1-SEC-73 (upload_file): `putFileAs()` answers false when the write fails, and this reported success with a URL for a file that was never written.\n                        if (false) {'),
+            ]),
+            ('W6b jsonUpload_file: a failed write is reported as success', [
+                ('app/Models/Utility.php',
+                 "                        // P1-SEC-73 (jsonUpload_file): `putFileAs()` answers false when the write fails, and this reported success with a URL for a file that was never written.\n                        if (! is_string($written) || $written === '') {",
+                 '                        // P1-SEC-73 (jsonUpload_file): `putFileAs()` answers false when the write fails, and this reported success with a URL for a file that was never written.\n                        if (false) {'),
+            ]),
+            ('W6c keyWiseUpload_file: a failed write is reported as success', [
+                ('app/Models/Utility.php',
+                 "                        // P1-SEC-73 (keyWiseUpload_file): a failed write is a failure, not a URL for a file that does not exist.\n                        if (! is_string($written) || $written === '') {",
+                 '                        // P1-SEC-73 (keyWiseUpload_file): a failed write is a failure, not a URL for a file that does not exist.\n                        if (false) {'),
             ]),
             ('W7 multi_upload_file: a failed write is reported as success', [
                 ('app/Helper/helper.php',
