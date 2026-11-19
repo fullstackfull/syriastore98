@@ -54,6 +54,7 @@ return [
     'ends_with' => 'يجب أن ينتهي :attribute بأحد القيم التالية: :values.',
     'enum' => 'القيمة المحددة لـ :attribute غير صحيحة.',
     'exists' => 'القيمة المحددة لـ :attribute غير موجودة.',
+    'extensions' => 'يجب أن يكون امتداد :attribute أحد الامتدادات التالية: :values.',
     'file' => 'يجب أن يكون :attribute ملفاً.',
     'filled' => 'الحقل :attribute مطلوب.',
     'gt' => [

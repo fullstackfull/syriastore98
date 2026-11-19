@@ -2453,14 +2453,15 @@ private function processPaymera00000($request, $slug)
             if ($requests_data['payment_receipt']) {
                 $dir = 'uploads/receipt';
                 if($requests_data['payment_receipt']) {
-                    // P1-SEC-73. The stored name ENDS IN THE EXTENSION. It was `<client name>_<time>` -- `icon.png_1783941141` -- which no server maps to
-                    // an image type, and whose inner extensions survived (`shell.php.png_...`). The base is the client's name with everything but letters,
-                    // digits, `_` and `-` replaced, so no dot of the client's survives into the middle of the name. This door needs no account, and
-                    // the six-argument call below used to run no validator at all; it runs PlatformUploadPolicy now, which would refuse the old shape.
+                    // P1-SEC-73. The stored name is PlatformUploadPolicy::receiptName(): the client's name reduced to plain characters, the time, a random
+                    // part, and the extension LAST. It was `<client name>_<time>` -- `icon.png_1783941141` -- which no server maps to an image type, whose
+                    // inner extensions survived, and which two shoppers in one second shared (the folder is one for every store). This door needs no
+                    // account, and the six-argument call below used to run no validator at all: it runs the policy now, with the types this door's own gate
+                    // (`required|image`) admits MINUS SVG -- a receipt is a raster image, and a shopper's SVG is script on the store's origin that the
+                    // merchant opens from a link.
                     $receiptFile = $requests_data['payment_receipt'];
-                    $receiptBase = trim((string) preg_replace('/[^A-Za-z0-9_-]+/', '_', pathinfo($receiptFile->getClientOriginalName(), PATHINFO_FILENAME)), '_');
-                    $fileName = ($receiptBase !== '' ? $receiptBase : 'receipt') . '_' . time() . '.' . strtolower($receiptFile->getClientOriginalExtension());
-                    $path = Utility::upload_file($requests_data, 'payment_receipt', $fileName, $dir,[],$requests_data['payment_receipt']);
+                    $fileName = \App\Services\PlatformUploadPolicy::receiptName($receiptFile);
+                    $path = Utility::upload_file($requests_data, 'payment_receipt', $fileName, $dir, \App\Services\PlatformUploadPolicy::imageRules(['bmp']), $receiptFile);
                 }
                 if ($path['flag'] == 1) {
                     $payment_receipt = $path['url'];

@@ -464,12 +464,20 @@ class Utility extends Model
                     } else if ($settings['storage_setting'] == 'wasabi') {
                         $image = !empty($image) ? $image : (is_array($request) ? $request[$key_name] : $request->file($key_name));
                         $path = \Storage::disk('wasabi')->putFileAs($path, $image, $name);
+                        // P1-SEC-73 (upload_file, wasabi): the remote branches check the write as the local one does.
+                        if (! is_string($path) || $path === '') {
+                            return ['flag' => 0, 'msg' => __('The file could not be saved.')];
+                        }
                     } else if ($settings['storage_setting'] == 's3') {
                         $path = \Storage::disk('s3')->putFileAs(
                             $path,
                             $file,
                             $name
                         );
+                        // P1-SEC-73 (upload_file, s3): the remote branches check the write as the local one does.
+                        if (! is_string($path) || $path === '') {
+                            return ['flag' => 0, 'msg' => __('The file could not be saved.')];
+                        }
                     }
 
                     $image_url = '';
@@ -1047,6 +1055,10 @@ class Utility extends Model
                             $request->file($key_name)[$data_key],
                             $name
                         );
+                        // P1-SEC-73 (keyWiseUpload_file, wasabi): the remote branches check the write as the local one does.
+                        if (! is_string($path) || $path === '') {
+                            return ['flag' => 0, 'msg' => __('The file could not be saved.')];
+                        }
 
                         // $path = $path.$name;
 
@@ -1057,6 +1069,10 @@ class Utility extends Model
                             $request->file($key_name)[$data_key],
                             $name
                         );
+                        // P1-SEC-73 (keyWiseUpload_file, s3): the remote branches check the write as the local one does.
+                        if (! is_string($path) || $path === '') {
+                            return ['flag' => 0, 'msg' => __('The file could not be saved.')];
+                        }
                     }
 
                     $image_url = '';
@@ -3801,12 +3817,20 @@ class Utility extends Model
                     } else if ($settings['storage_setting'] == 'wasabi') {
                         $image = !empty($image) ? $image : (is_array($request) ? $request[$key_name] : $request->file($key_name));
                         $path = \Storage::disk('wasabi')->putFileAs($path, $image, $name);
+                        // P1-SEC-73 (jsonUpload_file, wasabi): the remote branches check the write as the local one does.
+                        if (! is_string($path) || $path === '') {
+                            return ['flag' => 0, 'msg' => __('The file could not be saved.')];
+                        }
                     } else if ($settings['storage_setting'] == 's3') {
                         $path = \Storage::disk('s3')->putFileAs(
                             $path,
                             $file,
                             $name
                         );
+                        // P1-SEC-73 (jsonUpload_file, s3): the remote branches check the write as the local one does.
+                        if (! is_string($path) || $path === '') {
+                            return ['flag' => 0, 'msg' => __('The file could not be saved.')];
+                        }
                     }
 
                     $image_url = '';

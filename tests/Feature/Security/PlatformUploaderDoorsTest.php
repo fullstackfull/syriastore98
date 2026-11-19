@@ -4,27 +4,40 @@ namespace Tests\Feature\Security;
 
 use App\Models\Customer;
 use App\Models\Product;
+use App\Models\SupportTicket;
+use App\Services\PlatformUploadPolicy;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 
 /**
  * P1-SEC-73 -- THE DOORS: WHO CAN REACH THE PLATFORM UPLOADER, AND DO THEY STILL GET THROUGH WITH A REAL FILE.
  * =============================================================================================================
  *
- * PlatformUploaderTypeTest drives the four functions, which is where the fix is. This file drives the REAL ROUTES of the three doors
- * the mapping measured as the widest, because a fix in a function proves nothing about whether a route reaches it, and because the
- * policy REFUSES a name it does not recognise -- so every door below also stores a legitimate file, or "refused" would be a
- * statement about a route that refuses everything.
+ * PlatformUploaderTypeTest drives the four functions, which is where the fix is. This file drives the REAL ROUTES of the doors
+ * the mapping and the review measured as the widest, because a fix in a function proves nothing about whether a route reaches it, and
+ * because the policy REFUSES a name it does not recognise -- so every door below also stores a legitimate file, or "refused" would be a
+ * statement about a route that refuses everything. (The first form of the guest-checkout case placed one order and then reused its
+ * basket for every refusal: the checkout answered "Cart is empty" before the uploader was reached, and the case could not fail.
+ * Every refusal below is preceded by a basket, an order or a ticket of its own, and followed by a control that proves it was usable.)
  *
- *   1. `POST /app-setting` -- seven six-argument calls, behind `auth` alone: no permission is asked, so a merchant's staff member with
- *      NO permissions reached an uploader that ran no validator at all.
- *   2. `POST /{slug}/process-order` with `payment_type=bank_transfer` -- the receipt at a GUEST checkout: no account, no throttle, a
- *      six-argument call, stored under `<client name>_<time>` in `uploads/receipt/`, shared by every store.
- *   3. `POST /{slug}/store-ticket` -- a storefront customer's support-ticket attachment, stored under the client's own file name.
+ *   1. `POST /app-setting` and `POST /product-page-setting` -- seven six-argument calls behind `auth` alone: no permission is asked, so a
+ *      merchant's staff member with NO permissions reached an uploader that ran no validator at all.
+ *   2. `POST /{slug}/process-order` with `payment_type=bank_transfer` -- the receipt at a GUEST checkout: no account, no throttle.
+ *   3. `POST /{slug}/store-ticket`, `/{slug}/support-ticket/{id}` and `/{slug}/order-refund-request/{id}` -- a storefront customer's
+ *      attachments. THE REFUND SCREEN LINKS THEM WITHOUT `download`, so what is stored there is OPENED by the merchant.
+ *   4. `POST /plan-pay-with-bank` -- a merchant's payment slip, opened by the PLATFORM OPERATOR from a link.
+ *   5. `POST api/admin/updateStoreOwnerInfo` -- the shipped app's invoice-logo and store-image upload, which never went through the
+ *      uploader at all (`$file->move()` under the client's own name).
+ *
+ * AND WHO IS A SHOPPER. The first form of the policy asked whether a `web` user was signed in; self-registration is open, so any visitor
+ * holds one with a single request, and a shopper holding both cookies was given the panel's list, SVG included, at doors 2 and 3. The
+ * policy now asks the ROUTE (an `auth` middleware), and the cases below drive that with both cookies at the real doors.
  *
  * Every case uses real bytes on disk. The `theme` disk is faked, so nothing here can reach the repository's `uploads/`.
  */
@@ -33,6 +46,10 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
     use RefreshDatabase;
 
     private const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAFklEQVQImWM8ISfHwMDAxMDAwMDAAAANBAEIG3S2BgAAAABJRU5ErkJggg==';
+    private const GIF = 'R0lGODdhAgACAIAAAMweHAAAACwAAAAAAgACAAACAoRRADs=';
+    private const WEBP = 'UklGRjgAAABXRUJQVlA4ICwAAACQAQCdASoCAAIAAkA4JaACdLoAA5gA/vA4Q+6L7UVgB/7Kx/6Vj/0rH7lAAA==';
+    private const BMP = 'Qk1CAAAAAAAAADYAAAAoAAAAAgAAAAIAAAABABgAAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAHh7IHh7IAAAeHsgeHsgAAA==';
+    private const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>';
 
     /** @var list<string> */
     private array $temporary = [];
@@ -48,10 +65,23 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
     protected function tearDown(): void
     {
         foreach ($this->temporary as $path) {
-            @unlink($path);
+            is_dir($path) ? $this->removeDirectory($path) : @unlink($path);
         }
 
         parent::tearDown();
+    }
+
+    private function removeDirectory(string $directory): void
+    {
+        if (! is_dir($directory)) {
+            return;
+        }
+
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::CHILD_FIRST) as $entry) {
+            $entry->isDir() ? @rmdir($entry->getPathname()) : @unlink($entry->getPathname());
+        }
+
+        @rmdir($directory);
     }
 
     private function upload(string $clientName, string $bytes): UploadedFile
@@ -74,9 +104,25 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
         return Storage::disk('theme')->allFiles();
     }
 
-    // ===========================================================================================================================
-    // 3. a storefront customer's support-ticket attachment
-    // ===========================================================================================================================
+    /** Forget what the faked disk holds, between the two halves of a case. */
+    private function emptyTheDisk(): void
+    {
+        Storage::fake('theme');
+    }
+
+    private function tenant(): array
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $planId = DB::table('plans')->insertGetId([
+            'name' => 'sec73-plan-' . $this->uniqueFixtureRef(), 'price' => 0, 'themes' => '[]',
+            'storage_limit' => '100', 'shipping_method' => 'off', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $merchant->plan_id = $planId;
+        $merchant->save();
+        Cache::forget('admin_details');
+
+        return [$merchant, $store];
+    }
 
     private function aCustomerOf($store): Customer
     {
@@ -87,6 +133,21 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
             'store_id' => $store->id, 'status' => 1, 'register_type' => 'email',
         ]);
     }
+
+    /** Browser state as it really is: a storefront session AND a panel session, in two guards. A merchant of another tenant is the commonest `web` login. */
+    private function holdingBothCookies(Customer $customer): void
+    {
+        [$stranger] = $this->tenant();
+
+        $this->actingAs($stranger, 'web');
+        $this->actingAs($customer, 'customers');
+
+        $this->assertTrue(auth('web')->check() && auth('customers')->check(), 'Premise: both guards hold a principal.');
+    }
+
+    // ===========================================================================================================================
+    // 3. a storefront customer's attachments
+    // ===========================================================================================================================
 
     private function postTicket($store, Customer $customer, array $attachments)
     {
@@ -106,7 +167,7 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
         $this->assertCount(1, $stored, 'Premise: a legitimate attachment reaches the uploader and is stored. Files: ' . json_encode($stored));
         $this->assertStringEndsWith('/tickets/screenshot.png', $stored[0]);
 
-        Storage::fake('theme');
+        $this->emptyTheDisk();
         $this->postTicket($store, $customer, [$this->upload('page.html', $this->png()), $this->upload('shell.php.png', $this->png())]);
 
         $this->assertSame([], $this->stored(), 'A customer stored an attachment named page.html or shell.php.png through the ticket form: ' . json_encode($this->stored()));
@@ -118,18 +179,130 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
         [, $store] = $this->tenant();
         $customer = $this->aCustomerOf($store);
 
-        $this->postTicket($store, $customer, [$this->upload('logo.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')]);
+        $this->postTicket($store, $customer, [$this->upload('logo.svg', self::SVG)]);
 
         $this->assertSame([], $this->stored(), 'A customer stored an SVG through the ticket form: ' . json_encode($this->stored()));
+    }
+
+    /**
+     * THE FIRST FORM OF THE POLICY ASKED WHETHER A `web` USER WAS SIGNED IN, and registration is open: `POST /register` logs a new
+     * merchant in, and the `web` and `customers` guards live under separate session keys, so a visitor holds both at once. Measured on
+     * the real routes: customers alone refused the SVG, web + customers stored it -- in the VICTIM store's folder.
+     */
+    public function test_a_shopper_who_also_holds_a_panel_login_is_still_a_shopper_at_the_ticket_door(): void
+    {
+        [, $store] = $this->tenant();
+        $customer = $this->aCustomerOf($store);
+
+        $this->holdingBothCookies($customer);
+        $this->post('/' . $store->slug . '/store-ticket', ['title' => 'A problem', 'description' => 'It does not work', 'attachments' => [$this->upload('screenshot.png', $this->png())]]);
+        $this->assertCount(1, $this->stored(), 'Premise: with both cookies the request reaches the uploader and a PNG is stored. Files: ' . json_encode($this->stored()));
+
+        $this->emptyTheDisk();
+        $this->post('/' . $store->slug . '/store-ticket', ['title' => 'A problem', 'description' => 'It does not work', 'attachments' => [$this->upload('logo.svg', self::SVG)]]);
+
+        $this->assertSame([], $this->stored(), 'A shopper holding a panel login stored an SVG in the store\'s ticket folder: ' . json_encode($this->stored()));
+    }
+
+    /** THE DOOR WHERE THE MERCHANT OPENS THE FILE FROM A LINK (refund_details.blade.php prints `<a href target="_blank"><img>`, with no `download`). */
+    public function test_a_shopper_who_also_holds_a_panel_login_is_still_a_shopper_at_the_refund_evidence_door(): void
+    {
+        [, $store] = $this->tenant();
+        $customer = $this->aCustomerOf($store);
+        $order = $this->makeOrder($store, [
+            'product_order_id' => 'ORD-' . strtoupper(uniqid()), 'customer_id' => $customer->id, 'is_guest' => 0, 'delivered_status' => 1,
+            'product_price' => 500, 'delivery_price' => 20, 'tax_price' => 20, 'coupon_price' => 0, 'final_price' => 540,
+            'product_json' => json_encode([['product_id' => 501, 'name' => 'Alpha', 'variant_id' => 0, 'qty' => 3, 'final_price' => 300], ['product_id' => 502, 'name' => 'Beta', 'variant_id' => 0, 'qty' => 2, 'final_price' => 200]]),
+        ]);
+
+        $request = fn (array $files) => $this->post('/' . $store->slug . '/order-refund-request/' . $order->id, [
+            'order_id' => $order->id, 'product_refund_id' => [501], 'quantity' => [1, 0], 'return_price' => ['P', 'P'], 'product_sub_total' => 100,
+            'refund_reason' => 'Other', 'custom_refund_reason' => 'x', 'attachments' => $files,
+        ]);
+
+        $this->holdingBothCookies($customer);
+
+        $request([$this->upload('proof.png', $this->png())]);
+        $this->assertCount(1, $this->stored(), 'Premise: the refund evidence door stores a PNG. Files: ' . json_encode($this->stored()) . ' Refunds: ' . DB::table('order_refunds')->count());
+
+        $this->emptyTheDisk();
+        DB::table('order_refunds')->delete();
+        $request([$this->upload('proof.svg', self::SVG)]);
+
+        $this->assertSame([], $this->stored(), 'A shopper holding a panel login stored an SVG as refund evidence, which the merchant opens from a link: ' . json_encode($this->stored()));
+    }
+
+    /**
+     * WHAT THE POLICY CALLS A PANEL REQUEST, by the route rather than by the cookies: a `web` user, on a route that demands one.
+     * (`custom.auth` is where a merchant's Sanctum token lands in the `web` guard, so it counts; a route of `auth:customers` or no auth
+     * does not, whoever else is signed in.)
+     */
+    public function test_a_panel_request_is_one_whose_route_demands_a_panel_user(): void
+    {
+        [$merchant] = $this->tenant();
+        [, $store] = $this->tenant();
+        $customer = $this->aCustomerOf($store);
+
+        $probe = fn () => response()->json(['panel' => PlatformUploadPolicy::panelSession()]);
+        Route::middleware('web')->post('/_sec73/public', $probe);
+        Route::middleware(['web', 'auth'])->post('/_sec73/panel', $probe);
+        Route::middleware(['web', 'auth:web'])->post('/_sec73/panel-web', $probe);
+        Route::middleware(['web', 'auth:customers'])->post('/_sec73/customers', $probe);
+        Route::middleware(['web', 'auth:web,customers'])->post('/_sec73/either', $probe);
+
+        $this->actingAs($merchant, 'web');
+        $this->actingAs($customer, 'customers');
+
+        $answers = [];
+        foreach (['public', 'panel', 'panel-web', 'customers', 'either'] as $route) {
+            $answers[$route] = $this->post('/_sec73/' . $route)->json('panel');
+        }
+
+        $this->assertSame(
+            ['public' => false, 'panel' => true, 'panel-web' => true, 'customers' => false, 'either' => false],
+            $answers,
+            'A request with a panel login on a PUBLIC route, or on a route that accepts the customers guard, was classified as a panel request.'
+        );
+
+        // a request that never went through the router (a console command, a direct call): a `web` user is all there is to go on
+        $this->app->instance('request', \Illuminate\Http\Request::create('/x'));
+        $this->assertNull(request()->route());
+        $this->assertTrue(PlatformUploadPolicy::panelSession());
+    }
+
+    /**
+     * `custom.auth` is where a Sanctum token's owner is logged into the guard that matches the TOKEN: a merchant's lands in `web` (a panel
+     * request), a customer's in `customers` and a delivery driver's in `deliveryboy` (neither is). The same handler, three principals.
+     */
+    public function test_a_merchants_token_is_a_panel_request_and_a_customers_and_a_drivers_are_not(): void
+    {
+        [$merchant, $store] = $this->tenant();
+        $customer = $this->aCustomerOf($store);
+        $driver = \App\Models\DeliveryBoy::forceCreate([
+            'name' => 'Driver ' . uniqid(), 'email' => 'driver' . uniqid() . '@example.test', 'password' => bcrypt('x'),
+            'contact' => '0000000', 'created_by' => $store->created_by, 'store_id' => $store->id,
+        ]);
+
+        Route::middleware(['api', 'custom.auth'])->post('/_sec73/token', fn () => response()->json(['panel' => PlatformUploadPolicy::panelSession()]));
+
+        $answer = function ($owner) {
+            // one request is one app and one session: the guards, and the session the last request logged its owner into, are not this one's
+            $this->app['auth']->forgetGuards();
+            $this->flushSession();
+
+            return $this->withHeader('Authorization', 'Bearer ' . $owner->createToken('t')->plainTextToken)->post('/_sec73/token')->json('panel');
+        };
+
+        $this->assertSame([true, false, false], [$answer($merchant), $answer($customer), $answer($driver)]);
     }
 
     // ===========================================================================================================================
     // 1. the Store Setting screen: seven six-argument calls behind `auth` and nothing else
     // ===========================================================================================================================
 
-    private function postAppSetting($user, $file)
+    private function appSettingBody($file): array
     {
-        return $this->actingAs($user)->post('/app-setting', [
+        return [
             'app_setting_tab' => 'pills-home-tab',
             'array' => [
                 0 => [
@@ -139,12 +312,18 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
                     ],
                 ],
             ],
-        ]);
+        ];
+    }
+
+    private function postAppSetting($user, $file)
+    {
+        return $this->actingAs($user)->post('/app-setting', $this->appSettingBody($file));
     }
 
     /**
-     * A MERCHANT'S STAFF MEMBER WITH NO PERMISSION AT ALL reaches the handler (it asks for none) -- so this is the reach, and the
-     * owner is the control: the same request with a real image from the owner must still store it.
+     * A MERCHANT'S STAFF MEMBER WITH NO PERMISSION AT ALL reaches the handler (it asks for none -- a RECORDED GAP, not a decision, see the
+     * work queue). The premise below is the reach: if a permission gate is ever put on this handler, the staff member must be given the
+     * permission here, or the refusals that follow would be the gate's and not the policy's.
      */
     public function test_the_store_setting_screen_stores_an_image_and_refuses_a_page_even_for_staff_with_no_permission(): void
     {
@@ -157,7 +336,11 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
         $this->assertCount(1, $stored, 'Premise: the owner\'s legitimate logo reaches the uploader and is stored. Files: ' . json_encode($stored));
         $this->assertStringEndsWith('_logo.png', $stored[0]);
 
-        Storage::fake('theme');
+        $this->emptyTheDisk();
+        $this->postAppSetting($staff, $this->upload('staff.png', $this->png()));
+        $this->assertCount(1, $this->stored(), 'Premise: a staff member with no permission reaches the uploader of this handler (a permission gate has been added: give the staff member the permission here). Files: ' . json_encode($this->stored()));
+
+        $this->emptyTheDisk();
         $this->postAppSetting($staff, $this->upload('page.html', $this->png()));
         $this->assertSame([], $this->stored(), 'A staff member with no permission stored page.html through POST /app-setting: ' . json_encode($this->stored()));
 
@@ -165,22 +348,72 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
         $this->assertSame([], $this->stored(), 'A staff member with no permission stored shell.php through POST /app-setting: ' . json_encode($this->stored()));
     }
 
-    // ===========================================================================================================================
-    // 2. the receipt at a GUEST checkout: no account, no throttle, a six-argument call
-    // ===========================================================================================================================
-
-    /** A store with one product, a shipping row and a GUEST basket keyed on the cart cookie. @return array{0: \App\Models\Store, 1: int, 2: string} */
-    private function guestBasket(): array
+    /** The seven call sites took ANY file before (no validator); an image field takes the images a browser shows, as the other panel image doors do. */
+    public function test_the_store_setting_screen_takes_the_image_types_it_took_before_and_not_a_page(): void
     {
-        [$merchant, $store] = $this->tenant();
+        [$merchant] = $this->tenant();
 
-        foreach (['stock_management' => 'on', 'out_of_stock_threshold' => '0', 'notification' => '[]'] as $name => $value) {
-            DB::table('settings')->insert(['name' => $name, 'value' => $value, 'created_by' => $merchant->id, 'store_id' => $store->id, 'created_at' => now(), 'updated_at' => now()]);
+        foreach ([
+            'banner.png' => $this->png(), 'banner.gif' => (string) base64_decode(self::GIF), 'banner.webp' => (string) base64_decode(self::WEBP),
+            'logo.svg' => '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2"/></svg>',
+        ] as $name => $bytes) {
+            $this->emptyTheDisk();
+            $this->postAppSetting($merchant, $this->upload($name, $bytes));
+
+            $this->assertCount(1, $this->stored(), "The owner could no longer store {$name} through the Store Setting screen: " . json_encode(session('error')));
         }
 
-        DB::table('countries')->insertOrIgnore(['id' => 101, 'name' => 'Syria', 'created_at' => now(), 'updated_at' => now()]);
-        DB::table('states')->insertOrIgnore(['id' => 1, 'name' => 'Damascus', 'country_id' => 101, 'created_at' => now(), 'updated_at' => now()]);
-        DB::table('cities')->insertOrIgnore(['id' => 1, 'name' => 'Damascus', 'country_id' => 101, 'state_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        $this->emptyTheDisk();
+        $this->postAppSetting($merchant, $this->upload('banner.html', $this->png()));
+        $this->assertSame([], $this->stored());
+    }
+
+    /**
+     * THE SEVENTH SITE (`uploadThemeMedia`) returned a RedirectResponse where its caller reads `$upload['error']`: HTTP 500 on any
+     * refusal -- a branch that could not be reached while the sixth argument skipped the validator. And it had charged the owner's plan
+     * for a file that was not stored.
+     */
+    public function test_a_refused_image_on_the_product_page_setting_answers_cleanly_and_is_not_charged_to_the_plan(): void
+    {
+        [$merchant] = $this->tenant();
+        $post = fn (string $name) => $this->actingAs($merchant)->post('/product-page-setting', [
+            'app_setting_tab' => 'x', 'page_name' => 'product_banner',
+            'array' => ['section' => ['image' => ['text' => $this->upload($name, $this->png() . str_repeat("\0", 1024 * 1024))]]],
+        ]);
+        $storage = fn () => (float) DB::table('users')->where('id', $merchant->id)->value('storage_limit');
+
+        $before = $storage();
+        $this->assertSame(302, $post('banner.png')->status(), 'Premise: the handler saves the setting and redirects back.');
+        $this->assertCount(1, $this->stored(), 'Premise: a legitimate image reaches the uploader and is stored.');
+        $this->assertGreaterThan($before, $storage(), 'Premise: the stored image is charged to the plan.');
+
+        $this->emptyTheDisk();
+        $charged = $storage();
+        $response = $post('banner.html');
+
+        $response->assertOk();
+        $this->assertSame([], $this->stored());
+        $this->assertSame($charged, $storage(), 'A refused image was charged to the owner\'s plan.');
+    }
+
+    // ===========================================================================================================================
+    // 2. the receipt at a GUEST checkout
+    // ===========================================================================================================================
+
+    /** A store with one product, a shipping row and a GUEST basket keyed on the cart cookie. @return array{0: \App\Models\Store, 1: int, 2: string, 3: array} */
+    private function guestBasket(?array $tenant = null): array
+    {
+        [$merchant, $store] = $tenant ?? $this->tenant();
+
+        if ($tenant === null) {
+            foreach (['stock_management' => 'on', 'out_of_stock_threshold' => '0', 'notification' => '[]'] as $name => $value) {
+                DB::table('settings')->insert(['name' => $name, 'value' => $value, 'created_by' => $merchant->id, 'store_id' => $store->id, 'created_at' => now(), 'updated_at' => now()]);
+            }
+
+            DB::table('countries')->insertOrIgnore(['id' => 101, 'name' => 'Syria', 'created_at' => now(), 'updated_at' => now()]);
+            DB::table('states')->insertOrIgnore(['id' => 1, 'name' => 'Damascus', 'country_id' => 101, 'created_at' => now(), 'updated_at' => now()]);
+            DB::table('cities')->insertOrIgnore(['id' => 1, 'name' => 'Damascus', 'country_id' => 101, 'state_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        }
 
         $shippingId = (int) DB::table('shippings')->insertGetId([
             'name' => 'standard', 'slug' => 'standard-' . $this->uniqueFixtureRef(), 'store_id' => $store->id, 'created_at' => now(), 'updated_at' => now(),
@@ -200,11 +433,14 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
         ]);
         (new \App\Models\Cart)->flushCache();
 
-        return [$store, $shippingId, $cookie];
+        return [$store, $shippingId, $cookie, [$merchant, $store]];
     }
 
-    private function guestBankTransfer($store, int $shippingId, string $cookie, UploadedFile $receipt)
+    /** One guest checkout with a BASKET OF ITS OWN: an order consumes its basket, so a second request on it never reaches the receipt. */
+    private function checkoutWith(UploadedFile $receipt, ?array &$tenant = null)
     {
+        [$store, $shippingId, $cookie, $tenant] = $this->guestBasket($tenant);
+
         $billing = [
             'firstname' => 'Guest', 'lastname' => 'Shopper', 'email' => 'guest-sec73@example.test',
             'billing_user_telephone' => '555111333', 'billing_address' => 'Street', 'billing_postecode' => '11111',
@@ -221,40 +457,165 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
     /**
      * THE RECEIPT IS STORED AT THE TOP OF `getProductStatus()`, BEFORE ITS OWN REFUSALS -- so a receipt can be stored by a request that
      * goes on to be refused, and this door needs no account. A real receipt is the premise and the control: the checkout still writes
-     * its order with the receipt on disk, under a name that ends in its extension.
+     * its order with the receipt on disk, under a name that ends in its extension and carries a random part (two shoppers in one second,
+     * or a stranger who knows a name, can no longer land on the same file).
      */
     public function test_a_guest_checkouts_receipt_is_stored_when_it_is_an_image_and_not_when_it_is_a_page(): void
     {
-        [$store, $shippingId, $cookie] = $this->guestBasket();
-
-        $response = $this->guestBankTransfer($store, $shippingId, $cookie, $this->upload('transfer receipt (1).png', $this->png()));
+        $tenant = null;
+        $this->checkoutWith($this->upload('transfer receipt (1).png', $this->png()), $tenant);
 
         $stored = $this->stored();
         $this->assertCount(1, $stored, 'Premise: a legitimate receipt reaches the uploader and is stored. Files: ' . json_encode($stored) . ' Error: ' . json_encode(session('error')));
-        $this->assertMatchesRegularExpression('#^uploads/receipt/transfer_receipt_1_\d{10}\.png$#', $stored[0], 'The receipt\'s stored name ends in its extension, and nothing of the client\'s punctuation survives into it.');
-        $this->assertSame(1, (int) DB::table('orders')->where('store_id', $store->id)->count(), 'Premise: the checkout wrote its order. Error: ' . json_encode(session('error')));
+        $this->assertMatchesRegularExpression('#^uploads/receipt/transfer_receipt_1_\d{10}_[0-9a-f]{8}\.png$#', $stored[0], 'The receipt\'s stored name ends in its extension, carries a random part, and nothing of the client\'s punctuation survives into it.');
+        $this->assertSame(1, (int) DB::table('orders')->where('store_id', $tenant[1]->id)->count(), 'Premise: the checkout wrote its order. Error: ' . json_encode(session('error')));
 
-        foreach (['page.html', 'shell.php.png', 'logo.svg', 'photo.pht'] as $name) {
-            Storage::fake('theme');
-            $bytes = $name === 'logo.svg' ? '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>' : $this->png();
-
-            $this->guestBankTransfer($store, $shippingId, $cookie, $this->upload($name, $bytes));
-
+        foreach (['page.html' => $this->png(), 'photo.pht' => $this->png(), 'logo.svg' => self::SVG, 'photo.png' => "<?php echo 'ss-probe'; ?>\n"] as $name => $bytes) {
+            // a basket of its own for the refusal, and another for the control that follows it
+            $this->emptyTheDisk();
+            $this->checkoutWith($this->upload($name, $bytes), $tenant);
             $this->assertSame([], $this->stored(), "A visitor with no account stored a receipt named {$name}: " . json_encode($this->stored()));
+
+            $this->checkoutWith($this->upload('control.png', $this->png()), $tenant);
+            $this->assertCount(1, $this->stored(), "Premise for {$name}: the same checkout stores a PNG, so the refusal above was the receipt's and not an empty basket's. Error: " . json_encode(session('error')));
         }
     }
 
-    private function tenant(): array
+    /** What the door's own gate (`required|image`) admitted before, minus SVG: a phone's WebP, an old GIF or BMP, a JPEG saved as .jfif. */
+    public function test_a_guest_checkout_still_takes_the_receipt_types_its_own_rule_admits(): void
     {
-        [$merchant, $store] = $this->makeTenant();
-        $planId = DB::table('plans')->insertGetId([
-            'name' => 'sec73-plan-' . $this->uniqueFixtureRef(), 'price' => 0, 'themes' => '[]',
-            'storage_limit' => '100', 'shipping_method' => 'off', 'created_at' => now(), 'updated_at' => now(),
-        ]);
-        $merchant->plan_id = $planId;
-        $merchant->save();
-        Cache::forget('admin_details');
+        $tenant = null;
+        $jpeg = (string) base64_decode('/9j/4AAQSkZJRgABAQEAYABgAAD//gA7Q1JFQVRPUjogZ2QtanBlZyB2MS4wICh1c2luZyBJSkcgSlBFRyB2ODApLCBxdWFsaXR5ID0gNzAK/9sAQwAKBwcIBwYKCAgICwoKCw4YEA4NDQ4dFRYRGCMfJSQiHyIhJis3LyYpNCkhIjBBMTQ5Oz4+PiUuRElDPEg3PT47/9sAQwEKCwsODQ4cEBAcOygiKDs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7/8AAEQgAAgACAwEiAAIRAQMRAf/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgMEBQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/EAB8BAAMBAQEBAQEBAQEAAAAAAAABAgMEBQYHCAkKC//EALURAAIBAgQEAwQHBQQEAAECdwABAgMRBAUhMQYSQVEHYXETIjKBCBRCkaGxwQkjM1LwFWJy0QoWJDThJfEXGBkaJicoKSo1Njc4OTpDREVGR0hJSlNUVVZXWFlaY2RlZmdoaWpzdHV2d3h5eoKDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uLj5OXm5+jp6vLz9PX29/j5+v/aAAwDAQACEQMRAD8A5miiivIP0Q//2Q==');
 
-        return [$merchant, $store];
+        foreach ([
+            'receipt.webp' => (string) base64_decode(self::WEBP), 'receipt.gif' => (string) base64_decode(self::GIF),
+            'receipt.bmp' => (string) base64_decode(self::BMP), 'receipt.jfif' => $jpeg, 'IMG_20241119_102233.JPG' => $jpeg,
+        ] as $name => $bytes) {
+            $this->emptyTheDisk();
+            $this->checkoutWith($this->upload($name, $bytes), $tenant);
+
+            $stored = $this->stored();
+            $this->assertCount(1, $stored, "The guest checkout no longer takes a receipt named {$name}: " . json_encode(session('error')));
+            $this->assertMatchesRegularExpression('#^uploads/receipt/[A-Za-z0-9_-]+_\d{10}_[0-9a-f]{8}\.[a-z]+$#', $stored[0]);
+        }
+    }
+
+    /** A name with a PHP extension inside it is made harmless by the receipt's own naming: no dot of the client's survives into the middle. */
+    public function test_a_guest_receipts_inner_extension_does_not_survive_into_its_stored_name(): void
+    {
+        $tenant = null;
+        $this->checkoutWith($this->upload('shell.php.png', $this->png()), $tenant);
+
+        $stored = $this->stored();
+        $this->assertCount(1, $stored, 'The receipt was refused: ' . json_encode(session('error')));
+        $this->assertMatchesRegularExpression('#^uploads/receipt/shell_php_\d{10}_[0-9a-f]{8}\.png$#', $stored[0]);
+    }
+
+    // ===========================================================================================================================
+    // 4. a merchant's payment slip, opened by the platform operator from a link
+    // ===========================================================================================================================
+
+    /** @return array{0: \App\Models\User, 1: int} the merchant and the plan he pays for */
+    private function planFixture(): array
+    {
+        $admin = $this->makePlatformAdmin();
+        [$storeA] = $this->guestBasket();
+        [$merchant] = $this->tenant();
+        $admin->current_store = $storeA->id;
+        $admin->save();
+        DB::table('settings')->insert(['name' => 'CURRENCY_NAME', 'value' => 'USD', 'created_by' => $admin->id, 'store_id' => $storeA->id, 'created_at' => now(), 'updated_at' => now()]);
+        Cache::forget('super_admin_details');
+        $planId = DB::table('plans')->insertGetId(['name' => 'sec73-sellable-' . $this->uniqueFixtureRef(), 'price' => 10, 'themes' => '[]', 'storage_limit' => '100', 'shipping_method' => 'off', 'created_at' => now(), 'updated_at' => now()]);
+
+        return [$merchant, $planId];
+    }
+
+    private function postSlip($merchant, int $planId, string $name, string $bytes)
+    {
+        return $this->actingAs($merchant, 'web')->post('/plan-pay-with-bank', [
+            'plan_id' => Crypt::encrypt($planId),
+            'payment_receipt' => $this->upload($name, $bytes),
+        ]);
+    }
+
+    /**
+     * The slip is a merchant paying THE PLATFORM, and the operator reviews it from `plans/receipt.blade.php`. The folder is the one every
+     * store's guest receipts share, and the old name was the client's own: a name known to a stranger could be written over.
+     */
+    public function test_a_plan_payment_slip_is_stored_under_a_name_the_server_chose(): void
+    {
+        [$merchant, $planId] = $this->planFixture();
+
+        $this->postSlip($merchant, $planId, 'slip (1).png', $this->png());
+
+        $stored = $this->stored();
+        $this->assertCount(1, $stored, 'Premise: a legitimate slip reaches the uploader and is stored. Error: ' . json_encode(session('error')));
+        $this->assertMatchesRegularExpression('#^uploads/receipt/slip_1_\d{10}_[0-9a-f]{8}\.png$#', $stored[0], 'The slip was stored under the client\'s own name, in the folder shared with the guest receipts.');
+        $this->assertSame($stored[0], DB::table('plan_orders')->orderByDesc('id')->value('receipt'));
+    }
+
+    /**
+     * The caller's own rule (`image`) admits SVG in this framework version, and anyone can be a merchant: an SVG slip is script on the
+     * application's origin in the OPERATOR's browser, opened from a link with no `download`. D-29.5's reasoning is about a merchant's own
+     * logo; this is a different reader.
+     */
+    public function test_a_plan_payment_slip_is_never_an_svg(): void
+    {
+        [$merchant, $planId] = $this->planFixture();
+
+        $this->postSlip($merchant, $planId, 'slip.png', $this->png());
+        $this->assertCount(1, $this->stored(), 'Premise: a legitimate slip is stored. Error: ' . json_encode(session('error')));
+
+        $this->emptyTheDisk();
+        DB::table('plan_orders')->delete();
+        $this->postSlip($merchant, $planId, 'slip.svg', self::SVG);
+
+        $this->assertSame([], $this->stored(), 'A panel user stored an SVG as the payment slip the platform operator opens from a link: ' . json_encode($this->stored()));
+    }
+
+    // ===========================================================================================================================
+    // 5. the shipped app's invoice logo and store image
+    // ===========================================================================================================================
+
+    /**
+     * `updateStoreOwnerInfo` never called the uploader: it validated the BYTES (`image|mimes:jpeg,png,jpg,gif,svg`) and `move()`d the file
+     * under `time() . '_' . basename(<client name>)` -- so PNG bytes named `page.html`, `a.pht` or `shell.php.png` were stored under that
+     * name in `public/uploads/<store>/`. The stored name is the client's name reduced to letters, digits, `_` and `-`, and the extension the
+     * BYTES decide.
+     */
+    public function test_the_store_owner_image_is_stored_under_the_extension_its_bytes_decide(): void
+    {
+        $public = sys_get_temp_dir() . '/sec73-public-' . $this->uniqueFixtureRef();
+        mkdir($public, 0777, true);
+        $this->temporary[] = $public;
+        $previous = app()->publicPath();
+        app()->usePublicPath($public);
+
+        try {
+            [$merchant, $store] = $this->tenant();
+            $token = $merchant->createToken('auth_token')->plainTextToken;
+            $post = fn (string $field, string $name) => $this->withHeader('Authorization', 'Bearer ' . $token)->post('/api/admin/updateStoreOwnerInfo', [
+                'store_id' => $store->id, $field => $this->upload($name, $this->png()),
+            ]);
+            $held = fn () => array_map('basename', glob($public . '/uploads/' . $store->id . '/*') ?: []);
+
+            // the two fields are two sites of the handler: each is driven
+            foreach (['invoice_logo', 'store_image'] as $field) {
+                $this->removeDirectory($public . '/uploads');
+                $post($field, 'logo (1).png')->assertOk();
+                $this->assertCount(1, $held(), "Premise: a legitimate {$field} reaches the handler and is stored.");
+                $this->assertMatchesRegularExpression('/^\d{10}_logo_1\.png$/', $held()[0]);
+
+                foreach (['page.html', 'shell.php.png', 'module.pht'] as $name) {
+                    $this->removeDirectory($public . '/uploads');
+                    $post($field, $name)->assertOk();
+
+                    $this->assertCount(1, $held(), "The {$field} named {$name} was not stored.");
+                    $this->assertMatchesRegularExpression('/^\d{10}_[A-Za-z0-9_-]+\.png$/', $held()[0], "The {$field} named {$name} was stored under the client's extension: {$held()[0]}");
+                }
+            }
+        } finally {
+            app()->usePublicPath($previous);
+        }
     }
 }

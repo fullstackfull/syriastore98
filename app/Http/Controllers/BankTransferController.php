@@ -44,8 +44,12 @@ class BankTransferController extends Controller
 
             $dir = 'uploads/receipt';
             if($request->payment_receipt) {
-                $fileName = $request->payment_receipt->getClientOriginalName();
-                $path = Utility::upload_file($request, 'payment_receipt', $fileName, $dir,[]);
+                // P1-SEC-73. A merchant's payment slip is opened by the PLATFORM OPERATOR from a link (plans/receipt.blade.php, `target="_blank"`, no
+                // `download`), and anyone can be a merchant: the caller's own gate (`image`) admits SVG in this framework version, which is script on
+                // the application's origin in the operator's browser. So the slip is a raster image, under a name the server chose -- it was
+                // the client's own, in the folder every store's guest receipts share, where a name known to a stranger could be written over.
+                $fileName = \App\Services\PlatformUploadPolicy::receiptName($request->payment_receipt);
+                $path = Utility::upload_file($request, 'payment_receipt', $fileName, $dir, \App\Services\PlatformUploadPolicy::imageRules(['bmp']));
             }
             if ($path['flag'] == 1) {
                 $payment_receipt = $path['url'];

@@ -7587,6 +7587,25 @@ private function extractLinksAndGuessIcons($rawString)
     return $links;
 }
 
+/**
+ * P1-SEC-73. The stored name of the store owner's invoice logo and store image (`updateStoreOwnerInfo`, a call the shipped app makes).
+ *
+ * This handler never went through the platform uploader: it validated the BYTES (`image|mimes:jpeg,png,jpg,gif,svg`) and `move()`d the file
+ * under `time() . '_' . basename(<client name>)`, so PNG bytes named `page.html`, `a.pht` or `shell.php.png` were stored under exactly
+ * that name in `public/uploads/<store>/` -- the name is what a web server acts on. The base is now the client's name reduced to letters,
+ * digits, `_` and `-`, and the extension is the one the BYTES decide (`jpg`, `png`, `gif` or `svg`, which is all the rule above admits).
+ */
+private function ownerImageName(\Illuminate\Http\UploadedFile $file): string
+{
+    $base = trim((string) preg_replace('/[^A-Za-z0-9_-]+/', '_', pathinfo(basename($file->getClientOriginalName()), PATHINFO_FILENAME)), '_');
+    $extension = $file->guessExtension();
+
+    // the validation rule admits nothing else: a name is never built from anything the bytes did not decide
+    abort_unless(in_array($extension, ['jpg', 'png', 'gif', 'svg'], true), 422, 'The image type is not accepted.');
+
+    return time() . '_' . ($base !== '' ? $base : 'image') . '.' . $extension;
+}
+
 private function getDefaultIcon($platform)
 {
     $icons = [
@@ -9516,7 +9535,8 @@ public function updateStoreOwnerInfo(Request $request)
 
             if ($request->hasFile('invoice_logo')) {
                 $file = $request->file('invoice_logo');
-                $fileName = time() . '_' . basename($file->getClientOriginalName()); 
+                // P1-SEC-73 (invoice_logo): the name is built by ownerImageName(), not the client's.
+                $fileName = $this->ownerImageName($file);
                 $file->move($uploadPath, $fileName);
                 
                 $relativePath = 'uploads/' . $storeId . '/' . $fileName;
@@ -9529,7 +9549,8 @@ public function updateStoreOwnerInfo(Request $request)
 
             if ($request->hasFile('store_image')) {
                 $file = $request->file('store_image');
-                $fileName = time() . '_' . basename($file->getClientOriginalName()); 
+                // P1-SEC-73 (store_image): the name is built by ownerImageName(), not the client's.
+                $fileName = $this->ownerImageName($file);
                 $file->move($uploadPath, $fileName);
 
                 $relativePath = 'uploads/' . $storeId . '/' . $fileName;
