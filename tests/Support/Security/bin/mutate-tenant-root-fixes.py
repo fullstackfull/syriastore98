@@ -2230,8 +2230,8 @@ GROUPS = [
             ]),
             ('RT11 a title or an alt is not escaped inside its attribute', [
                 ('app/Support/Html/RichText.php',
-                 "htmlspecialchars(mb_substr($value, 0, 300), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')",
-                 "mb_substr($value, 0, 300)"),
+                 "htmlspecialchars(mb_substr(self::printable($value), 0, 300), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')",
+                 "mb_substr(self::printable($value), 0, 300)"),
             ]),
             ('RT12 a style declaration is copied, not matched and re-written', [
                 ('app/Support/Html/RichText.php',
@@ -2270,7 +2270,7 @@ GROUPS = [
             ]),
             ('RT19 a colour that is not a colour reaches the badge', [
                 ('app/Support/Html/RichText.php',
-                 "        return preg_match(self::COLOR, $value) === 1 ? strtolower($value) : null;",
+                 "        return preg_match(self::COLOR, $value) === 1 ? strtolower(preg_replace('/\\s+/', ' ', $value)) : null;",
                  "        return $value === '' ? null : $value;"),
             ]),
             ('RT20 the ticket list is not the escaping subclass', [
