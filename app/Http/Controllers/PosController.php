@@ -175,26 +175,26 @@ class PosController extends Controller
                     'pay' => 'show',
                 ];
                 if (!empty($details['customer']) || isset($customer_detail)) {
-                    $storedetails = '<h7 class="text-dark">' . ucfirst($details['store']['name'])  . '</p></h7>';
+                    $storedetails = '<h7 class="text-dark">' . e(ucfirst($details['store']['name']))  . '</p></h7>';
 
                     if (!empty($details['customer'])) {
-                        $customerdetails = '<h6 class="text-dark">' . ucfirst($customer_detail->name) . '</h6> <p class="m-0 h6 font-weight-normal">' . $customer_detail->phone . '</p>' . '<p class="m-0 h6 font-weight-normal">' .  $details['customer']['address'] . '</p>' . '<p class="m-0 h6 font-weight-normal">' . $details['customer']['city_name'] . '</p>' . '<p class="m-0 h6 font-weight-normal">' . $details['customer']['country_name'] . '</p>' . '<p class="m-0 h6 font-weight-normal">' . $details['customer']['postcode'] ?? '' . '</p>';
+                        $customerdetails = '<h6 class="text-dark">' . e(ucfirst($customer_detail->name)) . '</h6> <p class="m-0 h6 font-weight-normal">' . e($customer_detail->phone) . '</p>' . '<p class="m-0 h6 font-weight-normal">' . e($details['customer']['address']) . '</p>' . '<p class="m-0 h6 font-weight-normal">' . e($details['customer']['city_name']) . '</p>' . '<p class="m-0 h6 font-weight-normal">' . e($details['customer']['country_name']) . '</p>' . '<p class="m-0 h6 font-weight-normal">' . e($details['customer']['postcode'] ?? '') . '</p>';
 
-                        $shippdetails = '<h6 class="text-dark"><b>' . ucfirst($customer_detail->name) . '</h6> </b>' . '<p class="m-0 h6 font-weight-normal">' . $customer_detail->phone . '</p>' . '<p class="m-0 h6 font-weight-normal">' . $details['customer']['address'] . '</p>' . '<p class="m-0 h6 font-weight-normal">' . $details['customer']['city_name']  . '</p>' . '<p class="m-0 h6 font-weight-normal">' . $details['customer']['country_name'] . '</p>' . '<p class="m-0 h6 font-weight-normal">' . $details['customer']['postcode'] . '</p>';
+                        $shippdetails = '<h6 class="text-dark"><b>' . e(ucfirst($customer_detail->name)) . '</h6> </b>' . '<p class="m-0 h6 font-weight-normal">' . e($customer_detail->phone) . '</p>' . '<p class="m-0 h6 font-weight-normal">' . e($details['customer']['address']) . '</p>' . '<p class="m-0 h6 font-weight-normal">' . e($details['customer']['city_name']) . '</p>' . '<p class="m-0 h6 font-weight-normal">' . e($details['customer']['country_name']) . '</p>' . '<p class="m-0 h6 font-weight-normal">' . e($details['customer']['postcode']) . '</p>';
                     } else {
-                        $customerdetails = '<h2 class="h6"><b>' . ucfirst($customer_detail->name) . '</b><h2>';
+                        $customerdetails = '<h2 class="h6"><b>' . e(ucfirst($customer_detail->name)) . '</b><h2>';
                         $shippdetails = '-';
                     }
                 } else {
                     $customerdetails = '<h2 class="h6"><b>' . __('Walk-in Customer') . '</b><h2>';
-                    $storedetails = '<h7 class="text-dark">' . ucfirst($details['store']['name'])  . '</p></h7>';
+                    $storedetails = '<h7 class="text-dark">' . e(ucfirst($details['store']['name']))  . '</p></h7>';
                     $shippdetails = '-';
                 }
 
-                $store['city'] = !empty($store->city) ? ", " . $store->city . "," : '';
-                $store['country'] = !empty($store->country) ? ", " . $store->country . "," : '';
+                $store['city'] = !empty($store->city) ? ", " . e($store->city) . "," : '';
+                $store['country'] = !empty($store->country) ? ", " . e($store->country) . "," : '';
 
-                $userdetails = '<h6 class="text-dark"><b>' . ucfirst($details['user']['name']) . ' </b><p class="m-0 font-weight-normal">' . $store->address . $store['city'] . '</p>' . '<p class="m-0 font-weight-normal">' .  $store->state . $store['country']  . '</p>' . '<p class="m-0 h6 font-weight-normal">' . $store->zipcode . '</p>';
+                $userdetails = '<h6 class="text-dark"><b>' . e(ucfirst($details['user']['name'])) . ' </b><p class="m-0 font-weight-normal">' . e($store->address) . $store['city'] . '</p>' . '<p class="m-0 font-weight-normal">' . e($store->state) . $store['country']  . '</p>' . '<p class="m-0 h6 font-weight-normal">' . e($store->zipcode) . '</p>';
                 $details['customer']['details'] = $customerdetails;
                 $details['store']['details'] = $storedetails;
                 $details['customer']['shippdetails'] = $shippdetails;
@@ -217,13 +217,13 @@ class PosController extends Controller
                             foreach ($Tax->tax_methods() as $key1 => $value1) {
                                 $amount = $subtotal * $value1->tax_rate / 100;
                                 //$cart_array['tax_info'][$key1]["tax_price"] = SetNumber($amount);
-                                //$product_tax .= !empty($value1) ? "<span class='badge bg-primary'>" . $value1->name . ' (' . $value1->tax_rate . '%)' . "</span><br>" : '';
+                                //$product_tax .= !empty($value1) ? "<span class='badge bg-primary'>" . e($value1->name) . ' (' . e($value1->tax_rate) . '%)' . "</span><br>" : '';
                                 $tax_price += $amount;
 
                                 $cart_array['tax_info'][$key1]["tax_name"] = $value1->name;
                                 $cart_array['tax_info'][$key1]["tax_type"] = $value1->tax_rate;
                                 $cart_array['tax_info'][$key1]["tax_amount"] = $amount;
-                                $product_tax .= !empty($value1) ? "<span class='badge bg-primary'>" . $value1->name . ' (' . $value1->tax_rate . '%)' . "</span><br>" : '';
+                                $product_tax .= !empty($value1) ? "<span class='badge bg-primary'>" . e($value1->name) . ' (' . e($value1->tax_rate) . '%)' . "</span><br>" : '';
                                 $cart_array['tax_info'][$key1]["id"] = $value1->id;
                                 $cart_array['tax_info'][$key1]["tax_price"] = SetNumber($amount);
                             }
@@ -746,27 +746,27 @@ class PosController extends Controller
             'pay' => 'show',
         ];
         if (!empty($details['customer']) || !empty($customer_detail)) {
-            $storedetails = '<h7 class="text-dark">' . ucfirst($details['store']['name'])  . '</p></h7>';
+            $storedetails = '<h7 class="text-dark">' . e(ucfirst($details['store']['name']))  . '</p></h7>';
 
             if (!empty($details['customer'])) {
-                $customerdetails = '<h6 class="text-dark">' . ucfirst($customer_detail->name) . '</h6> <p class="m-0 h6 font-weight-normal">' . $customer_detail->phone . '</p>' . '<p class="m-0 h6 font-weight-normal">' .  $details['customer']['address'] . '</p>' . '<p class="m-0 h6 font-weight-normal">' . $details['customer']['city_name'] . '</p>' . '<p class="m-0 h6 font-weight-normal">' . $details['customer']['country_name'] . '</p>' . '<p class="m-0 h6 font-weight-normal">' . $details['customer']['postcode'] ?? '' . '</p>';
+                $customerdetails = '<h6 class="text-dark">' . e(ucfirst($customer_detail->name)) . '</h6> <p class="m-0 h6 font-weight-normal">' . e($customer_detail->phone) . '</p>' . '<p class="m-0 h6 font-weight-normal">' . e($details['customer']['address']) . '</p>' . '<p class="m-0 h6 font-weight-normal">' . e($details['customer']['city_name']) . '</p>' . '<p class="m-0 h6 font-weight-normal">' . e($details['customer']['country_name']) . '</p>' . '<p class="m-0 h6 font-weight-normal">' . e($details['customer']['postcode'] ?? '') . '</p>';
 
-                $shippdetails = '<h6 class="text-dark"><b>' . ucfirst($customer_detail->name) . '</h6> </b>' . '<p class="m-0 h6 font-weight-normal">' . $customer_detail->phone . '</p>' . '<p class="m-0 h6 font-weight-normal">' . $details['customer']['address'] . '</p>' . '<p class="m-0 h6 font-weight-normal">' . $details['customer']['city_name']  . '</p>' . '<p class="m-0 h6 font-weight-normal">' . $details['customer']['country_name'] . '</p>' . '<p class="m-0 h6 font-weight-normal">' . $details['customer']['postcode'] . '</p>';
+                $shippdetails = '<h6 class="text-dark"><b>' . e(ucfirst($customer_detail->name)) . '</h6> </b>' . '<p class="m-0 h6 font-weight-normal">' . e($customer_detail->phone) . '</p>' . '<p class="m-0 h6 font-weight-normal">' . e($details['customer']['address']) . '</p>' . '<p class="m-0 h6 font-weight-normal">' . e($details['customer']['city_name']) . '</p>' . '<p class="m-0 h6 font-weight-normal">' . e($details['customer']['country_name']) . '</p>' . '<p class="m-0 h6 font-weight-normal">' . e($details['customer']['postcode']) . '</p>';
             } else {
-                $customerdetails = '<h2 class="h6"><b>' . ucfirst($customer_detail->name) . '</b><h2>';
+                $customerdetails = '<h2 class="h6"><b>' . e(ucfirst($customer_detail->name)) . '</b><h2>';
                 $shippdetails = '-';
             }
         } else {
             $customerdetails = '<h2 class="h6"><b>' . __('Walk-in Customer') . '</b><h2>';
-            $storedetails = '<h7 class="text-dark">' . ucfirst($details['store']['name'])  . '</p></h7>';
+            $storedetails = '<h7 class="text-dark">' . e(ucfirst($details['store']['name']))  . '</p></h7>';
             $shippdetails = '-';
         }
 
 
-        $store['city'] = !empty($store->city) ? ", " . $store->city . "," : '';
-        $store['country'] = !empty($store->country) ? ", " . $store->country . "," : '';
+        $store['city'] = !empty($store->city) ? ", " . e($store->city) . "," : '';
+        $store['country'] = !empty($store->country) ? ", " . e($store->country) . "," : '';
 
-        $userdetails = '<h6 class="text-dark"><p class="m-0 font-weight-normal">' . $store->address . $store['city'] . '</p>' . '<p class="m-0 font-weight-normal">' .  $store->state . $store['country']  . '</p>' . '<p class="m-0 h6 font-weight-normal">' . $store->zipcode . '</p>';
+        $userdetails = '<h6 class="text-dark"><p class="m-0 font-weight-normal">' . e($store->address) . $store['city'] . '</p>' . '<p class="m-0 font-weight-normal">' . e($store->state) . $store['country']  . '</p>' . '<p class="m-0 h6 font-weight-normal">' . e($store->zipcode) . '</p>';
 
         $details['customer']['details'] = $customerdetails;
         $details['store']['details'] = $storedetails;
@@ -795,7 +795,7 @@ class PosController extends Controller
                             $cart_array['tax_info'][$key1]["tax_name"] = $value1->name;
                             $cart_array['tax_info'][$key1]["tax_type"] = $value1->tax_rate;
                             $cart_array['tax_info'][$key1]["tax_amount"] = $amount;
-                            $product_tax .= !empty($value1) ? "<span class='badge bg-primary'>" . $value1->name . ' (' . $value1->tax_rate . '%)' . "</span><br>" : '';
+                            $product_tax .= !empty($value1) ? "<span class='badge bg-primary'>" . e($value1->name) . ' (' . e($value1->tax_rate) . '%)' . "</span><br>" : '';
                             $cart_array['tax_info'][$key1]["id"] = $value1->id;
                             $cart_array['tax_info'][$key1]["tax_price"] = SetNumber($amount);
                         }

@@ -26,7 +26,8 @@ class BlogCategoryDataTable extends DataTable
                 ->addColumn('action', function (BlogCategory $category) {
                     return view('blog-category.action', compact('category'));
                 })
-                ->rawColumns(['name','action']);
+                // P1-SEC-80. `name` is plain text a staff member types: yajra escapes it. Only the action view is markup.
+        ->rawColumns(['action']);
     }
 
     /**

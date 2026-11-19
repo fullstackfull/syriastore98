@@ -49,7 +49,8 @@ class FlashSaleDataTable extends DataTable
         ->addColumn('action', function (FlashSale $flashsale) {
             return view('flash-sale.action', compact('flashsale'));
         })
-        ->rawColumns(['name','discount_type','start_date','end_date','status','action']);
+        // P1-SEC-80. The name is plain text a staff member types, and the discount type and the dates are plain text too: yajra escapes them. `status` is a view and `action` is a view.
+        ->rawColumns(['status','action']);
     }
 
     /**

@@ -72,7 +72,8 @@ class WoocomCouponController extends Controller
                             ->addColumn('action', function ($data) use ($upddata) {
                                 return view('woocommerce.coupon_action', compact('data','upddata'));
                             })
-                            ->rawColumns(['name','code','amount','usage_limit_per_user','date_expires','action'])
+                            // P1-SEC-80. The code, the limit and the date come from the merchant's WooCommerce shop: plain text, escaped by yajra. `amount` is built here around an icon and is a number.
+                            ->rawColumns(['amount','action'])
                             ->make(true);
                     }
                     

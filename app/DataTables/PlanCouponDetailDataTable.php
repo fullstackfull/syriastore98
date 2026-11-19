@@ -42,7 +42,7 @@ class PlanCouponDetailDataTable extends DataTable
         ->addColumn('order_id', function ($row) {
             return '<div class="btn btn-primary btn-sm text-sm" data-toggle="tooltip" ">
                             <span class="btn-inner--icon"></span>
-                            <span class="btn-inner--text">#'. $row->order . '</span>
+                            <span class="btn-inner--text">#'. e($row->order) . '</span>
                         </div>';
         })
         ->addColumn('amount', function ($row) {

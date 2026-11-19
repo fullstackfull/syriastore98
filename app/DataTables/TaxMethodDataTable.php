@@ -44,7 +44,8 @@ class TaxMethodDataTable extends DataTable
                 $city = $tax_method->getCityNameAttribute();
                 return $city ? $city->name : '*';
             })
-            ->rawColumns(['action','country_id','state_id','city_id']);
+            // P1-SEC-80. Country, state and city names are plain text: yajra escapes them.
+        ->rawColumns(['action']);
         return $dataTable;
     }
 

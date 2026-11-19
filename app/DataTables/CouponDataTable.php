@@ -30,7 +30,7 @@ class CouponDataTable extends DataTable
             } else {
                 $icon = 'ti ti-percentage';
             }
-            return $coupon->discount_amount . '<i class="'.$icon.'"></i> '. __('Discount');
+            return e($coupon->discount_amount) . '<i class="'.$icon.'"></i> '. __('Discount');
         })
         ->editColumn('coupon_expiry_date', function (Coupon $coupon) {
             return isset($coupon->coupon_expiry_date) ? Utility::dateFormat($coupon->coupon_expiry_date) : '';
@@ -38,7 +38,9 @@ class CouponDataTable extends DataTable
         ->addColumn('action', function (Coupon $coupon) {
             return view('coupon.action', compact('coupon'));
         })
-        ->rawColumns(['coupon_name','coupon_code','discount_amount','coupon_limit', 'coupon_expiry_date','action']);
+        // P1-SEC-80. The coupon's name and code are plain text a staff member types, and the limit and the expiry are plain text: yajra escapes them. `discount_amount` is built here around an icon
+        // and escapes the number.
+        ->rawColumns(['discount_amount','action']);
     }
 
     /**

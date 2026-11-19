@@ -29,7 +29,9 @@ class NewsletterDataTable extends DataTable
         ->addColumn('action', function (Newsletter $newsletter) {
             return view('newsletter.action', compact('newsletter'));
         })
-        ->rawColumns(['email','created_at','action']);
+        // P1-SEC-80. `email` and `created_at` are NOT raw: `email` is a VISITOR's string (the storefront footer form stores whatever is posted, and Laravel's `email` rule would
+        // accept a quoted local part holding markup anyway), so yajra escapes it; `created_at` is a plain date and needs nothing. Only the action partial is markup.
+        ->rawColumns(['action']);
     }
 
     /**

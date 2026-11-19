@@ -53,12 +53,13 @@ class WoocomCategoryController extends Controller
                         return DataTables::of($jsonData)
                             ->addColumn('cover_image', function ($data) {
                                 $imgSrc = !empty($data->image) ? get_file($data->image->src) : asset(Storage::url('uploads/woocommerce.png'));
-                                return '<img src="' . $imgSrc . '" alt="" width="100" class="cover_img">';
+                                return '<img src="' . e($imgSrc) . '" alt="" width="100" class="cover_img">';
                             })
                             ->addColumn('action', function ($data) use ($upddata) {
                                 return view('woocommerce.category_action', compact('data','upddata'));
                             })
-                            ->rawColumns(['cover_image','name','action'])
+                            // P1-SEC-80. The category name comes from the merchant's WooCommerce shop: plain text, escaped by yajra.
+                            ->rawColumns(['cover_image','action'])
                             ->make(true);
                     }
                    

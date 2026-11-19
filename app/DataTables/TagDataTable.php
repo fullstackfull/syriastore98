@@ -31,7 +31,8 @@ class TagDataTable extends DataTable
             });
         }
 
-        return $dataTable->rawColumns(['name','action']);
+        // P1-SEC-80. A tag's name is plain text a staff member types: yajra escapes it.
+        return $dataTable->rawColumns(['action']);
     }
 
     /**

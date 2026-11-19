@@ -73,7 +73,9 @@ class ProductQuestionDataTable extends DataTable
                     return DsBadge::render('danger', __('Pending'));
                 }
             })
-            ->rawColumns(['action','customer_id','answers']);
+            // P1-SEC-80. `customer_id` is the SHOPPER's name (registration validates it as `required|string|max:255` and nothing more) and the closure returns plain text, so it is no longer
+            // a raw column: yajra escapes it. `answers` is a DsBadge (it escapes its own label) and `action` is a view; those two are markup.
+            ->rawColumns(['action','answers']);
         return $dataTable;
     }
 

@@ -57,7 +57,7 @@ class WoocomCustomerController extends Controller
                         return DataTables::of($jsonData)
                             ->addColumn('customer_image', function ($customer) {
                                 $imgSrc = !empty($customer->avatar_url) ? get_file($customer->avatar_url) : asset(Storage::url('uploads/woocommerce.png'));
-                                return '<img src="' . $imgSrc . '" alt="" width="100" class="cover_img">';
+                                return '<img src="' . e($imgSrc) . '" alt="" width="100" class="cover_img">';
                             })                            
                             ->editColumn('phone', function ($customer) {
                                 return !empty($customer->billing) ? $customer->billing->phone : ($customer->shipping->phone ?? '-');
@@ -65,7 +65,8 @@ class WoocomCustomerController extends Controller
                             ->addColumn('action', function ($customer) use ($upddata) {
                                 return view('woocommerce.customer_action', compact('customer','upddata'));
                             })
-                            ->rawColumns(['customer_image','first_name','email','phone','action'])
+                            // P1-SEC-80. These rows come from the merchant's WooCommerce shop, where the SHOPPERS chose their names and e-mail addresses: plain text, escaped by yajra.
+                            ->rawColumns(['customer_image','action'])
                             ->make(true);
                     }
 

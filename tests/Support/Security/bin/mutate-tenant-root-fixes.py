@@ -2562,6 +2562,198 @@ GROUPS = [
             ]),
         ],
     },
+    {
+        "key": 'panellists',
+        "title": "P1-SEC-80 -- what a shopper, a visitor, a merchant or a staff member typed reaches somebody else's browser only escaped (the DataTable raw columns, the POS panel and receipt)",
+        "tests": ['tests/Feature/Security/PanelListStoredXssTest.php', 'tests/Feature/Security/TenantListCellEscapingTest.php', 'tests/Unit/Security/DataTableRawColumnsTest.php'],
+        "mutants": [
+            ("PL1 the newsletter list prints a visitor's address raw", [
+                ('app/DataTables/NewsletterDataTable.php',
+                 "->rawColumns(['action']);",
+                 "->rawColumns(['email','created_at','action']);"),
+            ]),
+            ("PL2 the product question list prints a shopper's name raw", [
+                ('app/DataTables/ProductQuestionDataTable.php',
+                 "->rawColumns(['action','answers']);",
+                 "->rawColumns(['action','customer_id','answers']);"),
+            ]),
+            ("PL3 the operator's store list prints a merchant's name raw", [
+                ('app/DataTables/StoreDataTable.php',
+                 "->rawColumns(['avatar','type','action']);",
+                 "->rawColumns(['avatar','name','type','action']);"),
+            ]),
+            ("PL4 the operator's plan order list prints a merchant's name raw", [
+                ('app/DataTables/PlanOrderDataTable.php',
+                 "->rawColumns(['order_id','payment_status','receipt','action']);",
+                 "->rawColumns(['order_id','user_name','payment_status','receipt','action']);"),
+            ]),
+            ("PL5 the operator's plan request list prints a merchant's name raw", [
+                ('app/DataTables/PlanRequestDataTable.php',
+                 "->rawColumns(['action']);",
+                 "->rawColumns(['user_id','action']);"),
+            ]),
+            ("PL6 the owner's staff list prints a staff member's name raw", [
+                ('app/DataTables/UserDataTable.php',
+                 "->rawColumns(['avatar','type','action']);",
+                 "->rawColumns(['avatar','name','type','action']);"),
+            ]),
+            ("PL7 the downloadable sales list prints a shopper's name raw", [
+                ('app/DataTables/SalesDownloadableProductDataTable.php',
+                 "->rawColumns(['order_id','product_name','attachment']);",
+                 "->rawColumns(['order_id','product_name','customer','attachment']);"),
+            ]),
+            ('TL1 blog categories print a name raw', [
+                ('app/DataTables/BlogCategoryDataTable.php',
+                 "->rawColumns(['action']);",
+                 "->rawColumns(['name','action']);"),
+            ]),
+            ('TL2 blogs print a title and a category name raw', [
+                ('app/DataTables/BlogDataTable.php',
+                 "->rawColumns(['cover_image_path','action']);",
+                 "->rawColumns(['cover_image_path','category_id','title','slug','short_description','action']);"),
+            ]),
+            ('TL3 faqs print a topic raw', [
+                ('app/DataTables/FaqDataTable.php',
+                 "->rawColumns(['action']);",
+                 "->rawColumns(['topic','action']);"),
+            ]),
+            ('TL4 flash sales print a name raw', [
+                ('app/DataTables/FlashSaleDataTable.php',
+                 "->rawColumns(['status','action']);",
+                 "->rawColumns(['name','status','action']);"),
+            ]),
+            ('TL5 pages print a name raw', [
+                ('app/DataTables/PageDataTable.php',
+                 "->rawColumns(['page_status','action']);",
+                 "->rawColumns(['page_name','page_slug','page_status','action']);"),
+            ]),
+            ('TL6 tags print a name raw', [
+                ('app/DataTables/TagDataTable.php',
+                 "return $dataTable->rawColumns(['action']);",
+                 "return $dataTable->rawColumns(['name','action']);"),
+            ]),
+            ('TL7 shipping classes print a name raw', [
+                ('app/DataTables/ShippingDataTable.php',
+                 "->rawColumns(['action']);",
+                 "->rawColumns(['name','description','action']);"),
+            ]),
+            ('TL8 testimonials print an author and the category and product names raw', [
+                ('app/DataTables/TestimonialDataTable.php',
+                 "->rawColumns(['action', 'avatar', 'rating_no']);",
+                 "->rawColumns(['action', 'avatar', 'username', 'category_id', 'product_id', 'rating_no']);"),
+            ]),
+            ('TL9 delivery boys print a name, an e-mail and a contact raw', [
+                ('app/DataTables/DeliveryBoyDataTable.php',
+                 "->rawColumns(['avatar','action']);",
+                 "->rawColumns(['avatar','name','email','contact','action']);"),
+            ]),
+            ('TL10 roles print a name raw', [
+                ('app/DataTables/RoleDataTable.php',
+                 "->rawColumns(['permissions','action']);",
+                 "->rawColumns(['name','permissions','action']);"),
+            ]),
+            ('TL11 coupons print a name and a code raw', [
+                ('app/DataTables/CouponDataTable.php',
+                 "->rawColumns(['discount_amount','action']);",
+                 "->rawColumns(['coupon_name','coupon_code','discount_amount','action']);"),
+            ]),
+            ('TL12 products print the category, brand and label names raw', [
+                ('app/DataTables/ProductDataTable.php',
+                 "->rawColumns(['action', 'variant_product', 'average_rating', 'price', 'stock_status', 'product_stock', 'cover_image_path']);",
+                 "->rawColumns(['action', 'category_id', 'brand_id', 'label_id', 'variant_product', 'average_rating', 'price', 'stock_status', 'product_stock', 'cover_image_path']);"),
+            ]),
+            ('RC1 the plan coupon list prints a discount raw', [
+                ('app/DataTables/PlanCouponDataTable.php',
+                 "->rawColumns(['action']);",
+                 "->rawColumns(['discount','action']);"),
+            ]),
+            ('RC2 the shipping zone list prints country and state names raw', [
+                ('app/DataTables/ShippingZoneDataTable.php',
+                 "->rawColumns(['action']);",
+                 "->rawColumns(['action', 'country_id', 'state_id']);"),
+            ]),
+            ('RC3 the tax method list prints country, state and city names raw', [
+                ('app/DataTables/TaxMethodDataTable.php',
+                 "->rawColumns(['action']);",
+                 "->rawColumns(['action','country_id','state_id','city_id']);"),
+            ]),
+            ('RC4 the user coupon list prints a coupon name raw', [
+                ('app/DataTables/UserCouponDataTable.php',
+                 "->rawColumns(['product_order_id']);",
+                 "->rawColumns(['coupon_name','product_order_id','amount', 'date_used']);"),
+            ]),
+            ('RC5 the menu list names a raw column that is not one', [
+                ('app/DataTables/MenuDataTable.php',
+                 "->rawColumns(['action']);",
+                 "->rawColumns(['topic','action']);"),
+            ]),
+            ("RC6 the WooCommerce customer import list prints shoppers' names and e-mail raw", [
+                ('app/Http/Controllers/WoocomCustomerController.php',
+                 "->rawColumns(['customer_image','action'])",
+                 "->rawColumns(['customer_image','first_name','email','phone','action'])"),
+            ]),
+            ('RC7 the WooCommerce category import list prints a name raw', [
+                ('app/Http/Controllers/WoocomCategoryController.php',
+                 "->rawColumns(['cover_image','action'])",
+                 "->rawColumns(['cover_image','name','action'])"),
+            ]),
+            ('RC8 the WooCommerce product import list prints a name raw', [
+                ('app/Http/Controllers/WoocomProductController.php',
+                 "->rawColumns(['cover_image','action'])",
+                 "->rawColumns(['cover_image','name','category_name','price','action'])"),
+            ]),
+            ('RC9 the WooCommerce coupon import list prints a code raw', [
+                ('app/Http/Controllers/WoocomCouponController.php',
+                 "->rawColumns(['amount','action'])",
+                 "->rawColumns(['name','code','amount','usage_limit_per_user','date_expires','action'])"),
+            ]),
+            ('RC10 a list gains a BARE raw column (the shape of every defect here)', [
+                ('app/DataTables/ContactDataTable.php',
+                 "->rawColumns(['action']);",
+                 "->rawColumns(['action','email']);"),
+            ]),
+            ("PE1 the POS panel does not escape the shopper's name", [
+                ('app/Http/Controllers/PosController.php',
+                 'e(ucfirst($customer_detail->name))',
+                 'ucfirst($customer_detail->name)', 6),
+            ]),
+            ("PE2 the POS panel does not escape the shopper's address", [
+                ('app/Http/Controllers/PosController.php',
+                 "e($details['customer']['address'])",
+                 "$details['customer']['address']", 4),
+            ]),
+            ('PE3 the POS receipt prints the address line raw', [
+                ('resources/views/pos/printview.blade.php',
+                 "{{ isset($details['customer']['address']) ? 'Address:  ' . $details['customer']['address'] : '' }}",
+                 "{!! isset($details['customer']['address']) ? 'Address:  ' . $details['customer']['address'] : '' !!}"),
+            ]),
+            ("PE4 the operator's store list does not escape the avatar URL", [
+                ('app/DataTables/StoreDataTable.php',
+                 'e($avatarUrl)',
+                 '$avatarUrl'),
+            ]),
+            ('PE5 the refund list does not escape the order number', [
+                ('app/DataTables/OrderRefundDataTable.php',
+                 "'#' . e($refund_request->order->product_order_id)",
+                 "'#' . $refund_request->order->product_order_id"),
+            ]),
+            ('PE6 the plan coupon detail does not escape the order', [
+                ('app/DataTables/PlanCouponDetailDataTable.php',
+                 'e($row->order)',
+                 '$row->order'),
+            ]),
+            ('PE7 the user coupon list does not escape the order number', [
+                ('app/DataTables/UserCouponDataTable.php',
+                 'e($coupon->OrderData->product_order_id)',
+                 '$coupon->OrderData->product_order_id'),
+            ]),
+            ('PE8 the coupon list does not escape the discount', [
+                ('app/DataTables/CouponDataTable.php',
+                 'e($coupon->discount_amount)',
+                 '$coupon->discount_amount'),
+            ]),
+        ],
+    },
 ]
 
 

@@ -25,7 +25,7 @@ class SalesDownloadableProductDataTable extends DataTable
     {
         return (new EloquentDataTable($query))
         ->addColumn('order_id', function ($order) {
-            return '<a href="' . route('order.view', \Illuminate\Support\Facades\Crypt::encrypt($order->id)) . '" class="btn btn-primary btn-sm text-sm" data-bs-toggle="tooltip" title="' . __('Invoice ID') . '"><span class="btn-inner--text">#' . $order->product_order_id . '</span></a>';
+            return '<a href="' . route('order.view', \Illuminate\Support\Facades\Crypt::encrypt($order->id)) . '" class="btn btn-primary btn-sm text-sm" data-bs-toggle="tooltip" title="' . __('Invoice ID') . '"><span class="btn-inner--text">#' . e($order->product_order_id) . '</span></a>';
         })
         ->editColumn('product_name', function ($order) {
             $products = json_decode($order->product_json, true);
@@ -37,7 +37,7 @@ class SalesDownloadableProductDataTable extends DataTable
                 $variantModel = ProductVariant::find($product['variant_id']);
 
                 if ($productModel) {
-                    $productNames[] = $productModel->name .  ($variantModel ? (' (' .$variantModel->variant. ')') : '') ;
+                    $productNames[] = e($productModel->name) .  ($variantModel ? (' (' . e($variantModel->variant) . ')') : '') ;
                 }
             }
 
@@ -63,10 +63,10 @@ class SalesDownloadableProductDataTable extends DataTable
                 $variant = ProductVariant::where('id', $product['variant_id'])->first();
                 $d_product = Product::where('id', $product['product_id'])->first();
                 if (!empty($variant->downloadable_product)) {
-                    $output .= '<img src="' . get_file($variant->downloadable_product) . '" >';
+                    $output .= '<img src="' . e(get_file($variant->downloadable_product)) . '" >';
                 }
                 if (!empty($d_product->downloadable_product)) {
-                    $output .= '<img src="' . get_file($d_product->downloadable_product) . '" >';
+                    $output .= '<img src="' . e(get_file($d_product->downloadable_product)) . '" >';
                 }
             }
             return $output;
@@ -98,7 +98,9 @@ class SalesDownloadableProductDataTable extends DataTable
                 )
             ', ["%$keyword%"]);
         })
-        ->rawColumns(['order_id','product_name','customer','attachment','created_at']);
+        // P1-SEC-80. The SHOPPER's name (`customer`, registration validates it as `required|string|max:255` and nothing more) and the timestamp are plain text: yajra escapes them. The three
+        // cells that are markup (the order link, the product names joined with <br>, the attachment images) escape every value they interpolate.
+        ->rawColumns(['order_id','product_name','attachment']);
     }
 
     /**

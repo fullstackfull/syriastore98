@@ -76,7 +76,7 @@ class OrderRefundDataTable extends DataTable
             })
             ->addColumn('order_id', function ($refund_request) {
                 $order_id_encrypted = \Illuminate\Support\Facades\Crypt::encrypt($refund_request->order_id);
-                $order_id_display = $refund_request->order ? '#' . $refund_request->order->product_order_id : '#N/A';
+                $order_id_display = $refund_request->order ? '#' . e($refund_request->order->product_order_id) : '#N/A';
                 
                 $html = '<div class="d-flex align-items-center">
                             <a href="' . route('refund-request.show', $order_id_encrypted) . '"
@@ -144,7 +144,8 @@ class OrderRefundDataTable extends DataTable
                     }
                 });
             })
-            ->rawColumns(['action', 'order_id', 'created_at', 'refund_status']);
+            // P1-SEC-80. `created_at` is a plain date: yajra escapes it. `order_id` is built here and now escapes the order number it interpolates.
+            ->rawColumns(['action', 'order_id', 'refund_status']);
         return $dataTable;
     }
 

@@ -25,12 +25,14 @@ class DeliveryBoyDataTable extends DataTable
             ->addIndexColumn()
             ->editColumn('avatar', function (DeliveryBoy $deliveryboy) {
                 $avatarUrl = check_file($deliveryboy->profile_image) ? get_file($deliveryboy->profile_image) : get_file('storage/uploads/avatar.png');
-                return '<a><img src="' . $avatarUrl . '" class="img-fluid rounded-circle card-avatar" width="35" id="blah3"></a>';
+                return '<a><img src="' . e($avatarUrl) . '" class="img-fluid rounded-circle card-avatar" width="35" id="blah3"></a>';
             })
             ->addColumn('action', function (DeliveryBoy $deliveryboy) {
                 return view('deliveryboy.action', compact('deliveryboy'));
             })
-            ->rawColumns(['avatar','name','email','contact','action']);
+            // P1-SEC-80. A driver's name, e-mail and contact are plain text: yajra escapes them. (The e-mail is no safer for being validated as one: Laravel's `email` rule accepts a quoted local part
+            // that holds markup.)
+            ->rawColumns(['avatar','action']);
     }
 
     /**
