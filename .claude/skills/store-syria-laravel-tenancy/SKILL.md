@@ -142,6 +142,24 @@ findings** -- P1-SEC-76). Two corollaries: judge the ROW an encrypted id names, 
 encrypter refuses anything that is not plain data -- an object, an enum (`ObjectFreeEncrypter`, P1-SEC-77) -- and a guard that decodes a segment itself does it WITHOUT unserialize and refuses what is not exactly
 the shape it expects, **for the operator as well** (the operator is admitted before an ownership rule is asked, so a shape check must come first).
 
+**A vendored module's VIEW or DATATABLE can be replaced from the host, and neither is an edit of `packages/workdo/`.** Laravel resolves `resources/views/vendor/<namespace>/...` BEFORE
+the module's own views, and a DataTable the module's controller type-hints comes out of the container, so `$this->app->bind(Workdo\Helpdesk\DataTables\HelpdeskData::class,
+App\DataTables\SafeHelpdeskData::class)` (by NAME: nothing loads while the module is off) hands the controller a subclass. P1-SEC-75 does both for a merchant's ticket text on the operator's
+pages. Five rules, each of which cost something:
+
+1. **An override view is a verbatim copy and a test pins it equal to the vendored one** except the changed expressions, so a module update FAILS the build instead of silently serving the old
+   markup; the design ratchets that scan `resources/views` exempt the copies **by path, never by directory**.
+2. **A subclass that calls `parent::dataTable()` and adds `editColumn()`s still RUNS every vendored closure first** (Yajra keeps them all): a null-safe `?->` in the new closure was dead code and
+   the vendored `$ticket->createdBy->name` took the operator's list down. Rebuild the method, and pin the vendored file by hash (`HelpdeskRawSinksTest`).
+3. **Editor markup goes through `App\Support\Html\RichText::clean()`** (an allowlist that BUILDS a new string from the parse tree; its limits and its content model are in its docblock), plain
+   text through `e()`, a stored colour through `RichText::cssColor()`.
+4. **The sanitizer is an OUTPUT filter: stored text stays raw, so every other sink that prints it is still open.** P1-SEC-79 was the same bug in the host's own support-ticket views, found by a
+   reviewer and not by a census; the `{!!` and `rawColumns(` counts (work queue, P1-SEC-75 f) are leads, not findings.
+5. **A sanitizer is judged in a real browser, in the shape of the page around its output.** libxml's tree is HTML4 and a browser re-parses what it wrote as HTML5, so a balanced, allowlisted
+   output (`<li><div><li>x</li></div></li>`) can still close the HOST page's `div`s. `tests/Support/Security/bin/verify-rich-text-in-chromium.php` prints every output into a div, a p and quirks
+   mode followed by a sentinel and fails if the sentinel moves, after a self-test proves its detectors can fail. A corpus that looks only at the output cannot see this; neither can a
+   sentence in a docblock that says it cannot happen. And do not run the mutation tool while anything else reads the tree.
+
 ## 6. Tests that actually bite
 
 **After writing a regression test, revert the fix and confirm the test fails.** This has caught
