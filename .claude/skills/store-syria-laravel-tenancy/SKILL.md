@@ -158,7 +158,10 @@ vacuous tests repeatedly. Seventeen ways they pass for the wrong reason, all mea
 4. **The engine hides it.** SQLite's affinity and BINARY collation hide real MySQL defects — a
    string in an INTEGER column, NULL into NOT NULL under `strict => false`, and case/accent-
    insensitive `whereIn`. Evidence that cannot live in the suite goes in
-   `tests/Support/Security/bin/` as a script stating its own preconditions.
+   `tests/Support/Security/bin/` as a script stating its own preconditions. **A NAME compared in PHP is not the engine's comparison**: `utf8mb4_unicode_ci` also
+   folds accents, zero-width and no-break spaces and full-width letters, so a write-side rule keyed on a setting's name (`/_sign_in_image$/`) never sees a row that
+   the handler's `where name = ...` finds (P1-SEC-70, executed on MariaDB; S46 on MySQL 8.0.46; the writer is P1-SEC-78, open). Put the name to the engine, or refuse a
+   name that is not printable ASCII (`StoreSettingsAccess` already says no form posts one).
 5. **`actingAs` tightened the scope the test was meant to measure.**
    `actingAs($customer, 'customers')` also calls `shouldUse('customers')`, so `auth()->user()` —
    which `StoreScope::resolveTenant()` calls, web-guard-only by design — starts returning the
@@ -279,6 +282,12 @@ vacuous tests repeatedly. Seventeen ways they pass for the wrong reason, all mea
     repository's own storage -- so the whole run can END SILENTLY with exit 0 and no summary line, having executed part of the suite. A `--bootstrap` override
     skips `tests/bootstrap.php` altogether. Create `installed` and the `framework/{cache/data,sessions,views,testing}`, `logs` and `app` folders in a private storage,
     read the summary line (not the exit code), and leave the census tests to the default storage.
+
+18. **A mutation group written by the hand that wrote a containment shares its blind spots.** P1-SEC-70's first form: tests green, 24 of 24 mutants killed, required CI
+    green -- and four independent lenses and five skeptics that EXECUTED what they claimed found three bypasses: a row another tenant planted that names the SAVER'S OWN
+    file, a `..` that leaves the application and comes back in by its own directory name, and nothing outside `uploads/` judged at all. A guard whose job is to refuse
+    must judge the ROW and the PLACE the operating system resolves (`realpath`, not a lexical collapse), and be default-deny; and a second pair of hands attacks it
+    before its group counts as evidence. (The first run of that group had also printed a perfect score and meant nothing: read the failure COUNTS, not the summary.)
 
 **Assert through `DB::table()`.** `User`, `Product` and `Order` are `Cachable`; an Eloquent read can
 serve a mutated in-memory instance. That produced a false *reproduction* once — a model read
