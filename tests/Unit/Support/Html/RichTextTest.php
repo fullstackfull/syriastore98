@@ -169,9 +169,7 @@ final class RichTextTest extends TestCase
             'mutation: svg and style'            => ['<svg></p><style><a id="</style><img src=1 onerror=alert(1)>">', ''],
             'mutation: xmp'                      => ['<xmp><img src=x onerror=alert(1)></xmp>', ''],
             'mutation: textarea and title'       => ['<textarea></textarea><img src=x onerror=alert(1)><title></title><img src=x onerror=alert(1)>', ''],
-            'a comment that swallows a tag'      => ['<!--><img src=x onerror=alert(1)>-->t', 't'],
             'a conditional comment'              => ['<!--[if IE]><img src=x onerror=alert(1)><![endif]-->t', 't'],
-            'a null byte inside a tag name'      => ["<scr\0ipt>alert(1)</scr\0ipt>", ''],
             'a tag that is never closed'         => ['<img src=x onerror=alert(1)//', ''],
             'a meta refresh and a base'          => ['<meta http-equiv="refresh" content="0;url=https://evil.example"><base href="https://evil.example/">t', 't'],
             'attributes that are not on the list' => ['<a name=x id=y class=z data-x=1 href="https://example.com/">x</a>', '<a href="https://example.com/" rel="noopener noreferrer nofollow" target="_blank">x</a>'],
@@ -182,6 +180,42 @@ final class RichTextTest extends TestCase
     public function test_what_runs_or_requests_does_not_come_through(string $in, string $expected): void
     {
         $this->assertSame($expected, RichText::clean($in));
+    }
+
+    /**
+     * What a parser BUILD decides, and what must hold whichever it is.
+     *
+     * Found by the required CI, not by a review: these two inputs were pinned to one exact output, and the runner (ubuntu-26.04, PHP 8.3.36) answered differently from the machine they were
+     * written on (Ubuntu 24.04, PHP 8.3.6, libxml 2.9.14). Both answers are inert text; what differs is which text the parser leaves behind, and that is a property of the libxml build, not of
+     * this class. Pinning one string made the test measure the build.
+     *
+     * `<!-->`: libxml up to 2.13 reads it as the start of a comment that runs to the next `-->`, so everything up to there is swallowed (`t`). A parser with an HTML5 tokenizer ends the comment
+     * at once, so the image is an element -- dropped, it has no source it may keep -- and the `-->` after it is text (`--&gt;t`).
+     *
+     * A NUL inside a tag name: libxml up to 2.13 stops reading the tag at the NUL and drops what it cannot place (an empty string); the runner keeps the element's text (`alert(1)`), which is
+     * text that was never a script's body for that parser.
+     *
+     * The list is closed on purpose: a third answer fails here and a person reads it before it joins the list. Every answer must be free of markup (no `<` at all), because that is the only
+     * thing the class promises about a case like this.
+     *
+     * @return array<string, array{string, list<string>}>
+     */
+    public static function whatTheParserBuildDecides(): array
+    {
+        return [
+            'a comment that swallows a tag'  => ['<!--><img src=x onerror=alert(1)>-->t', ['t', '--&gt;t']],
+            'a null byte inside a tag name'  => ["<scr\0ipt>alert(1)</scr\0ipt>", ['', 'alert(1)']],
+        ];
+    }
+
+    /** @param list<string> $acceptable */
+    #[DataProvider('whatTheParserBuildDecides')]
+    public function test_an_edge_the_parser_build_decides_comes_through_only_as_inert_text(string $in, array $acceptable): void
+    {
+        $out = RichText::clean($in);
+
+        $this->assertContains($out, $acceptable, 'a libxml build answered something this list does not know: read the output, then add it only if it is inert text');
+        $this->assertStringNotContainsString('<', $out, 'what came back is not text');
     }
 
     /** @return array<string, array{string, bool}> */
