@@ -242,6 +242,7 @@ class PlatformUploaderTypeTest extends SecurityTestCase
             'an SVG carrying a script under an HTML name' => ['logo.html', self::SVG, null, 'name'],
             'a PDF header under an HTML name' => ['doc.html', self::PDF, null, 'name'],
             // the STORED name is the caller's, and it is judged on its own
+            'an empty stored name' => ['logo.png', $png, '', 'name'],
             'a stored name that is only an extension' => ['logo.png', $png, 'png', 'extension'],
             'a stored name with a path in it' => ['logo.png', $png, 'sub/../logo.png', 'name'],
             'a stored name with a backslash in it' => ['logo.png', $png, 'sub\\logo.png', 'name'],
@@ -537,8 +538,47 @@ class PlatformUploaderTypeTest extends SecurityTestCase
         $panelOther = Utility::upload_file(['file' => $this->upload('a.png', $this->png())], 'file', 'video_1795000000.xml', 'uploads/1', $rules);
         $this->assertSame('The file name must end in one of: png, svg.', $panelOther['msg']);
 
+        // the rule about the NAME (`extensions:`) decides the stored name when the caller's two lists differ -- not the one about the bytes
+        $wider = Utility::upload_file(['file' => $this->upload('a.png', $this->png())], 'file', 'x_logo.svg', 'uploads/1', ['mimes:png,svg', 'extensions:png', 'max:100']);
+        $this->assertSame(0, (int) $wider['flag'], 'The stored name was held to the caller\'s `mimes:` list, which names more than its `extensions:` list: ' . json_encode($wider));
+        $this->assertSame('The file name must end in one of: png.', $wider['msg']);
+
         $panel = Utility::upload_file(['file' => $this->upload('logo.svg', $svg)], 'file', 'x_logo.svg', 'uploads/1', $rules);
         $this->assertSame(1, (int) $panel['flag'], 'A panel user was refused an SVG the caller\'s own list names: ' . json_encode($panel));
+    }
+
+    /**
+     * RULES THAT NAME NO LIST (a `mimetypes:`-only array: UploadRules refuses one, a direct caller can pass one) have nothing to hold the
+     * names to, so the policy holds both extensions to the two lists it always has: no script, and for a request that is not a panel
+     * request no active document -- by the CLIENT'S extension and by the STORED name's.
+     */
+    public function test_rules_that_name_no_list_still_keep_script_and_active_documents_out(): void
+    {
+        $rules = ['mimetypes:image/png,image/svg+xml', 'max:100'];
+        $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2"/></svg>';
+
+        $cases = [
+            'an SVG, by the client\'s own extension' => ['logo.svg', $svg, 'x_logo.svg'],
+            'an SVG, by the stored name alone' => ['logo.png', $this->png(), 'x_logo.svg'],
+            'a script, by the client\'s extension' => ['logo.html', $this->png(), 'x_logo.png'],
+            'a script, by the stored name alone' => ['logo.png', $this->png(), 'x_logo.php'],
+        ];
+
+        foreach ($cases as $label => [$client, $bytes, $stored]) {
+            $result = Utility::upload_file(['file' => $this->upload($client, $bytes)], 'file', $stored, 'uploads/1', $rules);
+
+            $this->assertSame(0, (int) $result['flag'], "{$label} was stored for a request that is not a panel request: " . json_encode($result));
+        }
+
+        $this->assertSame([], $this->stored());
+
+        // the control: a panel user is given the SVG the caller's rules name, and any request is given the PNG
+        $png = Utility::upload_file(['file' => $this->upload('logo.png', $this->png())], 'file', 'x_logo.png', 'uploads/1', $rules);
+        $this->assertSame(1, (int) $png['flag'], 'A PNG was refused by rules that name no list: ' . json_encode($png));
+
+        $this->actingAs($this->merchant);
+        $panel = Utility::upload_file(['file' => $this->upload('logo.svg', $svg)], 'file', 'x_logo.svg', 'uploads/1', $rules);
+        $this->assertSame(1, (int) $panel['flag'], 'A panel user was refused an SVG that rules naming no list admit: ' . json_encode($panel));
     }
 
     /** `UploadRules` refuses a list with no `max:`, but a direct caller can pass one: it must not remove the platform's ceiling. */

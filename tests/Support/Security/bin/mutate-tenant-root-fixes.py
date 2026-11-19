@@ -707,7 +707,7 @@ GROUPS = [
     },
     {
         "key": 'platformuploader',
-        "title": "P1-SEC-73 -- the platform uploader's four functions judge the name as well as the bytes (PlatformUploadPolicy), and the guest checkout's receipt name ends in its extension",
+        "title": "P1-SEC-73 -- the platform uploader's four functions judge the name as well as the bytes (PlatformUploadPolicy): the shopper rule follows the route, the lists are read once as plain words, four doors name their own types or build their own names",
         "tests": ['tests/Feature/Security/PlatformUploaderTypeTest.php', 'tests/Feature/Security/PlatformUploaderDoorsTest.php'],
         "mutants": [
             ('PU1 policy: a value that is not a valid upload is not refused as one', [
@@ -715,155 +715,376 @@ GROUPS = [
                  '        if (! $file instanceof UploadedFile || ! $file->isValid()) {',
                  '        if (false) {'),
             ]),
-            ('PU2 policy: an empty list is not refused as an empty list', [
+            ('PU2 policy: an empty configured list is not refused as an empty list', [
                 ('app/Services/PlatformUploadPolicy.php',
-                 '        if ($customRules === [] && $allowed === []) {',
-                 '        if (false) {'),
+                 '            $allowed = self::allowed($configured, $panel);\n\n            if ($allowed === []) {',
+                 '            $allowed = self::allowed($configured, $panel);\n\n            if (false) {'),
             ]),
-            ('PU3 policy: a stored name with a path, a backslash or a control character is accepted', [
+            ("PU3 policy: a caller's own list that is cleaned to nothing is not refused", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 '            $allowed = $fromExtensions ?? $fromMimes;\n\n            if ($allowed === []) {',
+                 '            $allowed = $fromExtensions ?? $fromMimes;\n\n            if (false) {'),
+            ]),
+            ("PU4 policy: a caller's own rule array may drop the size ceiling", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "            if (! self::carries($rules, 'max:')) {",
+                 '            if (false) {'),
+            ]),
+            ("PU5 policy: a caller's `extensions:` list is passed on as the caller wrote it", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "                    $rule = 'extensions:' . implode(',', $fromExtensions);",
+                 '                    $rule = $rule;'),
+            ]),
+            ("PU6 policy: a caller's `mimes:` list is passed on as the caller wrote it", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "                    $rule = 'mimes:' . implode(',', $fromMimes);",
+                 '                    $rule = $rule;'),
+            ]),
+            ("PU7 policy: the stored name is held to the caller's `mimes:` list before its `extensions:` list", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 '            $allowed = $fromExtensions ?? $fromMimes;',
+                 '            $allowed = $fromMimes ?? $fromExtensions;'),
+            ]),
+            ('PU8 policy: an empty stored name is accepted', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "$name === '' || ",
+                 ''),
+            ]),
+            ('PU9 policy: a stored name with a path, a backslash or a control character is accepted (by the byte rule)', [
                 ('app/Services/PlatformUploadPolicy.php',
                  "preg_match('/[\\x00-\\x1F\\x7F\\/\\\\\\\\]/', $name) === 1 || ",
                  ''),
             ]),
-            ('PU4 policy: a stored name with no dot is accepted', [
+            ('PU10 policy: a stored name with a format character (a right-to-left mark) is accepted', [
                 ('app/Services/PlatformUploadPolicy.php',
-                 'count($segments) < 2 || ',
+                 " || preg_match('/\\p{C}/u', $name) === 1",
                  ''),
             ]),
-            ("PU5 policy: the stored name's own extension is not checked against a script list", [
+            ('PU11 policy: a stored name with no dot is read as its own extension', [
                 ('app/Services/PlatformUploadPolicy.php',
-                 '            || in_array($final, self::SCRIPT_CAPABLE, true) || ($customRules',
-                 '            || ($customRules'),
+                 "        $final = count($segments) >= 2 ? strtolower((string) end($segments)) : '';",
+                 '        $final = strtolower((string) end($segments));'),
             ]),
-            ("PU6 policy: the stored name's extension need not be in the configured list", [
+            ('PU12 policy: the stored extension is not lower-cased', [
                 ('app/Services/PlatformUploadPolicy.php',
-                 ' || ($customRules === [] && ! in_array($final, $allowed, true))) {',
+                 "        $final = count($segments) >= 2 ? strtolower((string) end($segments)) : '';",
+                 "        $final = count($segments) >= 2 ? (string) end($segments) : '';"),
+            ]),
+            ("PU13 policy: a script word as the name's last extension is accepted", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 '        if (self::isScriptWord($final)) {',
+                 '        if (false) {'),
+            ]),
+            ('PU14 policy: a handler word INSIDE the stored name is not looked for', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 '        foreach (array_slice($segments, 1, -1) as $inner) {',
+                 '        foreach ([] as $inner) {'),
+            ]),
+            ('PU15 policy: the base of a name is judged as an inner extension too (a logo called js.png)', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 'array_slice($segments, 1, -1)',
+                 'array_slice($segments, 0, -1)'),
+            ]),
+            ('PU16 policy: an inner extension is compared without lower-casing it', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 '            if (self::isHandlerWord(strtolower($inner))) {',
+                 '            if (self::isHandlerWord($inner)) {'),
+            ]),
+            ('PU17 policy: an inner extension is held to the whole script list (the first form: Amazon.com.png refused)', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "        return in_array($word, self::INNER_HANDLED, true) || preg_match('/^php\\d*$/', $word) === 1;",
+                 "        return in_array($word, self::SCRIPT_CAPABLE, true) || preg_match('/^php\\d*$/', $word) === 1;"),
+            ]),
+            ('PU18 policy: the numbered php family is not matched as an inner handler', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "        return in_array($word, self::INNER_HANDLED, true) || preg_match('/^php\\d*$/', $word) === 1;",
+                 '        return in_array($word, self::INNER_HANDLED, true);'),
+            ]),
+            ('PU19 policy: the numbered php family is not matched as a script word', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "        return in_array($word, self::SCRIPT_CAPABLE, true) || preg_match('/^php\\d*$/', $word) === 1;",
+                 '        return in_array($word, self::SCRIPT_CAPABLE, true);'),
+            ]),
+            ('PU20 rules: `mimes:` removed', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "            $rules = ['mimes:' . $list, 'extensions:' . $list, 'max:' . $maxKb];",
+                 "            $rules = ['extensions:' . $list, 'max:' . $maxKb];"),
+            ]),
+            ("PU21 rules: `extensions:` removed (the client's own name is not judged)", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "            $rules = ['mimes:' . $list, 'extensions:' . $list, 'max:' . $maxKb];",
+                 "            $rules = ['mimes:' . $list, 'max:' . $maxKb];"),
+            ]),
+            ('PU22 rules: `max:` removed', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "            $rules = ['mimes:' . $list, 'extensions:' . $list, 'max:' . $maxKb];",
+                 "            $rules = ['mimes:' . $list, 'extensions:' . $list];"),
+            ]),
+            ('PU23 rules: built from the raw configured list, not the cleaned one', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "            $list = implode(',', $allowed);",
+                 '            $list = $configured;'),
+            ]),
+            ("PU24 policy: the stored name's last extension need not be in the list", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 '        if ($allowed !== null && ! in_array($final, $allowed, true)) {',
+                 '        if (false) {'),
+            ]),
+            ("PU25 policy: the client's extension is not checked for a script, nor (for a shopper) an active document", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 '            if (self::isScriptWord($word) || (! $panel && in_array($word, self::SHOPPER_DENIED, true))) {',
+                 '            if (false) {'),
+            ]),
+            ("PU26 policy: a shopper is not refused an active document by the client's extension", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 ' || (! $panel && in_array($word, self::SHOPPER_DENIED, true))) {',
                  ') {'),
             ]),
-            ('PU7 policy: a script extension INSIDE the stored name is not looked for', [
+            ("PU27 policy: rules that name no list do not examine the stored name's extension", [
                 ('app/Services/PlatformUploadPolicy.php',
-                 'foreach (array_slice($segments, 1, -1) as $inner) {',
-                 'foreach ([] as $inner) {'),
+                 '        foreach ($allowed === null ? [strtolower($file->getClientOriginalExtension()), $final] : [strtolower($file->getClientOriginalExtension())] as $word) {',
+                 '        foreach ([strtolower($file->getClientOriginalExtension())] as $word) {'),
             ]),
-            ('PU8 policy: the base of a name is judged as an extension too (a logo called js.png)', [
+            ('PU28 allowed(): jpg and jpeg no longer travel together', [
                 ('app/Services/PlatformUploadPolicy.php',
-                 'foreach (array_slice($segments, 1, -1) as $inner) {',
-                 'foreach (array_slice($segments, 0, -1) as $inner) {'),
+                 "            $list = array_merge($list, ['jpg', 'jpeg'], $jpegAliases ? self::JPEG_ALIASES : []);",
+                 '            $list = array_merge($list, $jpegAliases ? self::JPEG_ALIASES : []);'),
             ]),
-            ('PU9 policy: the stored extension is not lower-cased', [
+            ('PU29 allowed(): jpe and jfif do not travel with jpg and jpeg', [
                 ('app/Services/PlatformUploadPolicy.php',
-                 '$final = strtolower((string) end($segments));',
-                 '$final = (string) end($segments);'),
+                 "            $list = array_merge($list, ['jpg', 'jpeg'], $jpegAliases ? self::JPEG_ALIASES : []);",
+                 "            $list = array_merge($list, ['jpg', 'jpeg']);"),
             ]),
-            ('PU10 rules: `mimes:` removed', [
+            ('PU30 allowed(): an entry that is not a plain word reaches the rules', [
                 ('app/Services/PlatformUploadPolicy.php',
-                 "['mimes:' . $list, 'extensions:' . $list, 'max:' . $maxKb]",
-                 "['extensions:' . $list, 'max:' . $maxKb]"),
+                 "            if (preg_match('/^[a-z0-9]{1,12}$/', $word) === 1) {",
+                 "            if ($word !== '') {"),
             ]),
-            ("PU11 rules: `extensions:` removed (the client's own name is not judged)", [
+            ("PU31 allowed(): a shopper's list is the panel's (an SVG is stored by a visitor)", [
                 ('app/Services/PlatformUploadPolicy.php',
-                 "['mimes:' . $list, 'extensions:' . $list, 'max:' . $maxKb]",
-                 "['mimes:' . $list, 'max:' . $maxKb]"),
+                 '            static fn (string $word) => ! self::isScriptWord($word) && ($panelSession || ! in_array($word, self::SHOPPER_DENIED, true))',
+                 '            static fn (string $word) => ! self::isScriptWord($word)'),
             ]),
-            ('PU12 rules: `max:` removed', [
+            ('PU32 allowed(): a script word survives the list', [
                 ('app/Services/PlatformUploadPolicy.php',
-                 "['mimes:' . $list, 'extensions:' . $list, 'max:' . $maxKb]",
-                 "['mimes:' . $list, 'extensions:' . $list]"),
+                 '            static fn (string $word) => ! self::isScriptWord($word) && ($panelSession || ! in_array($word, self::SHOPPER_DENIED, true))',
+                 '            static fn (string $word) => ($panelSession || ! in_array($word, self::SHOPPER_DENIED, true))'),
             ]),
-            ("PU13 policy: a caller's own rules are not checked for the client's script extension", [
+            ('PU33 panelSession(): a request with no web user is not refused the panel list by the first test', [
                 ('app/Services/PlatformUploadPolicy.php',
-                 'if ($customRules !== [] && in_array(strtolower($file->getClientOriginalExtension()), self::SCRIPT_CAPABLE, true)) {',
-                 'if (false) {'),
+                 "            if (! auth('web')->check()) {\n                return false;\n            }",
+                 '            if (false) {\n                return false;\n            }'),
             ]),
-            ('PU14 allowed(): jpg and jpeg no longer travel together', [
+            ('PU34 panelSession(): the route is not asked (the first form: any web login is a panel request)', [
                 ('app/Services/PlatformUploadPolicy.php',
-                 "        if (in_array('jpg', $list, true) || in_array('jpeg', $list, true)) {\n            $list = array_merge($list, ['jpg', 'jpeg']);\n        }\n\n",
-                 ''),
-            ]),
-            ("PU15 allowed(): a shopper's list is the panel's (an SVG is stored by a visitor)", [
-                ('app/Services/PlatformUploadPolicy.php',
-                 '$denied = $panelSession ? self::SCRIPT_CAPABLE : array_merge(self::SCRIPT_CAPABLE, self::SHOPPER_DENIED);',
-                 '$denied = self::SCRIPT_CAPABLE;'),
-            ]),
-            ('PU16 panelSession(): everyone is a panel user', [
-                ('app/Services/PlatformUploadPolicy.php',
-                 "            return auth('web')->check();",
+                 '            return $route instanceof Route ? self::routeDemandsAPanelUser($route) : true;',
                  '            return true;'),
             ]),
-            ('PU17 panelSession(): nobody is a panel user', [
+            ('PU35 panelSession(): with no router a web user is a shopper', [
                 ('app/Services/PlatformUploadPolicy.php',
-                 "            return auth('web')->check();",
-                 '            return false;'),
+                 '            return $route instanceof Route ? self::routeDemandsAPanelUser($route) : true;',
+                 '            return $route instanceof Route ? self::routeDemandsAPanelUser($route) : false;'),
             ]),
-            ('PU18 refused(): a refusal is not logged', [
+            ('PU36 panelSession(): a guard that throws is a panel session', [
                 ('app/Services/PlatformUploadPolicy.php',
-                 "        \\Illuminate\\Support\\Facades\\Log::warning('a platform upload was refused', [",
+                 '        } catch (\\Throwable $e) {\n            return false;',
+                 '        } catch (\\Throwable $e) {\n            return true;'),
+            ]),
+            ("PU37 routeDemandsAPanelUser(): `custom.auth` is not a panel route (a merchant's token is a shopper)", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "            if ($name === 'custom.auth' || ((",
+                 '            if ((('),
+            ]),
+            ('PU38 routeDemandsAPanelUser(): `auth:<any guard>` is a panel route', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "($guards === '' || $guards === 'web')",
+                 'true'),
+            ]),
+            ('PU39 refused(): a refusal is not logged', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "        Log::warning('a platform upload was refused', [",
                  "        (fn (...$x) => null)('a platform upload was refused', ["),
             ]),
-            ("PU19 refused(): the log carries the client's own extension text", [
+            ("PU40 refused(): the log carries the client's own extension text", [
                 ('app/Services/PlatformUploadPolicy.php',
                  'ThemeImageUpload::extensionWord($file->getClientOriginalExtension()) : null,',
                  'strtolower($file->getClientOriginalExtension()) : null,'),
             ]),
-            ('PU20 upload_file: the policy is not asked', [
+            ("PU41 refused(): the stored name's extension refusal is logged as a name refusal", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "return self::refused('extension', $file,",
+                 "return self::refused('name', $file,"),
+            ]),
+            ('PU42 receiptName(): no random part (two shoppers in one second share a file)', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 ". '_' . bin2hex(random_bytes(4)) . '.'",
+                 ". '.'"),
+            ]),
+            ("PU43 receiptName(): the client's punctuation is kept", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "preg_replace('/[^A-Za-z0-9_-]+/', '_', pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME))",
+                 'pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)'),
+            ]),
+            ('PU44 receiptName(): the extension is not lower-cased', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "'.' . strtolower($file->getClientOriginalExtension());\n    }",
+                 "'.' . $file->getClientOriginalExtension();\n    }"),
+            ]),
+            ('PU45 imageRules(): what a door adds is ignored', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 'array_merge(self::IMAGE_TYPES, $more)',
+                 'self::IMAGE_TYPES'),
+            ]),
+            ("PU46 imageRules(): the client's name is not held to the types", [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "        return ['mimes:' . $list, 'extensions:' . $list];",
+                 "        return ['mimes:' . $list];"),
+            ]),
+            ('PU47 IMAGE_TYPES loses webp', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "['jpg', 'jpeg', 'jpe', 'jfif', 'png', 'gif', 'webp']",
+                 "['jpg', 'jpeg', 'jpe', 'jfif', 'png', 'gif']"),
+            ]),
+            ('PU48 upload_file: the policy is not asked', [
                 ('app/Models/Utility.php',
                  "                // P1-SEC-73 (upload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = \\App\\Services\\PlatformUploadPolicy::refusal($file, (string) $name, (string) $mimes, $max_size, $custom_validation);\n",
                  "                // P1-SEC-73 (upload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = null;\n"),
             ]),
-            ('PU21 upload_file: the policy is asked only when no sixth argument is given (the old hole)', [
+            ('PU49 upload_file: the policy is asked only when no sixth argument is given (the old hole)', [
                 ('app/Models/Utility.php',
                  "                // P1-SEC-73 (upload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = \\App\\Services\\PlatformUploadPolicy::refusal($file, (string) $name, (string) $mimes, $max_size, $custom_validation);\n",
                  "                // P1-SEC-73 (upload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = empty($image) ? \\App\\Services\\PlatformUploadPolicy::refusal($file, (string) $name, (string) $mimes, $max_size, $custom_validation) : null;\n"),
             ]),
-            ('PU22 keyWiseUpload_file: the policy is not asked', [
+            ('PU50 keyWiseUpload_file: the policy is not asked', [
                 ('app/Models/Utility.php',
                  "                // P1-SEC-73 (keyWiseUpload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = \\App\\Services\\PlatformUploadPolicy::refusal($multifile[$key_name], (string) $name, (string) $mimes, $max_size, $custom_validation);\n",
                  "                // P1-SEC-73 (keyWiseUpload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = null;\n"),
             ]),
-            ('PU23 jsonUpload_file: the policy is not asked', [
+            ('PU51 jsonUpload_file: the policy is not asked', [
                 ('app/Models/Utility.php',
                  "                // P1-SEC-73 (jsonUpload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = \\App\\Services\\PlatformUploadPolicy::refusal($file, (string) $name, (string) $mimes, $max_size, $custom_validation);\n",
                  "                // P1-SEC-73 (jsonUpload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = null;\n"),
             ]),
-            ('PU24 multi_upload_file: the policy is not asked', [
+            ('PU52 multi_upload_file: the policy is not asked', [
                 ('app/Helper/helper.php',
                  "                // P1-SEC-73 (multi_upload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = \\App\\Services\\PlatformUploadPolicy::refusal($file, (string) $name, (string) $mimes, $max_size, $custom_validation);\n",
                  "                // P1-SEC-73 (multi_upload_file): ONE decision for every caller -- see App\\Services\\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only\n                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a\n                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.\n                $refusal = null;\n"),
             ]),
-            ('PU25 upload_file: a failed write is reported as success', [
+            ('PU53 upload_file: a failed write is reported as success', [
                 ('app/Models/Utility.php',
                  "                        // P1-SEC-73 (upload_file): `putFileAs()` answers false when the write fails, and this reported success with a URL for a file that was never written.\n                        if (! is_string($written) || $written === '') {",
                  '                        // P1-SEC-73 (upload_file): `putFileAs()` answers false when the write fails, and this reported success with a URL for a file that was never written.\n                        if (false) {'),
             ]),
-            ('PU26 jsonUpload_file: a failed write is reported as success', [
+            ('PU54 jsonUpload_file: a failed write is reported as success', [
                 ('app/Models/Utility.php',
                  "                        // P1-SEC-73 (jsonUpload_file): `putFileAs()` answers false when the write fails, and this reported success with a URL for a file that was never written.\n                        if (! is_string($written) || $written === '') {",
                  '                        // P1-SEC-73 (jsonUpload_file): `putFileAs()` answers false when the write fails, and this reported success with a URL for a file that was never written.\n                        if (false) {'),
             ]),
-            ('PU27 keyWiseUpload_file: a failed write is reported as success', [
+            ('PU55 keyWiseUpload_file: a failed write is reported as success', [
                 ('app/Models/Utility.php',
                  "                        // P1-SEC-73 (keyWiseUpload_file): a failed write is a failure, not a URL for a file that does not exist.\n                        if (! is_string($written) || $written === '') {",
                  '                        // P1-SEC-73 (keyWiseUpload_file): a failed write is a failure, not a URL for a file that does not exist.\n                        if (false) {'),
             ]),
-            ('PU28 multi_upload_file: a failed write is reported as success', [
+            ('PU56 multi_upload_file: a failed write is reported as success', [
                 ('app/Helper/helper.php',
                  "                    if (! is_string($save) || $save === '') {",
                  '                    if (false) {'),
             ]),
-            ('PU29 jsonUpload_file: the settings helper is mistyped again (Seting)', [
+            ('PU57 upload_file: a failed write on wasabi is reported as success', [
+                ('app/Models/Utility.php',
+                 "                        // P1-SEC-73 (upload_file, wasabi): the remote branches check the write as the local one does.\n                        if (! is_string($path) || $path === '') {",
+                 '                        // P1-SEC-73 (upload_file, wasabi): the remote branches check the write as the local one does.\n                        if (false) {'),
+            ]),
+            ('PU58 upload_file: a failed write on s3 is reported as success', [
+                ('app/Models/Utility.php',
+                 "                        // P1-SEC-73 (upload_file, s3): the remote branches check the write as the local one does.\n                        if (! is_string($path) || $path === '') {",
+                 '                        // P1-SEC-73 (upload_file, s3): the remote branches check the write as the local one does.\n                        if (false) {'),
+            ]),
+            ('PU59 jsonUpload_file: a failed write on wasabi is reported as success', [
+                ('app/Models/Utility.php',
+                 "                        // P1-SEC-73 (jsonUpload_file, wasabi): the remote branches check the write as the local one does.\n                        if (! is_string($path) || $path === '') {",
+                 '                        // P1-SEC-73 (jsonUpload_file, wasabi): the remote branches check the write as the local one does.\n                        if (false) {'),
+            ]),
+            ('PU60 jsonUpload_file: a failed write on s3 is reported as success', [
+                ('app/Models/Utility.php',
+                 "                        // P1-SEC-73 (jsonUpload_file, s3): the remote branches check the write as the local one does.\n                        if (! is_string($path) || $path === '') {",
+                 '                        // P1-SEC-73 (jsonUpload_file, s3): the remote branches check the write as the local one does.\n                        if (false) {'),
+            ]),
+            ('PU61 keyWiseUpload_file: a failed write on wasabi is reported as success', [
+                ('app/Models/Utility.php',
+                 "                        // P1-SEC-73 (keyWiseUpload_file, wasabi): the remote branches check the write as the local one does.\n                        if (! is_string($path) || $path === '') {",
+                 '                        // P1-SEC-73 (keyWiseUpload_file, wasabi): the remote branches check the write as the local one does.\n                        if (false) {'),
+            ]),
+            ('PU62 keyWiseUpload_file: a failed write on s3 is reported as success', [
+                ('app/Models/Utility.php',
+                 "                        // P1-SEC-73 (keyWiseUpload_file, s3): the remote branches check the write as the local one does.\n                        if (! is_string($path) || $path === '') {",
+                 '                        // P1-SEC-73 (keyWiseUpload_file, s3): the remote branches check the write as the local one does.\n                        if (false) {'),
+            ]),
+            ('PU63 jsonUpload_file: the settings helper is mistyped again (Seting)', [
                 ('app/Models/Utility.php',
                  "$name, $path, $custom_validation = [])\n    {\n        try {\n            $settings = Setting::where('created_by', 1)->pluck('value', 'name')->toArray();\n            if (!isset($settings['storage_setting'])) {\n                $settings = Utility::Setting();",
                  "$name, $path, $custom_validation = [])\n    {\n        try {\n            $settings = Setting::where('created_by', 1)->pluck('value', 'name')->toArray();\n            if (!isset($settings['storage_setting'])) {\n                $settings = Utility::Seting();"),
             ]),
-            ('PU30 guest checkout: the receipt keeps the shape <client name>_<time>', [
+            ("PU64 guest checkout: the receipt falls back to the platform's list (a WebP is refused again)", [
                 ('app/Services/PaymentService.php',
-                 "$fileName = ($receiptBase !== '' ? $receiptBase : 'receipt') . '_' . time() . '.' . strtolower($receiptFile->getClientOriginalExtension());",
+                 "$dir, \\App\\Services\\PlatformUploadPolicy::imageRules(['bmp']), $receiptFile);",
+                 '$dir, [], $receiptFile);'),
+            ]),
+            ('PU65 guest checkout: the receipt keeps the client name', [
+                ('app/Services/PaymentService.php',
+                 '$fileName = \\App\\Services\\PlatformUploadPolicy::receiptName($receiptFile);',
                  "$fileName = $receiptFile->getClientOriginalName() . '_' . time();"),
             ]),
-            ("PU31 guest checkout: the receipt's base keeps the client's punctuation", [
-                ('app/Services/PaymentService.php',
-                 "preg_replace('/[^A-Za-z0-9_-]+/', '_', pathinfo($receiptFile->getClientOriginalName(), PATHINFO_FILENAME))",
-                 'pathinfo($receiptFile->getClientOriginalName(), PATHINFO_FILENAME)'),
+            ("PU66 plan-payment slip: it falls back to the panel's list (an SVG slip is stored)", [
+                ('app/Http/Controllers/BankTransferController.php',
+                 "$fileName, $dir, \\App\\Services\\PlatformUploadPolicy::imageRules(['bmp']));",
+                 '$fileName, $dir, []);'),
+            ]),
+            ("PU67 plan-payment slip: it keeps the client's own name", [
+                ('app/Http/Controllers/BankTransferController.php',
+                 '$fileName = \\App\\Services\\PlatformUploadPolicy::receiptName($request->payment_receipt);',
+                 '$fileName = $request->payment_receipt->getClientOriginalName();'),
+            ]),
+            ("PU68 Store Setting screen: its seven six-argument calls fall back to the platform's list (a WebP or a GIF is refused again)", [
+                ('app/Http/Controllers/AppSettingController.php',
+                 "$dir, \\App\\Services\\PlatformUploadPolicy::imageRules(['svg']), $theme_image)",
+                 '$dir, [], $theme_image)',
+                 7),
+            ]),
+            ('PU69 Store Setting screen, seventh site: a refusal is a redirect where its caller reads an array (HTTP 500)', [
+                ('app/Http/Controllers/AppSettingController.php',
+                 '                return ["error" => true, "data" => $upload[\'msg\']];',
+                 "                return redirect()->back()->with('error', $upload['msg']);"),
+            ]),
+            ('PU70 Store Setting screen, seventh site: a refused file stays charged to the plan', [
+                ('app/Http/Controllers/AppSettingController.php',
+                 '                    $owner->storage_limit = $owner->storage_limit - number_format($image_size / 1048576, 2);',
+                 '                    $owner->storage_limit = $owner->storage_limit;'),
+            ]),
+            ("PU71 updateStoreOwnerInfo: the invoice logo keeps the client's name", [
+                ('app/Http/Controllers/Api/DashboardController.php',
+                 "                // P1-SEC-73 (invoice_logo): the name is built by ownerImageName(), not the client's.\n                $fileName = $this->ownerImageName($file);",
+                 "                // P1-SEC-73 (invoice_logo): the name is built by ownerImageName(), not the client's.\n                $fileName = time() . '_' . basename($file->getClientOriginalName());"),
+            ]),
+            ("PU72 updateStoreOwnerInfo: the store image keeps the client's name", [
+                ('app/Http/Controllers/Api/DashboardController.php',
+                 "                // P1-SEC-73 (store_image): the name is built by ownerImageName(), not the client's.\n                $fileName = $this->ownerImageName($file);",
+                 "                // P1-SEC-73 (store_image): the name is built by ownerImageName(), not the client's.\n                $fileName = time() . '_' . basename($file->getClientOriginalName());"),
+            ]),
+            ("PU73 updateStoreOwnerInfo: the extension is the client's, not the bytes'", [
+                ('app/Http/Controllers/Api/DashboardController.php',
+                 '    $extension = $file->guessExtension();',
+                 '    $extension = strtolower($file->getClientOriginalExtension());'),
+            ]),
+            ('PU74 picker: `accept` is the configured list as it was (what the server refuses is offered)', [
+                ('app/Services/UploadLimits.php',
+                 '        $extensions = \\App\\Services\\PlatformUploadPolicy::allowed($rawExt, \\App\\Services\\PlatformUploadPolicy::panelSession());',
+                 "        $extensions = array_values(array_filter(array_map(fn ($e) => strtolower(ltrim(trim($e), '.')), explode(',', $rawExt))));"),
+            ]),
+            ('PU75 picker: every request is offered the panel list', [
+                ('app/Services/UploadLimits.php',
+                 '\\App\\Services\\PlatformUploadPolicy::allowed($rawExt, \\App\\Services\\PlatformUploadPolicy::panelSession());',
+                 '\\App\\Services\\PlatformUploadPolicy::allowed($rawExt, true);'),
             ]),
         ],
     },

@@ -50,6 +50,7 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
     private const WEBP = 'UklGRjgAAABXRUJQVlA4ICwAAACQAQCdASoCAAIAAkA4JaACdLoAA5gA/vA4Q+6L7UVgB/7Kx/6Vj/0rH7lAAA==';
     private const BMP = 'Qk1CAAAAAAAAADYAAAAoAAAAAgAAAAIAAAABABgAAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAHh7IHh7IAAAeHsgeHsgAAA==';
     private const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>';
+    private const JPEG = '/9j/4AAQSkZJRgABAQEAYABgAAD//gA7Q1JFQVRPUjogZ2QtanBlZyB2MS4wICh1c2luZyBJSkcgSlBFRyB2ODApLCBxdWFsaXR5ID0gNzAK/9sAQwAKBwcIBwYKCAgICwoKCw4YEA4NDQ4dFRYRGCMfJSQiHyIhJis3LyYpNCkhIjBBMTQ5Oz4+PiUuRElDPEg3PT47/9sAQwEKCwsODQ4cEBAcOygiKDs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7/8AAEQgAAgACAwEiAAIRAQMRAf/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgMEBQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/EAB8BAAMBAQEBAQEBAQEAAAAAAAABAgMEBQYHCAkKC//EALURAAIBAgQEAwQHBQQEAAECdwABAgMRBAUhMQYSQVEHYXETIjKBCBRCkaGxwQkjM1LwFWJy0QoWJDThJfEXGBkaJicoKSo1Njc4OTpDREVGR0hJSlNUVVZXWFlaY2RlZmdoaWpzdHV2d3h5eoKDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uLj5OXm5+jp6vLz9PX29/j5+v/aAAwDAQACEQMRAD8A5miiivIP0Q//2Q==';
 
     /** @var list<string> */
     private array $temporary = [];
@@ -599,12 +600,27 @@ class PlatformUploaderDoorsTest extends SecurityTestCase
             ]);
             $held = fn () => array_map('basename', glob($public . '/uploads/' . $store->id . '/*') ?: []);
 
-            // the two fields are two sites of the handler: each is driven
+            // the two fields are two sites of the handler: each is driven, with every type the rule above them admits (the extension is the
+            // BYTES' -- fileinfo says `jpg` for a JPEG, which is what the helper's own list has to hold)
+            $legitimate = [
+                'logo (1).png' => [$this->png(), 'png', 'logo_1'],
+                'photo.JPEG' => [(string) base64_decode(self::JPEG), 'jpg', 'photo'],
+                'anim.gif' => [(string) base64_decode(self::GIF), 'gif', 'anim'],
+                'logo.svg' => ['<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2"/></svg>', 'svg', 'logo'],
+            ];
+
             foreach (['invoice_logo', 'store_image'] as $field) {
+                foreach ($legitimate as $name => [$bytes, $extension, $base]) {
+                    $this->removeDirectory($public . '/uploads');
+                    $this->withHeader('Authorization', 'Bearer ' . $token)->post('/api/admin/updateStoreOwnerInfo', ['store_id' => $store->id, $field => $this->upload($name, $bytes)])->assertOk();
+
+                    $this->assertCount(1, $held(), "Premise: a legitimate {$field} named {$name} reaches the handler and is stored.");
+                    $this->assertMatchesRegularExpression('/^\d{10}_' . $base . '\.' . $extension . '$/', $held()[0]);
+                }
+
                 $this->removeDirectory($public . '/uploads');
                 $post($field, 'logo (1).png')->assertOk();
-                $this->assertCount(1, $held(), "Premise: a legitimate {$field} reaches the handler and is stored.");
-                $this->assertMatchesRegularExpression('/^\d{10}_logo_1\.png$/', $held()[0]);
+                $this->assertCount(1, $held());
 
                 foreach (['page.html', 'shell.php.png', 'module.pht'] as $name) {
                     $this->removeDirectory($public . '/uploads');
