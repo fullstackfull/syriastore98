@@ -131,7 +131,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | line | message |
 |---|---|
 | `app/Helper/helper.php:672` | an image upload was refused |
-| `app/Services/PlatformUploadPolicy.php:302` | a platform upload was refused |
+| `app/Services/PlatformUploadPolicy.php:295` | a platform upload was refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:407` | theme settings write refused |
 | `app/Http/Controllers/ThemeCustomizeController.php:138` | Theme editor read refused. |
 | `app/Http/Controllers/ThemeVersionController.php:333` | Theme publication refused. |
