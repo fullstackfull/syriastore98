@@ -523,6 +523,23 @@ class PlatformUploaderTypeTest extends SecurityTestCase
         $rules = ['mimes:png,svg', 'extensions:png,svg', 'max:100'];
         $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2"/></svg>';
 
+        $reasons = [];
+        Event::listen(MessageLogged::class, function ($event) use (&$reasons) {
+            if ($event->message === 'a platform upload was refused') {
+                $reasons[] = $event->context['reason'];
+            }
+        });
+
+        // a list that is all script words is cleaned to NOTHING, and says so (not whichever rule happens to fail on an empty list)
+        $nothing = Utility::upload_file(['file' => $this->upload('x.png', $this->png())], 'file', 'x_x.png', 'uploads/1', ['mimes:html,js', 'extensions:html,js', 'max:100']);
+        $this->assertSame(['No file type is enabled for uploads.', ['no_types']], [$nothing['msg'], $reasons]);
+        $reasons = [];
+
+        // the caller's `extensions:` rule is REBUILT from the cleaned list: with it passed on as written, a shopper's client extension
+        // `svg` would pass it and be refused further down by the client-extension check -- the same answer by another rule
+        $clientSvg = Utility::upload_file(['file' => $this->upload('logo.svg', $this->png())], 'file', 'x_logo.png', 'uploads/1', $rules);
+        $this->assertSame([0, ['rule']], [(int) $clientSvg['flag'], $reasons], 'The caller\'s `extensions:` rule was not rebuilt from the cleaned list.');
+
         // a request with no panel session is given neither svg bytes nor an svg name out of a caller's list
         $byName = Utility::upload_file(['file' => $this->upload('logo.svg', $svg)], 'file', 'x_logo.svg', 'uploads/1', $rules);
         $byBytes = Utility::upload_file(['file' => $this->upload('logo.png', $svg)], 'file', 'x_logo.png', 'uploads/1', $rules);
