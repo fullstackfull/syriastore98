@@ -75,6 +75,27 @@ final class StoredPathPolicy
         return false;
     }
 
+    /**
+     * Does this RELATIVE path point under one of the roots uploads live in? Only where it points, not whether it is safe: a path under a root
+     * with a `..` in it still answers true, because it is the caller's question (StoreBoundFilesystem asks it of the path as written AND of the
+     * path a `..` earlier in it resolves to) whether that is a place a deleter may touch. P1-SEC-70.
+     */
+    public static function isUploadPath(string $path): bool
+    {
+        $segments = explode('/', $path);
+
+        foreach (self::ROOTS as $root) {
+            $rootSegments = explode('/', $root);
+
+            // something must follow the root: `uploads` and `uploads/` are the root itself, not a place under it
+            if (array_slice($segments, 0, count($rootSegments)) === $rootSegments && array_filter(array_slice($segments, count($rootSegments)), 'strlen') !== []) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** @param list<string> $segments what follows the root; the gallery helper prepends `uploads/` a second time */
     private static function inStoreFolder(array $segments, $storeId): bool
     {

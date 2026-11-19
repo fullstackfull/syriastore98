@@ -95,7 +95,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 213 lines
+### `warning` — 214 lines
 
 > **[2026-11-19] 212 -> 213.** One line added by P1-SEC-73 (the second row below, `a platform upload was refused`, with its
 > destination and reader in its own section, after the P1-SEC-72 one). The tables now hold **36 `critical` and 212 `warning`** --
@@ -337,6 +337,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/StoredUpload.php:90` | a stored upload path points outside the uploads directory and was not touched |
 | `app/Services/StoredUpload.php:99` | a stored upload path names a platform default and was not touched |
 | `app/Services/StoredUpload.php:117` | a stored upload path names another tenant |
+| `app/Support/StoreBoundFilesystem.php:55` | a delete of an upload outside the current store was refused |
 | `app/Services/WebuzoDomainService.php:170` | New Webuzo domain added but old domain could not be deleted |
 | `app/Http/Controllers/OtpIntegrationController.php:536` | OTP test refused: the provider address is not a permitted outbound host. |
 | `app/Http/Controllers/OtpIntegrationController.php:632` | OTP test refused: the provider address is not a permitted outbound host. |
@@ -655,6 +656,24 @@ line when it refuses a file for ANY reason. It goes where every row in this tabl
 - **WHAT IT CANNOT TELL ANYONE:** it records attempts made after the policy is deployed. Before it the same files were stored and
   nothing was logged, so an empty log of this kind is not evidence that nothing was ever stored; what is on disk is the owner's to
   look at (P01-SECURITY-WORK-QUEUE, P1-SEC-73 f).
+
+### The row added 2026-11-19 (P1-SEC-70), with its destination and reader
+
+**`StoreBoundFilesystem::delete()` -- "a delete of an upload outside the current store was refused", `warning`.** During a POST to one of
+the two vendored sign-in settings routes (`facebooklogin.settings`, `linkedinlogin.settings`) the `File` facade is a
+`StoreBoundFilesystem` (`SignInImageDeleteGuard`, on the `web` group), and the vendored handler's `File::delete(base_path($row->value))`
+of a path under `uploads/` that is not the signed-in user's own store's (or one its owner also runs) is refused and this line is
+written. It goes where every row in this table goes (section 2).
+
+- **What it holds:** `store`, the signed-in user's current store (an integer; null when no store resolves). **Not the path** -- the path
+  is a settings row's value, which another tenant may have written -- and not the other store's id.
+- **How to read it:** one line means a handler was about to delete a file that is not this store's. That is either the first-row defect
+  doing what it always did (the tenant that first saved the form owns the row the handler finds, so every LATER tenant's save names that
+  tenant's file: expect one line per save by every tenant but the first, for as long as the modules stay as they are) or a merchant who
+  wrote a `*_sign_in_image` row naming somebody else's file. **The first is common and harmless now; the second is somebody trying a
+  door**, and what tells them apart is the row -- its `store_id` and `value` in `settings` -- not the log.
+- **WHAT IT CANNOT TELL ANYONE:** attempts made before it was deployed; and that the same defect leaves a tenant's *own* previous image
+  on disk (the handler never finds that tenant's row), which is a leak of disk and is not logged.
 
 ## 2. Where these lines actually go
 

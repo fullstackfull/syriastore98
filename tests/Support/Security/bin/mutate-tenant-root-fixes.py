@@ -1502,6 +1502,133 @@ GROUPS = [
             ]),
         ],
     },
+    {
+        "key": 'signinimagedelete',
+        "title": "P1-SEC-70 -- a vendored sign-in settings handler deletes a file only if the signed-in user's store may, and the guard is bound to a POST to those two routes and nothing else",
+        "tests": ['tests/Feature/Security/SignInImageDeleteGuardTest.php'],
+        "mutants": [
+            ('SD1 the guard never binds the File facade', [
+                ('app/Http/Middleware/SignInImageDeleteGuard.php',
+                 '        File::swap(new StoreBoundFilesystem((int) getCurrentStore()));\n',
+                 ''),
+            ]),
+            ('SD2 the original File facade is not put back', [
+                ('app/Http/Middleware/SignInImageDeleteGuard.php',
+                 '            File::swap($original);\n',
+                 ''),
+            ]),
+            ('SD3 a GET to a guarded route is bound too', [
+                ('app/Http/Middleware/SignInImageDeleteGuard.php',
+                 "if (! $request->isMethod('POST') || $route === null ||",
+                 'if ($route === null ||'),
+            ]),
+            ('SD4 the LinkedIn route is not guarded', [
+                ('app/Http/Middleware/SignInImageDeleteGuard.php',
+                 "['facebooklogin.settings', 'linkedinlogin.settings'];",
+                 "['facebooklogin.settings'];"),
+            ]),
+            ('SD5 the Facebook route is not guarded', [
+                ('app/Http/Middleware/SignInImageDeleteGuard.php',
+                 "['facebooklogin.settings', 'linkedinlogin.settings'];",
+                 "['linkedinlogin.settings'];"),
+            ]),
+            ('SD6 every POST route is bound', [
+                ('app/Http/Middleware/SignInImageDeleteGuard.php',
+                 '$route === null || ! in_array($route->getName(), self::ROUTES, true))',
+                 '$route === null)'),
+            ]),
+            ('SD7 an unknown store is "no store to check" (null) instead of a store that owns nothing (0)', [
+                ('app/Http/Middleware/SignInImageDeleteGuard.php',
+                 'new StoreBoundFilesystem((int) getCurrentStore())',
+                 'new StoreBoundFilesystem(getCurrentStore())'),
+            ]),
+            ('SD8 the filesystem is bound to store 1 whoever is signed in', [
+                ('app/Http/Middleware/SignInImageDeleteGuard.php',
+                 'new StoreBoundFilesystem((int) getCurrentStore())',
+                 'new StoreBoundFilesystem(1)'),
+            ]),
+            ('SD9 a delete under uploads/ is never refused', [
+                ('app/Support/StoreBoundFilesystem.php',
+                 'if (StoredPathPolicy::isUploadPath($candidate) && ! StoredPathPolicy::isSafe($candidate, $this->storeId)) {',
+                 'if (false) {'),
+            ]),
+            ('SD10 only the path as written is judged (a `..` earlier in it is not resolved)', [
+                ('app/Support/StoreBoundFilesystem.php',
+                 'foreach ([$relative, $this->collapse($relative)] as $candidate) {',
+                 'foreach ([$relative] as $candidate) {'),
+            ]),
+            ('SD11 only the resolved path is judged (a `..` inside uploads/ is not refused as written)', [
+                ('app/Support/StoreBoundFilesystem.php',
+                 'foreach ([$relative, $this->collapse($relative)] as $candidate) {',
+                 'foreach ([$this->collapse($relative)] as $candidate) {'),
+            ]),
+            ('SD12 a path outside the upload roots is judged by the store rule too', [
+                ('app/Support/StoreBoundFilesystem.php',
+                 'if (StoredPathPolicy::isUploadPath($candidate) && ! StoredPathPolicy::isSafe($candidate, $this->storeId)) {',
+                 'if (! StoredPathPolicy::isSafe($candidate, $this->storeId)) {'),
+            ]),
+            ('SD13 a path outside this application is refused', [
+                ('app/Support/StoreBoundFilesystem.php',
+                 '            return true;       // not a path of this application',
+                 '            return false;       // not a path of this application'),
+            ]),
+            ('SD14 a refusal is not reported in the answer', [
+                ('app/Support/StoreBoundFilesystem.php',
+                 '            $refused = true;\n',
+                 ''),
+            ]),
+            ('SD15 a refused path is deleted anyway', [
+                ('app/Support/StoreBoundFilesystem.php',
+                 '            if ($this->mayDelete((string) $path)) {',
+                 '            if (true) {'),
+            ]),
+            ('SD16 the log line carries the path', [
+                ('app/Support/StoreBoundFilesystem.php',
+                 "['store' => is_numeric($this->storeId) ? (int) $this->storeId : null]);",
+                 "['store' => is_numeric($this->storeId) ? (int) $this->storeId : null, 'path' => $path]);"),
+            ]),
+            ('SD17 a refusal leaves no trace', [
+                ('app/Support/StoreBoundFilesystem.php',
+                 "            Log::warning('a delete of an upload outside the current store was refused', ['store' => is_numeric($this->storeId) ? (int) $this->storeId : null]);\n",
+                 ''),
+            ]),
+            ('SD18 the allowed paths of a mixed batch are not deleted', [
+                ('app/Support/StoreBoundFilesystem.php',
+                 '$deleted = $allowed === [] ? true : parent::delete($allowed);',
+                 '$deleted = true;'),
+            ]),
+            ('SD19 the variadic form looks at its first path only', [
+                ('app/Support/StoreBoundFilesystem.php',
+                 '$paths = is_array($paths) ? $paths : func_get_args();',
+                 '$paths = is_array($paths) ? $paths : [$paths];'),
+            ]),
+            ('SD20 the log line names no store', [
+                ('app/Support/StoreBoundFilesystem.php',
+                 "['store' => is_numeric($this->storeId) ? (int) $this->storeId : null]);",
+                 "['store' => null]);"),
+            ]),
+            ('SD21 a `..` is not resolved before the second judgement', [
+                ('app/Support/StoreBoundFilesystem.php',
+                 "            $segment === '..' ? array_pop($out) : $out[] = $segment;",
+                 '            $out[] = $segment;'),
+            ]),
+            ('SD22 the root alone counts as a place under it', [
+                ('app/Services/StoredPathPolicy.php',
+                 "array_filter(array_slice($segments, count($rootSegments)), 'strlen') !== []",
+                 'true'),
+            ]),
+            ('SD23 nothing is an upload path', [
+                ('app/Services/StoredPathPolicy.php',
+                 "            // something must follow the root: `uploads` and `uploads/` are the root itself, not a place under it\n            if (array_slice($segments, 0, count($rootSegments)) === $rootSegments && array_filter(array_slice($segments, count($rootSegments)), 'strlen') !== []) {\n                return true;",
+                 "            // something must follow the root: `uploads` and `uploads/` are the root itself, not a place under it\n            if (array_slice($segments, 0, count($rootSegments)) === $rootSegments && array_filter(array_slice($segments, count($rootSegments)), 'strlen') !== []) {\n                return false;"),
+            ]),
+            ('SD24 the guard is not registered on the web group', [
+                ('bootstrap/app.php',
+                 "        $middleware->appendToGroup('web', \\App\\Http\\Middleware\\SignInImageDeleteGuard::class);\n",
+                 ''),
+            ]),
+        ],
+    },
 ]
 
 
