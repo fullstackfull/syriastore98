@@ -278,8 +278,12 @@ final class HostClaims
         }
     }
 
-    /** Plain printable ASCII, spaces aside: the only strings whose fold under the collation is a case fold and nothing more. */
-    private static function plain(string $text): bool
+    /**
+     * Plain printable ASCII, spaces aside: the only strings whose fold under the collation is a case fold and nothing more.
+     *
+     * Public since P1-SEC-78: StoredPathPolicy::setting() asks the same question of a setting NAME, and one definition is the point.
+     */
+    public static function plain(string $text): bool
     {
         // trim()'s default would also strip NUL, tab and newline -- exactly the bytes a collation may ignore
         return preg_match('/[^\x21-\x7E]/', trim($text, ' ')) !== 1;
@@ -312,8 +316,10 @@ final class HostClaims
      * The name as the column keeps it. Non-strict MySQL stores the first 255 characters, and ends the value at the first byte that is
      * not valid UTF-8 (EXECUTED on 8.0.46 through the native prepared statements Laravel uses: `domains\xFFx` is stored as `domains`,
      * while the hook's own SELECT on that string answered NULL -- verify-host-claims-on-mysql.php, which failed on it before this).
+     *
+     * Public since P1-SEC-78, for the same reason as plain(): StoredPathPolicy::setting() judges a setting name as it will be STORED.
      */
-    private static function asStored(string $name): string
+    public static function asStored(string $name): string
     {
         // 255 characters are at most 1020 bytes; the rest can only matter if everything before it is valid
         $name = substr($name, 0, 4 * self::NAME_LENGTH + 4);

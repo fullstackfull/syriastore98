@@ -2020,6 +2020,113 @@ GROUPS = [
             ]),
         ],
     },
+    {
+        "key": 'settingname',
+        "title": "P1-SEC-78 -- the value of a row is held to the sign-in path rule whatever spelling of its NAME reached the table: the name is judged as the column STORES it, PHP-visible spellings by the pattern, and a name PHP cannot judge is put to the engine, the way HostClaims does it",
+        "tests": ['tests/Feature/Security/SettingNameAtTheWriterTest.php', 'tests/Feature/Security/HostClaimsTest.php'],
+        "mutants": [
+            ('SN1 the name is judged as POSTED, not as the column stores it', [
+                ('app/Services/StoredPathPolicy.php',
+                 '        $stored = HostClaims::asStored($name);\n',
+                 '        $stored = $name;\n'),
+            ]),
+            ('SN2 the pattern is no longer applied: only a name PHP cannot judge is looked at', [
+                ('app/Services/StoredPathPolicy.php',
+                 "        if (preg_match('/_sign_in_image$/', strtolower(trim($stored))) === 1) {\n            return true;\n        }\n\n",
+                 ''),
+            ]),
+            ('SN3 the pattern is unanchored (any name that merely CONTAINS _sign_in_image)', [
+                ('app/Services/StoredPathPolicy.php',
+                 "if (preg_match('/_sign_in_image$/', strtolower(trim($stored))) === 1) {",
+                 "if (preg_match('/_sign_in_image/', strtolower(trim($stored))) === 1) {"),
+            ]),
+            ('SN4 the pattern is case-sensitive', [
+                ('app/Services/StoredPathPolicy.php',
+                 "if (preg_match('/_sign_in_image$/', strtolower(trim($stored))) === 1) {",
+                 "if (preg_match('/_sign_in_image$/', trim($stored)) === 1) {"),
+            ]),
+            ('SN5 the pattern does not trim (surrounding spaces, and the control bytes trim() strips)', [
+                ('app/Services/StoredPathPolicy.php',
+                 "if (preg_match('/_sign_in_image$/', strtolower(trim($stored))) === 1) {",
+                 "if (preg_match('/_sign_in_image$/', strtolower($stored)) === 1) {"),
+            ]),
+            ('SN6 a plain name is put to the engine too (a query for every save)', [
+                ('app/Services/StoredPathPolicy.php',
+                 "        if (HostClaims::plain($stored)) {\n            return false;\n        }\n\n",
+                 ''),
+            ]),
+            ('SN7 a name that is not plain is never put to the engine', [
+                ('app/Services/StoredPathPolicy.php',
+                 '        if (HostClaims::plain($stored)) {\n',
+                 '        if (true) {\n'),
+            ]),
+            ('SN8 the engine is asked about the name as POSTED, not as stored', [
+                ('app/Services/StoredPathPolicy.php',
+                 '[$stored, ...self::SIGN_IN_ROWS]);',
+                 '[$name, ...self::SIGN_IN_ROWS]);'),
+            ]),
+            ('SN9 the engine is asked without trim()', [
+                ('app/Services/StoredPathPolicy.php',
+                 "'select lower(trim(?)) in ('",
+                 "'select lower(?) in ('"),
+            ]),
+            ('SN10 the engine is asked without lower()', [
+                ('app/Services/StoredPathPolicy.php',
+                 "'select lower(trim(?)) in ('",
+                 "'select trim(?) in ('"),
+            ]),
+            ('SN11 the writer rule knows only the Facebook row', [
+                ('app/Services/StoredPathPolicy.php',
+                 "public const SIGN_IN_ROWS = ['facebook_sign_in_image', 'linkedin_sign_in_image'];",
+                 "public const SIGN_IN_ROWS = ['facebook_sign_in_image'];"),
+            ]),
+            ('SN12 the engine question has one placeholder for the names, however many there are', [
+                ('app/Services/StoredPathPolicy.php',
+                 'array_fill(0, count(self::SIGN_IN_ROWS), \'?\')',
+                 'array_fill(0, 1, \'?\')'),
+            ]),
+            ('SN13 a save that changes neither name nor value is judged too', [
+                ('app/Services/StoredPathPolicy.php',
+                 "        if ($setting->exists && ! $setting->isDirty(['name', 'value'])) {\n            return;\n        }\n\n",
+                 ''),
+            ]),
+            ('SN14 only a changed VALUE is judged (a rename keeps the value it had)', [
+                ('app/Services/StoredPathPolicy.php',
+                 "if ($setting->exists && ! $setting->isDirty(['name', 'value'])) {",
+                 "if ($setting->exists && ! $setting->isDirty('value')) {"),
+            ]),
+            ('SN15 only a changed NAME is judged (a new value for a row already named so)', [
+                ('app/Services/StoredPathPolicy.php',
+                 "if ($setting->exists && ! $setting->isDirty(['name', 'value'])) {",
+                 "if ($setting->exists && ! $setting->isDirty('name')) {"),
+            ]),
+            ('SN16 an existing row is never judged', [
+                ('app/Services/StoredPathPolicy.php',
+                 "if ($setting->exists && ! $setting->isDirty(['name', 'value'])) {",
+                 "if ($setting->exists || ! $setting->isDirty(['name', 'value'])) {"),
+            ]),
+            ('SN17 the name judged is the one the row HAD, not the one it is being saved under', [
+                ('app/Services/StoredPathPolicy.php',
+                 'if (self::isSignInName((string) $setting->name)) {',
+                 "if (self::isSignInName((string) \\$setting->getOriginal('name'))) {".replace('\\$', '$')),
+            ]),
+            ('SN18 the value is judged by asking about the NAME', [
+                ('app/Services/StoredPathPolicy.php',
+                 "            self::assert('value', $setting->value);\n        }\n    }\n}",
+                 "            self::assert('value', $setting->name);\n        }\n    }\n}"),
+            ]),
+            ('SN19 HostClaims::plain says every name is plain', [
+                ('app/Services/HostClaims.php',
+                 "        return preg_match('/[^\\x21-\\x7E]/', trim($text, ' ')) !== 1;\n",
+                 "        return true;\n"),
+            ]),
+            ('SN20 HostClaims::asStored keeps one character too many (256)', [
+                ('app/Services/HostClaims.php',
+                 "        return mb_substr($name, 0, self::NAME_LENGTH, 'UTF-8');\n",
+                 "        return mb_substr($name, 0, self::NAME_LENGTH + 1, 'UTF-8');\n"),
+            ]),
+        ],
+    },
 ]
 
 

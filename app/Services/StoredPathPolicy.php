@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -157,10 +158,60 @@ final class StoredPathPolicy
         }
     }
 
-    /** Setting::saving -- the names the vendored sign-in modules unlink (`linkedin_sign_in_image`, `facebook_sign_in_image`, ...). */
+    /**
+     * The rows the vendored sign-in handlers read, BY NAME (`where name = '<this>'`). SignInImageDeleteGuard::HANDLERS names the same two and a test pins that
+     * they agree: a third module of the same shape has to be added to both.
+     */
+    public const SIGN_IN_ROWS = ['facebook_sign_in_image', 'linkedin_sign_in_image'];
+
+    /**
+     * Is this the name of a row a vendored sign-in handler would FIND?  P1-SEC-78.
+     *
+     * The rule in setting() decided that by `preg_match('/_sign_in_image$/', strtolower(trim($name)))` on the name AS POSTED. The handlers' lookups -- and the
+     * table -- know the name as the ENGINE does, and the engine is not PHP, in two ways:
+     *
+     *   - utf8mb4_unicode_ci (config/database.php, which production does not override) is accent-, case- and PAD-SPACE-insensitive and ignores some code points,
+     *     so `facebook_sign_in_imagé`, a trailing U+200B, a trailing no-break space and a full-width `ｉ` all FIND the row of `facebook_sign_in_image`
+     *     (EXECUTED by the skeptics of P1-SEC-70 on MariaDB 10.11; the repository's own S46 note records the same fold from MySQL 8.0.46);
+     *   - `settings.name` is VARCHAR(255) and production runs `strict => false`, so a longer name is STORED CUT to 255 characters, the spaces that remain are PAD
+     *     SPACE, and a name that ENDS AT AN INVALID UTF-8 BYTE is stored up to it (`domains\xFFx` is stored as `domains`: EXECUTED on 8.0.46 by
+     *     verify-host-claims-on-mysql.php).
+     *
+     * So the name is judged as it will be STORED (HostClaims::asStored), PHP-visible spellings (case, surrounding spaces and the control bytes trim() strips) are
+     * judged by the pattern as before, and a name that is not plain printable ASCII is PUT TO THE ENGINE, the way HostClaims does it for the host settings: it
+     * is a sign-in name when `lower(trim(name))` equals one of SIGN_IN_ROWS under the collation the lookups run on. A plain name costs no query. A non-plain
+     * name that folds onto nothing here -- `thème_color` -- is nobody's business and is saved exactly as before (HostClaimsTest pins that, and this change must not
+     * reverse a decision that review made).
+     */
+    public static function isSignInName(string $name): bool
+    {
+        $stored = HostClaims::asStored($name);
+
+        if (preg_match('/_sign_in_image$/', strtolower(trim($stored))) === 1) {
+            return true;
+        }
+
+        if (HostClaims::plain($stored)) {
+            return false;
+        }
+
+        $row = DB::selectOne('select lower(trim(?)) in (' . implode(', ', array_fill(0, count(self::SIGN_IN_ROWS), '?')) . ') as hit', [$stored, ...self::SIGN_IN_ROWS]);
+
+        return (bool) ($row->hit ?? false);
+    }
+
+    /**
+     * Setting::saving -- the names the vendored sign-in modules unlink (`linkedin_sign_in_image`, `facebook_sign_in_image`, ...): the value of such a row is held
+     * to the path rule, whatever spelling of the name reached the table (isSignInName). Only when the row is NEW or its name or value CHANGES, so a legacy row is
+     * never made unsaveable by an unrelated edit -- and the cheap question goes first, so the engine is not asked about a save that changes neither.
+     */
     public static function setting(\App\Models\Setting $setting): void
     {
-        if (preg_match('/_sign_in_image$/', strtolower(trim((string) $setting->name))) === 1 && (! $setting->exists || $setting->isDirty(['name', 'value']))) {
+        if ($setting->exists && ! $setting->isDirty(['name', 'value'])) {
+            return;
+        }
+
+        if (self::isSignInName((string) $setting->name)) {
             self::assert('value', $setting->value);
         }
     }
