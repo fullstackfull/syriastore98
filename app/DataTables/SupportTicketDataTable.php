@@ -26,7 +26,7 @@ class SupportTicketDataTable extends DataTable
         ->editColumn('ticket_id', function (SupportTicket $ticket) {
             if (auth()->user() && auth()->user()->isAbleTo('Replay Support Ticket')) {
                 $url = route('support_ticket.edit', $ticket->id);
-                $ticket_number = '<a class="btn btn-outline-primary" href="'.$url.'">#'.$ticket->ticket_id.'</a>';
+                $ticket_number = '<a class="btn btn-outline-primary" href="'.e($url).'">#'.e($ticket->ticket_id).'</a>';
             } else {
                 $ticket_number = '-';
             }
@@ -35,7 +35,7 @@ class SupportTicketDataTable extends DataTable
         })
          ->editColumn('order_id', function (SupportTicket $ticket) {
                 $url = route('order.view', \Illuminate\Support\Facades\Crypt::encrypt($ticket->id));
-                $order_number = '<a class="btn btn-outline-primary" href="'.$url.'">#'.($ticket->orderData->product_order_id ?? '-').'</a>';
+                $order_number = '<a class="btn btn-outline-primary" href="'.e($url).'">#'.e($ticket->orderData->product_order_id ?? '-').'</a>';
             
             return $order_number;
         })
@@ -43,10 +43,11 @@ class SupportTicketDataTable extends DataTable
             return $ticket->created_at ? $ticket->created_at->format('Y-m-d H:i:s') : '-';
         })
         ->editColumn('customer_id', function (SupportTicket $ticket) {
-            return $ticket->UserData ? $ticket->UserData->name : '';
+            // P1-SEC-79: the shopper's name is free text at registration, and `customer_id` is a raw column
+            return $ticket->UserData ? e($ticket->UserData->name) : '';
         })
         ->editColumn('status', function (SupportTicket $ticket) {
-            return '<span class="badge fix_badges bg-primary p-2 px-3 rounded-1">'.$ticket->status.'</span>';
+            return '<span class="badge fix_badges bg-primary p-2 px-3 rounded-1">'.e($ticket->status).'</span>';
         })
         ->addColumn('action', function (SupportTicket $ticket) {
             return view('support.action', compact('ticket'));

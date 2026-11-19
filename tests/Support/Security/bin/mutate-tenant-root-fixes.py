@@ -2327,6 +2327,53 @@ GROUPS = [
             ]),
         ],
     },
+    {
+        "key": 'supportxss',
+        "title": "P1-SEC-79 -- a shopper's support-ticket text and name reach the merchant's browser only through the sanitizer and e() (two first-party views and the ticket list)",
+        "tests": ['tests/Feature/Security/SupportTicketStoredXssTest.php'],
+        "mutants": [
+            ('SX1 the merchant\'s ticket page prints the description raw', [
+                ('resources/views/support/edit.blade.php',
+                 '{!! \\App\\Support\\Html\\RichText::clean($ticket->description) !!}',
+                 '{!! $ticket->description !!}'),
+            ]),
+            ('SX2 the merchant\'s ticket page prints a reply raw', [
+                ('resources/views/support/edit.blade.php',
+                 '{!! \\App\\Support\\Html\\RichText::clean($conversion->description) !!}',
+                 '{!! $conversion->description !!}'),
+            ]),
+            ('SX3 the storefront page prints the description raw', [
+                ('resources/views/front_end/pages/reply_support_ticket.blade.php',
+                 '{!! \\App\\Support\\Html\\RichText::clean($ticket->description) !!}',
+                 '{!! $ticket->description !!}'),
+            ]),
+            ('SX4 the storefront page prints a reply raw', [
+                ('resources/views/front_end/pages/reply_support_ticket.blade.php',
+                 '{!! \\App\\Support\\Html\\RichText::clean($conversion->description) !!}',
+                 '{!! $conversion->description !!}'),
+            ]),
+            ('SX5 the shopper\'s name is not escaped in the merchant\'s list', [
+                ('app/DataTables/SupportTicketDataTable.php',
+                 "return $ticket->UserData ? e($ticket->UserData->name) : '';",
+                 "return $ticket->UserData ? $ticket->UserData->name : '';"),
+            ]),
+            ('SX6 the status is not escaped in the merchant\'s list', [
+                ('app/DataTables/SupportTicketDataTable.php',
+                 "rounded-1\">'.e($ticket->status).'</span>';",
+                 "rounded-1\">'.$ticket->status.'</span>';"),
+            ]),
+            ('SX7 the ticket number is not escaped in the merchant\'s list', [
+                ('app/DataTables/SupportTicketDataTable.php',
+                 "'#'.e($ticket->ticket_id).'</a>'",
+                 "'#'.$ticket->ticket_id.'</a>'"),
+            ]),
+            ('SX8 the order number is not escaped in the merchant\'s list', [
+                ('app/DataTables/SupportTicketDataTable.php',
+                 "'#'.e($ticket->orderData->product_order_id ?? '-').'</a>'",
+                 "'#'.($ticket->orderData->product_order_id ?? '-').'</a>'"),
+            ]),
+        ],
+    },
 ]
 
 
