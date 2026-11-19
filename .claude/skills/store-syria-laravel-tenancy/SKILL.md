@@ -254,7 +254,11 @@ vacuous tests repeatedly. Fifteen ways they pass for the wrong reason, all measu
     appeared to store in the store's own folder, and the cross-store collision measured on the real code did not reproduce. In
     production the default guard is `web` with nobody in it, and the answer is null (`PlatformUploaderDoorsTest::asAShopper()` signs a
     customer in and puts the default guard back; the folder and the collision then reproduce). Any storefront test whose handler calls
-    `getCurrentStore()`, `auth()->user()` or `Auth::user()` needs it.
+    `getCurrentStore()`, `auth()->user()` or `Auth::user()` needs it. **The same test hid a second half** (the review's tests lens): the
+    store under test was store 1, owned by user 1, so "the route's store", "store 1", "its owner's user id" and `getCurrentStore() ?? 1`
+    were ONE number and four wrong-folder mutants survived. Build the store under test so that its id is neither 1 nor its owner's
+    (`PlatformUploaderDoorsTest::aStoreWhoseIdIsNobodyElses()`); and when the claim is about a shopper who also holds a panel login, hold
+    that session too with the default guard on `web` and assert as a premise that `getCurrentStore()` answers for the OTHER tenant.
 
 **Assert through `DB::table()`.** `User`, `Product` and `Order` are `Cachable`; an Eloquent read can
 serve a mutated in-memory instance. That produced a false *reproduction* once — a model read

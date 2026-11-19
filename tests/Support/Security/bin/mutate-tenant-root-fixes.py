@@ -1098,7 +1098,7 @@ GROUPS = [
                  "                        $imageName = \\App\\Services\\PlatformUploadPolicy::storedName($file, 'attachment');\n                        $path = Utility::keyWiseUpload_file($request,'attachments',$imageName,$dir,$filekey,[]);",
                  "                        $imageName = $file->getClientOriginalName();\n                        $path = Utility::keyWiseUpload_file($request,'attachments',$imageName,$dir,$filekey,[]);"),
             ]),
-            ("SA2 ticket create (single field): the stored name is the client's own", [
+            ("SA2 ticket create AND edit (single field): the stored name is the client's own", [
                 ('app/Http/Controllers/AccountProfileController.php',
                  "            $fileName = \\App\\Services\\PlatformUploadPolicy::storedName($request->attachment, 'attachment');\n            $path = Utility::upload_file($request, 'attachment', $fileName, $dir, []);",
                  "            $fileName = $request->attachment->getClientOriginalName();\n            $path = Utility::upload_file($request, 'attachment', $fileName, $dir, []);",
@@ -1136,8 +1136,8 @@ GROUPS = [
             ]),
             ('SA9 ticket create: the folder is assigned only inside the plural loop again (undefined for the single field)', [
                 ('app/Http/Controllers/AccountProfileController.php',
-                 "        $dir               = $this->shopperAttachmentDir($store, 'tickets');\n        $refused           = 0;",
-                 '        $refused           = 0;'),
+                 "        $dir               = $this->shopperAttachmentDir($store, 'tickets');\n        $refused           = $this->rejectedByPhp($request, 'attachments');",
+                 "        $refused           = $this->rejectedByPhp($request, 'attachments');"),
                 ('app/Http/Controllers/AccountProfileController.php',
                  '                    if($result==1)\n                    {\n                        // P1-SEC-71: a name the SERVER builds',
                  "                    if($result==1)\n                    {\n                        $dir = $this->shopperAttachmentDir($store, 'tickets');\n                        // P1-SEC-71: a name the SERVER builds"),
@@ -1154,8 +1154,8 @@ GROUPS = [
             ]),
             ('SA12 ticket edit: a refused attachment is not counted', [
                 ('app/Http/Controllers/AccountProfileController.php',
-                 "                        $data[] = $path['url'];\n                    } else {\n                        $refused++;\n                    }\n                } else {\n                    return redirect()->back()->with('error', $result);",
-                 "                        $data[] = $path['url'];\n                    } else {\n                        $errors = __($path['msg']);\n                    }\n                } else {\n                    return redirect()->back()->with('error', $result);"),
+                 "                        $data[] = $path['url'];\n                    } else {\n                        $refused++;\n                    }\n                } else {\n                    $refused++;        // the merchant's plan is full",
+                 "                        $data[] = $path['url'];\n                    } else {\n                        $errors = __($path['msg']);\n                    }\n                } else {\n                    $refused++;        // the merchant's plan is full"),
             ]),
             ('SA13 ticket edit (single field): a refused attachment is not counted', [
                 ('app/Http/Controllers/AccountProfileController.php',
@@ -1174,18 +1174,18 @@ GROUPS = [
             ]),
             ('SA16 the refusal helper never says anything', [
                 ('app/Http/Controllers/AccountProfileController.php',
-                 "        return $refused > 0\n            ? $response->with('error',",
-                 "        return false\n            ? $response->with('error',"),
+                 '        if ($refused === 0) {\n            return $response;\n        }',
+                 '        if (true) {\n            return $response;\n        }'),
             ]),
             ('SA17 the refusal helper says it as a success', [
                 ('app/Http/Controllers/AccountProfileController.php',
-                 "            ? $response->with('error', __('An attachment was not accepted.",
-                 "            ? $response->with('success', __('An attachment was not accepted."),
+                 "        return $response->with('error', $mayTryAgain",
+                 "        return $response->with('success', $mayTryAgain"),
             ]),
             ('SA18 the refusal helper says something else', [
                 ('app/Http/Controllers/AccountProfileController.php',
-                 "            ? $response->with('error', __('An attachment was not accepted. Check its type and size and try again.'))",
-                 "            ? $response->with('error', __('Something went wrong.'))"),
+                 "            ? __('An attachment was not accepted. Check its type and size and try again.')\n",
+                 "            ? __('Something went wrong.')\n"),
             ]),
             ('SA19 storedName: no random part', [
                 ('app/Services/PlatformUploadPolicy.php',
@@ -1194,13 +1194,13 @@ GROUPS = [
             ]),
             ('SA20 storedName: the base is not truncated', [
                 ('app/Services/PlatformUploadPolicy.php',
-                 "'_'), 0, 60);",
-                 "'_'), 0, 600);"),
+                 "'_'), 0, 60), '_');",
+                 "'_'), 0, 600), '_');"),
             ]),
             ("SA21 storedName: a dot of the client's survives into the name", [
                 ('app/Services/PlatformUploadPolicy.php',
-                 "preg_replace('/[^A-Za-z0-9_-]+/', '_', pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)), '_'), 0, 60);",
-                 "preg_replace('/[^A-Za-z0-9_.-]+/', '_', pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)), '_'), 0, 60);"),
+                 "preg_replace('/[^A-Za-z0-9_-]+/', '_', pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)), '_'), 0, 60), '_');",
+                 "preg_replace('/[^A-Za-z0-9_.-]+/', '_', pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)), '_'), 0, 60), '_');"),
             ]),
             ("SA22 storedName: the fallback word is fixed, not the caller's", [
                 ('app/Services/PlatformUploadPolicy.php',
@@ -1224,8 +1224,8 @@ GROUPS = [
             ]),
             ('SA26 nonReplacingName: the existence check is skipped', [
                 ('app/Services/PlatformUploadPolicy.php',
-                 "        if (! $storage->exists($folder . '/' . $name)) {\n            return $name;\n        }",
-                 '        if (true) {\n            return $name;\n        }'),
+                 "            $taken = $storage->exists($folder . '/' . $name);",
+                 '            $taken = false;'),
             ]),
             ('SA27 nonReplacingName: the new name loses its extension', [
                 ('app/Services/PlatformUploadPolicy.php',
@@ -1286,6 +1286,219 @@ GROUPS = [
                 ('app/Helper/helper.php',
                  "nonReplacingName((string) $storage_settings['storage_setting'], (string) $path, $name);",
                  "nonReplacingName('theme', (string) $path, $name);"),
+            ]),
+            ('SA39 ticket create: the folder is getCurrentStore() ?? 1', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "        $dir               = $this->shopperAttachmentDir($store, 'tickets');\n        $refused           = $this->rejectedByPhp($request, 'attachments');",
+                 "        $dir               = 'uploads/' . (getCurrentStore() ?? 1) . '/tickets';\n        $refused           = $this->rejectedByPhp($request, 'attachments');"),
+            ]),
+            ('SA40 ticket edit: the folder is getCurrentStore() ?? 1', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "        $dir     = $this->shopperAttachmentDir($store, 'tickets');",
+                 "        $dir     = 'uploads/' . (getCurrentStore() ?? 1) . '/tickets';"),
+            ]),
+            ('SA41 refund evidence: the folder is getCurrentStore() ?? 1', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "                $dir        = $this->shopperAttachmentDir($store, 'order_refund');",
+                 "                $dir        = 'uploads/' . (getCurrentStore() ?? 1) . '/order_refund';"),
+            ]),
+            ('SA42 ticket reply: the folder is getCurrentStore() ?? 1', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "                    $dir    = $this->shopperAttachmentDir($store, 'reply_tickets');",
+                 "                    $dir    = 'uploads/' . (getCurrentStore() ?? 1) . '/reply_tickets';"),
+            ]),
+            ("SA43 the shopper folder helper uses the store OWNER's user id", [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "        return 'uploads/' . $store->id . '/' . $kind;",
+                 "        return 'uploads/' . $store->created_by . '/' . $kind;"),
+            ]),
+            ("SA44 the shopper folder helper asks getCurrentStore() and falls back to the route's store (the natural 'safe' regression)", [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "        return 'uploads/' . $store->id . '/' . $kind;",
+                 "        return 'uploads/' . (getCurrentStore() ?? $store->id) . '/' . $kind;"),
+            ]),
+            ('SA45 ticket create: an accepted attachment is counted as refused', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "__('Ticket successfully created.')), $refused, ! $planFull);",
+                 "__('Ticket successfully created.')), $refused + 1, ! $planFull);"),
+            ]),
+            ('SA46 ticket edit: an accepted attachment is counted as refused', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "__('Ticket successfully updated.')), $refused, ! $planFull);",
+                 "__('Ticket successfully updated.')), $refused + 1, ! $planFull);"),
+            ]),
+            ('SA47 refund evidence: an accepted attachment is counted as refused', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "__('Refund Request Send successfully!')), $refused, false);",
+                 "__('Refund Request Send successfully!')), $refused + 1, false);"),
+            ]),
+            ('SA48 ticket create (single field): the accepted branch is never taken', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "            if ($path['flag'] == '0') {\n                $refused++;\n            } else {\n                $tickets->attachment    = $path['url'];",
+                 "            if (true) {\n                $refused++;\n            } else {\n                $tickets->attachment    = $path['url'];"),
+            ]),
+            ('SA49 ticket edit (single field): the accepted branch is never taken', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "            if ($path['flag'] == '0') {\n                $refused++;\n            } else {\n                $ticket->attachment      = $path['url'];",
+                 "            if (true) {\n                $refused++;\n            } else {\n                $ticket->attachment      = $path['url'];"),
+            ]),
+            ('SA50 ticket reply: a later accepted file forgets an earlier refusal', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "                        $data[] = $path['url'];\n                    } else {\n                        $refused++;\n                    }\n                }\n            }\n            $post['attachments']",
+                 "                        $data[] = $path['url'];\n                        $refused = 0;\n                    } else {\n                        $refused++;\n                    }\n                }\n            }\n            $post['attachments']"),
+            ]),
+            ('SA51 refund evidence: a later accepted file forgets an earlier refusal', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "                    $data[] = $path['url'];\n                } else {\n                    $refused++;\n                }\n                $order_refund->attachments",
+                 "                    $data[] = $path['url'];\n                    $refused = 0;\n                } else {\n                    $refused++;\n                }\n                $order_refund->attachments"),
+            ]),
+            ('SA52 ticket edit: a later accepted file forgets an earlier refusal', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "                        $data[] = $path['url'];\n                    } else {\n                        $refused++;\n                    }\n                } else {\n                    $refused++;        // the merchant's plan is full",
+                 "                        $data[] = $path['url'];\n                        $refused = 0;\n                    } else {\n                        $refused++;\n                    }\n                } else {\n                    $refused++;        // the merchant's plan is full"),
+            ]),
+            ('SA53 ticket create: a later accepted file forgets an earlier refusal', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "                        if($path['flag'] == 1){\n                            $data[] = $path['url'];\n",
+                 "                        if($path['flag'] == 1){\n                            $data[] = $path['url'];\n                            $refused = 0;\n"),
+            ]),
+            ('SA54 refund evidence: the first refused file ends the loop', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 '                    $refused++;\n                }\n                $order_refund->attachments',
+                 '                    $refused++;\n                    break;\n                }\n                $order_refund->attachments'),
+            ]),
+            ('SA55 ticket reply: every file is stored from index 0', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "Utility::keyWiseUpload_file($request, 'reply_attachments', $imageName, $dir, $filekey, []);",
+                 "Utility::keyWiseUpload_file($request, 'reply_attachments', $imageName, $dir, 0, []);"),
+            ]),
+            ('SA56 refund evidence: every file is stored from index 0', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "$path = Utility::keyWiseUpload_file($request, 'attachments', $imageName, $dir, $filekey, []);\n\n                if ($path['flag'] == 1) {",
+                 "$path = Utility::keyWiseUpload_file($request, 'attachments', $imageName, $dir, 0, []);\n\n                if ($path['flag'] == 1) {"),
+            ]),
+            ('SA57 ticket edit: every file is stored from index 0', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "$path = Utility::keyWiseUpload_file($request, 'attachments', $imageName, $dir, $filekey, []);\n                    if ($path['flag'] == 1) {",
+                 "$path = Utility::keyWiseUpload_file($request, 'attachments', $imageName, $dir, 0, []);\n                    if ($path['flag'] == 1) {"),
+            ]),
+            ('SA58 ticket create: every file is stored from index 0', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "$path = Utility::keyWiseUpload_file($request,'attachments',$imageName,$dir,$filekey,[]);",
+                 "$path = Utility::keyWiseUpload_file($request,'attachments',$imageName,$dir,0,[]);"),
+            ]),
+            ('SA59 ticket create: the single field starts a fresh count (a refused plural file is forgotten)', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "        if ($request->attachment) {\n            $fileName = \\App\\Services\\PlatformUploadPolicy::storedName($request->attachment, 'attachment');\n            $path = Utility::upload_file($request, 'attachment', $fileName, $dir, []);\n            if ($path['flag'] == '0') {\n                $refused++;\n            } else {\n                $tickets->attachment",
+                 "        if ($request->attachment) {\n            $refused = 0;\n            $fileName = \\App\\Services\\PlatformUploadPolicy::storedName($request->attachment, 'attachment');\n            $path = Utility::upload_file($request, 'attachment', $fileName, $dir, []);\n            if ($path['flag'] == '0') {\n                $refused++;\n            } else {\n                $tickets->attachment"),
+            ]),
+            ('SA60 ticket edit: the plural loop starts a fresh count (a refused single field is forgotten)', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "        if ($request->hasfile('attachments')) {\n\n            foreach ($request->file('attachments') as $filekey => $file) {\n                $file_size = $file->getSize();",
+                 "        if ($request->hasfile('attachments')) {\n            $refused = 0;\n\n            foreach ($request->file('attachments') as $filekey => $file) {\n                $file_size = $file->getSize();"),
+            ]),
+            ('SA61 refund evidence: the evidence is never linked to its refund row', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 '$order_refund->attachments    =  json_encode($data);',
+                 '$order_refund->attachments    =  null;'),
+            ]),
+            ('SA62 ticket create (single field): the ticket never points at the file', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "                $tickets->attachment    = $path['url'];",
+                 '                $tickets->attachment    = null;'),
+            ]),
+            ('SA63 receiptName: the pre-change body again (no sixty-character cap)', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "        return self::storedName($file, 'receipt');",
+                 "        $base = trim((string) preg_replace('/[^A-Za-z0-9_-]+/', '_', pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)), '_');\n\n        return ($base !== '' ? $base : 'receipt') . '_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . strtolower($file->getClientOriginalExtension());"),
+            ]),
+            ('SA64 multi_upload_file: a remote backend is checked on the local disk', [
+                ('app/Helper/helper.php',
+                 "nonReplacingName((string) $storage_settings['storage_setting'], (string) $path, $name);",
+                 "nonReplacingName('local', (string) $path, $name);"),
+            ]),
+            ('SA65 policy (BYP-3): one invalid UTF-8 byte disables the format-character check again', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "preg_match('/\\p{C}/u', $name) !== 0",
+                 "preg_match('/\\p{C}/u', $name) === 1"),
+            ]),
+            ('SA66 nonReplacingName (CR-02): a disk that cannot answer exists() refuses the upload again', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 '            $taken = true;\n        }',
+                 '            throw $e;\n        }'),
+            ]),
+            ('SA67 nonReplacingName (CR-02): a disk that cannot answer exists() is treated as FREE', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 '            $taken = true;\n        }',
+                 '            $taken = false;\n        }'),
+            ]),
+            ('SA68 ticket create (BYP-1): a file PHP itself rejected is not counted', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "        $refused           = $this->rejectedByPhp($request, 'attachments');\n        $planFull          = false;",
+                 '        $refused           = 0;\n        $planFull          = false;'),
+            ]),
+            ('SA69 ticket edit (BYP-1): a file PHP itself rejected is not counted', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "        $refused = $this->rejectedByPhp($request, 'attachments');\n        $planFull = false;",
+                 '        $refused = 0;\n        $planFull = false;'),
+            ]),
+            ('SA70 ticket reply (BYP-1): a file PHP itself rejected is not counted', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "$refused             = $this->rejectedByPhp($request, 'reply_attachments');",
+                 '$refused             = 0;'),
+            ]),
+            ('SA71 refund evidence (BYP-1): a file PHP itself rejected is not counted', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "        $refused           = $this->rejectedByPhp($request, 'attachments');\n        if ($request->hasfile('attachments')) {",
+                 "        $refused           = 0;\n        if ($request->hasfile('attachments')) {"),
+            ]),
+            # SA72 and SA73 are withdrawn. They mutated a skip of a file PHP itself rejected inside the create and edit loops, added on the premise
+            # that `getSize()` raises for it. It answers false (executed, PHP 8.3.6), the uploader refuses the file anyway, and no test could tell the
+            # skip from its absence (both mutants survived the full group), so the skip was removed instead of declared an equivalent survivor.
+            ('SA74 refund evidence (CR-05): the sentence says "try again" for a refund that cannot be sent again', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "__('Refund Request Send successfully!')), $refused, false);",
+                 "__('Refund Request Send successfully!')), $refused);"),
+            ]),
+            ('SA75 ticket create (R71-TEN-02): a full plan is told as "try again"', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "__('Ticket successfully created.')), $refused, ! $planFull);",
+                 "__('Ticket successfully created.')), $refused, true);"),
+            ]),
+            ('SA76 ticket edit (R71-TEN-02): a full plan is told as "try again"', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "__('Ticket successfully updated.')), $refused, ! $planFull);",
+                 "__('Ticket successfully updated.')), $refused, true);"),
+            ]),
+            ('SA77 storedName (CR-07): the cut can leave a trailing underscore', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "        $base = rtrim(substr(trim((string) preg_replace('/[^A-Za-z0-9_-]+/', '_', pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)), '_'), 0, 60), '_');",
+                 "        $base = substr(trim((string) preg_replace('/[^A-Za-z0-9_-]+/', '_', pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)), '_'), 0, 60);"),
+            ]),
+            ('SA78 routeDemandsAPanelUser (CR-06): the module manifest is not consulted', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 '        return \\App\\Support\\ModuleRouteManifest::administrativeRule(request()->method(), $route->uri()) !== null;',
+                 '        return false;'),
+            ]),
+            ('SA79 nonReplacingName (R71-TEN-04): a rename leaves no trace', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "        Log::info('a stranger\\'s upload was stored under a new name because its name was taken', ['disk' => $disk, 'folder' => $folder]);\n",
+                 ''),
+            ]),
+            ('SA80 nonReplacingName (R71-TEN-04): the log line carries the file name', [
+                ('app/Services/PlatformUploadPolicy.php',
+                 "['disk' => $disk, 'folder' => $folder]);",
+                 "['disk' => $disk, 'folder' => $folder . '/' . $name]);"),
+            ]),
+            ('SA81 the refusal helper never says "try again"', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "        return $response->with('error', $mayTryAgain\n            ?",
+                 "        return $response->with('error', false\n            ?"),
+            ]),
+            ('SA82 the refusal helper always says "try again"', [
+                ('app/Http/Controllers/AccountProfileController.php',
+                 "        return $response->with('error', $mayTryAgain\n            ?",
+                 "        return $response->with('error', true\n            ?"),
             ]),
         ],
     },

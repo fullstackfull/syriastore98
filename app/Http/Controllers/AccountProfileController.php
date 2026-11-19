@@ -804,9 +804,6 @@ public function city_list(Request $request, $slug)
         {
                  foreach($request->file('attachments') as $filekey => $file)
                 {
-                    if (! $file->isValid()) {
-                        continue;      // counted by rejectedByPhp(); it has no path, and getSize() on it raises
-                    }
                     $file_size = $file->getSize();
                     $result = Utility::updateStorageLimit(auth('customers')->user()->creatorId(), $file_size);
                     if($result==1)
@@ -912,9 +909,6 @@ public function city_list(Request $request, $slug)
         if ($request->hasfile('attachments')) {
 
             foreach ($request->file('attachments') as $filekey => $file) {
-                if (! $file->isValid()) {
-                    continue;          // counted by rejectedByPhp(); it has no path, and getSize() on it raises
-                }
                 $file_size = $file->getSize();
                 $result = Utility::updateStorageLimit(auth('customers')->user()->creatorId(), $file_size);
                 if ($result == 1) {
@@ -1370,6 +1364,11 @@ public function city_list(Request $request, $slug)
      * UploadedFile with an EMPTY path and an error code. `hasFile()` asks for a non-empty path, so it answers false and the whole block under
      * `if ($request->hasfile(...))` is skipped: the ticket, reply or refund was recorded, nothing counted the file, and the shopper was told it had
      * succeeded -- the defect the sentence above exists for, for what is probably the commonest cause of a dropped photo (P1-SEC-71 review, BYP-1).
+     *
+     * A rejected file that sits NEXT TO a good one needs no special case in the loops: `getSize()` answers false for it (executed, PHP 8.3.6; the
+     * accounting then adds 0.00 MB), the uploader refuses it as not a valid upload, and it is counted a second time -- which does no harm, since
+     * the count only decides whether the sentence is said. (A first form skipped it, on the premise that `getSize()` raises; it does not, and the
+     * skip could not be told from its absence by any test.)
      */
     private function rejectedByPhp(Request $request, string $field): int
     {
