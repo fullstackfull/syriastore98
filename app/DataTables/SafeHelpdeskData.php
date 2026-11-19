@@ -16,15 +16,22 @@ use Yajra\DataTables\EloquentDataTable;
  * for a registered merchant to run script in the operator's session.
  *
  * This subclass is bound over the module's class in AppServiceProvider, which is the class the module's own controller injects (`HelpdeskController::index(Request, HelpdeskData,
- * $status)`), so the rest of the module -- the query, the columns, the action cell, the export -- is the vendored code and only these six cells are redefined. The markup around the
- * text is exactly what the vendored code writes; the text goes through e(); a colour goes through RichText::cssColor() and is dropped, with its attribute, when it is not a colour.
- * Re-diff this file against the vendored one whenever the Helpdesk module is updated: tests/Feature/Security/HelpdeskStoredXssTest pins the output.
+ * $status)`). The query, the columns, the filename and the HTML builder are the vendored ones; `dataTable()` is REBUILT, not extended, and that is the point of the rebuild:
+ * Yajra keeps every `editColumn()` and runs them all in order, so a subclass that called `parent::dataTable()` and added its own cells would still run the vendored closure for each
+ * of them first -- and the vendored `created_by` closure reads `$ticket->createdBy->name`, which throws when the creating user's row is gone (a merchant deleting a staff member is
+ * enough), taking the operator's whole list down with the exception text (executed by two reviewers of P1-SEC-75). Nothing of the vendored `dataTable()` runs here.
+ *
+ * The markup around the text is exactly what the vendored code writes; the text goes through e(); a colour goes through RichText::cssColor() and is dropped, with its attribute, when it
+ * is not a colour. THE VENDORED FILE IS PINNED (tests/Unit/Packages/HelpdeskRawSinksTest): when the module is updated that test fails, and the prompt is to re-diff this method against
+ * the vendored one -- a column added upstream would otherwise come out of this list without its formatting, and one that stops being raw would be raw here.
  */
 final class SafeHelpdeskData extends HelpdeskData
 {
     public function dataTable(QueryBuilder $query): EloquentDataTable
     {
-        return parent::dataTable($query)
+        return (new EloquentDataTable($query))
+            ->addIndexColumn()
+            ->addColumn('action', fn ($ticket) => view('helpdesk::helpdesk_ticket.action', compact('ticket')))
             ->editColumn('ticket_id', function ($ticket) {
                 $link = '<a class="btn btn-badge btn-outline-primary"';
 
@@ -40,7 +47,9 @@ final class SafeHelpdeskData extends HelpdeskData
             ->editColumn('created_by', fn ($ticket) => '<span class="text-primary">' . e($ticket->createdBy?->name) . '</span>')
             ->editColumn('subject', fn ($ticket) => '<span class="white-space">' . e($ticket->subject) . '</span>')
             ->editColumn('category_id', fn ($ticket) => '<span class="badge badge-white p-2 px-3 fix_badge category_badge"' . self::background($ticket->getTicketCategory->color ?? null) . '>' . e($ticket->getTicketCategory->name ?? '') . '</span>')
-            ->editColumn('status_id', fn ($ticket) => '<span class="badge badge-white p-2 px-3 fix_badge status_badge"' . self::background($ticket->getTicketStatus->status_color ?? null) . '>' . e($ticket->getTicketStatus->status_name ?? '') . '</span>');
+            ->editColumn('status_id', fn ($ticket) => '<span class="badge badge-white p-2 px-3 fix_badge status_badge"' . self::background($ticket->getTicketStatus->status_color ?? null) . '>' . e($ticket->getTicketStatus->status_name ?? '') . '</span>')
+            ->editColumn('created_at', fn ($ticket) => $ticket->created_at?->diffForHumans())
+            ->rawColumns(['ticket_id', 'name', 'created_by', 'subject', 'category_id', 'status_id']);
     }
 
     /** the badge's background, from a stored colour that really is one; nothing otherwise */

@@ -2,14 +2,19 @@
 
 namespace Tests\Feature\Security;
 
+use App\DataTables\SafeHelpdeskCategoryData;
 use App\DataTables\SafeHelpdeskData;
+use App\DataTables\SafeHelpdeskStatusData;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
+use Tests\Support\Security\DetectsActiveMarkup;
 use Tests\Support\Security\EnablesWorkdoModules;
+use Workdo\Helpdesk\DataTables\HelpdeskCategoryData;
 use Workdo\Helpdesk\DataTables\HelpdeskData;
+use Workdo\Helpdesk\DataTables\HelpdeskStatusData;
 
 /**
  * P1-SEC-75 -- A MERCHANT'S HELPDESK TICKET IS PRINTED RAW ON THE PLATFORM OPERATOR'S PAGES.
@@ -36,6 +41,7 @@ use Workdo\Helpdesk\DataTables\HelpdeskData;
  */
 class HelpdeskStoredXssTest extends SecurityTestCase
 {
+    use DetectsActiveMarkup;
     use EnablesWorkdoModules;
     use RefreshDatabase;
 
@@ -86,36 +92,6 @@ class HelpdeskStoredXssTest extends SecurityTestCase
         return compact('operator', 'merchant', 'ticketId');
     }
 
-    /** What a browser would build from the response, asked of the DOM: nothing that runs, nothing that requests, nothing that navigates, from the PAYLOAD. */
-    private function offences(string $html): array
-    {
-        $previous = libxml_use_internal_errors(true);
-        $document = new \DOMDocument();
-        $document->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        $xpath = new \DOMXPath($document);
-
-        $found = [];
-        $queries = [
-            'an image with a handler'      => '//img[@onerror]',
-            'an svg that loads'            => '//svg[@onload]',
-            'a frame with a script URL'    => '//iframe[contains(@src, "javascript")]',
-            'a script of the payload'      => '//script[contains(., "XSS-")]',
-            'a script URL'                 => '//a[starts-with(translate(normalize-space(@href), "JAVSCRIPT", "javscript"), "javascript:")]',
-            'a handler on any element'     => '//*[@*[starts-with(name(), "on") and contains(., "XSS-")]]',
-            'a style with a script URL'    => '//*[contains(@style, "javascript")]',
-        ];
-
-        foreach ($queries as $what => $query) {
-            if ($xpath->query($query)->length > 0) {
-                $found[] = $what;
-            }
-        }
-
-        return $found;
-    }
-
     private function conversationUrl(): string
     {
         return '/ticket-reply/' . Crypt::encrypt($this->ticketNumber);
@@ -140,8 +116,8 @@ class HelpdeskStoredXssTest extends SecurityTestCase
         $response = $this->actingAs($w['operator'])->get($this->conversationUrl());
 
         $this->assertSame(200, $response->status(), 'Premise: the operator is shown the conversation.');
-        $this->assertContains('an image with a handler', $this->offences($response->getContent()), 'Premise: the detector sees the payload on the vendored page, or it proves nothing about its absence.');
-        $this->assertContains('a script of the payload', $this->offences($response->getContent()));
+        $this->assertContains('an image with a handler', $this->activeMarkupIn($response->getContent()), 'Premise: the detector sees the payload on the vendored page, or it proves nothing about its absence.');
+        $this->assertContains('a script of the payload', $this->activeMarkupIn($response->getContent()));
     }
 
     public function test_premise_the_override_is_what_the_module_resolves(): void
@@ -155,6 +131,8 @@ class HelpdeskStoredXssTest extends SecurityTestCase
         }
 
         $this->assertInstanceOf(SafeHelpdeskData::class, app(HelpdeskData::class), 'The ticket list the module injects must be the escaping subclass.');
+        $this->assertInstanceOf(SafeHelpdeskCategoryData::class, app(HelpdeskCategoryData::class), 'So must the category list.');
+        $this->assertInstanceOf(SafeHelpdeskStatusData::class, app(HelpdeskStatusData::class), 'And the status list.');
     }
 
     // ---- the screens ----------------------------------------------------------------------------
@@ -168,7 +146,7 @@ class HelpdeskStoredXssTest extends SecurityTestCase
         $body = $response->getContent();
 
         $this->assertSame(200, $response->status());
-        $this->assertSame([], $this->offences($body), 'The operator was handed a ticket that runs, requests or navigates.');
+        $this->assertSame([], $this->activeMarkupIn($body), 'The operator was handed a ticket that runs, requests or navigates.');
         $this->assertStringContainsString('<p>Hello <b>operator</b></p>', $body, 'The formatting the editor produced is kept.');
         $this->assertStringContainsString('<i>reply text</i>', $body, 'So is the reply\'s.');
         $this->assertStringContainsString('click here', $body, 'The text of a link that was refused is kept.');
@@ -187,7 +165,7 @@ class HelpdeskStoredXssTest extends SecurityTestCase
         $response = $this->actingAs($w['operator'])->get($url);
 
         $this->assertSame(200, $response->status(), 'Premise: the page renders the ticket for a signed-in user.');
-        $this->assertSame([], $this->offences($response->getContent()));
+        $this->assertSame([], $this->activeMarkupIn($response->getContent()));
         $this->assertStringContainsString('<p>Hello <b>operator</b></p>', $response->getContent());
     }
 
@@ -214,7 +192,7 @@ class HelpdeskStoredXssTest extends SecurityTestCase
         $this->assertSame('<span class="text-primary">' . e(self::USER_NAME) . '</span>', $row['created_by']);
 
         foreach (['name', 'subject', 'created_by', 'category_id', 'status_id', 'ticket_id'] as $column) {
-            $this->assertSame([], $this->offences((string) $row[$column]), "The {$column} cell of the operator's ticket list runs, requests or navigates.");
+            $this->assertSame([], $this->activeMarkupIn((string) $row[$column]), "The {$column} cell of the operator's ticket list runs, requests or navigates.");
         }
     }
 
@@ -229,7 +207,7 @@ class HelpdeskStoredXssTest extends SecurityTestCase
 
         $row = $this->listRows($w['operator']);
 
-        $this->assertSame([], $this->offences($row['category_id'] . $row['status_id']));
+        $this->assertSame([], $this->activeMarkupIn($row['category_id'] . $row['status_id']));
 
         // the names of the category and the status are text, in both cells
         $this->assertStringContainsString('&lt;b&gt;cat&lt;/b&gt;', $row['category_id']);
@@ -258,6 +236,88 @@ class HelpdeskStoredXssTest extends SecurityTestCase
         $this->assertStringContainsString('>Billing</span>', $row['category_id']);
         $this->assertStringContainsString('style="background: rgb(1, 2, 3);"', $row['status_id']);
         $this->assertStringContainsString('>Open</span>', $row['status_id']);
+    }
+
+    // ---- the operator's other lists, and a list that does not fall over ---------------------------
+
+    /** a ticket whose creating user's row is gone: the merchant deleted the staff member who opened it */
+    public function test_a_ticket_whose_creator_is_gone_is_still_listed(): void
+    {
+        $this->enable();
+        $w = $this->world();
+        DB::table('helpdesk_tickets')->where('id', $w['ticketId'])->update(['created_by' => 987654]);
+
+        $row = $this->listRows($w['operator']);
+
+        $this->assertSame('<span class="text-primary"></span>', $row['created_by'], 'The creator is nobody, and the row is still there. (The vendored closure read `$ticket->createdBy->name` and took the whole list down with the exception text.)');
+        $this->assertSame('<span class="white-space">' . e(self::NAME) . '</span>', $row['name']);
+    }
+
+    /** @return array<string, mixed> the first row of one of the operator's lists, as the DataTable's AJAX call answers it */
+    private function firstRowOf(string $url, User $viewer): array
+    {
+        $response = $this->actingAs($viewer)->withHeaders(['X-Requested-With' => 'XMLHttpRequest', 'Accept' => 'application/json'])->get($url . '?draw=1&start=0&length=10');
+
+        $this->assertSame(200, $response->status(), "Premise: {$url} answers the DataTable call.");
+        $this->assertNotNull($response->json('data.0'), "Premise: {$url} holds the row.");
+
+        return $response->json('data.0');
+    }
+
+    private function operatorOfTheLists(array $w): User
+    {
+        foreach (['Manage Helpdesk Category', 'Manage Helpdesk Status'] as $permission) {
+            $this->grantPermission($w['operator'], $permission);
+        }
+
+        return $w['operator'];
+    }
+
+    private const HOSTILE_COLOUR = '#fff" onfocus="alert(\'XSS-W\')" autofocus tabindex="0';
+
+    public function test_premise_the_vendored_category_and_status_lists_write_a_stored_colour_as_it_is(): void
+    {
+        $this->enable();
+        $w = $this->world();
+        $operator = $this->operatorOfTheLists($w);
+        DB::table('helpdesk_categories')->insert(['name' => 'Billing', 'color' => self::HOSTILE_COLOUR, 'created_by' => $operator->id, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('helpdesk_statuses')->insert(['status_name' => 'Open', 'status_color' => self::HOSTILE_COLOUR, 'created_by' => $operator->id, 'created_at' => now(), 'updated_at' => now()]);
+
+        // the module's own classes, as the container hands them out when the host's binding is not there
+        $this->app->bind(HelpdeskCategoryData::class, HelpdeskCategoryData::class);
+        $this->app->bind(HelpdeskStatusData::class, HelpdeskStatusData::class);
+
+        $this->assertContains('a handler on any element', $this->activeMarkupIn($this->firstRowOf('/helpdesk/category', $operator)['color']), 'Premise: the vendored category cell carries the handler.');
+        $this->assertContains('a handler on any element', $this->activeMarkupIn($this->firstRowOf('/status', $operator)['status_color']), 'Premise: the vendored status cell carries the handler.');
+    }
+
+    public function test_the_category_and_status_lists_write_a_stored_colour_as_a_colour_or_not_at_all(): void
+    {
+        $this->enable();
+        $w = $this->world();
+        $operator = $this->operatorOfTheLists($w);
+        DB::table('helpdesk_categories')->insert(['name' => 'Billing', 'color' => self::HOSTILE_COLOUR, 'created_by' => $operator->id, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('helpdesk_statuses')->insert(['status_name' => 'Open', 'status_color' => self::HOSTILE_COLOUR, 'created_by' => $operator->id, 'created_at' => now(), 'updated_at' => now()]);
+
+        $category = $this->firstRowOf('/helpdesk/category', $operator)['color'];
+        $status = $this->firstRowOf('/status', $operator)['status_color'];
+
+        $this->assertSame('<div class="btn-badge" style="width: 20px; height: 20px;"></div>', $category, 'A value that is not a colour is dropped with its declaration.');
+        $this->assertSame('<div class="btn-badge" style="width: 20px; height: 20px;"></div>', $status);
+        $this->assertSame([], $this->activeMarkupIn($category . $status));
+    }
+
+    /** a CONTROL: a colour somebody really stores still paints the swatch */
+    public function test_a_stored_colour_still_paints_the_swatch_in_the_category_and_status_lists(): void
+    {
+        $this->enable();
+        $w = $this->world();
+        $operator = $this->operatorOfTheLists($w);
+        DB::table('helpdesk_categories')->insert(['name' => 'Billing', 'color' => '#FF8800', 'created_by' => $operator->id, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('helpdesk_statuses')->insert(['status_name' => 'Open', 'status_color' => 'rgb(1, 2, 3)', 'created_by' => $operator->id, 'created_at' => now(), 'updated_at' => now()]);
+
+        $this->assertSame('<div class="btn-badge" style="background-color: #ff8800; width: 20px; height: 20px;"></div>', $this->firstRowOf('/helpdesk/category', $operator)['color']);
+        $this->assertSame('<div class="btn-badge" style="background-color: rgb(1, 2, 3); width: 20px; height: 20px;"></div>', $this->firstRowOf('/status', $operator)['status_color']);
     }
 
     // ---- the overrides are verbatim copies -------------------------------------------------------
