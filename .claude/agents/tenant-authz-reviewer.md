@@ -92,7 +92,7 @@ the global scope, and say which principals it protects and which it does not.
 
 - Later route declarations **replace** earlier ones for the same method+URI, silently dropping the
   earlier middleware. Check for a duplicate declaration before trusting a route's middleware.
-- `routes/api.php` 133–387 is inside `Route::prefix('admin')`. A path outside that group is the
+- `routes/api.php` 169–423 is inside `Route::prefix('admin')`. A path outside that group is the
   **storefront** API. Getting this wrong makes a test hit a route that does not exist — it has
   happened.
 - A route that only **logs** (`APILog`, `AdminApiLog`) does not authenticate. Both are

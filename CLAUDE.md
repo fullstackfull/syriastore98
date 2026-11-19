@@ -1,6 +1,6 @@
 # Store Syria — project instructions
 
-Multi-tenant Laravel e-commerce SaaS. Laravel 11.47 on PHP 8.3, built on the vendored **WorkDo
+Multi-tenant Laravel e-commerce SaaS. Laravel 11.57 on PHP 8.3, built on the vendored **WorkDo
 eCommerceGo** addon platform (70 modules under `packages/workdo/`). A second repository,
 `StoreSyria_app98`, is the shipped **admin** Flutter app. **Resuming or new account? Read `docs/development/HANDOFF-CURRENT.md` §13 first — Phase 01 engineering is CLOSED.**
 
@@ -68,7 +68,7 @@ Each of these has produced a real defect. Do not assume the framework default.
 
 **Routing**
 
-- `routes/api.php` lines 133–387 sit inside `Route::prefix('admin')`, so those paths are
+- `routes/api.php` lines 169–423 sit inside `Route::prefix('admin')`, so those paths are
   `api/admin/<x>`. The admin app's base URL is `https://storesyria.com/api/admin`. Routes outside
   that group are the **storefront** API (`api/{slug}/...`), which no client in either repository
   calls.
