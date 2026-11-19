@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-REVERT-AND-CONFIRM FOR THE "A ROOT OF 1 IS A TENANT" FIXES (P1-SEC-67b, P1-SEC-67c, P1-SEC-67d), FOR P1-SEC-65, FOR THE OWNER'S DETECTION QUERIES, AND FOR P1-SEC-72
-======================================================================================================================================================================
+REVERT-AND-CONFIRM FOR THE "A ROOT OF 1 IS A TENANT" FIXES (P1-SEC-67b, P1-SEC-67c, P1-SEC-67d), FOR P1-SEC-65, FOR THE OWNER'S DETECTION QUERIES, FOR P1-SEC-72, P1-SEC-70, P1-SEC-68 AND P1-SEC-77
+====================================================================================================================================================================================================
 
 WHY THIS IS A SCRIPT AND NOT A TEST. The project's rule is stricter than "a failing test first": after the fix, revert it and confirm the
 test fails again -- a test that passes for the wrong reason is the one that has actually bitten here. A reverted fix cannot live in the
@@ -63,6 +63,10 @@ DECLARED_SURVIVORS = {
           "(operator, merchant, a merchant's staff, a self-demoted merchant, their staff, staff the operator created) the two questions "
           "have the same answer. A user created BY a merchant's staff member separates them (UserController::store stamps created_by "
           "with the creator's own id); no test pins that case and its reachability is doubtful.",
+    'OF12': "The SECOND layer allows every class: `unserialize($bytes, ['allowed_classes' => true])`. The grammar in front of it refuses every byte string that "
+            "could build an object -- an object, an enum, a custom-serialised object, a reference -- before unserialize() is called, so over the bytes that reach it "
+            "the option cannot change the answer: EQUIVALENT BY CONSTRUCTION. It is kept as the belt to the grammar's braces (a future grammar bug would otherwise be an "
+            "object-injection door again), and the grammar's own fuzz case pins that PHP agrees with it on everything it accepts.",
 }
 
 GROUPS = [
@@ -1626,6 +1630,345 @@ GROUPS = [
                 ('bootstrap/app.php',
                  "        $middleware->appendToGroup('web', \\App\\Http\\Middleware\\SignInImageDeleteGuard::class);\n",
                  ''),
+            ]),
+        ],
+    },
+    {
+        "key": 'helpdesk',
+        "title": "P1-SEC-68 -- the seven authenticated Helpdesk ticket routes are judged by who owns the ticket (and the user lookup is the operator's alone), by ModuleAdministrativeRouteGuard rules and their manifest entries",
+        "tests": ['tests/Feature/Security/HelpdeskTicketOwnershipTest.php'],
+        "mutants": [
+            ('HD1 the row rule always allows', [
+                ('app/Http/Middleware/ModuleAdministrativeRouteGuard.php',
+                 "'owner:helpdesk-ticket-row' => $this->ownsTicketRow($user, $route->parameter('ticketId')),",
+                 "'owner:helpdesk-ticket-row' => true,"),
+            ]),
+            ('HD3 the row rule reads the BODY before the route', [
+                ('app/Http/Middleware/ModuleAdministrativeRouteGuard.php',
+                 "$this->ownsTicketRow($user, $route->parameter('ticketId'))",
+                 "$this->ownsTicketRow($user, $request->input('ticketId', $route->parameter('ticketId')))"),
+            ]),
+            ('HD5 the row rule looks the ticket up by NUMBER', [
+                ('app/Http/Middleware/ModuleAdministrativeRouteGuard.php',
+                 "$this->ticketIsTheTenants($user, 'id', $rowId)",
+                 "$this->ticketIsTheTenants($user, 'ticket_id', $rowId)"),
+            ]),
+            ('HD6 created_by AND user_id', [
+                ('app/Http/Middleware/ModuleAdministrativeRouteGuard.php',
+                 '($this->sameTenant($user, $ticket->created_by) || $this->sameTenant($user, $ticket->user_id))',
+                 '($this->sameTenant($user, $ticket->created_by) && $this->sameTenant($user, $ticket->user_id))'),
+            ]),
+            ('HD7 the created_by limb is dropped', [
+                ('app/Http/Middleware/ModuleAdministrativeRouteGuard.php',
+                 '($this->sameTenant($user, $ticket->created_by) || $this->sameTenant($user, $ticket->user_id))',
+                 '($this->sameTenant($user, $ticket->user_id))'),
+            ]),
+            ('HD8 the user_id limb is dropped', [
+                ('app/Http/Middleware/ModuleAdministrativeRouteGuard.php',
+                 '($this->sameTenant($user, $ticket->created_by) || $this->sameTenant($user, $ticket->user_id))',
+                 '($this->sameTenant($user, $ticket->created_by))'),
+            ]),
+            ('HD9 a missing ticket is not refused first', [
+                ('app/Http/Middleware/ModuleAdministrativeRouteGuard.php',
+                 'return $ticket !== null\n            && ($this->sameTenant',
+                 'return ($this->sameTenant'),
+            ]),
+            ('HD16 the operator is not admitted first', [
+                ('app/Http/Middleware/ModuleAdministrativeRouteGuard.php',
+                 "if ($rule === 'auth' || $this->isOperator($user)) {",
+                 "if ($rule === 'auth') {"),
+            ]),
+            ('HD17 the edit screen is judged as a plain number', [
+                ('app/Support/ModuleRouteManifest.php',
+                 "'GET edit-ticket/{ticketId}' => 'owner:helpdesk-ticket-link',",
+                 "'GET edit-ticket/{ticketId}' => 'owner:helpdesk-ticket',"),
+            ]),
+            ('HD18 the note route has no rule', [
+                ('app/Support/ModuleRouteManifest.php',
+                 "        'POST ticket-note-store/{ticketId}' => 'owner:helpdesk-ticket-row',\n",
+                 ''),
+            ]),
+            ('HD19 delete is signed-in only', [
+                ('app/Support/ModuleRouteManifest.php',
+                 "'DELETE delete-ticket/{ticketId}' => 'owner:helpdesk-ticket-row',",
+                 "'DELETE delete-ticket/{ticketId}' => 'auth',"),
+            ]),
+            ('HD20 update is signed-in only', [
+                ('app/Support/ModuleRouteManifest.php',
+                 "'POST update-ticket/{ticketId}' => 'owner:helpdesk-ticket-link',",
+                 "'POST update-ticket/{ticketId}' => 'auth',"),
+            ]),
+            ('HD21 the conversation is signed-in only', [
+                ('app/Support/ModuleRouteManifest.php',
+                 "'GET ticket-reply/{ticketId}' => 'owner:helpdesk-ticket-link',",
+                 "'GET ticket-reply/{ticketId}' => 'auth',"),
+            ]),
+            ('HD22 the user lookup is signed-in only', [
+                ('app/Support/ModuleRouteManifest.php',
+                 "'POST get-user-data' => 'operator',",
+                 "'POST get-user-data' => 'auth',"),
+            ]),
+            ('HD23 reply is signed-in only', [
+                ('app/Support/ModuleRouteManifest.php',
+                 "'POST ticket-conversion-store/{ticketId}' => 'owner:helpdesk-ticket-row',",
+                 "'POST ticket-conversion-store/{ticketId}' => 'auth',"),
+            ]),
+            ('HD24 the edit screen is signed-in only', [
+                ('app/Support/ModuleRouteManifest.php',
+                 "'GET edit-ticket/{ticketId}' => 'owner:helpdesk-ticket-link',",
+                 "'GET edit-ticket/{ticketId}' => 'auth',"),
+            ]),
+            ('HD25 delete takes the encrypted-number rule', [
+                ('app/Support/ModuleRouteManifest.php',
+                 "'DELETE delete-ticket/{ticketId}' => 'owner:helpdesk-ticket-row',",
+                 "'DELETE delete-ticket/{ticketId}' => 'owner:helpdesk-ticket-link',"),
+            ]),
+            ('HD26 note takes the raw-number rule', [
+                ('app/Support/ModuleRouteManifest.php',
+                 "'POST ticket-note-store/{ticketId}' => 'owner:helpdesk-ticket-row',",
+                 "'POST ticket-note-store/{ticketId}' => 'owner:helpdesk-ticket',"),
+            ]),
+            ('HD27 the tenant is creatorId() equality, with no merchant-root test', [
+                ('app/Http/Middleware/ModuleAdministrativeRouteGuard.php',
+                 '($this->sameTenant($user, $ticket->created_by) || $this->sameTenant($user, $ticket->user_id))',
+                 '((int) User::find($ticket->created_by)?->creatorId() === (int) $user->creatorId() || (int) User::find($ticket->user_id)?->creatorId() === (int) $user->creatorId())'),
+            ]),
+            ('HD28 the row rule lets every DELETE through', [
+                ('app/Http/Middleware/ModuleAdministrativeRouteGuard.php',
+                 "'owner:helpdesk-ticket-row' => $this->ownsTicketRow($user, $route->parameter('ticketId')),",
+                 "'owner:helpdesk-ticket-row' => $this->ownsTicketRow($user, $route->parameter('ticketId')) || $request->isMethod('DELETE'),"),
+            ]),
+            ('HD30 the encrypted number is judged as a ROW id', [
+                ('app/Http/Middleware/ModuleAdministrativeRouteGuard.php',
+                 "$this->ticketIsTheTenants($user, 'ticket_id', (string) $ticketNumber)",
+                 "$this->ticketIsTheTenants($user, 'id', (string) $ticketNumber)"),
+            ]),
+            ('HD31 the decoder is not anchored at the start', [
+                ('app/Http/Middleware/ModuleAdministrativeRouteGuard.php',
+                 '\'/\\A(?:i:(\\d{1,18});|s:(\\d{1,2}):"(\\d{1,18})";)\\z/\'',
+                 '\'/(?:i:(\\d{1,18});|s:(\\d{1,2}):"(\\d{1,18})";)\\z/\''),
+            ]),
+            ('HD32 the decoder is not anchored at the end', [
+                ('app/Http/Middleware/ModuleAdministrativeRouteGuard.php',
+                 '\'/\\A(?:i:(\\d{1,18});|s:(\\d{1,2}):"(\\d{1,18})";)\\z/\'',
+                 '\'/\\A(?:i:(\\d{1,18});|s:(\\d{1,2}):"(\\d{1,18})";)/\''),
+            ]),
+            ('HD33 the declared length of an s:L: is not checked', [
+                ('app/Http/Middleware/ModuleAdministrativeRouteGuard.php',
+                 'return (int) $m[2] === strlen($m[3]) ? $m[3] : null;',
+                 'return $m[3];'),
+            ]),
+            ('HD34 the operator is admitted before the segment is read', [
+                ('app/Http/Middleware/ModuleAdministrativeRouteGuard.php',
+                 "        if ($rule === 'owner:helpdesk-ticket-link' && $linked === null) {\n            return $this->deny($request, false);\n        }\n\n",
+                 ''),
+            ]),
+            ('HD35 the segment is judged as it is written, not as it decodes', [
+                ('app/Http/Middleware/ModuleAdministrativeRouteGuard.php',
+                 "$linked = $rule === 'owner:helpdesk-ticket-link' ? $this->linkedTicketNumber($route->parameter('ticketId')) : null;",
+                 "$linked = $rule === 'owner:helpdesk-ticket-link' ? $route->parameter('ticketId') : null;"),
+            ]),
+            ('HD36 a row id is cast, so a tail is tolerated', [
+                ('app/Http/Middleware/ModuleAdministrativeRouteGuard.php',
+                 "$rowId = $this->usableId($rowId);\n\n        return $rowId !== null && $this->ticketIsTheTenants($user, 'id', $rowId);",
+                 "$rowId = (int) $rowId;\n\n        return $rowId !== null && $this->ticketIsTheTenants($user, 'id', $rowId);"),
+            ]),
+            ('HD37 the eighteen-digit cap is removed', [
+                ('app/Http/Middleware/ModuleAdministrativeRouteGuard.php',
+                 '\'/\\A(?:i:(\\d{1,18});|s:(\\d{1,2}):"(\\d{1,18})";)\\z/\'',
+                 '\'/\\A(?:i:(\\d+);|s:(\\d{1,2}):"(\\d+)";)\\z/\''),
+            ]),
+            ('HD38 a declared length LONGER than the number is accepted', [
+                ('app/Http/Middleware/ModuleAdministrativeRouteGuard.php',
+                 'return (int) $m[2] === strlen($m[3]) ? $m[3] : null;',
+                 'return (int) $m[2] >= strlen($m[3]) ? $m[3] : null;'),
+            ]),
+        ],
+    },
+    {
+        "key": 'objectfree',
+        "title": "P1-SEC-77 -- decrypt() hands PHP nothing but plain data: ObjectFreeEncrypter, its grammar, and its registration over the framework singleton",
+        "tests": ['tests/Feature/Security/ObjectFreeEncrypterTest.php', 'tests/Unit/Security/UnserializeInAppNamesItsAllowedClassesTest.php'],
+        "mutants": [
+            ('OF1 the registration hands back the framework encrypter, so nothing is wrapped', [
+                ('app/Providers/AppServiceProvider.php',
+                 "            return (new \\App\\Support\\Security\\ObjectFreeEncrypter($encrypter->getKey(), $app['config']['app.cipher']))\n                ->previousKeys($encrypter->getPreviousKeys());\n",
+                 '            return $encrypter;\n'),
+            ]),
+            ('OF2 the previous keys are not carried over', [
+                ('app/Providers/AppServiceProvider.php',
+                 "            return (new \\App\\Support\\Security\\ObjectFreeEncrypter($encrypter->getKey(), $app['config']['app.cipher']))\n                ->previousKeys($encrypter->getPreviousKeys());\n",
+                 "            return new \\App\\Support\\Security\\ObjectFreeEncrypter($encrypter->getKey(), $app['config']['app.cipher']);\n"),
+            ]),
+            ('OF3 the cipher is not the configured one', [
+                ('app/Providers/AppServiceProvider.php',
+                 "$app['config']['app.cipher']))\n                ->previousKeys",
+                 "'aes-256-gcm'))\n                ->previousKeys"),
+            ]),
+            ("OF4 the key is not the framework encrypter's", [
+                ('app/Providers/AppServiceProvider.php',
+                 'new \\App\\Support\\Security\\ObjectFreeEncrypter($encrypter->getKey(),',
+                 'new \\App\\Support\\Security\\ObjectFreeEncrypter(random_bytes(32),'),
+            ]),
+            ('OF5 the bytes are not looked at before PHP reads them', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 '        if (! self::isPlainData($decrypted)) {',
+                 '        if (false) {'),
+            ]),
+            ('OF6 the framework unserializes first (the object is built before this class looks)', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 '$decrypted = parent::decrypt($payload, false);',
+                 '$decrypted = parent::decrypt($payload, true);'),
+            ]),
+            ('OF7 the `$unserialize = false` form is judged too', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 '        if (! $unserialize) {\n            return $decrypted;\n        }\n\n',
+                 ''),
+            ]),
+            ('OF8 a refusal leaves no trace', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 "            Log::warning('a decrypted payload was not plain data and was refused');\n\n",
+                 ''),
+            ]),
+            ('OF9 a refusal carries what it refused', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 "Log::warning('a decrypted payload was not plain data and was refused');",
+                 "Log::warning('a decrypted payload was not plain data and was refused', ['payload' => $decrypted]);"),
+            ]),
+            ("OF10 a refusal is not the framework's DecryptException", [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 "throw new DecryptException('The payload is invalid.');",
+                 "throw new \\RuntimeException('The payload is invalid.');"),
+            ]),
+            ('OF11 a refusal hands back nothing and goes on', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 "            throw new DecryptException('The payload is invalid.');\n",
+                 '            return null;\n'),
+            ]),
+            ('OF12 the second layer allows every class', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 "return unserialize($decrypted, ['allowed_classes' => false]);",
+                 "return unserialize($decrypted, ['allowed_classes' => true]);"),
+            ]),
+            ('OF13 the depth is not bounded', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 'private const MAX_DEPTH = 16;',
+                 'private const MAX_DEPTH = 4096;'),
+            ]),
+            ('OF14 a nest of exactly the maximum depth is refused', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 'if ($depth > self::MAX_DEPTH) {',
+                 'if ($depth >= self::MAX_DEPTH) {'),
+            ]),
+            ('OF15 a null needs no semicolon', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 "return self::token($bytes, $at, '/\\GN;/');",
+                 "return self::token($bytes, $at, '/\\GN/');"),
+            ]),
+            ('OF16 any digit is a boolean', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 "'/\\Gb:[01];/'",
+                 "'/\\Gb:[0-9];/'"),
+            ]),
+            ('OF17 an integer may have a leading zero', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 "'/\\Gi:(-?)(0|[1-9]\\d{0,18});/'",
+                 "'/\\Gi:(-?)(\\d{1,19});/'"),
+            ]),
+            ('OF18 minus zero is an integer', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 " || ($m[1] === '-' && $m[2] === '0')",
+                 ''),
+            ]),
+            ('OF19 an integer past the range is accepted', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 "        if (strlen($m[2]) === 19 && strcmp($m[2], $m[1] === '-' ? '9223372036854775808' : '9223372036854775807') > 0) {",
+                 '        if (false) {'),
+            ]),
+            ('OF20 the largest integer is refused', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 "'9223372036854775808' : '9223372036854775807') > 0",
+                 "'9223372036854775808' : '9223372036854775807') >= 0"),
+            ]),
+            ('OF21 the smallest integer is refused', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 "'9223372036854775808' : '9223372036854775807') > 0",
+                 "'9223372036854775807' : '9223372036854775807') > 0"),
+            ]),
+            ('OF22 a float may have a leading zero', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 '-?(?:0|[1-9]\\d*)(?:\\.\\d+)?',
+                 '-?\\d+(?:\\.\\d+)?'),
+            ]),
+            ('OF23 NAN and the infinities are not floats', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 "|NAN|-?INF);/'",
+                 ");/'"),
+            ]),
+            ('OF24 a string length may have a leading zero', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 '\'/\\Gs:(0|[1-9]\\d{0,8}):"/\'',
+                 '\'/\\Gs:(\\d{1,9}):"/\''),
+            ]),
+            ('OF25 a string need not close', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 'if (substr($bytes, $end, 2) !== \'";\') {',
+                 'if (false) {'),
+            ]),
+            ('OF26 a string is skipped one byte short', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 '$at = $end + 2;',
+                 '$at = $end + 1;'),
+            ]),
+            ('OF27 an array count may have a leading zero', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 "'/\\Ga:(0|[1-9]\\d{0,8}):\\{/'",
+                 "'/\\Ga:(\\d{1,9}):\\{/'"),
+            ]),
+            ('OF28 an array key may be a boolean', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 "in_array($bytes[$at] ?? '', ['i', 's'], true)",
+                 "in_array($bytes[$at] ?? '', ['i', 's', 'b'], true)"),
+            ]),
+            ('OF29 the last element of an array is not read', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 'for ($left = (int) $m[1]; $left > 0; $left--) {',
+                 'for ($left = (int) $m[1]; $left > 1; $left--) {'),
+            ]),
+            ('OF30 an array need not close with a brace', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 "                if (($bytes[$at] ?? '') !== '}') {\n                    return false;\n                }\n\n",
+                 ''),
+            ]),
+            ('OF31 anything may follow the value', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 'return self::value($bytes, $at, 0) && $at === strlen($bytes);',
+                 'return self::value($bytes, $at, 0);'),
+            ]),
+            ('OF32 a token is matched from the start of the input, not from where the reader is', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 'if (preg_match($pattern, $bytes, $m, 0, $at) !== 1) {',
+                 'if (preg_match($pattern, $bytes, $m) !== 1) {'),
+            ]),
+            ('OF33 a token this reader does not know is plain data', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 '            default:\n                return false;\n',
+                 '            default:\n                return true;\n'),
+            ]),
+            ('OF34 an object with no properties is plain data', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 "            case 'N':\n",
+                 '            case \'O\':\n                return self::token($bytes, $at, \'/\\GO:\\d+:"[^"]*":0:\\{\\}/\');\n\n            case \'N\':\n'),
+            ]),
+            ('OF35 an enum case is plain data', [
+                ('app/Support/Security/ObjectFreeEncrypter.php',
+                 "            case 'N':\n",
+                 '            case \'E\':\n                return self::token($bytes, $at, \'/\\GE:\\d+:"[^"]*";/\');\n\n            case \'N\':\n'),
+            ]),
+            ('OF36 the ip-api.com answer is unserialized with every class allowed', [
+                ('app/Http/Controllers/SettingController.php',
+                 "$query = @unserialize(file_get_contents('http://ip-api.com/php/'.$ip), ['allowed_classes' => false]);",
+                 "$query = @unserialize(file_get_contents('http://ip-api.com/php/'.$ip));"),
             ]),
         ],
     },
