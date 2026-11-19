@@ -58,6 +58,7 @@ Each of these has produced a real defect. Do not assume the framework default.
   `auth('customers')` fallback" — and that fallback was the defect.
 - **A customer-token probe cannot test the trap.** A `Customer` token takes the *safe* branch, so a
   test that only drives one proves nothing. Drive a merchant and a driver token too.
+- **A `web` login is not a role.** Registration is open and the `web` and `customers` guards are separate sessions, so a visitor holds both: decide "panel" by the route (`PlatformUploadPolicy::panelSession()`), never by `auth('web')->check()` (P1-SEC-73; measured at the refund-evidence door).
 - **Sanctum tokens never expire** (no `config/sanctum.php`) and every one carries `['*']`.
   `CheckAbilities` is imported in `routes/api.php` and never used. There is **no refresh path for
   any client**, and `Api\AuthController::login` is **unrouted** — customers have no login endpoint.

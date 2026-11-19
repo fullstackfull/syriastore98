@@ -52,8 +52,8 @@ use Illuminate\Support\Facades\Validator;
  *  - It does not reach the two uploaders the vendored LandingPage module carries (`LandingPageSetting::upload_file()` and
  *    `::keyWiseUpload_file()`: 19 calls), which are not first-party and are not edited here; nor `upload_theme_image()`, which has
  *    its own rule (ThemeImageUpload); nor an upload that never goes through these functions at all -- `DashboardController::
- *    updateStoreOwnerInfo()` was one (fixed beside this, with a server-built name, not through this class), and the work queue
- *    lists what the review found of the others.
+ *    updateStoreOwnerInfo()` was one (fixed beside this, with a server-built name, not through this class), and P1-SEC-74 in
+ *    the work queue carries the others.
  *  - It does not change where a file goes or what it is called when it is acceptable.
  */
 final class PlatformUploadPolicy
