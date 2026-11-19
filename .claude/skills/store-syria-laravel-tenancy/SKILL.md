@@ -169,7 +169,7 @@ pages. Five rules, each of which cost something:
    no yajra stand between the column and the browser, so `e()` every interpolated value, URLs included (a cover image path ends in the CLIENT's file name, and `StoredPathPolicy` refuses neither `"` nor `<` on purpose).
    In a view, Blade `{{ }}` inside a script's template literal escapes HTML, not JavaScript (a backtick and `${` run): read the data back from a `<template>` with `.innerHTML`, or build nodes
    (`$('<option>').val(v).text(t)`). Both are pinned (`PanelFragmentStoredXssTest`, `PanelViewsBuildOptionsFromNodesTest`). A test that drives one copy of a print that is written twice leaves the other open;
-   the mutation tool shows which (`panelfragments`: planning the mutants found five uncovered copies in a test that had passed).
+   the mutation tool shows which, because each copy is a mutant of its own (an occurrence index in the edit tuple; `panelfragments`: planning the mutants found five uncovered copies in a test that had passed, and a reviewer found three more after the tool had replaced all four copies of one print at once and reported it killed).
 
 ## 6. Tests that actually bite
 
