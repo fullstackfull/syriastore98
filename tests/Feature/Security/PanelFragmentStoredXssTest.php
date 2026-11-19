@@ -4,7 +4,11 @@ namespace Tests\Feature\Security;
 
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\Tax;
+use App\Models\TaxMethod;
+use App\Models\TaxOption;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\Security\DetectsActiveMarkup;
 use Tests\Support\Security\MinimalRows;
 
@@ -40,11 +44,26 @@ class PanelFragmentStoredXssTest extends SecurityTestCase
         return [$merchant, $store];
     }
 
-    private function productNamed(\App\Models\Store $store, string $name): Product
+    private function productNamed(\App\Models\Store $store, string $name, bool $withVariants = false, int $taxId = 0): Product
     {
         return $this->minimalRow(Product::class, [
-            'store_id' => $store->id, 'name' => $name, 'slug' => $name, 'price' => 10, 'status' => 1, 'variant_product' => 0, 'product_type' => null, 'product_stock' => 5, 'tax_id' => 0,
+            'store_id' => $store->id, 'name' => $name, 'slug' => $name, 'price' => 10, 'status' => 1, 'variant_product' => $withVariants ? 1 : 0, 'product_type' => null, 'product_stock' => 5, 'tax_id' => $taxId,
         ]);
+    }
+
+    /** A line of the till's session cart, as `addToCart` stores it. */
+    private function cartLine(Product $product): array
+    {
+        return [
+            'product_id' => $product->id, 'id' => $product->id, 'name' => $product->name, 'image' => '', 'quantity' => 1, 'originalquantity' => 5, 'orignal_price' => 10.00,
+            'per_product_discount_price' => 0, 'discount_price' => 0, 'final_price' => 10.00, 'tax' => 0, 'total_orignal_price' => 10.00, 'variant_id' => 0, 'variant_name' => null, 'return' => 0,
+        ];
+    }
+
+    private function assertMessageIsInert(?string $message, string $door): void
+    {
+        $this->assertStringContainsString('XSS-1', (string) $message, 'premise: ' . $door . ' names the product in the "added to cart" message');
+        $this->assertSame([], $this->activeMarkupIn((string) $message), $door . ' carries the product name as markup');
     }
 
     private function assertFragmentIsInert(?string $html, string $door): void
@@ -113,6 +132,74 @@ class PanelFragmentStoredXssTest extends SecurityTestCase
 
         $response->assertOk();
         $this->assertFragmentIsInert($response->json('html'), 'the testimonial product select');
+    }
+
+    /**
+     * Both tile builders are written twice: a product WITHOUT variants shows a price, a product WITH variants shows "In Variant" -- four copies of the same name and slug prints, and the
+     * first two cases above reach only the first copy of each builder.
+     *
+     * @return array<string,array{0:string}>
+     */
+    public static function tileBuilders(): array
+    {
+        return ['product tiles' => ['/search-products'], 'SKU search tiles' => ['/search-products-sku']];
+    }
+
+    #[DataProvider('tileBuilders')]
+    public function test_a_product_with_variants_is_not_printed_raw_on_the_pos_tiles(string $route): void
+    {
+        [$merchant, $store] = $this->till();
+        $this->productNamed($store, self::PAYLOAD, true);
+
+        $response = $this->actingAs($merchant)->withHeaders(self::AJAX)
+            ->getJson($route . '?' . http_build_query(['session_key' => 'pos_' . $store->id, 'cat_id' => '0', 'search' => '']));
+
+        $response->assertOk();
+        $this->assertStringContainsString('In Variant', (string) $response->json('html'), 'premise: the product took the variant branch of the tile builder');
+        $this->assertFragmentIsInert($response->json('html'), $route . ' (a product with variants)');
+    }
+
+    /** The cart row's tax cell lists the product's tax methods by name; a tax method is created by a staff member who may manage taxes. Badges are only built under exclusive pricing. */
+    public function test_a_tax_method_name_is_not_printed_raw_in_the_pos_cart_row(): void
+    {
+        [$merchant, $store] = $this->till();
+        $this->minimalRow(TaxOption::class, ['store_id' => $store->id, 'name' => 'price_type', 'value' => 'exclusive']);
+        $this->minimalRow(TaxOption::class, ['store_id' => $store->id, 'name' => 'shop_price', 'value' => 'excluding']);
+        $tax = $this->minimalRow(Tax::class, ['store_id' => $store->id, 'name' => 'VAT']);
+        $this->minimalRow(TaxMethod::class, ['store_id' => $store->id, 'tax_id' => $tax->id, 'name' => self::PAYLOAD, 'tax_rate' => 5, 'priority' => 1]);
+        $product = $this->productNamed($store, 'Plain', false, $tax->id);
+
+        $response = $this->actingAs($merchant)->withHeaders(self::AJAX)->getJson('/addToCart/' . $product->id . '/pos_' . $store->id);
+
+        $response->assertOk();
+        $this->assertFragmentIsInert($response->json('carthtml'), 'the POS cart row tax badge');
+    }
+
+    /** `addToCart` answers from one of three places: an empty cart (above), a cart that already holds the line, and a cart that holds other lines. Each prints the name in its own message. */
+    public function test_a_product_name_is_not_printed_raw_in_the_message_when_the_line_is_already_in_the_cart(): void
+    {
+        [$merchant, $store] = $this->till();
+        $product = $this->productNamed($store, self::PAYLOAD);
+        $key = 'pos_' . $store->id;
+
+        $response = $this->actingAs($merchant)->withSession([$key => [$product->id => $this->cartLine($product)]])->withHeaders(self::AJAX)->getJson('/addToCart/' . $product->id . '/' . $key);
+
+        $response->assertOk();
+        $this->assertMessageIsInert($response->json('success'), 'the "line already in the cart" path');
+    }
+
+    public function test_a_product_name_is_not_printed_raw_in_the_message_or_row_when_the_cart_holds_other_lines(): void
+    {
+        [$merchant, $store] = $this->till();
+        $other = $this->productNamed($store, 'Other');
+        $product = $this->productNamed($store, self::PAYLOAD);
+        $key = 'pos_' . $store->id;
+
+        $response = $this->actingAs($merchant)->withSession([$key => [$other->id => $this->cartLine($other)]])->withHeaders(self::AJAX)->getJson('/addToCart/' . $product->id . '/' . $key);
+
+        $response->assertOk();
+        $this->assertMessageIsInert($response->json('success'), 'the "cart holds other lines" path');
+        $this->assertFragmentIsInert($response->json('carthtml'), 'the POS cart row (a cart that holds other lines)');
     }
 
     // ------------------------------------------------------------------ pages: is the payload ever placed where the browser parses it as markup or as code?
