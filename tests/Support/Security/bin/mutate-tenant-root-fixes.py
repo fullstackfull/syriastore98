@@ -2215,8 +2215,8 @@ GROUPS = [
             ]),
             ('RT8 an image with no acceptable source is written anyway', [
                 ('app/Support/Html/RichText.php',
-                 "        if ($tag === 'img' && ! str_contains($out, ' src=\"')) {\n            return null;\n        }\n",
-                 ''),
+                 "        if ($tag === 'img' && ! $sourced) {",
+                 "        if (false) {"),
             ]),
             ('RT9 text is not escaped', [
                 ('app/Support/Html/RichText.php',
@@ -2255,8 +2255,8 @@ GROUPS = [
             ]),
             ('RT16 the depth limit is gone', [
                 ('app/Support/Html/RichText.php',
-                 "            if (! isset(self::ELEMENTS[$tag]) || $depth >= self::MAX_DEPTH) {\n                $out .= $inner;",
-                 "            if (! isset(self::ELEMENTS[$tag])) {\n                $out .= $inner;"),
+                 "isset(self::ELEMENTS[$tag]) && $depth < self::MAX_DEPTH && self::belongsIn(",
+                 "isset(self::ELEMENTS[$tag]) && self::belongsIn("),
             ]),
             ('RT17 a null byte is kept in the text', [
                 ('app/Support/Html/RichText.php',
@@ -2265,8 +2265,8 @@ GROUPS = [
             ]),
             ('RT18 an element that is not on the list keeps nothing (its text is dropped too)', [
                 ('app/Support/Html/RichText.php',
-                 "            if (! isset(self::ELEMENTS[$tag]) || $depth >= self::MAX_DEPTH) {\n                $out .= $inner;\n\n                continue;\n            }",
-                 "            if (! isset(self::ELEMENTS[$tag]) || $depth >= self::MAX_DEPTH) {\n                continue;\n            }"),
+                 "            if (! $keep) {\n                $out .= $inner;\n\n                continue;\n            }",
+                 "            if (! $keep) {\n                continue;\n            }"),
             ]),
             ('RT19 a colour that is not a colour reaches the badge', [
                 ('app/Support/Html/RichText.php',
