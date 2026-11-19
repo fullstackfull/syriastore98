@@ -175,6 +175,7 @@ pages. Five rules, each of which cost something:
    (`StoreColour::forCss()`), not only where it is written -- other handlers write the same table, and rows exist from before any rule -- and keep Blade's `{{ }}` for every print:
    `NoRawShortEchoInPanelViewsTest` lists the views that still echo with PHP. A line you add above a pinned handler in `SettingController` moves `SettingsRefusalNamesEveryFieldTest`'s pins and the
    observability inventory: ask the question in ONE line (`StoreColour::refusalFor()`), or re-point them (6b).
+11. **Money is printed raw, and a currency symbol is request-controlled text.** The four `*_currency_format_with_sym` helpers prefix the stored symbol onto every amount, and an amount prints raw in list cells (`price`, `final_price`), the till's cart HTML and its `.html()` answers. The currency tab stored whatever stood before the first `-` of its posted value as the symbol, so a `Manage Setting` holder stored markup. Clean a symbol **where it is read** (`App\Support\Money\CurrencySymbol`, applied in the formatters and `Utility::GetValueByName`), take it from the store's own `CurrencyRate` row and never the request, and keep an entity (`&euro;`) intact -- a symbol is a symbol or the default, not another currency's sign (P1-SEC-80 round 4). And a client-side `.html(x)` of a value the page did not make -- a `data-title` attribute, a gateway's answer -- is the same sink as a Blade raw print: write it with `.text()` or build nodes.
 
 ## 6. Tests that actually bite
 
