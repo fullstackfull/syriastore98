@@ -2364,13 +2364,13 @@ GROUPS = [
             ]),
             ('SX7 the ticket number is not escaped in the merchant\'s list', [
                 ('app/DataTables/SupportTicketDataTable.php',
-                 "'#'.e($ticket->ticket_id).'</a>'",
-                 "'#'.$ticket->ticket_id.'</a>'"),
+                 ".e($ticket->ticket_id).'</a>'",
+                 ".$ticket->ticket_id.'</a>'"),
             ]),
             ('SX8 the order number is not escaped in the merchant\'s list', [
                 ('app/DataTables/SupportTicketDataTable.php',
-                 "'#'.e($ticket->orderData->product_order_id ?? '-').'</a>'",
-                 "'#'.($ticket->orderData->product_order_id ?? '-').'</a>'"),
+                 ".e($ticket->orderData->product_order_id ?? '-').'</a>'",
+                 ".($ticket->orderData->product_order_id ?? '-').'</a>'"),
             ]),
         ],
     },
