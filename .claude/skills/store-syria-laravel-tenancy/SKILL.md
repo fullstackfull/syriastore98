@@ -164,7 +164,7 @@ vacuous tests repeatedly. Seventeen ways they pass for the wrong reason, all mea
    197,624 candidate names the engine found 2,331 and the old rule let 1,696 through; S46 on MySQL 8.0.46). **Judge the name as the COLUMN stores it and put a name that is
    not plain printable ASCII to the engine -- `HostClaims`, `StoredPathPolicy::isSignInName` -- do NOT refuse it:** the first form of P1-SEC-78 refused every such name and
    broke 23 `HostClaimsTest` cases that pin a review's decision ("an accented name that is not a host name is still saved"); running the tests that name the neighbouring
-   rules, before committing, is what found it. A stand-in `lower()` for SQLite lives as long as the PDO, so take it out after the test.
+   rules, before committing, is what found it. **Ask under the COLUMN's collation, not the connection's** (`StoredPathPolicy::nameColumn()` reads it from `information_schema`): a question made only of bound parameters runs under the connection's collation, and the first form's was answered differently from the lookup's on a `general_ci` column (8 of 1,056 engine-found names let through) and on a `uca1400_ai_ci` one (1,224 of 3,968). The measured production dump is MariaDB 11.4.9 with `audit_logs` in `general_ci` while the application default is `unicode_ci`: do not assume one collation. A stand-in `lower()` for SQLite lives as long as the PDO, so take it out after the test.
 5. **`actingAs` tightened the scope the test was meant to measure.**
    `actingAs($customer, 'customers')` also calls `shouldUse('customers')`, so `auth()->user()` —
    which `StoreScope::resolveTenant()` calls, web-guard-only by design — starts returning the
