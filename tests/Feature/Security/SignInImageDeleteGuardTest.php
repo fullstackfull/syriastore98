@@ -409,6 +409,16 @@ class SignInImageDeleteGuardTest extends SecurityTestCase
         $resolved = $this->resolve(base_path($relative));
         $this->assertStringContainsString('sec70', $resolved, 'Premise: only a file this test names is ever written.');
         File::ensureDirectoryExists(dirname($resolved));
+
+        // and every directory the path walks THROUGH before a `..` must exist, or the operating system cannot resolve it and "refused" and
+        // "could not be resolved" look the same (the first run of the mutants showed it: a filesystem that judged only the resolved path
+        // passed every case with a `..` in it because `unlink()` failed on a path through a directory that was not there)
+        $segments = explode('/', $relative);
+        $firstWalk = array_search('..', $segments, true);
+        if ($firstWalk !== false && $firstWalk > 0) {
+            File::ensureDirectoryExists(base_path(implode('/', array_slice($segments, 0, $firstWalk))));
+        }
+
         file_put_contents($resolved, 'x');
         $this->files[] = $resolved;
 
@@ -422,6 +432,18 @@ class SignInImageDeleteGuardTest extends SecurityTestCase
             $this->assertFalse($answer, "A delete of {$relative} was not reported as refused.");
             $this->assertFileExists($resolved, "{$relative} was deleted by a store-bound filesystem.");
         }
+    }
+
+    /** It exists to stop one thing in one place: a path that is not under this application is nobody's upload, and is not judged. */
+    public function test_a_path_outside_this_application_is_not_judged(): void
+    {
+        $outside = (string) tempnam(sys_get_temp_dir(), 'sec70');
+        $this->assertFalse(str_starts_with($outside, base_path() . DIRECTORY_SEPARATOR), 'Premise: the file is not under the application.');
+        file_put_contents($outside, 'x');
+        $this->files[] = $outside;
+
+        $this->assertTrue((new StoreBoundFilesystem(self::BOUND))->delete($outside), 'A path outside the application was refused.');
+        $this->assertFileDoesNotExist($outside);
     }
 
     /** A store its owner also runs is the same tenant: the rule StoredPathPolicy::isSafe() already applies to the write side. */
