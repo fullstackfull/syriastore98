@@ -27,6 +27,15 @@ class AppServiceProvider extends ServiceProvider
          */
         $this->app->scoped(\App\Support\Theme\ThemePreviewContext::class);
 
+        // P1-SEC-77. `decrypt()` is `unserialize()` with no class restriction, APP_KEY is in git history, and over a hundred call sites hand it a value from the
+        // request: an object-injection door at every one. The framework registers its encrypter before any app provider, so this EXTENDS that singleton (the key,
+        // the cipher and the previous keys come from it) with one whose `decrypt()` hands PHP nothing but plain data and refuses the rest as a tampered payload.
+        // See ObjectFreeEncrypter for what the application encrypts (ids and arrays of scalars) and why nothing legitimate can notice.
+        $this->app->extend('encrypter', function (\Illuminate\Encryption\Encrypter $encrypter, $app) {
+            return (new \App\Support\Security\ObjectFreeEncrypter($encrypter->getKey(), $app['config']['app.cipher']))
+                ->previousKeys($encrypter->getPreviousKeys());
+        });
+
         $this->app->singleton('module', function ($app) {
             return new Module();
         });

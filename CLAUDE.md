@@ -75,7 +75,7 @@ Each of these has produced a real defect. Do not assume the framework default.
   calls.
 - Later route declarations **replace** earlier ones for the same method+URI, silently dropping the
   earlier middleware. Check for duplicates before trusting a route's middleware.
-- `APP_KEY` is in git history and unrotated, so **`Crypt::encrypt()` is an encoding, not a control** — an encrypted id in a URL is forgeable.
+- `APP_KEY` is in git history and unrotated, so **`Crypt::encrypt()` is an encoding, not a control** — an encrypted id in a URL is forgeable — and a `decrypt()` over request bytes is a deserialization door: the container's encrypter is `ObjectFreeEncrypter` (P1-SEC-77): it hands PHP nothing but plain data (`allowed_classes` alone does not stop an enum) and refuses the rest like a tampered payload, so never write `unserialize()` over input.
 
 **Tests and modules**
 

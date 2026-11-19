@@ -95,7 +95,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 214 lines
+### `warning` — 215 lines
 
 > **[2026-11-19] 212 -> 213.** One line added by P1-SEC-73 (the second row below, `a platform upload was refused`, with its
 > destination and reader in its own section, after the P1-SEC-72 one). The tables now hold **36 `critical` and 212 `warning`** --
@@ -338,6 +338,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/StoredUpload.php:99` | a stored upload path names a platform default and was not touched |
 | `app/Services/StoredUpload.php:117` | a stored upload path names another tenant |
 | `app/Support/StoreBoundFilesystem.php:55` | a delete of an upload outside the current store was refused |
+| `app/Support/Security/ObjectFreeEncrypter.php:59` | a decrypted payload was not plain data and was refused |
 | `app/Services/WebuzoDomainService.php:170` | New Webuzo domain added but old domain could not be deleted |
 | `app/Http/Controllers/OtpIntegrationController.php:536` | OTP test refused: the provider address is not a permitted outbound host. |
 | `app/Http/Controllers/OtpIntegrationController.php:632` | OTP test refused: the provider address is not a permitted outbound host. |
@@ -674,6 +675,28 @@ written. It goes where every row in this table goes (section 2).
   door**, and what tells them apart is the row -- its `store_id` and `value` in `settings` -- not the log.
 - **WHAT IT CANNOT TELL ANYONE:** attempts made before it was deployed; and that the same defect leaves a tenant's *own* previous image
   on disk (the handler never finds that tenant's row), which is a leak of disk and is not logged.
+
+### The row added 2026-11-19 (P1-SEC-77), with its destination and reader
+
+**`ObjectFreeEncrypter::decrypt()` -- "a decrypted payload was not plain data and was refused", `warning`.** The container's encrypter
+(`AppServiceProvider::register()` extends the framework's) decrypts and verifies exactly as the framework does and then looks at the decrypted
+bytes BEFORE PHP does: they must be, exactly, the serialization of plain data (null, a boolean, an integer, a float, a string, or an array of
+those). A payload that **decrypted correctly -- valid MAC, under this application's key -- and is anything else** (an object, an enum, a
+custom-serialised object, a reference, trailing bytes, a nest deeper than sixteen levels) is refused with the `DecryptException` a tampered
+payload gets, and this line is written. It goes where every row in this table goes (section 2).
+
+- **What it holds:** nothing. **No class name, no payload, no route** -- the class name is the attacker's text, and the encrypter does not know
+  the request. The line's timestamp is what ties it to an entry in the web server's access log.
+- **How to read it:** the application never encrypts anything but an id or an array of scalars -- a census of every `encrypt(` call in `app/`,
+  `resources/` and the modules finds an id (`$plan->id`, `$order->id`, `$user->id`, `$ticket->ticket_id`) or an array of scalars (a gateway's
+  return payload). So one line is one of two things: **somebody who holds the key (it is in the public history: P1-SEC-40) forged a payload,
+  which is the attack this exists to stop**; or **a flow somebody added encrypts something that is not plain data and now fails**, which is how
+  that regression would announce itself instead of failing in silence. A payment return URL or an order link in the access log at that second
+  says which.
+- **WHAT IT CANNOT TELL ANYONE:** attempts made before it was deployed; which route or which of the 107 call sites was reached (the line is
+  written inside the encrypter); and anything about a forged payload that **is** plain data -- an encrypted id is still a forged id, and the
+  ownership checks (P1-SEC-68 and the guards) are what judge that. Nothing is logged for a ciphertext whose MAC is wrong: the framework throws
+  before this runs.
 
 ## 2. Where these lines actually go
 

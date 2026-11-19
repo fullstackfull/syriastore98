@@ -796,7 +796,7 @@ $u->save();
             $device_type = Utility::get_device_type($_SERVER['HTTP_USER_AGENT']);
 
             $ip = $_SERVER['REMOTE_ADDR'];
-            $query = @unserialize(file_get_contents('http://ip-api.com/php/'.$ip));
+            $query = @unserialize(file_get_contents('http://ip-api.com/php/'.$ip), ['allowed_classes' => false]);
             $date = (new \DateTime())->format('Y-m-d');
             $time = (new \DateTime())->format('H:i:s') . ' UTC';
 
