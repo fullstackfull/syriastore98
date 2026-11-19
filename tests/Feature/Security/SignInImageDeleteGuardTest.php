@@ -83,9 +83,13 @@ class SignInImageDeleteGuardTest extends SecurityTestCase
             @unlink($file);
         }
 
+        // A FRESH filesystem, not the `File` facade: a mutant (or a defect) that leaves the facade bound would make `deleteDirectory()` -- which
+        // removes each file through delete() -- refuse to remove this test's own fixture files, and the next run would refuse to start on the
+        // folders left behind, so every later case would look like a failure for the wrong reason (it did, once: the first run of the mutants).
+        $files = new \Illuminate\Filesystem\Filesystem();
         foreach ($this->fixtureFoldersAreOurs ? self::FIXTURE_STORE_IDS : [] as $id) {
             foreach ($this->foldersOf($id) as $folder) {
-                File::deleteDirectory($folder);
+                $files->deleteDirectory($folder);
             }
         }
 
