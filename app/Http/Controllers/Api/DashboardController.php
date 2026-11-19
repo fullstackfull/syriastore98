@@ -4412,10 +4412,14 @@ public function DeleteReview($id)
             $is_cod_enabled = !empty($request->is_cod_enabled) ? $request->is_cod_enabled : 'off';
 
             if ($request->is_cod_enabled == 'on' && !empty($request->cod_image)) {
+                // P1-SEC-72: stored in the folder of the store this handler resolved and authorised, not in whichever store
+                // the caller's account happens to point at -- the two differ for a merchant with a second store and for the
+                // operator, and the row written below belongs to `$store`. A refusal answers in the shape of every other
+                // refusal here (this branch could not be reached before the helper checked anything).
                 $theme_image = $request->cod_image;
-                $image = upload_theme_image($theme_image);
+                $image = upload_theme_image($theme_image, 0, 0, $store->id);
                 if ($image['status'] == false) {
-                    return $this->error($image['message']);
+                    return $this->error(['message' => $image['message']], $image['message']);
                 } else {
                     $where = ['name' => 'cod_image'];
                     // P1-SEC-18 F6: this store's row. Unscoped, ->first() was the LOWEST-ID row on the platform -- some other
@@ -4514,10 +4518,14 @@ public function DeleteReview($id)
             $is_bank_transfer_enabled = !empty($request->is_bank_transfer_enabled) ? $request->is_bank_transfer_enabled : 'off';
 
             if ($request->is_bank_transfer_enabled == 'on' && !empty($request->bank_transfer_image)) {
+                // P1-SEC-72: stored in the folder of the store this handler resolved and authorised, not in whichever store
+                // the caller's account happens to point at -- the two differ for a merchant with a second store and for the
+                // operator, and the row written below belongs to `$store`. A refusal answers in the shape of every other
+                // refusal here (this branch could not be reached before the helper checked anything).
                 $theme_image = $request->bank_transfer_image;
-                $image = upload_theme_image( $theme_image);
+                $image = upload_theme_image($theme_image, 0, 0, $store->id);
                 if ($image['status'] == false) {
-                    return $this->error($image['message']);
+                    return $this->error(['message' => $image['message']], $image['message']);
                 } else {
                     $where = ['name' => 'bank_transfer_image'];
                     // P1-SEC-18 F6: this store's row. Unscoped, ->first() was the LOWEST-ID row on the platform -- some other
@@ -4616,10 +4624,14 @@ public function DeleteReview($id)
             $is_stripe_enabled = !empty($request->is_stripe_enabled) ? $request->is_stripe_enabled : 'off';
 
             if ($request->is_stripe_enabled == 'on' && !empty($request->stripe_image)) {
+                // P1-SEC-72: stored in the folder of the store this handler resolved and authorised, not in whichever store
+                // the caller's account happens to point at -- the two differ for a merchant with a second store and for the
+                // operator, and the row written below belongs to `$store`. A refusal answers in the shape of every other
+                // refusal here (this branch could not be reached before the helper checked anything).
                 $theme_image = $request->stripe_image;
-                $image = upload_theme_image($theme_image);
+                $image = upload_theme_image($theme_image, 0, 0, $store->id);
                 if ($image['status'] == false) {
-                    return $this->error($image['message']);
+                    return $this->error(['message' => $image['message']], $image['message']);
                 } else {
                     $where = ['name' => 'stripe_image'];
                     // P1-SEC-18 F6: this store's row. Unscoped, ->first() was the LOWEST-ID row on the platform -- some other

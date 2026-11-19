@@ -7396,25 +7396,49 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             // Was Store::findOrFail($user->store_id), which 404s when the customer's store_id is
             // null -- and that column is nullable. The slug's store is already confirmed to be
             // this customer's by the check above, so it is the right one to bill.
-            // P1-SEC-72: a customer's upload -- raster images only, stored in THIS store's folder (the slug's store, confirmed
-            // above to be this customer's), under an extension the server chose. See App\Services\ThemeImageUpload.
+            // P1-SEC-72: a customer's upload -- raster images only, stored in THIS store's folder (the slug's store: the check
+            // above confirmed it is this customer's, or that the customer has no store at all -- resolveStoreCustomer() lets a
+            // NULL store_id through for any slug), under an extension the server chose. See App\Services\ThemeImageUpload.
             $cover_image = upload_theme_image($theme_image, 0, $store->created_by, $store->id, true);
 
             // A REFUSED UPLOAD CHANGES NOTHING. The result used to be taken on trust: the previous avatar was unlinked and
             // `image_path` stored whatever it held, so an upload refused for the plan's storage erased the avatar it was meant to
             // replace and wrote '' in its place. HTTP 200 with status 0, never 401: a client signs out on a 401.
             if (empty($cover_image['status'])) {
-                return $this->error(['message' => $cover_image['message']], $cover_image['message']);
+                // The state of the merchant's plan is not a shopper's business: a stranger who registers must not be able to
+                // read from this answer whether the store's storage is full. Every other refusal says what was wrong.
+                $message = ($cover_image['reason'] ?? '') === 'plan' ? __('The image could not be saved.') : $cover_image['message'];
+
+                return $this->error(['message' => $message], $message);
             }
 
-            // THE PREVIOUS AVATAR IS UNLINKED AND ITS SIZE HANDED BACK. Every avatar is charged to the store owner's plan storage
-            // (above), and this used to unlink the old file without crediting it: MEASURED, one registered visitor replacing a
-            // 300 KB picture moved the merchant's used-storage figure 0.29, 0.58, 0.87... with one file on disk, until the plan
-            // refused the next upload -- the merchant's own included. Utility::changeStorageLimit() is what the panel's
-            // replace-an-image handlers call: the same StoredUpload rule decides the file, and the id credited is the id charged.
-            Utility::changeStorageLimit($store->created_by, $user->profile_image);
+            // THE NEW PATH IS SAVED FIRST, THEN THE PREVIOUS AVATAR IS UNLINKED AND ITS SIZE HANDED BACK. In that order, so that a
+            // save that fails cannot leave the column naming a file that is already gone.
+            //
+            // The credit: every avatar is charged to the store owner's plan storage (above), and this used to unlink the old
+            // file without crediting it. MEASURED: one registered visitor replacing a 300 KB picture moved the merchant's
+            // used-storage figure 0.29, 0.58, 0.87... with one file on disk, until the plan refused the next upload. (By
+            // reading, not driven: Utility::updateStorageLimit() is the check most of the merchant's own uploads go through
+            // too, so they would have been refused with it.) Utility::changeStorageLimit() is what the panel's replace-an-image
+            // handlers call, and the same StoredUpload rule decides the file.
+            //
+            // WHAT IT DOES NOT HOLD. It credits the file's size on disk, which is what was charged only for an avatar THIS
+            // handler stored (an importer may have charged a remote-reported size, or nothing). And it is not atomic: two
+            // replacements of one avatar at the same moment each store and charge a file and only one is kept by the column.
+            // Both are recorded in P01-SECURITY-WORK-QUEUE (P1-SEC-72); neither gives a customer anything a second
+            // registration does not.
+            $previous = $user->profile_image;
             $user->profile_image = $cover_image['image_path'];
-            $user->save();
+
+            try {
+                $user->save();
+            } catch (\Throwable $e) {
+                Utility::changeStorageLimit($store->created_by, $cover_image['image_path']);   // not kept: unlink it, hand its charge back
+
+                throw $e;
+            }
+
+            Utility::changeStorageLimit($store->created_by, $previous);
         }
 
         if (!empty($user)) {
