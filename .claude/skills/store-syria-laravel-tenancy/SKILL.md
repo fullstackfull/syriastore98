@@ -165,6 +165,11 @@ pages. Five rules, each of which cost something:
 7. **An `email` rule is not a markup filter.** `"<img src=x onerror=1>"@example.com` passes `email`, `email:rfc` and `email:rfc,dns`; print an address through `e()` like any other string.
 8. **Green local gates are not the required CI.** The runner is `ubuntu-26.04` with PHP 8.3.36 and a newer libxml than the 24.04 machine the sanitizer was written on, and two exact-text pins of a
    parser edge failed there while their outputs were inert. Pin the PROPERTY that must hold ("no `<` in the answer"), or a closed list of the known builds' answers, never one build's text.
+9. **HTML a controller builds has no escaping layer, and a stored PATH is stored text.** The till's tiles, cart row and messages (`ProductController`, `CategoryController`) answer `{html: '<div>' . $name . '</div>'}`: no Blade and
+   no yajra stand between the column and the browser, so `e()` every interpolated value, URLs included (a cover image path ends in the CLIENT's file name, and `StoredPathPolicy` refuses neither `"` nor `<` on purpose).
+   In a view, Blade `{{ }}` inside a script's template literal escapes HTML, not JavaScript (a backtick and `${` run): read the data back from a `<template>` with `.innerHTML`, or build nodes
+   (`$('<option>').val(v).text(t)`). Both are pinned (`PanelFragmentStoredXssTest`, `PanelViewsBuildOptionsFromNodesTest`). A test that drives one copy of a print that is written twice leaves the other open;
+   the mutation tool shows which (`panelfragments`: planning the mutants found five uncovered copies in a test that had passed).
 
 ## 6. Tests that actually bite
 
