@@ -46,6 +46,7 @@ use App\Http\Controllers\BlogController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\Marketing\UnsubscribeController;
+use App\Http\Controllers\Marketing\CommunicationPreferencesController;
 
 Route::middleware([ActiveTheme::class, 'themelanguage'])->group(function () {
 
@@ -352,6 +353,22 @@ Route::post(
     Route::get('{storeSlug?}/support-ticket', [AccountProfileController::class, 'support_ticket'])->name('support.ticket');
 
     Route::middleware([\App\Http\Middleware\EnsureCustomerAuthenticated::class])->group(function () {
+        /*
+         * D8-3b — THE OPT-IN. GAP-200 / MKT-008.
+         *
+         * BEHIND THE CUSTOMER SESSION, because this is the only surface allowed to record a GRANT and a
+         * grant needs the person to prove who they are. The unsubscribe token cannot be reused for it:
+         * that token can only WITHDRAW the one contact it was issued for, and cannot grant.
+         *
+         * The store and the addresses come from the signed-in customer's own row, never from the request
+         * or from the slug -- `{storeSlug?}` is optional here only so the shopper stays inside the store
+         * they were browsing, and it decides nothing.
+         */
+        Route::get('{storeSlug?}/communication-preferences', [CommunicationPreferencesController::class, 'show'])
+            ->name('marketing.preferences.show');
+        Route::post('{storeSlug?}/communication-preferences', [CommunicationPreferencesController::class, 'update'])
+            ->name('marketing.preferences.update');
+
         Route::get('{storeSlug?}/adress-form/{id?}', [AccountProfileController::class, 'addressForm'])->name('address-form');
         Route::post('{storeSlug?}/save-address', [AccountProfileController::class, 'saveAddress'])->name('save-address');
         Route::post('{storeSlug?}/add-address', [AccountProfileController::class, 'add_address'])->name('add.address');

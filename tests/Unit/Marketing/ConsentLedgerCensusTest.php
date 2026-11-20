@@ -12,9 +12,11 @@ use PHPUnit\Framework\TestCase;
  *
  *   1. NOTHING GRANTS CONSENT FROM AN ORDER, A REGISTRATION OR AN IMPORT. The owner's direction is that
  *      consent is never inferred from historical orders or existing contacts. `GRANT_CALLERS` is the
- *      exhaustive list of files allowed to call a granting method, and it is EMPTY in this change: no
- *      opt-in surface has been built. The day one is, it is added here deliberately and a reviewer sees
- *      which file now records permission and from what form.
+ *      exhaustive list of files allowed to call a granting method. It was EMPTY until D8-3b, because no
+ *      opt-in surface had been built; that day has come, and the ONE entry is the preference centre, where
+ *      a signed-in person ticks a box about their own address. The list still answers the same question --
+ *      which file records permission, and from what form -- and a second entry is a finding until a
+ *      reviewer adds it on purpose.
  *   2. ONLY THE LEDGER (AND THE TOKEN SERVICE) TOUCH THE CONSENT TABLES. A second writer could put a row in `granted`
  *      that no event supports, or append an event the projection never hears about, and the send gate reads the
  *      projection. The first version of this census matched a handful of write verbs -- `::create`, `::query()->update`,
@@ -33,8 +35,23 @@ use PHPUnit\Framework\TestCase;
  */
 class ConsentLedgerCensusTest extends TestCase
 {
-    /** @var list<string> repo-relative files allowed to call grant()/liftSuppression() on a ConsentLedger. EMPTY on purpose. */
-    private const GRANT_CALLERS = [];
+    /**
+     * Repo-relative files allowed to call `grant()`/`liftSuppression()` on a ConsentLedger.
+     *
+     * IT WAS EMPTY UNTIL D8-3b, and the emptiness was the point: consent is never inferred from an order,
+     * a registration or an address book, so nothing in the product could write a `granted` event at all.
+     * The ONE entry is the preference centre -- a person ticking a box about themselves while signed in as
+     * themselves, with the store taken from their own customer row and each address normalised from it,
+     * never from the request. `CommunicationPreferencesTest` proves the two cases that would make it a
+     * hole: a request body naming another shopper's store and address, and the page opened under another
+     * store's slug. Anything else that wants to grant is a finding until a reviewer adds it here on
+     * purpose and can say where the person said yes.
+     *
+     * @var list<string>
+     */
+    private const GRANT_CALLERS = [
+        'app/Http/Controllers/Marketing/CommunicationPreferencesController.php',
+    ];
 
     /**
      * Who may call `withdrawByHash()`. The hash of (store, channel, address) is computable by anyone who knows a store id and can guess an

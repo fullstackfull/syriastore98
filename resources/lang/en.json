@@ -4154,5 +4154,11 @@
     "You have been unsubscribed": "You have been unsubscribed",
     "We will no longer send marketing messages to this address:": "We will no longer send marketing messages to this address:",
     "This unsubscribe link is not recognised.": "This unsubscribe link is not recognised.",
-    "It may have been mistyped, or it may belong to a different store.": "It may have been mistyped, or it may belong to a different store."
+    "It may have been mistyped, or it may belong to a different store.": "It may have been mistyped, or it may belong to a different store.",
+    "Communication preferences": "Communication preferences",
+    "Choose which marketing messages you want to receive.": "Choose which marketing messages you want to receive.",
+    "Your preferences have been saved.": "Your preferences have been saved.",
+    "Blocked": "Blocked",
+    "This address is blocked and cannot be re-enabled here.": "This address is blocked and cannot be re-enabled here.",
+    "Save preferences": "Save preferences"
 }

@@ -10,6 +10,7 @@
         long after the message was sent. It must render with no session, no cart and no theme assets.
       * the `<x-*-layout>` slot shape renders NOTHING under this project's @yield layouts -- measured, and
         pinned by tests/Unit/Ui/SlotLayoutViewsRenderTest. Writing a new view in that shape is forbidden.
+    Only the stylesheet is shared, through a style PARTIAL, so this stays a page rather than a layout.
 
     DIRECTION FOLLOWS THE LANGUAGE, not the admin's SITE_RTL toggle. Every string here comes from __(),
     so the text really is in the active locale and the direction has to match it; `themelanguage` sets
@@ -30,78 +31,7 @@
     {{-- An unsubscribe page carries a capability in its URL: it must never be indexed or followed. --}}
     <meta name="robots" content="noindex, nofollow">
     <title>{{ __('Unsubscribe') }}</title>
-    <style>
-        :root {
-            --ss-bg: #f5f6f8;
-            --ss-surface: #ffffff;
-            --ss-text: #1b1f24;
-            --ss-muted: #4a5159;
-            --ss-border: #d7dbe0;
-            --ss-accent: #0b5fff;
-            --ss-accent-text: #ffffff;
-            --ss-danger: #8a1c1c;
-        }
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --ss-bg: #14171a;
-                --ss-surface: #1e2227;
-                --ss-text: #f2f4f6;
-                --ss-muted: #b9c0c7;
-                --ss-border: #343a41;
-                --ss-accent: #6aa1ff;
-                --ss-accent-text: #10151b;
-                --ss-danger: #ff9b9b;
-            }
-        }
-        * { box-sizing: border-box; }
-        body {
-            margin: 0;
-            background: var(--ss-bg);
-            color: var(--ss-text);
-            font-family: system-ui, -apple-system, "Segoe UI", Tahoma, Arial, sans-serif;
-            line-height: 1.6;
-            display: flex;
-            min-height: 100vh;
-            align-items: center;
-            justify-content: center;
-            padding: 24px 16px;
-        }
-        .ss-card {
-            background: var(--ss-surface);
-            border: 1px solid var(--ss-border);
-            border-radius: 12px;
-            max-width: 32rem;
-            width: 100%;
-            padding: 28px 24px;
-        }
-        .ss-store { color: var(--ss-muted); font-size: 0.875rem; margin: 0 0 8px; }
-        h1 { font-size: 1.375rem; margin: 0 0 12px; }
-        p { margin: 0 0 12px; color: var(--ss-text); }
-        .ss-muted { color: var(--ss-muted); font-size: 0.9375rem; }
-        .ss-contact {
-            display: inline-block;
-            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-            background: var(--ss-bg);
-            border: 1px solid var(--ss-border);
-            border-radius: 6px;
-            padding: 2px 8px;
-            direction: ltr;
-            unicode-bidi: isolate;
-        }
-        button {
-            font: inherit;
-            cursor: pointer;
-            background: var(--ss-accent);
-            color: var(--ss-accent-text);
-            border: 1px solid transparent;
-            border-radius: 8px;
-            padding: 12px 20px;
-            margin-top: 8px;
-        }
-        button:hover { filter: brightness(0.95); }
-        button:focus-visible { outline: 3px solid var(--ss-accent); outline-offset: 2px; }
-        .ss-note { border-top: 1px solid var(--ss-border); margin-top: 20px; padding-top: 14px; }
-    </style>
+    @include('marketing.partials.page-styles')
 </head>
 <body>
     <main class="ss-card">

@@ -4150,5 +4150,11 @@
     "You have been unsubscribed": "تم إلغاء اشتراكك",
     "We will no longer send marketing messages to this address:": "لن نرسل بعد الآن رسائل تسويقية إلى هذا العنوان:",
     "This unsubscribe link is not recognised.": "رابط إلغاء الاشتراك هذا غير معروف.",
-    "It may have been mistyped, or it may belong to a different store.": "قد يكون مكتوباً بشكل خاطئ، أو قد يكون تابعاً لمتجر آخر."
+    "It may have been mistyped, or it may belong to a different store.": "قد يكون مكتوباً بشكل خاطئ، أو قد يكون تابعاً لمتجر آخر.",
+    "Communication preferences": "تفضيلات التواصل",
+    "Choose which marketing messages you want to receive.": "اختر الرسائل التسويقية التي ترغب في تلقيها.",
+    "Your preferences have been saved.": "تم حفظ تفضيلاتك.",
+    "Blocked": "محجوب",
+    "This address is blocked and cannot be re-enabled here.": "هذا العنوان محجوب ولا يمكن تمكينه من هنا.",
+    "Save preferences": "حفظ التفضيلات"
 }
