@@ -16,21 +16,37 @@ decision quoted as such.
 > checkpoints. Do not stop at a clean slice; select the next eligible task from the Master Plan,
 > dependencies and the gap register.
 >
-> **Last verified head:** `efc063b7`, required CI run 44722555870 (ci.yml #565) **success** 2026-11-20
-> 11:45Z. Committed since, **not yet pushed**: `17052bda` (D8-3a unsubscribe route + bilingual page),
-> `59a274c6` (D8-3b opt-in preference centre, the first permitted consent GRANT). Both are Level-A
-> green; they go up at the next push checkpoint, and a push is never made while a required CI run is
-> in progress.
+> **Last verified head:** `e132055d`, required CI run **44820694522 (ci.yml #566)** — still
+> `in_progress` when this was written. The last head with a CI **success** is `efc063b7` (run
+> 44722555870, 11:45Z).
+>
+> **Committed since `e132055d` and NOT YET PUSHED** (each Level-A green; the push waits for #566 to
+> reach a terminal state, because a push cancels a running required run):
+> `9e342c4c` ANA — a storefront visit recorded no store, so every visitor figure read 0 forever ·
+> `53843ff5` D8-3 review follow-up (four defects the independent review found) ·
+> `292edc5c` P5-4a merchant analytics figures · `776f9636` GAP-215 (the opt-in records consent for
+> an unverified address — owner decision) · `c338c10b` P5-4b the merchant analytics screen.
+>
+> **UNCOMMITTED, and deliberately held for an independent review that was still running** (the
+> tenant-authz reviewer was asked for it on 2026-11-20; act on its findings, then commit):
+> P4-F134 / P4-F135 — the coupon-redemption recording fix on both API order writers
+> (`app/Services/CouponRedemptionRecorder.php`, two blocks in `Api\ApiController`,
+> `tests/Feature/Commerce/ApiCouponRedemptionRecordingTest.php`, one inverted case in
+> `StorefrontOrderWriteAtomicityTest`, the two Phase 04 register entries) plus
+> `App\Support\Metrics\CouponRedemptionCoverage` and its test, and the three raw-query census
+> declarations they need. All Level-A green, both mutation checks run.
 >
 > **Do next, in this order:**
-> 1. Act on the independent tenant-authz review of the D8-3 grant path (requested 2026-11-20); fix any
->    finding before the push checkpoint.
-> 2. **P5-4 merchant analytics dashboard** — the next unstarted Phase 05 slice; the D1/D2 metric layer it
->    needs is complete (`PHASE-05-METRIC-LAYER.md`), and `MetricResult::assumingUnknownCurrencyIs()`
->    exists so a tile cannot 500 on a mixed-currency store.
-> 3. Then P5-5 (campaign/promotion analytics), P5-6 (retention surface — metric done, no surface),
->    P5-7 (platform/operator reporting), P5-8 (export), loyalty completion, and the MKT-001–010 /
->    ANA-001–010 coverage reconciliation.
+> 1. **Act on the coupon-fix review**, then commit and push the batch above.
+> 2. **P5-5 campaign & promotion analytics** — its gate (P4-F134 / P4-F135) is now CLEARED. Remaining
+>    engineering: rewrite `MetricCaveat::COUPON_REDEMPTION_UNRELIABLE` from "errors in both
+>    directions" to a coverage statement driven by `CouponRedemptionCoverage`, stop
+>    `CouponRedemption` returning `isAuthoritative() === false` unconditionally, and build the
+>    surface. **Pre-fix history is NOT backfilled** — that is why the coverage class exists.
+> 3. Then P5-6 (retention surface — metric done; the *rate* tile stays owner-blocked on the §3
+>    labelling decision, but new-vs-returning already ships in P5-4b's Buyers tile),
+>    P5-7 (platform/operator reporting), P5-8 (export), loyalty completion, and the
+>    MKT-001–010 / ANA-001–010 coverage reconciliation.
 > 4. Then **Phase 06** development on its own branch + Draft PR, based to preserve the #138 → #139 →
 >    #140 dependency chain.
 >
