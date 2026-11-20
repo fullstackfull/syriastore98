@@ -4174,5 +4174,13 @@
     "There are more orders than recorded page views, so some orders arrived by a route that logs no page view.": "عدد الطلبات أكبر من مرات مشاهدة الصفحات المسجَّلة، أي أن بعض الطلبات وصل عبر مسار لا يُسجِّل مشاهدة صفحة.",
     "Buyers in this period, split by whether they had ordered from this store before it. A buyer is counted once however many orders they placed.": "المشترون في هذه الفترة، موزّعون حسب ما إذا كانوا قد اشتروا من هذا المتجر قبلها. يُحسب المشتري مرة واحدة أياً كان عدد طلباته.",
     "Orders placed without a customer account cannot be attributed to a person and are counted in neither: :count.": "الطلبات المقدَّمة بدون حساب عميل لا يمكن نسبتها إلى شخص ولا تُحسب في أي من الفئتين: :count.",
-    ":new new · :returning returning": ":new جديد · :returning عائد"
+    ":new new · :returning returning": ":new جديد · :returning عائد",
+    "Coupon discounts given": "خصومات الكوبونات الممنوحة",
+    "the beginning": "البداية",
+    "No coupon redemption in this store has a complete record, so this figure cannot be shown. Redemptions are recorded in full for orders placed from now on; earlier ones are not reconstructed.": "لا يوجد في هذا المتجر أي استخدام كوبون بسجل كامل، لذا لا يمكن عرض هذا الرقم. تُسجَّل الاستخدامات بالكامل للطلبات المقدَّمة من الآن فصاعداً، ولا يُعاد بناء ما سبقها.",
+    "Coupon redemptions are recorded in full only from :date, which is after this period began, so this figure cannot be shown. Earlier redemptions are not reconstructed. Orders in this store with a discount but no redemption record: :count.": "لا تُسجَّل استخدامات الكوبونات بالكامل إلا من :date، وهو تاريخ لاحق لبداية هذه الفترة، لذا لا يمكن عرض هذا الرقم. ولا يُعاد بناء الاستخدامات الأقدم. عدد طلبات هذا المتجر التي حصلت على خصم بدون سجل استخدام: :count.",
+    "Coupon discounts in this period are recorded in more than one currency and have not been converted, so no single total can be shown.": "خصومات الكوبونات في هذه الفترة مسجَّلة بأكثر من عملة ولم تُحوَّل، لذا لا يمكن عرض إجمالي واحد.",
+    "The total discount given by coupons on orders in this period. Recorded in full from :date; earlier redemptions are not included and are not reconstructed.": "إجمالي الخصم الذي منحته الكوبونات على طلبات هذه الفترة. مُسجَّل بالكامل من :date؛ الاستخدامات الأقدم غير مشمولة ولا يُعاد بناؤها.",
+    "Coupon redemption records are known to be both incomplete and inflated. This figure is not authoritative.": "سجلات استخدام الكوبونات معروف أنها ناقصة ومتضخّمة في الوقت نفسه. هذا الرقم ليس مرجعياً.",
+    "Coupon redemptions are recorded in full only from the date shown; earlier orders are not included and are not reconstructed.": "لا تُسجَّل استخدامات الكوبونات بالكامل إلا من التاريخ المعروض؛ الطلبات الأقدم غير مشمولة ولا يُعاد بناؤها."
 }

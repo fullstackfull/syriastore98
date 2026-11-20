@@ -87,6 +87,14 @@
                        :value="$figures['profit']['value']"
                        :period="$figures['profit']['period']"
                        :hint="$figures['profit']['hint']" />
+
+            {{-- P5-5 / section 9. Shown only for a period whose redemption records are complete; for
+                 any earlier period the figures class returns a null value and says why, because a
+                 number with "this cannot be trusted" under it gets read as a number. --}}
+            <x-ss.stat :label="__('Coupon discounts given')"
+                       :value="$figures['redemptions']['value']"
+                       :period="$figures['redemptions']['period']"
+                       :hint="$figures['redemptions']['hint']" />
         </x-ss.stats>
     </div>
 </div>

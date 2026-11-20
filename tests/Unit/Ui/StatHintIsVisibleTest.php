@@ -277,10 +277,10 @@ class StatHintIsVisibleTest extends TestCase
     }
 
     /**
-     * THE CENSUS, so the scope of this change cannot drift silently. Eighteen hints on this component
+     * THE CENSUS, so the scope of this change cannot drift silently. Nineteen hints on this component
      * across eight files (ten across six until P5-16 added the two ledger tiles on /finance; twelve
-     * across seven until P5-4b added the six on /analytics), counted from the views themselves rather
-     * than restated from prose.
+     * across seven until P5-4b added the six on /analytics; eighteen until P5-5 added the coupon
+     * tile), counted from the views themselves rather than restated from prose.
      *
      * Counted by walking BACK from each `:hint=` to the nearest `<x-` tag: a forward regex over
      * the tag body is wrong here, because `product/edit.blade.php` and `customer/timeline.blade.php`
@@ -289,7 +289,7 @@ class StatHintIsVisibleTest extends TestCase
      * measured as nine across five, and the error reached three committed documents before the
      * recount caught it.
      */
-    public function test_eighteen_hints_on_this_component_across_eight_files(): void
+    public function test_nineteen_hints_on_this_component_across_eight_files(): void
     {
         $views = base_path('resources/views');
         $hits = [];
@@ -336,7 +336,11 @@ class StatHintIsVisibleTest extends TestCase
         // FinanceLedgerFigures pair /finance shows, inherited rather than recomputed so the two
         // screens cannot come to disagree. All six are built in MerchantAnalyticsFigures beside the
         // numbers they qualify, so each is a real sentence and none can drift from its figure.
-        $this->assertCount(18, $hits,
+        // 18 -> 19, P5-5. `analytics/index.blade.php` gains "Coupon discounts given", whose hint is
+        // the one on this screen that can say the figure is WITHHELD: section 9 is authoritative only
+        // for a period whose redemption records are complete, and for any earlier period the tile
+        // shows no number and the hint says from when it could. File count unchanged.
+        $this->assertCount(19, $hits,
             "x-ss.stat hint count moved. Found:\n  " . implode("\n  ", $hits));
 
         $this->assertCount(8, array_unique($hits),

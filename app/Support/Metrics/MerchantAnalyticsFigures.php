@@ -55,7 +55,8 @@ final class MerchantAnalyticsFigures
      *     orders: array{value: ?string, period: string, hint: string},
      *     visits: array{value: ?string, period: string, hint: string},
      *     conversion: array{value: ?string, period: string, hint: string},
-     *     customers: array{value: ?string, period: string, hint: string}
+     *     customers: array{value: ?string, period: string, hint: string},
+     *     redemptions: array{value: ?string, period: string, hint: string}
      * }
      */
     public static function forStore(int $storeId, string $storeCurrency, ?CarbonInterface $now = null): array
@@ -87,7 +88,89 @@ final class MerchantAnalyticsFigures
             ],
             'conversion' => self::conversion($orders, $visits, $period),
             'customers' => self::customers($storeId, $from, $to, $period),
+            'redemptions' => self::redemptions($storeId, $storeCurrency, $from, $to, $period),
         ];
+    }
+
+    /**
+     * WHAT COUPONS COST THIS STORE IN THIS PERIOD. P5-5, section 9.
+     *
+     * The figure is only shown when `CouponRedemption` says it may be: that metric decides per
+     * window, from `CouponRedemptionCoverage`, whether the window lies inside the period whose
+     * redemption records are complete. For a window reaching back before the P4-F134/F135 recording
+     * fix it is not authoritative -- those records are both under- and over-counted and history is
+     * deliberately not backfilled -- and this tile then shows NOTHING rather than a number with a
+     * warning under it.
+     *
+     * THAT CHOICE IS THE POINT, not caution. A merchant who is shown a figure and a sentence saying
+     * it cannot be trusted will read the figure; the component's own `value => null` state exists so
+     * that "we cannot tell you this yet, and here is why" is sayable without printing a number.
+     * The /finance tiles make the same choice for the same reason.
+     */
+    private static function redemptions(
+        int $storeId,
+        string $storeCurrency,
+        CarbonInterface $from,
+        CarbonInterface $to,
+        string $period,
+    ): array {
+        $result = (new CouponRedemption())->for(
+            MetricScope::store($storeId),
+            MetricWindow::between(CarbonImmutable::instance($from), CarbonImmutable::instance($to)),
+        );
+
+        if (! $result->isAuthoritative()) {
+            $coverage = CouponRedemptionCoverage::forStore($storeId);
+
+            return [
+                'value' => null,
+                'period' => $period,
+                'hint' => $coverage->hasNothingComplete()
+                    ? __('No coupon redemption in this store has a complete record, so this figure cannot be shown. Redemptions are recorded in full for orders placed from now on; earlier ones are not reconstructed.')
+                    : __('Coupon redemptions are recorded in full only from :date, which is after this period began, so this figure cannot be shown. Earlier redemptions are not reconstructed. Orders in this store with a discount but no redemption record: :count.', [
+                        'date' => self::day($coverage->completeFrom()),
+                        'count' => number_format($coverage->ordersWithoutRow()),
+                    ]),
+            ];
+        }
+
+        /*
+         * `assumingUnknownCurrencyIs` for the reason the metric layer's own guidance gives: reading
+         * `->total()` on a result with more than one currency bucket THROWS, and a store whose older
+         * orders carry no currency_code has exactly that shape. Folding the unknown bucket into the
+         * store's own currency is what FinanceLedgerFigures does, and it is stated, not silent.
+         */
+        $result = $result->assumingUnknownCurrencyIs($storeCurrency);
+        $buckets = array_filter(
+            $result->byCurrency(),
+            static fn ($amount, $currency) => $currency !== '' && (float) $amount !== 0.0,
+            ARRAY_FILTER_USE_BOTH
+        );
+
+        if (count($buckets) > 1) {
+            // Two real currencies and nothing converted them. No number is invented.
+            return [
+                'value' => null,
+                'period' => $period,
+                'hint' => __('Coupon discounts in this period are recorded in more than one currency and have not been converted, so no single total can be shown.'),
+            ];
+        }
+
+        return [
+            'value' => self::ltr(number_format((float) $result->total(), 2) . ' ' . $storeCurrency),
+            'period' => $period,
+            'hint' => __('The total discount given by coupons on orders in this period. Recorded in full from :date; earlier redemptions are not included and are not reconstructed.', [
+                'date' => self::day(CouponRedemptionCoverage::forStore($storeId)->completeFrom()),
+            ]),
+        ];
+    }
+
+    /** A date a merchant reads, or the word for "the beginning" when the record covers everything. */
+    private static function day(?CarbonInterface $date): string
+    {
+        return $date === null
+            ? __('the beginning')
+            : self::ltr($date->toDateString());
     }
 
     /** The one sentence every visit-derived figure has to carry. */

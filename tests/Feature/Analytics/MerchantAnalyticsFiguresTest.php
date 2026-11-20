@@ -6,6 +6,7 @@ use App\Models\Customer;
 use App\Support\Metrics\MerchantAnalyticsFigures;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Shetabit\Visitor\Models\Visit;
 use Tests\Feature\Security\SecurityTestCase;
 
@@ -240,6 +241,107 @@ final class MerchantAnalyticsFiguresTest extends SecurityTestCase
             $this->assertNotSame('', trim((string) $figures[$key]['hint']),
                 $key.' carries no explanation of what it counts');
         }
+    }
+
+    /*
+     * ---------------------------------------------------------------------------------------------
+     * Coupon discounts — the one tile that may refuse to show a number (P5-5, section 9)
+     * ---------------------------------------------------------------------------------------------
+     */
+
+    /** @param array<string, mixed> $extra */
+    private function discountedOrder($store, array $extra, bool $withRedemptionRow): void
+    {
+        $order = $this->makeOrder($store, array_merge(['coupon_price' => 10.0], $extra));
+
+        if ($withRedemptionRow) {
+            DB::table('order_coupon_details')->insert([
+                'order_id' => $order->id,
+                'product_order_id' => $order->product_order_id,
+                'coupon_id' => 1,
+                'coupon_name' => 'TEN', 'coupon_code' => 'TEN',
+                'coupon_discount_type' => 'flat', 'coupon_discount_number' => 10.0,
+                'coupon_discount_amount' => 10.0, 'coupon_final_amount' => 90.0,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+    }
+
+    /**
+     * Every discounted order in the window has its redemption row, so section 9 is authoritative for
+     * this window and the tile shows the money.
+     */
+    public function test_coupon_discounts_are_shown_when_every_redemption_is_recorded(): void
+    {
+        [, $store] = $this->makeTenant();
+        $now = $this->now();
+
+        $this->discountedOrder($store, ['order_date' => $now->subDays(2)], true);
+
+        $figures = MerchantAnalyticsFigures::forStore((int) $store->id, 'USD', $now);
+
+        $this->assertNotNull($figures['redemptions']['value'],
+            'the records are complete for this window, so withholding the figure is withholding '
+            . 'something the data supports');
+        $this->assertStringContainsString('10.00', (string) $figures['redemptions']['value']);
+        $this->assertStringContainsString('USD', (string) $figures['redemptions']['value']);
+        $this->assertStringContainsStringIgnoringCase('not reconstructed',
+            $figures['redemptions']['hint'],
+            'even a shown figure must say that earlier redemptions are not rebuilt');
+    }
+
+    /**
+     * THE REFUSAL, and it is the point of the tile rather than caution: a discounted order with no
+     * redemption row inside the window means the figure under-counts by an amount nothing bounds, so
+     * NO NUMBER is shown. A figure with "this cannot be trusted" beneath it gets read as a figure.
+     */
+    public function test_coupon_discounts_show_no_number_when_a_redemption_is_missing(): void
+    {
+        [, $store] = $this->makeTenant();
+        $now = $this->now();
+
+        $this->discountedOrder($store, ['order_date' => $now->subDays(2)], true);
+        $this->discountedOrder($store, ['order_date' => $now->subDay()], false);   // the gap
+
+        $figures = MerchantAnalyticsFigures::forStore((int) $store->id, 'USD', $now);
+
+        $this->assertNull($figures['redemptions']['value'],
+            'a discounted order with no redemption record sits inside this window, so the total '
+            . 'under-counts and must not be printed');
+        $this->assertNotSame('', trim($figures['redemptions']['hint']),
+            'a withheld figure must say why it is withheld');
+        $this->assertStringContainsStringIgnoringCase('cannot be shown',
+            $figures['redemptions']['hint']);
+    }
+
+    /** A store that has never discounted an order has nothing missing, so the tile shows 0.00. */
+    public function test_a_store_that_never_used_a_coupon_shows_zero_discounts(): void
+    {
+        [, $store] = $this->makeTenant();
+        $now = $this->now();
+        $this->makeOrder($store, ['order_date' => $now->subDays(2)]);   // no coupon
+
+        $figures = MerchantAnalyticsFigures::forStore((int) $store->id, 'USD', $now);
+
+        $this->assertStringContainsString('0.00', (string) $figures['redemptions']['value'],
+            'no discounted orders means nothing could have gone unrecorded, so the figure is 0 '
+            . 'rather than unavailable');
+    }
+
+    /** Another store's unrecorded redemption must not withhold this store's figure. */
+    public function test_another_stores_missing_redemption_does_not_withhold_this_stores_figure(): void
+    {
+        [, $mine] = $this->makeTenant();
+        [, $theirs] = $this->makeTenant();
+        $now = $this->now();
+
+        $this->discountedOrder($mine, ['order_date' => $now->subDays(2)], true);
+        $this->discountedOrder($theirs, ['order_date' => $now->subDay()], false);
+
+        $figures = MerchantAnalyticsFigures::forStore((int) $mine->id, 'USD', $now);
+
+        $this->assertNotNull($figures['redemptions']['value'],
+            'another tenant\'s gap reached this store\'s coverage verdict');
     }
 
     public function test_a_store_with_no_activity_shows_zero_rather_than_failing(): void

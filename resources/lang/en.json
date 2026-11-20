@@ -4178,5 +4178,13 @@
     "No page views were recorded in this period, so there is nothing to divide by.": "No page views were recorded in this period, so there is nothing to divide by.",
     "There are more orders than recorded page views, so some orders arrived by a route that logs no page view.": "There are more orders than recorded page views, so some orders arrived by a route that logs no page view.",
     "Orders placed without a customer account cannot be attributed to a person and are counted in neither: :count.": "Orders placed without a customer account cannot be attributed to a person and are counted in neither: :count.",
-    ":new new · :returning returning": ":new new · :returning returning"
+    ":new new · :returning returning": ":new new · :returning returning",
+    "Coupon discounts given": "Coupon discounts given",
+    "the beginning": "the beginning",
+    "No coupon redemption in this store has a complete record, so this figure cannot be shown. Redemptions are recorded in full for orders placed from now on; earlier ones are not reconstructed.": "No coupon redemption in this store has a complete record, so this figure cannot be shown. Redemptions are recorded in full for orders placed from now on; earlier ones are not reconstructed.",
+    "Coupon redemptions are recorded in full only from :date, which is after this period began, so this figure cannot be shown. Earlier redemptions are not reconstructed. Orders in this store with a discount but no redemption record: :count.": "Coupon redemptions are recorded in full only from :date, which is after this period began, so this figure cannot be shown. Earlier redemptions are not reconstructed. Orders in this store with a discount but no redemption record: :count.",
+    "Coupon discounts in this period are recorded in more than one currency and have not been converted, so no single total can be shown.": "Coupon discounts in this period are recorded in more than one currency and have not been converted, so no single total can be shown.",
+    "The total discount given by coupons on orders in this period. Recorded in full from :date; earlier redemptions are not included and are not reconstructed.": "The total discount given by coupons on orders in this period. Recorded in full from :date; earlier redemptions are not included and are not reconstructed.",
+    "Coupon redemption records are known to be both incomplete and inflated. This figure is not authoritative.": "Coupon redemption records are known to be both incomplete and inflated. This figure is not authoritative.",
+    "Coupon redemptions are recorded in full only from the date shown; earlier orders are not included and are not reconstructed.": "Coupon redemptions are recorded in full only from the date shown; earlier orders are not included and are not reconstructed."
 }
