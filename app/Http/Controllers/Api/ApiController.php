@@ -4181,10 +4181,24 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 ? ($request->coupon_info['coupon_code'] ?? null)
                 : null;
 
+            /*
+             * COERCED THE SAME WAY `apply_coupon` COERCES IT, and that is a fix rather than a
+             * nicety. That method resolves the coupon from `trim($request->coupon_code)` (:4531),
+             * and `trim()` casts: `trim(2024) === "2024"` is TRUE. So a JSON client posting an
+             * UNQUOTED all-digit code -- `"coupon_info": {"coupon_code": 2024}` against a coupon
+             * whose code is "2024" -- is ACCEPTED upstream, the discount is computed and subtracted
+             * from `orders.final_price`. The first version of this block then asked `is_string()`,
+             * which is FALSE for an int, handed the recorder null, and recorded nothing: discount
+             * given, no `user_coupons` row, every cap blind to it. That is P4-F134's defect
+             * re-opened on the handler P4-F135 was fixed on.
+             *
+             * `is_scalar` rather than a cast on anything: an array or object code must still resolve
+             * to null rather than be stringified into a lookup. Found by independent review.
+             */
             $ssRecorded = app(\App\Services\CouponRedemptionRecorder::class)->record(
                 $order,
                 $store,
-                is_string($ssCouponCode) ? $ssCouponCode : null,
+                is_scalar($ssCouponCode) ? trim((string) $ssCouponCode) : null,
                 (float) $coupon_price,
                 $ssServerCouponFinalPrice,
                 $customerId,
@@ -9197,6 +9211,23 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         // coupon api call
         $order_array['coupon_info'] = null;
 
+        /*
+         * P4-F134 REVIEW FOLLOW-UP. THE DISCOUNT THIS HANDLER ACTUALLY APPLIED, and the total it left
+         * to pay. Both are captured as the DIFFERENCE this method makes to the basket, inside the one
+         * arm that makes it -- not read out of `apply_coupon`'s answer, for two measured reasons:
+         *
+         *   1. `$verified_coupon` is set on BOTH arms of the plausibility guard below, so "a coupon was
+         *      accepted" and "the guard REFUSED this discounted total" are indistinguishable from it.
+         *   2. `apply_coupon`'s `coupon_discount_amount` is, for every type but `fixed product
+         *      discount`, the coupon's CONFIGURED number -- the PERCENT for a percentage coupon
+         *      (:4970). A 10% coupon on a 300.00 basket reports 10, having taken off 30.
+         *
+         * A figure recorded as "what was taken off" must be what was taken off, so it is subtracted
+         * here where both sides of the subtraction are in scope. Found by independent review.
+         */
+        $ssCouponChargedDiscount = 0.0;
+        $ssCouponChargedFinal = 0.0;
+
         // P01-SEC-14 D1. `$verified_coupon` is this method's OWN verdict on the coupon, taken from
         // the apply_coupon() call just below, and it is what the money column is written from ~200
         // lines further down. Empty means "no coupon was accepted" -- the state an order with no
@@ -9253,7 +9284,27 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 $couponedTotal = (float) $apply_coupon['final_price'];
 
                 if ($couponedTotal > 0 && $couponedTotal <= (float) $cartlist_final_price) {
+                    // Both sides of the subtraction are in scope here and nowhere else: this is the
+                    // discount the basket really loses, and the total really left to pay.
+                    $ssCouponChargedDiscount = (float) $cartlist_final_price - $couponedTotal;
+                    $ssCouponChargedFinal = $couponedTotal;
+
                     $cartlist_final_price = $apply_coupon['final_price'];
+
+                    /*
+                     * `$verified_coupon` IS SET ONLY ON THIS ARM, and moving it here is a fix rather
+                     * than tidying. It used to be assigned below the if/else, so the guard's REFUSAL
+                     * still left a verdict behind -- and the coupon-recording gate reads that verdict.
+                     *
+                     * MEASURED: a flat coupon worth the whole basket (discount_amount 100 on a 100.00
+                     * basket) makes `apply_coupon`'s final_price "0.00", which `!empty()` admits, so
+                     * the guard fires, `$couponedTotal > 0` is false, the discount is REFUSED and the
+                     * shopper is charged in full -- and the redemption was recorded anyway, because
+                     * `$order->coupon_price` carries the coupon's configured 100. Full price paid AND
+                     * the allowance burned, which is P4-F135's harm arriving in this handler by the
+                     * back door. Found by independent review of the P4-F134 fix.
+                     */
+                    $verified_coupon = $apply_coupon;
                 } else {
                     \Illuminate\Support\Facades\Log::warning('coupon: refused an implausible discounted total', [
                         'handler' => __FUNCTION__,
@@ -9263,7 +9314,6 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                     ]);
                 }
                 $order_array['coupon_info']['status'] = true;
-                $verified_coupon = $apply_coupon;
             }
         }
 
@@ -10035,15 +10085,35 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
          * the one the server itself verified (`$order_array['coupon_info']['code']`, set from
          * `$verified_info['coupon_code']` above), not a request field.
          */
-        if (!empty($verified_coupon) && (float) $order->coupon_price > 0) {
+        /*
+         * THE GATE IS THE DISCOUNT THAT WAS CHARGED, not the verdict and not the coupon's configured
+         * number. Both of the alternatives were measured wrong by the review of the first version of
+         * this fix:
+         *
+         *   * `!empty($verified_coupon)` alone admitted a coupon the plausibility guard above had
+         *     REFUSED, because that variable used to be assigned on both of its arms;
+         *   * `(float) $order->coupon_price > 0` is the coupon's configured number, so a 10% coupon
+         *     reads 10 whatever the basket was, and a flat coupon worth the whole basket reads its
+         *     face value on the very path where the guard refused to apply it.
+         *
+         * `$ssCouponChargedDiscount` is positive only when the basket really lost that much, so gate
+         * and amount are now the same fact. `orders.coupon_price` KEEPS the configured number: that
+         * column's meaning is pre-existing (P01-SEC-14 D1 shaped it), other readers depend on it, and
+         * changing a stored financial column is not this fix's to make -- it is recorded as a finding
+         * instead.
+         */
+        if (!empty($verified_coupon) && $ssCouponChargedDiscount > 0) {
             $ssRecorded = app(\App\Services\CouponRedemptionRecorder::class)->record(
                 $order,
                 $store,
-                is_string($order_array['coupon_info']['code'] ?? null)
-                    ? $order_array['coupon_info']['code']
+                // The same coercion as the sibling writer, so the two cannot drift. Here the value
+                // always IS a string (it comes from the `coupon_code` varchar via apply_coupon's
+                // re-resolved row), so this changes nothing today; one shape for one rule.
+                is_scalar($order_array['coupon_info']['code'] ?? null)
+                    ? trim((string) $order_array['coupon_info']['code'])
                     : null,
-                (float) $order->coupon_price,
-                (float) ($verified_coupon['final_price'] ?? 0),
+                $ssCouponChargedDiscount,
+                $ssCouponChargedFinal,
                 !empty($customer_id) ? (int) $customer_id : null,
             );
 

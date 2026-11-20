@@ -358,16 +358,176 @@ final class ApiCouponRedemptionRecordingTest extends SecurityTestCase
             "`{$path}`: another store's coupon id reached this order's `order_coupon_details`.");
 
         /*
-         * And where the OWN coupon's row is written, its amount must be the server's 10% of 100.00
-         * rather than the 99999 posted beside it. Conditional because this case's subject is the
-         * foreign id: whether a row exists for the shopper's own coupon is the subject of the
-         * accepted-coupon case above, and asserting it twice here would couple the two.
+         * And the OWN coupon's row must exist and carry the SERVER's amount, not the 99999 posted
+         * beside it. UNCONDITIONAL, which is a correction: it used to be wrapped in
+         * `if ($recorded !== null)`, so all four assertions of this case passed if the recorder
+         * wrote nothing at all — the F134 direction, i.e. the case could not fail in the one
+         * direction its own message claims to cover. Found by independent review.
          */
         $recorded = DB::table('order_coupon_details')->where('coupon_id', $mine->id)->first();
 
-        if ($recorded !== null) {
-            $this->assertNotEquals(99999.0, (float) $recorded->coupon_discount_amount,
-                "`{$path}`: the posted discount amount was written into the order's coupon record.");
+        $this->assertNotNull($recorded,
+            "`{$path}`: no row was written for the shopper's OWN coupon, so the three assertions "
+            . 'above passed vacuously — nothing was recorded for either coupon.');
+        $this->assertNotEquals(99999.0, (float) $recorded->coupon_discount_amount,
+            "`{$path}`: the posted discount amount was written into the order's coupon record.");
+    }
+
+    /*
+     * ---------------------------------------------------------------------------------------------
+     * THE REVIEW OF THE FIRST VERSION OF THIS FIX. Three defects it found, each driven here.
+     * ---------------------------------------------------------------------------------------------
+     */
+
+    /**
+     * THE RECORDED DISCOUNT MUST BE THE DISCOUNT CHARGED.
+     *
+     * The original fixture could not see this: a 100.00 basket with a 10% coupon makes the coupon's
+     * CONFIGURED number (10, the percent) and the real discount (10.00) the same figure, so a handler
+     * recording either passed. `apply_coupon` publishes the configured number as
+     * `coupon_discount_amount` for every type but `fixed product discount` (:4970), and `ordersave`
+     * carried that into `orders.coupon_price` and from there into both child rows — so a 10% coupon on
+     * a 300.00 basket charged 270.00 and recorded a discount of 10.00, a row contradicting itself and
+     * an understated `user_coupons.amount` that `Api\DashboardController` shows the merchant.
+     *
+     * A 200.00 basket separates the two numbers: configured 10, charged 20.00.
+     *
+     * @dataProvider writers
+     */
+    public function test_the_recorded_discount_is_the_discount_actually_charged(string $path): void
+    {
+        [$store, $customer, $shippingId] = $this->checkout();
+
+        // A second line, so the basket is 200.00 and 10% is 20.00 — distinct from the configured 10.
+        $this->fillBasket($store, $customer);
+
+        $coupon = $this->coupon($store);   // percentage, discount_amount = 10
+
+        $response = $this->order($path, $store, $customer, $shippingId, [
+            'coupon_code' => $coupon->coupon_code,
+        ]);
+
+        $order = DB::table('orders')->where('store_id', $store->id)->first();
+
+        $this->assertNotNull($order, 'Premise: the order must exist. Response: ' . $response->getContent());
+
+        $detail = DB::table('order_coupon_details')->where('coupon_id', $coupon->id)->first();
+        $redemption = DB::table('user_coupons')->where('coupon_id', $coupon->id)->first();
+
+        $this->assertNotNull($detail, "`{$path}` recorded no coupon detail row for an accepted coupon");
+        $this->assertNotNull($redemption, "`{$path}` recorded no redemption for an accepted coupon");
+
+        /*
+         * The oracle is the coupon's CONFIGURED number, which must NOT be what was recorded. Stated
+         * as an inequality as well as an equality because the equality alone would also hold if both
+         * figures happened to coincide, which is exactly how the first fixture hid this.
+         */
+        $this->assertGreaterThan(
+            (float) $coupon->discount_amount,
+            (float) $detail->coupon_discount_amount,
+            "`{$path}` recorded {$detail->coupon_discount_amount} against a basket of 200.00 and a "
+            . "coupon configured at {$coupon->discount_amount}. That is the coupon's configured "
+            . 'number, not the amount taken off: the row contradicts itself and the merchant is '
+            . 'shown the wrong figure.'
+        );
+
+        $this->assertEqualsWithDelta(
+            (float) $detail->coupon_discount_amount,
+            (float) $redemption->amount,
+            0.01,
+            "`{$path}`: the detail row and the redemption row disagree about one discount"
+        );
+    }
+
+    /**
+     * A COUPON THE SERVER'S OWN PLAUSIBILITY GUARD REFUSED MUST RECORD NOTHING.
+     *
+     * `ordersave` has an E6 guard that refuses an implausible discounted total — `$couponedTotal > 0`
+     * — and a flat coupon worth the whole basket produces exactly 0.00, so the guard fires and the
+     * shopper is charged IN FULL. The first version of this fix still recorded the redemption,
+     * because `$verified_coupon` was assigned on both arms of that guard and the gate read the
+     * coupon's configured face value. Full price paid AND the allowance burned: P4-F135's harm
+     * arriving in the other handler.
+     *
+     * Driven on both writers because the property — never record a discount that was not given —
+     * belongs to both, even though only `ordersave` carries the guard.
+     *
+     * @dataProvider writers
+     */
+    public function test_a_coupon_worth_the_whole_basket_records_nothing_if_the_discount_was_refused(string $path): void
+    {
+        [$store, $customer, $shippingId] = $this->checkout();
+
+        $coupon = $this->coupon($store, [
+            'coupon_type' => 'flat',
+            'discount_amount' => self::BASKET,   // the entire basket
+        ]);
+
+        $response = $this->order($path, $store, $customer, $shippingId, [
+            'coupon_code' => $coupon->coupon_code,
+        ]);
+
+        $order = DB::table('orders')->where('store_id', $store->id)->first();
+
+        $this->assertNotNull($order, 'Premise: the order must exist. Response: ' . $response->getContent());
+
+        /*
+         * THE CONSERVATION LAW, and it is the only honest oracle here because the two handlers are
+         * allowed to differ on whether such a coupon applies at all: whatever was CHARGED, the
+         * redemption record must agree with it. If the shopper paid full price, nothing was
+         * redeemed; if they got the discount, exactly one redemption stands.
+         */
+        $paidInFull = (float) $order->product_price > 0
+            && abs((float) $order->product_price - self::BASKET) < 0.01
+            && (float) $order->final_price >= self::BASKET - 0.01;
+
+        $redemptions = $this->redemptions((int) $coupon->id);
+
+        if ($paidInFull) {
+            $this->assertSame(0, $redemptions,
+                "`{$path}` charged the shopper the full basket (final_price {$order->final_price}) "
+                . 'and recorded a redemption anyway. They paid in full AND lost the allowance.');
+            $this->assertSame(0, $this->couponDetailRows((int) $coupon->id),
+                "`{$path}` wrote a coupon detail row for a discount it refused to give");
+        } else {
+            $this->assertSame(1, $redemptions,
+                "`{$path}` gave the discount (final_price {$order->final_price}) and recorded "
+                . 'no redemption, so the cap cannot see it');
         }
+    }
+
+    /**
+     * AN UNQUOTED ALL-DIGIT CODE IN A JSON BODY IS STILL A CODE.
+     *
+     * `apply_coupon` resolves from `trim($request->coupon_code)`, and `trim()` casts — `trim(2024)`
+     * is `"2024"` — so a JSON client posting `{"coupon_code": 2024}` against a coupon whose code is
+     * `"2024"` is ACCEPTED and the discount is subtracted. The first version of this fix asked
+     * `is_string()`, which is false for an int, and recorded nothing: discount given, cap blind.
+     * The recorder is now handed the same coercion the acceptance used, so the two cannot disagree.
+     *
+     * @dataProvider writers
+     */
+    public function test_an_unquoted_numeric_coupon_code_is_still_recorded(string $path): void
+    {
+        [$store, $customer, $shippingId] = $this->checkout();
+
+        $coupon = $this->coupon($store, ['coupon_code' => '2024']);
+
+        // postJson, and the value is a PHP int — so it arrives as a JSON number, not a string.
+        $response = $this->order($path, $store, $customer, $shippingId, [
+            'coupon_code' => 2024,
+        ]);
+
+        $order = DB::table('orders')->where('store_id', $store->id)->first();
+        $this->assertNotNull($order, 'Premise: the order must exist. Response: ' . $response->getContent());
+
+        // Premise: the server ACCEPTED it. Without this the assertion below is about a refusal.
+        $this->assertGreaterThan(0.0, (float) $order->coupon_price,
+            'Premise: an unquoted numeric code must still be accepted upstream, or this case is '
+            . 'measuring a refusal rather than a recording gap. Response: ' . $response->getContent());
+
+        $this->assertSame(1, $this->redemptions((int) $coupon->id),
+            "`{$path}` accepted an unquoted numeric coupon code, gave the discount, and recorded no "
+            . 'redemption — so that coupon is uncapped for any JSON client (P4-F134 re-opened).');
     }
 }

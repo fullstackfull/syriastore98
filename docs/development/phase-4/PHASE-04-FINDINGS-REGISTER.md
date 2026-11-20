@@ -757,6 +757,65 @@ without that trigger by the sibling injected-failure case, which was left untouc
 Commerce suite on the fix: **1,182 passed, 3 failed** — all three being data sets of that one
 inverted case, now green.
 
+#### The independent review of the fix found two defects IN THE FIX, both now closed
+
+An independent tenant-authz review of the above was run before it was pushed, and it was not a
+formality: it found that the first version of the fix **re-opened both findings in the other
+handler**. Both are reproduced by test and closed; each was measured, not reasoned.
+
+**(i) `ordersave` recorded a redemption on the very path its own guard REFUSED the discount.**
+`$verified_coupon = $apply_coupon;` sat *below* the E6 plausibility guard's `if/else`, so "a coupon
+was accepted" and "the guard refused this discounted total" were indistinguishable downstream — and
+the gate also read `$order->coupon_price`, which is the coupon's **configured** number. MEASURED,
+with no attacker: a `flat` coupon of 100 on a 100.00 basket makes `apply_coupon`'s `final_price`
+`"0.00"`, which `!empty()` admits; `$couponedTotal > 0` is then false, so the discount is refused and
+the shopper is **charged in full** — while `coupon_price` carried 100 and the redemption was written.
+*Full price paid AND the allowance burned*, which is P4-F135's harm arriving in the other handler.
+Fixed by assigning `$verified_coupon` only on the applied arm and gating on
+`$ssCouponChargedDiscount`, the difference the basket actually loses.
+
+**(ii) `place_order` silently dropped the redemption for an unquoted numeric code.** `apply_coupon`
+resolves from `trim($request->coupon_code)`, and `trim()` casts — `trim(2024) === "2024"` — so a JSON
+client posting `{"coupon_code": 2024}` against a coupon coded `"2024"` is **accepted** and
+discounted. The fix's `is_string()` guard is false for an int, so the recorder got null and wrote
+nothing: P4-F134 re-opened on the handler F135 was fixed on, and that coupon uncapped for any JSON
+client. Fixed with the same coercion the acceptance uses (`is_scalar` → `trim((string) …)`).
+
+**The recorded discount is now the charged discount, and a test can tell.** The first fixture used a
+100.00 basket with a 10% coupon, which makes the configured number and the real discount the *same
+figure*, 10 — so no case could distinguish them. A 200.00-basket case now asserts the recorded
+discount exceeds the configured number and that the two child rows agree. Three mutation checks, each
+caught by its own cases and nothing else: restoring the `is_string` guard fails only
+`[place-order]`'s numeric-code case; restoring `$verified_coupon` outside the guard *and* the
+configured-number gate fails only the two `[order-save]` cases, with the message *"charged the
+shopper the full basket (final_price 100) and recorded a redemption anyway"*.
+
+#### Deliberately NOT changed, and why — recorded rather than silently left
+
+* **`orders.coupon_price` still holds the coupon's CONFIGURED number**, not the amount taken off
+  (`apply_coupon:4970` for every type but `fixed product discount`; `ordersave:9840`). That column's
+  meaning is pre-existing — P01-SEC-14 D1 shaped it — and other readers depend on it, so changing a
+  stored financial column is not this fix's to make. The child rows no longer inherit it, so the
+  detail row is now right where the order column is still wrong; **that disagreement is the finding**,
+  and it is the next slice's or the owner's. `place_order` never had it.
+* **`$order_array['coupon_info']['status']` is still set to `true` on both arms** of the E6 guard, so
+  a client is told a refused coupon was accepted. Response-only, pre-existing, and changing a
+  client-visible field is out of a bounded fix's scope.
+* **LATENT, stated so it is not read as live:** `apply_coupon`'s free-shipping arms hard-set
+  `coupon_discount_amount = 0` while the cart allocator still discounts (it never reads
+  `free_shipping_coupon` — commented out at `Cart.php:1216,1282`), which would be a discount given
+  with the gate false, i.e. F134's direction. Those arms need `\Session::get('shipping_method')`, and
+  a token-authenticated API request carries no such session, so they are **unreachable on this
+  surface** today. It becomes live the moment a session-bearing path calls either handler.
+* **Pre-existing fragility on the path both gates depend on:** `apply_coupon` resolves the coupon
+  *trimmed* at `:4531` and *untrimmed* at `:5442`, then dereferences `$coupon->id` — so a code posted
+  with surrounding whitespace is accepted by the first lookup and 500s at the second, losing the
+  checkout. Not introduced here, and it is why a padded code never reaches the recorder at all.
+* **Reporting fidelity, not money:** `order_coupon_details.coupon_final_amount` is the caller's
+  post-discount basket **subtotal** — neither `orders.final_price` (which adds tax and delivery) nor
+  `product_price − discount`. Both figures are server-derived, so no caller input reaches either; the
+  recorder's docblock now says so rather than leaving it to be rediscovered.
+
 ---
 
 ## P4-6 — refunds and returns (2026-11-16)

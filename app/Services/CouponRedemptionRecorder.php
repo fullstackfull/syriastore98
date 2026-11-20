@@ -51,6 +51,15 @@ use App\Models\UserCoupon;
  * NO TRANSACTION OF ITS OWN. Both callers are already inside one (P4-F026 wrapped them), and a
  * nested boundary here would let a `rollBack()` in a caller's catch roll back to the wrong level --
  * the exact hazard `ordersave` documents around `$ssTransactionDepth`.
+ *
+ * WHAT `$finalAmount` IS, AND IS NOT -- recorded because an independent review traced it and the
+ * answer is not the obvious one. It is the caller's own post-discount BASKET SUBTOTAL, which is
+ * neither `orders.final_price` (that adds tax and delivery) nor `product_price - discountAmount`
+ * (for a flat coupon worth more than the basket, `apply_coupon`'s face value is uncapped while the
+ * cart allocator floors its discount at the basket, so the two columns of one row can disagree).
+ * Both figures are server-derived -- no caller input reaches either -- so this is a question of
+ * reporting fidelity rather than of money, and it is written down rather than quietly relied on.
+ * The pre-fix column took this value straight from the request, so it is strictly better than it was.
  */
 final class CouponRedemptionRecorder
 {
