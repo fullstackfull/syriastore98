@@ -34,11 +34,12 @@ use Tests\Support\StripsSourceComments;
  * are asserted here, and `test_the_length_guard_is_what_stops_a_header_only_download` is the
  * control that proves the type check alone is not enough.
  *
- * AND `error:` CANNOT SEE A THROW INSIDE `success`. `sale_by_brand` and `sale_by_category`
- * dereference `data.NetSaleTotal[0].name`, and `NetSaleTotal: []` alongside a 7-entry
- * `monthList` is reachable, which is a `TypeError` at i=0 -- this finding's exact symptom,
- * invisible to an `error:` handler. Hence the `try`/`catch` and the extra length requirement on
- * those two screens.
+ * AND `error:` CANNOT SEE A SILENT EMPTY EXPORT. `sale_by_brand` and `sale_by_category` walk
+ * every `data.NetSaleTotal` series (P5-3; the old code read `data.NetSaleTotal[0].name` and
+ * exported only the first series). `NetSaleTotal: []` alongside a 7-entry `monthList` is still
+ * reachable, and the walk then runs zero times and downloads a header-only CSV -- invisible to an
+ * `error:` handler because nothing throws. Hence the extra length requirement on those two
+ * screens, and the `try`/`catch` for any throw a malformed series still raises inside `success`.
  *
  * TWO SHAPES THIS REPAIR MUST NOT TAKE, both asserted below:
  *   - NOT a 403 and NOT a redirect carrying `session('error')`. `ReportAuthorizationTest`
@@ -94,8 +95,8 @@ class ReportExportFailureFeedbackTest extends SecurityTestCase
         ],
     ];
 
-    /** The two screens whose loop dereferences `data.NetSaleTotal[0].name`. */
-    private const INDEXES_FIRST_SERIES = [
+    /** The two screens whose export walks every `data.NetSaleTotal` series (one row per series, per period). */
+    private const WALK_EVERY_SERIES = [
         'resources/views/reports/sale_by_brand.blade.php',
         'resources/views/reports/sale_by_category.blade.php',
     ];
@@ -352,13 +353,23 @@ class ReportExportFailureFeedbackTest extends SecurityTestCase
         }
     }
 
-    public function test_the_two_screens_that_index_the_first_series_require_it_to_be_non_empty(): void
+    public function test_the_two_series_screens_guard_an_empty_series_so_the_export_is_not_header_only(): void
     {
-        foreach (self::INDEXES_FIRST_SERIES as $relative) {
+        foreach (self::WALK_EVERY_SERIES as $relative) {
             $block = $this->exportAjax($relative);
 
-            $this->assertStringContainsString('data.NetSaleTotal[0]', $block, sprintf(
-                'Premise: %s is supposed to dereference data.NetSaleTotal[0].name.',
+            /*
+             * P5-3 replaced the first-series dereference (data.NetSaleTotal[0].name, which exported ONLY the
+             * first brand/category, repeated down every row) with a walk over every series. The premise moved
+             * with it: the [0] read is gone and the export now walks data.NetSaleTotal.forEach.
+             */
+            $this->assertStringNotContainsString('data.NetSaleTotal[0]', $block, sprintf(
+                'Premise: %s should no longer dereference data.NetSaleTotal[0] -- P5-3 walks every series.',
+                $relative
+            ));
+
+            $this->assertStringContainsString('data.NetSaleTotal.forEach', $block, sprintf(
+                'Premise: %s is supposed to walk every series with data.NetSaleTotal.forEach.',
                 $relative
             ));
 
@@ -366,11 +377,11 @@ class ReportExportFailureFeedbackTest extends SecurityTestCase
                 '/data\.NetSaleTotal\.length\s*(===\s*0|<\s*1|>\s*0)/',
                 $block,
                 sprintf(
-                    '%s dereferences data.NetSaleTotal[0].name without requiring the series to '
-                    . 'be non-empty. NetSaleTotal: [] beside a filled monthList is reachable '
+                    '%s walks data.NetSaleTotal.forEach without first requiring the series to be '
+                    . 'non-empty. NetSaleTotal: [] beside a filled monthList is reachable '
                     . '(ProductBrand::find() resolves nothing and the All-Brands fallback is '
-                    . 'skipped), and that is a TypeError at i=0 -- which an error: handler '
-                    . 'cannot see, because it is thrown inside success.',
+                    . 'skipped); the forEach then runs zero times and the merchant silently '
+                    . 'receives a header-only CSV -- the exact header-only download this finding stops.',
                     $relative
                 )
             );

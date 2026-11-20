@@ -256,16 +256,22 @@
 
                             var csvContent = "data:text/csv;charset=utf-8,﻿" + header + "\n";
 
-                            // Assuming data.NetSaleTotal is an array of objects with "name" and "data" properties
-                            for (var i = 0; i < data.monthList.length; i++) {
-                                var categoryName = data.NetSaleTotal[0]
-                                .name; // Assuming you want the "main-category" name
-                                var netSale = data.NetSaleTotal[0].data[
-                                i]; // Assuming you want the data for "main-category"
-
-                                csvContent +=
-                                    `${data.monthList[i]},${categoryName},${netSale}\n`;
-                            }
+                            // P5-3: data.NetSaleTotal is an array of {name, data[]} series -- one per category -- and the
+                            // chart above walks every one (forEach at :106). The export read NetSaleTotal[0] on every row,
+                            // so the file carried ONLY the first category, repeated and stamped with its name. Walk every
+                            // series, one row per (category, period). The category name is merchant-typed, so CSV-quote it;
+                            // the period is a month name and the value is numeric, so neither carries a comma. The row stays a
+                            // three-field template literal beginning `${data.monthList[i]}` -- ReportCsvHeaderLocalisationTest
+                            // counts those fields against the header's column count, so the shape is load-bearing.
+                            var csvField = function (v) {
+                                return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+                            };
+                            data.NetSaleTotal.forEach(function(category) {
+                                for (var i = 0; i < data.monthList.length; i++) {
+                                    var netSale = (category.data && category.data[i] != null) ? category.data[i] : 0;
+                                    csvContent += `${data.monthList[i]},${csvField(category.name)},${netSale}\n`;
+                                }
+                            });
 
                             var encodedUri = encodeURI(csvContent);
                             var link = document.createElement("a");
