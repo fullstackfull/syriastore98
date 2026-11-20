@@ -3531,6 +3531,13 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
 
         $coupon_price = 0;
+        /*
+         * P4-F135. The SERVER's post-discount basket total, captured at the point the server
+         * computes it rather than read 600 lines later out of `$apply_coupon` -- a name this method
+         * reassigns twice, and whose later value is only defined when a coupon was posted. The
+         * coupon child rows are written from this and from `$coupon_price`, never from the request.
+         */
+        $ssServerCouponFinalPrice = 0.0;
         // coupon api call
         if (!empty($request->coupon_info)) {
             $coupon_data = $request->coupon_info;
@@ -3589,6 +3596,7 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 // change, not an authorization one, so it is S21/S24 in
                 // docs/security/P01-SECURITY-WORK-QUEUE.md and not made here.
                 $coupon_price = $apply_coupon['amount'];
+                $ssServerCouponFinalPrice = (float) $apply_coupon['final_price'];
                 $order_array['coupon']['status'] = true;
             }
         }
@@ -4143,49 +4151,66 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $OrderBillingDetail->save();
         // add in Order Billing Detail table end
 
-        // add in Order Coupon Detail table start
-        if (!empty($request->coupon_info)) {
-            $coupon_data = $request->coupon_info;
-            $Coupon = Coupon::find($coupon_data['coupon_id']);
+        /*
+         * add in Order Coupon Detail table start
+         *
+         * P4-F135 -- THIS BLOCK RECORDED A REFUSED COUPON, AND RECORDED IT FROM THE REQUEST.
+         * =========================================================================================
+         *
+         * It was gated on `!empty($request->coupon_info)` -- the REQUEST -- rather than on whether
+         * this handler's own `apply_coupon()` call accepted anything, and every column came from
+         * that request array including `coupon_discount_amount`. So a coupon the server REFUSED
+         * still wrote `order_coupon_details` AND `user_coupons`: the shopper got no discount and
+         * lost an allowance they never spent, because every coupon cap in the application is a
+         * count on `user_coupons`.
+         *
+         * IT ALSO ANSWERED HTTP 500 WITH NO ORDER AT ALL for an honest client. Measured, not read:
+         * `Coupon::find($coupon_data['coupon_id'])` on an array carrying only the code the shopper
+         * typed raised `Undefined array key "coupon_id"` at this line, which Laravel turns into an
+         * ErrorException -- so posting `coupon_info[coupon_code]` and nothing else lost the whole
+         * checkout. And where a `coupon_id` WAS posted it was resolved with no store predicate, so
+         * it could name another merchant's coupon.
+         *
+         * THE GATE IS NOW THE SERVER'S OWN VERDICT (`$coupon_price > 0`) and the writer is
+         * App\Services\CouponRedemptionRecorder, which resolves the coupon by CODE within this
+         * store and takes every other value from the coupon row or from this handler's arithmetic.
+         * The caller's `coupon_info` is used for exactly one thing: the code to look up.
+         */
+        if ($coupon_price > 0) {
+            $ssCouponCode = is_array($request->coupon_info)
+                ? ($request->coupon_info['coupon_code'] ?? null)
+                : null;
 
-            // Order Coupon history
-            $OrderCouponDetail = new OrderCouponDetail();
-            $OrderCouponDetail->order_id = $order->id;
-            $OrderCouponDetail->product_order_id = $order->product_order_id;
-            $OrderCouponDetail->coupon_id = $coupon_data['coupon_id'];
-            $OrderCouponDetail->coupon_name = $coupon_data['coupon_name'];
-            $OrderCouponDetail->coupon_code = $coupon_data['coupon_code'];
-            $OrderCouponDetail->coupon_discount_type = $coupon_data['coupon_discount_type'];
-            $OrderCouponDetail->coupon_discount_number = $coupon_data['coupon_discount_number'];
-            $OrderCouponDetail->coupon_discount_amount = $coupon_data['coupon_discount_amount'];
-            $OrderCouponDetail->coupon_final_amount = $coupon_data['coupon_final_amount'];
-            $OrderCouponDetail->save();
+            $ssRecorded = app(\App\Services\CouponRedemptionRecorder::class)->record(
+                $order,
+                $store,
+                is_string($ssCouponCode) ? $ssCouponCode : null,
+                (float) $coupon_price,
+                $ssServerCouponFinalPrice,
+                $customerId,
+            );
 
-            // Coupon history
-            $UserCoupon = new UserCoupon();
-            // Was `$request->user_id` -- caller-supplied attribution, and the sibling ordersave
-            // already derives it. Not coupon-limit evasion: Coupon::PerUsesCouponCount() resolves
-            // the user through OrderBillingDetail.email, not through this column. Audit integrity.
-            $UserCoupon->user_id = $customerId;
-            $UserCoupon->coupon_id = $Coupon->id;
-            $UserCoupon->amount = $coupon_data['coupon_discount_amount'];
-            $UserCoupon->order_id = $order->id;
-            $UserCoupon->date_used = now();
-            $UserCoupon->save();
+            /*
+             * The response fields clients read, built from what was RECORDED rather than from what
+             * was posted. `null` means the code resolved to no coupon of this store, in which case
+             * there is nothing truthful to echo and the keys are left unset -- the shopper's total
+             * is unaffected either way, because `$coupon_price` was already applied above.
+             */
+            if ($ssRecorded !== null) {
+                $discount_string = '-' . $ssRecorded->coupon_discount_amount;
+                $CURRENCY = Utility::GetValueByName('CURRENCY');
+                $CURRENCY_NAME = Utility::GetValueByName('CURRENCY_NAME');
+                if ($ssRecorded->coupon_discount_type == 'flat') {
+                    $discount_string .= $CURRENCY;
+                } else {
+                    $discount_string .= '%';
+                }
 
-            $discount_string = '-' . $coupon_data['coupon_discount_amount'];
-            $CURRENCY = Utility::GetValueByName('CURRENCY');
-            $CURRENCY_NAME = Utility::GetValueByName('CURRENCY_NAME');
-            if ($coupon_data['coupon_discount_type'] == 'flat') {
-                $discount_string .= $CURRENCY;
-            } else {
-                $discount_string .= '%';
+                $discount_string .= ' ' . __('for all products');
+                $order_array['coupon']['code'] = $ssRecorded->coupon_code;
+                $order_array['coupon']['discount_string'] = $discount_string;
+                $order_array['coupon']['price'] = SetNumber($ssRecorded->coupon_final_amount);
             }
-
-            $discount_string .= ' ' . __('for all products');
-            $order_array['coupon']['code'] = $coupon_data['coupon_code'];
-            $order_array['coupon']['discount_string'] = $discount_string;
-            $order_array['coupon']['price'] = SetNumber($coupon_data['coupon_final_amount']);
         }
         // add in Order Coupon Detail table end
 
@@ -9981,50 +10006,62 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $OrderBillingDetail->delivery_state = $deliveryGeography['state_id'];
         $OrderBillingDetail->save();
 
-        // add in Order Coupon Detail table start
-        if (!empty($order_array['coupon_info'])) {
-            $coupon_data = $order_array['coupon_info'];
-            if (isset($coupon_data['coupon_id'])) {
-                $Coupon = Coupon::find($coupon_data['coupon_id']);
-                // coupon stock decrease end
+        /*
+         * add in Order Coupon Detail table start
+         *
+         * P4-F134 -- THIS BLOCK NEVER RAN, FOR ANY ORDER, AND THE COUPON CAPS WERE BLIND TO THIS ROUTE.
+         * =========================================================================================
+         *
+         * It was gated on `isset($coupon_data['coupon_id'])`. The COMPLETE set of keys this handler
+         * ever puts in `$order_array['coupon_info']` is message / status (where apply_coupon's
+         * verdict is recorded) and code / discount / discount_string / discount_string2 / price /
+         * discount_amount (where the display strings are rebuilt from the coupon row). There is no
+         * `coupon_id` and never was, so the guard was ALWAYS FALSE: `POST /api/{slug}/order-save`
+         * granted discounts and wrote neither `order_coupon_details` nor `user_coupons`.
+         *
+         * THAT IS A MONEY DEFECT, NOT AN AUDIT GAP, because every coupon cap in the application is
+         * a count on `user_coupons` -- `Coupon::usesByCustomer()`, `PerUsesCouponCount()`,
+         * `coupon_uses()`, `UsesCouponCount()`. MEASURED end to end before this was changed: a
+         * coupon configured `coupon_limit_user = 1` discounted TWO orders for the same shopper
+         * through this route. The merchant's own limit could not fire however it was set.
+         *
+         * THE REST OF THE BLOCK WAS DEAD CODE OF THE SAME SHAPE AS P4-F135 NEXT DOOR: had the guard
+         * ever been true it would have written every column from `$coupon_data` and dereferenced
+         * `$Coupon->id` on a `Coupon::find()` of a caller-reachable id with no store predicate.
+         *
+         * THE GATE IS NOW THE SERVER'S VERDICT -- `$verified_coupon`, which is apply_coupon()'s own
+         * answer and empty unless THIS store's coupon was accepted -- and the writer is
+         * App\Services\CouponRedemptionRecorder, shared with place_order. The code it resolves by is
+         * the one the server itself verified (`$order_array['coupon_info']['code']`, set from
+         * `$verified_info['coupon_code']` above), not a request field.
+         */
+        if (!empty($verified_coupon) && (float) $order->coupon_price > 0) {
+            $ssRecorded = app(\App\Services\CouponRedemptionRecorder::class)->record(
+                $order,
+                $store,
+                is_string($order_array['coupon_info']['code'] ?? null)
+                    ? $order_array['coupon_info']['code']
+                    : null,
+                (float) $order->coupon_price,
+                (float) ($verified_coupon['final_price'] ?? 0),
+                !empty($customer_id) ? (int) $customer_id : null,
+            );
 
-                // Order Coupon history
-                $OrderCouponDetail = new OrderCouponDetail();
-                $OrderCouponDetail->order_id = $order->id;
-                $OrderCouponDetail->product_order_id = $order->product_order_id;
-                $OrderCouponDetail->coupon_id = $coupon_data['coupon_id'] ?? 0;
-                $OrderCouponDetail->coupon_name = $coupon_data['coupon_name'] ?? '-';
-                $OrderCouponDetail->coupon_code = $coupon_data['coupon_code'] ?? '-';
-                $OrderCouponDetail->coupon_discount_type = $coupon_data['coupon_discount_type'] ?? '-';
-                $OrderCouponDetail->coupon_discount_number = $coupon_data['coupon_discount_number'] ?? 0;
-                $OrderCouponDetail->coupon_discount_amount = $coupon_data['coupon_discount_amount'] ?? 0;
-                $OrderCouponDetail->coupon_final_amount = $coupon_data['coupon_final_amount'] ?? 0;
-                
-                $OrderCouponDetail->save();
-
-                // Coupon history
-                $UserCoupon = new UserCoupon();
-                $UserCoupon->user_id = !empty($customer_id) ? $customer_id : null;
-                $UserCoupon->coupon_id = $Coupon->id;
-                $UserCoupon->amount = $coupon_data['coupon_discount_amount'];
-                $UserCoupon->order_id = $order->id;
-                $UserCoupon->date_used = now();
-                
-                $UserCoupon->save();
-
-                $discount_string = '-' . $coupon_data['coupon_discount_amount'];
-                $CURRENCY = Utility::GetValueByName('CURRENCY');
-                $CURRENCY_NAME = Utility::GetValueByName('CURRENCY_NAME');
-                if ($coupon_data['coupon_discount_type'] == 'flat') {
+            if ($ssRecorded !== null) {
+                $discount_string = '-' . $ssRecorded->coupon_discount_amount;
+                // `$store->id` is passed for the same reason the display block above passes it: with
+                // no web session the helper otherwise resolves whatever store it happens to find.
+                $CURRENCY = Utility::GetValueByName('CURRENCY', $store->id);
+                if ($ssRecorded->coupon_discount_type == 'flat') {
                     $discount_string .= $CURRENCY;
                 } else {
                     $discount_string .= '%';
                 }
 
                 $discount_string .= ' ' . __('for all products');
-                $order_array['coupon']['code'] = $coupon_data['coupon_code'];
+                $order_array['coupon']['code'] = $ssRecorded->coupon_code;
                 $order_array['coupon']['discount_string'] = $discount_string;
-                $order_array['coupon']['price'] = SetNumber($coupon_data['coupon_final_amount']);
+                $order_array['coupon']['price'] = SetNumber($ssRecorded->coupon_final_amount);
             }
         }
         // add in Order Coupon Detail table end
