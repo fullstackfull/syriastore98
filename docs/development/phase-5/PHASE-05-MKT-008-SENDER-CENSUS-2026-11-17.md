@@ -314,3 +314,30 @@ GAP-200 / MKT-008 — MECHANISM QUESTION 2: THE NOTIFICATION LAYER VERDICT (one 
 
 # GAP-200 / MKT-008 — MECHANISM QUESTION 5: the schema, and whether the constraint is satisfiable **Read-only. No file was written, created or deleted; no git write ran.** --- ## 0. What I measured, and what I did not **Measured directly:** the three tables' columns and indexes from the two migration-derived dev databases (`/home/user/syriastore98/database/database.sqlite`, `/home/user/syriastore98/database/p2dev.sqlite`, via `PRAGMA table_info` / `PRAGMA index_list`), every migration that touches them, the models, every mail/notification send site in `app/` and `packages/workdo/`, and the framework source in `vendor/` that decides whether a message is actually handed to a transport. **NOT measured, and I cannot measure it from here — this is load-bearing:** - **The production column set of `customers`, `newsletters` and `users` has never been measured.** `docs/GATE-F-VERIFIED-SCHEMA.md` §2 covers 15 tables and 3 columns and **none of them is one of these three**. The dev SQLite files are built from `database/migrations/` and therefore prove what *this codebase creates*, not what production *has* — the exact distinction `docs/GATE-F-VERIFIED-SCHEMA.md` §1 records as the reason three confident claims in this repo turned out false. - There is already a **known production-vs-code disagreement in this very family**: `newsletters.user_id`, an undeclared column, is the single remaining declared skip in `.github/known-test-outcomes.json` (`expected_skips`), and `docs/GATE-F-VERIFIED-SCHEMA.md:41` says its type "was never measured, so it is not in §2 and declaring it would be the guess GATE F exists to forbid." - Whether `lynomia_consent_decisions` / `lynomia_consent_states` exist **in production** is unknowable from here (module migration, module ships disabled). - Whether module-added `customers` columns exist in production (`total_club_point`, `affiliate_code`, `used_affiliate_code`, `commission_amount`, `social_id`, `social_type` — all named in `app/Models/Customer.php:30-58` but absent from **both** dev DBs). - I did not read `app/Services/FirebaseNotificationService.php` or the other push services in detail; the push channel is marked NOT MEASURED below. --- ## 1. `customers` — 30 columns measured `id, billable_id, billable_type, trial_ends_at, created_at, updated_at, first_name, last_name, email, profile_image, type, email_verified_at, password, mobile, regiester_date, last_active, status, date_of_birth, firebase_token, device_type, register_type, google_id, apple_id, facebook_id, password_otp, password_otp_datetime, created_by, store_id, remember_token, 
 
+
+---
+
+## 5. The three non-email send-boundary chokepoints — classified on evidence (2026-11-20, for D8-2)
+
+D8-2a wired the **email** seam at `MessageSending`. The other three outbound channels do not fire that
+event (§4, mechanism 1/2); each has exactly one first-party chokepoint, and D8-2 asks of each: is there a
+**marketing** sender here that a consent gate must cover, without holding a transactional message? Measured
+at HEAD against primary source. (Raw `grep SendMsgs(` counts are inflated by docblock references to
+`Utility::SendMsgs()`; the figures below are **actual call sites**, read.)
+
+| Channel | Chokepoint | Marketing sender? | Classification (evidence) |
+|---|---|---|---|
+| **SMS** | `Utility::send_twilio_msg()` (`app/Models/Utility.php:3464`) | **No** | All 4 callers are internal `Utility` methods — `low_stock_threshold` (:3492), `out_of_stock` (:3508), `variant_out_of_stock` (:3524), `variant_low_stock_threshold` (:3712) — and every one sends to `$settings['twilio_notification_number']`, the **merchant's own** number, about their own stock. Operational self-alert to the store, not a message to a customer. No marketing-consent surface. |
+| **Push** | `Utility::sendFCM()` (`app/Models/Utility.php:3580`) | **No (first-party)** | 2 callers. `ProductController:2970` sends "now {product} is available in stock" only to `NotifyUser` rows — users who explicitly asked to be told when this product returns — then deletes the row: a user-requested, one-shot transactional alert, not a campaign. The second caller is in vendored `AuctionProduct` (auction notice; not first-party, not editable). `Utility::ios_send_push_notification` is dead code (§2). |
+| **WhatsApp** | `Utility::SendMsgs()` (`app/Models/Utility.php:2652`) | **Yes — one** | The first-party **marketing** path is the abandoned-basket nudge: `CartController::abandon_carts_messsend()` and `WishlistController::abandonWishlistMsgSend()` → `App\Services\AbandonedMessageDispatch::handOver()` → `SendMsgs()`. "Nudge the shopper" re-engagement = marketing. Every other first-party `SendMsgs()` caller (PaymentController, the gateway controllers, ApiController, PaymentService, the SMS-module order/payment listeners) is an order-created or payment/stock-status acknowledgement to the buyer of the order in hand — transactional, several already classified so in §2. |
+
+**What D8-2 is, therefore.** The only first-party marketing sender among the three non-email channels is the
+**abandoned cart / abandoned wishlist WhatsApp nudge**, through the single first-party service
+`AbandonedMessageDispatch`. D8-2 gates that one path through the existing `MarketingSendGate`
+(`Channel::Whatsapp`, `MessageClass::Marketing`, the shopper's mobile), mirroring the email seam: inert while
+`off`; in `report` the nudge still goes and the gate records what enforcement would do; `enforce` is read as
+`report` for a phone channel until `phone_identity_canonical` (the gate already enforces that downgrade). SMS
+and push need no gate — their first-party senders are operational or user-requested, not marketing. Any
+**bulk campaign** sender in the vendored Marketing module reaches WhatsApp only through this same
+`Utility::SendMsgs()` chokepoint; covering it under `enforce` is a chokepoint-seam question reserved to the
+owner (it cannot be done by editing `packages/workdo/`), and is out of first-party D8-2 scope.
