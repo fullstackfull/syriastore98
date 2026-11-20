@@ -420,8 +420,11 @@ try {
     // view. Read the value that follows the brand's own label.
     $cardTotal = null;
     $html = $brandPayload['html'] ?? '';
+    // The value span carries an optional `aria-describedby` since P5-11 made the <x-ss.stat> hint visible (ANA-007), and
+    // `ss-stat__period` / `ss-stat__hint` siblings now sit after it, so match the FIRST value span after this brand's
+    // label with any attributes -- not a rigid adjacency. Measured markup: `<span class="ss-stat__value" aria-describedby=...> $110.00 </span>`.
     if (preg_match(
-        '/ss-stat__label">\s*Boundary brand\s*<\/span>\s*<span class="ss-stat__value">\s*[^0-9]*([0-9,]+(?:\.[0-9]+)?)/s',
+        '/ss-stat__label">\s*Boundary brand\s*<\/span>.*?<span class="ss-stat__value"[^>]*>\s*[^0-9]*([0-9,]+(?:\.[0-9]+)?)/s',
         $html,
         $m
     )) {
