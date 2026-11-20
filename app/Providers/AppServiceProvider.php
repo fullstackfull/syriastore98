@@ -73,6 +73,36 @@ class AppServiceProvider extends ServiceProvider
         Order::observe(OrderObserver::class);
 
         /*
+         | ANA — A STOREFRONT VISIT NOW SAYS WHICH STORE IT WAS. Measured 2026-11-20: it said nobody's.
+         |
+         | `ActiveTheme` logs every themed page view with `visitor()->visit($store)`, but the vendored
+         | package records the subject only when the model it is handed has a `visitLogs()` method
+         | (`Shetabit\Visitor\Visitor::visit()`, the `method_exists` branch). `App\Models\Store` has
+         | neither that method nor the package's `Visitable` trait, so the call fell through to
+         | `Visit::create($data)` and the `$store` argument was DISCARDED — the row carried no
+         | `visitable_*` and no `store_id`.
+         |
+         | Nine first-party queries filter those rows by `store_id`: `Api\DashboardController`'s visitor
+         | and unique-visitor counts (twice each), `ThemeAnalyticController`'s urls, device, browser,
+         | platform, count and unique IPs, and `HomeController`'s `whereNotNull('store_id')`. Each read
+         | nothing for every store and reported **0 visitors** instead of failing — the "fallback that
+         | never fires" shape P5-10 recorded.
+         |
+         | Filling the column as the row is created is ONE write, needs no vendored edit and no migration
+         | (the column has existed since 2024-01-26). `SanitisedVisitor` supplies the attribution: the
+         | store the caller named, else `getRouteStoreId()`. `store_id` is absent from the package model's
+         | `$fillable`, which is why this is a direct assignment and not mass assignment. A console run, a
+         | queue job or an unknown slug resolves null and the row honestly names no store. Attribution is
+         | by this COLUMN, not by the package's morph, because the column is what every reader filters on.
+         | Pinned by tests/Feature/Analytics/StorefrontVisitAttributionTest.
+         */
+        \Shetabit\Visitor\Models\Visit::creating(static function (\Shetabit\Visitor\Models\Visit $visit): void {
+            if ($visit->store_id === null) {
+                $visit->store_id = \App\Services\SanitisedVisitor::attributedStoreId();
+            }
+        });
+
+        /*
          * P1-INV-21 / #68 item 1 -- the lottery ticket's recorded price comes from a client-posted
          * hidden input while the CHARGE comes from the database. This rewrites the recorded value
          * from the authoritative `lottery_settings.ticket_price`.
