@@ -85,6 +85,16 @@ surface needs its delta stated, not just its code changed. **Gate: P5-2.**
 Sales, orders, conversion and customer insight, bilingual (AR RTL / EN LTR), contrast-checked in
 light and dark, permission-gated and tenant-isolated. Built on P5-2 only.
 
+**Data basis, measured 2026-11-20 before building anything** — §3 forbids inventing a metric, so each of
+the four was checked against what is actually recorded:
+
+| Figure | Recorded? | Basis and the caveat it must carry |
+|---|---|---|
+| **Sales** | yes | The P5-2 metric layer: `GrossMerchandiseValue`, `CollectedCustomerPayments`, `NetFinancialReceipts`, `ShippingAndTax`, `CompletedRefunds`. The settled figures inherit `LedgerCoverage`'s start (`store_order_financials` holds nothing before 2026-11-02 and is not backfilled — owner decision), and `MetricResult::total()` throws on more than one currency bucket, so a tile must go through `assumingUnknownCurrencyIs()` and show the caveat rather than risk a 500 (that is what P5-3a exists for). |
+| **Orders** | yes | `orders`, with `UnpaidOrders` / `CancelledOrders` to separate demand from collection. `orders.currency_code` is NULL on rows before 2026-10-12 and is not backfilled, which is the `unknown` bucket above. |
+| **Conversion** | **yes, with a narrow basis** | `visits` exists and IS written: `app/Http/Middleware/ActiveTheme.php:30` calls `visitor()->visit($store)` (shetabit/visitor 4.3, `config/visitor.php`, table from `config('visitor.table_name')`, `store_id` plus a `visitable` morph to the Store). So orders ÷ visits is computable per store per period — but it is **requests, not unique visitors**: the package writes one row per themed storefront request, there is no cookie-level de-duplication, and bots and link prefetchers are counted. A conversion tile is therefore only honest with that stated, and it must say "visits" rather than "visitors". Nothing here invents a funnel, a session or a bounce rate: those are not recorded. |
+| **Customer insight** | **partly, and the rest is owner-blocked** | `CustomerRetention` + `RetentionFigures` are complete (P5-6) and state their own `basis` (`settled_only` vs `all_orders`). A retention **tile** still waits on the §3 labelling decision in `PHASE-05-FOUR-FIGURE-LABELLING-PROPOSAL.md`, because the settled basis carries the same ledger-history limit as payments received and profit. New-vs-returning counts are computable from `orders` + `customers` without inventing anything. |
+
 ### P5-5 — Campaign & promotion analytics
 **Gate: P4-F134 / P4-F135.** Until those are resolved, coupon redemption is reportable only with
 its two-directional error displayed. Campaign *management* is not blocked; campaign *outcome
