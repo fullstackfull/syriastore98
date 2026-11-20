@@ -237,6 +237,71 @@ final class UnsubscribePageTest extends SecurityTestCase
         }
     }
 
+    /**
+     * F5c, from the D8-3 tenant-authz review -- THE REDEMPTION MUST NOT BE BOUNDED PER CALLER.
+     *
+     * A bare `throttle:30,1` is keyed on the IP. Recipients of one campaign routinely share an egress
+     * address (a corporate gateway, a carrier NAT, a mail provider's link scanner), so one recipient's
+     * traffic -- or a scanner's prefetches -- could exhaust the budget and the next person's POST would
+     * come back 429. A 429 here is not a delay: THE WITHDRAWAL IS SIMPLY NOT RECORDED, which is the one
+     * outcome this surface exists to prevent.
+     *
+     * Asserted structurally because the shape of the limiter is the thing that has to hold: any
+     * `throttle:<number>,<number>` is per-caller by construction, whatever the numbers are.
+     */
+    public function test_the_redemption_is_not_bounded_by_a_bare_per_caller_throttle(): void
+    {
+        $redeem = array_values(array_filter(
+            RouteFacade::getRoutes()->getByName('marketing.unsubscribe.redeem')->gatherMiddleware(),
+            fn ($m) => is_string($m) && str_starts_with($m, 'throttle:')
+        ));
+
+        $named = array_filter($redeem, fn ($m) => preg_match('/^throttle:\d+,\d+$/', $m) !== 1);
+
+        $this->assertNotEmpty($named,
+            'the redemption POST is bounded by a bare numeric throttle, which Laravel keys on the IP: '
+            .'one shared egress address can then spend every recipient\'s budget, and a refused POST '
+            .'means an unsubscribe that was never recorded.');
+    }
+
+    /** The same property, measured: one recipient spending their whole budget must not refuse another's. */
+    public function test_one_recipients_redemptions_cannot_exhaust_anothers(): void
+    {
+        [, $store] = $this->makeTenant();
+
+        $mine = $this->addressFor();
+        $theirs = $this->addressFor();
+        $myToken = $this->tokens()->issue((int) $store->id, Channel::Email, $mine);
+        $theirToken = $this->tokens()->issue((int) $store->id, Channel::Email, $theirs);
+
+        /*
+         * Spend one recipient's budget until it is refused, all from this test's single IP. The loop is
+         * ADAPTIVE rather than a fixed count on purpose: it must trip whatever the limit happens to be,
+         * so that re-merging the two halves onto one per-IP bucket is caught by the SHARING assertion
+         * below instead of by a premise that merely stops being measurable.
+         */
+        $attempts = 0;
+        $last = null;
+
+        do {
+            $last = $this->post($this->showUrl($store, $myToken));
+            $attempts++;
+        } while ($last->getStatusCode() !== 429 && $attempts < 60);
+
+        // Premise: the redemption IS bounded, or the assertion below proves nothing about sharing.
+        $this->assertSame(429, $last->getStatusCode(),
+            'Fixture premise: a replay flood against one link must eventually be refused, since every '
+            .'redemption appends a row to a table nothing may prune.');
+
+        $response = $this->post($this->showUrl($store, $theirToken));
+
+        $this->assertNotSame(429, $response->getStatusCode(),
+            'a second recipient was refused because the first had spent a budget they SHARE -- that '
+            .'refusal is an unsubscribe that was never recorded');
+        $this->assertSame(ConsentState::Withdrawn, $this->stateOf($store, $theirs),
+            'the second recipient\'s withdrawal was not recorded');
+    }
+
     /*
      * -------------------------------------------------------------------------------------------
      * A suppression outranks the link: it must not be downgraded to "withdrawn"

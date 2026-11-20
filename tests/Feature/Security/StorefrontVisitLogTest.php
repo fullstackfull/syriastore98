@@ -297,6 +297,57 @@ class StorefrontVisitLogTest extends SecurityTestCase
     }
 
     /**
+     * D8-3 -- THE UNSUBSCRIBE TOKEN IS A CAPABILITY IN THE PATH, SO THE PATH IS NOT LOGGED AT ALL.
+     *
+     * Found by the D8-3 tenant-authz review (finding F2). `UnsubscribeTokens` stores only a SHA-256 of
+     * the token precisely so that reading the table yields no working link -- and then the visit logger
+     * wrote `$request->fullUrl()`, token included, into `shetabit_visits.url`, which the merchant reads
+     * through the analytics "top URLs" panel and which a database dump exposes wholesale (P1-SEC-40).
+     * Whoever read it could withdraw that recipient's consent.
+     *
+     * THE FIX IS DIFFERENT FROM THE ORDER-LINK ONE ABOVE, deliberately. `SanitisedVisitor`'s redaction
+     * rewrites a Laravel ciphertext (`/eyJ...`) inside a path it still logs; a 43-character
+     * url-safe-base64 token is indistinguishable from an ordinary slug, so there is nothing to match on.
+     * The path is excluded in `config/visitor.php` instead, which is why the oracle here is "no row",
+     * not "a row with the token removed".
+     *
+     * THE POSITIVE CONTROL IS NOT OPTIONAL: "nothing was stored" would also pass if the exclusion
+     * pattern were wrong enough to silence the logger for the whole store, so the same store's login
+     * page is visited in the same test and MUST still be logged.
+     */
+    public function test_an_unsubscribe_link_is_never_written_to_the_visit_log(): void
+    {
+        $store = $this->themedStore();
+
+        $token = app(\App\Services\Marketing\UnsubscribeTokens::class)->issue(
+            (int) $store->id,
+            \App\Support\Marketing\Channel::Email,
+            'recipient@example.test',
+        );
+
+        // Premise: a real, redeemable token -- not a made-up 43-character string that no row matches.
+        $this->assertNotNull(
+            app(\App\Services\Marketing\UnsubscribeTokens::class)->find($token, (int) $store->id),
+            'Fixture premise: the token must resolve, or this asserts the absence of a string that was never a capability.'
+        );
+
+        $this->visit('GET', '/' . $store->slug . '/unsubscribe/' . $token);
+
+        $this->assertSame(0, DB::table('shetabit_visits')->count(),
+            'The unsubscribe path was logged. Its token is a capability: whoever reads the row can '
+            . "withdraw that recipient's marketing consent.");
+
+        // The positive control, in the same test and against the same store.
+        $this->visit('GET', '/' . $store->slug . '/login');
+
+        $this->assertSame(1, DB::table('shetabit_visits')->count(),
+            'Fixture premise: an ordinary storefront page must still be logged, or the assertion above '
+            . 'passes because logging is off rather than because the token is excluded.');
+
+        $this->assertNothingSecretStored([$token, substr($token, 0, 20)], 'unsubscribe token');
+    }
+
+    /**
      * An invalid-UTF-8 User-Agent used to make the `headers` JSON cast throw, the catch swallowed it, and
      * -- with `report($e)` -- every such request was reported to the error tracker WITH the live cookies.
      * The strings are scrubbed instead: the visit is recorded and nothing is thrown.

@@ -46,8 +46,14 @@
             <p class="ss-badge ss-badge--ok" role="status">{{ __('Your preferences have been saved.') }}</p>
         @endif
 
-        {{-- Keep the shopper in the store's own URL space when they arrived through a slug; the optional
-             parameter is simply omitted when they did not. The slug decides nothing server-side. --}}
+        @if ($rows === [])
+            {{-- No channel has a usable address, or the account names no store (see channelsFor). Saying so
+                 beats a form whose only button could never write anything. --}}
+            <p class="ss-muted">{{ __('There is no address on your account that we can send marketing to.') }}</p>
+        @else
+        {{-- The slug is carried so the shopper stays in the store's own URL space; it decides nothing
+             server-side, and the route requires it so a signed-out visitor is never sent to the merchant
+             login (review finding F3). --}}
         <form method="POST" action="{{ route('marketing.preferences.update', ['storeSlug' => request()->route('storeSlug')]) }}">
             @csrf
 
@@ -78,7 +84,9 @@
 
             <button type="submit">{{ __('Save preferences') }}</button>
         </form>
+        @endif
 
+        {{-- True either way: withdrawing marketing consent never stops an order confirmation. --}}
         <p class="ss-muted ss-note">{{ __('Messages about your orders will still be sent.') }}</p>
     </main>
 </body>

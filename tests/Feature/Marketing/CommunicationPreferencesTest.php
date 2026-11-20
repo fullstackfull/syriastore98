@@ -108,6 +108,103 @@ final class CommunicationPreferencesTest extends SecurityTestCase
         }
     }
 
+    /**
+     * F3, from the D8-3 tenant-authz review -- THE SLUG MUST BE REQUIRED, NOT OPTIONAL.
+     *
+     * It was declared `{storeSlug?}/communication-preferences`, so `/communication-preferences` resolved
+     * too. `EnsureCustomerAuthenticated` builds its target from `$request->route('storeSlug')`, and with
+     * no slug that is `route('customer.login')` -- the bare `/login`, which `routes/auth.php` claims
+     * first as the MERCHANT login. A shopper following a link in a marketing e-mail would have been
+     * shown the merchant sign-in page and had no way back to their own store's.
+     */
+    public function test_the_route_requires_the_store_slug(): void
+    {
+        foreach (['marketing.preferences.show', 'marketing.preferences.update'] as $name) {
+            $uri = RouteFacade::getRoutes()->getByName($name)->uri();
+
+            $this->assertStringNotContainsString('{storeSlug?}', $uri,
+                $name.' makes the slug optional, so the signed-out redirect resolves to the merchant login');
+            $this->assertStringStartsWith('{storeSlug}/', $uri, $name.' does not carry the store slug');
+        }
+    }
+
+    public function test_a_signed_out_shopper_is_sent_to_their_own_stores_login(): void
+    {
+        [$store] = $this->storeWithShopper();
+
+        $response = $this->get($this->url($store));
+
+        $response->assertRedirect(route('customer.login', ['storeSlug' => $store->slug]));
+
+        // The point of the finding: that destination is NOT the merchant login.
+        $this->assertNotSame(route('login'), $response->headers->get('Location'),
+            'a signed-out shopper was redirected to the merchant sign-in page');
+    }
+
+    /**
+     * F5b, from the same review -- the POST really is behind the `web` stack, so a cross-site form
+     * cannot withdraw or grant consent on a signed-in shopper's behalf. Asserted structurally because
+     * the test harness disables CSRF verification, so no request in this file can demonstrate it.
+     */
+    public function test_the_write_route_is_csrf_protected(): void
+    {
+        $middleware = RouteFacade::getRoutes()->getByName('marketing.preferences.update')->gatherMiddleware();
+
+        // `gatherMiddleware()` reports the GROUP by name; the group is where CSRF and the session live.
+        $this->assertContains('web', $middleware,
+            'the preferences POST is outside the web group, so it has neither a session nor CSRF protection');
+
+        $group = app('router')->getMiddlewareGroups()['web'] ?? [];
+
+        // Matched by suffix, not by one fixed class: Laravel 11 renamed VerifyCsrfToken to
+        // ValidateCsrfToken, and an application may substitute its own subclass through
+        // `$middleware->replace()`. What must hold is that SOME CSRF middleware is in the group.
+        $csrf = array_filter($group, static fn ($m) => is_string($m) && str_ends_with($m, 'CsrfToken'));
+
+        $this->assertNotEmpty($csrf,
+            'the web group verifies no CSRF token, so another site could change a shopper\'s consent');
+        $this->assertContains(\Illuminate\Session\Middleware\StartSession::class, $group,
+            'without the session middleware there is no customer session to authenticate against');
+    }
+
+    /**
+     * F4, from the same review -- A SHOPPER WHOSE ROW NAMES NO STORE.
+     *
+     * `customers.store_id` is nullable (2023_12_15_112855_create_customers_table) and this deployment
+     * may hold such rows. `(int) null` is 0, `ConsentLedger::stateOf()` tolerates 0, so the page
+     * rendered ordinary unticked boxes -- and the first tick reached `grant(0, ...)`, which throws
+     * InvalidArgumentException. That shopper got an HTTP 500 on every save and nothing was ever written.
+     */
+    public function test_a_shopper_whose_account_names_no_store_is_offered_nothing_and_can_still_save(): void
+    {
+        [$store] = $this->storeWithShopper();
+
+        $orphan = Customer::forceCreate([
+            'first_name' => 'No',
+            'last_name' => 'Store',
+            'email' => 'orphan-'.$this->uniqueFixtureRef().'@example.test',
+            'password' => bcrypt('x'),
+            'store_id' => null,
+            'mobile' => '963900000009',
+        ])->fresh();
+
+        // Premise: the fixture really has no store, or this test proves nothing.
+        $this->assertNull($orphan->store_id, 'Fixture premise: store_id must be null.');
+
+        $page = $this->actingAs($orphan, 'customers')->get($this->url($store));
+
+        $page->assertStatus(200);
+        $page->assertDontSee('name="email"', false);
+        $page->assertDontSee('name="whatsapp"', false);
+
+        $saved = $this->actingAs($orphan, 'customers')
+            ->post($this->url($store), ['email' => 'on', 'whatsapp' => 'on']);
+
+        $saved->assertStatus(200);
+        $this->assertSame(0, MarketingConsentEvent::query()->count(),
+            'a shopper with no store had consent written -- against which store\'s list?');
+    }
+
     /*
      * -------------------------------------------------------------------------------------------
      * Reading and writing the person's own choice

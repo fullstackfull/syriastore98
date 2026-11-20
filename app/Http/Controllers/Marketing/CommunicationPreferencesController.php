@@ -108,6 +108,19 @@ final class CommunicationPreferencesController extends Controller
      */
     private function channelsFor(Customer $customer): array
     {
+        /*
+         * A SHOPPER WITH NO STORE IS OFFERED NOTHING. `customers.store_id` is nullable and
+         * `config/tenancy.php` records that this deployment may still hold rows from before the column
+         * existed, so `(int) null` is 0. `ConsentLedger::stateOf()` tolerates 0 and the page would have
+         * rendered ordinary unticked boxes — but a tick then reached `grant(0, ...)`, which throws
+         * InvalidArgumentException, so that shopper got an HTTP 500 on every save and nothing was ever
+         * written. Offering no channel is the honest answer: there is no store whose list they could be
+         * on. Found by the D8-3 tenant-authz review (F4).
+         */
+        if ((int) $customer->store_id <= 0) {
+            return [];
+        }
+
         $out = [];
 
         $email = ContactAddress::normalise(Channel::Email, (string) $customer->email);

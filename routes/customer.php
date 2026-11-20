@@ -65,12 +65,19 @@ Route::middleware([ActiveTheme::class, 'themelanguage'])->group(function () {
      * THROTTLED, because every recipient holds a working link and every redemption appends a row to a
      * table nothing may prune. Declared first in this group so no later pattern can shadow them; both
      * carry the literal `unsubscribe` segment, so they shadow nothing themselves.
+     *
+     * THE TWO HALVES USE DIFFERENT LIMITERS, and that is a fix rather than tidiness (review finding
+     * F5c). They shared one `throttle:30,1`, which keys on the IP -- so a mail scanner prefetching GETs
+     * from a provider's egress address could exhaust the budget and the recipient's own POST would come
+     * back 429, meaning the withdrawal WAS NEVER RECORDED. The GET is a cheap read and stays per-IP,
+     * which is what bounds enumeration; the POST is keyed on the token (`unsubscribe-redeem` in
+     * RouteServiceProvider), so nobody else's traffic can spend a recipient's budget.
      */
     Route::get('{storeSlug}/unsubscribe/{token}', [UnsubscribeController::class, 'show'])
         ->middleware('throttle:30,1')
         ->name('marketing.unsubscribe.show');
     Route::post('{storeSlug}/unsubscribe/{token}', [UnsubscribeController::class, 'redeem'])
-        ->middleware('throttle:30,1')
+        ->middleware('throttle:unsubscribe-redeem')
         ->name('marketing.unsubscribe.redeem');
 
     Route::get('{storeSlug?}/product-list', [HomeController::class, 'product_page'])->name('page.product-list');
@@ -361,12 +368,20 @@ Route::post(
          * that token can only WITHDRAW the one contact it was issued for, and cannot grant.
          *
          * The store and the addresses come from the signed-in customer's own row, never from the request
-         * or from the slug -- `{storeSlug?}` is optional here only so the shopper stays inside the store
-         * they were browsing, and it decides nothing.
+         * or from the slug. The slug decides nothing server-side; it is on the URL so the shopper stays
+         * inside the store they were browsing.
+         *
+         * IT IS REQUIRED, NOT OPTIONAL, and that is a fix rather than a preference. With `{storeSlug?}`
+         * the bare `/communication-preferences` was a valid URL -- and the one `route()` generated with no
+         * arguments. For that shape `EnsureCustomerAuthenticated` has no slug to build a customer-login
+         * URL from, so it sent a signed-out shopper to `route('customer.login')` without a slug, i.e.
+         * `/login` -- which `routes/auth.php` claims first and is the MERCHANT login. That is precisely the
+         * mistake that middleware's docblock says it exists to prevent. Found by the D8-3 tenant-authz
+         * review (F3) and pinned by CommunicationPreferencesTest.
          */
-        Route::get('{storeSlug?}/communication-preferences', [CommunicationPreferencesController::class, 'show'])
+        Route::get('{storeSlug}/communication-preferences', [CommunicationPreferencesController::class, 'show'])
             ->name('marketing.preferences.show');
-        Route::post('{storeSlug?}/communication-preferences', [CommunicationPreferencesController::class, 'update'])
+        Route::post('{storeSlug}/communication-preferences', [CommunicationPreferencesController::class, 'update'])
             ->name('marketing.preferences.update');
 
         Route::get('{storeSlug?}/adress-form/{id?}', [AccountProfileController::class, 'addressForm'])->name('address-form');
