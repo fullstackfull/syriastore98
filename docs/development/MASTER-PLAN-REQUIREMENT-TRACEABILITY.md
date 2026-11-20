@@ -27,19 +27,28 @@
 
 ## Totals
 
-**350 requirements recovered. 169 VERIFIED COMPLETE. 181 are not.**
+**350 requirements recovered. 170 VERIFIED COMPLETE. 180 are not.**
 
 **Plus 18 recovered on 2026-11-16** and held in the gap register at `COVERAGE NOT ASSESSED`, so the
-project-wide figure is **368 known requirements, 169 verified complete, 199 not.**
+project-wide figure is **368 known requirements, 170 verified complete, 198 not.**
 
 These are exact counts of recovered requirements. They are measured against the recovered plan, not
 against a pre-reorganization original.
 
+> **Counts corrected 2026-11-20, and now pinned by a test.** The table below had drifted from the
+> body it summarises: it read `PARTIALLY IMPLEMENTED 76` / `NOT IMPLEMENTED 47` while the rows
+> themselves held 79 and 44 — three rows had been re-traced from NOT to PARTIAL without the summary
+> following, so the headline understated what had been looked at. Nothing checked, which is the same
+> failure as a metric citing a section that does not exist. `MasterPlanTraceabilityCountsTest` now
+> asserts every status is in the controlled vocabulary and that each count equals the number of rows
+> carrying it, so a status change that forgets the summary fails CI instead of ageing quietly.
+> `P05-12` moving to VERIFIED COMPLETE the same day is the only *substantive* change to the figures.
+
 | status | count |
 |---|---|
-| VERIFIED COMPLETE | **169** |
-| PARTIALLY IMPLEMENTED | **76** |
-| NOT IMPLEMENTED | **47** |
+| VERIFIED COMPLETE | **170** |
+| PARTIALLY IMPLEMENTED | **78** |
+| NOT IMPLEMENTED | **44** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **19** |
 | OWNER-APPROVED DEFERRED | **17** |
 | OWNER DECISION REQUIRED | **11** |
@@ -53,7 +62,7 @@ against a pre-reorganization original.
 | 2.5 Premium Merchant Experience | 52 | 29 | **23** |
 | 03 Storefront, Themes, Official Website and Documentation (M | 36 | 10 | **26** |
 | 04 Commerce (P4-0 .. P4-9) | 43 | 15 | **28** |
-| 05 Marketing & Analytics AND 06 SaaS & Premium Super Admin | 35 | 0 | **35** |
+| 05 Marketing & Analytics AND 06 SaaS & Premium Super Admin | 35 | 1 | **34** |
 
 ---
 
@@ -4642,16 +4651,16 @@ carries a caveat today", and as of P5-10 two do.)*
 
 ### `P05-12` — P5-6 Retention and repeat purchase
 
-**Status: PARTIALLY IMPLEMENTED**
+**Status: VERIFIED COMPLETE** *(2026-11-20)*
 
 - **Requirement (original wording / faithful reference):** "Derived from `orders` + `customers`, no new events invented. Gate: P5-2 (a repeat-purchase rate computed over unsettled orders is not a retention figure)."
 - **Source:** `docs/development/phase-5/PHASE-05-EXECUTION-PLAN.md §2, slice P5-6; §5 scope statement ("retention")`
-- **Owner decisions:** None found.
+- **Owner decisions:** **D1** (historical coverage, Option A) governs the period the surface may claim. Reconciled 2026-11-20: the §3 question of `PHASE-05-FOUR-FIGURE-LABELLING-PROPOSAL.md` that this slice was recorded as blocked on **is** D1, already answered and already implemented in `LedgerCoverage`. No new decision was required and none was asked for.
 - **Expected behaviour:** A merchant sees repeat-purchase and retention rates computed over settled orders only.
-- **Actual behaviour:** THE METRIC IS BUILT; THE SURFACE IS NOT. `app/Support/Metrics/CustomerRetention.php` and `RetentionFigures.php` compute repeat-purchase and retention figures through the P5-2 metric layer, under test in `tests/Feature/Metrics/MetricLayerTest.php`, and the settled-orders-only gate the plan demands is a constructor flag with its own test contrasting it against the unsettled reading. Customers are identified on `customer_id > 0` alone — deliberately **not** on `is_guest`, because `PaymentService` assigns a real `Customer` id on its guest branch, so an `is_guest` predicate silently dropped identified repeat buyers (found by a mutation that failed to redden). What does NOT exist: any merchant-facing retention surface — `grep -n 'repeat\|retention' app/Http/Controllers/HomeController.php` still returns nothing — and no retention metric is defined in PHASE-05-METRIC-DEFINITIONS.md.
-- **Gap:** The merchant-facing surface and the written metric definition. The computation itself is no longer a gap.
+- **Actual behaviour:** **Metric, surface and written definition all exist.** `app/Support/Metrics/CustomerRetention.php` + `RetentionFigures.php` compute the figures through the P5-2 metric layer; the settled-orders-only gate the plan demands is a constructor flag with its own test contrasting it against the unsettled reading. Customers are identified on `customer_id > 0` alone — deliberately **not** on `is_guest`, because `PaymentService` assigns a real `Customer` id on its guest branch, so an `is_guest` predicate silently dropped identified repeat buyers (found by a mutation that failed to redden). The surface is the **`Repeat purchase` tile on `/analytics`** (`MerchantAnalyticsFigures::retention()`), which measures over `LedgerCoverage::window()` rather than the screen's thirty days — a repeat purchase needs two orders, so a thirty-day window reports every store as less loyal than it is — states its period per D1 (*all time* / *from &lt;date&gt;*), renders *Not available* with the reason when the ledger can vouch for no period, and discloses by count the orders it excluded (guest orders; orders with no financial row). Three tests pin those three behaviours and **three complementary mutations were run**, each reddening only its own case. The metric is now documented as **§12 of `PHASE-05-METRIC-DEFINITIONS.md`**, and `CustomerRetention::definition()` cites it; `MetricDefinitionsAreDocumentedTest` pins every metric's citation to a section that exists and every metric section to exactly one class, in both directions (4 mutations, one of which reproduces this row's own former state).
+- **Gap:** None outstanding for this slice. Cohort retention, churn and lifetime value are **not** part of it and are named as not-built in §12, since each needs either a subscription record or an assumption about what counts as churned.
 - **Responsible:** Phase 05 (P5-6), gated on P5-2
-- **Next action:** Define the retention metrics in the metric document first, since the plan makes a retention figure over unsettled orders an explicit defect.
+- **Next action:** None. Not independently accepted — Phase 05 acceptance covers it.
 
 ### `P05-13` — Marketing performance reporting
 
@@ -4661,7 +4670,7 @@ carries a caveat today", and as of P5-10 two do.)*
 - **Source:** `docs/development/phase-5/PHASE-05-EXECUTION-PLAN.md §5`
 - **Owner decisions:** None found.
 - **Expected behaviour:** A merchant can see whether their marketing activity produced orders and revenue.
-- **Actual behaviour:** Not built. The nearest slice is P5-5 (campaign & promotion analytics), which is gated on the open F134/F135 coupon pair. No marketing-performance metric is defined and no surface exists. The vendored Campaigns module's campaigns-analytics/{id} route is the only thing by that name and has not been inventoried.
+- **Actual behaviour:** Not built. The nearest slice is P5-5 (campaign & promotion analytics), which **is no longer gated** — F134/F135 were measured, fixed and mutation-proved on 2026-11-20, and coupon redemption is now authoritative per window (`PHASE-05-METRIC-DEFINITIONS.md` §9). No marketing-performance metric is defined and no surface exists. The vendored Campaigns module's campaigns-analytics/{id} route is the only thing by that name and has not been inventoried.
 - **Gap:** The requirement has no slice of its own and no metric definition; it is only partially implied by P5-5.
 - **Responsible:** Phase 05
 - **Next action:** State explicitly whether marketing performance is P5-5 under another name or a separate deliverable; do not let it be absorbed silently.
@@ -4852,7 +4861,7 @@ carries a caveat today", and as of P5-10 two do.)*
 | `ANA-005` | Separate sales, collection, settlements and profitability | **PARTIAL** | COLLECTION HAS NO FIGURE. Measured: `sum('paid_amount')`, `SUM(paid_amount)` and `sum('remaining_amount')` appear ZERO times across app/, resources/ and packages/. A merchant can read what one order paid, 15 rows at a time, but … |
 | `ANA-006` | Do NOT claim precise profitability when cost or fee data is missing | **PARTIAL** | **The two profit figures named by this measurement are now disclosed** (P5-10, same day): the `Potential Profit` tile and the per-order `Profit` column each name a measured count of rows whose cost was never recorded. What remains is **fee data entirely** — `gross_profit` is `(product_amount − discount_amount) − product_cost`, so it silently excludes gateway and processing fees, `store_order_financials` has no fee column, and `MetricCaveat` has no fee constant — plus the schema's inability to tell "cost unknown" from "cost is genuinely zero". **Update, P5-16 (2026-11-18):** the new `/finance` *Estimated gross profit* tile states what it leaves out — shipping is not included and, if the store's prices include tax, the tax is part of the sales value; "at least N paid orders have no product cost on record" (a lower bound: an order that mixes costed and uncosted lines is never counted). **Fee data remains absent** and the metric layer's own caveat (`MetricCaveat::EXCLUDES_SHIPPING_AND_TAX`) is still half untrue for inclusive-tax stores (`GAP-213(d)`). Still PARTIAL. |
 | `ANA-007` | Show data quality, estimates and omissions | **PARTIAL** | ESTIMATES (التقديرات) — no merchant analytics surface labels any figure as an estimate, approximation or assumption. Greps for estimate/approximate/assumed/assumption/provisional/unreliable across every non-storefront Blade view … |
-| `ANA-008` | Document metric definitions and their sources | **PARTIAL** | CustomerRetention has NO section in the metric-definitions document. It is an implemented metric (app/Support/Metrics/CustomerRetention.php + RetentionFigures.php, exercised by 9 of the 48 tests), but `grep -i 'retention\|repeat' … |
+| `ANA-008` | Document metric definitions and their sources | **PARTIAL** | **The `CustomerRetention` half of this row is CLOSED (2026-11-20).** It was: an implemented metric with no section in the definitions document, whose `definition()` returned `'PHASE-05-EXECUTION-PLAN.md P5-6'` — a real file that documented the slice, not the metric. It is now **§12**, naming the definition, the two bases and which one is default, the two exclusions reported as counts, why `null` is a real answer rather than `0.0`, and what is deliberately not built (cohort, churn, LTV). `MetricDefinitionsAreDocumentedTest` now pins the citations in **both** directions, so this class of drift cannot recur silently: every `definition()` must name a section the document has, and every numbered metric section must be claimed by exactly one class. **What remains PARTIAL is the rest of the requirement**, which is about the *reporting surfaces*, not the metric layer: `ReportController`'s screens and the six export handlers carry no definition or source text at all, and the definitions document covers the eleven metric-layer figures only. |
 | `ANA-009` | Alerts and proactive analytics, with clear controls | **PARTIAL** | Proactive ANALYTICS alerts of any kind. No sales-drop, trend, anomaly, forecast or threshold-on-a-metric detection exists anywhere in app/ or packages/workdo/ — a repo-wide grep for sales drop / anomal / forecast / predictive / … |
 | `ANA-010` | Do NOT build a new accounting engine | **COMPLETE (machine)** | — |
 
