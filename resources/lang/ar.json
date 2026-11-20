@@ -4141,5 +4141,14 @@
     "Orders placed before :date with no financial record: :count. If any of them was paid inside this period, that payment is not included.": "الطلبات المقدَّمة قبل :date وليس لها سجل مالي: :count. وإذا دُفع أيٌّ منها خلال هذه الفترة فلا تُحتسب تلك الدفعة.",
     "Includes :amount from records that carry no currency, counted in your store currency.": "يشمل :amount من سجلات بلا عملة مسجَّلة، وتُحتسب بعملة متجرك.",
     "These amounts are in more than one currency and are not combined: :amounts.": "هذه المبالغ بأكثر من عملة واحدة ولم تُجمع: :amounts.",
-    "The latest order without a financial record is dated :date. A verified period can begin on :next at the earliest, so there is nothing to show yet.": "تاريخ آخر طلب بلا سجل مالي هو :date. ولا يمكن أن تبدأ الفترة الموثَّقة قبل :next، لذلك لا يوجد ما يُعرض بعد."
+    "The latest order without a financial record is dated :date. A verified period can begin on :next at the earliest, so there is nothing to show yet.": "تاريخ آخر طلب بلا سجل مالي هو :date. ولا يمكن أن تبدأ الفترة الموثَّقة قبل :next، لذلك لا يوجد ما يُعرض بعد.",
+    "Unsubscribe": "إلغاء الاشتراك",
+    "Stop marketing messages": "إيقاف الرسائل التسويقية",
+    "You are about to stop marketing messages sent to this address:": "أنت على وشك إيقاف الرسائل التسويقية المُرسلة إلى هذا العنوان:",
+    "Confirm unsubscribe": "تأكيد إلغاء الاشتراك",
+    "Messages about your orders will still be sent.": "سنستمر في إرسال الرسائل المتعلقة بطلباتك.",
+    "You have been unsubscribed": "تم إلغاء اشتراكك",
+    "We will no longer send marketing messages to this address:": "لن نرسل بعد الآن رسائل تسويقية إلى هذا العنوان:",
+    "This unsubscribe link is not recognised.": "رابط إلغاء الاشتراك هذا غير معروف.",
+    "It may have been mistyped, or it may belong to a different store.": "قد يكون مكتوباً بشكل خاطئ، أو قد يكون تابعاً لمتجر آخر."
 }

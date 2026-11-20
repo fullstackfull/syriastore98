@@ -4145,5 +4145,14 @@
     "Orders placed before :date with no financial record: :count. If any of them was paid inside this period, that payment is not included.": "Orders placed before :date with no financial record: :count. If any of them was paid inside this period, that payment is not included.",
     "Includes :amount from records that carry no currency, counted in your store currency.": "Includes :amount from records that carry no currency, counted in your store currency.",
     "These amounts are in more than one currency and are not combined: :amounts.": "These amounts are in more than one currency and are not combined: :amounts.",
-    "The latest order without a financial record is dated :date. A verified period can begin on :next at the earliest, so there is nothing to show yet.": "The latest order without a financial record is dated :date. A verified period can begin on :next at the earliest, so there is nothing to show yet."
+    "The latest order without a financial record is dated :date. A verified period can begin on :next at the earliest, so there is nothing to show yet.": "The latest order without a financial record is dated :date. A verified period can begin on :next at the earliest, so there is nothing to show yet.",
+    "Unsubscribe": "Unsubscribe",
+    "Stop marketing messages": "Stop marketing messages",
+    "You are about to stop marketing messages sent to this address:": "You are about to stop marketing messages sent to this address:",
+    "Confirm unsubscribe": "Confirm unsubscribe",
+    "Messages about your orders will still be sent.": "Messages about your orders will still be sent.",
+    "You have been unsubscribed": "You have been unsubscribed",
+    "We will no longer send marketing messages to this address:": "We will no longer send marketing messages to this address:",
+    "This unsubscribe link is not recognised.": "This unsubscribe link is not recognised.",
+    "It may have been mistyped, or it may belong to a different store.": "It may have been mistyped, or it may belong to a different store."
 }

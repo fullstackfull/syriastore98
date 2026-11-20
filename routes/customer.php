@@ -45,8 +45,32 @@ use App\Http\Controllers\CartController;
 use App\Http\Controllers\BlogController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SettingController;
+use App\Http\Controllers\Marketing\UnsubscribeController;
 
 Route::middleware([ActiveTheme::class, 'themelanguage'])->group(function () {
+
+    /*
+     * D8-3a — THE UNSUBSCRIBE LINK. GAP-200 / MKT-008.
+     *
+     * THE GET ONLY CONFIRMS; THE POST WITHDRAWS. A token is reusable by design -- an unsubscribe link
+     * that stops working is a failure to honour an unsubscribe -- so a mail scanner or link prefetcher
+     * following an OLD link's GET would otherwise withdraw an opt-in the person has since given again.
+     * UnsubscribeTokens' own docblock requires this split, and UnsubscribePageTest asserts it.
+     *
+     * `{storeSlug}` IS REQUIRED HERE, unlike its optional neighbours below: the token is scoped to one
+     * store and the service takes that store as a REQUIRED argument, so this page must be served under a
+     * named store rather than whichever one `getStore(null)` would happen to resolve.
+     *
+     * THROTTLED, because every recipient holds a working link and every redemption appends a row to a
+     * table nothing may prune. Declared first in this group so no later pattern can shadow them; both
+     * carry the literal `unsubscribe` segment, so they shadow nothing themselves.
+     */
+    Route::get('{storeSlug}/unsubscribe/{token}', [UnsubscribeController::class, 'show'])
+        ->middleware('throttle:30,1')
+        ->name('marketing.unsubscribe.show');
+    Route::post('{storeSlug}/unsubscribe/{token}', [UnsubscribeController::class, 'redeem'])
+        ->middleware('throttle:30,1')
+        ->name('marketing.unsubscribe.redeem');
 
     Route::get('{storeSlug?}/product-list', [HomeController::class, 'product_page'])->name('page.product-list');
     Route::get('{storeSlug?}/product-filter', [HomeController::class, 'product_page_filter'])->name('product.page.filter');
