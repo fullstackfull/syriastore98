@@ -1,7 +1,12 @@
-# P5-3 — what the planning pass found, and why wiring cannot start yet
+# P5-3 — the planning pass, the prerequisites, and the engineering that followed
 
-**Status:** P5-3 is **NOT started as engineering.** This document is the output of its planning
-pass and the two prerequisites that pass uncovered. No report surface has been changed.
+**Status (2026-11-20):** the eleven on-screen defects in §2 are closed or refuted (see §4), the two
+prerequisites are resolved, and the six CSV export handlers have been reconciled against their
+on-screen twins (§5). What remains is surface wiring gated on the entitlement-ledger start date and
+the one owner labelling decision (both in §4), tracked in the task ledger — not here.
+
+This document began as the output of the planning pass and its two prerequisites (the sections
+below, written then and left intact as the record); §4 and §5 record what was built from it.
 
 **Method.** Six report-surface groups were analysed and then adversarially challenged by an
 independent pass instructed to attack each proposal and to default to *unsound* when uncertain.
@@ -147,3 +152,33 @@ chart offers no account of why.
 | **P5-3h** | **DONE.** Defect 5 fixed at both outlier branches, with three harness cases and both failure modes measured on revert. |
 | **nothing open** | **All eleven defects in §2 are now closed or refuted.** 1, 3, 4, 5 fixed; 2 fixed under P5-3e (owner recommendation 3); 6 and 8 fixed under P5-3f (owner recommendation 4); 7 fixed as a metric with the writers deliberately untouched; 9 (the invisible caveat affordance) is carried as the blocker in the labelling proposal's §5; 10 (one partial, two handlers) is a constraint on how any wiring must be done, recorded in §4 of that proposal; and **11 is REFUTED** — `$delivery_price` is 0 whenever shipping is off, the same condition under which it is added, so `final_price − delivery − tax` is exact in both branches. |
 | **tooling** | Finding 2a means these surfaces need the MySQL harness as a standing requirement, not a one-off. Two scripts now exist (`verify-metric-layer-on-mysql.php`, `verify-report-window-boundary-on-mysql.php`); `verify-top-five-reports-on-mysql.php` is the third. All three are registered in `run-mysql-verifications.sh` so CI or a reviewer can run the set. |
+
+## 5. Export integration — the six CSV download handlers vs their on-screen twins
+
+Each merchant report screen offers a CSV download built client-side from the same JSON the chart
+reads. All six were checked against the screen they export, measured from primary source, because an
+export that silently carries fewer or wrong series is a data-integrity defect, not a cosmetic one.
+`ReportController` cannot run under the suite (MONTH()/YEAR() in `selectRaw`), but the export
+handlers hold no `selectRaw` — they only read their own session key — so they do run under the
+Feature suite, and the view JS is pinned by static source tests.
+
+| Export handler | On-screen twin | Finding | Disposition |
+|---|---|---|---|
+| `category_order_export` | sales by category | **HIGH — wrong data.** The handler already returned every category's series, but the **view** row read `data.NetSaleTotal[0]` on every period, so a merchant with ten categories exported a file about **one**, repeated and stamped with that one name. | **FIXED (view).** The row loop now walks `data.NetSaleTotal.forEach` as the chart does — one row per (series, period) — and CSV-quotes the merchant-typed name. Pinned by `ReportExportBuildsEverySeriesTest`; the three-field template-literal row shape is kept so `ReportCsvHeaderLocalisationTest` still measures it. |
+| `brand_order_export` | sales by brand | **HIGH — wrong data.** Same first-series-only view bug as category. | **FIXED (view).** Same walk-every-series fix, pinned the same way. |
+| `order_bar_report_export` | sales bar report | **MEDIUM — incomplete.** The screen plots Total Orders and Purchased Items in a second chart, and the chart handler already stores both in the `order_bar_chart_report` session, but the export returned only the six money series — a file two columns narrower than the screen. | **FIXED (handler + view).** The handler also returns `TotalOrderCount` and `PurchasedItemTotal` (read from the same session; no new query, no request input); the view appends two columns with the same `Orders`/`Items ordered` labels `order_report` uses, type-guarded. Pinned by the bar entries in `ReportExportFailureFeedbackTest` (returned-key set, guarded-series set) and `ReportCsvHeaderLocalisationTest` (column count 7→9). |
+| `order_report_export` | order line report | **None — already complete.** All eight series plus Duration = nine columns; every series is written. | No change. |
+| `product_order_export` | sales by product | **None — already complete.** `NetSaleTotal`/`PurchasedItemTotal` are flat per-period arrays (the chart feeds them straight to ApexCharts' `data:`), so the existing `[i]` row already reads every period. No first-series bug. | No change. |
+| `export` (registrations) | reports hub | Out of scope for the money work — it serves customer counts (users, guests), not money, and is the exemplar the header-localisation finding copied. | No change. |
+
+**Labels and the date boundary.** The export column labels already use the settled P5-3e/P5-3g
+wording (`Order value, including shipping and tax`, etc.) — label parity landed with the on-screen
+labels. The date-boundary family is green on MariaDB (`verify-report-window-boundary-on-mysql.php`,
+12 checks, 0 failed), including the product report's inline day-compensation, so no export inherits
+a dropped-last-day window.
+
+**Deliberately not done.** Carrying the ANA-006/007 data-coverage *caveat* (the entitlement-ledger
+start date, the mixed-currency assumption) into the CSV as a footnote row is a disclosure-design
+choice, not a correctness defect — the exported figures are the same numbers the screen shows with
+its visible caveat. Recorded as a deliberate non-change rather than implemented speculatively; if
+the owner wants the CSV self-describing, it is a small follow-up.
