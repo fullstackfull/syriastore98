@@ -55,12 +55,35 @@ final class MetricCaveat
      * Section 9, and the only caveat in this list that is BLOCKING rather than qualifying.
      *
      * Owner instruction: "Review P4-F134 and P4-F135 before using coupon-redemption records as
-     * authoritative data." Both are open. P4-F134: `ordersave` may record no redemption at all, so
-     * the figure is UNDER-counted. P4-F135: a refused coupon still writes `order_coupon_details`
-     * and `user_coupons`, so the figure is OVER-counted. Errors in both directions, neither
-     * quantified, so the true value cannot even be bounded.
+     * authoritative data." P4-F134: `ordersave` recorded NO redemption at all, so the figure is
+     * UNDER-counted. P4-F135: a refused coupon still wrote `order_coupon_details` and
+     * `user_coupons`, so it is OVER-counted. Errors in both directions, neither quantified, so the
+     * true value cannot even be bounded.
+     *
+     * BOTH ARE NOW REVIEWED AND FIXED (2026-11-20), AND THIS CAVEAT IS STILL CORRECT AND STILL
+     * BLOCKING -- for the period before the fix. The fix is forward-only and historical redemption
+     * rows are deliberately not backfilled, so a window that reaches back into that period really
+     * does carry both errors. What changed is that it is no longer the ONLY thing section 9 can
+     * say: a window lying entirely inside a store's complete period gets
+     * {@see self::COUPON_REDEMPTION_COVERAGE} instead, which qualifies rather than disqualifies.
+     * `CouponRedemption::for()` chooses between them from `CouponRedemptionCoverage`, per store.
      */
     public const COUPON_REDEMPTION_UNRELIABLE = 'coupon_redemption_unreliable';
+
+    /**
+     * Section 9, the POST-FIX form: the records are sound, and they start where they start.
+     *
+     * P4-F134's fix began recording redemptions on a route that recorded none, and P4-F135's
+     * stopped recording refused ones -- but neither rewrote history, because backfilling financial
+     * records is forbidden by the rule that governs the ledger (owner decision D1). So a figure
+     * computed over a window AFTER a store's last unrecorded redemption is complete and may be
+     * presented as fact; it simply does not extend back to the beginning of the store.
+     *
+     * QUALIFYING, NOT BLOCKING, and the distinction is the whole point: "this number is right, and
+     * here is where it starts" is a different statement from "this number cannot be trusted", and a
+     * merchant who is given the second when the first is true learns to ignore caveats.
+     */
+    public const COUPON_REDEMPTION_COVERAGE = 'coupon_redemption_coverage';
 
     /**
      * Section 11 rule 3. The rows summed are denominated in more than one currency and nothing
@@ -156,6 +179,7 @@ final class MetricCaveat
         self::PARTIAL_REFUNDS_EXCLUDED => 'Partial refunds are not counted; only fully refunded orders are.',
         self::CANCEL_DATE_INCOMPLETE => 'Some cancellations carry no cancellation date and are dated by when the ledger row changed.',
         self::COUPON_REDEMPTION_UNRELIABLE => 'Coupon redemption records are known to be both incomplete and inflated. This figure is not authoritative.',
+        self::COUPON_REDEMPTION_COVERAGE => 'Coupon redemptions are recorded in full only from the date shown; earlier orders are not included and are not reconstructed.',
         self::MIXED_CURRENCY => 'These amounts are in more than one currency and have not been converted.',
         self::FLOAT_PRECISION => 'This figure is stored at limited precision and may differ from the ledger in the smallest units.',
         self::RECONCILIATION_DIVERGENCE => 'The ledger and the order records disagree on this figure.',
@@ -170,6 +194,12 @@ final class MetricCaveat
      *
      * Only section 9 is in here, and it is in here by owner instruction rather than by engineering
      * judgement.
+     *
+     * `COUPON_REDEMPTION_COVERAGE` is deliberately NOT in here. It is the same subject matter, and
+     * leaving it out is the substantive half of P5-5: a window that lies entirely inside a store's
+     * complete period carries no unbounded error, so disqualifying it would be withholding a figure
+     * the data supports. A window that reaches back before the recording fix still gets
+     * `COUPON_REDEMPTION_UNRELIABLE` and is still disqualified.
      */
     private const BLOCKING = [
         self::COUPON_REDEMPTION_UNRELIABLE,

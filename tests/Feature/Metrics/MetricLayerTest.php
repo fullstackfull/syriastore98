@@ -975,27 +975,127 @@ class MetricLayerTest extends TestCase
 
     // ----------------------------------------------------------------- §9 coupons (blocked)
 
-    public function test_coupon_redemption_can_never_be_presented_as_authoritative(): void
+    /** A redemption row, optionally against a discounted order the recording fix would have covered. */
+    private function recordRedemption(int $orderId, float $amount = 10.0): void
     {
-        $orderId = $this->placeOrder();
         DB::table('order_coupon_details')->insert([
             'order_id' => $orderId, 'coupon_id' => 1, 'coupon_name' => 'TEN',
             'coupon_code' => 'TEN', 'coupon_discount_type' => 'flat',
-            'coupon_discount_number' => 10.0, 'coupon_discount_amount' => 10.0,
-            'coupon_final_amount' => 90.0,
+            'coupon_discount_number' => $amount, 'coupon_discount_amount' => $amount,
+            'coupon_final_amount' => 100.0 - $amount,
             'created_at' => now(), 'updated_at' => now(),
         ]);
+    }
+
+    /**
+     * AN ALL-TIME WINDOW IS NEVER AUTHORITATIVE, and that is now the precise claim.
+     *
+     * This case used to be named "can never be presented as authoritative", which was true while
+     * P4-F134 and P4-F135 were open and is not true any more. Both are fixed (2026-11-20), but the
+     * fix is forward-only and history is deliberately not backfilled — so an ALL-TIME window still
+     * reaches into the period that is both under- and over-counted, and is still disqualified.
+     * Renamed rather than deleted: the guarantee it describes is the one that survived.
+     */
+    public function test_coupon_redemption_over_an_all_time_window_is_never_authoritative(): void
+    {
+        $orderId = $this->placeOrder(['coupon_price' => 10.0]);
+        $this->recordRedemption($orderId);
 
         $result = (new CouponRedemption())->for($this->scopeA(), $this->allTime());
 
         $this->assertEqualsWithDelta(10.0, $result->total(), 0.001);
         $this->assertFalse(
             $result->isAuthoritative(),
-            'owner instruction: coupon-redemption records are not authoritative until '
-            . 'P4-F134 and P4-F135 are resolved'
+            'an all-time window includes the period before the recording fix, which carries errors '
+            . 'in both directions and is not backfilled'
         );
         $this->assertTrue($result->hasCaveat(MetricCaveat::COUPON_REDEMPTION_UNRELIABLE));
         $this->assertSame(['P4-F134', 'P4-F135'], $result->notes()['blocked_by']);
+    }
+
+    /**
+     * THE OTHER HALF, which nothing covered until P5-5: a window inside the complete period IS
+     * authoritative, and says where the records start instead of refusing the figure.
+     *
+     * The store's only discounted order has its coupon-detail row, so
+     * `CouponRedemptionCoverage::forStore()` reports complete and any dated window qualifies.
+     */
+    public function test_coupon_redemption_inside_the_recorded_period_is_authoritative(): void
+    {
+        $orderId = $this->placeOrder(['coupon_price' => 10.0]);
+        $this->recordRedemption($orderId);
+
+        $result = (new CouponRedemption())->for(
+            $this->scopeA(),
+            MetricWindow::since(now()->subMonth())
+        );
+
+        $this->assertEqualsWithDelta(10.0, $result->total(), 0.001);
+        $this->assertTrue(
+            $result->isAuthoritative(),
+            'every discounted order in this store has its redemption row, so a dated window inside '
+            . 'the complete period carries no unbounded error and must not be disqualified'
+        );
+        $this->assertTrue($result->hasCaveat(MetricCaveat::COUPON_REDEMPTION_COVERAGE),
+            'the figure must still say that records start where they start');
+        $this->assertFalse($result->hasCaveat(MetricCaveat::COUPON_REDEMPTION_UNRELIABLE));
+        $this->assertFalse($result->notes()['history_backfilled'],
+            'the notes must state that history was NOT reconstructed');
+    }
+
+    /** A DISCOUNTED ORDER WITH NO REDEMPTION ROW inside the window disqualifies it again. */
+    public function test_a_window_containing_an_unrecorded_redemption_is_not_authoritative(): void
+    {
+        // Recorded, and then one that the pre-fix `order-save` would have left unrecorded.
+        $this->recordRedemption($this->placeOrder(['coupon_price' => 10.0]));
+        $this->placeOrder(['coupon_price' => 10.0]);
+
+        $result = (new CouponRedemption())->for(
+            $this->scopeA(),
+            MetricWindow::since(now()->subMonth())
+        );
+
+        $this->assertFalse(
+            $result->isAuthoritative(),
+            'a discounted order with no coupon-detail row sits inside this window, so the figure '
+            . 'under-counts by an amount nothing bounds'
+        );
+        $this->assertTrue($result->hasCaveat(MetricCaveat::COUPON_REDEMPTION_UNRELIABLE));
+    }
+
+    /**
+     * CROSS-TENANT: EVERY store must be sound, not the best one.
+     *
+     * One store still carrying unrecorded redemptions makes the summed figure carry them too, so
+     * the verdict is ANDed across the scope. Taking the best store's coverage would produce an
+     * aggregate that is right about nothing.
+     */
+    public function test_one_store_with_unrecorded_redemptions_disqualifies_the_whole_scope(): void
+    {
+        $this->recordRedemption($this->placeOrder(['coupon_price' => 10.0]));
+
+        // Store B: discounted, no redemption row.
+        $this->placeOrder(['store_id' => self::STORE_B, 'coupon_price' => 10.0]);
+
+        $soundAlone = (new CouponRedemption())->for(
+            $this->scopeA(),
+            MetricWindow::since(now()->subMonth())
+        );
+
+        // Premise: store A on its own IS sound, so the failure below is store B's and not the window's.
+        $this->assertTrue($soundAlone->isAuthoritative(),
+            'Premise: store A alone must qualify, or this case is not measuring the cross-tenant AND');
+
+        $together = (new CouponRedemption())->for(
+            MetricScope::stores([self::STORE_A, self::STORE_B]),
+            MetricWindow::since(now()->subMonth())
+        );
+
+        $this->assertFalse(
+            $together->isAuthoritative(),
+            'store B still has an unrecorded redemption, so the summed figure inherits it — the '
+            . 'scope\'s verdict must be the AND of its stores, not the best of them'
+        );
     }
 
     // ----------------------------------------------------------------- §10 shipping and tax
