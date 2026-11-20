@@ -1159,6 +1159,23 @@ Route::get(
         Route::post('theme-enable', [AddonController::class, 'ThemeEnable'])->name('theme.enable');
     });
 
+    /*
+     * P5-4 — THE MERCHANT ANALYTICS SCREEN. ANA-001…ANA-004.
+     *
+     * Declared beside the reports because it IS one and shares their gate. `ReportPermission` is
+     * attached explicitly here rather than inherited from a constructor, because the handler lives on
+     * its own controller (ReportController cannot run under the Feature suite at all: 36 `MONTH(` and
+     * 9 `YEAR(` in `selectRaw` are absent from SQLite, so a screen whose purpose is honest figures
+     * would have been untestable). The action method is `index`, which `ReportPermission::ACTIONS`
+     * maps to the seeded `Manage Reports` — no new permission name, because a name absent from
+     * `Utility::addNewData()` cannot exist as a row and evaluates false for everybody, the tenant
+     * owner included. The middleware's own ordering (operator, then tenant owner, then permission) is
+     * what makes this correct for the platform operator, who holds no Laratrust role.
+     */
+    Route::get('analytics', [\App\Http\Controllers\MerchantAnalyticsController::class, 'index'])
+        ->middleware(\App\Http\Middleware\ReportPermission::class)
+        ->name('analytics.index');
+
     // Report
     Route::resource('reports', ReportController::class);
     Route::get('reports-chart', [ReportController::class, 'reports_chart'])->name('reports.chart');

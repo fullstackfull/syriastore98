@@ -430,6 +430,30 @@ $menu->add([
             'permission' => 'Manage Reports'
         ]);
 
+        /*
+         * P5-4 — THE MERCHANT ANALYTICS SCREEN. First under Reports because it is the overview the
+         * others break down, and `order => 0` keeps it there without renumbering its siblings.
+         *
+         * `Manage Reports` MATCHES THE ROUTE'S OWN GATE, which matters in this codebase specifically:
+         * the report permissions were once enforced ONLY here in the menu, so a staff member with no
+         * report role received a byte-identical report body by URL (P1-SEC-09). The menu is a
+         * convenience, never the control — `ReportPermission` on the route is — but naming a
+         * DIFFERENT permission here would hide the screen from people who may open it, which is the
+         * same class of bug seen from the other side.
+         */
+        $menu->add([
+            'title' => __('Analytics'),
+            'icon' => 'home',
+            'name' => '',
+            'parent' => 'reports',
+            'order' => 0,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'analytics.index',
+            'module' => $module,
+            'permission' => 'Manage Reports'
+        ]);
+
         $menu->add([
             'title' => __('Customer Reports'),
             'icon' => 'home',

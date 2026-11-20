@@ -4161,5 +4161,19 @@
     "Blocked": "Blocked",
     "This address is blocked and cannot be re-enabled here.": "This address is blocked and cannot be re-enabled here.",
     "There is no address on your account that we can send marketing to.": "There is no address on your account that we can send marketing to.",
-    "Save preferences": "Save preferences"
+    "Save preferences": "Save preferences",
+    "Analytics": "Analytics",
+    "How the store has been doing. Every figure states the period it covers and what it leaves out.": "How the store has been doing. Every figure states the period it covers and what it leaves out.",
+    "Store activity": "Store activity",
+    "Page views": "Page views",
+    "Conversion": "Conversion",
+    "Buyers": "Buyers",
+    "Money": "Money",
+    "These figures are read from this store's own records and are never shared between stores.": "These figures are read from this store's own records and are never shared between stores.",
+    "last :count days": "last :count days",
+    "Orders divided by storefront page views in this period.": "Orders divided by storefront page views in this period.",
+    "No page views were recorded in this period, so there is nothing to divide by.": "No page views were recorded in this period, so there is nothing to divide by.",
+    "There are more orders than recorded page views, so some orders arrived by a route that logs no page view.": "There are more orders than recorded page views, so some orders arrived by a route that logs no page view.",
+    "Orders placed without a customer account cannot be attributed to a person and are counted in neither: :count.": "Orders placed without a customer account cannot be attributed to a person and are counted in neither: :count.",
+    ":new new · :returning returning": ":new new · :returning returning"
 }

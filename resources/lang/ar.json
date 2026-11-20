@@ -4157,5 +4157,22 @@
     "Blocked": "محجوب",
     "This address is blocked and cannot be re-enabled here.": "هذا العنوان محجوب ولا يمكن تمكينه من هنا.",
     "There is no address on your account that we can send marketing to.": "لا يوجد في حسابك عنوان يمكننا إرسال رسائل تسويقية إليه.",
-    "Save preferences": "حفظ التفضيلات"
+    "Save preferences": "حفظ التفضيلات",
+    "Analytics": "التحليلات",
+    "How the store has been doing. Every figure states the period it covers and what it leaves out.": "كيف كان أداء المتجر. كل رقم يوضح الفترة التي يغطيها وما لا يشمله.",
+    "Store activity": "نشاط المتجر",
+    "Page views": "مرات مشاهدة الصفحات",
+    "Conversion": "معدل التحويل",
+    "Buyers": "المشترون",
+    "Money": "المبالغ",
+    "These figures are read from this store's own records and are never shared between stores.": "تُقرأ هذه الأرقام من سجلات هذا المتجر وحده ولا تُشارك بين المتاجر.",
+    "last :count days": "آخر :count يوم",
+    "Orders placed in this period, whatever their payment status. It is not a money figure and does not exclude orders later cancelled or refunded.": "الطلبات التي تم تقديمها في هذه الفترة، أياً كانت حالة الدفع. هذا ليس رقماً مالياً ولا يستثني الطلبات التي أُلغيت أو استُردت لاحقاً.",
+    "Page views of your storefront, counted once per request. It is not a count of people: the same visitor browsing five pages is five, and automated traffic such as search-engine crawlers and link previews is included.": "مرات مشاهدة صفحات متجرك، تُحسب مرة لكل طلب. هذا ليس عدد الأشخاص: الزائر نفسه إذا تصفّح خمس صفحات يُحسب خمساً، والزيارات الآلية مثل زواحف محركات البحث ومعاينات الروابط مشمولة أيضاً.",
+    "Orders divided by storefront page views in this period.": "الطلبات مقسومة على مرات مشاهدة صفحات المتجر في هذه الفترة.",
+    "No page views were recorded in this period, so there is nothing to divide by.": "لم تُسجَّل أي مشاهدات للصفحات في هذه الفترة، فلا يوجد ما نقسم عليه.",
+    "There are more orders than recorded page views, so some orders arrived by a route that logs no page view.": "عدد الطلبات أكبر من مرات مشاهدة الصفحات المسجَّلة، أي أن بعض الطلبات وصل عبر مسار لا يُسجِّل مشاهدة صفحة.",
+    "Buyers in this period, split by whether they had ordered from this store before it. A buyer is counted once however many orders they placed.": "المشترون في هذه الفترة، موزّعون حسب ما إذا كانوا قد اشتروا من هذا المتجر قبلها. يُحسب المشتري مرة واحدة أياً كان عدد طلباته.",
+    "Orders placed without a customer account cannot be attributed to a person and are counted in neither: :count.": "الطلبات المقدَّمة بدون حساب عميل لا يمكن نسبتها إلى شخص ولا تُحسب في أي من الفئتين: :count.",
+    ":new new · :returning returning": ":new جديد · :returning عائد"
 }
