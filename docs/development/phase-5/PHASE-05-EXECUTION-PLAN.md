@@ -95,10 +95,22 @@ the four was checked against what is actually recorded:
 | **Conversion** | **yes, with a narrow basis** | `visits` exists and IS written: `app/Http/Middleware/ActiveTheme.php:30` calls `visitor()->visit($store)` (shetabit/visitor 4.3, `config/visitor.php`, table from `config('visitor.table_name')`, `store_id` plus a `visitable` morph to the Store). So orders ÷ visits is computable per store per period — but it is **requests, not unique visitors**: the package writes one row per themed storefront request, there is no cookie-level de-duplication, and bots and link prefetchers are counted. A conversion tile is therefore only honest with that stated, and it must say "visits" rather than "visitors". Nothing here invents a funnel, a session or a bounce rate: those are not recorded. |
 | **Customer insight** | **partly, and the rest is owner-blocked** | `CustomerRetention` + `RetentionFigures` are complete (P5-6) and state their own `basis` (`settled_only` vs `all_orders`). A retention **tile** still waits on the §3 labelling decision in `PHASE-05-FOUR-FIGURE-LABELLING-PROPOSAL.md`, because the settled basis carries the same ledger-history limit as payments received and profit. New-vs-returning counts are computable from `orders` + `customers` without inventing anything. |
 
-### P5-5 — Campaign & promotion analytics
-**Gate: P4-F134 / P4-F135.** Until those are resolved, coupon redemption is reportable only with
-its two-directional error displayed. Campaign *management* is not blocked; campaign *outcome
-measurement* is.
+### P5-5 — Campaign & promotion analytics — **GATE CLEARED 2026-11-20; the surface is not built**
+**Gate was P4-F134 / P4-F135**, and both are now measured and fixed (see
+`docs/development/phase-4/PHASE-04-FINDINGS-REGISTER.md`). Until today coupon redemption was
+reportable only with a two-directional error displayed, because `user_coupons` — the only table any
+coupon figure can be computed from — was missing every `order-save` redemption (F134) and carrying
+refused ones from `place_order` (F135).
+
+**What is now true, and what is still not.** New orders through both API writers record exactly one
+redemption per accepted coupon, from the server's own resolution, so a redemption figure computed
+over them is sound. **HISTORY IS NOT CORRECTED AND MUST NOT BE**: every pre-fix `order-save` order
+that used a coupon has no `user_coupons` row and no `order_coupon_details` row, and writing them now
+would be a backfill of financial records — forbidden by the same rule as D1's ledger start. So the
+campaign-outcome surface inherits a coverage start exactly as `/finance` does, and
+`App\Support\Metrics\CouponRedemption`'s caveat must change from "errors in both directions" to
+"complete only from the fix date" rather than being dropped. That is the remaining work on this
+slice; it is engineering, not an owner decision.
 
 ### P5-6 — Retention and repeat purchase — **METRIC COMPLETE (2026-11-17), no surface**
 Derived from `orders` + `customers`, no new events invented. **Gate: P5-2** (a repeat-purchase rate

@@ -506,7 +506,14 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            tenant-owned data -- and the read is raw so that no `Cachable` query (and no cached `type`) sits inside query compilation; it does not need
            to be raw to avoid re-entering the scope, which `User` cannot do. Classified on the `users` row below; asserted by what it reads in
            ResidualTenancyExposureTest. */
-        $this->assertSame(['app' => 192, 'packages' => 45], $perDir,
+        /* 192 -> 193 [P5-5]: `CouponRedemptionCoverage::forStore()`, one aggregate over an anti-join from
+           `orders` to `order_coupon_details`, answering from when a store's coupon-redemption record is
+           complete. It is LedgerCoverage's rule applied to a different pair of tables, and exists because
+           P4-F134's fix is forward-only: pre-fix `order-save` orders have no redemption row and are not
+           backfilled, so a redemption figure needs a derived start rather than a hard-coded cut-over date.
+           Scoped by `where('orders.store_id', $storeId)`; classified on the `orders` row below.
+           `order_coupon_details` has no model and no `store_id` column, so the join adds no per-table row. */
+        $this->assertSame(['app' => 193, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -611,7 +618,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         /* 235 -> 236 [P5-16]: `LedgerCoverage::forStore()`, which names `store_id`; the unscoped totals
            do not move. See the note on the per-directory figure above. */
         /* 236 -> 237 [P1-SEC-67b]: the `users.type` probe in StoreScope (see the per-directory note); it names no `store_id`, so it is also +1 unscoped. */
-        $this->assertSame(237, array_sum($perDir));
+        /* 237 -> 238 [P5-5]: `CouponRedemptionCoverage::forStore()`, which names `store_id`; the unscoped
+           totals do not move. See the note on the per-directory figure above. */
+        $this->assertSame(238, array_sum($perDir));
     }
 
     /**
@@ -751,7 +760,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // in the same expression that names the table, so the unscoped half stays at 1.
             // 6 -> 7 [P5-16]: `LedgerCoverage::forStore()` -- `where('orders.store_id', $storeId)`, so the
             // unscoped half stays at 1. See the matching note on the per-directory total above.
-            'orders' => [7, 1],
+            // 7 -> 8 [P5-5]: `CouponRedemptionCoverage::forStore()`, the same shape as LedgerCoverage for a
+            // different pair of tables -- `where('orders.store_id', $storeId)` in the same expression that
+            // names the table, so the unscoped half stays at 1. Its `leftJoin` reaches
+            // `order_coupon_details`, which HAS NO `store_id` column (measured; `CouponRedemption` records
+            // it), so that side cannot carry a predicate and the rows are reachable only through the
+            // scoped order -- stated here because this inventory exists to make exactly that visible.
+            'orders' => [8, 1],
             'owner_menu_items' => [1, 1],
             'owner_menu_settings' => [1, 1],
             'owner_menus' => [1, 1],
@@ -977,7 +992,11 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         /* 184 -> 185 [P1-SEC-67b]: `StoreScope::rootIsAMerchant()`'s read of `users.type`. It spells the table as a quoted literal, so it lands in this
            per-table census (the `users` row above, 5 -> 6). It names no `store_id` -- `users` has none -- so the companion UNSCOPED total below DOES move,
            82 -> 83, and the argument for that is written beside it. */
-        $this->assertSame(185, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        /* 185 -> 186 [P5-5]: `CouponRedemptionCoverage::forStore()` spells `orders` as a quoted literal and
+           names `store_id`, so it lands in this per-table census (the `orders` row above, 7 -> 8) and the
+           companion unscoped total below does NOT move. Its `leftJoin` target `order_coupon_details` has no
+           `store_id` column at all, which is why that side carries no predicate -- see the `orders` row. */
+        $this->assertSame(186, array_sum(array_map(fn ($r) => $r[0], $actual)),
             'THE FIGURES INSIDE THIS MESSAGE ARE THE 2026-11-02 MEASUREMENT AND ARE NOT RATCHETED; '
             . 'the current totals are the ones ASSERTED above and in the dated notes beside them. '
             . 'That split is itself one of this file\'s findings, recorded rather than tidied away '
