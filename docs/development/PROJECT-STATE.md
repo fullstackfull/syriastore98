@@ -16,39 +16,42 @@ decision quoted as such.
 > checkpoints. Do not stop at a clean slice; select the next eligible task from the Master Plan,
 > dependencies and the gap register.
 >
-> **Last verified head:** `e132055d`, required CI run **44820694522 (ci.yml #566)** — still
-> `in_progress` when this was written. The last head with a CI **success** is `efc063b7` (run
-> 44722555870, 11:45Z).
+> **PUSHED head: `9ee54f6d`** (fast-forward `e132055d..9ee54f6d`, 2026-11-20 ~22:5xZ). The required
+> CI run for it had just been created when this was written — **check its conclusion before the next
+> push**, and do not push while it runs. The previous head `e132055d` passed run 44820694522
+> (ci.yml #566), concluded success 22:32:08Z.
 >
-> **Committed since `e132055d` and NOT YET PUSHED** (each Level-A green; the push waits for #566 to
-> reach a terminal state, because a push cancels a running required run):
-> `9e342c4c` ANA — a storefront visit recorded no store, so every visitor figure read 0 forever ·
-> `53843ff5` D8-3 review follow-up (four defects the independent review found) ·
-> `292edc5c` P5-4a merchant analytics figures · `776f9636` GAP-215 (the opt-in records consent for
-> an unverified address — owner decision) · `c338c10b` P5-4b the merchant analytics screen.
+> **Local gates on `9ee54f6d`:** Unit 5,919 passed + 1 declared skip · Contract 45 passed ·
+> Commerce 1,191 passed, 0 failed. The full Feature suite was NOT re-run locally for this batch
+> (Level A); CI runs it with the known-outcome gate.
 >
-> **UNCOMMITTED, and deliberately held for an independent review that was still running** (the
-> tenant-authz reviewer was asked for it on 2026-11-20; act on its findings, then commit):
-> P4-F134 / P4-F135 — the coupon-redemption recording fix on both API order writers
-> (`app/Services/CouponRedemptionRecorder.php`, two blocks in `Api\ApiController`,
-> `tests/Feature/Commerce/ApiCouponRedemptionRecordingTest.php`, one inverted case in
-> `StorefrontOrderWriteAtomicityTest`, the two Phase 04 register entries) plus
-> `App\Support\Metrics\CouponRedemptionCoverage` and its test, and the three raw-query census
-> declarations they need. All Level-A green, both mutation checks run.
+> **What that head contains, newest first:** three Unit-gate fixes my own P5-4 strings moved ·
+> the transaction-boundary scan re-expressed for the coupon rows' new writer · the coupon review
+> follow-up (two defects the review found IN the first fix) · `CouponRedemptionCoverage` (P5-5's
+> prerequisite) · P4-F134/F135 the coupon-recording fix · continuity · P5-4b the analytics screen ·
+> GAP-215 · P5-4a the analytics figures · the D8-3 review follow-up · the ANA visit-attribution fix.
 >
 > **Do next, in this order:**
-> 1. **Act on the coupon-fix review**, then commit and push the batch above.
-> 2. **P5-5 campaign & promotion analytics** — its gate (P4-F134 / P4-F135) is now CLEARED. Remaining
+> 1. **P5-5 campaign & promotion analytics** — its gate (P4-F134 / P4-F135) is CLEARED. Remaining
 >    engineering: rewrite `MetricCaveat::COUPON_REDEMPTION_UNRELIABLE` from "errors in both
->    directions" to a coverage statement driven by `CouponRedemptionCoverage`, stop
->    `CouponRedemption` returning `isAuthoritative() === false` unconditionally, and build the
->    surface. **Pre-fix history is NOT backfilled** — that is why the coverage class exists.
-> 3. Then P5-6 (retention surface — metric done; the *rate* tile stays owner-blocked on the §3
+>    directions" to a coverage statement driven by `App\Support\Metrics\CouponRedemptionCoverage`,
+>    stop `CouponRedemption` returning `isAuthoritative() === false` unconditionally, and build the
+>    surface. **Pre-fix history is NOT backfilled** — that is why the coverage class exists, and it
+>    is the one thing on this slice that must not be "fixed".
+> 2. Then P5-6 (retention surface — metric done; the *rate* tile stays owner-blocked on the §3
 >    labelling decision, but new-vs-returning already ships in P5-4b's Buyers tile),
 >    P5-7 (platform/operator reporting), P5-8 (export), loyalty completion, and the
 >    MKT-001–010 / ANA-001–010 coverage reconciliation.
-> 4. Then **Phase 06** development on its own branch + Draft PR, based to preserve the #138 → #139 →
+> 3. Then **Phase 06** development on its own branch + Draft PR, based to preserve the #138 → #139 →
 >    #140 dependency chain.
+>
+> **TWO LESSONS FROM THIS BATCH worth not re-learning.** (a) The independent review of the coupon fix
+> found that the FIX re-created each finding on the other handler — a money path is not done because
+> its own tests are green, and that review is the reason two live defects are closed rather than
+> shipped. (b) The coupon test's first fixture used a 100.00 basket with a 10% coupon, which made the
+> coupon's *configured* number and the *charged* discount the same figure (10), so no case could tell
+> a handler recording either apart. When a money test's fixture makes two different quantities equal,
+> it is not a test of which one is used.
 >
 > **Blocked on the owner, not on engineering** (continue other work; do not let these stop development):
 > P1-SEC-81 publication and production remediation (CRITICAL, held, delivered privately — the repository
