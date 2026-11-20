@@ -311,12 +311,21 @@ class ConsentLedgerCensusTest extends TestCase
     }
 
     /**
-     * The files that may call `->decide(`. The gate is wired into EXACTLY ONE place, the email seam; adding a second caller is adding a
-     * second seam and needs its own classification of the senders behind it.
+     * The files that may NAME and call `->decide()` on the gate. Each is a wired send-boundary SEAM, and each is added only
+     * together with its own classification of the senders behind it:
+     *   - the email seam (EnforceMarketingConsentOnMail) -- senders classified by the MailSenderRegistry;
+     *   - the WhatsApp abandoned-basket nudge (AbandonedMessageDispatch) -- the one first-party WhatsApp MARKETING sender,
+     *     classified in docs/development/phase-5/PHASE-05-MKT-008-SENDER-CENSUS-2026-11-17.md §5. It names the gate and calls
+     *     ->decide() inline (not an event listener), so it is listed here but NOT registered in EventServiceProvider.
+     * SMS and push carry no marketing sender (same §5 -- operational self-alerts and a user-requested back-in-stock), so they
+     * are deliberately NOT here.
      *
      * @var list<string>
      */
-    private const GATE_CALLERS = ['app/Services/Marketing/EnforceMarketingConsentOnMail.php'];
+    private const GATE_CALLERS = [
+        'app/Services/Marketing/EnforceMarketingConsentOnMail.php',
+        'app/Services/AbandonedMessageDispatch.php',
+    ];
 
     /**
      * @param  array<string, string>  $sources
@@ -329,8 +338,8 @@ class ConsentLedgerCensusTest extends TestCase
         foreach ($sources as $file => $code) {
             $insideTheStore = str_starts_with($file, 'app/Services/Marketing/');
 
-            // Outside the store's own directory, naming the gate at all is wiring it.
-            if (! $insideTheStore && str_contains($code, 'MarketingSendGate')) {
+            // Outside the store's own directory, naming the gate at all is wiring it -- unless the file is a listed seam.
+            if (! $insideTheStore && ! in_array($file, self::GATE_CALLERS, true) && str_contains($code, 'MarketingSendGate')) {
                 $offenders[] = $file.' names MarketingSendGate';
             }
 
@@ -342,12 +351,14 @@ class ConsentLedgerCensusTest extends TestCase
         return $offenders;
     }
 
-    public function test_the_gate_is_called_from_the_email_seam_and_nowhere_else(): void
+    public function test_the_gate_is_called_only_from_the_listed_seams(): void
     {
-        // Enforcement is per channel and each seam needs its own classification of the senders behind it. Email is wired, in one file; SMS,
-        // WhatsApp and push are not. Until a seam is wired on purpose, an unwired channel must read as unwired, not as protection.
+        // Enforcement is per channel and each seam needs its own classification of the senders behind it. Two are wired, each in one
+        // file: email (EnforceMarketingConsentOnMail) and the WhatsApp abandoned-basket nudge (AbandonedMessageDispatch). SMS and push
+        // carry no marketing sender and are deliberately unwired. Until a seam is wired on purpose, an unwired channel must read as
+        // unwired, not as protection -- so a THIRD ->decide() caller is a finding until it is added to GATE_CALLERS with its census.
         $this->assertSame([], $this->gateCallerOffenders($this->sources()),
-            'MarketingSendGate gained a caller. A second seam needs its own sender census; add it to GATE_CALLERS together with that census, '
+            'MarketingSendGate gained a caller. A new seam needs its own sender census; add it to GATE_CALLERS together with that census, '
             .'so "wired" is a statement about named files and not an assumption.');
 
         $sources = $this->sources();
@@ -364,5 +375,10 @@ class ConsentLedgerCensusTest extends TestCase
         $this->assertCount(1, $this->gateCallerOffenders(['app/Services/Marketing/SomethingElse.php' => '$this->gate->decide(1, $c, $k, $a);']));
         $this->assertSame([], $this->gateCallerOffenders(['app/Services/Marketing/EnforceMarketingConsentOnMail.php' => '$this->gate->decide(1, $c, $k, $a);']));
         $this->assertSame([], $this->gateCallerOffenders(['app/Services/Marketing/MarketingSendGate.php' => 'public function decide(int $s) {}']));
+
+        // A LISTED seam OUTSIDE the store directory (the WhatsApp nudge) is spared BOTH the name and the call offence...
+        $this->assertSame([], $this->gateCallerOffenders(['app/Services/AbandonedMessageDispatch.php' => 'use App\\Services\\Marketing\\MarketingSendGate; app(MarketingSendGate::class)->decide(1, $c, $k, $a);']));
+        // ...while a DIFFERENT, unlisted file outside the store directory still trips both, so the exemption is per-file, not a hole.
+        $this->assertCount(2, $this->gateCallerOffenders(['app/Services/SomethingNew.php' => 'use App\\Services\\Marketing\\MarketingSendGate; app(MarketingSendGate::class)->decide(1, $c, $k, $a);']));
     }
 }

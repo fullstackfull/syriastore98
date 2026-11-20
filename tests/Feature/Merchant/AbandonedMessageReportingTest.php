@@ -8,6 +8,8 @@ use App\Models\Customer;
 use App\Models\Product;
 use App\Models\WhatsappMessage;
 use App\Models\Wishlist;
+use App\Services\Marketing\ConsentLedger;
+use App\Support\Marketing\Channel;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\Feature\Security\SecurityTestCase;
@@ -412,6 +414,66 @@ class AbandonedMessageReportingTest extends SecurityTestCase
             'abandoned cart' => [self::CART_ENDPOINT, 'cart_id', 'Abandon Cart'],
             'abandoned wishlist' => [self::WISH_ENDPOINT, 'wish_id', 'Abandon Cart'],
         ];
+    }
+
+    // =============================================================================================
+    //  D8-2b — the marketing-consent gate at the WhatsApp send boundary (GAP-200 / MKT-008)
+    //
+    //  The abandoned-basket nudge is the one first-party WhatsApp MARKETING sender (census §5). The
+    //  gate is inert while enforcement is `off` (the default, asserted by every case above, which
+    //  set no enforcement and still reach handOver), and `enforce` is read as `report` for WhatsApp
+    //  until phone identity is canonical -- so these two cases force both config flags on to exercise
+    //  the hold at all. Nothing here flips the shipped default.
+    // =============================================================================================
+
+    /**
+     * FAILING-FIRST: with enforcement actually on for WhatsApp, a shopper with no recorded marketing
+     * consent must have the nudge HELD -- not handed over. Before the seam this sent regardless.
+     *
+     * @dataProvider flows
+     */
+    public function test_enforce_holds_the_nudge_for_a_shopper_with_no_marketing_consent(string $endpoint, string $key, string $template): void
+    {
+        config(['marketing_consent.enforcement' => 'enforce', 'marketing_consent.phone_identity_canonical' => true]);
+
+        [$owner, $store, $customer] = $this->tenantWithShopper();
+        $this->configureWhatsapp($owner, $store, $template);
+        $row = $endpoint === self::CART_ENDPOINT ? $this->cartFor($customer) : $this->wishlistFor($customer);
+
+        $response = $this->withoutSending(
+            fn () => $this->actingAs($owner)->postJson($endpoint, [$key => $row->id]));
+
+        $response->assertJson(['is_success' => false]);
+        $this->assertStringContainsStringIgnoringCase('marketing', (string) $response->json('message'),
+            'a held nudge must tell the merchant it was consent, not a configuration fault');
+        $this->assertCount(0, $this->lastRecorder->recorded,
+            'the nudge was handed to WhatsApp for a shopper with no marketing consent, under enforce');
+    }
+
+    /**
+     * CONTROL: the gate must not over-block. A shopper who granted WhatsApp marketing consent is sent
+     * to, even under enforce. (Passes before the seam too -- without a gate everything sends -- so it
+     * guards against the fix becoming an indiscriminate block.)
+     *
+     * @dataProvider flows
+     */
+    public function test_enforce_allows_the_nudge_when_whatsapp_marketing_consent_is_granted(string $endpoint, string $key, string $template): void
+    {
+        config(['marketing_consent.enforcement' => 'enforce', 'marketing_consent.phone_identity_canonical' => true]);
+
+        [$owner, $store, $customer] = $this->tenantWithShopper();
+        $this->configureWhatsapp($owner, $store, $template);
+
+        app(ConsentLedger::class)->grant((int) $store->id, Channel::Whatsapp, (string) $customer->mobile, 'test-fixture');
+
+        $row = $endpoint === self::CART_ENDPOINT ? $this->cartFor($customer) : $this->wishlistFor($customer);
+
+        $response = $this->withoutSending(
+            fn () => $this->actingAs($owner)->postJson($endpoint, [$key => $row->id]));
+
+        $response->assertJson(['is_success' => true]);
+        $this->assertCount(1, $this->lastRecorder->recorded,
+            'a shopper who granted marketing consent was blocked, so the gate is over-blocking');
     }
 
     /**
