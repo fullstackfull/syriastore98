@@ -4182,5 +4182,12 @@
     "Coupon discounts in this period are recorded in more than one currency and have not been converted, so no single total can be shown.": "خصومات الكوبونات في هذه الفترة مسجَّلة بأكثر من عملة ولم تُحوَّل، لذا لا يمكن عرض إجمالي واحد.",
     "The total discount given by coupons on orders in this period. Recorded in full from :date; earlier redemptions are not included and are not reconstructed.": "إجمالي الخصم الذي منحته الكوبونات على طلبات هذه الفترة. مُسجَّل بالكامل من :date؛ الاستخدامات الأقدم غير مشمولة ولا يُعاد بناؤها.",
     "Coupon redemption records are known to be both incomplete and inflated. This figure is not authoritative.": "سجلات استخدام الكوبونات معروف أنها ناقصة ومتضخّمة في الوقت نفسه. هذا الرقم ليس مرجعياً.",
-    "Coupon redemptions are recorded in full only from the date shown; earlier orders are not included and are not reconstructed.": "لا تُسجَّل استخدامات الكوبونات بالكامل إلا من التاريخ المعروض؛ الطلبات الأقدم غير مشمولة ولا يُعاد بناؤها."
+    "Coupon redemptions are recorded in full only from the date shown; earlier orders are not included and are not reconstructed.": "لا تُسجَّل استخدامات الكوبونات بالكامل إلا من التاريخ المعروض؛ الطلبات الأقدم غير مشمولة ولا يُعاد بناؤها.",
+    "Repeat purchase": "الشراء المتكرر",
+    "not yet available": "غير متوفر بعد",
+    "Repeat purchase is measured over the period the financial record can vouch for, and this store has no such period yet. No order has a financial record, so there is nothing to measure and nothing is reconstructed.": "يُقاس الشراء المتكرر على الفترة التي يستطيع السجل المالي تأكيدها، ولا توجد لهذا المتجر فترة كهذه بعد. لا يوجد طلب له سجل مالي، فلا شيء يمكن قياسه ولا يُعاد بناء أي شيء.",
+    "No order in this period belongs to a customer who could be recognised again, so there is nothing to divide by. Orders placed without a customer account cannot be attributed to a person.": "لا يوجد في هذه الفترة طلب يعود إلى عميل يمكن التعرّف عليه مرة أخرى، فلا يوجد ما نقسم عليه. الطلبات المقدَّمة بدون حساب عميل لا يمكن نسبتها إلى شخص.",
+    "Of :identified buyers who can be recognised again, :repeat ordered more than once. Counted over paid orders only: a repeat rate computed over orders nobody has confirmed were paid is not a retention figure.": "من بين :identified مشترياً يمكن التعرّف عليهم مرة أخرى، قام :repeat منهم بأكثر من طلب. يُحسب على الطلبات المدفوعة فقط: معدل التكرار المحسوب على طلبات لم يؤكّد أحد دفعها ليس رقم احتفاظ.",
+    "Orders with no customer account, excluded: :count.": "الطلبات بدون حساب عميل، وهي مستثناة: :count.",
+    "Orders with no financial record, which this basis cannot see: :count.": "الطلبات بدون سجل مالي، والتي لا يراها هذا الأساس: :count."
 }

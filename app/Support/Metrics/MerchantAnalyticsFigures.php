@@ -56,7 +56,8 @@ final class MerchantAnalyticsFigures
      *     visits: array{value: ?string, period: string, hint: string},
      *     conversion: array{value: ?string, period: string, hint: string},
      *     customers: array{value: ?string, period: string, hint: string},
-     *     redemptions: array{value: ?string, period: string, hint: string}
+     *     redemptions: array{value: ?string, period: string, hint: string},
+     *     retention: array{value: ?string, period: string, hint: string}
      * }
      */
     public static function forStore(int $storeId, string $storeCurrency, ?CarbonInterface $now = null): array
@@ -89,6 +90,7 @@ final class MerchantAnalyticsFigures
             'conversion' => self::conversion($orders, $visits, $period),
             'customers' => self::customers($storeId, $from, $to, $period),
             'redemptions' => self::redemptions($storeId, $storeCurrency, $from, $to, $period),
+            'retention' => self::retention($storeId),
         ];
     }
 
@@ -162,6 +164,83 @@ final class MerchantAnalyticsFigures
             'hint' => __('The total discount given by coupons on orders in this period. Recorded in full from :date; earlier redemptions are not included and are not reconstructed.', [
                 'date' => self::day(CouponRedemptionCoverage::forStore($storeId)->completeFrom()),
             ]),
+        ];
+    }
+
+
+    /**
+     * REPEAT PURCHASE. P5-6's surface, and its coverage question is settled rather than reopened.
+     *
+     * THE RECONCILIATION, because the plan recorded this tile as owner-blocked. The stated blocker
+     * was PHASE-05-FOUR-FIGURE-LABELLING-PROPOSAL.md §3: the entitlement record begins 2026-11-02
+     * with no backfill, so a settled-basis figure reads zero for everything before it. §3 put three
+     * options to the owner and recommended A -- "show it with the start date stated, and a window
+     * that cannot be set earlier". **OWNER DECISION D1 IS THAT OPTION**, already approved and
+     * already implemented in `LedgerCoverage`, which `/finance` has used since P5-16. So this tile
+     * applies D1 rather than asking again; nothing new is decided here.
+     *
+     * THE WINDOW IS THE LEDGER'S, NOT THIS SCREEN'S 30 DAYS, and that is deliberate. A repeat
+     * purchase needs two orders, so measuring it over thirty days systematically reports a store as
+     * less loyal than it is -- the figure would be wrong in a direction a merchant cannot see.
+     * `LedgerCoverage::window()` is the longest span the ledger can vouch for, which is the honest
+     * basis, and the tile STATES that period rather than borrowing its neighbours' label.
+     *
+     * THE SETTLED BASIS is `CustomerRetention`'s default: a repeat-purchase rate computed over
+     * orders whose payment nothing confirmed is not a retention figure. The metric discloses what
+     * that costs -- `orders_without_ledger_row` and the unidentified-customer count -- and those
+     * disclosures are carried onto the tile rather than summarised away.
+     */
+    private static function retention(int $storeId): array
+    {
+        $coverage = LedgerCoverage::forStore($storeId);
+        $window = $coverage->window();
+
+        if ($window === null) {
+            return [
+                'value' => null,
+                'period' => __('not yet available'),
+                'hint' => __('Repeat purchase is measured over the period the financial record can vouch for, and this store has no such period yet. No order has a financial record, so there is nothing to measure and nothing is reconstructed.'),
+            ];
+        }
+
+        $period = $coverage->isComplete()
+            ? __('all time')
+            : __('from :date', ['date' => self::day($coverage->verifiedFrom())]);
+
+        $figures = (new CustomerRetention())->for(MetricScope::store($storeId), $window);
+        $rate = $figures->repeatRate();
+
+        if ($rate === null) {
+            return [
+                'value' => null,
+                'period' => $period,
+                'hint' => __('No order in this period belongs to a customer who could be recognised again, so there is nothing to divide by. Orders placed without a customer account cannot be attributed to a person.'),
+            ];
+        }
+
+        $notes = [
+            __('Of :identified buyers who can be recognised again, :repeat ordered more than once. Counted over paid orders only: a repeat rate computed over orders nobody has confirmed were paid is not a retention figure.', [
+                'identified' => self::ltr(number_format($figures->identifiedCustomers())),
+                'repeat' => self::ltr(number_format($figures->repeatCustomers())),
+            ]),
+        ];
+
+        if (($unattributed = (int) ($figures->notes()['orders_without_identifiable_customer'] ?? 0)) > 0) {
+            $notes[] = __('Orders with no customer account, excluded: :count.', [
+                'count' => self::ltr(number_format($unattributed)),
+            ]);
+        }
+
+        if (($unrowed = (int) ($figures->notes()['orders_without_ledger_row'] ?? 0)) > 0) {
+            $notes[] = __('Orders with no financial record, which this basis cannot see: :count.', [
+                'count' => self::ltr(number_format($unrowed)),
+            ]);
+        }
+
+        return [
+            'value' => self::ltr(number_format($rate * 100, 2) . '%'),
+            'period' => $period,
+            'hint' => implode(' ', $notes),
         ];
     }
 

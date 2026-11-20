@@ -93,7 +93,7 @@ the four was checked against what is actually recorded:
 | **Sales** | yes | The P5-2 metric layer: `GrossMerchandiseValue`, `CollectedCustomerPayments`, `NetFinancialReceipts`, `ShippingAndTax`, `CompletedRefunds`. The settled figures inherit `LedgerCoverage`'s start (`store_order_financials` holds nothing before 2026-11-02 and is not backfilled — owner decision), and `MetricResult::total()` throws on more than one currency bucket, so a tile must go through `assumingUnknownCurrencyIs()` and show the caveat rather than risk a 500 (that is what P5-3a exists for). |
 | **Orders** | yes | `orders`, with `UnpaidOrders` / `CancelledOrders` to separate demand from collection. `orders.currency_code` is NULL on rows before 2026-10-12 and is not backfilled, which is the `unknown` bucket above. |
 | **Conversion** | **yes, with a narrow basis** | `visits` exists and IS written: `app/Http/Middleware/ActiveTheme.php:30` calls `visitor()->visit($store)` (shetabit/visitor 4.3, `config/visitor.php`, table from `config('visitor.table_name')`, `store_id` plus a `visitable` morph to the Store). So orders ÷ visits is computable per store per period — but it is **requests, not unique visitors**: the package writes one row per themed storefront request, there is no cookie-level de-duplication, and bots and link prefetchers are counted. A conversion tile is therefore only honest with that stated, and it must say "visits" rather than "visitors". Nothing here invents a funnel, a session or a bounce rate: those are not recorded. |
-| **Customer insight** | **partly, and the rest is owner-blocked** | `CustomerRetention` + `RetentionFigures` are complete (P5-6) and state their own `basis` (`settled_only` vs `all_orders`). A retention **tile** still waits on the §3 labelling decision in `PHASE-05-FOUR-FIGURE-LABELLING-PROPOSAL.md`, because the settled basis carries the same ledger-history limit as payments received and profit. New-vs-returning counts are computable from `orders` + `customers` without inventing anything. |
+| **Customer insight** | **DONE (2026-11-20)** | `CustomerRetention` + `RetentionFigures` state their own `basis` (`settled_only` vs `all_orders`), and the `Repeat purchase` tile on `/analytics` renders them under owner decision **D1** — which **is** the §3 labelling question of `PHASE-05-FOUR-FIGURE-LABELLING-PROPOSAL.md`, answered Option A, so no further decision was needed. New-vs-returning counts are computable from `orders` + `customers` without inventing anything. |
 
 ### P5-5 — Campaign & promotion analytics — **GATE CLEARED 2026-11-20; the surface is not built**
 **Gate was P4-F134 / P4-F135**, and both are now measured and fixed (see
@@ -112,7 +112,7 @@ campaign-outcome surface inherits a coverage start exactly as `/finance` does, a
 "complete only from the fix date" rather than being dropped. That is the remaining work on this
 slice; it is engineering, not an owner decision.
 
-### P5-6 — Retention and repeat purchase — **METRIC COMPLETE (2026-11-17), no surface**
+### P5-6 — Retention and repeat purchase — **COMPLETE (metric 2026-11-17, surface 2026-11-20)**
 Derived from `orders` + `customers`, no new events invented. **Gate: P5-2** (a repeat-purchase rate
 computed over unsettled orders is not a retention figure).
 
@@ -122,9 +122,27 @@ authoritative but blind to orders with no financial row — reported by **count*
 cut-over date — while `all_orders` covers all history and overstates retention by however much of
 the book was never paid. `notes()['basis']` always says which.
 
-**No surface renders it yet.** A retention tile needs the §3 decision in
-`PHASE-05-FOUR-FIGURE-LABELLING-PROPOSAL.md`, because the settled basis has the same ledger-history
-limit as payments received and profit.
+**The surface is the `Repeat purchase` tile on `/analytics`** (`MerchantAnalyticsFigures::retention()`).
+
+**This slice was recorded as owner-blocked and was not.** The block was "a retention tile needs the
+§3 decision in `PHASE-05-FOUR-FIGURE-LABELLING-PROPOSAL.md`". Reconciled 2026-11-20: that §3
+question **is** owner decision **D1** — "historical coverage for the two ledger-based figures" —
+answered **Option A**, "show them with the start date stated and refuse earlier windows", and D1 is
+already implemented in `App\Support\Metrics\LedgerCoverage`. So the tile **applies** a settled
+decision; nothing was reopened and no new decision was asked for.
+
+Three things about the tile are deliberate and each is pinned by its own test:
+
+1. **Its period is not the screen's thirty days.** A repeat purchase needs two orders, so a
+   thirty-day window reports every store as less loyal than it is. The tile measures over
+   `LedgerCoverage::window()` — the span the financial record can vouch for — and says so.
+2. **"From :date" or "all time", never a bare number.** That is Option A verbatim: `isComplete()`
+   gives "all time", otherwise the verified start date is printed beside the figure.
+3. **No verified period means no figure.** When `window()` is null the tile shows
+   *Not available* with the reason, rather than a rate computed over a book the ledger cannot see.
+   Note while building this: the fixture for that state cannot be made by omitting the financial
+   row, because `OrderObserver::created()` writes one for every order inserted through Eloquent —
+   the row has to be created and then removed, which is what the pre-ledger period actually is.
 
 ### P5-7 — Platform/operator reporting
 The super-admin view of the same metrics across tenants. **Operator-first authorization**

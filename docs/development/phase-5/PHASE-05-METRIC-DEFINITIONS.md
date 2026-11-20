@@ -226,16 +226,37 @@ construction.
 
 **Source.** `order_coupon_details` joined to the order.
 
-**BLOCKED AS AN AUTHORITATIVE FIGURE, by instruction** — owner: *"Review P4-F134 and P4-F135 before
-using coupon-redemption records as authoritative data."* Both are open:
+**CONDITIONALLY AUTHORITATIVE, PER WINDOW** (was: blocked outright). The owner's instruction was
+*"Review P4-F134 and P4-F135 before using coupon-redemption records as authoritative data."* That
+condition is a **review**, not a permanent ban, and the review is done: both defects were measured,
+fixed and mutation-proved on 2026-11-20 (`PHASE-04-FINDINGS-REGISTER.md` P4-F134/F135).
 
-- **P4-F134**: `ordersave` may record **no coupon redemption at all**, so coupon caps never see
-  those orders — redemption is under-counted by an unknown amount;
-- **P4-F135**: a **refused** coupon still writes `order_coupon_details` and `user_coupons`, burning
-  the shopper's allowance — redemption is over-counted by an unknown amount.
+What each was, and what it means for history:
 
-**Errors in both directions, neither quantified.** Any campaign-redemption report must carry that
-caveat or not be built. **No metric in Phase 05 may treat this as settled.**
+- **P4-F134**: `ordersave` recorded **no coupon redemption at all**, so caps never saw those orders
+  — redemption **under-counted** by an unknown amount before the fix;
+- **P4-F135**: a **refused** coupon still wrote `order_coupon_details` and `user_coupons`, burning
+  the shopper's allowance — redemption **over-counted** by an unknown amount before the fix.
+
+**The fix does not repair the records already written, and nothing reconstructs them.** Errors in
+both directions exist in the back history and are still unquantified. So authority is decided
+**per window**, not once for the metric:
+
+| the window | verdict | mechanism |
+|---|---|---|
+| lies entirely inside the store's fully-recorded period | **authoritative**, qualified by the start date | `MetricCaveat::COUPON_REDEMPTION_COVERAGE` — deliberately **not** blocking |
+| reaches back before the recording fix, or is all-time, or has no `from()` | **not authoritative** | `MetricCaveat::COUPON_REDEMPTION_UNRELIABLE` — the only member of `BLOCKING` |
+
+`CouponRedemption::windowIsFullyRecorded()` decides which, and
+`CouponRedemptionCoverage::forStore()` computes the fully-recorded start date by anti-joining
+`orders` (`coupon_price > 0`) to `order_coupon_details` — **by measurement, never by a hardcoded
+cut-over date**, because the fix date is not the same as the date a given store's records became
+complete. A store with an unrowed discounted order *after* the fix is not complete, and says so.
+
+**A merchant-facing figure must therefore state its period**, which the `Coupon discounts given`
+tile on `/analytics` does: outside the complete period it renders *Not available* with the reason
+rather than a number, because a number under a "this cannot be trusted" sentence gets read as a
+number. **Campaign-redemption reporting over historical windows is still not supported.**
 
 ---
 
@@ -267,3 +288,44 @@ shipping on the financial row.
 5. **A metric with a known gap displays the gap.** §9 is blocked, §5 excludes partials, §8 has a
    cost caveat, §4 has a date caveat. A number that hides its own limits is worse than no number —
    which is the whole point of "trustworthy analytics".
+
+---
+
+## 12. Customer retention and repeat purchase
+
+**Definition.** Of the customers who can be recognised again, the share who ordered more than once.
+`repeat_customers / identified_customers`. A **customer**, not an order: two orders from one person
+is one repeat buyer, not two.
+
+**Source.** `orders`, joined to `customers` by `orders.customer_id`, over a **declared basis**:
+
+| basis | what it reads | honest about |
+|---|---|---|
+| `settled_only` (**default**) | INNER JOIN `store_order_financials` on `payment_status = 'paid'` | **authoritative** for what it covers, and blind to every order with no financial row |
+| `all_orders` | `orders` alone | **all history**, and overstates retention by however much of the book was never paid |
+
+`RetentionFigures::notes()['basis']` always says which was used. The default is the settled one by
+the P5-2 gate: *a repeat-purchase rate computed over orders nobody has confirmed were paid is not a
+retention figure.*
+
+**Two exclusions, both reported as counts rather than assumed away:**
+
+- `orders_without_identifiable_customer` — a guest order cannot be attributed to a person, so it
+  cannot be a first or a repeat purchase. Excluded from both numerator and denominator.
+- `orders_without_ledger_row` — on the settled basis, an order the ledger cannot see. Reported
+  **by count, never by a cut-over date**, for the reason given in §9.
+
+**Null is a real answer.** `repeatRate()` returns `null`, not `0.0`, when no order in the window
+belongs to an identifiable customer: there is nothing to divide by, and zero would claim every
+buyer is a one-time buyer.
+
+**Its period is not the dashboard's.** A repeat purchase needs two orders, so a thirty-day window
+systematically reports a store as less loyal than it is. The `Repeat purchase` tile measures over
+`LedgerCoverage::window()` — the span the financial record can vouch for under owner decision
+**D1** — and prints that period beside the figure: *all time* when coverage is complete, *from
+&lt;date&gt;* when it is not, and nothing at all, with the reason, when the ledger can vouch for no
+period yet.
+
+**Not built, and not inferred:** cohort retention, churn, lifetime value, and
+new-vs-returning *trend*. The first three need either a subscription record or an assumption about
+what counts as churned; the plan invents neither.

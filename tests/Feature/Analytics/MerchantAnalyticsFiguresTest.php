@@ -344,6 +344,129 @@ final class MerchantAnalyticsFiguresTest extends SecurityTestCase
             'another tenant\'s gap reached this store\'s coverage verdict');
     }
 
+    /*
+     * ---------------------------------------------------------------------------------------------
+     * Repeat purchase (P5-6) — the tile whose PERIOD is not this screen's thirty days
+     * ---------------------------------------------------------------------------------------------
+     */
+
+    /**
+     * A PAID order, i.e. one the settled retention basis can actually see.
+     *
+     * The financial row is UPDATED, not inserted. `OrderObserver::created()` already writes one for
+     * every order, so inserting another gives the order two ledger rows and any `COUNT` over them
+     * double-counts it. Measured while building this fixture: a hand-inserted row made
+     * `LedgerCoverage` read two rows for one order.
+     */
+    private function paidOrder($store, array $extra = []): object
+    {
+        $order = $this->makeOrder($store, $extra);
+
+        DB::table('store_order_financials')
+            ->where('order_id', $order->id)
+            ->update(['payment_status' => 'paid', 'paid_amount' => 100.0, 'remaining_amount' => 0.0, 'paid_at' => now()]);
+
+        return $order;
+    }
+
+    /**
+     * An order THE LEDGER CANNOT SEE, which is what the pre-ledger period really looks like.
+     *
+     * It cannot be made by omission: the observer writes a financial row for every order, so the row
+     * is created and then removed. That is faithful to the condition owner decision D1 is about --
+     * an order placed before `store_order_financials` existed, or one whose row was lost to the
+     * swallowed exception in `OrderObserver::created()`.
+     */
+    private function orderTheLedgerCannotSee($store, array $extra = []): object
+    {
+        $order = $this->makeOrder($store, $extra);
+
+        DB::table('store_order_financials')->where('order_id', $order->id)->delete();
+
+        return $order;
+    }
+
+    /**
+     * A shopper with two paid orders is a repeat buyer, and the rate is shown over the LEDGER's
+     * period rather than the screen's thirty days — because a repeat purchase needs two orders and a
+     * thirty-day window would report every store as less loyal than it is.
+     */
+    public function test_repeat_purchase_is_measured_over_the_ledgers_own_period(): void
+    {
+        [, $store] = $this->makeTenant();
+        $now = $this->now();
+
+        $repeat = $this->customerIn((int) $store->id);
+        $this->paidOrder($store, ['customer_id' => $repeat->id, 'is_guest' => 0, 'order_date' => $now->subDays(200)]);
+        $this->paidOrder($store, ['customer_id' => $repeat->id, 'is_guest' => 0, 'order_date' => $now->subDays(2)]);
+
+        $once = $this->customerIn((int) $store->id);
+        $this->paidOrder($store, ['customer_id' => $once->id, 'is_guest' => 0, 'order_date' => $now->subDays(2)]);
+
+        $figures = MerchantAnalyticsFigures::forStore((int) $store->id, 'USD', $now);
+
+        // One of two recognisable buyers ordered twice.
+        $this->assertStringContainsString('50.00%', (string) $figures['retention']['value']);
+
+        /*
+         * THE PERIOD MUST NOT BE THE THIRTY-DAY ONE. If it were, the 200-day-old order would fall
+         * outside it and that shopper would read as a one-time buyer — the figure wrong in a
+         * direction a merchant cannot see. This is the assertion that catches a tile wired to the
+         * wrong window.
+         */
+        $this->assertStringNotContainsString('30', (string) $figures['retention']['period'],
+            'the retention tile is using the screen\'s thirty-day window, which under-reports every '
+            . 'store: a repeat purchase needs two orders');
+
+        $this->assertStringContainsStringIgnoringCase('paid orders only', $figures['retention']['hint'],
+            'the basis must be stated: a repeat rate over unconfirmed orders is not retention');
+    }
+
+    /** No financial record anywhere means no period the ledger can vouch for, so no figure. */
+    public function test_repeat_purchase_shows_nothing_when_the_ledger_can_vouch_for_no_period(): void
+    {
+        [, $store] = $this->makeTenant();
+        $now = $this->now();
+
+        /*
+         * UNDATED orders with no financial row, which is what `hasNothingVerified()` actually means.
+         * A DATED unrowed order does NOT produce a null window — LedgerCoverage starts the verified
+         * period the day AFTER it, so the window is non-null and merely excludes that order. Learned
+         * by driving it: the first version of this fixture used a dated order and landed in the
+         * "nothing to divide by" branch instead, which is correct behaviour for that input and not
+         * the branch this case is about.
+         */
+        $buyer = $this->customerIn((int) $store->id);
+        $this->orderTheLedgerCannotSee($store, ['customer_id' => $buyer->id, 'is_guest' => 0, 'order_date' => $now->subDays(2)]);
+        $this->orderTheLedgerCannotSee($store, ['customer_id' => $buyer->id, 'is_guest' => 0, 'order_date' => $now->subDay()]);
+
+        $figures = MerchantAnalyticsFigures::forStore((int) $store->id, 'USD', $now);
+
+        $this->assertNull($figures['retention']['value'],
+            'with no verified period there is nothing to measure, and a number here would be a '
+            . 'figure over a basis that does not exist');
+        $this->assertStringContainsStringIgnoringCase('nothing is reconstructed',
+            $figures['retention']['hint'],
+            'the hint must say history is not rebuilt — that is owner decision D1, not a detail');
+    }
+
+    /** Guest orders cannot be attributed to a person, so they are excluded AND disclosed. */
+    public function test_repeat_purchase_discloses_the_orders_it_excluded(): void
+    {
+        [, $store] = $this->makeTenant();
+        $now = $this->now();
+
+        $buyer = $this->customerIn((int) $store->id);
+        $this->paidOrder($store, ['customer_id' => $buyer->id, 'is_guest' => 0, 'order_date' => $now->subDays(2)]);
+        $this->paidOrder($store, ['order_date' => $now->subDays(2)]);   // guest: customer_id 0
+
+        $figures = MerchantAnalyticsFigures::forStore((int) $store->id, 'USD', $now);
+
+        $this->assertStringContainsStringIgnoringCase('no customer account',
+            $figures['retention']['hint'],
+            'an excluded order must be counted on the tile, not dropped silently');
+    }
+
     public function test_a_store_with_no_activity_shows_zero_rather_than_failing(): void
     {
         [, $store] = $this->makeTenant();

@@ -65,6 +65,15 @@
                        :value="$figures['customers']['value']"
                        :period="$figures['customers']['period']"
                        :hint="$figures['customers']['hint']" />
+
+            {{-- P5-6. Its PERIOD differs from its neighbours' thirty days on purpose: a repeat
+                 purchase needs two orders, so a thirty-day window would report every store as less
+                 loyal than it is. The tile states the period it really covers, which is the span the
+                 financial record can vouch for (owner decision D1). --}}
+            <x-ss.stat :label="__('Repeat purchase')"
+                       :value="$figures['retention']['value']"
+                       :period="$figures['retention']['period']"
+                       :hint="$figures['retention']['hint']" />
         </x-ss.stats>
     </div>
 </div>

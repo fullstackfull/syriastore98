@@ -51,7 +51,7 @@ final class CustomerRetention extends Metric
 
     public function definition(): string
     {
-        return 'PHASE-05-EXECUTION-PLAN.md P5-6';
+        return 'PHASE-05-METRIC-DEFINITIONS.md §12';
     }
 
     public function for(MetricScope $scope, MetricWindow $window): RetentionFigures

@@ -277,10 +277,10 @@ class StatHintIsVisibleTest extends TestCase
     }
 
     /**
-     * THE CENSUS, so the scope of this change cannot drift silently. Nineteen hints on this component
+     * THE CENSUS, so the scope of this change cannot drift silently. Twenty hints on this component
      * across eight files (ten across six until P5-16 added the two ledger tiles on /finance; twelve
      * across seven until P5-4b added the six on /analytics; eighteen until P5-5 added the coupon
-     * tile), counted from the views themselves rather than restated from prose.
+     * tile; nineteen until P5-6 added repeat purchase), counted from the views themselves rather than restated from prose.
      *
      * Counted by walking BACK from each `:hint=` to the nearest `<x-` tag: a forward regex over
      * the tag body is wrong here, because `product/edit.blade.php` and `customer/timeline.blade.php`
@@ -289,7 +289,7 @@ class StatHintIsVisibleTest extends TestCase
      * measured as nine across five, and the error reached three committed documents before the
      * recount caught it.
      */
-    public function test_nineteen_hints_on_this_component_across_eight_files(): void
+    public function test_twenty_hints_on_this_component_across_eight_files(): void
     {
         $views = base_path('resources/views');
         $hits = [];
@@ -340,7 +340,11 @@ class StatHintIsVisibleTest extends TestCase
         // the one on this screen that can say the figure is WITHHELD: section 9 is authoritative only
         // for a period whose redemption records are complete, and for any earlier period the tile
         // shows no number and the hint says from when it could. File count unchanged.
-        $this->assertCount(19, $hits,
+        // 19 -> 20, P5-6. "Repeat purchase" on /analytics, whose hint carries three disclosures the
+        // figure cannot be read without: how many recognisable buyers it divided, that only PAID
+        // orders are counted, and how many orders each of the two exclusions dropped. Its PERIOD also
+        // differs from its neighbours' on purpose, which the hint has to make legible.
+        $this->assertCount(20, $hits,
             "x-ss.stat hint count moved. Found:\n  " . implode("\n  ", $hits));
 
         $this->assertCount(8, array_unique($hits),
