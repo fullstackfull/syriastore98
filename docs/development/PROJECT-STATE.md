@@ -5,8 +5,39 @@ is the file to read first. It links the six phases, says what is done, what is n
 executable action is. Everything in it is either a measured fact with its source, or an owner
 decision quoted as such.
 
-**Last updated:** 2026-11-17 · **Active phase:** 05 (Marketing & Analytics) ·
+**Last updated:** 2026-11-20 · **Active phase:** 05 (Marketing & Analytics) ·
 **Active branch:** `feature/phase-05-marketing-analytics`
+
+> ### NEXT EXECUTABLE ACTION (read this first; owner directive of 2026-11-20, §10)
+>
+> The owner has authorised continuous implementation across **all** phases (01, 02, 2.5, 03, 04, 05, 06)
+> with **Level A** targeted tests during development and **one Level B** consolidated verification
+> campaign at the end — not full-suite runs after every change — and pushes **batched** at safe
+> checkpoints. Do not stop at a clean slice; select the next eligible task from the Master Plan,
+> dependencies and the gap register.
+>
+> **Last verified head:** `efc063b7`, required CI run 44722555870 (ci.yml #565) **success** 2026-11-20
+> 11:45Z. Committed since, **not yet pushed**: `17052bda` (D8-3a unsubscribe route + bilingual page),
+> `59a274c6` (D8-3b opt-in preference centre, the first permitted consent GRANT). Both are Level-A
+> green; they go up at the next push checkpoint, and a push is never made while a required CI run is
+> in progress.
+>
+> **Do next, in this order:**
+> 1. Act on the independent tenant-authz review of the D8-3 grant path (requested 2026-11-20); fix any
+>    finding before the push checkpoint.
+> 2. **P5-4 merchant analytics dashboard** — the next unstarted Phase 05 slice; the D1/D2 metric layer it
+>    needs is complete (`PHASE-05-METRIC-LAYER.md`), and `MetricResult::assumingUnknownCurrencyIs()`
+>    exists so a tile cannot 500 on a mixed-currency store.
+> 3. Then P5-5 (campaign/promotion analytics), P5-6 (retention surface — metric done, no surface),
+>    P5-7 (platform/operator reporting), P5-8 (export), loyalty completion, and the MKT-001–010 /
+>    ANA-001–010 coverage reconciliation.
+> 4. Then **Phase 06** development on its own branch + Draft PR, based to preserve the #138 → #139 →
+>    #140 dependency chain.
+>
+> **Blocked on the owner, not on engineering** (continue other work; do not let these stop development):
+> P1-SEC-81 publication and production remediation (CRITICAL, held, delivered privately — the repository
+> is public); D6 stage 2 (GAP-214); the PAY-SEC payment findings (private workflow); D8 enforcement
+> activation (`MARKETING_CONSENT_ENFORCEMENT` stays `off`, and its tables are unmigrated in production).
 
 Phase 03 engineering is complete and sits in **PR #138, Draft, not merged**. Phase 04 is branched
 from that engineering head, so **PR #139 carries Phase 03's commits and must not be merged ahead of
