@@ -55,7 +55,7 @@ class ReportCsvHeaderLocalisationTest extends TestCase
         'resources/views/reports/sale_by_category.blade.php' => 3,
         'resources/views/reports/sale_by_product.blade.php' => 3,
         'resources/views/reports/order_report.blade.php' => 9,
-        'resources/views/reports/bar_chart_order_report.blade.php' => 7,
+        'resources/views/reports/bar_chart_order_report.blade.php' => 9,
     ];
 
     /** The reports hub, which was already correct and is the model, not a target. */
@@ -366,7 +366,7 @@ class ReportCsvHeaderLocalisationTest extends TestCase
     {
         $expectedToBreak = [
             'resources/views/reports/order_report.blade.php' => 9,
-            'resources/views/reports/bar_chart_order_report.blade.php' => 7,
+            'resources/views/reports/bar_chart_order_report.blade.php' => 9,
         ];
 
         foreach ($expectedToBreak as $relative => $fields) {
@@ -431,7 +431,8 @@ class ReportCsvHeaderLocalisationTest extends TestCase
             ],
             'resources/views/reports/bar_chart_order_report.blade.php' => [
                 'monthList', 'NetSaleTotal', 'AverageNetSales', 'GrossSaleTotal',
-                'AverageGrossSales', 'ShippingTotal', 'CouponTotal',
+                'AverageGrossSales', 'ShippingTotal', 'CouponTotal', 'TotalOrderCount',
+                'PurchasedItemTotal',
             ],
         ];
 

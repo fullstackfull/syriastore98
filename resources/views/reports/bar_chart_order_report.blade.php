@@ -289,7 +289,9 @@
                             || !Array.isArray(data.GrossSaleTotal)
                             || !Array.isArray(data.AverageGrossSales)
                             || !Array.isArray(data.ShippingTotal)
-                            || !Array.isArray(data.CouponTotal)) {
+                            || !Array.isArray(data.CouponTotal)
+                            || !Array.isArray(data.TotalOrderCount)
+                            || !Array.isArray(data.PurchasedItemTotal)) {
                             show_toastr(@json(__('Error')), @json(__('Something went wrong. Please try again.')), 'error');
                             return;
                         }
@@ -319,6 +321,8 @@
                                 @json(__('Average order value, including shipping and tax')),
                                 @json(__('Shipping charged')),
                                 @json(__('Coupon value applied')),
+                                @json(__('Orders')),
+                                @json(__('Items ordered')),
                             ].map(function(h) {
                                 return '"' + String(h).replace(/"/g, '""') + '"';
                             }).join(',');
@@ -326,7 +330,7 @@
                             var csvContent = "data:text/csv;charset=utf-8,﻿" + header + "\n";
                             for (var i = 0; i < data.monthList.length; i++) {
                                 csvContent +=
-                                    `${data.monthList[i]},${data.NetSaleTotal[i]},${data.AverageNetSales[i]},${data.GrossSaleTotal[i]},${data.AverageGrossSales[i]},${data.ShippingTotal[i]},${data.CouponTotal[i]}\n`;
+                                    `${data.monthList[i]},${data.NetSaleTotal[i]},${data.AverageNetSales[i]},${data.GrossSaleTotal[i]},${data.AverageGrossSales[i]},${data.ShippingTotal[i]},${data.CouponTotal[i]},${data.TotalOrderCount[i]},${data.PurchasedItemTotal[i]}\n`;
                             }
 
                             var encodedUri = encodeURI(csvContent);

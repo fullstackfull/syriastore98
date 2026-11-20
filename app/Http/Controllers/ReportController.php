@@ -989,6 +989,12 @@ class ReportController extends Controller
         $return['AverageGrossSales'] = $requests_data['AverageGrossSales'] ?? [];
         $return['ShippingTotal'] = $requests_data['ShippingTotal'] ?? [];
         $return['CouponTotal'] = $requests_data['CouponTotal'] ?? [];
+        // P5-3: the bar screen also plots Total Orders and Purchased Items (a second chart), and the
+        // chart handler already stores both arrays in this same session key -- so the export must carry
+        // them too, or the downloaded file is narrower than the screen it came from. Read-only, from the
+        // principal's own session; no new query and no request-supplied input.
+        $return['TotalOrderCount'] = $requests_data['TotalOrderCount'] ?? [];
+        $return['PurchasedItemTotal'] = $requests_data['PurchasedItemTotal'] ?? [];
         return response()->json($return);
     }
 

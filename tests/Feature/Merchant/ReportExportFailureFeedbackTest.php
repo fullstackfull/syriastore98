@@ -68,7 +68,7 @@ class ReportExportFailureFeedbackTest extends SecurityTestCase
         ],
         '/order-barchart-report-export' => [
             'monthList', 'NetSaleTotal', 'AverageNetSales', 'GrossSaleTotal', 'AverageGrossSales',
-            'ShippingTotal', 'CouponTotal',
+            'ShippingTotal', 'CouponTotal', 'TotalOrderCount', 'PurchasedItemTotal',
         ],
         '/product-order-export' => ['monthList', 'NetSaleTotal', 'PurchasedItemTotal'],
         '/category-order-export' => ['monthList', 'NetSaleTotal'],
@@ -91,7 +91,7 @@ class ReportExportFailureFeedbackTest extends SecurityTestCase
         ],
         'resources/views/reports/bar_chart_order_report.blade.php' => [
             'monthList', 'NetSaleTotal', 'AverageNetSales', 'GrossSaleTotal', 'AverageGrossSales',
-            'ShippingTotal', 'CouponTotal',
+            'ShippingTotal', 'CouponTotal', 'TotalOrderCount', 'PurchasedItemTotal',
         ],
     ];
 
