@@ -98,6 +98,29 @@ final class TableFilterMemory
          * this class was written around does not obviously apply to a date range.
          */
         'analytics' => ['ss_period', 'ss_from', 'ss_to'],
+        /*
+         * MKT-002's five Marketing screens. EVERY NAME HERE ALSO NEEDS A HEADING IN `label()` AND A
+         * VALUE MAP IN `valueLabels()`, and that is not housekeeping: an unlisted name returns null
+         * from `label()`, `describe()` then returns `[]`, and the bars render Clear on
+         * `describe(...) !== []` -- the sticky-filter-with-no-way-out this class's docblock already
+         * records happening to the order screen. `MarketingFilterReceiptTest` drives all three gates
+         * for all twenty value pairs so the three cannot drift apart again.
+         *
+         * THE VALUES ARE READ OFF THE CREATE MIGRATIONS AND THE FIRST-PARTY LITERALS, never invented:
+         * `coupons.status` and `flash_sales.is_active` are 1/0, `coupons.coupon_type` is exactly
+         * `percentage` | `fixed product discount` | `flat` (the only three literals in app/ and
+         * resources/), and all five tables carry `timestamps()`, so `ss_from`/`ss_to` have a real
+         * `created_at` to narrow. No threshold and no band is chosen here, because a spend or
+         * recency band is a marketing policy and not engineering's to pick.
+         */
+        'coupon' => ['ss_status', 'ss_type', 'ss_expiry', 'ss_from', 'ss_to'],
+        'newsletter' => ['ss_source', 'ss_from', 'ss_to'],
+        'flash-sale' => ['ss_status', 'ss_window', 'ss_type', 'ss_from', 'ss_to'],
+        'wishlist' => ['ss_status', 'ss_from', 'ss_to'],
+        /* `ss_items` is the only predicate in this slice that must be a HAVING: `AbandonCartDataTable`
+           groups by `carts.customer_id` and counts rows, so a WHERE on the count is not expressible.
+           `one` / `several` rather than a numeric band, because a band is a policy choice. */
+        'abandon-cart' => ['ss_items', 'ss_from', 'ss_to'],
     ];
 
     /**
@@ -332,6 +355,9 @@ final class TableFilterMemory
             'ss_status' => 'Status', 'ss_variant' => 'Variants', 'ss_stock' => 'Stock',
             'ss_category' => 'Category', 'ss_payment' => 'Payment', 'ss_from' => 'From',
             'ss_to' => 'To', 'ss_return' => 'Returns', 'ss_source' => 'Source',
+            // MKT-002. Absent from here, each of these would narrow a Marketing list in silence
+            // and take the Clear button with it -- see the vocabulary's own note.
+            'ss_type' => 'Type', 'ss_expiry' => 'Expiry', 'ss_window' => 'When', 'ss_items' => 'Items',
         ];
 
         if (! isset($heading[$name])) {
@@ -411,6 +437,60 @@ final class TableFilterMemory
                         \App\DataTables\OrderDataTable::PAYMENT_STATUSES),
                 ),
             ];
+        }
+
+        /*
+         * MKT-002. DECLARED PER SCREEN RATHER THAN LEFT TO FALL THROUGH, even where the wording would
+         * come out the same. `coupons.status` and `flash_sales.is_active` really are 1/0
+         * active/inactive, so the default map below would read correctly today -- but the defect this
+         * method's docblock records was the PRODUCT map silently answering for the ORDER screen, and
+         * a screen that relies on another's map is one column rename away from repeating it.
+         */
+        if ($screen === 'coupon') {
+            return [
+                'ss_status' => ['1' => __('Active'), '0' => __('Inactive')],
+                /* The three `coupon_type` literals in the tree, spelled as the column stores them. */
+                'ss_type' => [
+                    'percentage' => __('Percentage'),
+                    'fixed product discount' => __('Fixed amount off a product'),
+                    'flat' => __('Flat amount off the basket'),
+                ],
+                /* `coupon_expiry_date` against today. Two values, because those are the two a date
+                   column can answer without a window somebody has to choose. */
+                'ss_expiry' => ['expired' => __('Expired'), 'current' => __('Still valid')],
+            ];
+        }
+
+        if ($screen === 'newsletter') {
+            /* `newsletters` holds only `customer_id`, `email` and `store_id`, so this is the one
+               distinction the table can actually make. */
+            return [
+                'ss_source' => ['customer' => __('A registered customer'), 'guest' => __('An e-mail only')],
+            ];
+        }
+
+        if ($screen === 'flash-sale') {
+            return [
+                'ss_status' => ['1' => __('Active'), '0' => __('Inactive')],
+                'ss_window' => [
+                    'running' => __('Running now'),
+                    'upcoming' => __('Not started yet'),
+                    'ended' => __('Finished'),
+                ],
+                /* `flash_sales.discount_type`. Narrower than the coupon set: there is no
+                   product-level type on a flash sale. */
+                'ss_type' => ['percentage' => __('Percentage'), 'flat' => __('Flat amount')],
+            ];
+        }
+
+        if ($screen === 'wishlist') {
+            return ['ss_status' => ['1' => __('Active'), '0' => __('Inactive')]];
+        }
+
+        if ($screen === 'abandon-cart') {
+            /* Counts of rows per customer, so the words say items and not money: `carts.price` is an
+               integer column and a spend band would be a policy nobody has chosen. */
+            return ['ss_items' => ['one' => __('One item'), 'several' => __('More than one item')]];
         }
 
         return [
