@@ -453,6 +453,18 @@ run_one verify-consent-ledger-concurrency-on-mysql \
 run_one verify-gap222-wallet-currency-on-mysql \
   "GAP222_MYSQL_SOCKET=${SOCK}" "GAP222_MYSQL_USERNAME=${USER_NAME}" "GAP222_MYSQL_PASSWORD=${PASS}"
 
+# GAP-223(a) -- the last-month window, selecting real rows on an overflow day. Two reasons it cannot
+# be a test: the bug needs a particular day (33 in every five years, and Carbon::setTestNow() does
+# not move date()/strtotime()), and ReportController's chart handlers use MONTH(/YEAR( in selectRaw,
+# which sqlite does not implement, so a Feature test against them answers 500. MEASURED: on
+# 31 March 2026 the old `-1 month` bounds select MARCH's 3,000.00 across 2 orders under a card
+# labelled "February 2026", while February's 700.00 across 3 orders is absent entirely. The fixed
+# bounds select February, carry a day count of 28 that matches the chart axis, keep both ends
+# inclusive, and are byte-identical to the old ones on every NON-overflow day -- which is what keeps
+# the change bounded. CalendarPeriodTest covers the derivation on all 1,827 days; this covers the rows.
+run_one verify-gap223-lastmonth-window-on-mysql \
+  "GAP223_MYSQL_SOCKET=${SOCK}" "GAP223_MYSQL_USERNAME=${USER_NAME}" "GAP223_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then
