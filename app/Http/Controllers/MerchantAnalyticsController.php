@@ -94,6 +94,22 @@ class MerchantAnalyticsController extends Controller
             'redemptions' => __('Coupon discounts given'),
         ]);
 
+        /*
+         * ANA-004. The two breakdowns are rows, not tiles, so they go through `breakdownRows()`
+         * -- same four columns, every row carrying its own period and disclosure. They are
+         * appended rather than interleaved so the single figures stay together at the top of the
+         * file, and each breakdown's rows are prefixed with its own name so two lists in one
+         * download stay readable.
+         */
+        foreach ([
+            'devices' => __('Devices'),
+            'channels' => __('Referring pages'),
+        ] as $key => $label) {
+            if (isset($figures[$key])) {
+                $rows = array_merge($rows, \App\Support\Metrics\FigureCsv::breakdownRows($figures[$key], $label));
+            }
+        }
+
         return response(\App\Support\Metrics\FigureCsv::render($rows), 200, [
             'Content-Type' => 'text/csv; charset=UTF-8',
             'Content-Disposition' => 'attachment; filename="analytics.csv"',

@@ -4232,5 +4232,17 @@
     "Up :change from :baseline in :period": "ارتفاع بمقدار :change عن :baseline في :period",
     "Down :change from :baseline in :period": "انخفاض بمقدار :change عن :baseline في :period",
     "No change from :baseline in :period": "لا تغيير عن :baseline في :period",
-    "What customers were charged for delivery on these orders, whatever their payment status. Where the plan charges shipping, it is already part of order value including shipping and tax.": "ما تم تحصيله من العملاء مقابل التوصيل على هذه الطلبات، بصرف النظر عن حالة الدفع. وحيث تفرض الخطة أجور الشحن، فهو مشمول بالفعل في قيمة الطلبات متضمّنة الشحن والضريبة."
+    "What customers were charged for delivery on these orders, whatever their payment status. Where the plan charges shipping, it is already part of order value including shipping and tax.": "ما تم تحصيله من العملاء مقابل التوصيل على هذه الطلبات، بصرف النظر عن حالة الدفع. وحيث تفرض الخطة أجور الشحن، فهو مشمول بالفعل في قيمة الطلبات متضمّنة الشحن والضريبة.",
+    "Device not recorded": "الجهاز غير مسجَّل",
+    "No visits were recorded in this period, so there is no device breakdown. Nothing is estimated.": "لم تُسجَّل أي زيارات في هذه الفترة، لذلك لا يوجد توزيع للأجهزة. ولا يُقدَّر أي رقم.",
+    "The device is whatever the visitor's browser reported; a visit whose device could not be determined is shown as not recorded rather than guessed.": "الجهاز هو ما أبلغ عنه متصفّح الزائر؛ والزيارة التي لم يُعرَف جهازها تُعرض كغير مسجَّلة بدلاً من تخمينها.",
+    "No referring page recorded": "لا توجد صفحة إحالة مسجَّلة",
+    "Referring page could not be read": "لم تتم قراءة صفحة الإحالة",
+    "No visits were recorded in this period, so there is no referrer breakdown. Nothing is estimated.": "لم تُسجَّل أي زيارات في هذه الفترة، لذلك لا يوجد توزيع لصفحات الإحالة. ولا يُقدَّر أي رقم.",
+    "Each line is the host the visitor's browser named. No host is filed under a marketing channel: that would need a maintained list of search and social domains, and a visit filed under the wrong channel is worse than one shown under its own domain. Your own domain appears here when a shopper moved between your pages.": "كل سطر هو المضيف الذي ذكره متصفّح الزائر. ولا يُصنَّف أي مضيف تحت قناة تسويقية: فذلك يتطلّب قائمة مُحدَّثة بنطاقات البحث والتواصل الاجتماعي، وزيارة مُصنَّفة تحت القناة الخطأ أسوأ من زيارة تظهر تحت نطاقها الحقيقي. ونطاقك يظهر هنا عندما ينتقل المتسوّق بين صفحاتك.",
+    "A visit with no referring page is shown as not recorded, NOT as direct: a privacy setting, an in-app browser, a bookmark or an HTTPS-to-HTTP hop all remove it.": "الزيارة التي لا تملك صفحة إحالة تُعرض كغير مسجَّلة، وليست زيارة مباشرة: فإعداد الخصوصية أو متصفّح داخل تطبيق أو إشارة مرجعية أو الانتقال من HTTPS إلى HTTP كلها تحذفها.",
+    "Only the :count most common referring pages were read, so less frequent ones are not represented.": "تمت قراءة أكثر :count صفحة إحالة شيوعاً فقط، لذلك لا تظهر الصفحات الأقل تكراراً.",
+    "Referring pages": "صفحات الإحالة",
+    "Referring page": "صفحة الإحالة",
+    "Visits": "الزيارات"
 }

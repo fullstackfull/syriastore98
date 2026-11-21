@@ -42,6 +42,17 @@ final class MerchantAnalyticsFigures
     /** The activity window. Short enough to be about now, long enough that a quiet week is not a cliff. */
     private const RECENT_DAYS = 30;
 
+    /**
+     * How many distinct referring URLs are read before folding them into hosts. A bound is needed
+     * because the host fold happens in PHP (SQLite has no URL functions), and when it is REACHED
+     * the hint says so -- this project's rule is that a cap which is not disclosed reads as
+     * completeness.
+     */
+    private const MAX_REFERER_ROWS = 500;
+
+    /** The only columns `groupedVisits()` will group by; see its docblock for why it is a closed list. */
+    private const GROUPABLE_VISIT_COLUMNS = ['device', 'platform', 'browser', 'referer'];
+
     /** U+2066 / U+2069: isolate a run so a number lays out left-to-right inside an Arabic paragraph. */
     private const LRI = "\u{2066}";
 
@@ -123,6 +134,8 @@ final class MerchantAnalyticsFigures
             'customers' => self::customers($storeId, $from, $to, $period),
             'redemptions' => self::redemptions($storeId, $storeCurrency, $from, $to, $period),
             'retention' => self::retention($storeId),
+            'devices' => self::devices($storeId, $from, $to, $period),
+            'channels' => self::channels($storeId, $from, $to, $period),
         ];
     }
 
@@ -437,6 +450,188 @@ final class MerchantAnalyticsFigures
             'percent' => $percent,
             'note' => $note,
         ];
+    }
+
+    /**
+     * ANA-004 — WHAT THE VISITS CAME FROM. Device first.
+     *
+     * `visits.device` is written by `App\Services\SanitisedVisitor`, whose own docblock lists
+     * `device` among the columns "the analytics screens read". So this is AGGREGATION, not
+     * user-agent parsing: the classification is the library's and is not re-done or second-guessed
+     * here.
+     *
+     * AN UNRECORDED DEVICE IS ITS OWN ROW, NAMED, and translated. The pre-existing
+     * `ThemeAnalyticController` labels that case `'Other'` -- a hardcoded English word on a
+     * bilingual product, and worse, a word that reads like a KIND of device rather than like an
+     * absence. A visit whose agent the library could not classify is not an "other device"; it is a
+     * visit we cannot tell you the device for.
+     *
+     * ORDERED BY COUNT, DESCENDING. The pre-existing screen orders by the LABEL
+     * (`orderBy('device', 'DESC')`), which puts the alphabet before the magnitude and makes the
+     * biggest share arbitrary to find.
+     *
+     * WINDOWED. The pre-existing screen has no date bound on these three breakdowns at all, so it
+     * reports all time beside figures labelled thirty days. This one takes the screen's own window,
+     * and `period` says which.
+     */
+    private static function devices(int $storeId, CarbonInterface $from, CarbonInterface $to, string $period): array
+    {
+        /*
+         * THE EMPTY BUCKETS ARE FOLDED IN PHP, and a test is the reason this is not a plain loop
+         * over the query's rows. SQL `GROUP BY device` treats NULL and the empty string as TWO
+         * groups, so the first version of this method emitted two rows BOTH labelled "Device not
+         * recorded", with a count of 1 each -- a merchant would have read one absence as two
+         * devices and neither count as the real one. `channels()` below already folded in PHP for
+         * the host; this does it for the same reason.
+         */
+        $buckets = [];
+        $total = 0;
+
+        foreach (self::groupedVisits($storeId, $from, $to, 'device') as $row) {
+            $label = trim((string) ($row->bucket ?? ''));
+            $count = (int) $row->total;
+            $total += $count;
+
+            $buckets[$label] = ($buckets[$label] ?? 0) + $count;
+        }
+
+        arsort($buckets);
+
+        $rows = [];
+
+        foreach ($buckets as $label => $count) {
+            $rows[] = [
+                'label' => $label === '' ? __('Device not recorded') : (string) $label,
+                'count' => self::ltr(number_format($count)),
+            ];
+        }
+
+        return [
+            'rows' => $rows,
+            'period' => $period,
+            'hint' => $rows === []
+                ? __('No visits were recorded in this period, so there is no device breakdown. Nothing is estimated.')
+                : self::visitsMeaning() . ' ' . __('The device is whatever the visitor\'s browser reported; a visit whose device could not be determined is shown as not recorded rather than guessed.'),
+            'total' => self::ltr(number_format($total)),
+        ];
+    }
+
+    /**
+     * ANA-004 — AND WHERE THEY CAME FROM, which is the half that needed a decision about what NOT
+     * to claim.
+     *
+     * THE REFERRING HOST IS REPORTED VERBATIM. No host is classified into "search", "social" or
+     * "paid", and that is deliberate rather than unfinished: such a classification needs a curated
+     * list of hosts, a list is a product decision that goes stale, and a visit filed under the
+     * wrong channel is worse than one filed under its own domain name. What IS measured -- which
+     * host the browser named -- is reported.
+     *
+     * THE REFERER SURVIVES SANITISATION, which had to be checked before any of this was possible.
+     * `SanitisedVisitor::redact()` strips sensitive query-parameter VALUES and replaces an
+     * encrypted path segment, keeping scheme, host and path. So the host is intact; what is gone
+     * is the capability token a referring URL might have carried.
+     *
+     * NO REFERER IS "NOT RECORDED", NOT "DIRECT". A missing referer is commonly read as a direct
+     * visit and it is not evidence of one: a browser's privacy setting, an app's in-app webview, an
+     * HTTPS-to-HTTP hop and a bookmarked link all strip it. Calling that bucket "Direct" would
+     * invent a traffic source; it is named for what is true of it.
+     *
+     * THE HOST IS FOLDED IN PHP BECAUSE SQLITE HAS NO URL FUNCTIONS, so the grouping is done on
+     * distinct referring URLs in SQL and folded to hosts here. That is bounded by
+     * `MAX_REFERER_ROWS` and, when the bound is reached, the hint SAYS SO -- a silently truncated
+     * breakdown reads as a complete one.
+     */
+    private static function channels(int $storeId, CarbonInterface $from, CarbonInterface $to, string $period): array
+    {
+        $raw = self::groupedVisits($storeId, $from, $to, 'referer', self::MAX_REFERER_ROWS);
+        $capped = count($raw) >= self::MAX_REFERER_ROWS;
+
+        $hosts = [];
+
+        foreach ($raw as $row) {
+            $referer = trim((string) ($row->bucket ?? ''));
+            $count = (int) $row->total;
+
+            if ($referer === '') {
+                $key = '';
+            } else {
+                $host = parse_url($referer, PHP_URL_HOST);
+                // An unparseable referer is not a host and must not be printed as one.
+                $key = is_string($host) && $host !== '' ? strtolower($host) : '?';
+            }
+
+            $hosts[$key] = ($hosts[$key] ?? 0) + $count;
+        }
+
+        arsort($hosts);
+
+        $rows = [];
+
+        foreach ($hosts as $host => $count) {
+            $rows[] = [
+                'label' => match ($host) {
+                    '' => __('No referring page recorded'),
+                    '?' => __('Referring page could not be read'),
+                    default => $host,
+                },
+                'count' => self::ltr(number_format($count)),
+            ];
+        }
+
+        $notes = [];
+
+        if ($rows === []) {
+            $notes[] = __('No visits were recorded in this period, so there is no referrer breakdown. Nothing is estimated.');
+        } else {
+            $notes[] = self::visitsMeaning();
+            $notes[] = __('Each line is the host the visitor\'s browser named. No host is filed under a marketing channel: that would need a maintained list of search and social domains, and a visit filed under the wrong channel is worse than one shown under its own domain. Your own domain appears here when a shopper moved between your pages.');
+            $notes[] = __('A visit with no referring page is shown as not recorded, NOT as direct: a privacy setting, an in-app browser, a bookmark or an HTTPS-to-HTTP hop all remove it.');
+        }
+
+        if ($capped) {
+            $notes[] = __('Only the :count most common referring pages were read, so less frequent ones are not represented.', [
+                'count' => self::ltr(number_format(self::MAX_REFERER_ROWS)),
+            ]);
+        }
+
+        return [
+            'rows' => $rows,
+            'period' => $period,
+            'hint' => implode(' ', $notes),
+        ];
+    }
+
+    /**
+     * One grouped count over `visits`, store-scoped and windowed, for whichever column the caller
+     * names.
+     *
+     * THE COLUMN IS NOT CALLER INPUT. It is chosen from a closed list here, because the value is
+     * interpolated into `selectRaw`/`groupBy` and a name from a request would be an injection
+     * point. Both call sites pass a literal; the guard is for the third.
+     *
+     * The store predicate is EXPLICIT. `shetabit_visits` is not in `config/tenancy.php`'s
+     * `scoped_models`, so no global scope adds `store_id` for anybody -- operator included.
+     *
+     * @return list<object>
+     */
+    private static function groupedVisits(int $storeId, CarbonInterface $from, CarbonInterface $to, string $column, ?int $limit = null): array
+    {
+        if (! in_array($column, self::GROUPABLE_VISIT_COLUMNS, true)) {
+            throw new \InvalidArgumentException('visits cannot be grouped by ' . $column);
+        }
+
+        $query = Visit::query()
+            ->selectRaw($column . ' as bucket, COUNT(*) as total')
+            ->where('store_id', $storeId)
+            ->whereBetween('created_at', [$from, $to])
+            ->groupBy($column)
+            ->orderByDesc('total');
+
+        if ($limit !== null) {
+            $query->limit($limit);
+        }
+
+        return $query->get()->all();
     }
 
     private static function countOrders(int $storeId, CarbonInterface $from, CarbonInterface $to): int

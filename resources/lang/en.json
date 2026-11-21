@@ -4236,5 +4236,17 @@
     "Up :change from :baseline in :period": "Up :change from :baseline in :period",
     "Down :change from :baseline in :period": "Down :change from :baseline in :period",
     "No change from :baseline in :period": "No change from :baseline in :period",
-    "What customers were charged for delivery on these orders, whatever their payment status. Where the plan charges shipping, it is already part of order value including shipping and tax.": "What customers were charged for delivery on these orders, whatever their payment status. Where the plan charges shipping, it is already part of order value including shipping and tax."
+    "What customers were charged for delivery on these orders, whatever their payment status. Where the plan charges shipping, it is already part of order value including shipping and tax.": "What customers were charged for delivery on these orders, whatever their payment status. Where the plan charges shipping, it is already part of order value including shipping and tax.",
+    "Device not recorded": "Device not recorded",
+    "No visits were recorded in this period, so there is no device breakdown. Nothing is estimated.": "No visits were recorded in this period, so there is no device breakdown. Nothing is estimated.",
+    "The device is whatever the visitor's browser reported; a visit whose device could not be determined is shown as not recorded rather than guessed.": "The device is whatever the visitor's browser reported; a visit whose device could not be determined is shown as not recorded rather than guessed.",
+    "No referring page recorded": "No referring page recorded",
+    "Referring page could not be read": "Referring page could not be read",
+    "No visits were recorded in this period, so there is no referrer breakdown. Nothing is estimated.": "No visits were recorded in this period, so there is no referrer breakdown. Nothing is estimated.",
+    "Each line is the host the visitor's browser named. No host is filed under a marketing channel: that would need a maintained list of search and social domains, and a visit filed under the wrong channel is worse than one shown under its own domain. Your own domain appears here when a shopper moved between your pages.": "Each line is the host the visitor's browser named. No host is filed under a marketing channel: that would need a maintained list of search and social domains, and a visit filed under the wrong channel is worse than one shown under its own domain. Your own domain appears here when a shopper moved between your pages.",
+    "A visit with no referring page is shown as not recorded, NOT as direct: a privacy setting, an in-app browser, a bookmark or an HTTPS-to-HTTP hop all remove it.": "A visit with no referring page is shown as not recorded, NOT as direct: a privacy setting, an in-app browser, a bookmark or an HTTPS-to-HTTP hop all remove it.",
+    "Only the :count most common referring pages were read, so less frequent ones are not represented.": "Only the :count most common referring pages were read, so less frequent ones are not represented.",
+    "Referring pages": "Referring pages",
+    "Referring page": "Referring page",
+    "Visits": "Visits"
 }

@@ -80,6 +80,63 @@
     </div>
 </div>
 
+{{-- ANA-004. WHERE THE VISITS CAME FROM — two breakdowns, and neither invents a category.
+
+     These are TABLES rather than tiles because a breakdown is a set of rows and a tile is one
+     number; the platform screen made the same choice for its per-currency amounts. Nothing here
+     computes, folds, orders or totals: MerchantAnalyticsFigures did all of it, including the
+     decision to order by count rather than by label and to name an absence an absence.
+
+     THE TWO DISCLOSURES ARE THE POINT OF THE SECTION. The device list says a visit is a REQUEST
+     and not a person, and that an undetermined device is shown as not recorded rather than
+     guessed. The referrer list says that no host is filed under a marketing channel — that would
+     need a maintained list of search and social domains — and that a visit with no referring page
+     is NOT a direct visit, which is the reading a merchant will otherwise make. --}}
+<div class="row">
+    @foreach ([
+        'devices' => ['heading' => __('Devices'), 'column' => __('Device')],
+        'channels' => ['heading' => __('Referring pages'), 'column' => __('Referring page')],
+    ] as $key => $meta)
+        <div class="col-xl-6">
+            <div class="ss-card mt-3">
+                <h2 class="h5 mb-1">{{ $meta['heading'] }}</h2>
+
+                <p class="ss-muted mb-3">
+                    {{ __('Period') }}: {{ $figures[$key]['period'] }}
+                </p>
+
+                @if ($figures[$key]['rows'] === [])
+                    <p>{{ __('Not available') }}</p>
+                @else
+                    <div class="table-responsive">
+                        <table class="table">
+                            <caption class="ss-visually-hidden">
+                                {{ $meta['heading'] }} — {{ $figures[$key]['period'] }}
+                            </caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col">{{ $meta['column'] }}</th>
+                                    <th scope="col">{{ __('Visits') }}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach ($figures[$key]['rows'] as $row)
+                                    <tr>
+                                        <td>{{ $row['label'] }}</td>
+                                        <td>{{ $row['count'] }}</td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                @endif
+
+                <p class="ss-stat__hint">{{ $figures[$key]['hint'] }}</p>
+            </div>
+        </div>
+    @endforeach
+</div>
+
 {{-- MONEY. The same two tiles as `/finance`, from the same FinanceLedgerFigures, so the two screens
      cannot disagree about one number — which is the defect this reuse exists to prevent. Their
      period is the ledger's own coverage (store_order_financials has no backfill), not the 30-day

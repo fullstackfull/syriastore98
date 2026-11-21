@@ -99,6 +99,48 @@ final class FigureCsv
     }
 
     /**
+     * A BREAKDOWN — one row per bucket — in the same four columns as every other figure.
+     *
+     * ANA-004's device and referrer lists are not single figures, so they cannot go through
+     * `rows()`; they are shaped like `currencyRows()` and are written the same way, with the label
+     * prefixed by the breakdown's own name so the file stays readable when two breakdowns sit in
+     * one download. EVERY row repeats the period and the disclosure, for the reason this class
+     * exists: a spreadsheet lets a reader sort, filter or copy a range, and each of those separates
+     * a number from a footnote.
+     *
+     * An EMPTY breakdown still writes one row, saying `Not available` rather than nothing at all.
+     * A breakdown that vanishes from a file reads as a breakdown with no data, which is a different
+     * claim from "we recorded no visits in this period".
+     *
+     * @param  array{rows: list<array{label: string, count: string}>, period: string, hint: string}  $breakdown
+     * @return list<list<string>>
+     */
+    public static function breakdownRows(array $breakdown, string $label): array
+    {
+        $rows = [];
+
+        foreach ($breakdown['rows'] as $row) {
+            $rows[] = [
+                $label . ' — ' . (string) ($row['label'] ?? ''),
+                self::plain((string) ($row['count'] ?? '')),
+                (string) ($breakdown['period'] ?? ''),
+                (string) ($breakdown['hint'] ?? ''),
+            ];
+        }
+
+        if ($rows === []) {
+            $rows[] = [
+                $label,
+                __('Not available'),
+                (string) ($breakdown['period'] ?? ''),
+                (string) ($breakdown['hint'] ?? ''),
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
      * RFC 4180 through PHP's own writer rather than `implode(',')`.
      *
      * Hand-rolled joins are how a merchant-typed name containing a comma or a quote splits a row,
