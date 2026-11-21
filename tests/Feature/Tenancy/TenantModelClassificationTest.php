@@ -210,6 +210,13 @@ class TenantModelClassificationTest extends TestCase
             // billable WhatsApp message. A global scope would add a predicate that `null_tenant => 'open'` can silently drop, beside the
             // explicit one that is the control of record, and the explicit one is what `NudgeLedgerReadsTest` drives.
             \App\Models\MarketingNudgeSend::class => 'GAP-219: explicit store_id on every ledger read and write; not Cachable either, because a cached "already sent?" answer is a second billable message.',
+
+            // ANA-003. The scheduled analytics export. Its runner has NO authenticated principal at all -- it runs from the console, so
+            // `getCurrentStore()` is null and `null_tenant => 'open'` means a global scope would add NO predicate. The schedule's own
+            // `store_id` is therefore not a second line of defence, it is the ONLY tenant control on that path, and every query carries
+            // it. Not `Cachable` either: the runner's correctness rests on reading `next_due_at` as it is right now and winning a
+            // conditional write against it, and a cached "is this due" is a report sent twice or not at all.
+            \App\Models\AnalyticsReportSchedule::class => 'ANA-003: console runner with no principal, so the explicit store_id is the only tenant control; not Cachable because the due-claim is a conditional write.',
         ];
     }
 
@@ -253,6 +260,9 @@ class TenantModelClassificationTest extends TestCase
         // tenant-discriminated, and all three are recorded in doNotScopeDespiteHavingTheColumn()
         // with their reason -- they are NOT allowlisted for scope enforcement. That classification
         // is the review this assertion exists to force, and it was written before the count moved.
+        // 103, UP FROM 102. ANA-003 added `App\Models\AnalyticsReportSchedule`: its table carries `store_id`, it does NOT carry
+        // BelongsToStore, and its classification is recorded in doNotScopeDespiteHavingTheColumn() with a reason of its own -- the
+        // runner has no authenticated principal, so a scope would add nothing and the explicit predicate is the whole control.
         // 102, UP FROM 101. GAP-219 added `App\Models\MarketingNudgeSend`, the nudge ledger: its table carries `store_id`, so it is
         // tenant-discriminated, it does NOT carry BelongsToStore, and its classification is recorded in
         // doNotScopeDespiteHavingTheColumn() with a reason of its own -- the duplicate guard must hit the database, so the model is
@@ -271,7 +281,7 @@ class TenantModelClassificationTest extends TestCase
         // the page's). A scope there would blank the page for the person it exists for, and a predicate
         // built from the caller's own store buys no confidentiality: the token already names the store.
         // They are not `Cachable` either, because a cached answer to "may I send this" is a stale one.
-        $this->assertSame(102, $total, 'The model count changed. Re-run the classification and '
+        $this->assertSame(103, $total, 'The model count changed. Re-run the classification and '
             . 'review the new model before anything is allowlisted: ' . implode(', ', $this->eloquentModels()));
     }
 
@@ -310,6 +320,8 @@ class TenantModelClassificationTest extends TestCase
         // 68, UP FROM 65: theme_versions, theme_published_versions and theme_publication_events all
         // carry `store_id` (P3-M3-C). The column is real and the rows are tenant-owned; what
         // changed is the count, not the classification rule.
+        // 73, UP FROM 72: `analytics_report_schedules` carries `store_id` (ANA-003). Same as the others: the column is real and the
+        // rows are tenant-owned; what changed is the count, not the classification rule.
         // 72, UP FROM 71: `marketing_nudge_sends` carries `store_id` (GAP-219). As with the three below, the column is real and the
         // rows are tenant-owned; what changed is the count, not the classification rule.
         // 71, UP FROM 68: marketing_consent_events, marketing_contact_states and
@@ -317,7 +329,7 @@ class TenantModelClassificationTest extends TestCase
         // rows are tenant-owned; what changed is the count, not the classification rule. The reason none
         // is scope-enforced is recorded beside the model count above.
         $this->assertCount(
-            72,
+            73,
             $this->tenantDiscriminated,
             "The set of models whose table carries a `store_id` column changed.\nMeasured now:\n  "
             . implode("\n  ", $this->tenantDiscriminated)

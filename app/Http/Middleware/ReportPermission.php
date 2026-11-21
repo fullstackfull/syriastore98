@@ -38,6 +38,12 @@ class ReportPermission
     public const ACTIONS = [
         'index' => self::REPORTS, 'reports_chart' => self::REPORTS, 'export' => self::REPORTS, 'top_product' => self::REPORTS,
 
+        /* ANA-003's scheduled exports. `ACTIONS[$action] ?? self::REPORTS` would already gate these
+           on `Manage Reports` -- the fallback is fail-CLOSED -- but an implicit gate is one nobody
+           can find by reading this map, and a future action that SHOULD carry a different
+           permission would inherit this one silently. Named explicitly for that reason. */
+        'storeSchedule' => self::REPORTS, 'destroySchedule' => self::REPORTS,
+
         'OrderReport' => self::ORDERS, 'order_reports_chart' => self::ORDERS, 'order_report_export' => self::ORDERS,
         'order_bar_report_export' => self::ORDERS, 'BarChartOrderReport' => self::ORDERS, 'order_reports_chart_data' => self::ORDERS,
         'OrderSaleProductReport' => self::ORDERS, 'order_product_reports' => self::ORDERS, 'product_order_export' => self::ORDERS,

@@ -146,6 +146,111 @@
     </div>
 </div>
 
+{{-- ANA-003 — SCHEDULED EXPORTS OF THIS FILE.
+
+     THE "LAST SENT" COLUMN IS THE POINT OF THIS TABLE, not decoration. Delivery depends on the
+     server running `php artisan schedule:run` every minute, and the project's own Phase 7 readiness
+     notes record that as an UNVERIFIED item for production — "a deployment without a scheduler
+     passes §4–§10 and fails silently". A schedule that has never fired must therefore look
+     different from one that is working, or its absence looks like success. So each row says when it
+     last ran and how that run ended, and a row that has never run says so in words.
+
+     THE RECIPIENT IS NOT A FIELD. It is the signed-in employee's own account address, shown so the
+     merchant knows where the file goes. An e-mail input here would make this an authenticated mail
+     relay: store figures to any address on the internet, on a timer.
+
+     The form posts the period that is CURRENTLY ON SCREEN, clamps included, for the same reason the
+     saved-period form does — saving the un-clamped request would store a window the merchant has
+     never seen. --}}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="ss-card">
+            <h2 class="h5 mb-1">{{ __('Scheduled exports') }}</h2>
+
+            <p class="ss-muted">
+                {{ __('Receive this file by e-mail on a schedule, at :email.', ['email' => auth('web')->user()?->email]) }}
+            </p>
+
+            @if (! empty($schedules) && count($schedules) > 0)
+                <div class="table-responsive">
+                    <table class="table">
+                        <caption class="ss-visually-hidden">{{ __('Scheduled exports') }}</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">{{ __('Name') }}</th>
+                                <th scope="col">{{ __('Period') }}</th>
+                                <th scope="col">{{ __('How often') }}</th>
+                                <th scope="col">{{ __('Last sent') }}</th>
+                                <th scope="col">{{ __('Action') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($schedules as $schedule)
+                                <tr>
+                                    <th scope="row">{{ $schedule->name }}</th>
+                                    <td>{{ $schedule->period_key === 'custom'
+                                        ? $schedule->period_from?->toDateString() . ' — ' . $schedule->period_to?->toDateString()
+                                        : $schedule->period_key }}</td>
+                                    <td>{{ $scheduleFrequencies[$schedule->frequency] ?? $schedule->frequency }}</td>
+                                    <td>
+                                        @if ($schedule->hasEverRun())
+                                            {{ $schedule->last_run_at->toDayDateTimeString() }}
+                                            @if ($schedule->last_outcome !== \App\Models\AnalyticsReportSchedule::OUTCOME_SENT)
+                                                <span class="ss-stat__hint">{{ $schedule->last_outcome }}</span>
+                                            @endif
+                                        @else
+                                            {{ __('Never sent yet') }}
+                                        @endif
+                                    </td>
+                                    <td>
+                                        <form method="POST" action="{{ route('analytics.schedules.destroy', $schedule->id) }}">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" class="ss-btn ss-btn--secondary ss-btn--sm">{{ __('Stop') }}</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+
+                <p class="ss-stat__hint">
+                    {{ __('A scheduled export is sent by the server, not by your browser. If a report says it has never been sent, the server\'s scheduler may not be running — ask whoever administers it.') }}
+                </p>
+            @else
+                <p>{{ __('You have no scheduled exports.') }}</p>
+            @endif
+
+            <form method="POST" action="{{ route('analytics.schedules.store') }}" class="row g-2 align-items-end mt-2">
+                @csrf
+                <input type="hidden" name="ss_period" value="{{ $periodKey }}">
+                <input type="hidden" name="ss_from" value="{{ $periodFrom }}">
+                <input type="hidden" name="ss_to" value="{{ $periodTo }}">
+
+                <div class="col-sm-5">
+                    <label class="ss-field__label" for="schedule_name">{{ __('Send this period as') }}</label>
+                    <input class="form-control" type="text" id="schedule_name" name="name" maxlength="60"
+                           placeholder="{{ __('e.g. Monday morning numbers') }}">
+                </div>
+
+                <div class="col-sm-4">
+                    <label class="ss-field__label" for="schedule_frequency">{{ __('How often') }}</label>
+                    <select class="form-control" id="schedule_frequency" name="frequency">
+                        @foreach ($scheduleFrequencies as $value => $words)
+                            <option value="{{ $value }}">{{ $words }}</option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <div class="col-sm-3">
+                    <button type="submit" class="ss-btn ss-btn--secondary w-100">{{ __('Schedule') }}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 @if (! empty($figures['period']['clamped']))
     <div class="row mb-4">
         <div class="col-12">

@@ -66,6 +66,10 @@ class MerchantAnalyticsController extends Controller
             'periodTo' => $period->to()->toDateString(),
             // For the date inputs' `max`: the browser should not offer a day that has not happened.
             'periodToday' => \Carbon\CarbonImmutable::now()->toDateString(),
+            // ANA-003. The employee's own standing requests, with their last run so a schedule
+            // that has never fired is visibly different from one that works.
+            'schedules' => \App\Models\AnalyticsReportSchedule::forCurrentPrincipal()->get(),
+            'scheduleFrequencies' => \App\Models\AnalyticsReportSchedule::frequencies(),
         ]);
     }
 
@@ -166,53 +170,149 @@ class MerchantAnalyticsController extends Controller
 
         $figures = MerchantAnalyticsFigures::forStore($storeId, $currencyCode, null, $period);
 
-        $rows = \App\Support\Metrics\FigureCsv::rows($figures, [
-            'orders' => __('Orders'),
-            'visits' => __('Page views'),
-            'conversion' => __('Conversion'),
-            'customers' => __('Buyers'),
-            'retention' => __('Repeat purchase'),
-            'payments' => __('Payments received'),
-            'profit' => __('Estimated gross profit'),
-            'redemptions' => __('Coupon discounts given'),
-        ]);
-
         /*
-         * ANA-004. The two breakdowns are rows, not tiles, so they go through `breakdownRows()`
-         * -- same four columns, every row carrying its own period and disclosure. They are
-         * appended rather than interleaved so the single figures stay together at the top of the
-         * file, and each breakdown's rows are prefixed with its own name so two lists in one
-         * download stay readable.
+         * ANA-003 — THE ROW SET MOVED TO `AnalyticsExportRows`, because it now has two callers.
+         *
+         * The scheduled export (`ScheduledReportRunner`) has to produce the SAME file as this
+         * download. Copying the row set would have made two definitions of what the export
+         * contains, so a later edit of one could leave a merchant's scheduled file and their
+         * clicked file disagreeing -- the same class of defect as a figure and its caveat living in
+         * different files. Nothing about the file changed; it is the same labels, the same
+         * breakdowns and the same clamp row, in one place.
          */
-        foreach ([
-            'devices' => __('Devices'),
-            'channels' => __('Referring pages'),
-        ] as $key => $label) {
-            if (isset($figures[$key])) {
-                $rows = array_merge($rows, \App\Support\Metrics\FigureCsv::breakdownRows($figures[$key], $label));
-            }
-        }
-
-        /*
-         * AND THE CLAMP TRAVELS WITH THE FILE. When a requested period was shortened or moved, the
-         * screen says so above the figures; a file that dropped that sentence would be a figure
-         * separated from its own limits, which is the single defect `FigureCsv` exists to prevent.
-         * It is a ROW, in the same four columns, because a header or a trailing comment survives
-         * neither sorting nor copying a range.
-         */
-        if (! empty($figures['period']['clamped'])) {
-            $rows[] = [
-                __('Period'),
-                $figures['period']['label'],
-                $figures['period']['label'],
-                (string) $figures['period']['clamped'],
-            ];
-        }
+        $rows = \App\Support\Analytics\AnalyticsExportRows::build($figures);
 
         return response(\App\Support\Metrics\FigureCsv::render($rows), 200, [
             'Content-Type' => 'text/csv; charset=UTF-8',
             'Content-Disposition' => 'attachment; filename="analytics.csv"',
         ]);
+    }
+
+    /**
+     * ANA-003 — CREATE OR UPDATE A STANDING REQUEST FOR THIS EXPORT.
+     *
+     * THE PERIOD IS THE ONE ON SCREEN, resolved through `AnalyticsPeriod` exactly as `index()` does,
+     * so a merchant saves the window they are looking at rather than a second description of it.
+     * A clamped period is saved AS CLAMPED, for the same reason the screen shows the clamp: saving
+     * the un-clamped request would store a period the merchant has never actually seen.
+     *
+     * THE RECIPIENT IS NOT A PARAMETER. It is written from the authenticated user's own account
+     * address. An e-mail field here would make this an authenticated mail relay: store figures to
+     * any address on the internet, on a timer. Sending to a colleague is a real feature and a real
+     * decision -- who may receive another store's figures is the owner's call, not a text input.
+     *
+     * RE-SAVING A NAME UPDATES, which is the contract `SavedView` already has and the unique index
+     * enforces: the merchant's intent is "this is what that schedule means now".
+     */
+    public function storeSchedule(Request $request)
+    {
+        $resolved = $this->resolveStore();
+
+        if (! is_array($resolved)) {
+            return $resolved;
+        }
+
+        [$storeId] = $resolved;
+
+        $user = auth('web')->user();
+
+        if ($user === null) {
+            return redirect()->route('analytics.index')->with('error', __('Permission denied.'));
+        }
+
+        $validator = \Validator::make($request->all(), [
+            // 60 is the column width. A name is a label, not a note.
+            'name' => 'required|string|max:60',
+            'frequency' => 'required|string|in:' . implode(',', array_keys(
+                \App\Models\AnalyticsReportSchedule::frequencies()
+            )),
+        ]);
+
+        if ($validator->fails()) {
+            return redirect()->route('analytics.index')
+                ->with('error', $validator->getMessageBag()->first());
+        }
+
+        $recipient = trim((string) $user->email);
+
+        if ($recipient === '') {
+            return redirect()->route('analytics.index')
+                ->with('error', __('Your account has no e-mail address, so a report cannot be sent to you.'));
+        }
+
+        $period = $this->chosenPeriod($request);
+        $name = trim((string) $request->input('name'));
+
+        $existing = \App\Models\AnalyticsReportSchedule::forCurrentPrincipal()
+            ->where('name', $name)
+            ->first();
+
+        $schedule = $existing ?? new \App\Models\AnalyticsReportSchedule();
+
+        $schedule->name = $name;
+        $schedule->period_key = $period->key();
+        $schedule->period_from = $period->from()->toDateString();
+        $schedule->period_to = $period->to()->toDateString();
+        $schedule->frequency = (string) $request->input('frequency');
+        $schedule->is_active = true;
+
+        /*
+         * OWNERSHIP AND THE RECIPIENT, SET AS PROPERTIES. None of these four is fillable, so no
+         * mass assignment -- from this request or anywhere else -- can place a schedule in another
+         * store, under another employee, or pointed at another address.
+         */
+        $schedule->store_id = $storeId;
+        $schedule->created_by = $user->id;
+        $schedule->recipient_email = $recipient;
+
+        /*
+         * A NEW SCHEDULE IS DUE AT ITS FIRST INTERVAL, NOT IMMEDIATELY. Leaving `next_due_at` null
+         * would make it due at once, so pressing Save would send a report the merchant did not ask
+         * for yet -- and on a daily schedule they would get two on the first day. An UPDATE leaves
+         * the existing due time alone, so renaming or re-pointing a schedule does not reset its
+         * cadence.
+         */
+        if ($existing === null) {
+            $schedule->next_due_at = app(\App\Services\Reports\ScheduledReportRunner::class)
+                ->nextDue($schedule->frequency, \Carbon\CarbonImmutable::now());
+        }
+
+        $schedule->save();
+
+        return redirect()->route('analytics.index')->with(
+            'success',
+            $existing === null ? __('Scheduled report created.') : __('Scheduled report updated.')
+        );
+    }
+
+    /**
+     * ANA-003 — stop a standing request.
+     *
+     * THE ID IS RESOLVED THROUGH THE OWNERSHIP PREDICATE, never `find()`.
+     * `analytics_report_schedules` is not in `config/tenancy.php`'s `scoped_models`, so no global
+     * scope adds a predicate for anybody and a bare `find()` would let one merchant delete
+     * another's schedule by guessing an id -- the pattern CLAUDE.md names as the most productive
+     * defect class in this codebase.
+     */
+    public function destroySchedule(Request $request, $id)
+    {
+        $resolved = $this->resolveStore();
+
+        if (! is_array($resolved)) {
+            return $resolved;
+        }
+
+        $schedule = \App\Models\AnalyticsReportSchedule::forCurrentPrincipal()
+            ->where('id', (int) $id)
+            ->first();
+
+        if ($schedule === null) {
+            return redirect()->route('analytics.index')->with('error', __('Scheduled report not found.'));
+        }
+
+        $schedule->delete();
+
+        return redirect()->route('analytics.index')->with('success', __('Scheduled report stopped.'));
     }
 
     /**

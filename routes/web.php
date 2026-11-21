@@ -1188,6 +1188,25 @@ Route::get(
         ->name('analytics.export');
 
     /**
+     * ANA-003. A merchant's standing request for that export on a schedule.
+     *
+     * SAME MIDDLEWARE AS THE SCREEN AND THE DOWNLOAD, for the reason the note above gives: a write
+     * that creates a recurring send must not be reachable by anyone who cannot read the figures it
+     * would send. `ReportPermission::ACTIONS` names both actions explicitly rather than leaning on
+     * its fail-closed fallback.
+     *
+     * The RECIPIENT is not a parameter -- see `AnalyticsReportSchedule`. It is the authenticated
+     * user's own account address, so this cannot become an authenticated mail relay.
+     */
+    Route::post('analytics/schedules', [\App\Http\Controllers\MerchantAnalyticsController::class, 'storeSchedule'])
+        ->middleware(\App\Http\Middleware\ReportPermission::class)
+        ->name('analytics.schedules.store');
+
+    Route::delete('analytics/schedules/{id}', [\App\Http\Controllers\MerchantAnalyticsController::class, 'destroySchedule'])
+        ->middleware(\App\Http\Middleware\ReportPermission::class)
+        ->name('analytics.schedules.destroy');
+
+    /**
      * P5-7. THE SAME FIGURES ACROSS EVERY TENANT, for the platform operator only.
      *
      * `PlatformOperatorOnly` and NOT `ReportPermission`, which is the difference that matters. The
