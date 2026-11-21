@@ -7,6 +7,7 @@ use App\Models\CustomerSegment;
 use App\Models\CustomerSegmentMember;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Feature\Security\SecurityTestCase;
+use Tests\Support\StripsSourceComments;
 
 /**
  * MKT-004 — THE SEGMENT SCREEN: who may open it, whose customers it shows, and what it writes.
@@ -26,6 +27,7 @@ use Tests\Feature\Security\SecurityTestCase;
 final class CustomerSegmentScreenTest extends SecurityTestCase
 {
     use RefreshDatabase;
+    use StripsSourceComments;
 
     private const URI = '/customer-segments';
 
@@ -124,8 +126,32 @@ final class CustomerSegmentScreenTest extends SecurityTestCase
         $response->assertOk();
     }
 
+    /**
+     * THE WORD "SEEDED" IS NOW TESTED, not just asserted in a docblock.
+     *
+     * FOUND BY REVIEW: `SecurityTestCase::grantPermission()` does
+     * `Permission::firstOrCreate(['name' => $permission])`, so it CREATES the row on demand -- and
+     * this case would therefore have passed for a permission name that exists nowhere in
+     * `Utility::addNewData()`. That is the exact lockout both controllers' docblocks rest on not
+     * happening: a name absent from the seed cannot exist as a row in production and evaluates
+     * FALSE for everybody, the tenant owner included. The claim happens to be true, which is why
+     * this was a missing premise rather than a defect.
+     */
     public function test_the_seeded_permission_admits_a_staff_member(): void
     {
+        /*
+         * READ FROM `Utility::addNewData()`'s OWN SOURCE, because the list is a literal array inside
+         * that method and there is no static to query -- checked, not assumed. Comments stripped,
+         * since that file discusses permission names at length.
+         */
+        $this->assertStringContainsString(
+            "'".self::PERMISSION."',",
+            $this->sourceWithoutComments(app_path('Models/Utility.php')),
+            'premise: `'.self::PERMISSION.'` must be in the application\'s seeded permission list. '
+            .'If it is not, this test still passes (grantPermission creates the row on demand) while '
+            .'production locks everybody out of the screen -- including the tenant owner.'
+        );
+
         [$merchant, $store] = $this->makeTenant();
         $holder = $this->makeStaff($merchant);
         $this->grantPermission($holder, self::PERMISSION);
@@ -273,7 +299,7 @@ final class CustomerSegmentScreenTest extends SecurityTestCase
         $segment = CustomerSegment::query()->where('name', 'Loyal')->first();
 
         $this->assertNotNull($segment);
-        $this->assertSame(['min_orders' => 2], $segment->definition()->rules(),
+        $this->assertSame(['min_orders' => 2], $segment->rule()->rules(),
             'an unknown key or an unparseable value reached the stored definition');
     }
 
@@ -436,9 +462,27 @@ final class CustomerSegmentScreenTest extends SecurityTestCase
          * and on what consent is MKT-007 and the D8 consent work, whose enforcement is OFF by owner
          * decision. A "send to segment" button added here would route around all of it, and it would
          * look like a feature rather than a bypass.
+         *
+         * ASSERTED OVER THE VIEWS' OWN SOURCE, NOT THE RENDERED PAGE, and review is why. A
+         * page-wide `assertDontSee` covers the layout and the sidebar too, so it would (a) break
+         * spuriously the day the admin chrome gains a menu entry containing one of these words, and
+         * (b) pass for a "chase these" control posting to a route named anything else. The source of
+         * the two views is the feature's own markup and nothing else -- the scoping failure
+         * CLAUDE.md names, avoided rather than described.
          */
-        foreach (['/send', 'emailsend', 'message-send', 'campaign'] as $sender) {
-            $response->assertDontSee($sender, false);
+        foreach (['customer_segments/index.blade.php', 'customer_segments/show.blade.php'] as $view) {
+            $markup = $this->sourceWithoutComments('resources/views/'.$view);
+
+            foreach (\Tests\Unit\Marketing\ConsentLedgerCensusTest::SENDER_MARKERS as $sender) {
+                $this->assertStringNotContainsString($sender, $markup,
+                    $view.' references the sender `'.$sender.'`. A segment is a named set of '
+                    .'customers, not a send target.');
+            }
+
+            foreach (['emailsend', 'message-send', 'route(\'campaign', 'recovery-queue'] as $route) {
+                $this->assertStringNotContainsString($route, $markup,
+                    $view.' links to `'.$route.'`, which would make a segment a send target.');
+            }
         }
     }
 }

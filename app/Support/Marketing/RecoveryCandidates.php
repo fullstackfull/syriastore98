@@ -136,11 +136,45 @@ final class RecoveryCandidates
             ->whereNotExists(static function ($sub) use ($storeId): void {
                 $sub->selectRaw('1')
                     ->from('orders')
-                    ->join('store_order_financials', 'store_order_financials.order_id', '=', 'orders.id')
+                    /*
+                     * A LEFT JOIN, AND THE DIRECTION OF THAT CHOICE IS THE FINDING AN INDEPENDENT
+                     * REVIEW MADE. With an INNER JOIN, an order with NO `store_order_financials`
+                     * row could not satisfy this subquery -- so a shopper who abandoned a basket and
+                     * then BOUGHT would read as not recovered, and the basket would stay queued.
+                     * That is the one outcome this method's docblock says it exists to prevent.
+                     *
+                     * A missing ledger row is a FAILURE, not a state: `OrderObserver::created()`
+                     * swallows an exception from `OrderFinancialService::createForOrder()`, and its
+                     * own docblock records that the order commits without one. So the payment state
+                     * of such an order is UNKNOWN, and the two readings are not symmetric: treating
+                     * unknown as "unpaid" chases a customer who may have bought, and treating it as
+                     * "bought" merely declines to chase them. For a feature whose purpose is to
+                     * message shoppers, the wrong message is the worse error, so unknown means
+                     * DO NOT CHASE.
+                     *
+                     * THE RESIDUE IS RECORDED RATHER THAN HIDDEN: an order the ledger cannot see is
+                     * invisible to `payments()` as well, so it is followed up by neither half. That
+                     * is a property of the swallowed observer exception, not of this slice, and it is
+                     * on the `GAP-226` row.
+                     */
+                    ->leftJoin('store_order_financials', 'store_order_financials.order_id', '=', 'orders.id')
                     ->whereColumn('orders.customer_id', 'carts.customer_id')
                     ->whereColumn('orders.order_date', '>=', 'carts.created_at')
                     ->where('orders.store_id', $storeId)
                     ->where('orders.is_guest', 0)
+                    /*
+                     * THE STORE PREDICATE ON THE LEDGER TOO, matching `payments()` 30 lines below.
+                     * With the join on `orders.id` and `orders` pinned to this store it adds no
+                     * reachability today -- `orders.id` is a platform-wide key, so a joined ledger
+                     * row belongs to this store's order. It is written because a row mis-stamped
+                     * with another store's id (a restored dump, a future writer) would otherwise
+                     * participate, and because the two methods reading the same table should not
+                     * disagree about whether the predicate is needed.
+                     */
+                    ->where(static function ($ledger) use ($storeId): void {
+                        $ledger->whereNull('store_order_financials.id')
+                            ->orWhere('store_order_financials.store_id', $storeId);
+                    })
                     /*
                      * AN UNPAID ORDER IS NOT RECOVERY, and this clause is here because the test for
                      * it failed. Without it, a shopper who abandoned a basket and then started a
@@ -154,7 +188,16 @@ final class RecoveryCandidates
                      * abandoned basket and an unpaid checkout appears as two things to follow up
                      * rather than as neither or one.
                      */
-                    ->whereNotIn('store_order_financials.payment_status', self::UNPAID_STATUSES);
+                    /*
+                     * "NOT UNPAID", WITH A MISSING ROW COUNTING AS NOT UNPAID. `whereNotIn` alone
+                     * is false for a NULL status, which would reintroduce the INNER JOIN's defect
+                     * through the back door: the row would exist, the join would succeed, and the
+                     * comparison would still refuse it.
+                     */
+                    ->where(static function ($paid): void {
+                        $paid->whereNull('store_order_financials.payment_status')
+                            ->orWhereNotIn('store_order_financials.payment_status', self::UNPAID_STATUSES);
+                    });
             })
             ->get(['carts.id', 'carts.customer_id']);
 

@@ -57,10 +57,20 @@ class CustomerSegment extends Model
         return $this->kind === self::KIND_DYNAMIC;
     }
 
-    /** The stored rule, re-sanitised against the vocabulary the code currently knows. */
-    public function definition(): SegmentDefinition
+    /**
+     * The stored rule, re-sanitised against the vocabulary the code currently knows.
+     *
+     * NAMED `rule()` AND NOT `definition()`, which is the column's name. Eloquent's
+     * `getAttribute()` treats a method whose name matches no attribute as a RELATIONSHIP -- it
+     * reaches `getRelationshipFromMethod()` and throws "must return a relationship instance" -- so
+     * on any instance where `definition` was never assigned, reading `$this->definition` would
+     * have been a 500 on a merchant screen. `OrderObserver`'s docblock records this repository
+     * hitting the same trap once already. Found by independent review while the bug was still
+     * latent: every call site today reads a hydrated model or assigns the attribute first.
+     */
+    public function rule(): SegmentDefinition
     {
-        return SegmentDefinition::fromStored($this->definition);
+        return SegmentDefinition::fromStored($this->attributes['definition'] ?? null);
     }
 
     public function members(): \Illuminate\Database\Eloquent\Relations\HasMany
@@ -117,7 +127,7 @@ class CustomerSegment extends Model
         $query = Customer::disableCache()->where('customers.store_id', $storeId);
 
         if ($this->isDynamic()) {
-            return $this->definition()->applyTo($query, $storeId);
+            return $this->rule()->applyTo($query, $storeId);
         }
 
         return $query->whereExists(function ($sub) use ($storeId): void {

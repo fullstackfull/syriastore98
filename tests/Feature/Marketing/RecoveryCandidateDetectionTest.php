@@ -155,14 +155,14 @@ final class RecoveryCandidateDetectionTest extends SecurityTestCase
          */
         $source = $this->sourceWithoutComments(app_path('Console/Commands/DetectRecoveryCandidates.php'));
 
-        foreach ([
-            'AbandonedMessageDispatch',
-            'SendMsgs',
-            'Mail::',
-            'Notification::',
-            'NudgeLedger',
-            'handOver',
-        ] as $sender) {
+        /*
+         * THE VOCABULARY IS SHARED WITH `ConsentLedgerCensusTest::SENDER_MARKERS` rather than
+         * restated. Review found this list and that one each missing names the other had, which is
+         * what two copies of a security vocabulary always do: the short one stops catching things
+         * and still passes. `sendEmailTemplate` and `NudgeGate` -- the project's real first-party
+         * senders in `CartController`'s own recovery click -- were missing from both.
+         */
+        foreach (\Tests\Unit\Marketing\ConsentLedgerCensusTest::SENDER_MARKERS as $sender) {
             $this->assertStringNotContainsString($sender, $source,
                 "the recovery sweep references `{$sender}`. It must detect and queue only: "
                 .'automatic promotional sending is disabled by owner decision, and a sweep that can '
@@ -239,6 +239,27 @@ final class RecoveryCandidateDetectionTest extends SecurityTestCase
         $this->setAge((int) $store->id, RecoveryCandidates::KIND_BASKET, 24);
         $customer = $this->customer($store, 'u'.$this->uniqueFixtureRef().'@example.test');
 
+        /*
+         * A DECOY WHOSE ONLY JOB IS TO MAKE THE IDS DISAGREE, and it was added because this test
+         * SURVIVED a mutation that broke the join key. With one tenant and one order, `store_id` is
+         * 1 and the order's id is 1, so joining the ledger on `orders.store_id` instead of
+         * `orders.id` matched by COINCIDENCE and the test passed against a join that was wrong --
+         * the id-collision false reading this codebase keeps producing.
+         *
+         * This order is PAID and dated BEFORE the basket, so the correct predicate ignores it (the
+         * date comparison excludes it) while a join on `store_id` would find its ledger row, read
+         * "paid", and suppress the basket. It also pushes the real order's id past 1.
+         */
+        $decoy = $this->makeOrder($store, [
+            'customer_id' => $customer->id,
+            'is_guest' => 0,
+            'order_date' => now()->subDays(30)->toDateTimeString(),
+        ]);
+
+        DB::table('store_order_financials')
+            ->where('order_id', $decoy->id)
+            ->update(['payment_status' => 'paid', 'paid_amount' => 100.0, 'paid_at' => now()->subDays(30)]);
+
         $this->basket($store, (int) $customer->id, now()->subDays(3)->toDateTimeString());
 
         $this->unpaidOrder($store, [
@@ -252,6 +273,62 @@ final class RecoveryCandidateDetectionTest extends SecurityTestCase
         $this->assertContains(RecoveryCandidates::KIND_BASKET, $kinds,
             'an unpaid checkout suppressed the abandoned basket, so the shopper most worth '
             .'following up fell out of the basket list');
+    }
+
+    /**
+     * AN ORDER THE LEDGER CANNOT SEE STILL COUNTS AS RECOVERY, and the asymmetry is the point.
+     *
+     * FOUND BY INDEPENDENT REVIEW, not by this suite. The first fix for the unpaid-checkout defect
+     * used an INNER JOIN to `store_order_financials`, so an order with NO ledger row could not
+     * satisfy the subquery at all -- and `OrderObserver::created()` swallows an exception from
+     * `OrderFinancialService::createForOrder()`, so such orders exist (its own docblock says the
+     * order commits without one). A shopper who BOUGHT would then have read as not recovered and
+     * been chased about the basket they bought from: the one outcome the predicate exists to
+     * prevent.
+     *
+     * A MISSING ROW IS "UNKNOWN", NOT "UNPAID", and the two readings are not symmetric: treating
+     * unknown as unpaid sends a wrong message to a real customer, treating it as bought merely
+     * declines to send one. For a feature whose purpose is messaging shoppers, the wrong message is
+     * the worse error.
+     *
+     * THE RESIDUE IS ASSERTED TOO, in the second half: such an order is invisible to the
+     * incomplete-payment half as well, so nothing follows it up. That is the swallowed observer
+     * exception's doing rather than this slice's, and `GAP-226` records it -- but a test that left
+     * it unsaid would imply the order was handled.
+     */
+    public function test_an_order_the_ledger_cannot_see_still_counts_as_recovery(): void
+    {
+        [, $store] = $this->makeTenant();
+        $this->setAge((int) $store->id, RecoveryCandidates::KIND_BASKET, 24);
+        $this->setAge((int) $store->id, RecoveryCandidates::KIND_PAYMENT, 24);
+
+        $customer = $this->customer($store, 'v'.$this->uniqueFixtureRef().'@example.test');
+        $this->basket($store, (int) $customer->id, now()->subDays(3)->toDateTimeString());
+
+        $order = $this->makeOrder($store, [
+            'customer_id' => $customer->id,
+            'is_guest' => 0,
+            'order_date' => now()->subDay()->toDateTimeString(),
+        ]);
+
+        /*
+         * THE ROW IS REMOVED, NOT OMITTED. The observer writes one for every order, so the only
+         * faithful way to reproduce "the ledger cannot see this order" is to delete it -- the same
+         * fixture `MerchantAnalyticsFiguresTest::orderTheLedgerCannotSee()` uses, for the same
+         * reason.
+         */
+        DB::table('store_order_financials')->where('order_id', $order->id)->delete();
+
+        $kinds = array_column(RecoveryCandidates::forStore((int) $store->id), 'kind');
+
+        $this->assertNotContains(RecoveryCandidates::KIND_BASKET, $kinds,
+            'an order whose ledger row is missing was read as NOT a purchase, so the shopper would '
+            .'be chased about a basket they may well have bought from');
+
+        $this->assertNotContains(RecoveryCandidates::KIND_PAYMENT, $kinds,
+            'premise for GAP-226: an order the ledger cannot see is invisible to the '
+            .'incomplete-payment half too, so nothing follows it up. Asserted so the consequence is '
+            .'on the record rather than implied.');
     }
 
     public function test_an_order_placed_before_the_basket_does_not_count_as_recovery(): void

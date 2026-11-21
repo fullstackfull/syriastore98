@@ -7,6 +7,7 @@ use App\Models\Setting;
 use App\Support\Marketing\RecoveryCandidates;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Feature\Security\SecurityTestCase;
+use Tests\Support\StripsSourceComments;
 
 /**
  * MKT-007 — THE QUEUE SCREEN: who may read it, whose rows it shows, and what it promises.
@@ -24,6 +25,7 @@ use Tests\Feature\Security\SecurityTestCase;
 final class RecoveryQueueScreenTest extends SecurityTestCase
 {
     use RefreshDatabase;
+    use StripsSourceComments;
 
     private const URI = '/recovery-queue';
 
@@ -109,9 +111,24 @@ final class RecoveryQueueScreenTest extends SecurityTestCase
          * consent enforcement is approved and active; a "send all" button added to this screen would
          * route around the gate AND around the deliberate backlog release, and it would look like a
          * feature.
+         *
+         * ASSERTED OVER THE VIEW'S OWN SOURCE, NOT THE RENDERED PAGE, and review is why: a
+         * page-wide `assertDontSee` covers the layout and the sidebar, so `release` would have
+         * matched any chrome string containing it and a send control named anything else would have
+         * passed. The source is this feature's markup and nothing else.
          */
-        foreach (['carts.emailsend', 'wishlist.message.send', 'recovery-queue/send', 'release'] as $sender) {
-            $response->assertDontSee($sender, false);
+        $markup = $this->sourceWithoutComments('resources/views/recovery_queue/index.blade.php');
+
+        foreach (\Tests\Unit\Marketing\ConsentLedgerCensusTest::SENDER_MARKERS as $sender) {
+            $this->assertStringNotContainsString($sender, $markup,
+                'the queue view references the sender `'.$sender.'`. It reports what was detected '
+                .'and that nothing was sent; it must not be able to send.');
+        }
+
+        foreach (['carts.emailsend', 'wishlist.message.send', 'recovery-queue/send', 'recovery-queue.release'] as $route) {
+            $this->assertStringNotContainsString($route, $markup,
+                'the queue view links to `'.$route.'`, which would release the queue from a screen '
+                .'rather than through the owner\'s decision.');
         }
     }
 
@@ -174,8 +191,32 @@ final class RecoveryQueueScreenTest extends SecurityTestCase
         $this->assertTrue($this->refused($this->actingAs($staff->fresh())->get(self::URI)));
     }
 
+    /**
+     * THE WORD "SEEDED" IS NOW TESTED, not just asserted in a docblock.
+     *
+     * FOUND BY REVIEW: `SecurityTestCase::grantPermission()` does
+     * `Permission::firstOrCreate(['name' => $permission])`, so it CREATES the row on demand -- and
+     * this case would therefore have passed for a permission name that exists nowhere in
+     * `Utility::addNewData()`. That is the exact lockout both controllers' docblocks rest on not
+     * happening: a name absent from the seed cannot exist as a row in production and evaluates
+     * FALSE for everybody, the tenant owner included. The claim happens to be true, which is why
+     * this was a missing premise rather than a defect.
+     */
     public function test_the_seeded_permission_admits_a_staff_member(): void
     {
+        /*
+         * READ FROM `Utility::addNewData()`'s OWN SOURCE, because the list is a literal array inside
+         * that method and there is no static to query -- checked, not assumed. Comments stripped,
+         * since that file discusses permission names at length.
+         */
+        $this->assertStringContainsString(
+            "'".self::PERMISSION."',",
+            $this->sourceWithoutComments(app_path('Models/Utility.php')),
+            'premise: `'.self::PERMISSION.'` must be in the application\'s seeded permission list. '
+            .'If it is not, this test still passes (grantPermission creates the row on demand) while '
+            .'production locks everybody out of the screen -- including the tenant owner.'
+        );
+
         [$merchant, $store] = $this->makeTenant();
         $holder = $this->makeStaff($merchant);
         $this->grantPermission($holder, self::PERMISSION);

@@ -103,7 +103,12 @@ class CustomerSegmentController extends Controller
             return $resolved;
         }
 
-        $segments = CustomerSegment::forStore($resolved)->orderBy('name')->get();
+        /*
+         * PAGINATED, because segments are unbounded per store and the loop below runs ONE uncached
+         * count subquery per row. `show()` paginated from the start; this did not, which review
+         * pointed out as the inconsistency it was. 25 keeps the per-request count work bounded.
+         */
+        $segments = CustomerSegment::forStore($resolved)->orderBy('name')->paginate(25);
 
         /*
          * THE COUNT IS COMPUTED PER SEGMENT, NOT STORED, and for a dynamic segment it cannot be:
@@ -124,7 +129,7 @@ class CustomerSegmentController extends Controller
              * means either "never configured" or "configured with something this version dropped".
              * Either way the honest word is "no rule", not "0 customers".
              */
-            if ($segment->isDynamic() && $segment->definition()->isEmpty()) {
+            if ($segment->isDynamic() && $segment->rule()->isEmpty()) {
                 $staleRules[] = $segment->id;
             }
         }
@@ -234,10 +239,17 @@ class CustomerSegmentController extends Controller
          * them -- and orphaned rows carrying a `customer_id` are exactly what a later feature would
          * read as a live membership.
          */
-        DB::transaction(function () use ($segment, $resolved): void {
-            CustomerSegmentMember::where('segment_id', $segment->id)
-                ->where('store_id', $resolved)
-                ->delete();
+        DB::transaction(function () use ($segment): void {
+            /*
+             * KEYED ON `segment_id` ALONE, and the `store_id` predicate was REMOVED here after
+             * review. The segment was already resolved through the tenant predicate above, and
+             * `segment_id` identifies one segment platform-wide -- so adding `store_id` bought no
+             * safety and did active harm: a row mis-stamped with another store's id would have
+             * SURVIVED the delete, which is exactly the orphan this method's docblock says must
+             * not. A delete that leaves behind the row it was written to remove is worse than one
+             * predicate short.
+             */
+            CustomerSegmentMember::where('segment_id', $segment->id)->delete();
 
             $segment->delete();
         });

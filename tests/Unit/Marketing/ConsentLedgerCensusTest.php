@@ -364,16 +364,43 @@ class ConsentLedgerCensusTest extends TestCase
     private const GATE_MODE_READERS = [
         'app/Console/Commands/DetectRecoveryCandidates.php',
         'app/Http/Controllers/RecoveryQueueController.php',
-        'resources/views/recovery_queue/index.blade.php',
+        /*
+         * `resources/views/recovery_queue/index.blade.php` WAS HERE AND WAS REMOVED after review.
+         * It was listed because a Blade COMMENT named the gate, and `sources()` cannot strip a
+         * Blade comment -- `token_get_all` on a file with no `<?php` returns one `T_INLINE_HTML`
+         * token, which this census appends whole. So the exemption bought nothing but permission
+         * for prose, and worse, the sender assertion below would then have run against that
+         * unstripped prose: a future comment saying "this screen deliberately does not use
+         * `Mail::`" would FAIL the census. That is the comment trap CLAUDE.md records four times
+         * over, in the Blade syntax it names. The view's comment was reworded instead, so it
+         * names no class and needs no exemption.
+         */
     ];
 
-    /** Senders a mode reader must not reference. A reader that could send is a seam pretending not to be one. */
-    private const SENDER_MARKERS = [
+    /**
+     * Senders a mode reader must not reference. A reader that could send is a seam pretending not to be one.
+     *
+     * ONE CONSTANT, READ BY THIS CENSUS AND BY `RecoveryCandidateDetectionTest`, because two lists
+     * of sender names drift and the drift is invisible: the one that is short stops catching things
+     * and still passes. Review found the first list already missing two, which is the argument.
+     *
+     * `sendEmailTemplate` AND `NudgeGate` ARE THE TWO THAT WERE MISSING, and they are the project's
+     * REAL first-party senders in the comparable feature: `CartController`'s own recovery click
+     * calls `Utility::sendEmailTemplate('Abandon Cart', ...)` and reserves through
+     * `NudgeGate::reserve()` before `AbandonedMessageDispatch::handOver()`. A reader calling either
+     * would have passed both censuses.
+     *
+     * @var list<string>
+     */
+    public const SENDER_MARKERS = [
         'AbandonedMessageDispatch',
         'SendMsgs',
         'Mail::',
         'Notification::',
         'NudgeLedger',
+        'NudgeGate',
+        'sendEmailTemplate',
+        'handOver',
     ];
 
     /**

@@ -20,8 +20,12 @@
         which is the opposite of the truth -- and a merchant who believed it would stop chasing them
         by hand.
 
-        IT READS THE SAME TWO OBJECTS THE SWEEP READS (`MarketingSendGate` and `NudgeThrottle`)
-        rather than restating their state, so the screen and the sweep cannot drift apart.
+        IT READS THE SAME TWO OBJECTS THE SWEEP READS -- the consent send gate and the nudge
+        throttle -- rather than restating their state, so the screen and the sweep cannot drift
+        apart. Their class names are deliberately NOT spelled here: `ConsentLedgerCensusTest` holds
+        that naming the gate outside a declared seam is a finding, and a Blade comment is not
+        stripped by its scanner (`token_get_all` on a file with no `<?php` yields one
+        `T_INLINE_HTML` token), so prose about the gate would have read as wiring it.
     --}}
     <div class="row mb-4">
         <div class="col-12">
