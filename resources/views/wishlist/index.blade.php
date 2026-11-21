@@ -3,7 +3,10 @@
 @section('page-title', __('Abandoned wishlists'))
 
 @section('action-button')
-
+    {{-- MKT-001. This screen had no action area at all; the analytics link is its only control. --}}
+    <div class="text-end d-flex all-button-box justify-content-md-end justify-content-center">
+        @include('marketing._analytics_link')
+    </div>
 @endsection
 
 @section('breadcrumb')
