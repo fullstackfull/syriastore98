@@ -4213,5 +4213,16 @@
     "What this leaves out": "ما لا يشمله هذا الرقم",
     "Download as CSV": "تنزيل كملف CSV",
     "Download these figures as a spreadsheet. Every row carries its own period and what it leaves out, so a number cannot be read apart from its limits.": "نزّل هذه الأرقام كجدول بيانات. كل سطر يحمل فترته وما لا يشمله، حتى لا يُقرأ أي رقم بمعزل عن حدوده.",
-    "This shopper has not agreed to marketing messages, so this WhatsApp nudge was not sent.": "لم يوافق هذا المتسوّق على الرسائل التسويقية، لذلك لم يُرسَل تنبيه واتساب هذا."
+    "This shopper has not agreed to marketing messages, so this WhatsApp nudge was not sent.": "لم يوافق هذا المتسوّق على الرسائل التسويقية، لذلك لم يُرسَل تنبيه واتساب هذا.",
+    "Cost price was not recorded for some orders, so margin is overstated for those rows.": "لم يُسجَّل سعر التكلفة لبعض الطلبات، لذلك يظهر هامش الربح أعلى من حقيقته في تلك الأسطر.",
+    "Margin excludes shipping and tax.": "هامش الربح لا يشمل الشحن ولا الضريبة.",
+    "Partial refunds are not counted; only fully refunded orders are.": "الاستردادات الجزئية غير محسوبة؛ تُحسب الطلبات المستردة بالكامل فقط.",
+    "Some cancellations carry no cancellation date and are dated by when the ledger row changed.": "بعض عمليات الإلغاء لا تحمل تاريخ إلغاء، ويُؤرَّخ لها بوقت تغيّر سجلها المالي.",
+    "These amounts are in more than one currency and have not been converted.": "هذه المبالغ بأكثر من عملة واحدة ولم تُحوَّل.",
+    "The ledger and the order records disagree on this figure.": "السجل المالي وسجلات الطلبات غير متفقين على هذا الرقم.",
+    "Refund amounts carry no currency and have not been converted.": "مبالغ الاسترداد لا تحمل عملة ولم تُحوَّل.",
+    "Some of these orders predate currency recording and are counted in your store's currency.": "بعض هذه الطلبات تعود إلى ما قبل تسجيل العملة، وتُحسب بعملة متجرك.",
+    "Some orders in this period have no financial record, so they are not included in this figure.": "بعض الطلبات في هذه الفترة لا تملك سجلاً ماليًا، لذلك لا تدخل في هذا الرقم.",
+    "Orders with no customer attached are not counted: they cannot be matched to a returning shopper.": "الطلبات غير المرتبطة بعميل غير محسوبة: لا يمكن مطابقتها بمتسوّق عائد.",
+    "This figure is stored at limited precision and may differ from the ledger in the smallest units.": "هذا الرقم مخزَّن بدقة محدودة وقد يختلف عن السجل المالي في أصغر الوحدات."
 }

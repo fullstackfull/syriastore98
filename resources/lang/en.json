@@ -4217,5 +4217,16 @@
     "What this leaves out": "What this leaves out",
     "Download as CSV": "Download as CSV",
     "Download these figures as a spreadsheet. Every row carries its own period and what it leaves out, so a number cannot be read apart from its limits.": "Download these figures as a spreadsheet. Every row carries its own period and what it leaves out, so a number cannot be read apart from its limits.",
-    "This shopper has not agreed to marketing messages, so this WhatsApp nudge was not sent.": "This shopper has not agreed to marketing messages, so this WhatsApp nudge was not sent."
+    "This shopper has not agreed to marketing messages, so this WhatsApp nudge was not sent.": "This shopper has not agreed to marketing messages, so this WhatsApp nudge was not sent.",
+    "Cost price was not recorded for some orders, so margin is overstated for those rows.": "Cost price was not recorded for some orders, so margin is overstated for those rows.",
+    "Margin excludes shipping and tax.": "Margin excludes shipping and tax.",
+    "Partial refunds are not counted; only fully refunded orders are.": "Partial refunds are not counted; only fully refunded orders are.",
+    "Some cancellations carry no cancellation date and are dated by when the ledger row changed.": "Some cancellations carry no cancellation date and are dated by when the ledger row changed.",
+    "These amounts are in more than one currency and have not been converted.": "These amounts are in more than one currency and have not been converted.",
+    "This figure is stored at limited precision and may differ from the ledger in the smallest units.": "This figure is stored at limited precision and may differ from the ledger in the smallest units.",
+    "The ledger and the order records disagree on this figure.": "The ledger and the order records disagree on this figure.",
+    "Refund amounts carry no currency and have not been converted.": "Refund amounts carry no currency and have not been converted.",
+    "Some of these orders predate currency recording and are counted in your store's currency.": "Some of these orders predate currency recording and are counted in your store's currency.",
+    "Some orders in this period have no financial record, so they are not included in this figure.": "Some orders in this period have no financial record, so they are not included in this figure.",
+    "Orders with no customer attached are not counted: they cannot be matched to a returning shopper.": "Orders with no customer attached are not counted: they cannot be matched to a returning shopper."
 }
