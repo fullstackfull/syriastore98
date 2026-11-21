@@ -4212,5 +4212,6 @@
     "Figure": "الرقم",
     "What this leaves out": "ما لا يشمله هذا الرقم",
     "Download as CSV": "تنزيل كملف CSV",
-    "Download these figures as a spreadsheet. Every row carries its own period and what it leaves out, so a number cannot be read apart from its limits.": "نزّل هذه الأرقام كجدول بيانات. كل سطر يحمل فترته وما لا يشمله، حتى لا يُقرأ أي رقم بمعزل عن حدوده."
+    "Download these figures as a spreadsheet. Every row carries its own period and what it leaves out, so a number cannot be read apart from its limits.": "نزّل هذه الأرقام كجدول بيانات. كل سطر يحمل فترته وما لا يشمله، حتى لا يُقرأ أي رقم بمعزل عن حدوده.",
+    "This shopper has not agreed to marketing messages, so this WhatsApp nudge was not sent.": "لم يوافق هذا المتسوّق على الرسائل التسويقية، لذلك لم يُرسَل تنبيه واتساب هذا."
 }
