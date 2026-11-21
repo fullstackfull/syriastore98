@@ -95,7 +95,11 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 215 lines
+### `warning` — 216 lines
+
+> **[2026-11-21] 215 -> 216.** One line added by GAP-223(b) (`Report refused: operator has selected no merchant store`, with
+> its destination and reader in its own section below). `resync-observability-inventory.py` REFUSED to write it, which is the
+> tool working as designed: it re-points rows that MOVED and will not invent a destination for a row that is NEW.
 
 > **[2026-11-19] 212 -> 213.** One line added by P1-SEC-73 (the second row below, `a platform upload was refused`, with its
 > destination and reader in its own section, after the P1-SEC-72 one). The tables now hold **36 `critical` and 212 `warning`** --
@@ -276,6 +280,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/PosController.php:487` | POS sale skipped a line whose product is not this store |
 | `app/Http/Controllers/StoreFinanceController.php:81` | Manual wallet change refused as a duplicate submission |
 | `app/Http/Controllers/StoreFinanceController.php:367` | Financial action refused: operator has selected no merchant store |
+| `app/Support/Tenancy/OperatorStoreSelection.php:94` | Report refused: operator has selected no merchant store |
 | `app/Http/Controllers/StoreFinanceController.php:2553` | Manual wallet change refused as a duplicate submission |
 | `app/Http/Controllers/StoreFinanceController.php:2754` | Manual wallet change refused as a duplicate submission |
 | `app/Http/Controllers/SavedViewController.php:117` | Saved view apply refused: not the owner or no such view |
@@ -351,6 +356,36 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:404` | Customer OTP send threw. |
 
 <!-- counts: error=95 info=22 debug=1 -->
+
+---
+
+### The row added 2026-11-21 (GAP-223(b)), with its destination and reader
+
+**`OperatorStoreSelection::logRefusal()` — "Report refused: operator has selected no merchant
+store", `warning`, one line.** Fires when a platform operator opens a report surface without having
+selected a merchant store. Before GAP-223(b) that principal was silently served STORE 1 -- an
+ordinary merchant's tenant, not a platform scope -- because `getCurrentStore()` ends in a hard-coded
+literal 1 for `type = 'super admin'`. The report now scopes to `OperatorStoreSelection::NO_STORE`,
+which selects no rows, and this line is what distinguishes that deliberate refusal from a tenant
+that genuinely has no data.
+
+**Where it lands:** the application log, via `Log::warning` — the same channel and the same message
+text as its finance sibling at `StoreFinanceController:367`, deliberately, so a reader grepping one
+finds both halves of the same rule.
+
+**Who reads it, and what to do when it fires:** nobody needs to act on a single occurrence — it is
+the expected outcome of an operator browsing before choosing a store, and the remedy is in their
+hands (select a store, or use the platform-wide analytics surface, which is separately authorized).
+It is worth reading in two situations. A BURST from one `user_id` means an operator is repeatedly
+hitting empty reports and has not understood that a selection is required, which is a product
+problem rather than a security one: the screens narrow silently and do not yet carry an on-screen
+notice saying why they are empty. That notice is recorded as outstanding UI work on the `GAP-223`
+row, and this log is the only present signal that it is needed. And its ABSENCE matters: if these
+stop appearing entirely while operators still use reports without choosing a store, the guard has
+been bypassed or removed, and `OperatorUnchosenStoreReportsTest` is what should have caught that.
+
+**Why `warning` and not `critical`:** nothing is lost, nothing is inconsistent, and no money moved.
+A refusal that works is not an incident.
 
 ---
 
