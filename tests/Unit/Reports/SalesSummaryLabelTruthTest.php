@@ -116,9 +116,23 @@ class SalesSummaryLabelTruthTest extends TestCase
          */
         $source = $this->source('resources/views/reports/_sales_stats.blade.php');
 
+        /*
+         * THE COUPON SENTENCE MOVED TOO, for the same reason the gross one did: GAP-217 appended
+         * the precision caveat to this tile, and the composition now lives in `ReportFigureNote`
+         * rather than as a literal in the Blade. So this follows the data path -- the tile calls
+         * the accessor AND the accessor's output carries the statement -- which is stronger than
+         * the grep it replaces, for the third time in this file.
+         */
+        $this->assertStringContainsString(
+            'ReportFigureNote::couponValueAppliedHint()',
+            $source,
+            'The coupon tile no longer reads its hint from ReportFigureNote, so the screen and the '
+            . 'report exports can disagree about what the discount figure means.'
+        );
+
         $this->assertStringContainsString(
             'already deducted from order value',
-            $source,
+            \App\Support\Reports\ReportFigureNote::couponValueAppliedHint(),
             'The coupon tile no longer states that the discount is already deducted. That '
             . 'statement is the TRUE one, verified against Cart::cart_list_cookie().'
         );

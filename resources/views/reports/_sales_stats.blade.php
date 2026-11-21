@@ -31,12 +31,20 @@
                :period="$periodLabel"
                :hint="__('How many units were ordered, not how many were delivered or paid for.')" />
 
+        {{-- GAP-217. The only money tile on this card with NO hint at all. Its figure is
+             accumulated exactly like the two above it -- `+= (float) $order->delivery_price` off a
+             FLOAT column -- so the precision caveat is as true of it, and it had no definition
+             either. This is a NEW hint, which is why the <x-ss.stat> census moves. --}}
         <x-ss.stat :label="__('Shipping charged')"
                :value="$currency . (!empty($TotalShippingCharge) ? $TotalShippingCharge : '0.00')"
-               :period="$periodLabel" />
+               :period="$periodLabel"
+               :hint="\App\Support\Reports\ReportFigureNote::shippingChargedHint()" />
 
         <x-ss.stat :label="__('Coupon value applied')"
                :value="$currency . (!empty($TotalCouponAmount) ? $TotalCouponAmount : '0.00')"
                :period="$periodLabel"
-               :hint="__('The amount discounted by coupons, already deducted from order value.')" />
+               {{-- GAP-217. This tile already said WHAT it is -- the only money tile here that
+                    did -- and still said nothing about its precision. The definition is unchanged;
+                    the caveat is appended, from the same source as its neighbours. --}}
+               :hint="\App\Support\Reports\ReportFigureNote::couponValueAppliedHint()" />
     </x-ss.stats>

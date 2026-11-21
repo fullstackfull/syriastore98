@@ -289,7 +289,7 @@ class StatHintIsVisibleTest extends TestCase
      * measured as nine across five, and the error reached three committed documents before the
      * recount caught it.
      */
-    public function test_twenty_three_hints_on_this_component_across_nine_files(): void
+    public function test_twenty_four_hints_on_this_component_across_nine_files(): void
     {
         $views = base_path('resources/views');
         $hits = [];
@@ -352,7 +352,17 @@ class StatHintIsVisibleTest extends TestCase
         // is a per-currency TABLE rather than a tile -- the number of currencies is however many the
         // platform's stores use -- so its own disclosure is a plain `ss-stat__hint` paragraph and is
         // deliberately not counted here.
-        $this->assertCount(23, $hits,
+        // 23 -> 24, GAP-217. `reports/_sales_stats` gains a hint on `Shipping charged`, the one
+        // MONEY tile on that card that carried none at all -- no definition and no caveat -- while
+        // its figure is accumulated exactly like the two above it, `+= (float) $order->delivery_price`
+        // off a FLOAT column. The same change APPENDS the precision caveat to `Coupon value
+        // applied`, which already had a definition, so that one does NOT move the count: GAP-217's
+        // first draft said both tiles carried nothing and had to be corrected the same day by
+        // re-measuring the six tiles one at a time. The file count stays at nine because
+        // `_sales_stats` already had hints. `Orders` on that card still has no hint; it is a COUNT,
+        // so no money caveat applies, and giving it a DEFINITION is recorded in GAP-217 rather
+        // than slipped in here, because it would move this number again.
+        $this->assertCount(24, $hits,
             "x-ss.stat hint count moved. Found:\n  " . implode("\n  ", $hits));
 
         $this->assertCount(9, array_unique($hits),

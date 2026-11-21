@@ -52,6 +52,12 @@ final class ReportFigureNoteIsTheOnlySourceTest extends TestCase
             'the gross Order value definition' =>
                 'The full amount the orders came to: after coupons, and including shipping and tax. '
                 . 'This is what customers were asked to pay, not what they paid, and not profit.',
+            'the Shipping charged definition' =>
+                'What customers were charged for delivery on these orders, whatever their payment '
+                . 'status. Where the plan charges shipping, it is already part of order value '
+                . 'including shipping and tax.',
+            'the Coupon value applied definition' =>
+                'The amount discounted by coupons, already deducted from order value.',
         ];
     }
 
@@ -142,6 +148,53 @@ final class ReportFigureNoteIsTheOnlySourceTest extends TestCase
                 '%s mentions FLOAT_PRECISION next to the Order value wording, so it is composing '
                 . 'the hint by hand instead of calling ReportFigureNote::orderValueHint().',
                 $relative
+            ));
+        }
+    }
+
+    /**
+     * EVERY MONEY COMPOSITION CARRIES THE PRECISION CAVEAT, which nothing else asserts.
+     *
+     * The `<x-ss.stat>` census counts hints; it cannot see a caveat silently dropped from one. So
+     * each `*Hint()` on this class is checked for the sentence, by name, from the vocabulary --
+     * which also means adding a new money figure here without its caveat fails rather than ships.
+     *
+     * `moneyRowHint()` is deliberately excluded: it IS the plural caveat and carries no definition,
+     * because no single definition covers a nine-column export row.
+     */
+    public function test_every_money_hint_carries_the_precision_caveat(): void
+    {
+        $caveat = MetricCaveat::message(MetricCaveat::FLOAT_PRECISION);
+
+        $hints = [
+            'orderValueHint' => ReportFigureNote::orderValueHint(),
+            'grossOrderValueHint' => ReportFigureNote::grossOrderValueHint(),
+            'shippingChargedHint' => ReportFigureNote::shippingChargedHint(),
+            'couponValueAppliedHint' => ReportFigureNote::couponValueAppliedHint(),
+        ];
+
+        $declared = array_filter(
+            get_class_methods(ReportFigureNote::class),
+            static fn (string $m): bool => str_ends_with($m, 'Hint') && $m !== 'moneyRowHint'
+        );
+
+        sort($declared);
+        $checked = array_keys($hints);
+        sort($checked);
+
+        $this->assertSame($declared, $checked, sprintf(
+            'ReportFigureNote declares the money hint(s) %s but this test checks %s. A new money '
+            . 'figure was added without being held to the caveat rule.',
+            implode(', ', $declared),
+            implode(', ', $checked)
+        ));
+
+        foreach ($hints as $name => $sentence) {
+            $this->assertStringContainsString($caveat, $sentence, sprintf(
+                'ReportFigureNote::%s() no longer carries the precision caveat. Every one of these '
+                . 'figures is accumulated in PHP as += (float) off a FLOAT column, so the caveat is '
+                . 'true of all of them, and the hint census counts hints rather than their content.',
+                $name
             ));
         }
     }

@@ -4235,5 +4235,6 @@
     "There is no figure for the earlier period to compare against, so no percentage is shown.": "There is no figure for the earlier period to compare against, so no percentage is shown.",
     "Up :change from :baseline in :period": "Up :change from :baseline in :period",
     "Down :change from :baseline in :period": "Down :change from :baseline in :period",
-    "No change from :baseline in :period": "No change from :baseline in :period"
+    "No change from :baseline in :period": "No change from :baseline in :period",
+    "What customers were charged for delivery on these orders, whatever their payment status. Where the plan charges shipping, it is already part of order value including shipping and tax.": "What customers were charged for delivery on these orders, whatever their payment status. Where the plan charges shipping, it is already part of order value including shipping and tax."
 }

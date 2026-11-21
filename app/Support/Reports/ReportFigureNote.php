@@ -78,6 +78,43 @@ final class ReportFigureNote
     }
 
     /**
+     * What "Shipping charged" is. GAP-217.
+     *
+     * Measured: `$TotalShippingCharge += (float) $order->delivery_price` over the orders in the
+     * window (ReportController :585, :653, and via `->sum()` at :748). No payment-status
+     * predicate, so it is what customers were ASKED for delivery, not what was collected.
+     *
+     * The second sentence is conditional because the arithmetic is: `SalesSummaryLabelTruthTest`
+     * verified that `orders.final_price` includes shipping ONLY when the plan charges it
+     * (`$delivery_price` is initialised to 0 and computed only when `shipping_method == 'on'`), so
+     * claiming it is always part of the gross figure would be false for a plan that does not.
+     */
+    public static function shippingCharged(): string
+    {
+        return __('What customers were charged for delivery on these orders, whatever their payment status. Where the plan charges shipping, it is already part of order value including shipping and tax.');
+    }
+
+    /** The same composition for shipping: its definition and the one caveat that applies. */
+    public static function shippingChargedHint(): string
+    {
+        return self::shippingCharged() . ' ' . MetricCaveat::message(MetricCaveat::FLOAT_PRECISION);
+    }
+
+    /**
+     * The coupon tile's EXISTING definition, kept verbatim so `en.json` and `ar.json` keep
+     * resolving it, plus the caveat it was missing.
+     *
+     * This one already said what it is -- it is the only money tile on that card that did and
+     * still had no precision statement -- which is why GAP-217 had to be corrected the same day it
+     * was written: the row claimed both tiles carried nothing.
+     */
+    public static function couponValueAppliedHint(): string
+    {
+        return __('The amount discounted by coupons, already deducted from order value.')
+            . ' ' . MetricCaveat::message(MetricCaveat::FLOAT_PRECISION);
+    }
+
+    /**
      * The export cell for a row carrying SEVERAL money columns, where "This figure" cannot say
      * which one it means.
      *
