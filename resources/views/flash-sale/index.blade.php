@@ -30,6 +30,11 @@
 @endsection
 
 @section('content')
+    {{-- MKT-002. The advanced-filter bar, from ONE shared component: it reads this screen's filters
+         from `TableFilterMemory::vocabularyFor()` and their wording from `headingFor()` /
+         `optionsFor()`, so the controls here and the receipt inside the bar cannot disagree. --}}
+    <x-ss.marketing-filters screen="flash-sale" route="flash-sale.index" :label="__('Filter flash sales')" />
+
     <div class="row">
         <div class="col-xl-12">
             <x-datatable :dataTable="$dataTable" />

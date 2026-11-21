@@ -124,6 +124,23 @@ final class TableFilterMemory
     ];
 
     /**
+     * The heading each filter is announced under. THE ONLY LIST, read by `label()` for the receipt
+     * and by `headingFor()` for a filter bar's own labels.
+     *
+     * A NAME ABSENT FROM HERE RETURNS NULL FROM `label()`, `describe()` then returns `[]`, and the
+     * bars render their Clear button on `describe(...) !== []` -- so an unlisted name does not
+     * merely lose its wording, it takes the merchant's way out with it. That is written out at
+     * `label()` itself, where it happened to the order screen.
+     */
+    private const HEADINGS = [
+        'ss_status' => 'Status', 'ss_variant' => 'Variants', 'ss_stock' => 'Stock',
+        'ss_category' => 'Category', 'ss_payment' => 'Payment', 'ss_from' => 'From',
+        'ss_to' => 'To', 'ss_return' => 'Returns', 'ss_source' => 'Source',
+        // MKT-002's four.
+        'ss_type' => 'Type', 'ss_expiry' => 'Expiry', 'ss_window' => 'When', 'ss_items' => 'Items',
+    ];
+
+    /**
      * The filter keys a screen recognises — THE SAME ALLOWLIST the session memory uses, exposed
      * so `SavedView` validates against one list rather than a second copy of it.
      *
@@ -135,6 +152,35 @@ final class TableFilterMemory
      * @return list<string> empty for a screen with no vocabulary, which callers must treat as
      *                      "nothing may be saved for this screen" rather than "anything may"
      */
+    /**
+     * The heading a filter is announced under, or null when it is not a filter this class words.
+     *
+     * MKT-002. `label()` holds the only list of filter headings, and a filter bar that spelled its
+     * own labels could disagree with the receipt below it -- the screen saying "Type" while the
+     * receipt says something else, or worse, a bar offering a control whose value `label()` cannot
+     * word, which is the sticky-filter-with-no-Clear-button failure that method's docblock records.
+     * One map, read by both.
+     */
+    public static function headingFor(string $name): ?string
+    {
+        return self::HEADINGS[$name] ?? null;
+    }
+
+    /**
+     * The value => wording map a screen uses for one filter, or [] when that filter has no
+     * vocabulary (the dates, which `label()` echoes back instead).
+     *
+     * MKT-002, and the same reason as `headingFor()`: the OPTIONS a select offers and the words the
+     * receipt prints are now the same array. A select that offered a value the map does not carry
+     * would narrow the list and say nothing about it.
+     *
+     * @return array<string, string>
+     */
+    public static function optionsFor(string $screen, string $name): array
+    {
+        return self::valueLabels($screen)[$name] ?? [];
+    }
+
     /**
      * A `ss_from` / `ss_to` value as a date, or null when it is not one.
      *
@@ -399,18 +445,11 @@ final class TableFilterMemory
      */
     private static function label(string $name, string $value, string $screen, array $categories): ?string
     {
-        $heading = [
-            'ss_status' => 'Status', 'ss_variant' => 'Variants', 'ss_stock' => 'Stock',
-            'ss_category' => 'Category', 'ss_payment' => 'Payment', 'ss_from' => 'From',
-            'ss_to' => 'To', 'ss_return' => 'Returns', 'ss_source' => 'Source',
-            // MKT-002. Absent from here, each of these would narrow a Marketing list in silence
-            // and take the Clear button with it -- see the vocabulary's own note.
-            'ss_type' => 'Type', 'ss_expiry' => 'Expiry', 'ss_window' => 'When', 'ss_items' => 'Items',
-        ];
-
-        if (! isset($heading[$name])) {
+        if (! isset(self::HEADINGS[$name])) {
             return null;
         }
+
+        $heading = self::HEADINGS;
 
         $map = self::valueLabels($screen);
 
