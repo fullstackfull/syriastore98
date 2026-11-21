@@ -4206,7 +4206,6 @@
     "No store has a financial record this view can read, so there is nothing to total. Nothing is reconstructed.": "لا يوجد متجر يملك سجلاً ماليًا يمكن لهذه الشاشة قراءته، فلا شيء لجمعه. ولا يُعاد بناء أي بيانات.",
     "Stores left out because their financial record cannot vouch for any period: :count.": "المتاجر المستثناة لأن سجلها المالي لا يمكنه ضمان أي فترة: :count.",
     "The period shown is the latest start among the stores included, because a total across stores is only as complete as its least complete contributor.": "الفترة المعروضة هي أحدث تاريخ بداية بين المتاجر المشمولة، لأن المجموع عبر المتاجر لا يكتمل أكثر من أقل متجر اكتمالاً فيه.",
-    "These figures cross store boundaries and are visible to the platform operator only.": "هذه الأرقام تتجاوز حدود المتاجر وتظهر لمشغّل المنصّة فقط.",
     "last :days days": "آخر :days يومًا",
     "now": "الآن",
     "Figure": "الرقم",
@@ -4224,5 +4223,6 @@
     "Some of these orders predate currency recording and are counted in your store's currency.": "بعض هذه الطلبات تعود إلى ما قبل تسجيل العملة، وتُحسب بعملة متجرك.",
     "Some orders in this period have no financial record, so they are not included in this figure.": "بعض الطلبات في هذه الفترة لا تملك سجلاً ماليًا، لذلك لا تدخل في هذا الرقم.",
     "Orders with no customer attached are not counted: they cannot be matched to a returning shopper.": "الطلبات غير المرتبطة بعميل غير محسوبة: لا يمكن مطابقتها بمتسوّق عائد.",
-    "This figure is stored at limited precision and may differ from the ledger in the smallest units.": "هذا الرقم مخزَّن بدقة محدودة وقد يختلف عن السجل المالي في أصغر الوحدات."
+    "This figure is stored at limited precision and may differ from the ledger in the smallest units.": "هذا الرقم مخزَّن بدقة محدودة وقد يختلف عن السجل المالي في أصغر الوحدات.",
+    "These figures cross store boundaries and are visible to the platform operator only.": "هذه الأرقام تتجاوز حدود المتاجر وتظهر لمشغّل المنصّة فقط."
 }
