@@ -7617,3 +7617,54 @@ Three leads from (h): the money format, which (h) recorded as read and not execu
 | **Round 4's limits.** A hostile symbol row already stored stays in the table: it is cleaned where it is read, by the four formatters and by `Utility::GetValueByName`; a reader that takes it from `getAdminAllSetting()` and prints it itself is not covered (none was found printing it raw in a panel view). The decimals setting (`currency_format`) reaches `number_format()` uncast in two of the three `*_format_with_sym` formatters, so a settings holder could store a value that makes every amount of their own store fail to print. The storefront themes' own scripts and the vendored modules' dialog handlers were not read | recorded; the decimals lead is read, not executed |
 | The e-mail templates, the storefront's own prints, the vendored modules, the admin layout's `storecss`/`storejs`, the POS first-name lookup | unchanged from (e) |
 | Not deployed | the owner's |
+
+---
+
+## P1-SEC-82 — the Store Analytics screen was gated by the sidebar menu and nothing else — **FIXED on the branch 2026-11-21**
+
+**How it was found.** Not by a census. While sizing `ANA-004` (device and channel analysis) I went
+looking for whether a device breakdown already existed, so as not to build a second one. It did —
+and it was behind no authorization.
+
+**The measurement, each half checked separately.**
+
+| | |
+|---|---|
+| The menu | `app/Listeners/CompanyMenuListener.php:50-60` publishes the screen as "Store Analytics" with `'permission' => 'Manage Store Analytics'`, and `Menu::permits()` (`app/Classes/Menu.php:76-80`) honours it — so the entry is correctly hidden from a staff member who does not hold that permission |
+| The route | `routes/web.php:471`, `themean-alytic` → `ThemeAnalyticController@index`. Middleware, from `route:list`: `web, Authenticate, XSS, SetLocate, EmailIsVerified`. **No permission middleware** |
+| The controller | its only check was `if ($user->type != 'super admin')` — a **branch** choosing which data path to run, **not a refusal**. No `isAbleTo`, no `authorize`, no policy |
+| The data | page views grouped by URL, plus the `device`, `browser` and `platform` breakdowns from `shetabit_visits`, all filtered by `getCurrentStore()` / `current_store` |
+
+So the permission was enforced by the sidebar alone, and any verified user of the store reached the
+screen by typing the URL. **Vertical within one tenant, not cross-tenant** — the store predicate was
+never the missing part. This is the same class `P1-SEC-09` closed for `ReportController`'s 29
+methods, whose docblock uses the same words: the permissions "were enforced ONLY by the sidebar
+menu, so a staff member whose role held none of them received a byte-identical report body to the
+owner by URL".
+
+**The asymmetry that makes the fix unambiguous.** The API side of the same screen's data ALREADY
+enforces it: `Api\DashboardController` refuses without `['Manage Store Analytics', 'Manage Dashboard']`
+at `:1278` and `:3966` via `MerchantPermissions::allowsAny()`, and its comment at `:1273` states the
+intent. The web screen never got it, so the two surfaces disagreed about who may read one figure.
+The fix matches the API exactly — same helper, same pair — rather than choosing a new rule.
+
+**Why `allowsAny()` and not `isAbleTo()`.** `MerchantPermissions::names()` answers `[WILDCARD]` for
+the platform operator (`UserPolicy::isOperator`), because Laratrust has no super-admin bypass and a
+bare permission check would refuse the one principal who reads every store; it also scopes roles to
+**this** store, which `allPermissions()` does not. `Manage Store Analytics` is seeded
+(`Utility.php:2865`, `:3121`) — asserted in the test, because a name absent from `addNewData()`
+evaluates false for everybody including the tenant owner, which would make this a wall and not a gate.
+
+**Evidence.** `tests/Feature/Security/StoreAnalyticsPermissionTest.php` — 5 tests, 14 assertions: the
+seeding premise; a staff member holding neither permission is refused with a redirect and **not** a
+401 (the shipped Flutter app force-logs-out on any 401); either permission the API accepts admits
+here too; the operator is not refused by the new predicate; and the refusal precedes the queries it
+protects (`P1-SEC-22 (f)`'s lesson). **Mutation: removing the guard reddens the staff-refusal case
+and the ordering case.**
+
+**The 200 path is not suite-reachable, and that is pre-existing.** The handler's URL filter uses
+`regexp`, which SQLite does not implement — `tests/Feature/Security/KnownUnrenderableRoutesTest`
+already records this route for that reason. So the ordering is asserted by reading the source and
+the refusal path, which returns before any query, is driven for real.
+
+**Not deployed.** Fixed on the Phase 05 branch only.
