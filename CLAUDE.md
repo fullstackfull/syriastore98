@@ -82,8 +82,8 @@ Each of these has produced a real defect. Do not assume the framework default.
 - **No WorkDo module loads in any test run** unless the test inserts an `add_on_managers` row, so
   the suite is structurally blind to module code: a test that "passes" against a module surface may
   never have reached it. Enable it through the production loader and add a premise test.
-- **`ReportController` cannot run under the suite AT ALL** — 36 `MONTH(`/9 `YEAR(` in `selectRaw`, absent from SQLite, so every handler answers **HTTP 500** in a Feature test. That is how 3,660 lines with zero `payment_status` predicates and an 18-site date-boundary bug survived 9,112 tests.
-  Evidence for these surfaces goes in `bin/verify-report-window-boundary-on-mysql.php`, never a test.
+- **MOST of `ReportController` cannot run under the suite** — 37 `MONTH(`/10 `YEAR(` in `selectRaw`, absent from SQLite, so those handlers answer **HTTP 500** in a Feature test. That is how 3,660 lines with zero `payment_status` predicates and an 18-site date-boundary bug survived 9,112 tests. **"AT ALL" was too strong and cost a real disposition** (2026-11-21): `order_category_reports` (1893-2360) and `order_brand_reports` (2382-2903) hold **0** MySQL-only constructs, so those two ARE suite-reachable — check your handler's own range before concluding it is untestable.
+  Evidence for the unreachable ones goes in `tests/Support/Security/bin/`, never a test.
 
 **Model caching**
 

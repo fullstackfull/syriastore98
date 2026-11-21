@@ -16,7 +16,13 @@ use PHPUnit\Framework\TestCase;
  * one row per (series, period), quoting the merchant-typed name the way the header row is already quoted.
  *
  * This is a SOURCE PIN and says so: nothing in the suite runs a Blade view's JavaScript (the export is built client-side),
- * and `ReportController` cannot run under the suite at all (MONTH()/YEAR() in selectRaw). It pins the shape in both views:
+ * and the handlers this pins cannot run under the suite (MONTH()/YEAR() in selectRaw). It pins the shape in both views:
+ *
+ * NOTE, corrected 2026-11-21: "ReportController cannot run under the suite AT ALL" -- which this file
+ * used to say, following CLAUDE.md -- is too strong. `order_category_reports` (1893-2360) and
+ * `order_brand_reports` (2382-2903) hold ZERO MySQL-only constructs and ARE suite-reachable. That
+ * does not weaken this source pin (the suite runs no browser either), but it does mean a reader
+ * must check the handler's own range before concluding it cannot be tested.
  * the per-row first-series read is gone, the row loop walks every series, and the name is CSV-quoted rather than
  * interpolated raw. The next spelling is for the next reader.
  */

@@ -630,7 +630,7 @@ asserted to render with its placeholders substituted (`FinanceLedgerFiguresTest`
 screenshots for this slice.
 
 **NOT done, and the proposal's §4 lists them:** the **sales report** still carries only *Order value*, because
-`ReportController` cannot run under the suite (36 `MONTH(` / 9 `YEAR(` calls) so its evidence has to be a
+MOST of `ReportController` cannot run under the suite (37 `MONTH(` / 10 `YEAR(` calls; corrected 2026-11-21 — `order_category_reports` and `order_brand_reports` hold zero and ARE reachable) so the unreachable handlers' evidence has to be a
 MariaDB script; the **four JSON/CSV exports** do not yet carry the figures or their caveats; and "Total
 Income" on the wallet row is untouched and unexamined. Nothing stored moved: every figure is derived on read.
 

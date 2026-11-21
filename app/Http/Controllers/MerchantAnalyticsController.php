@@ -15,7 +15,7 @@ use Illuminate\Http\Request;
  * the absence of input is the design rather than an omission.
  *
  * WHY IT IS NOT A METHOD ON ReportController. That class is 3,660 lines and, more to the point,
- * **cannot run under the Feature suite at all**: 36 `MONTH(` and 9 `YEAR(` in `selectRaw` are absent
+ * **cannot run under the Feature suite for MOST of its handlers**: 37 `MONTH(` and 10 `YEAR(` in `selectRaw` are absent
  * from SQLite, so every handler that uses them answers HTTP 500 in a test and the suite is blind to
  * them. A surface whose whole purpose is to state figures honestly must be testable, so it is its
  * own controller and its figures come from `MerchantAnalyticsFigures`, which uses Eloquent only.

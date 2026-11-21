@@ -23,8 +23,12 @@ use Tests\Feature\Security\SecurityTestCase;
  *     across every tenant at once.
  *
  * Why these exports are testable at all, when `ReportController`'s six are not: they read the metric
- * layer through Eloquent. `ReportController` cannot run under the Feature suite (36 `MONTH(` / 9
- * `YEAR(` in `selectRaw`, absent from SQLite, so every handler answers HTTP 500 in a test).
+ * layer through Eloquent. MOST of `ReportController` cannot (37 `MONTH(` / 10
+ * `YEAR(` in `selectRaw`, absent from SQLite, so THOSE handlers answer HTTP 500 in a test).
+ *
+ * Corrected 2026-11-21: "every handler" was wrong. `order_category_reports` and
+ * `order_brand_reports` hold zero MySQL-only constructs and are suite-reachable, which is what
+ * makes ANA-007 closable with a real test rather than only an executable script.
  */
 final class FigureExportTest extends SecurityTestCase
 {
