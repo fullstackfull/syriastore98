@@ -948,7 +948,15 @@ class ReportController extends Controller
                     });
                 $TotalCouponAmount += Order::whereDate('order_date', $date)->where('store_id', OperatorStoreSelection::reportStoreId())->get()->sum('coupon_price');
                 $TotalShippingCharge += Order::whereDate('order_date', $date)->where('store_id', OperatorStoreSelection::reportStoreId())->get()->sum('delivery_price');
-                $TotalOrderCount[] = $totalOrdersForDate;
+                /* The second `$TotalOrderCount[] = $totalOrdersForDate;` STOOD HERE and is removed.
+                   It was appended once among the sibling series above and again here, in the same
+                   iteration, so this seven-iteration loop produced FOURTEEN order counts against a
+                   SEVEN-label axis with every count duplicated -- while `$monthList` and all seven
+                   other series produced seven. The surviving append is the one that sits with the
+                   series it belongs to; this position is among the `$Total* +=` accumulators, which
+                   are scalars, and nothing between the two read it. Pinned by
+                   tests/Feature/Reports/SevenDaySeriesLengthTest, which counts every series in the
+                   limb rather than just this one. */
             }
         } elseif ($request->chart_data == 'year') {
 
