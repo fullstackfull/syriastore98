@@ -64,8 +64,18 @@ class FinanceLedgerFiguresTest extends SecurityTestCase
         $this->assertSame($decoy->id + 1, $store->id, 'premise: the tenant under test follows the decoy');
         $this->assertGreaterThan(1, $store->id, 'premise: the tenant under test is not store 1, whose id a wrong-tenant read could hard-code');
 
-        Permission::firstOrCreate(['name' => 'View Finance Dashboard'], ['display_name' => 'View Finance Dashboard']);
-        $this->grantPermission(User::find($merchant->id), 'View Finance Dashboard');
+        /*
+         * THREE PERMISSIONS, NOT ONE, AND THAT IS A REVIEW FINDING. With only `View Finance Dashboard`
+         * the two money MODALS are never rendered -- they sit behind `Deduct Finance Balance` and
+         * `Request Finance Withdrawal` -- so an assertion that the old `Available Balance` label was
+         * gone from the page passed while the label was still there, in this very file, for the
+         * merchant most likely to read it. Granting all three puts the modals on the page, which is
+         * what makes the balance assertions below able to fail.
+         */
+        foreach (['View Finance Dashboard', 'Deduct Finance Balance', 'Request Finance Withdrawal'] as $permission) {
+            Permission::firstOrCreate(['name' => $permission], ['display_name' => $permission]);
+            $this->grantPermission(User::find($merchant->id), $permission);
+        }
 
         /* Several handlers read the platform admin through Cache::remember('admin_details'). */
         Cache::forget('admin_details');
@@ -203,6 +213,10 @@ class FinanceLedgerFiguresTest extends SecurityTestCase
             'the old label is still on the tile');
         $this->assertStringNotContainsString('Available Balance', $html,
             'the old label survives somewhere else on the page');
+        $this->assertStringContainsString('id="deductBalanceAmount"', $html,
+            'premise: the deduct modal IS on this page, so the assertion above can fail');
+        $this->assertStringContainsString('id="withdrawalAmount"', $html,
+            'premise: the withdrawal modal IS on this page, so the assertion above can fail');
         $this->assertStringContainsString('A running balance, not revenue.', $tiles['Available to withdraw']['hint'],
             'D2 mandated this sentence and it belongs to THIS tile, not merely to the page');
         $this->assertSame('right now', $tiles['Available to withdraw']['period'],
@@ -1146,5 +1160,31 @@ class FinanceLedgerFiguresTest extends SecurityTestCase
            because `SetLocate` overwrites `app()->setLocale()`. */
         $this->assertArrayHasKey($arabicLabel, $raw, 'the wallet tile did not render in Arabic');
         $this->assertSame("\u{2066}1,234.56 SYP\u{2069}", $raw[$arabicLabel]['value']);
+    }
+
+    public function test_the_two_money_modals_state_the_wallet_currency_too(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+        $this->storeCurrency($merchant, $store, 'USD');
+        $this->walletRow($store, ['currency_code' => 'SYP', 'available_balance' => '1234.56']);
+
+        $html = $this->page($merchant);
+
+        /*
+         * FOUND BY THE AUTHORIZATION REVIEW OF THE TILE, not by any test here. Both modals printed
+         * `number_format($wallet->available_balance, 2)` -- the same bare decimal GAP-222 exists to
+         * correct -- 600 lines below the tile that now says `1,234.56 SYP ... not converted`. The
+         * merchant who reads them is the one about to move that money.
+         */
+        foreach (['deductBalanceAmount', 'withdrawalAmount'] as $modalField) {
+            $this->assertStringContainsString('id="'.$modalField.'"', $html,
+                'premise: this modal is rendered for this principal');
+        }
+
+        $bare = substr_count($html, '<strong>1,234.56</strong>');
+        $this->assertSame(0, $bare, 'a modal still states the balance with no currency on it');
+
+        $withCode = substr_count(str_replace(self::ISOLATES, '', $html), '<strong>1,234.56 SYP</strong>');
+        $this->assertSame(2, $withCode, 'both modals should name the wallet currency');
     }
 }

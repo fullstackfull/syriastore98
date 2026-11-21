@@ -144,10 +144,16 @@ final class WalletEntitlementFigure
     /**
      * The four sibling columns, in the wallet's OWN currency.
      *
-     * One row, read with the same `store_id` predicate the metric uses. `store_wallets` is unique on
-     * `store_id`, so `sum()` over the scope is the single row's value for a merchant and a genuine
-     * total for an operator reading several -- and this branch is only reached when those wallets
-     * agree on one currency, which is exactly when summing them is meaningful.
+     * ONE ROW, and the `SUM()` is a formality rather than an aggregate: `store_wallets` is UNIQUE on
+     * `store_id` (`uq_store_wallet_store_id`, measured in production by `GateFProductionSchema`), so
+     * a `$storeId` predicate selects at most one row and the sum is that row's value. It is written
+     * as a sum only so the four columns come back in one statement.
+     *
+     * IT TAKES A SCALAR `int`, NOT A `MetricScope`, AND THAT IS THE LIMIT OF WHAT IT CAN DO. An
+     * earlier version of this comment claimed the sum was "a genuine total for an operator reading
+     * several" wallets; it is not, because no caller can ask for several and this signature could
+     * not express it. Corrected after review -- a justification that is not true is worse than none,
+     * because the next change reads it as evidence.
      *
      * @return array<string, ?string>
      */
@@ -164,6 +170,11 @@ final class WalletEntitlementFigure
         $figures = [];
 
         foreach (self::SIBLING_COLUMNS as $label => $column) {
+            /* `$row` is never null -- an aggregate SELECT with no GROUP BY always returns one row --
+               so the honest "no wallet" answer is the `rowCount() === 0` return above, not this.
+               The null limb is kept for the one narrow case it does cover: the wallet row vanishing
+               between the metric read and this one (a store-deletion cascade, a concurrent request),
+               where printing `0.00` beside a live balance would be the worse of the two answers. */
             $figures[$label] = $row === null
                 ? null
                 : MoneyText::amount((float) ($row->{$column} ?? 0.0), $currency);

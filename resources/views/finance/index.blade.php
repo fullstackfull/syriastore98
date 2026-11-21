@@ -684,7 +684,12 @@
                 </div>
                 <div class="modal-body">
                     <div class="alert alert-warning">
-                        {{ __('Available balance:') }} <strong>{{ number_format($wallet->available_balance, 2) }}</strong>
+                        {{-- GAP-222, FOUND BY THE AUTHORIZATION REVIEW OF THE TILE ABOVE: this modal printed the
+                             balance with NO CURRENCY while the tile 600 lines up said `1,234.56 SYP ... not converted`.
+                             Same defect, same file, and reachable by a merchant holding `Deduct Finance Balance` --
+                             who is precisely the person about to move that money. `$walletFigure['currency']` is the
+                             WALLET's code, already resolved by the assembler. --}}
+                        {{ __('Available balance:') }} <strong>{{ \App\Support\Metrics\MoneyText::amount((float) $wallet->available_balance, $walletFigure['currency']) }}</strong>
                     </div>
                     <div class="mb-3">
                         <label class="form-label" for="deductBalanceAmount">{{ __('Amount') }}</label>
@@ -718,7 +723,12 @@
                 </div>
                 <div class="modal-body">
                     <div class="alert alert-info">
-                        {{ __('Available Balance') }}: <strong>{{ number_format($wallet->available_balance, 2) }}</strong>
+                        {{-- The same correction as the deduct modal above, and this one also still carried the OLD
+                             label `Available Balance` that P5-16 replaced on the tile with D2's `Available to withdraw`.
+                             A test asserted that old label was gone from the page and could not fail, because this
+                             markup sits behind `Request Finance Withdrawal` and the fixture granted only
+                             `View Finance Dashboard`. The fixture now grants both. --}}
+                        {{ __('Available to withdraw') }}: <strong>{{ \App\Support\Metrics\MoneyText::amount((float) $wallet->available_balance, $walletFigure['currency']) }}</strong>
                     </div>
                     <div class="mb-3">
                         <label class="form-label" for="withdrawalAmount">{{ __('Amount') }}</label>

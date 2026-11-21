@@ -288,7 +288,7 @@ final class FinanceLedgerFigures
 
         if ($result->hasCaveat(MetricCaveat::CURRENCY_UNRECORDED)) {
             $notes[] = __('Includes :amount from records that carry no currency, counted in your store currency.', [
-                'amount' => self::ltr(number_format((float) ($result->notes()['currency_assumed_amount'] ?? 0.0), 2).' '.$storeCurrency),
+                'amount' => MoneyText::amount((float) ($result->notes()['currency_assumed_amount'] ?? 0.0), $storeCurrency),
             ]);
         }
 
@@ -299,7 +299,7 @@ final class FinanceLedgerFigures
             // the tile is not a dead end for a store that changed currency.
             $listed = [];
             foreach ($buckets as $currency => $amount) {
-                $listed[] = self::ltr(number_format($amount, 2).' '.$currency);
+                $listed[] = MoneyText::amount($amount, $currency);
             }
 
             $notes[] = __('These amounts are in more than one currency and are not combined: :amounts.', [
@@ -313,7 +313,7 @@ final class FinanceLedgerFigures
         $amount = $buckets[$currency] ?? 0.0;
 
         return [
-            'value' => self::ltr(number_format($amount, 2).' '.$currency),
+            'value' => MoneyText::amount($amount, $currency),
             'period' => $period,
             'hint' => implode(' ', $notes),
         ];
