@@ -86,6 +86,38 @@ final class ReportScreensShowTheirCaveatTest extends SecurityTestCase
         ]);
     }
 
+    /**
+     * THESE ROUTES RETURN A JSON ENVELOPE, NOT A PAGE — and reading the raw body instead of
+     * decoding it is what made the Arabic case look like a defect.
+     *
+     * Both handlers answer `{"html":"<div class=\"col-xxl-12\">..."}`: they are the AJAX chart
+     * fragments that the full report page loads. `json_encode` escapes non-ASCII by default (no
+     * `JSON_UNESCAPED_UNICODE`), so Arabic arrives as `\u0642\u064a\u0645\u0629...` — six ASCII
+     * bytes per character. MEASURED: the Arabic response was LARGER than the English one (4508 vs
+     * 3416 bytes) for exactly that reason, and a `/[\x{0600}-\x{06FF}]/u` match over the raw body
+     * found nothing while the Arabic was sitting right there, escaped.
+     *
+     * The English assertions passed anyway because ASCII is not escaped — which is the dangerous
+     * half: the same test was accidentally right in one language and wrong in the other. Decoding
+     * the envelope is the fix, and it makes the Arabic assertion STRONGER than the locale-scoped
+     * one that briefly stood in for it.
+     */
+    private function fragment(string $uri, $as): string
+    {
+        $response = $this->actingAs($as)->get($uri);
+
+        $response->assertStatus(200);
+
+        $decoded = json_decode($response->getContent(), true);
+
+        $this->assertIsArray($decoded,
+            "{$uri} did not answer a JSON envelope: " . json_last_error_msg());
+        $this->assertArrayHasKey('html', $decoded,
+            "{$uri} answered JSON with no `html` key, so the fragment shape has changed.");
+
+        return (string) $decoded['html'];
+    }
+
     public function test_the_premise_that_these_two_report_screens_run_in_the_suite_at_all(): void
     {
         [$merchant] = $this->makeTenant();
@@ -109,54 +141,49 @@ final class ReportScreensShowTheirCaveatTest extends SecurityTestCase
         $sentence = 'This figure is stored at limited precision and may differ from the ledger in the smallest units.';
 
         foreach (self::SCREENS as $name => $uri) {
-            $body = $this->actingAs($merchant->fresh())->get($uri)->getContent();
+            $html = $this->fragment($uri, $merchant->fresh());
 
-            $this->assertStringContainsString($sentence, $body,
+            $this->assertStringContainsString($sentence, $html,
                 "The {$name} report does not disclose the precision caveat, so ANA-007 is still "
                 . "vacuous for it and its export has no caveat to carry.");
         }
     }
 
     /**
-     * THE CAVEAT RESOLVES TO ARABIC — asserted at the translator, NOT end to end, and this says why.
+     * THE ARABIC CAVEAT REALLY REACHES THE MERCHANT, end to end, through `__()` and the Blade.
      *
-     * `MetricCaveat::message()` is `__(self::MESSAGES[$caveat])`, and 11 of the 13 messages were in
-     * neither language file before this work, so an untranslated caveat would have shown an Arabic
-     * merchant raw English. That risk is what this asserts, together with
-     * `test_the_sentence_comes_from_the_caveat_vocabulary` above: the screen prints the vocabulary's
-     * own output, and the vocabulary's own output is Arabic under an Arabic locale.
+     * This replaces a weaker locale-scoped assertion that only proved the translator resolves the
+     * sentence. It failed end to end for a measurement reason, not an application one — see
+     * `fragment()` — and the honest resolution was to decode the envelope rather than to assert
+     * something smaller. 11 of the 13 `MetricCaveat` messages were in NEITHER language file before
+     * this work, so without the entries this renders the English key: that is the regression this
+     * guards, and `MetricCaveatMessagesAreTranslatedTest` guards the same thing at the vocabulary.
      *
-     * AN UNEXPLAINED OBSERVATION, RECORDED RATHER THAN WORKED AROUND SILENTLY. I tried to assert
-     * this over HTTP first, with `$merchant->language = 'ar'` — the pattern that works on
-     * `/analytics`. Measured on `/category-order-reports`, same fixture, same request, twice in one
-     * test:
-     *
-     *     [en] status=200 len=3416  English caveat present  no Arabic characters
-     *     [ar] status=200 len=4508  English caveat ABSENT   no Arabic characters either
-     *
-     * `app()->getLocale()` really was `ar` after the request and the user's `language` column really
-     * was `ar`, so `SetLocate` did its job (its whole body sits behind the git-ignored
-     * `storage/installed` sentinel, which exists here and which CI creates in its own step). The
-     * Arabic response is LARGER and yet contains neither sentence, so the tile did not render at
-     * all rather than rendering in the wrong language. I did not establish why — a plausible lead is
-     * that these handlers communicate through `Session::put` and the two requests in one test share
-     * a session — and I am not asserting a behaviour I cannot explain. Recorded as a lead for the
-     * ANA-007 follow-up that wires the caveat into the matching EXPORT, which has to touch that same
-     * session handoff.
+     * The locale comes from the user's own `language` column because `SetLocate` re-resolves it per
+     * request (and its whole body sits behind the git-ignored `storage/installed` sentinel, which
+     * exists here and which CI creates in its own step), so `app()->setLocale()` in a test does not
+     * survive the request.
      */
-    public function test_the_caveat_resolves_to_arabic(): void
+    public function test_both_screens_show_the_caveat_in_arabic(): void
     {
-        $english = MetricCaveat::message(MetricCaveat::FLOAT_PRECISION);
+        [$merchant, $store] = $this->makeTenant();
+        $this->seedOneCategoryAndBrand($merchant, $store);
 
-        $this->app->setLocale('ar');
-        $arabic = MetricCaveat::message(MetricCaveat::FLOAT_PRECISION);
-        $this->app->setLocale('en');
+        $merchant->language = 'ar';
+        $merchant->save();
 
-        $this->assertNotSame($english, $arabic,
-            'FLOAT_PRECISION resolves to the same text in both locales, so the Arabic entry is '
-            . 'missing or identical to the English and an Arabic merchant sees English.');
-        $this->assertMatchesRegularExpression('/[\x{0600}-\x{06FF}]/u', $arabic,
-            'The Arabic resolution of FLOAT_PRECISION contains no Arabic characters.');
+        $arabic = 'هذا الرقم مخزَّن بدقة محدودة وقد يختلف عن السجل المالي في أصغر الوحدات.';
+        $english = 'This figure is stored at limited precision and may differ from the ledger in the smallest units.';
+
+        foreach (self::SCREENS as $name => $uri) {
+            $html = $this->fragment($uri, $merchant->fresh());
+
+            $this->assertStringContainsString($arabic, $html,
+                "The {$name} report did not show the precision caveat in Arabic.");
+            $this->assertStringNotContainsString($english, $html,
+                "The {$name} report showed the ENGLISH caveat to an Arabic merchant alongside or "
+                . "instead of the Arabic one.");
+        }
     }
 
     /**
@@ -172,9 +199,9 @@ final class ReportScreensShowTheirCaveatTest extends SecurityTestCase
         $fromVocabulary = MetricCaveat::message(MetricCaveat::FLOAT_PRECISION);
 
         foreach (self::SCREENS as $name => $uri) {
-            $body = $this->actingAs($merchant->fresh())->get($uri)->getContent();
+            $html = $this->fragment($uri, $merchant->fresh());
 
-            $this->assertStringContainsString($fromVocabulary, $body,
+            $this->assertStringContainsString($fromVocabulary, $html,
                 "The {$name} report's sentence is not MetricCaveat::FLOAT_PRECISION's own text.");
         }
     }
