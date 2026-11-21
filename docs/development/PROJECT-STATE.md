@@ -5,7 +5,7 @@ is the file to read first. It links the six phases, says what is done, what is n
 executable action is. Everything in it is either a measured fact with its source, or an owner
 decision quoted as such.
 
-**Last updated:** 2026-11-20 · **Active phase:** 05 (Marketing & Analytics) ·
+**Last updated:** 2026-11-21 · **Active phase:** 05 (Marketing & Analytics) ·
 **Active branch:** `feature/phase-05-marketing-analytics`
 
 > ### NEXT EXECUTABLE ACTION (read this first; owner directive of 2026-11-20, §10)
@@ -16,83 +16,99 @@ decision quoted as such.
 > at safe checkpoints. Do not stop at a clean slice; select the next eligible task from the Master
 > Plan, dependencies and the gap register.
 >
-> **PUSHED head: `91d1992d`** (fast-forward `080ca608..91d1992d`, 2026-11-21 ~08:06Z, 6 commits).
-> **Required CI run 44883318495 (ci.yml #569) was created at 08:06:43Z for this head and was still
-> IN PROGRESS when this was written — DO NOT PUSH UNTIL IT CONCLUDES**, because a push cancels a
-> running required run. Run #568 on `080ca608` concluded **SUCCESS** (owner independently verified
-> both Tests jobs and the merge-base regression gate), and #567 on `9ee54f6d` had failed on
-> `SecurityLogInventoryTest`, fixed at the cause in `9d4879b4`.
+> **PUSHED head: `2c333001`** (fast-forward `0079535f..2c333001`, 2026-11-21 ~22:59Z, 3 commits),
+> **CI-VERIFIED by ci.yml #581 — SUCCESS, all seven jobs**, including both required Tests jobs and
+> the merge-base regression gate. The document update that carries this paragraph is the only commit
+> after it.
 >
-> **TWO COMMITS ARE LOCAL AND UNPUSHED, waiting only on #569:** `321a8f03` (P05-15 export
-> disclosure) and `9a2f4dbd` (its governance update). **CI #568 and #569 say NOTHING about these
-> two** — they were created before the commits existed. The new head must be verified by its own
-> required run after it is pushed.
+> **THE RULE THAT GOVERNED THE WAIT, because it is the one most easily broken by a stop prompt:** a
+> push CANCELS a running required run (`ci.yml` sets `cancel-in-progress: true`), so nothing is
+> pushed while one is in flight. It has been broken once here, on run #574, and the owner restated
+> it afterwards. #581 was in progress for roughly 40 minutes while this document was written, and the
+> commit waited.
 >
-> **Local gates on `9a2f4dbd`:** Unit **5,935 passed + 1 declared skip** (33,573 assertions) ·
-> Contract **45 passed** · focused: `tests/Unit/Reports/`, `tests/Feature/Reports/`,
-> `StatHintIsVisibleTest`, `BladeViewsCompileTest`, `SlotLayoutViewsRenderTest`,
-> `MetricCaveatMessagesAreTranslatedTest`, `TranslationFileIntegrityTest`, `ArabicUiCoverageTest`,
-> `tests/Unit/Metrics/` — **105 passed, 1,112 assertions** · `MasterPlanTraceabilityCountsTest`
-> green, so the matrix agrees with itself. **The Feature suite has NOT been run on this head** —
-> that belongs to the Level B campaign, and the Feature gate is the one that must be clean before
-> the final acceptance claim.
+> **THE THREE HEADS OF 2026-11-21 ARE EACH VERIFIED BY THEIR OWN REQUIRED RUN** — not by an earlier
+> run on an earlier SHA, which the owner named explicitly as not counting: `e3506d88` by **#579
+> SUCCESS** (19:50:41Z), `0079535f` by **#580 SUCCESS** (22:14:46Z), `2c333001` by **#581 SUCCESS**.
+> So GAP-222, GAP-223(a), GAP-223(b), the seven-day series fix, ANA-001, ANA-009, MKT-004 and
+> MKT-007 are verified on PUSHED commits, not merely locally.
 >
-> **A RUN STARTED BEFORE AN EDIT TO `routes/web.php` OR `resources/lang/*.json` IS A MIXED-STATE RUN
-> AND IS NOT A GATE** — Laravel re-reads both per test boot. One such run was discarded for exactly
-> that reason. Do not edit `app/`, `tests/`, `routes/` or the language files while a LOCAL gate run
-> is in flight. (A remote CI run is unaffected by local edits: it tests the pushed SHA.)
+> **FOUR OWNER-APPROVED ITEMS WERE DELIVERED ON 2026-11-21, in the order approved.** All four reach
+> a merchant screen; **none is COMPLETE**, and each says why in its own words:
 >
-> **What `91d1992d` added on top of `080ca608`:** the Arabic report-caveat anomaly resolved as a
-> MEASUREMENT artifact, not a defect — those routes return `{"html": ...}` and `json_encode` escapes
-> non-ASCII, so a regex for Arabic codepoints over the raw body found nothing while the Arabic sat
-> there escaped, and English passed only because ASCII is not escaped. The assertion got STRONGER
-> (decode the envelope; the Arabic case also asserts the English is absent).
+> | item | what shipped | what keeps it PARTIAL |
+> |---|---|---|
+> | `ANA-001` | `/finance-reports` in the Reports centre: `Payments received`, `Estimated gross profit`, `Available to withdraw`, from the same assemblers `/finance` uses | `Order value` is deliberately elsewhere; no single screen shows all four D2 figures (`ANA-005`) |
+> | `ANA-009` | merchant-set metric FLOORS (`MetricThreshold`), hourly `analytics:check-metric-thresholds`, dedup per metric per window end, a configuration form on `/analytics` | **delivery is unwired** (`push_sent => false`, no e-mail, no push) and trend/anomaly/forecast remain absent — `GAP-225`, both the owner's |
+> | `MKT-004` | first-party `customer_segments` + `customer_segment_members`, a five-rule dynamic vocabulary, `/customer-segments` | **no spend rule** — currency denomination is an owner decision, and a segment cannot "refuse" a mixed-currency total without silently excluding people |
+> | `MKT-007` | `RecoveryCandidates` detection, the `marketing_recovery_candidates` queue, hourly `marketing:detect-recovery-candidates`, `/recovery-queue` | **nothing is sent** — `GAP-226`: is a recovery nudge transactional or promotional, and how is a backlog released? |
 >
-> **What the two unpushed commits add — P05-15 is now VERIFIED COMPLETE:**
-> five of the six `ReportController` CSV exports carry a disclosure column; the sixth (`export()`)
-> was MEASURED to be counts-only and is correctly caveat-free. All of it reads ONE source,
-> `App\Support\Reports\ReportFigureNote`, because the defect was *caused* by one literal
-> duplicated across four blades — two carried the precision caveat and two silently did not.
-> `MetricCaveat` gains `MONEY_FLOAT_PRECISION`, the plural of a measured claim (nine-column rows
-> hold six money figures, so "This figure" cannot name which), **not** a new monetary definition:
-> `payment_status` appears zero times in these handlers and inclusion rules remain the owner's
-> D1/D2 decision. Traceability counts recounted from the body: VERIFIED COMPLETE 171 → **172**,
-> PARTIALLY IMPLEMENTED 78 → **77**.
+> **FIVE DEFECTS IN THAT WORK WERE FOUND BY REVIEW OR BY A CENSUS, NOT BY A PASSING TEST SET.** They
+> are listed because the pattern is the lesson, not the individual bugs:
 >
-> **Two gates were deliberately moved, and one of those moves repaired a weakening I had caused:**
-> `ReportCsvHeaderLocalisationTest` 3 → 4 and 9 → 10 columns plus `figureNote` in all five payload
-> guards; and `SalesSummaryLabelTruthTest`, whose false-claim census had to be widened to read
-> `ReportFigureNote` — moving the sentence out of the Blade had made that census pass for the wrong
-> reason, since it was grepping a file where the claim no longer was.
+> 1. ANA-009's dedup key was a STRING written into `store_notifications.reference_id`, an
+>    `unsignedBigInteger`. **SQLite stores it verbatim and all 13 tests passed**; a non-strict MySQL
+>    coerces it to `0` — one notice per store, EVER — and a strict one raises 1366, so no notice at
+>    all. The P01-SEC-13 shape exactly. Fixed by splitting the identity across the two columns' real
+>    types; `verify-ana009-alert-key-on-mysql.php` proves the OLD shape fails BOTH ways (19 checks).
+> 2. ANA-009's notification type was absent from `MerchantNotificationController::TYPE_PERMISSIONS`,
+>    so the web bell and the admin API — both of which filter `whereIn('type', …)` — served it to
+>    **nobody**, operator included. It failed closed, so no disclosure; the feature simply did not
+>    work. Two existing ratchets caught it. Now mapped to `Manage Reports`.
+> 3. MKT-004's segment query shared ONE `laravel-model-caching` key between two segments differing
+>    only in a numeric bound, because `CacheKey::getBindingsSlug()` reads the MODEL's fresh bindings
+>    rather than the builder's and a count subquery is an `Expression` column. In production
+>    (`CACHE_STORE=database`) a merchant would read one segment's members under another's name.
+>    Fixed with `disableCache()`, a behavioural ratchet and a source ratchet. **This is a FOURTH
+>    measured false reading from that trait; CLAUDE.md records three.**
+> 4. MKT-007's recovery subquery used an INNER JOIN, so "no `store_order_financials` row" meant "no
+>    order" — and `OrderObserver::created()` swallows the exception that produces exactly that. A
+>    shopper who BOUGHT would have been chased about the basket they bought from, the one outcome
+>    that predicate exists to prevent. LEFT JOIN, with a null status counting as not-unpaid; both
+>    halves mutation-proved, because fixing only the join leaves `whereNotIn` false for a NULL.
+> 5. `RecoveryCandidates` read `DB::table('carts')`, which `NullCookieCartTest` forbids OUTRIGHT in
+>    `app/`: a raw read bypasses `Cart::forGuestCookie()`, the single choke point whose job is to
+>    refuse a MISSING guest cookie. That hazard was unreachable in this query (it never names
+>    `cookie_session_id` and requires `customer_id > 0`) and the right answer was still the model,
+>    not an exemption — `Cart::withoutGlobalScopes()->disableCache()`.
 >
-> **SEVEN MUTATIONS RUN, SEVEN CAUGHT — and the seventh is the one worth remembering:** a VERBATIM
-> copy of the composition pasted back into the controller passed all seven of the new Feature tests,
-> because an identical string is identical. `ReportFigureNoteIsTheOnlySourceTest` was added to catch
-> it structurally, and the docblock that had claimed `assertSame` covered it was corrected rather
-> than left standing.
+> **AND ONE TEST OF MINE PASSED BY ID COINCIDENCE**, found only by a mutation: with one tenant and
+> one order, `orders.id` and `store_id` were both 1, so joining the ledger on the wrong column
+> matched by accident and the payment predicate was inert. A paid decoy now makes them disagree.
+>
+> **Local gate on `2c333001`:** Unit **5,987 passed + 1 declared skip** · Contract **45 passed** ·
+> Feature **10,685 passed, exactly 1 declared failure and 1 declared skip**, with
+> `assert-known-test-outcomes.php` reporting **OK — nothing undeclared**. The MariaDB battery was
+> re-run in full: **45 passed, 0 failed**. (67 `verify-*.php` exist on disk and 45 are registered and
+> run; an earlier commit message said "44 scripts" and that figure was wrong.)
 >
 > **Do next, in this order:**
-> 1. **Check run 44883318495 (#569) on `91d1992d`.** If SUCCESS, push the two local commits and then
->    verify the NEW head through its own required run. If FAILURE, fix at the cause first. The
->    `Security-sensitive diff: human checklist` check is red BY DESIGN on every security-touching
->    head; it is the owner's to clear, the PR body documents it, and it must never be written to or
->    claimed complete.
-> 2. **Group A of `PHASE-05-MKT-ANA-DISPOSITIONS.md`**, continuing. `ANA-007` is **mostly closed**
->    (four screens disclose; five exports carry it) with only `GAP-217` left — the `Shipping charged`
->    and `Coupon value applied` tiles carry no hint at all, which is a NEW on-screen disclosure
->    rather than a dropped one and moves `StatHintIsVisibleTest`'s census from 23. Remaining group A:
->    `MKT-001` (link marketing → analytics), `MKT-009` (guard the competing shopper-messaging path),
->    `MKT-010` (greentic's missing quick-view/compare hook), `ANA-002` (period comparisons),
->    `ANA-004` (device and channel analysis).
+>
+> 1. **Check ci.yml #581 on `2c333001`.** If SUCCESS, continue; if FAILURE, fix at the cause before
+>    anything else. The `Security-sensitive diff: human checklist` check is red BY DESIGN on every
+>    security-touching head — it is the owner's to clear, the PR body documents it in three places,
+>    and it must never be written to or claimed complete. `Security-sensitive diff: human approval`
+>    is green on this head and is a report, not a signed review.
+> 2. **The remaining Phase 05 requirements.** Measured against the matrix on 2026-11-21: of the 18
+>    `MKT-*`/`ANA-*` rows, **one is COMPLETE** (`ANA-010`, itself a do-NOT requirement) and
+>    **seventeen are PARTIAL**. Of those seventeen, four are owner-blocked outright (`MKT-003`,
+>    `MKT-005`/`MKT-006` loyalty reversal, `MKT-008` consent) and four are PARTIAL only by a recorded
+>    owner decision (`ANA-005`, `ANA-009`, `MKT-004`, `MKT-007`). **The unblocked remainder is:
+>    `MKT-001`, `MKT-002`, `MKT-009`, `MKT-010`, `ANA-002`, `ANA-003`, `ANA-004`, `ANA-006`,
+>    `ANA-007`, `ANA-008`.** `ANA-004` is being MEASURED before it is built, because its row's claim
+>    ("CONVERSION ANALYSIS — absent entirely… zero hits") is a GREP RESULT, and that kind of claim
+>    has already proved stale twice here: `ANA-005`'s did, on a census for the wrong identifier.
 > 3. Then **Phase 06** on its own branch with a Draft PR, preserving the #138 → #139 → #140 chain.
 > 4. Then the remaining actionable code gaps in earlier phases: P4-1 storefront commerce
 >    correctness, P5-FIN-8, P1-SEC-74's vendored remainder, P1-SEC-76's 75 leads, the D8-B census
 >    remainder.
 >
 > **Still owner-blocked, untouched:** P1-SEC-81 (CRITICAL — publication and production remediation
-> held; the fix is on NO remote), GAP-214 (D6 stage 2), GAP-215, PAY-SEC, D8 enforcement activation
-> (`MARKETING_CONSENT_ENFORCEMENT` stays `off`), and group B of the dispositions (MKT-003 BOGO on
-> variants, MKT-005/006 loyalty reversal, MKT-008 what makes a consent record count).
+> held; the fix is on NO remote), GAP-214 (D6 stage 2), GAP-215, **GAP-225** (ANA-009's delivery, and
+> the trend/anomaly policy), **GAP-226** (MKT-007's sending: transactional or promotional, and how a
+> backlog is released), PAY-SEC, D8 enforcement activation (`MARKETING_CONSENT_ENFORCEMENT` stays
+> `off`), the human security checklist, and group B of the dispositions (MKT-003 BOGO on variants,
+> MKT-005/006 loyalty reversal, MKT-008 what makes a consent record count).
 Phase 03 engineering is complete and sits in **PR #138, Draft, not merged**. Phase 04 is branched
 from that engineering head, so **PR #139 carries Phase 03's commits and must not be merged ahead of
 PR #138**. **Phase 05 is branched from Phase 04's head in turn, so PR #140 carries both** and the
