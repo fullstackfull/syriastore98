@@ -263,6 +263,10 @@ class MailSenderRegistryCensusTest extends TestCase
             'App\\Mail\\ProdcutStockMail' => 'undecided',
             'App\\Mail\\SendLoginDetail' => 'undecided',
             'App\\Mail\\invoicePay' => 'undecided',
+            // ANA-003. A merchant's own store figures, to their own account address, on their own
+            // schedule. Operational, so marketing consent never applies -- and it is NOT undecided:
+            // CI caught it as an UNDECIDED sender, which is this census doing exactly its job.
+            'App\\Mail\\ScheduledAnalyticsReport' => 'operational',
             'Workdo\\CouponEmail\\app\\Emails\\CouponEmailTemplate' => 'marketing',
             'Workdo\\EMailBox\\app\\Emails\\EmailsSendMail' => 'undecided',
             'Workdo\\EMailBox\\app\\Emails\\ReplyMail' => 'undecided',

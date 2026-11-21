@@ -30,6 +30,14 @@
  *   - credentials from FRESH_MYSQL_{HOST,PORT,SOCKET,USERNAME,PASSWORD}, defaulting to root on
  *     127.0.0.1:3306 with no password and a discovered socket.
  *
+ * WHAT THIS DOES NOT PROVE, stated so it is not cited for more than it shows:
+ *   * NOTHING ABOUT `ReportPermission`. It calls `(new ReportController())->{$handler}($request)`
+ *     directly, so the controller's constructor middleware never runs. The permission gate is
+ *     covered by `ReportAuthorizationTest`, not here.
+ *   * nothing about the operator limb in `salesCollectionTile()`: the fixture owner is type
+ *     `admin` with `current_store` set, so the `super admin` branch is never driven. That limb is
+ *     covered by `SalesReportCollectionFigureTest`.
+ *
  * It creates and DROPS its own throwaway database, refuses any database name that does not say
  * `verify`, and must never be pointed at the development or production server.
  *
@@ -177,10 +185,27 @@ try {
     }
     check('SQLite has no MONTH(), so both handlers answer 500 under the suite', $monthMissing);
 
+    /* COMMENTS STRIPPED BEFORE COUNTING. CLAUDE.md records four occasions in one day where a census
+       that reads comments was satisfied -- or broken -- by prose ABOUT the thing it measures, and this
+       file's own docblock contains the literal `MONTH(`. `token_get_all` is used rather than a regex
+       because a block comment opener inside a string literal would defeat one -- and writing that
+       delimiter out in full HERE terminated this very comment on the first attempt, which is the
+       same nesting trap in its smallest form. */
     $code = file_get_contents(base_path('app/Http/Controllers/ReportController.php'));
+    $codeOnly = '';
+    foreach (token_get_all($code) as $token) {
+        if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+            continue;
+        }
+        $codeOnly .= is_array($token) ? $token[1] : $token;
+    }
+
+    $monthInCode = preg_match_all('/[^A-Z_]MONTH\(/', $codeOnly);
+    $monthInProse = preg_match_all('/[^A-Z_]MONTH\(/', $code) - $monthInCode;
+
     check(
-        'ReportController still calls MONTH()/YEAR() at all',
-        preg_match_all('/[^A-Z_]MONTH\(/', $code) > 0
+        "ReportController still calls MONTH() in CODE ({$monthInCode} sites; {$monthInProse} more occur only in comments and are not counted)",
+        $monthInCode > 0
     );
 
     // ------------------------------------------------------------------ fixture
@@ -410,9 +435,13 @@ try {
     if ($tile === null) {
         check('a window before the ledger still rendered a tile rather than vanishing', false, 'no tile');
     } else {
+        /* ONE LIMB, NOT TWO. The first draft also accepted `=== ''`, which `<x-ss.stat>` never
+           renders -- a null value becomes the translated "Not available" string. A disjunction with
+           an unreachable limb is an assertion that would also pass for a tile that failed to render
+           at all, which is the opposite of what this checks. */
         check(
             'it is refused, not answered with 0.00',
-            $tile['value'] === 'Not available' || $tile['value'] === '',
+            $tile['value'] === 'Not available',
             "got '{$tile['value']}'"
         );
         check(

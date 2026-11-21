@@ -526,18 +526,46 @@ class ReportController extends Controller
      * (`FinanceLedgerFigures`), so there is one definition of the figure, one set of caveats and one
      * rule about the period the ledger can vouch for -- rather than a second copy that drifts.
      *
-     * NULL MEANS NO TILE, and the three ways to get there are all "the question cannot be asked":
-     * no current store, a window the report itself cannot express, or a reversed range. A null is
-     * NOT the figure being unavailable -- that case is a tile with a stated reason, which is the
-     * assembler's job and not this method's.
+     * NULL MEANS NO TILE, and the four ways to get there are all "the question cannot be asked":
+     * no current store, a PLATFORM OPERATOR who has chosen no store, a window the report itself
+     * cannot express, or a reversed range. A null is NOT the figure being unavailable -- that case
+     * is a tile with a stated reason, which is the assembler's job and not this method's.
      *
      * THE TENANT IS THE AUTHENTICATED PRINCIPAL'S (`getCurrentStore()`), the same predicate the six
      * tiles beside it use, and it is never read from request input.
+     *
+     * THE OPERATOR LIMB EXISTS BECAUSE `getCurrentStore()` DOES NOT FAIL CLOSED FOR THEM. For a
+     * `super admin` it returns the hard-coded literal 1 (`helper.php:873`), and store 1 is an
+     * ordinary merchant's tenant -- owner decision 7's own words, at
+     * `StoreFinanceController:833`, are that "store 1 belongs to a merchant who did not ask for
+     * it." `/finance` already refuses this exact principal before it reaches the same assembler
+     * (`operatorHasChosenNoStore()`, used at eight call sites there), so without this limb ONE
+     * assembler would be refused on one surface and render store 1's collected cash on another.
+     * Found by the authorization review of this slice, not by a test: the six demand tiles beside
+     * this one have disclosed store 1's ORDER VALUE to the same principal for as long as they have
+     * existed, so no test encoded the boundary and the MySQL harness drives a type-`admin` owner.
+     * That pre-existing disclosure is recorded as `GAP-223` rather than changed here -- narrowing
+     * six live figures is not this slice's business, and this limb only declines to widen it to
+     * collected cash.
+     *
+     * IT RETURNS NULL RATHER THAN REFUSING, deliberately. An absent tile is not an authorization
+     * refusal: `ReportAuthorizationTest` defines refusal as a 403 or a redirect carrying an error,
+     * and answering one here would change what the whole screen does for the operator.
+     *
+     * `UserPolicy::isOperator()` is the canonical spelling and is reused rather than re-written --
+     * it rtrims SPACE only, matching MySQL's PAD SPACE collation, which a hand-rolled
+     * `strtolower(trim(...))` gets wrong for a tab or a leading space.
      *
      * @return array{value: ?string, period: string, hint: string}|null
      */
     private function salesCollectionTile(Request $request, string $periodLabel): ?array
     {
+        $caller = auth()->user();
+
+        if ($caller !== null && \App\Policies\UserPolicy::isOperator($caller) && empty($caller->current_store)) {
+            return null;
+        }
+
         $storeId = (int) getCurrentStore();
 
         if ($storeId <= 0) {

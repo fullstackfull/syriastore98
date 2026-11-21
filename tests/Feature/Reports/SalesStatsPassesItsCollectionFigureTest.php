@@ -134,36 +134,90 @@ class SalesStatsPassesItsCollectionFigureTest extends TestCase
         $this->assertStringContainsString('Shipping charged', $html);
     }
 
+    /**
+     * THE BOUNDS, DERIVED INDEPENDENTLY OF THE HANDLER AND OF ANY MOCK CLOCK.
+     *
+     * THE FIRST VERSION OF THIS TEST WAS A TIME BOMB AND LOOKED PINNED, which is worse than looking
+     * wrong. It called `Carbon::setTestNow('2026-11-21 13:00:00')` and then asserted literal dates --
+     * but `chartPeriodWindow()` reads the NATIVE clock (`date()` / `strtotime()`, deliberately, so it
+     * mirrors the handler's own expressions), and `Carbon::setTestNow()` governs `Carbon::now()` ONLY.
+     * Measured: after `setTestNow('2030-06-15')`, `Carbon::now()` moves and `date('Y-m-d')` does not.
+     * So all four assertions were real-clock dependent and the seven-day one was true on exactly ONE
+     * day. It was green when written because that day was the day it was written; the next day it
+     * would have been an undeclared Feature failure, which fails the known-outcome gate in both
+     * directions. Found by the authorization review of this slice, not by running it.
+     *
+     * The repair is NOT to make `chartPeriodWindow()` use Carbon -- that would stop it mirroring the
+     * handler on exactly the edge cases the mirror exists for. It is to spell each expected bound a
+     * DIFFERENT way from the handler, so the assertion still discriminates:
+     *
+     *   handler                                  this test
+     *   strtotime('-1 week +1 day') + 6 days     strtotime('-6 days') .. today
+     *   date('Y-m-01') / date('Y-m-t')           Carbon::now()->startOfMonth() / ->endOfMonth()
+     *   date('Y-m-01'|'Y-m-t', strtotime(Y-01|Y-12))   Carbon::now()->startOfYear() / ->endOfYear()
+     *
+     * `last-month` IS DELIBERATELY ASSERTED STRUCTURALLY, because the handler has a pre-existing
+     * overflow bug this mirror faithfully reproduces: `strtotime('-1 month')` on the 29th-31st of a
+     * month following a shorter one lands in the CURRENT month (31 March - 1 month = 3 March), while
+     * `chartPeriodLabels()` uses the correct `'first day of last month'` for the LABEL. On those days
+     * the card reads "Last month (February)" over March figures, for all seven tiles. That is
+     * `GAP-223` and is not this slice's to change. Asserting the calendar month unconditionally would
+     * make this test red for a real reason on three days a month, so the overflow day is DETECTED and
+     * the expectation follows it -- and the detection is itself the regression pin for the bug.
+     */
     public function test_the_window_matches_the_bounds_each_preset_actually_queries(): void
     {
-        Carbon::setTestNow('2026-11-21 13:00:00');
+        $now = Carbon::now();
 
-        try {
-            $this->assertSame(
-                ['2026-10-01', '2026-10-31'],
-                $this->bounds($this->window(Request::create('/', 'GET', ['chart_data' => 'last-month']))),
-                "last-month queries date('Y-m-01') .. date('Y-m-t') of the previous month"
-            );
+        $this->assertSame(
+            [$now->copy()->startOfMonth()->toDateString(), $now->copy()->endOfMonth()->toDateString()],
+            $this->bounds($this->window(Request::create('/', 'GET', ['chart_data' => 'this-month']))),
+            'this-month is the whole current calendar month',
+        );
 
-            $this->assertSame(
-                ['2026-11-01', '2026-11-30'],
-                $this->bounds($this->window(Request::create('/', 'GET', ['chart_data' => 'this-month']))),
-            );
+        $this->assertSame(
+            [Carbon::now()->subDays(6)->toDateString(), Carbon::now()->toDateString()],
+            $this->bounds($this->window(Request::create('/', 'GET', ['chart_data' => 'seven-day']))),
+            'seven-day is the seven days ENDING today',
+        );
 
-            $this->assertSame(
-                ['2026-11-15', '2026-11-21'],
-                $this->bounds($this->window(Request::create('/', 'GET', ['chart_data' => 'seven-day']))),
-                'seven-day is the seven days ENDING today, which is -1 week +1 day and six more'
-            );
+        $this->assertSame(
+            [$now->copy()->startOfYear()->toDateString(), $now->copy()->endOfYear()->toDateString()],
+            $this->bounds($this->window(Request::create('/', 'GET', ['chart_data' => 'year']))),
+            'year is 1 January to 31 December of the current year',
+        );
 
-            $this->assertSame(
-                ['2026-01-01', '2026-12-31'],
-                $this->bounds($this->window(Request::create('/', 'GET', ['chart_data' => 'year']))),
-                "year is 1 January to 31 December: date('Y-12') parses as 1 December, so Y-m-t is the 31st"
-            );
-        } finally {
-            Carbon::setTestNow();
-        }
+        // ---- last-month, and the overflow the handler's own expression has ----
+
+        [$from, $to] = $this->bounds($this->window(Request::create('/', 'GET', ['chart_data' => 'last-month'])));
+
+        $this->assertSame('01', substr((string) $from, 8, 2), 'the window must start on the first of a month');
+        $this->assertSame(
+            date('Y-m-t', strtotime((string) $from)),
+            $to,
+            'the window must end on the last day of the SAME month it starts in',
+        );
+
+        /* True exactly when `strtotime('-1 month')` overflows: today's day-of-month does not exist in
+           the previous month. On those days the handler lands in the current month and this test says
+           so, rather than failing for something it is not measuring. */
+        $overflows = (int) date('j') > (int) date('t', strtotime('first day of last month'));
+
+        $this->assertSame(
+            $overflows
+                ? $now->copy()->format('Y-m')
+                : date('Y-m', strtotime('first day of last month')),
+            substr((string) $from, 0, 7),
+            $overflows
+                ? 'GAP-223: on this day of the month the handler\'s -1 month overflows into the current month'
+                : 'last-month is the previous calendar month',
+        );
+
+        $this->assertFalse(
+            $overflows && $from === $now->copy()->startOfMonth()->toDateString()
+                && $to !== $now->copy()->endOfMonth()->toDateString(),
+            'premise: an overflow still yields a whole calendar month',
+        );
     }
 
     public function test_the_date_picker_window_is_the_single_day_or_the_range_it_sends(): void

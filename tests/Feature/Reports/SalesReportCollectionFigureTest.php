@@ -2,10 +2,12 @@
 
 namespace Tests\Feature\Reports;
 
+use App\Http\Controllers\ReportController;
 use App\Models\Store;
 use App\Support\Metrics\FinanceLedgerFigures;
 use App\Support\Metrics\MetricWindow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Tests\Feature\Security\SecurityTestCase;
@@ -104,6 +106,141 @@ class SalesReportCollectionFigureTest extends SecurityTestCase
     private function figure(Store $store, ?MetricWindow $window, ?string $label = null): array
     {
         return FinanceLedgerFigures::forStore($store->id, 'USD', $window, $label)['payments'];
+    }
+
+    /** `ReportController::salesCollectionTile()`, which is private and whose handlers the suite cannot reach. */
+    private function controllerTile(): ?array
+    {
+        $method = new \ReflectionMethod(ReportController::class, 'salesCollectionTile');
+        $method->setAccessible(true);
+
+        return $method->invoke(
+            new ReportController(),
+            Request::create('/', 'GET', ['chart_data' => 'year']),
+            'This year',
+        );
+    }
+
+    /**
+     * THE PLATFORM OPERATOR WITH NO STORE MUST NOT BE SHOWN STORE 1's COLLECTED CASH.
+     *
+     * `getCurrentStore()` does not fail closed for them: for a `super admin` it returns the
+     * hard-coded literal 1 (`helper.php:873`), and store 1 is an ordinary merchant's tenant --
+     * owner decision 7's words at `StoreFinanceController:833` are that "store 1 belongs to a
+     * merchant who did not ask for it." `/finance` refuses this exact principal at eight call
+     * sites before reaching the SAME assembler, so without the limb in `salesCollectionTile()`
+     * one assembler would be refused on one surface and render store 1's money on another.
+     *
+     * STORE 1 IS GIVEN A DISTINCTIVE LEDGER HERE, so a regression is a visible wrong number
+     * rather than an empty tile that could be mistaken for the correct refusal.
+     *
+     * Found by the authorization review of this slice. No test encoded this boundary, because the
+     * six demand tiles beside this one have disclosed store 1's ORDER VALUE to the same principal
+     * for as long as they have existed -- recorded as `GAP-223`, not changed here.
+     */
+    public function test_a_platform_operator_who_has_chosen_no_store_is_shown_no_collection_tile(): void
+    {
+        [, $storeOne] = $this->makeTenant();
+        $this->assertSame(1, $storeOne->id, 'premise: the decoy really is store 1, the id getCurrentStore() falls back to');
+        $this->ledgerOrder($storeOne, '2026-11-05 09:00:00', $this->paid(self::DECOY_PAID, '2026-11-05 09:00:00'));
+
+        $operator = $this->makePlatformAdmin(['current_store' => null]);
+        $this->actingAs($operator);
+
+        $this->assertNull(
+            $this->controllerTile(),
+            'an operator who has chosen no store must get NO tile, never store 1\'s collected cash'
+        );
+    }
+
+    public function test_an_operator_who_has_chosen_a_store_still_reads_that_stores_figure(): void
+    {
+        // The limb must decline to GUESS a tenant, not refuse an operator who named one.
+        [, $storeOne] = $this->makeTenant();
+        $this->ledgerOrder($storeOne, '2026-11-05 09:00:00', $this->paid(self::DECOY_PAID, '2026-11-05 09:00:00'));
+
+        [, $chosen] = $this->makeTenant();
+        $this->ledgerOrder($chosen, '2026-11-05 09:00:00', $this->paid('222.00', '2026-11-05 09:00:00'));
+        DB::table('settings')->insert([
+            'store_id' => $chosen->id, 'name' => 'defult_currancy', 'value' => 'USD',
+            'created_by' => 1, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $operator = $this->makePlatformAdmin(['current_store' => $chosen->id]);
+        $this->actingAs($operator);
+
+        $tile = $this->controllerTile();
+
+        $this->assertNotNull($tile, 'an operator who HAS chosen a store is not what the limb refuses');
+        $this->assertSame('222.00 USD', $this->plain($tile['value']));
+        $this->assertStringNotContainsString('31,337.31', (string) $tile['value'], 'store 1 is the decoy');
+    }
+
+    public function test_a_merchant_with_a_store_is_unaffected_by_the_operator_limb(): void
+    {
+        [, $storeOne] = $this->makeTenant();
+        $this->ledgerOrder($storeOne, '2026-11-05 09:00:00', $this->paid(self::DECOY_PAID, '2026-11-05 09:00:00'));
+
+        [$merchant, $store] = $this->makeTenant();
+        $this->ledgerOrder($store, '2026-11-05 09:00:00', $this->paid('333.00', '2026-11-05 09:00:00'));
+        DB::table('settings')->insert([
+            'store_id' => $store->id, 'name' => 'defult_currancy', 'value' => 'USD',
+            'created_by' => 1, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->actingAs($merchant);
+
+        $tile = $this->controllerTile();
+
+        $this->assertNotNull($tile, 'the limb must not refuse an ordinary merchant');
+        $this->assertSame('333.00 USD', $this->plain($tile['value']));
+    }
+
+    /**
+     * A MERCHANT WHO OWNS A STORE BUT NEVER SWITCHED TO ONE STILL GETS THE FIGURE.
+     *
+     * `users.current_store` is nullable and a merchant who has only ever had one store may never
+     * have written it. `getCurrentStore()` resolves them anyway, through an OWNERSHIP predicate
+     * (`Store::where('created_by', $user->id)->first()`, `helper.php:876-877`), and the six demand
+     * tiles beside this one already rely on that. So the operator limb must test `isOperator`, not
+     * just `empty($user->current_store)` -- otherwise this merchant loses the seventh tile while
+     * their other six keep working.
+     *
+     * ADDED BECAUSE A MUTATION SURVIVED. Dropping `isOperator` from the limb left every test green:
+     * `makeTenant()` always writes `current_store`, so no test exercised this state. That is the
+     * same "a fixture made the mutation unreachable" shape as the default-argument mutation in
+     * `SalesStatsPassesItsCollectionFigureTest`, and it is a real coverage gap rather than a
+     * mutation not worth catching.
+     */
+    public function test_a_merchant_with_no_current_store_but_an_owned_store_still_gets_the_figure(): void
+    {
+        [, $storeOne] = $this->makeTenant();
+        $this->ledgerOrder($storeOne, '2026-11-05 09:00:00', $this->paid(self::DECOY_PAID, '2026-11-05 09:00:00'));
+
+        // NOT makeTenant(): that writes current_store, which is the very thing under test.
+        $merchant = $this->makeMerchant();
+        $store = $this->makeStore($merchant);
+
+        $this->assertEmpty($merchant->current_store, 'premise: this merchant has never chosen a store');
+        $this->assertSame(
+            $store->id,
+            (int) \Illuminate\Support\Facades\DB::table('stores')->where('created_by', $merchant->id)->value('id'),
+            'premise: but they do own one, which is what getCurrentStore() falls back to'
+        );
+
+        $this->ledgerOrder($store, '2026-11-05 09:00:00', $this->paid('444.00', '2026-11-05 09:00:00'));
+        DB::table('settings')->insert([
+            'store_id' => $store->id, 'name' => 'defult_currancy', 'value' => 'USD',
+            'created_by' => 1, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->actingAs($merchant);
+
+        $tile = $this->controllerTile();
+
+        $this->assertNotNull($tile, 'the operator limb must not catch a merchant resolved by ownership');
+        $this->assertSame('444.00 USD', $this->plain($tile['value']));
+        $this->assertStringNotContainsString('31,337.31', (string) $tile['value'], 'store 1 is the decoy');
     }
 
     public function test_the_figure_answers_the_window_the_caller_asked_for(): void

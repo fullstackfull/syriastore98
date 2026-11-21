@@ -76,6 +76,10 @@ final class MailSenderRegistry
             'class' => null,
             'basis' => 'a stub: never constructed, and its view `view.name` does not exist',
         ],
+        'App\\Mail\\ScheduledAnalyticsReport' => [
+            'class' => MessageClass::Operational,
+            'basis' => 'ANA-003. ScheduledReportRunner::send() mails a merchant their OWN store\'s analytics CSV, on a schedule they created themselves, to the address on their own user row -- re-read from that row on every run and deliberately not a parameter, so neither request input nor a hand-edited column can redirect it. No shopper is addressed and nothing is promoted, so no consent question arises; the nearest precedent in this table is TestMail',
+        ],
         'Workdo\\CouponEmail\\app\\Emails\\CouponEmailTemplate' => [
             'class' => MessageClass::Marketing,
             'basis' => 'CouponEmail::sendCouponEmail mails a coupon on registration, on a first order and past an order-value threshold: a promotion (GAP-200). It carries NO store, so it cannot be attributed to one from the mail event',
