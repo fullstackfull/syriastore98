@@ -156,14 +156,17 @@ class SalesStatsPassesItsCollectionFigureTest extends TestCase
      *   date('Y-m-01') / date('Y-m-t')           Carbon::now()->startOfMonth() / ->endOfMonth()
      *   date('Y-m-01'|'Y-m-t', strtotime(Y-01|Y-12))   Carbon::now()->startOfYear() / ->endOfYear()
      *
-     * `last-month` IS DELIBERATELY ASSERTED STRUCTURALLY, because the handler has a pre-existing
-     * overflow bug this mirror faithfully reproduces: `strtotime('-1 month')` on the 29th-31st of a
-     * month following a shorter one lands in the CURRENT month (31 March - 1 month = 3 March), while
-     * `chartPeriodLabels()` uses the correct `'first day of last month'` for the LABEL. On those days
-     * the card reads "Last month (February)" over March figures, for all seven tiles. That is
-     * `GAP-223` and is not this slice's to change. Asserting the calendar month unconditionally would
-     * make this test red for a real reason on three days a month, so the overflow day is DETECTED and
-     * the expectation follows it -- and the detection is itself the regression pin for the bug.
+     * `last-month` WAS DELIBERATELY ASSERTED STRUCTURALLY, AND NO LONGER IS, because the defect it
+     * accommodated is fixed. The handler used to derive the window with `strtotime('-1 month')`,
+     * which on the 29th-31st of a month following a shorter one lands in the CURRENT month
+     * (31 March - 1 month = 3 March, so `date('Y-m-01')` of it is 1 MARCH -- the whole current
+     * month), while `chartPeriodLabels()` used the correct `'first day of last month'` for the
+     * LABEL. On 33 days in every five years the card read "Last month (February 2026)" over March's
+     * figures, for all seven tiles. That was `GAP-223(a)`.
+     *
+     * Both now come from `App\Support\Reports\CalendarPeriod`, so the expectation here is
+     * unconditional and the overflow-detecting branch is gone. Its removal is the regression pin:
+     * an expectation that follows the implementation onto the buggy answer cannot disagree with it.
      */
     public function test_the_window_matches_the_bounds_each_preset_actually_queries(): void
     {
@@ -198,25 +201,39 @@ class SalesStatsPassesItsCollectionFigureTest extends TestCase
             'the window must end on the last day of the SAME month it starts in',
         );
 
-        /* True exactly when `strtotime('-1 month')` overflows: today's day-of-month does not exist in
-           the previous month. On those days the handler lands in the current month and this test says
-           so, rather than failing for something it is not measuring. */
-        $overflows = (int) date('j') > (int) date('t', strtotime('first day of last month'));
+        /*
+         * GAP-223(a) IS FIXED, SO THIS IS NOW UNCONDITIONAL -- and the conditional it replaces is
+         * worth describing, because its removal is the regression pin.
+         *
+         * This block used to DETECT the overflow day and follow it: `$overflows` was true when
+         * today's day-of-month did not exist in the previous month, and on those days the test
+         * asserted the CURRENT month, because that is what the handler really produced. That was the
+         * honest thing to do while the defect stood -- asserting the calendar month unconditionally
+         * would have made this test red on 33 days in five years for something it was not measuring.
+         *
+         * It is also exactly the shape that hides a bug in plain sight. An expectation that follows
+         * the implementation cannot disagree with it. Now that the handler derives its window from
+         * `CalendarPeriod`, there is no overflow day left to detect, and the assertion says so: the
+         * window is the previous calendar month on EVERY day, and if it ever is not, this test fails
+         * rather than accommodating it.
+         *
+         * `CalendarPeriod::lastMonth()` is the expectation deliberately -- one definition, proved
+         * across all 1,827 days by `CalendarPeriodTest` with expectations spelled from year-and-month
+         * arithmetic rather than from date functions. This test's job is the narrower one: that the
+         * handler's mirror USES that definition.
+         */
+        $period = \App\Support\Reports\CalendarPeriod::lastMonth();
+
+        $this->assertSame([$period['from'], $period['to']], [$from, $to],
+            'last-month must be the previous calendar month on every day of the year, with no overflow branch');
+
+        $this->assertNotSame($now->copy()->startOfMonth()->toDateString(), $from,
+            'the window starts in the CURRENT month, which is GAP-223(a) returning');
 
         $this->assertSame(
-            $overflows
-                ? $now->copy()->format('Y-m')
-                : date('Y-m', strtotime('first day of last month')),
+            date('Y-m', strtotime('first day of last month')),
             substr((string) $from, 0, 7),
-            $overflows
-                ? 'GAP-223: on this day of the month the handler\'s -1 month overflows into the current month'
-                : 'last-month is the previous calendar month',
-        );
-
-        $this->assertFalse(
-            $overflows && $from === $now->copy()->startOfMonth()->toDateString()
-                && $to !== $now->copy()->endOfMonth()->toDateString(),
-            'premise: an overflow still yields a whole calendar month',
+            'and it is the same month `chartPeriodLabels()` names, which is the whole point of the fix',
         );
     }
 
