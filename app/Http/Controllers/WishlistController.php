@@ -16,9 +16,39 @@ use Illuminate\Support\Facades\Cache;
 
 class WishlistController extends Controller
 {
-    public function index(WishlistDataTable $dataTable)
+    public function index(Request $request, WishlistDataTable $dataTable)
     {
         if (auth()->user() && auth()->user()->isAbleTo('Manage Wishlist')) {
+            /*
+             * MKT-002. The merchant's filter selection survives navigation and reload.
+             *
+             * INSIDE THE PERMISSION GATE, deliberately: a caller who may not see this list never
+             * reads or writes the memory, and never learns from a redirect that one exists.
+             *
+             * THE RESTORE IS A 302, NOT A CLIENT-SIDE FILL. yajra sets the table's `ajax.url` to
+             * `url()->full()` as evaluated when the page RENDERS, so filling the controls -- or
+             * rewriting the query with `history.replaceState` -- would leave the table's second leg
+             * requesting the UNFILTERED url: the page would look filtered and the rows would not be.
+             * A redirect makes a restored request byte-identical to a typed one. This is
+             * `ProductController::index`'s reasoning, which applies here for the same reason.
+             */
+            if ($request->has(\App\Services\TableFilterMemory::CLEAR)) {
+                \App\Services\TableFilterMemory::forget('wishlist');
+
+                return redirect()->route('wishlist.index');
+            }
+
+            if (\App\Services\TableFilterMemory::shouldRestore($request)) {
+                $remembered = \App\Services\TableFilterMemory::recall('wishlist');
+
+                if ($remembered !== []) {
+                    return redirect()->route('wishlist.index', $remembered)
+                        ->with('ss_filters_restored', true);
+                }
+            }
+
+            \App\Services\TableFilterMemory::remember($request, 'wishlist');
+
             return $dataTable->render('wishlist.index');
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));
