@@ -244,33 +244,52 @@ final class NudgeLedger
             return;
         }
 
+        /*
+         * ELOQUENT, NOT `DB::table()->insert()`, AND THE CENSUS IS WHY.
+         *
+         * This was a raw insert, for the bad reason that `idempotency_key` and `outcome` are not
+         * fillable -- which `reserve()` already solves by setting them as PROPERTIES. The raw form
+         * bought nothing and cost something real: `RawQueryTenancyInventoryTest` counts every raw
+         * query-builder entry point in `app/` precisely because each one is invisible to every
+         * Eloquent global scope, and it moved 193 -> 194 and demanded a per-table classification.
+         *
+         * An independent review looked at this line and concluded "no census breaks", having
+         * checked `ResidualTenancyExposureTest` (which covers only `app/Models`, `app/Scopes` and
+         * `helper.php`) and `ServiceLayerRawQueryInventoryTest` (which globs `app/Services/*.php`,
+         * not the `Marketing/` subdirectory). It missed the third inventory, which does sweep `app/`
+         * broadly -- and the gate caught it. Declaring a new raw site would have been the wrong
+         * answer anyway: the honest one is not to add a raw query at all.
+         *
+         * The `store_id` predicate is unchanged either way -- it is set explicitly on the row.
+         */
         try {
-            DB::table('marketing_nudge_sends')->insert([
-                'store_id' => $storeId,
-                'channel' => $channel,
-                'message_class' => 'marketing',
-                'template' => $template,
-                'contact_hash' => $contactHash,
-                'subject_type' => $subjectType,
-                'subject_id' => $subjectId,
-                /*
-                 * A REFUSAL MUST NOT COLLIDE WITH THE RESERVATION IT IS ABOUT, and must not block a
-                 * later legitimate send. So its key is salted with the outcome and a timestamp:
-                 * refusals are a log, not a reservation, and two refusals of the same action are
-                 * two facts worth keeping.
-                 */
-                'idempotency_key' => hash('sha256', implode('|', [
-                    'refusal',
-                    $outcome,
-                    $this->keyFor($channel, $template, $contactHash, $subjectType, $subjectId),
-                    (string) CarbonImmutable::now()->getPreciseTimestamp(),
-                ])),
-                'outcome' => $outcome,
-                'sent_at' => null,
-                'created_by' => $createdBy,
-                'created_at' => CarbonImmutable::now(),
-                'updated_at' => CarbonImmutable::now(),
-            ]);
+            $row = new MarketingNudgeSend();
+            $row->channel = $channel;
+            $row->message_class = 'marketing';
+            $row->template = $template;
+            $row->contact_hash = $contactHash;
+            $row->subject_type = $subjectType;
+            $row->subject_id = $subjectId;
+            $row->sent_at = null;
+
+            $row->store_id = $storeId;
+            $row->created_by = $createdBy;
+            $row->outcome = $outcome;
+
+            /*
+             * A REFUSAL MUST NOT COLLIDE WITH THE RESERVATION IT IS ABOUT, and must not block a
+             * later legitimate send. So its key is salted with the outcome and a timestamp:
+             * refusals are a log, not a reservation, and two refusals of the same action are two
+             * facts worth keeping.
+             */
+            $row->idempotency_key = hash('sha256', implode('|', [
+                'refusal',
+                $outcome,
+                $this->keyFor($channel, $template, $contactHash, $subjectType, $subjectId),
+                (string) CarbonImmutable::now()->getPreciseTimestamp(),
+            ]));
+
+            $row->save();
         } catch (QueryException $e) {
             // Best effort by design; see the method docblock.
         }

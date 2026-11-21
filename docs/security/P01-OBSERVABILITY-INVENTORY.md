@@ -191,8 +191,10 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:398` | AuthorizeNet capture refused: no server-computed payable in the stored state. |
 | `app/Http/Controllers/CartController.php:261` | product_cart: refused a non-positive or non-integer quantity |
 | `app/Http/Controllers/CartController.php:314` | product_cart: refused a product belonging to another store |
-| `app/Http/Controllers/CartController.php:1514` | abandoned-cart WhatsApp nudge failed |
-| `app/Http/Controllers/WishlistController.php:656` | abandoned-wishlist WhatsApp nudge failed |
+| `app/Http/Controllers/CartController.php:1368` | abandoned-cart e-mail nudge failed |
+| `app/Http/Controllers/CartController.php:1555` | abandoned-cart WhatsApp nudge failed |
+| `app/Http/Controllers/WishlistController.php:280` | abandoned-wishlist e-mail nudge failed |
+| `app/Http/Controllers/WishlistController.php:698` | abandoned-wishlist WhatsApp nudge failed |
 | `app/Http/Controllers/CinetPayController.php:535` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:133` | Gateway return refused: no server-stored checkout state. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:282` | Gateway return carries no claimable identity; falling back to the session control alone. |
@@ -275,7 +277,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/StoreFinanceController.php:2543` | Manual wallet change refused as a duplicate submission |
 | `app/Http/Controllers/StoreFinanceController.php:2744` | Manual wallet change refused as a duplicate submission |
 | `app/Http/Controllers/SavedViewController.php:117` | Saved view apply refused: not the owner or no such view |
-| `app/Http/Controllers/SavedViewController.php:136` | Saved view delete refused: not the owner or no such view |
+| `app/Http/Controllers/SavedViewController.php:159` | Saved view delete refused: not the owner or no such view |
 | `app/Http/Controllers/SenangPayController.php:140` | SenangPay plan return refused: the return hash could not be verified. |
 | `app/Http/Controllers/SenangPayController.php:150` | SenangPay plan return refused: return hash mismatch. |
 | `app/Http/Controllers/SofortController.php:106` | Sofort return rejected: plaintext plan parameter disagrees with the signed token. |
