@@ -11,9 +11,30 @@ namespace App\Support\Metrics;
  * a Blade tile: it decides WHICH PERIOD to read (D1), reads it, and turns the answer into the things a
  * tile needs -- a value, a period, a hint, and an honest "not available".
  *
- * THE PERIOD IS NEVER CHOSEN BY THE CALLER. It comes from `LedgerCoverage`, which finds the day from
+ * THE PERIOD IS NEVER WIDENED BY THE CALLER. It comes from `LedgerCoverage`, which finds the day from
  * which the ledger can vouch for every order. A merchant cannot ask for a window earlier than that
  * and be handed zero; the figure starts where the record does and says so (D1 Option A).
+ *
+ * A CALLER MAY NARROW IT, AND ONLY THE SALES REPORT DOES. `/finance` and `/analytics` pass no window, so
+ * they read the whole verified period exactly as they always have. The sales report is different: six
+ * demand tiles there already answer a window the merchant picked, and `Payments received` has to stand
+ * beside them without answering a different question under the same heading. So `forStore()` takes an
+ * optional window, intersects it with coverage, and the intersection has three outcomes -- the two halves
+ * of D1 Option A plus the one that is only a crash:
+ *
+ *   * the request starts inside the verified period  -> answered as asked, and the caller's own label is
+ *                                                       kept so the tile reads like its neighbours
+ *   * the request reaches back past it               -> answered from where the record begins, and the
+ *                                                       tile's period is REPLACED with the real span.
+ *                                                       Printing the requested span over a narrower
+ *                                                       figure is the wrong-number-that-looks-right
+ *   * the request ends before the record begins      -> REFUSED, naming the earliest answerable date.
+ *                                                       Never zero: zero is a claim about the business,
+ *                                                       and the ledger is making a claim about itself
+ *
+ * THE ORDERING IS RE-ASSERTED AFTER THE CLAMP. `MetricWindow`'s constructor throws when `from` is after
+ * `to`, so the no-overlap case must be caught BEFORE the window is built. Applying a clamp without
+ * re-checking the ordering is the defect that reached a live HTTP 500 in `AnalyticsPeriod`.
  *
  * WHAT A TILE MAY SAY, in the order the rules apply:
  *
@@ -69,10 +90,16 @@ final class FinanceLedgerFigures
     private const PDI = "\u{2069}";
 
     /**
+     * @param  ?MetricWindow  $requested  the window the merchant chose, or null to read the whole verified period
+     * @param  ?string  $requestedLabel  how that window is named on the surface, kept when nothing was clamped
      * @return array{coverage: LedgerCoverage, payments: array<string, mixed>, profit: array<string, mixed>}
      */
-    public static function forStore(int $storeId, string $storeCurrency): array
-    {
+    public static function forStore(
+        int $storeId,
+        string $storeCurrency,
+        ?MetricWindow $requested = null,
+        ?string $requestedLabel = null,
+    ): array {
         $storeCurrency = strtoupper(trim($storeCurrency));
         $storeCurrency = $storeCurrency === '' ? self::FALLBACK_CURRENCY : $storeCurrency;
 
@@ -80,6 +107,11 @@ final class FinanceLedgerFigures
         $window = $coverage->window();
         $scope = MetricScope::store($storeId);
         $period = self::periodLabel($coverage);
+        $refusal = null;
+
+        if ($requested !== null && $window !== null) {
+            [$window, $period, $refusal] = self::narrow($window, $requested, $coverage, $requestedLabel);
+        }
 
         return [
             'coverage' => $coverage,
@@ -90,6 +122,7 @@ final class FinanceLedgerFigures
                 $coverage,
                 __('Money customers actually paid, counted on the day it was paid, including orders cancelled or refunded after payment. It is not order value and not profit.'),
                 null,
+                $refusal,
             ),
             'profit' => self::tile(
                 $window === null ? null : (new StoreRevenueMargin(true))->for($scope, $window),
@@ -100,8 +133,69 @@ final class FinanceLedgerFigures
                 static fn (MetricResult $result): ?string => ($n = (int) ($result->notes()['rows_without_cost'] ?? 0)) > 0
                     ? __('At least :count paid orders have no product cost on record, so their profit may be overstated. Orders that mix products with and without a cost price are not counted here.', ['count' => number_format($n)])
                     : null,
+                $refusal,
             ),
         ];
+    }
+
+    /**
+     * The verified period AND the requested one, or the reason there is no overlap.
+     *
+     * Returns [window, period, refusal]. A null window with a non-null refusal is the "asking for last
+     * year" case from D1 Option A: the record cannot answer, and it says the date from which it could.
+     *
+     * `$coverage->window()` is `allTime()` for a complete ledger, whose `from()` is null -- unbounded, so
+     * nothing is clamped and the requested window is taken whole. `to()` is always null on a coverage
+     * window, so the requested end is never moved: only the start can be.
+     *
+     * @return array{0: ?MetricWindow, 1: string, 2: ?string}
+     */
+    private static function narrow(
+        MetricWindow $coverageWindow,
+        MetricWindow $requested,
+        LedgerCoverage $coverage,
+        ?string $requestedLabel,
+    ): array {
+        $recordBegins = $coverageWindow->from();
+        $from = $requested->from();
+        $to = $requested->to();
+
+        $clamped = $recordBegins !== null
+            && ($from === null || $from->lessThan($recordBegins));
+
+        if ($clamped) {
+            $from = $recordBegins;
+        }
+
+        /* THE ORDERING, RE-ASSERTED. Only reachable when the clamp moved `from` past a bounded `to`,
+           which is exactly the no-overlap case -- and `MetricWindow` would throw on it. */
+        if ($from !== null && $to !== null && $from->greaterThan($to)) {
+            return [
+                null,
+                $requestedLabel ?? self::periodLabel($coverage),
+                __('Financial records begin on :date, and the period you chose ends before that, so there is nothing to show for it.', [
+                    'date' => self::date($recordBegins),
+                ]),
+            ];
+        }
+
+        $window = MetricWindow::between($from, $to);
+
+        /* `MetricWindow::describe()` is a DEBUG format ("2026-11-01 .. 2026-11-10") and must never
+           reach a merchant tile, so an unlabelled window is spelled the same way a clamped one is. */
+        return [$window, (! $clamped && $requestedLabel !== null) ? $requestedLabel : self::span($from, $to), null];
+    }
+
+    /** A window as a person reads it, in the page's locale. */
+    private static function span(?\Carbon\CarbonInterface $from, ?\Carbon\CarbonInterface $to): string
+    {
+        if ($from === null) {
+            return $to === null ? __('all time') : __('until :date', ['date' => self::date($to)]);
+        }
+
+        return $to === null
+            ? __('from :date', ['date' => self::date($from)])
+            : __(':from to :to', ['from' => self::date($from), 'to' => self::date($to)]);
     }
 
     private static function periodLabel(LedgerCoverage $coverage): string
@@ -153,6 +247,7 @@ final class FinanceLedgerFigures
 
     /**
      * @param  null|callable(MetricResult): ?string  $extra  a figure-specific limitation, or null for none
+     * @param  ?string  $refusal  why the requested period cannot be answered at all, when that is the reason
      * @return array{value: ?string, period: string, hint: string}
      */
     private static function tile(
@@ -162,19 +257,24 @@ final class FinanceLedgerFigures
         LedgerCoverage $coverage,
         string $meaning,
         ?callable $extra,
+        ?string $refusal = null,
     ): array {
         if ($result === null) {
             return [
                 'value' => null,
                 'period' => $period,
+                // A refusal about the REQUESTED period outranks one about the record: the record may be
+                // perfectly healthy and simply not cover the window the merchant picked.
+                'hint' => $refusal ?? (
                 // "Nothing verified" outranks "starts in the future": with no row at all there is no record
                 // that could ever be verified from any date.
-                'hint' => (! $coverage->hasNothingVerified() && $coverage->startsInTheFuture())
-                    ? __('The latest order without a financial record is dated :date. A verified period can begin on :next at the earliest, so there is nothing to show yet.', [
-                        'date' => self::date($coverage->latestOrderWithoutRowOn()),
-                        'next' => self::date($coverage->verifiedFrom()),
-                    ])
-                    : __('No order has a financial record yet, so this figure cannot be shown.'),
+                    (! $coverage->hasNothingVerified() && $coverage->startsInTheFuture())
+                        ? __('The latest order without a financial record is dated :date. A verified period can begin on :next at the earliest, so there is nothing to show yet.', [
+                            'date' => self::date($coverage->latestOrderWithoutRowOn()),
+                            'next' => self::date($coverage->verifiedFrom()),
+                        ])
+                        : __('No order has a financial record yet, so this figure cannot be shown.')
+                ),
             ];
         }
 

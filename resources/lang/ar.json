@@ -4283,5 +4283,7 @@
     "every day": "كل يوم",
     "every week": "كل أسبوع",
     "every month": "كل شهر",
-    ":store analytics — :period": "تحليلات :store — :period"
+    ":store analytics — :period": "تحليلات :store — :period",
+    "Financial records begin on :date, and the period you chose ends before that, so there is nothing to show for it.": "تبدأ السجلات المالية في :date، والفترة التي اخترتها تنتهي قبل ذلك، لذلك لا يوجد ما يمكن عرضه لها.",
+    "until :date": "حتى :date"
 }

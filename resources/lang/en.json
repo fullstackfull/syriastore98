@@ -4287,5 +4287,7 @@
     "every day": "every day",
     "every week": "every week",
     "every month": "every month",
-    ":store analytics — :period": ":store analytics — :period"
+    ":store analytics — :period": ":store analytics — :period",
+    "Financial records begin on :date, and the period you chose ends before that, so there is nothing to show for it.": "Financial records begin on :date, and the period you chose ends before that, so there is nothing to show for it.",
+    "until :date": "until :date"
 }

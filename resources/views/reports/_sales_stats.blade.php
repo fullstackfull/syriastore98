@@ -40,6 +40,26 @@
                :period="$periodLabel"
                :hint="\App\Support\Reports\ReportFigureNote::shippingChargedHint()" />
 
+        {{-- ANA-005 / D2's fourth figure to reach a screen. It is the ONLY tile on this card that is
+             not accumulated in the handler's own loop over `orders`: it reads the entitlement ledger
+             through `FinanceLedgerFigures`, dated by the day the money ARRIVED rather than the day the
+             order was placed, so it deliberately disagrees with the two order-value tiles above. Its
+             own `:period` is passed separately because the assembler REPLACES the card's period when
+             the ledger cannot vouch for the whole of it -- printing "This month" over a figure that
+             starts mid-month is the defect this slice exists to avoid.
+
+             RENDERED ONLY WHEN THE HANDLER RESOLVED IT. A null is "the question cannot be asked" (no
+             current store, or a window the report cannot express), not "no money" -- the unavailable
+             case is a tile with a stated reason, which the assembler builds. The guard also keeps a
+             future includer of this partial from a 500; `SalesStatsPassesItsCollectionFigureTest`
+             is what stops that includer silently dropping the tile instead. --}}
+        @if (!empty($collection))
+            <x-ss.stat :label="__('Payments received')"
+                   :value="$collection['value']"
+                   :period="$collection['period']"
+                   :hint="$collection['hint']" />
+        @endif
+
         <x-ss.stat :label="__('Coupon value applied')"
                :value="$currency . (!empty($TotalCouponAmount) ? $TotalCouponAmount : '0.00')"
                :period="$periodLabel"

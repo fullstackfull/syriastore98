@@ -13,6 +13,8 @@ use App\Models\User;
 use App\Models\Customer;
 use App\Models\ProductBrand;
 use App\Models\Utility;
+use App\Support\Metrics\FinanceLedgerFigures;
+use App\Support\Metrics\MetricWindow;
 use App\Support\Reports\ReportFigureNote;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -443,6 +445,116 @@ class ReportController extends Controller
         }
 
         return [date('d M Y', strtotime($raw)), __('Day')];
+    }
+
+    /**
+     * The window a `reports_chart` answer actually QUERIES, for a figure that is not accumulated in
+     * the handler's own loop. ANA-005 / owner decisions D1 and D2.
+     *
+     * THIS MIRRORS THE HANDLER'S SQL, NOT `chartPeriodLabels`'s PROSE, and where the two disagree the
+     * SQL wins -- because the point of the figure this feeds is to stand beside the six demand tiles
+     * and cover the same orders. A figure over a different span under the same heading is the
+     * wrong-number-that-looks-right, and it is worse than no figure.
+     *
+     * The branches are the same four presets plus the date picker, read off the queries themselves:
+     * `last-month` and `this-month` are whole calendar months, `seven-day` is the seven days ENDING
+     * TODAY (`-1 week +1 day`, then six more), `year` is 1 January to 31 December of this year, and
+     * the default is the picker's single date or its ` to ` range.
+     *
+     * TWO DEGENERATE INPUTS, both of which must not become an exception:
+     *
+     *   * an unparseable `Date` -- `strtotime('')` is `false` and `date('Y-m-d', false)` is
+     *     `1970-01-01`, so the handler queries a single day in 1970 while its label says "Today".
+     *     That is a real inconsistency, and it is NOT reachable through the shipped UI: the period
+     *     bar defaults to `selected => 'year'` and its date field defaults to `date('Y-m-d')`
+     *     (`components/ss/report-filter.blade.php`), so a preset always wins and the field is never
+     *     empty. Mirrored rather than corrected, because the ledger figure then REFUSES the 1970
+     *     window with its reason -- which surfaces the inconsistency instead of printing a zero.
+     *   * a range the picker sends backwards. `MetricWindow` throws when `from` is after `to`, so
+     *     this returns null and the caller omits the tile. Swapping the bounds would invent a window
+     *     the six tiles beside it are not answering.
+     */
+    private function chartPeriodWindow(Request $request): ?MetricWindow
+    {
+        switch ($request->chart_data) {
+            case 'last-month':
+                $previous = strtotime('-1 month');
+
+                return MetricWindow::between(
+                    Carbon::parse(date('Y-m-01', $previous)),
+                    Carbon::parse(date('Y-m-t', $previous)),
+                );
+            case 'this-month':
+                return MetricWindow::between(Carbon::parse(date('Y-m-01')), Carbon::parse(date('Y-m-t')));
+            case 'seven-day':
+                return MetricWindow::between(
+                    Carbon::parse(date('Y-m-d', strtotime('-1 week +1 day'))),
+                    Carbon::parse(date('Y-m-d')),
+                );
+            case 'year':
+                /* The handler's own bounds, verbatim: `date('Y-01')` parses as 1 January and
+                   `date('Y-12')` as 1 December, so `Y-m-t` on the second is 31 December. */
+                return MetricWindow::between(
+                    Carbon::parse(date('Y-m-01', strtotime(date('Y-01')))),
+                    Carbon::parse(date('Y-m-t', strtotime(date('Y-12')))),
+                );
+        }
+
+        $raw = (string) $request->Date;
+
+        if (str_contains($raw, ' to ')) {
+            $parts = explode(' to ', $raw);
+            $from = date('Y-m-d', strtotime($parts[0]));
+            $to = date('Y-m-d', strtotime($parts[count($parts) > 1 ? 1 : 0]));
+        } else {
+            $from = $to = date('Y-m-d', strtotime($raw));
+        }
+
+        if ($from > $to) {
+            return null;
+        }
+
+        return MetricWindow::between(Carbon::parse($from), Carbon::parse($to));
+    }
+
+    /**
+     * `Payments received` for the sales report, over the window the report is answering.
+     *
+     * The fourth of D2's four figures to reach a merchant screen, and the one the labelling proposal
+     * recorded as decided-but-unbuilt: `Order value` is already on this card, `Available to withdraw`
+     * and `Estimated gross profit` are on `/finance`. It reads through the SAME assembler as those two
+     * (`FinanceLedgerFigures`), so there is one definition of the figure, one set of caveats and one
+     * rule about the period the ledger can vouch for -- rather than a second copy that drifts.
+     *
+     * NULL MEANS NO TILE, and the three ways to get there are all "the question cannot be asked":
+     * no current store, a window the report itself cannot express, or a reversed range. A null is
+     * NOT the figure being unavailable -- that case is a tile with a stated reason, which is the
+     * assembler's job and not this method's.
+     *
+     * THE TENANT IS THE AUTHENTICATED PRINCIPAL'S (`getCurrentStore()`), the same predicate the six
+     * tiles beside it use, and it is never read from request input.
+     *
+     * @return array{value: ?string, period: string, hint: string}|null
+     */
+    private function salesCollectionTile(Request $request, string $periodLabel): ?array
+    {
+        $storeId = (int) getCurrentStore();
+
+        if ($storeId <= 0) {
+            return null;
+        }
+
+        $window = $this->chartPeriodWindow($request);
+
+        if ($window === null) {
+            return null;
+        }
+
+        $currencyCode = (string) (Setting::where('store_id', $storeId)
+            ->where('name', 'defult_currancy')
+            ->value('value') ?? 'USD');
+
+        return FinanceLedgerFigures::forStore($storeId, $currencyCode, $window, $periodLabel)['payments'];
     }
 
     public function getCurrentMonthDates()
@@ -941,6 +1053,7 @@ class ReportController extends Controller
             'TotalOrder', 'PurchasedProductItemTotal', 'TotalgrossSale', 'currency',
             'TotalNetSale', 'TotalCouponAmount', 'TotalShippingCharge', 'periodLabel'
         ) + [
+            'collection' => $this->salesCollectionTile($request, $periodLabel),
             'labels' => $monthList ?? [],
             'grossSeries' => $GrossSaleTotal ?? [],
             'netSeries' => $NetSaleTotal ?? [],
@@ -1470,6 +1583,7 @@ class ReportController extends Controller
             'TotalOrder', 'PurchasedProductItemTotal', 'TotalgrossSale', 'currency',
             'TotalNetSale', 'TotalCouponAmount', 'TotalShippingCharge', 'periodLabel'
         ) + [
+            'collection' => $this->salesCollectionTile($request, $periodLabel),
             'labels' => $monthList ?? [],
             'grossSeries' => $GrossSaleTotal ?? [],
             'netSeries' => $NetSaleTotal ?? [],

@@ -289,7 +289,7 @@ class StatHintIsVisibleTest extends TestCase
      * measured as nine across five, and the error reached three committed documents before the
      * recount caught it.
      */
-    public function test_twenty_four_hints_on_this_component_across_nine_files(): void
+    public function test_twenty_five_hints_on_this_component_across_nine_files(): void
     {
         $views = base_path('resources/views');
         $hits = [];
@@ -362,7 +362,14 @@ class StatHintIsVisibleTest extends TestCase
         // `_sales_stats` already had hints. `Orders` on that card still has no hint; it is a COUNT,
         // so no money caveat applies, and giving it a DEFINITION is recorded in GAP-217 rather
         // than slipped in here, because it would move this number again.
-        $this->assertCount(24, $hits,
+        // 24 -> 25, ANA-005. `reports/_sales_stats` gains `Payments received`, the fourth of owner
+        // decision D2's four figures to reach a screen and the only tile on that card that is not
+        // accumulated in the handler's own loop over `orders`: it reads the entitlement ledger and is
+        // dated by the day the money ARRIVED, so it disagrees with the two order-value tiles beside it
+        // on purpose. Its hint is therefore not decoration -- it is the only thing on the card that
+        // explains why the two numbers differ. The file count stays at nine because `_sales_stats`
+        // already had hints.
+        $this->assertCount(25, $hits,
             "x-ss.stat hint count moved. Found:\n  " . implode("\n  ", $hits));
 
         $this->assertCount(9, array_unique($hits),
