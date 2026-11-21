@@ -256,6 +256,45 @@ final class MerchantAnalyticsScreenTest extends SecurityTestCase
      * compares the page against whatever catalogue the TEST process happens to be on, which is how a
      * bilingual test passes while rendering English on both sides.
      */
+    /**
+     * ANA-004 — THE TWO BREAKDOWN TABLES ARE REAL TABLES, with the row's own label as its header.
+     *
+     * `rows` and `period` and `hint` reaching the Blade is asserted by `VisitBreakdownTest` at the
+     * figures layer; this is the markup half, and it is here because the breakdowns are the only
+     * TABULAR figures on the screen and a table has an accessibility contract a stat tile does not.
+     *
+     * `<th scope="row">` on the label is the load-bearing part. With two plain `<td>`s, a screen
+     * reader moving across the count column announces "5" with nothing tying it to iPhone or to
+     * google.test -- the pairing that IS the breakdown is visible and inaudible. `scope="col"` on
+     * the headings was there from the start; the row header was not, and nothing failed.
+     */
+    public function test_the_breakdown_tables_pair_each_count_with_its_own_row_header(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+
+        $visit = new Visit();
+        $visit->timestamps = false;
+        $visit->store_id = $store->id;
+        $visit->device = 'iPhone';
+        $visit->referer = 'https://google.test/search';
+        $visit->created_at = CarbonImmutable::now()->subDay();
+        $visit->updated_at = CarbonImmutable::now()->subDay();
+        $visit->save();
+
+        $html = $this->actingAs($merchant->fresh())->get(self::URI)->assertStatus(200)->getContent();
+
+        foreach (['iPhone', 'google.test'] as $label) {
+            $this->assertStringContainsString('<th scope="row">' . $label . '</th>', $html, sprintf(
+                'The breakdown row for "%s" does not carry its label as a row header, so a screen '
+                . 'reader announces the count with no indication of which bucket it belongs to.',
+                $label
+            ));
+        }
+
+        $this->assertStringContainsString('<th scope="col">', $html,
+            'The breakdown tables lost their column headers.');
+    }
+
     public function test_it_renders_in_arabic(): void
     {
         [$merchant] = $this->makeTenant();

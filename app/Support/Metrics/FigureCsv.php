@@ -147,13 +147,37 @@ final class FigureCsv
      * and `category_order_export` carried exactly that class of bug until P5-3 (it is now
      * CSV-quoted there too). `fputcsv` quotes and doubles correctly; the UTF-8 BOM is what makes
      * Excel on Windows read Arabic as Arabic instead of mojibake.
+     *
+     * `escape: ''` IS NOT COSMETIC AND IS NOT THE PHP 8.4 DEPRECATION. PHP's default escape is a
+     * BACKSLASH, which is not in RFC 4180 at all: with it, `fputcsv` writes a backslash through
+     * verbatim AND SUPPRESSES THE DOUBLING OF THE QUOTE THAT FOLLOWS IT. Measured here, against a
+     * host this class really can be handed:
+     *
+     *     parse_url('https://ev\\"il.test/x', PHP_URL_HOST)  ===  'ev\\"il.test'
+     *     fputcsv(h, ['Referring pages — ev\\"il.test', '5', 'last 30 days', 'hint'])
+     *         writes  "Referring pages — ev\\"il.test",5,...
+     *
+     * -- one unescaped `"` inside a quoted field. Excel and LibreOffice end the field there, so the
+     * REST OF THE ROW SHIFTS LEFT: the count lands in the period column and the disclosure lands in
+     * a column of its own. That is this class's own failure mode, a figure separated from its
+     * caveat, produced by a shopper's `Referer` header. `escape: ''` makes the writer RFC 4180:
+     * quotes are doubled, backslashes are data, nothing is special.
+     *
+     * It changes the bytes ONLY for a field containing a backslash, and in that case the old bytes
+     * were unparseable, so there is no reader this breaks. Pinned by FigureCsvEscapingTest.
+     *
+     * NOT FIXED HERE, because it is not this class's to fix and must not be left implicit:
+     * `parse_url` also accepts `=cmd.test` as a host, and a leading `=` is a FORMULA in Excel. The
+     * only reason that is harmless today is that every breakdown cell is prefixed with its label
+     * (`'Referring pages — ' . $host`), so no cell this class writes can BEGIN with `=`. Any future
+     * caller that writes an unprefixed value into the label column reopens it.
      */
     public static function render(array $rows): string
     {
         $handle = fopen('php://temp', 'r+');
 
         foreach ($rows as $row) {
-            fputcsv($handle, $row);
+            fputcsv($handle, $row, escape: '');
         }
 
         rewind($handle);

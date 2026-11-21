@@ -4241,8 +4241,9 @@
     "No visits were recorded in this period, so there is no referrer breakdown. Nothing is estimated.": "لم تُسجَّل أي زيارات في هذه الفترة، لذلك لا يوجد توزيع لصفحات الإحالة. ولا يُقدَّر أي رقم.",
     "Each line is the host the visitor's browser named. No host is filed under a marketing channel: that would need a maintained list of search and social domains, and a visit filed under the wrong channel is worse than one shown under its own domain. Your own domain appears here when a shopper moved between your pages.": "كل سطر هو المضيف الذي ذكره متصفّح الزائر. ولا يُصنَّف أي مضيف تحت قناة تسويقية: فذلك يتطلّب قائمة مُحدَّثة بنطاقات البحث والتواصل الاجتماعي، وزيارة مُصنَّفة تحت القناة الخطأ أسوأ من زيارة تظهر تحت نطاقها الحقيقي. ونطاقك يظهر هنا عندما ينتقل المتسوّق بين صفحاتك.",
     "A visit with no referring page is shown as not recorded, NOT as direct: a privacy setting, an in-app browser, a bookmark or an HTTPS-to-HTTP hop all remove it.": "الزيارة التي لا تملك صفحة إحالة تُعرض كغير مسجَّلة، وليست زيارة مباشرة: فإعداد الخصوصية أو متصفّح داخل تطبيق أو إشارة مرجعية أو الانتقال من HTTPS إلى HTTP كلها تحذفها.",
-    "Only the :count most common referring pages were read, so less frequent ones are not represented.": "تمت قراءة أكثر :count صفحة إحالة شيوعاً فقط، لذلك لا تظهر الصفحات الأقل تكراراً.",
     "Referring pages": "صفحات الإحالة",
     "Referring page": "صفحة الإحالة",
-    "Visits": "الزيارات"
+    "Visits": "الزيارات",
+    "Only the :count most common referring pages were read, so the counts above do not add up to the page views for this period: :missing visit(s) are not represented in any row.": "تمت قراءة أكثر :count صفحة إحالة شيوعاً فقط، لذلك لا يساوي مجموع الأعداد أعلاه عدد مشاهدات الصفحات في هذه الفترة: :missing زيارة غير ممثَّلة في أي صف.",
+    "The detector names handsets and Macs. It does not identify a Windows, Linux or ChromeOS computer at all, so ordinary desktop visits appear under not recorded — that bucket is usually large for this reason and not because anything failed.": "يتعرَّف الكاشف على الهواتف وأجهزة ماك. ولا يتعرَّف على حاسوب ويندوز أو لينكس أو ChromeOS على الإطلاق، لذلك تظهر زيارات الحواسيب المكتبية العادية ضمن «غير مُسجَّل» — وهذه الفئة كبيرة عادةً لهذا السبب لا لأنّ شيئاً قد تعطَّل."
 }

@@ -67,6 +67,19 @@ final class VisitBreakdownTest extends SecurityTestCase
         return array_map(static fn (array $row): string => $row['label'], $breakdown['rows']);
     }
 
+    /**
+     * The count WITHOUT the bidi isolates, for an assertion that has to be exact.
+     *
+     * `countFor()` returns what the figure returns, isolates included, and the looser
+     * `assertStringContainsString('5', ...)` assertions above are happy either way. An exact one is
+     * not: `assertSame('500', ...)` against `"\u{2066}500\u{2069}"` fails on invisible characters,
+     * and exactness is the point when the difference between 500 and 5,000 is the defect.
+     */
+    private function plainCountFor(array $breakdown, string $label): string
+    {
+        return (string) preg_replace('/[\x{2066}-\x{2069}]/u', '', $this->countFor($breakdown, $label));
+    }
+
     private function countFor(array $breakdown, string $label): string
     {
         foreach ($breakdown['rows'] as $row) {
@@ -282,7 +295,14 @@ final class VisitBreakdownTest extends SecurityTestCase
         $rows = [];
         $when = $this->now()->subDays(1)->toDateTimeString();
 
-        for ($i = 0; $i < 500; $i++) {
+        /*
+         * 501, NOT 500, AND THAT CHANGE IS THE POINT. This test was written against a read that
+         * took 500 rows and concluded "capped" on `count >= 500`, so 500 distinct referrers -- a
+         * list that fits exactly -- was reported as truncated. The read now takes 501 and tests
+         * `> 500`, so the fixture has to actually EXCEED the bound to reach the disclosure. The
+         * other side of the boundary has its own test, `test_exactly_the_bound_is_not_reported_as_truncated`.
+         */
+        for ($i = 0; $i < 501; $i++) {
             $rows[] = [
                 'store_id' => $store->id,
                 'referer' => 'https://host' . $i . '.test/page',
@@ -300,6 +320,200 @@ final class VisitBreakdownTest extends SecurityTestCase
             . 'reads as a complete one. Hint was: %s',
             $channels['hint']
         ));
+    }
+
+    /**
+     * THE DEVICE HINT NAMES THE DETECTOR'S BLIND SPOT, because the big bucket is not a failure and
+     * a merchant has no way to know that.
+     *
+     * "Device not recorded" is honest about what the row IS, and it was not honest about WHY. The
+     * detector's entire desktop rule set is `['Macintosh' => 'Macintosh']` -- there is no Windows
+     * rule, no Linux rule and no ChromeOS rule anywhere in the library -- so on a normal store the
+     * largest bucket by far is "not recorded", consisting almost entirely of ordinary Windows
+     * visitors. Shown without that explanation, a merchant reasonably concludes their analytics is
+     * broken, or worse, that their traffic is unidentifiable and the figure is worthless.
+     *
+     * `VisitorDetectorPremiseTest` measures the detector itself and fails if the library ever
+     * learns Windows, which is what would make this sentence stale.
+     */
+    public function test_the_device_hint_explains_why_the_unrecorded_bucket_is_large(): void
+    {
+        [, $store] = $this->makeTenant();
+
+        $this->visit($store->id, 1, null);
+        $this->visit($store->id, 1, 'iPhone');
+
+        $hint = $this->figures($store)['devices']['hint'];
+
+        $this->assertStringContainsString('does not identify a Windows, Linux or ChromeOS computer', $hint, sprintf(
+            'The device hint does not say that the detector cannot see a Windows, Linux or '
+            . 'ChromeOS machine at all, so the large "not recorded" bucket reads as a malfunction '
+            . 'rather than as a known limit of the measurement. Hint was: %s',
+            $hint
+        ));
+    }
+
+    /**
+     * THE CAP IS DETECTED EXACTLY, AND THE UNREPRESENTED VISITS ARE COUNTED -- both halves of what
+     * an independent review found wrong with the first version of this bound.
+     *
+     * Two defects, driven here rather than argued:
+     *
+     *  1. OFF BY ONE. The read took `MAX` rows and concluded "capped" on `count >= MAX`, so a store
+     *     with PRECISELY 500 distinct referring pages was told its list was truncated when it was
+     *     not. Over-disclosure is not the safe direction: a sentence that cries wolf is a sentence
+     *     a merchant learns to skip, and this screen's whole value is that its sentences are true.
+     *  2. AN UNSTATED DISAGREEMENT. The cap bounds distinct referring PAGES, but a row is a HOST,
+     *     so when the read is capped a host's printed count is the sum of only the page-groups that
+     *     survived. The column then does not add up to the page-views tile three tiles above it,
+     *     and "less frequent ones are not represented" does not tell the reader by HOW MUCH.
+     *
+     * THE FIXTURE IS 501 PAGES ON ONE HOST, which is not a contrived shape -- it is the ordinary
+     * one. A shopper who browses eight products sends eight distinct `Referer` URLs, all on the
+     * store's own domain, so an internally-navigated storefront reaches 500 distinct pages long
+     * before it reaches 500 distinct hosts. The host folds to a single row whose count is 500 while
+     * 501 visits were recorded, and the hint must name the missing one.
+     */
+    public function test_the_remainder_is_stated_when_the_referer_read_is_capped(): void
+    {
+        [, $store] = $this->makeTenant();
+
+        $rows = [];
+        $when = $this->now()->subDays(1)->toDateTimeString();
+
+        for ($i = 0; $i < 501; $i++) {
+            $rows[] = [
+                'store_id' => $store->id,
+                'referer' => 'https://shop.test/product/' . $i,
+                'created_at' => $when,
+                'updated_at' => $when,
+            ];
+        }
+
+        Visit::insert($rows);
+
+        $figures = $this->figures($store);
+        $channels = $figures['channels'];
+
+        $this->assertSame(['shop.test'], $this->labels($channels),
+            'The 501 pages are all on one host, so there is exactly one row.');
+
+        $this->assertSame('500', $this->plainCountFor($channels, 'shop.test'),
+            'The row count is the sum of the page-groups that survived the cap, which is 500.');
+
+        $this->assertSame('501', (string) preg_replace('/[\x{2066}-\x{2069}]/u', '', (string) $figures['visits']['value']),
+            'The page-views tile counts visits, not referring pages, so it reads 501 -- and that '
+            . 'is precisely the disagreement the hint has to explain.');
+
+        /*
+         * THE ISOLATES ARE STRIPPED FOR THE MATCH, NOT FROM THE PRODUCT. The figure wraps every
+         * number in U+2066/U+2069 so a Western-digit count does not reorder inside an Arabic
+         * sentence, so the hint really holds `\u{2066}1\u{2069} visit(s)`. Asserting the bare form
+         * would fail on invisible characters that are correct, and asserting the wrapped form would
+         * make this test about bidi rather than about the number -- which has its own coverage.
+         */
+        $plainHint = (string) preg_replace('/[\x{2066}-\x{2069}]/u', '', $channels['hint']);
+
+        $this->assertStringContainsString('1 visit(s) are not represented', $plainHint, sprintf(
+            'The read was capped and the hint did not say HOW MANY visits are missing from the '
+            . 'rows, so a merchant comparing this column with the page-views tile sees two '
+            . 'figures disagree for no stated reason. Hint was: %s',
+            $channels['hint']
+        ));
+    }
+
+    /**
+     * EXACTLY AT THE BOUND IS NOT OVER THE BOUND. 500 distinct pages fit, so nothing is missing and
+     * the sentence must be absent -- the off-by-one above, driven from the other side.
+     */
+    public function test_exactly_the_bound_is_not_reported_as_truncated(): void
+    {
+        [, $store] = $this->makeTenant();
+
+        $rows = [];
+        $when = $this->now()->subDays(1)->toDateTimeString();
+
+        for ($i = 0; $i < 500; $i++) {
+            $rows[] = [
+                'store_id' => $store->id,
+                'referer' => 'https://shop.test/product/' . $i,
+                'created_at' => $when,
+                'updated_at' => $when,
+            ];
+        }
+
+        Visit::insert($rows);
+
+        $channels = $this->figures($store)['channels'];
+
+        $this->assertSame('500', $this->plainCountFor($channels, 'shop.test'));
+        $this->assertStringNotContainsString('most common referring pages were read', $channels['hint'],
+            'Exactly 500 distinct pages all fit, so nothing was truncated and the truncation '
+            . 'sentence is a false claim. A disclosure that fires when it should not teaches a '
+            . 'merchant to ignore every disclosure on the screen.');
+    }
+
+    /**
+     * THE CAP KEEPS THE MOST FREQUENT PAGES, which is the only reason a bounded read is acceptable
+     * at all -- and it was asserted nowhere.
+     *
+     * `groupedVisits()` orders by `total` descending and THEN limits, so the rows that survive are
+     * the ones that matter. Nothing pinned that: with the `orderByDesc` removed, SQLite returns
+     * groups in whatever order it likes and the busiest referrer can fall off the list entirely,
+     * while every other assertion in this file still passes. The fixture makes the busiest host
+     * unambiguous -- five visits against one each -- so the first row is deterministic.
+     */
+    public function test_the_capped_read_keeps_the_busiest_referrers(): void
+    {
+        [, $store] = $this->makeTenant();
+
+        $rows = [];
+        $when = $this->now()->subDays(1)->toDateTimeString();
+
+        /*
+         * THE BUSY HOST SORTS LAST ALPHABETICALLY, AND THAT IS THE WHOLE FIXTURE DESIGN.
+         *
+         * The first version of this test named the busy host `busy.test` against 500 `quiet{N}.test`
+         * -- and a mutation that replaced `orderByDesc('total')` with `orderBy('bucket')` PASSED it,
+         * because "busy" sorts before "quiet" and the row survived the limit by alphabetical luck.
+         * The test proved nothing it claimed to prove. With `zzz-` against `aaa-`, frequency order
+         * and alphabetical order disagree: ordered by count the busy host is first and kept;
+         * ordered any other way the 500 single-visit hosts fill the bound and it is DROPPED.
+         */
+        for ($i = 0; $i < 5; $i++) {
+            $rows[] = [
+                'store_id' => $store->id,
+                'referer' => 'https://zzz-busy.test/landing',
+                'created_at' => $when,
+                'updated_at' => $when,
+            ];
+        }
+
+        for ($i = 0; $i < 500; $i++) {
+            $rows[] = [
+                'store_id' => $store->id,
+                'referer' => 'https://aaa-quiet' . $i . '.test/p',
+                'created_at' => $when,
+                'updated_at' => $when,
+            ];
+        }
+
+        Visit::insert($rows);
+
+        $channels = $this->figures($store)['channels'];
+        $labels = $this->labels($channels);
+
+        $this->assertContains('zzz-busy.test', $labels,
+            'The busiest referrer was dropped by the cap entirely. The read is not ordered by '
+            . 'frequency, so the bound is discarding rows at random rather than keeping the ones '
+            . 'that matter -- which makes a bounded read indefensible.');
+
+        $this->assertSame('zzz-busy.test', $labels[0],
+            'The busiest referrer is not first, so the rows are not ordered by frequency.');
+        $this->assertSame('5', $this->plainCountFor($channels, 'zzz-busy.test'));
+
+        $this->assertStringContainsString('most common referring pages were read', $channels['hint'],
+            '501 distinct pages exceed the 500 bound, so the truncation sentence belongs here.');
     }
 
     /** And it is NOT disclosed when the bound was not reached, or the sentence is noise. */

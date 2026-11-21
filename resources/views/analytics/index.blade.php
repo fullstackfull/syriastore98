@@ -122,7 +122,13 @@
                             <tbody>
                                 @foreach ($figures[$key]['rows'] as $row)
                                     <tr>
-                                        <td>{{ $row['label'] }}</td>
+                                        {{-- The label is this row's HEADER, not another cell. With two
+                                             plain `<td>`s a screen reader reading the count column
+                                             announces "5" with no indication of WHICH device or
+                                             referrer it belongs to; `scope="row"` is what makes the
+                                             pairing audible. The column headers already carry
+                                             `scope="col"`. --}}
+                                        <th scope="row">{{ $row['label'] }}</th>
                                         <td>{{ $row['count'] }}</td>
                                     </tr>
                                 @endforeach

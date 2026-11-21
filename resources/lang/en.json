@@ -4245,8 +4245,9 @@
     "No visits were recorded in this period, so there is no referrer breakdown. Nothing is estimated.": "No visits were recorded in this period, so there is no referrer breakdown. Nothing is estimated.",
     "Each line is the host the visitor's browser named. No host is filed under a marketing channel: that would need a maintained list of search and social domains, and a visit filed under the wrong channel is worse than one shown under its own domain. Your own domain appears here when a shopper moved between your pages.": "Each line is the host the visitor's browser named. No host is filed under a marketing channel: that would need a maintained list of search and social domains, and a visit filed under the wrong channel is worse than one shown under its own domain. Your own domain appears here when a shopper moved between your pages.",
     "A visit with no referring page is shown as not recorded, NOT as direct: a privacy setting, an in-app browser, a bookmark or an HTTPS-to-HTTP hop all remove it.": "A visit with no referring page is shown as not recorded, NOT as direct: a privacy setting, an in-app browser, a bookmark or an HTTPS-to-HTTP hop all remove it.",
-    "Only the :count most common referring pages were read, so less frequent ones are not represented.": "Only the :count most common referring pages were read, so less frequent ones are not represented.",
     "Referring pages": "Referring pages",
     "Referring page": "Referring page",
-    "Visits": "Visits"
+    "Visits": "Visits",
+    "Only the :count most common referring pages were read, so the counts above do not add up to the page views for this period: :missing visit(s) are not represented in any row.": "Only the :count most common referring pages were read, so the counts above do not add up to the page views for this period: :missing visit(s) are not represented in any row.",
+    "The detector names handsets and Macs. It does not identify a Windows, Linux or ChromeOS computer at all, so ordinary desktop visits appear under not recorded — that bucket is usually large for this reason and not because anything failed.": "The detector names handsets and Macs. It does not identify a Windows, Linux or ChromeOS computer at all, so ordinary desktop visits appear under not recorded — that bucket is usually large for this reason and not because anything failed."
 }

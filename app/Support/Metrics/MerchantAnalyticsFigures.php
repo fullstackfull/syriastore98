@@ -68,8 +68,16 @@ final class MerchantAnalyticsFigures
      *     conversion: array{value: ?string, period: string, hint: string},
      *     customers: array{value: ?string, period: string, hint: string},
      *     redemptions: array{value: ?string, period: string, hint: string},
-     *     retention: array{value: ?string, period: string, hint: string}
+     *     retention: array{value: ?string, period: string, hint: string},
+     *     devices: array{rows: list<array{label: string, count: string}>, period: string, hint: string},
+     *     channels: array{rows: list<array{label: string, count: string}>, period: string, hint: string}
      * }
+     *
+     * THE TWO BREAKDOWNS ARE PART OF THIS CONTRACT, not an extra. They are NOT the figure shape:
+     * a figure is one `value`, a breakdown is a `rows` list, and `FigureCsv::rows()` skips any entry
+     * with no `value` key -- so an export that forgot `breakdownRows()` would drop them in SILENCE
+     * rather than fail. `PlatformAnalyticsFigures` already carries the same three-key shape for its
+     * currency block, and that symmetry is what the Blade and the CSV both rely on.
      */
     public static function forStore(int $storeId, string $storeCurrency, ?CarbonInterface $now = null): array
     {
@@ -135,7 +143,7 @@ final class MerchantAnalyticsFigures
             'redemptions' => self::redemptions($storeId, $storeCurrency, $from, $to, $period),
             'retention' => self::retention($storeId),
             'devices' => self::devices($storeId, $from, $to, $period),
-            'channels' => self::channels($storeId, $from, $to, $period),
+            'channels' => self::channels($storeId, $from, $to, $period, $visits),
         ];
     }
 
@@ -485,14 +493,10 @@ final class MerchantAnalyticsFigures
          * the host; this does it for the same reason.
          */
         $buckets = [];
-        $total = 0;
-
         foreach (self::groupedVisits($storeId, $from, $to, 'device') as $row) {
             $label = trim((string) ($row->bucket ?? ''));
-            $count = (int) $row->total;
-            $total += $count;
 
-            $buckets[$label] = ($buckets[$label] ?? 0) + $count;
+            $buckets[$label] = ($buckets[$label] ?? 0) + (int) $row->total;
         }
 
         arsort($buckets);
@@ -511,8 +515,8 @@ final class MerchantAnalyticsFigures
             'period' => $period,
             'hint' => $rows === []
                 ? __('No visits were recorded in this period, so there is no device breakdown. Nothing is estimated.')
-                : self::visitsMeaning() . ' ' . __('The device is whatever the visitor\'s browser reported; a visit whose device could not be determined is shown as not recorded rather than guessed.'),
-            'total' => self::ltr(number_format($total)),
+                : self::visitsMeaning() . ' ' . __('The device is whatever the visitor\'s browser reported; a visit whose device could not be determined is shown as not recorded rather than guessed.')
+                    . ' ' . __('The detector names handsets and Macs. It does not identify a Windows, Linux or ChromeOS computer at all, so ordinary desktop visits appear under not recorded — that bucket is usually large for this reason and not because anything failed.'),
         ];
     }
 
@@ -539,12 +543,35 @@ final class MerchantAnalyticsFigures
      * THE HOST IS FOLDED IN PHP BECAUSE SQLITE HAS NO URL FUNCTIONS, so the grouping is done on
      * distinct referring URLs in SQL and folded to hosts here. That is bounded by
      * `MAX_REFERER_ROWS` and, when the bound is reached, the hint SAYS SO -- a silently truncated
-     * breakdown reads as a complete one.
+     * breakdown reads as a complete one, and it also states how many visits are then missing from
+     * the rows, so this column and the page-views tile cannot disagree by an unstated amount.
+     *
+     * THE BOUND LIMITS PHP, NOT THE DATABASE, and that is worth saying plainly rather than leaving
+     * for someone to discover. `LIMIT` is applied AFTER grouping and ordering, so the engine still
+     * scans every visit this store has in the window and builds a temporary table keyed on a
+     * MEDIUMTEXT column. `visits` is indexed on `store_id` alone -- nothing on `created_at` -- and
+     * one row is written per themed storefront request by `ActiveTheme`, anonymously and with no
+     * throttle, so an unthrottled writer can make this store's own `/analytics` slow over time.
+     * It is NOT an unauthenticated amplifier: the read requires `Manage Reports`. The effective
+     * remedy is a composite `(store_id, created_at)` index, which is a PERSISTENT MIGRATION and
+     * therefore the owner's decision, so it is recorded here rather than taken. The pre-existing
+     * `ThemeAnalyticController` and `Api\DashboardController` run the same shape with no window
+     * and no limit at all, so this is inherited, not introduced.
      */
-    private static function channels(int $storeId, CarbonInterface $from, CarbonInterface $to, string $period): array
+    private static function channels(int $storeId, CarbonInterface $from, CarbonInterface $to, string $period, int $visits): array
     {
-        $raw = self::groupedVisits($storeId, $from, $to, 'referer', self::MAX_REFERER_ROWS);
-        $capped = count($raw) >= self::MAX_REFERER_ROWS;
+        /*
+         * MAX + 1 READ, SO THE CAP IS DETECTED EXACTLY. Reading MAX and testing `>= MAX` told a
+         * store with PRECISELY 500 distinct referring pages that its list was truncated when it
+         * was not -- an over-disclosure, which trains a reader to ignore the sentence. One extra
+         * row distinguishes "exactly full" from "more than fits"; the extra row is then dropped.
+         */
+        $raw = self::groupedVisits($storeId, $from, $to, 'referer', self::MAX_REFERER_ROWS + 1);
+        $capped = count($raw) > self::MAX_REFERER_ROWS;
+
+        if ($capped) {
+            $raw = array_slice($raw, 0, self::MAX_REFERER_ROWS);
+        }
 
         $hosts = [];
 
@@ -588,9 +615,25 @@ final class MerchantAnalyticsFigures
             $notes[] = __('A visit with no referring page is shown as not recorded, NOT as direct: a privacy setting, an in-app browser, a bookmark or an HTTPS-to-HTTP hop all remove it.');
         }
 
+        /*
+         * WHEN THE READ IS CAPPED, THE COLUMN NO LONGER SUMS TO THE PAGE-VIEWS TILE, and saying
+         * only "less frequent ones are not represented" does not cover that -- raised by an
+         * independent review and it was right.
+         *
+         * The cap bounds distinct referring PAGES; the rows a merchant reads are HOSTS. A host's
+         * printed count is the sum of only the page-groups that survived, so a store whose
+         * shoppers navigate internally (one group per product URL) can show its own domain at 499
+         * when the true figure is 600 -- and the reader has no way to know by how much. Two
+         * figures on one screen disagreeing by an UNSTATED amount is the defect this whole
+         * workstream exists to prevent, so the amount is stated.
+         */
         if ($capped) {
-            $notes[] = __('Only the :count most common referring pages were read, so less frequent ones are not represented.', [
+            $represented = array_sum($hosts);
+            $missing = max(0, $visits - $represented);
+
+            $notes[] = __('Only the :count most common referring pages were read, so the counts above do not add up to the page views for this period: :missing visit(s) are not represented in any row.', [
                 'count' => self::ltr(number_format(self::MAX_REFERER_ROWS)),
+                'missing' => self::ltr(number_format($missing)),
             ]);
         }
 
