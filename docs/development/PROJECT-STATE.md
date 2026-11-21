@@ -16,54 +16,74 @@ decision quoted as such.
 > at safe checkpoints. Do not stop at a clean slice; select the next eligible task from the Master
 > Plan, dependencies and the gap register.
 >
-> **PUSHED head: `080ca608`** (fast-forward `9ee54f6d..080ca608`, 2026-11-21 ~00:35Z, 8 commits).
-> **Required CI run 44844911600 (ci.yml #568) was created at 00:36:09Z for this head — DO NOT PUSH
-> AGAIN UNTIL IT CONCLUDES**, because a push cancels a running required run.
+> **PUSHED head: `91d1992d`** (fast-forward `080ca608..91d1992d`, 2026-11-21 ~08:06Z, 6 commits).
+> **Required CI run 44883318495 (ci.yml #569) was created at 08:06:43Z for this head and was still
+> IN PROGRESS when this was written — DO NOT PUSH UNTIL IT CONCLUDES**, because a push cancels a
+> running required run. Run #568 on `080ca608` concluded **SUCCESS** (owner independently verified
+> both Tests jobs and the merge-base regression gate), and #567 on `9ee54f6d` had failed on
+> `SecurityLogInventoryTest`, fixed at the cause in `9d4879b4`.
 >
-> **The previous head `9ee54f6d` FAILED its CI (run 44832133142, #567)** and the cause is fixed in
-> `9d4879b4`, included in this push: `SecurityLogInventoryTest` — the observability inventory is
-> keyed by `file:line` and the P4-F134/F135 coupon fix moved 13 rows in `ApiController`. Resynced
-> with the repository's own tool, which refuses to write when a line was ADDED rather than moved.
+> **TWO COMMITS ARE LOCAL AND UNPUSHED, waiting only on #569:** `321a8f03` (P05-15 export
+> disclosure) and `9a2f4dbd` (its governance update). **CI #568 and #569 say NOTHING about these
+> two** — they were created before the commits existed. The new head must be verified by its own
+> required run after it is pushed.
 >
-> **Local gates on `080ca608`, all run before the push:**
-> Unit 5,925 passed + 1 declared skip · Contract 45 passed · **Feature 10,347 passed, 1 declared
-> failure, 1 declared skip (10,349 testcases, 1,824s) and `assert-known-test-outcomes.php` reported
-> "the observed outcome set matches the manifest exactly — 1 declared failures, 1 declared skips,
-> 0 errors, and nothing undeclared"** · `php -l` clean on every tracked PHP file ·
-> `packages/workdo/` untouched · nothing new under `public/`.
+> **Local gates on `9a2f4dbd`:** Unit **5,935 passed + 1 declared skip** (33,573 assertions) ·
+> Contract **45 passed** · focused: `tests/Unit/Reports/`, `tests/Feature/Reports/`,
+> `StatHintIsVisibleTest`, `BladeViewsCompileTest`, `SlotLayoutViewsRenderTest`,
+> `MetricCaveatMessagesAreTranslatedTest`, `TranslationFileIntegrityTest`, `ArabicUiCoverageTest`,
+> `tests/Unit/Metrics/` — **105 passed, 1,112 assertions** · `MasterPlanTraceabilityCountsTest`
+> green, so the matrix agrees with itself. **The Feature suite has NOT been run on this head** —
+> that belongs to the Level B campaign, and the Feature gate is the one that must be clean before
+> the final acceptance claim.
 >
 > **A RUN STARTED BEFORE AN EDIT TO `routes/web.php` OR `resources/lang/*.json` IS A MIXED-STATE RUN
 > AND IS NOT A GATE** — Laravel re-reads both per test boot. One such run was discarded for exactly
-> that reason. Do not edit `app/`, `tests/`, `routes/` or the language files while a gate run is in
-> flight.
+> that reason. Do not edit `app/`, `tests/`, `routes/` or the language files while a LOCAL gate run
+> is in flight. (A remote CI run is unaffected by local edits: it tests the pushed SHA.)
 >
-> **What this head contains, newest first:** the MKT/ANA dispositions · **P5-7** the operator's
-> cross-tenant `/platform/analytics` + **P5-8** the `FigureCsv` exports + the storeless-chrome fix ·
-> the traceability-matrix self-disagreement fix + `MasterPlanTraceabilityCountsTest` · **P5-6**
-> `Repeat purchase` + metric-definitions §12 + `MetricDefinitionsAreDocumentedTest` · the CI repair ·
-> **P5-5** the coupon tile and per-window authority · continuity.
+> **What `91d1992d` added on top of `080ca608`:** the Arabic report-caveat anomaly resolved as a
+> MEASUREMENT artifact, not a defect — those routes return `{"html": ...}` and `json_encode` escapes
+> non-ASCII, so a regex for Arabic codepoints over the raw body found nothing while the Arabic sat
+> there escaped, and English passed only because ASCII is not escaped. The assertion got STRONGER
+> (decode the envelope; the Arabic case also asserts the English is absent).
 >
-> **THE ACCEPTED-FAILURE SET CHANGED AND THIS IS LOAD-BEARING.**
-> `.github/known-test-outcomes.json` now declares **ONE** expected failure
-> (`RegistrationTest::test_new_users_can_register`) and one expected skip. The second failure,
-> `ProfileTest::test_profile_page_is_displayed`, was DELETED because the storeless-chrome fix greened
-> it — the gate asserts the set in both directions, so a declared failure that starts passing fails
-> CI until its entry goes. `CLAUDE.md` and `KnownTestOutcomesCheckerTest`'s declared list were
-> corrected in the same commit, and `AddonMigrationStrandingTest::test_the_profile_page_failure_is_not_this_bug`
-> was retired on its own failure message's instruction. The Unit count moved 5,926 → 5,925 because a
-> `#[DataProvider('committedFailureIds')]` had two datasets and now has one.
+> **What the two unpushed commits add — P05-15 is now VERIFIED COMPLETE:**
+> five of the six `ReportController` CSV exports carry a disclosure column; the sixth (`export()`)
+> was MEASURED to be counts-only and is correctly caveat-free. All of it reads ONE source,
+> `App\Support\Reports\ReportFigureNote`, because the defect was *caused* by one literal
+> duplicated across four blades — two carried the precision caveat and two silently did not.
+> `MetricCaveat` gains `MONEY_FLOAT_PRECISION`, the plural of a measured claim (nine-column rows
+> hold six money figures, so "This figure" cannot name which), **not** a new monetary definition:
+> `payment_status` appears zero times in these handlers and inclusion rules remain the owner's
+> D1/D2 decision. Traceability counts recounted from the body: VERIFIED COMPLETE 171 → **172**,
+> PARTIALLY IMPLEMENTED 78 → **77**.
+>
+> **Two gates were deliberately moved, and one of those moves repaired a weakening I had caused:**
+> `ReportCsvHeaderLocalisationTest` 3 → 4 and 9 → 10 columns plus `figureNote` in all five payload
+> guards; and `SalesSummaryLabelTruthTest`, whose false-claim census had to be widened to read
+> `ReportFigureNote` — moving the sentence out of the Blade had made that census pass for the wrong
+> reason, since it was grepping a file where the claim no longer was.
+>
+> **SEVEN MUTATIONS RUN, SEVEN CAUGHT — and the seventh is the one worth remembering:** a VERBATIM
+> copy of the composition pasted back into the controller passed all seven of the new Feature tests,
+> because an identical string is identical. `ReportFigureNoteIsTheOnlySourceTest` was added to catch
+> it structurally, and the docblock that had claimed `assertSame` covered it was corrected rather
+> than left standing.
 >
 > **Do next, in this order:**
-> 1. **Check run 44844911600 (#568).** If SUCCESS, nothing to do — do not re-push. If FAILURE, read
->    the failing job's log and fix at the cause. The `Security-sensitive diff: human checklist`
->    check is red BY DESIGN on every security-touching head; it is the owner's to clear, the PR body
->    documents it, and it must never be written to or claimed complete.
-> 2. **Group A of `PHASE-05-MKT-ANA-DISPOSITIONS.md`** — the six items engineering may close without
->    asking: `MKT-001` (link marketing → analytics), `MKT-009` (guard the competing shopper-messaging
->    path), `MKT-010` (greentic's missing quick-view/compare hook), `ANA-002` (period comparisons),
->    `ANA-004` (device and channel analysis), and `ANA-007` — which is the one that unblocks
->    `P05-15`, because an export cannot carry a caveat its screen does not have. A read-only
->    investigation of all six was run; read its result before implementing.
+> 1. **Check run 44883318495 (#569) on `91d1992d`.** If SUCCESS, push the two local commits and then
+>    verify the NEW head through its own required run. If FAILURE, fix at the cause first. The
+>    `Security-sensitive diff: human checklist` check is red BY DESIGN on every security-touching
+>    head; it is the owner's to clear, the PR body documents it, and it must never be written to or
+>    claimed complete.
+> 2. **Group A of `PHASE-05-MKT-ANA-DISPOSITIONS.md`**, continuing. `ANA-007` is **mostly closed**
+>    (four screens disclose; five exports carry it) with only `GAP-217` left — the `Shipping charged`
+>    and `Coupon value applied` tiles carry no hint at all, which is a NEW on-screen disclosure
+>    rather than a dropped one and moves `StatHintIsVisibleTest`'s census from 23. Remaining group A:
+>    `MKT-001` (link marketing → analytics), `MKT-009` (guard the competing shopper-messaging path),
+>    `MKT-010` (greentic's missing quick-view/compare hook), `ANA-002` (period comparisons),
+>    `ANA-004` (device and channel analysis).
 > 3. Then **Phase 06** on its own branch with a Draft PR, preserving the #138 → #139 → #140 chain.
 > 4. Then the remaining actionable code gaps in earlier phases: P4-1 storefront commerce
 >    correctness, P5-FIN-8, P1-SEC-74's vendored remainder, P1-SEC-76's 75 leads, the D8-B census
