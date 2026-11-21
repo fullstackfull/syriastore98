@@ -348,6 +348,94 @@ final class AnalyticsPeriodFilterTest extends SecurityTestCase
             'The clamp sentence was computed but never rendered.');
     }
 
+    /**
+     * A FUTURE *START* DATE WAS A LIVE HTTP 500, and this is the case that was missing.
+     *
+     * Found by an independent review, reproduced before fixing. The chain: a merchant picks
+     * TOMORROW in both date fields. The reversed-range swap does nothing because the two are equal;
+     * the end is then clamped back to today while the start is left in the future, so `from > to`.
+     * The span cap did not catch it either -- Carbon 2's `diffInDays()` is ABSOLUTE, so it reported
+     * one day for a window running backwards. `MetricWindow::between()` threw
+     * `InvalidArgumentException: A metric window ends before it starts`, uncaught, and `/analytics`
+     * answered 500.
+     *
+     * REACHABLE BY CLICKING, not only by a hand-made URL: the form offers "a period I choose" and
+     * two `type="date"` inputs, and before this fix they carried no `max`.
+     *
+     * The existing future-END case passed throughout, because there `to` is clamped and `from`
+     * is already in the past. That is why the suite was green: the two look like the same case and
+     * are not.
+     */
+    public function test_a_start_date_in_the_future_does_not_error_and_says_what_happened(): void
+    {
+        [$merchant] = $this->makeTenant();
+
+        $today = CarbonImmutable::now()->toDateString();
+
+        foreach ([
+            'both tomorrow' => [1, 1],
+            'start tomorrow, end later' => [1, 2],
+            'both far in the future' => [5000, 5001],
+        ] as $name => [$fromDays, $toDays]) {
+            $from = CarbonImmutable::now()->addDays($fromDays)->toDateString();
+            $to = CarbonImmutable::now()->addDays($toDays)->toDateString();
+
+            $response = $this->actingAs($merchant->fresh())
+                ->get(self::URI."?ss_period=custom&ss_from={$from}&ss_to={$to}");
+
+            $this->assertNotSame(500, $response->status(), sprintf(
+                'The %s case answered 500. A caller-chosen period must never be able to throw: '
+                . 'the clamp can reverse the window on its own, and the span cap cannot repair it '
+                . 'because an absolute day difference reads a backwards window as short.',
+                $name
+            ));
+            $response->assertStatus(200);
+
+            $period = $response->viewData('figures')['period'];
+
+            $this->assertSame($today, $period['from'], sprintf(
+                'The %s case did not move the start to today.', $name
+            ));
+            $this->assertSame($today, $period['to']);
+            $this->assertNotNull($period['clamped'], sprintf(
+                'The %s case silently showed a different period from the one asked for.', $name
+            ));
+        }
+    }
+
+    /**
+     * AND THE WINDOW IS NEVER BACKWARDS, asserted as a property rather than per-case.
+     *
+     * `MetricWindow` throws on a reversed window, so "no 500" and "from <= to" are the same claim --
+     * but stating it directly means a future caller that catches the exception somewhere cannot
+     * make this test pass with a broken window.
+     */
+    public function test_no_caller_supplied_period_can_produce_a_backwards_window(): void
+    {
+        foreach ([
+            ['2026-11-22', '2026-11-22'],
+            ['2999-01-01', '2999-12-31'],
+            ['2026-11-30', '2026-11-25'],
+            ['1900-01-01', '2999-12-31'],
+            ['2026-11-21', '2026-11-21'],
+        ] as [$from, $to]) {
+            $period = AnalyticsPeriod::fromRequest([
+                'ss_period' => 'custom',
+                'ss_from' => $from,
+                'ss_to' => $to,
+            ]);
+
+            $this->assertTrue(
+                $period->from()->lessThanOrEqualTo($period->to()),
+                sprintf('ss_from=%s ss_to=%s produced %s .. %s, which runs backwards.',
+                    $from, $to, $period->from()->toDateTimeString(), $period->to()->toDateTimeString())
+            );
+
+            $this->assertGreaterThanOrEqual(1, $period->days());
+            $this->assertLessThanOrEqual(AnalyticsPeriod::MAX_SPAN_DAYS, $period->days());
+        }
+    }
+
     public function test_an_end_date_in_the_future_is_moved_to_today_and_says_so(): void
     {
         [$merchant] = $this->makeTenant();
@@ -536,6 +624,78 @@ final class AnalyticsPeriodFilterTest extends SecurityTestCase
         $this->assertSame('last 90 days', $figures['visits']['period'],
             'A saved period overrode an explicit choice. A saved view is a starting point, not a '
             . 'lock, and the reverse order makes the filter look broken the first time one is saved.');
+    }
+
+    /**
+     * AN OPERATOR WHO HAS CHOSEN NO STORE CANNOT SAVE A PERIOD, because they cannot read the
+     * screen either. Found by an independent review as the one asymmetry in the gate.
+     *
+     * `getCurrentStore()` returns the HARDCODED LITERAL 1 for a `super admin`, so the policy's
+     * `! empty(getCurrentStore())` check passed for a principal who has selected nothing -- and
+     * `SavedViewController::store()` would then file the operator's private filter set inside
+     * merchant 1's partition. Nothing was disclosed (every read carries `created_by`), but
+     * `/analytics` refuses this exact principal with "No store is selected", so they were refused
+     * the screen and allowed its Save button.
+     */
+    public function test_an_operator_who_has_chosen_no_store_cannot_save_a_period(): void
+    {
+        $operator = $this->makePlatformAdmin(['current_store' => null]);
+
+        $refused = $this->actingAs($operator->fresh())->get(self::URI);
+
+        $this->assertTrue(
+            in_array($refused->status(), [301, 302], true),
+            'Premise: the analytics screen must refuse an operator with no store, or this test is '
+            . 'about nothing. Status was ' . $refused->status() . '.'
+        );
+
+        $this->actingAs($operator->fresh())->post('/saved-views', [
+            'screen' => 'analytics',
+            'name' => 'Operator with no store',
+            'filters' => ['ss_period' => 'last_7_days'],
+        ]);
+
+        $this->assertSame(0, SavedView::withoutGlobalScopes()->where('screen', 'analytics')->count(),
+            'An operator who has chosen no store saved a period. It would be filed under '
+            . 'store_id 1 -- one particular merchant\'s partition -- by a principal the screen '
+            . 'itself refuses.');
+    }
+
+    /**
+     * APPLYING A SAVED ANALYTICS PERIOD LANDS ON THE ANALYTICS SCREEN.
+     *
+     * `SavedViewController::apply()` was `$view->screen === 'order' ? 'order.index' :
+     * 'product.index'` -- correct while there were two screens, and silently wrong the moment
+     * ANA-002 added a third. An analytics view applied there redirected to the PRODUCT list
+     * carrying `ss_period`, and because that key is outside the product vocabulary
+     * `TableFilterMemory::remember()` resolved to `[]` and FORGOT the merchant's remembered product
+     * filters. Nothing in the UI reaches that route for this screen, which is exactly why it needed
+     * a test: a default that quietly picks a screen breaks without anyone editing it.
+     */
+    public function test_applying_a_saved_analytics_period_lands_on_the_analytics_screen(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+
+        $saved = new SavedView();
+        $saved->screen = 'analytics';
+        $saved->name = 'Mine';
+        $saved->filters = ['ss_period' => 'last_7_days'];
+        $saved->store_id = $store->id;
+        $saved->created_by = $merchant->id;
+        $saved->save();
+
+        $response = $this->actingAs($merchant->fresh())->post('/saved-views/'.$saved->id.'/apply');
+
+        $response->assertRedirect();
+
+        $target = $response->headers->get('Location');
+
+        $this->assertStringContainsString('/analytics', (string) $target, sprintf(
+            'Applying an analytics saved view redirected to "%s". Landing on the product list '
+            . 'would also clear the merchant\'s remembered product filters, because ss_period is '
+            . 'outside that screen\'s vocabulary.',
+            (string) $target
+        ));
     }
 
     /**

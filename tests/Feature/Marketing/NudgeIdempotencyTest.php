@@ -53,6 +53,10 @@ final class NudgeIdempotencyTest extends SecurityTestCase
 
     private const WISH_WHATSAPP = '/abandon-wishlist-message-send';
 
+    private const CART_EMAIL = '/abandon-carts-emailsend';
+
+    private const WISH_EMAIL = '/abandon-wish-emailsend';
+
     /** @return array{0: \App\Models\User, 1: \App\Models\Store, 2: Customer} */
     private function tenantWithShopper(string $mobile = '963900000001'): array
     {
@@ -277,6 +281,118 @@ final class NudgeIdempotencyTest extends SecurityTestCase
             'The hash is not over the digits-only normalisation, so the same person typed two ways '
             . 'would get two nudges.'
         );
+    }
+
+    /*
+     * ---------------------------------------------------------------------------------------------
+     * 1b — the two E-MAIL endpoints, which an independent review found driven by nothing
+     * ---------------------------------------------------------------------------------------------
+     */
+
+    /**
+     * THE E-MAIL ENDPOINTS RESERVE TOO, and before this test they did not have to.
+     *
+     * An independent review found that every behavioural case in this file posted to one of the two
+     * WhatsApp endpoints, so **deleting the `$nudge` block from either e-mail handler left the whole
+     * suite green** -- and those two are the ones carrying the worse form of the defect, because
+     * they reserve with no precondition check at all and only discover an SMTP failure afterwards.
+     *
+     * THIS ASSERTS AT THE LEDGER RATHER THAN AT THE RESPONSE, deliberately.
+     * `Utility::sendEmailTemplate()` needs a vendored `EmailTemplate` fixture to succeed, and
+     * building one would make this test about the mail stack. What S6 actually asks is "would
+     * deleting the guard fail a test", and a reservation row is the guard's only observable: with
+     * the block removed, NO row is written and this fails. The send's own outcome is irrelevant to
+     * that question, and the failure path has its own test below.
+     */
+    public function test_the_email_endpoints_record_their_nudge_in_the_ledger(): void
+    {
+        [$owner, $store, $customer] = $this->tenantWithShopper();
+        $this->grantPermission($owner->fresh(), 'Abandon Wishlist');
+
+        $cart = $this->cartFor($customer);
+        $wish = $this->wishlistFor($customer);
+
+        $this->actingAs($owner->fresh())->post(self::CART_EMAIL, ['cart_id' => $cart->id]);
+        $this->actingAs($owner->fresh())->post(self::WISH_EMAIL, ['wish_id' => $wish->id]);
+
+        $rows = $this->ledgerRows();
+
+        $this->assertCount(2, $rows, sprintf(
+            'The two e-mail endpoints wrote %d ledger rows instead of 2. Each must reserve through '
+            . 'NudgeGate, or a double-click sends two e-mails and nothing records either.',
+            count($rows)
+        ));
+
+        foreach ($rows as $row) {
+            $this->assertSame('email', $row->channel,
+                'An e-mail nudge was recorded on the wrong channel, so the two legs would '
+                . 'deduplicate against each other.');
+            $this->assertSame((int) $store->id, (int) $row->store_id);
+        }
+
+        $subjects = array_map(fn ($r) => $r->subject_type, $rows);
+        sort($subjects);
+
+        $this->assertSame(['cart', 'wishlist'], $subjects,
+            'The cart and wishlist e-mail nudges are not recorded against different subjects.');
+    }
+
+    /**
+     * A FAILED SEND MUST NOT BLOCK THE RETRY — the defect this guard would otherwise have CREATED,
+     * and it is worse than the one it fixes.
+     *
+     * `reserve()` writes its row BEFORE the send, which is what makes it a guard rather than a log:
+     * a row written only after a successful send leaves the race window open for as long as an HTTP
+     * call to a gateway takes. The cost is that a failed send leaves a claim behind, and the key has
+     * no clock in it, so nothing expires it. An independent review traced the consequence: with
+     * SMTP misconfigured, the merchant's first click claims the nudge and fails; they fix SMTP,
+     * click again, and are told *"this nudge was already sent"* -- for ever. The only escapes were
+     * the cart's lowest line id changing or a DBA deleting the row.
+     *
+     * THE FIXTURE NEEDS NO SABOTAGE. A fresh tenant has no `Abandon Cart` e-mail template, so
+     * `Utility::sendEmailTemplate()` genuinely answers `is_success => false` with
+     * "Mail not send, email not found". That is a real failure on a real path, not a stubbed one.
+     *
+     * The second click must reach the send again and fail for the SAME real reason -- not be
+     * refused as a duplicate of a message that never existed.
+     */
+    public function test_a_failed_email_send_does_not_block_the_retry(): void
+    {
+        [$owner, $store, $customer] = $this->tenantWithShopper();
+        $cart = $this->cartFor($customer);
+
+        $first = $this->actingAs($owner->fresh())->post(self::CART_EMAIL, ['cart_id' => $cart->id]);
+
+        $first->assertStatus(200);
+        $this->assertFalse($first->json('is_success'),
+            'Premise: with no e-mail template this send must fail, or this test proves nothing.');
+
+        $afterFirst = $this->ledgerRows();
+
+        $this->assertCount(1, $afterFirst);
+        $this->assertSame('blocked', $afterFirst[0]->outcome, sprintf(
+            'The failed send left its claim recorded as "%s". It must be released: the key has no '
+            . 'clock in it, so an unreleased claim blocks this nudge permanently.',
+            $afterFirst[0]->outcome
+        ));
+        $this->assertNull($afterFirst[0]->sent_at,
+            'A released claim still carries a sent_at, so once a cadence is configured a failed '
+            . 'send would extend the shopper\'s quiet period.');
+
+        $second = $this->actingAs($owner->fresh())->post(self::CART_EMAIL, ['cart_id' => $cart->id]);
+
+        $second->assertStatus(200);
+        $this->assertStringNotContainsString('already sent', (string) $second->json('message'), sprintf(
+            'After a FAILED send the retry was refused as a duplicate. The guard has become a '
+            . 'permanent block on a nudge that was never delivered, which is strictly worse than '
+            . 'the double-send it replaces. Message was: %s',
+            (string) $second->json('message')
+        ));
+        $this->assertSame('Mail not send, email not found', (string) $second->json('message'),
+            'The retry did not reach the send leg again.');
+
+        $this->assertCount(2, $this->ledgerRows(),
+            'The retry left no record of its own. Two attempts, neither delivered, is two facts.');
     }
 
     /*

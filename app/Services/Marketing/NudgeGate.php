@@ -80,21 +80,43 @@ final class NudgeGate
             return $cadence;
         }
 
-        $reservation = $this->ledger->reserve(
+        /*
+         * THE REFUSAL IS NOT RE-RECORDED, and there is deliberately no branch here saying so.
+         *
+         * An earlier version had `if (! $reservation->allowed()) { return $reservation; } return
+         * $reservation;` -- two legs that cannot disagree, which an independent review correctly
+         * called out as a check no mutation can break. The fact it was trying to express belongs in
+         * a comment, not in control flow: the WINNING reservation is already the row in the ledger,
+         * and the loser's refusal adds no fact. "This action happened once" is the whole content,
+         * and a second row per double-click would make the ledger's own counts wrong -- which
+         * matters, because those counts are what a cadence rule reads.
+         */
+        return $this->ledger->reserve(
             $storeId, $channel, $template, $contactHash,
             $subjectType, $subjectId, $actor
         );
+    }
 
-        if (! $reservation->allowed()) {
-            /*
-             * NOT RE-RECORDED. The winning reservation is already the row in the ledger, and the
-             * loser's refusal adds no fact: "this action happened once" is the whole content. A
-             * second row per double-click would make the ledger's own counts wrong, which matters
-             * because they are what a cadence rule would read.
-             */
-            return $reservation;
+    /**
+     * UNDO A CLAIM WHOSE MESSAGE NEVER LEFT. Call this on every branch that reports a failure
+     * after `reserve()` has allowed the send.
+     *
+     * Without it the guard is strictly worse than the defect it replaces: a double-click costs one
+     * extra message, but an unreleased claim costs the nudge FOR EVER. Found by an independent
+     * review at the two e-mail handlers, which reserve with no precondition check at all and then
+     * discover the SMTP failure afterwards.
+     *
+     * A no-op for a decision that reserved nothing, so a call site does not have to ask.
+     */
+    public function release(NudgeDecision $decision): void
+    {
+        $storeId = $decision->reservedStoreId();
+        $key = $decision->reservationKey();
+
+        if ($storeId === null || $key === null) {
+            return;
         }
 
-        return $reservation;
+        $this->ledger->release($storeId, $key);
     }
 }

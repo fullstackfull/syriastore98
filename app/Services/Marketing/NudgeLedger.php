@@ -149,7 +149,8 @@ final class NudgeLedger
 
             $row->save();
 
-            return NudgeDecision::allow();
+            // The decision carries the claim, so a failed send can release it. See `release()`.
+            return NudgeDecision::allow($storeId, $key);
         } catch (QueryException $e) {
             /*
              * A unique-key violation is the EXPECTED path for a double-click, not an error. Any
@@ -166,6 +167,58 @@ final class NudgeLedger
                 ->first();
 
             return NudgeDecision::duplicate($existing?->sent_at);
+        }
+    }
+
+    /**
+     * RELEASE A CLAIM WHOSE MESSAGE NEVER LEFT, so the merchant can try again.
+     *
+     * `reserve()` writes the row before the send is attempted, which is what makes it a guard
+     * rather than a log. The cost is that a FAILED send leaves a claim behind, and the key contains
+     * no clock, so without this the nudge is blocked permanently: an independent review found that
+     * with SMTP misconfigured a merchant's first click wrote the row and failed, and every later
+     * click -- after fixing SMTP -- was answered "this nudge was already sent". The only escapes
+     * were the cart's lowest line id changing or a DBA deleting the row.
+     *
+     * THE ROW IS RE-KEYED, NOT DELETED, and that is the whole mechanic. Leaving it in place with a
+     * different outcome would not help: the unique key is `(store_id, idempotency_key)`, so the
+     * retry's `reserve()` would hit it again and report a duplicate. Re-keying frees the
+     * reservation space while KEEPING the fact -- "we tried this and nothing went out" is exactly
+     * what a merchant asking why their shopper never got a message needs, and a ledger that erases
+     * its failures cannot answer that. The salted `failed|` preimage cannot collide with a
+     * reservation (`nudge.v1|`) or with a refusal (`refusal|`).
+     *
+     * `sent_at` IS NULLED and the outcome becomes `blocked`, so `lastSentAt()` stops counting it --
+     * twice over, since that read filters on both. A failed send must not extend a shopper's quiet
+     * period once a cadence is configured.
+     *
+     * BEST EFFORT BY DESIGN. This runs on a path where the merchant is already being told the send
+     * failed; turning a bookkeeping problem into a second exception there would replace a useful
+     * error message with an unhelpful one.
+     */
+    public function release(int $storeId, string $key): void
+    {
+        if (! $this->available() || $storeId <= 0 || $key === '') {
+            return;
+        }
+
+        try {
+            MarketingNudgeSend::query()
+                ->where('store_id', $storeId)
+                ->where('idempotency_key', $key)
+                ->where('outcome', MarketingNudgeSend::OUTCOME_SENT)
+                ->update([
+                    'outcome' => MarketingNudgeSend::OUTCOME_BLOCKED,
+                    'sent_at' => null,
+                    'idempotency_key' => hash('sha256', implode('|', [
+                        'failed',
+                        $key,
+                        (string) CarbonImmutable::now()->getPreciseTimestamp(),
+                    ])),
+                    'updated_at' => CarbonImmutable::now(),
+                ]);
+        } catch (QueryException $e) {
+            // Best effort; see the method docblock.
         }
     }
 
@@ -255,12 +308,27 @@ final class NudgeLedger
      */
     private function isUniqueViolation(QueryException $e): bool
     {
-        $sqlState = (string) ($e->errorInfo[0] ?? '');
         $driverCode = (string) ($e->errorInfo[1] ?? '');
 
-        return $sqlState === '23000'
-            || $sqlState === '23505'
-            || $driverCode === '1062'
-            || $driverCode === '19';
+        /*
+         * NARROWED AFTER AN INDEPENDENT REVIEW, which was right that the old test was the whole
+         * integrity-constraint CLASS rather than a unique violation.
+         *
+         * It accepted SQLSTATE `23000` and SQLite driver code `19`, and both are generic: `23000`
+         * also covers MySQL 1048 (NOT NULL) and 1452 (foreign key), and SQLite's 19 is
+         * `SQLITE_CONSTRAINT` for every kind. So a genuinely broken write would have been
+         * misreported to the merchant as "already sent" instead of being rethrown -- which
+         * contradicts this class's own stated rule that only a unique violation is the expected
+         * path. It was latent rather than live (the table has no foreign keys and `reserve()`
+         * populates every NOT NULL column) and it failed closed, but a guard that cannot tell a
+         * duplicate from a broken table is not a guard.
+         *
+         * MySQL/MariaDB give 1062, Postgres 23505. SQLite has no distinct code, so its MESSAGE is
+         * matched -- the one case where that is unavoidable, and the string is SQLite's own and
+         * not localised.
+         */
+        return $driverCode === '1062'
+            || (string) ($e->errorInfo[0] ?? '') === '23505'
+            || str_contains($e->getMessage(), 'UNIQUE constraint failed');
     }
 }

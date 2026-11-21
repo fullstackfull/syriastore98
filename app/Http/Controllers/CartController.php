@@ -1321,6 +1321,15 @@ foreach ($response->data->product_list as $item) {
 
                 // $return = 'Mail send successfully';
                 if ($resp['is_success'] == false) {
+                /*
+                 * GAP-219 — THE CLAIM IS RELEASED, because nothing went out. `reserve()` writes the
+                 * row BEFORE the send so it can stop a second one; leaving it after a failure would
+                 * block this nudge for ever, since the key has no clock in it. Found by an
+                 * independent review: with SMTP misconfigured the first click claimed the nudge and
+                 * failed, and every later click was told it had already been sent.
+                 */
+                app(\App\Services\Marketing\NudgeGate::class)->release($nudge);
+
                     return response()->json(
                         [
                             'is_success' => false,
@@ -1336,6 +1345,30 @@ foreach ($response->data->product_list as $item) {
                     );
                 }
             } catch (\Exception $e) {
+                /*
+                 * GAP-219 — RELEASE THE CLAIM, and LOG WHAT ACTUALLY HAPPENED.
+                 *
+                 * Two things an independent review found here. First, the claim: `reserve()` wrote
+                 * the row before the send, so an exception after it would block this nudge for ever
+                 * unless it is released. `isset()` because the reserve is inside this `try` -- a
+                 * throw before it means there is nothing to release.
+                 *
+                 * Second, the diagnosis. `NudgeLedger` deliberately RETHROWS any query failure that
+                 * is not a unique-key violation, on the stated grounds that swallowing it would turn
+                 * a broken ledger into a silent "allow". That rethrow lands here, and this handler
+                 * reported it to the merchant as an SMTP problem while logging nothing at all -- so
+                 * a broken ledger would have produced a confident wrong diagnosis and no trace. The
+                 * message stays generic (it must not leak internals, and SMTP really is the usual
+                 * cause) but the exception is now recoverable, as it already was on the WhatsApp leg.
+                 */
+                if (isset($nudge)) {
+                    app(\App\Services\Marketing\NudgeGate::class)->release($nudge);
+                }
+
+                \Log::warning('abandoned-cart e-mail nudge failed', [
+                    'store_id' => $storeId ?? null,
+                    'exception' => $e->getMessage(),
+                ]);
 
                 $smtp_error = __('E-Mail has been not sent due to SMTP configuration');
                 return response()->json(
@@ -1511,6 +1544,14 @@ foreach ($response->data->product_list as $item) {
              * merchant as "Invalid Auth access token". The message is still generic enough not to
              * leak internals, and the exception is logged so the real cause is recoverable.
              */
+            /*
+             * GAP-219 — release the claim: `handOver()` threw, so nothing went out, and an
+             * unreleased reservation would block this nudge permanently.
+             */
+            if (isset($nudge)) {
+                app(\App\Services\Marketing\NudgeGate::class)->release($nudge);
+            }
+
             \Log::warning('abandoned-cart WhatsApp nudge failed', [
                 'store_id' => $storeId,
                 'cart_id' => $request->cart_id,

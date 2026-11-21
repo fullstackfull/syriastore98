@@ -26,11 +26,41 @@ final class NudgeDecision
         private readonly string $reason,
         private readonly ?CarbonInterface $previousSentAt,
         private readonly ?int $retryAfterSeconds,
+        /*
+         * GAP-219 FOLLOW-UP — THE RESERVATION THIS DECISION MADE, so the caller can RELEASE it.
+         *
+         * An allowed decision that came from `NudgeLedger::reserve()` has already written a row
+         * claiming the nudge, BEFORE the message was attempted -- which is correct, because the
+         * row's job is to stop a second send and a row written only after a successful send leaves
+         * the race window open for as long as an HTTP call to a gateway takes.
+         *
+         * But it means a FAILED send leaves a claim behind, and the key has no clock in it, so
+         * nothing ever expires it. Found by an independent review: with SMTP misconfigured, a
+         * merchant's first click wrote the row and failed, and every later click was answered
+         * "this nudge was already sent" -- for ever. That is worse than the duplicate it prevents.
+         *
+         * So the decision carries its own store and key, and `NudgeGate::release()` undoes the
+         * claim. They are null on a decision that reserved nothing (a refusal, or a caller with no
+         * contact), and `release()` is then a no-op.
+         */
+        private readonly ?int $reservedStoreId = null,
+        private readonly ?string $reservationKey = null,
     ) {}
 
-    public static function allow(): self
+    public static function allow(?int $reservedStoreId = null, ?string $reservationKey = null): self
     {
-        return new self(true, 'no_previous_send', null, null);
+        return new self(true, 'no_previous_send', null, null, $reservedStoreId, $reservationKey);
+    }
+
+    /** The store and key of the claim this decision wrote, or null when it wrote none. */
+    public function reservedStoreId(): ?int
+    {
+        return $this->reservedStoreId;
+    }
+
+    public function reservationKey(): ?string
+    {
+        return $this->reservationKey;
     }
 
     /**

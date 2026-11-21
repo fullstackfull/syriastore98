@@ -33,7 +33,9 @@ use Carbon\CarbonInterface;
  *     silently reinterpreted. Carbon's ordinary parser accepts relative English and would turn
  *     `?ss_to=yesterday` into a real date, which is a parser deciding product behaviour.
  *   - A reversed range is SWAPPED, not refused, because a date picker that lets you pick them in
- *     either order is a UI bug and a merchant should not be punished for it.
+ *     either order is a UI bug and a merchant should not be punished for it. The ordering is then
+ *     RE-ASSERTED after the end-of-period clamp, because that clamp can reverse the window on its
+ *     own -- which was a live 500 until an independent review found it.
  *   - The span is CAPPED at `MAX_SPAN_DAYS`, and the end is clamped to today. Both are disclosed
  *     through `clampNote()` rather than applied in silence: a window the system quietly shortened
  *     is a figure that does not cover the period its own label names.
@@ -156,16 +158,45 @@ final class AnalyticsPeriod
             $notes[] = __('The end of the period was moved to today, because there is nothing recorded after today.');
         }
 
+        /*
+         * THE ORDERING IS RE-ASSERTED AFTER THE CLAMP, because the clamp can itself reverse the
+         * window. This was a live HTTP 500, found by an independent review and reproduced here
+         * before fixing.
+         *
+         * The chain: a merchant picks TOMORROW in both date fields. The swap above does nothing --
+         * the two are equal -- and then `$to` is clamped back to today while `$from` is left in the
+         * future, so `from > to`. The span check below did not catch it either, because Carbon 2's
+         * `diffInDays()` is ABSOLUTE: it reported 1 day for a window that runs backwards, so the
+         * cap saw nothing wrong. `MetricWindow::between()` then threw
+         * `InvalidArgumentException: A metric window ends before it starts`, uncaught, and the
+         * screen answered 500. Reachable by clicking: the form offered two bare `type="date"`
+         * inputs with no `max`.
+         *
+         * MOVING `$from` TO THE START OF `$to`'s DAY is the honest answer rather than a refusal.
+         * The merchant asked for a day that has not happened; the nearest true period is today, and
+         * it is DISCLOSED like every other adjustment. Refusing would be a validation page in place
+         * of a screen, which this class exists not to do.
+         */
+        if ($from->greaterThan($to)) {
+            $from = $to->startOfDay();
+            $notes[] = __('The start of the period was moved to today, because there is nothing recorded after today.');
+        }
+
         $from = $from->startOfDay();
         $to = $to->endOfDay();
 
         /*
-         * `diffInDays` on day-aligned bounds counts the gap, so an inclusive span is that plus one:
-         * 1 Jan to 1 Jan is ONE day, not zero. Getting this wrong by one is how a cap silently
-         * rejects a legitimate exactly-at-the-limit range, which is the same off-by-one the
-         * referrer bound had.
+         * THE SPAN IS COMPUTED SIGN-AWARE AND THEN GUARDED, rather than trusting `diffInDays()` to
+         * be positive. Carbon 2's default is absolute and Carbon 3's is signed, so a dependency
+         * bump would silently change which branch this takes -- and the absolute reading is exactly
+         * what hid the reversed window above. `max(0, ...)` makes a reversed span read as zero,
+         * which cannot exceed the cap, so the cap is never the thing that repairs an ordering bug.
+         *
+         * The inclusive `+1` is deliberate: 1 Jan to 1 Jan is ONE day, not zero. Getting that wrong
+         * by one is how a cap silently rejects a legitimate exactly-at-the-limit range, which is the
+         * same off-by-one the referrer bound had.
          */
-        $span = (int) $from->diffInDays($to) + 1;
+        $span = max(0, (int) $from->diffInDays($to, false)) + 1;
 
         if ($span > self::MAX_SPAN_DAYS) {
             $from = $to->subDays(self::MAX_SPAN_DAYS - 1)->startOfDay();

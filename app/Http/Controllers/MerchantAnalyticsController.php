@@ -55,7 +55,7 @@ class MerchantAnalyticsController extends Controller
 
         [$storeId, $currencyCode] = $resolved;
 
-        $period = $this->chosenPeriod($request, $storeId);
+        $period = $this->chosenPeriod($request);
 
         return view('analytics.index', [
             'figures' => MerchantAnalyticsFigures::forStore($storeId, $currencyCode, null, $period),
@@ -64,6 +64,8 @@ class MerchantAnalyticsController extends Controller
             'periodKey' => $period->key(),
             'periodFrom' => $period->from()->toDateString(),
             'periodTo' => $period->to()->toDateString(),
+            // For the date inputs' `max`: the browser should not offer a day that has not happened.
+            'periodToday' => \Carbon\CarbonImmutable::now()->toDateString(),
         ]);
     }
 
@@ -87,7 +89,7 @@ class MerchantAnalyticsController extends Controller
      * through `AnalyticsPeriod::fromRequest()` exactly as request input does, so a hand-written or
      * stale row cannot reach the window by a path the query string does not have.
      */
-    private function chosenPeriod(Request $request, int $storeId): \App\Support\Analytics\AnalyticsPeriod
+    private function chosenPeriod(Request $request): \App\Support\Analytics\AnalyticsPeriod
     {
         $period = \App\Support\Analytics\AnalyticsPeriod::class;
 
@@ -160,7 +162,7 @@ class MerchantAnalyticsController extends Controller
          * still wrong for what was asked. P5-8's rule is that the file and the screen cannot
          * disagree about a number; after ANA-002 that has to include WHICH DAYS the number is for.
          */
-        $period = $this->chosenPeriod($request, $storeId);
+        $period = $this->chosenPeriod($request);
 
         $figures = MerchantAnalyticsFigures::forStore($storeId, $currencyCode, null, $period);
 

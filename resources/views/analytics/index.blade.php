@@ -74,12 +74,16 @@
 
                 <div class="col-sm-3">
                     <label class="ss-field__label" for="ss_from">{{ __('From') }}</label>
-                    <input class="form-control" type="date" id="ss_from" name="ss_from" value="{{ $periodFrom }}">
+                    {{-- `max` IS DEFENCE IN DEPTH AND NOT THE CONTROL. A future start date was a
+                         live 500 (see AnalyticsPeriod::custom()); the server fix is what closes it,
+                         and this only stops the browser offering a day that has not happened. A
+                         `type="date"` input is a hint to a browser, never a guarantee about bytes. --}}
+                    <input class="form-control" type="date" id="ss_from" name="ss_from" max="{{ $periodToday }}" value="{{ $periodFrom }}">
                 </div>
 
                 <div class="col-sm-3">
                     <label class="ss-field__label" for="ss_to">{{ __('To') }}</label>
-                    <input class="form-control" type="date" id="ss_to" name="ss_to" value="{{ $periodTo }}">
+                    <input class="form-control" type="date" id="ss_to" name="ss_to" max="{{ $periodToday }}" value="{{ $periodTo }}">
                 </div>
 
                 <div class="col-sm-2">

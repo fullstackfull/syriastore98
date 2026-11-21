@@ -191,8 +191,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:398` | AuthorizeNet capture refused: no server-computed payable in the stored state. |
 | `app/Http/Controllers/CartController.php:261` | product_cart: refused a non-positive or non-integer quantity |
 | `app/Http/Controllers/CartController.php:314` | product_cart: refused a product belonging to another store |
-| `app/Http/Controllers/CartController.php:1460` | abandoned-cart WhatsApp nudge failed |
-| `app/Http/Controllers/WishlistController.php:603` | abandoned-wishlist WhatsApp nudge failed |
+| `app/Http/Controllers/CartController.php:1514` | abandoned-cart WhatsApp nudge failed |
+| `app/Http/Controllers/WishlistController.php:656` | abandoned-wishlist WhatsApp nudge failed |
 | `app/Http/Controllers/CinetPayController.php:535` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:133` | Gateway return refused: no server-stored checkout state. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:282` | Gateway return carries no claimable identity; falling back to the session control alone. |
