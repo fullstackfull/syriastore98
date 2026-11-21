@@ -4249,5 +4249,16 @@
     "Referring page": "Referring page",
     "Visits": "Visits",
     "Only the :count most common referring pages were read, so the counts above do not add up to the page views for this period: :missing visit(s) are not represented in any row.": "Only the :count most common referring pages were read, so the counts above do not add up to the page views for this period: :missing visit(s) are not represented in any row.",
-    "The detector names handsets and Macs. It does not identify a Windows, Linux or ChromeOS computer at all, so ordinary desktop visits appear under not recorded — that bucket is usually large for this reason and not because anything failed.": "The detector names handsets and Macs. It does not identify a Windows, Linux or ChromeOS computer at all, so ordinary desktop visits appear under not recorded — that bucket is usually large for this reason and not because anything failed."
+    "The detector names handsets and Macs. It does not identify a Windows, Linux or ChromeOS computer at all, so ordinary desktop visits appear under not recorded — that bucket is usually large for this reason and not because anything failed.": "The detector names handsets and Macs. It does not identify a Windows, Linux or ChromeOS computer at all, so ordinary desktop visits appear under not recorded — that bucket is usually large for this reason and not because anything failed.",
+    "this month (:month)": "this month (:month)",
+    "last month (:month)": "last month (:month)",
+    "this year (:year)": "this year (:year)",
+    ":from to :to": ":from to :to",
+    "a period I choose": "a period I choose",
+    "The end of the period was moved to today, because there is nothing recorded after today.": "The end of the period was moved to today, because there is nothing recorded after today.",
+    "A period longer than :count days was shortened to the most recent :count days.": "A period longer than :count days was shortened to the most recent :count days.",
+    "Saved periods": "Saved periods",
+    "Save this period as": "Save this period as",
+    "e.g. Ramadan campaign": "e.g. Ramadan campaign",
+    "The two dates apply when the period is \"a period I choose\". A period longer than :count days is shortened, and the end is moved to today if it is later.": "The two dates apply when the period is \"a period I choose\". A period longer than :count days is shortened, and the end is moved to today if it is later."
 }

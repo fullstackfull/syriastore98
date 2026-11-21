@@ -4245,5 +4245,16 @@
     "Referring page": "صفحة الإحالة",
     "Visits": "الزيارات",
     "Only the :count most common referring pages were read, so the counts above do not add up to the page views for this period: :missing visit(s) are not represented in any row.": "تمت قراءة أكثر :count صفحة إحالة شيوعاً فقط، لذلك لا يساوي مجموع الأعداد أعلاه عدد مشاهدات الصفحات في هذه الفترة: :missing زيارة غير ممثَّلة في أي صف.",
-    "The detector names handsets and Macs. It does not identify a Windows, Linux or ChromeOS computer at all, so ordinary desktop visits appear under not recorded — that bucket is usually large for this reason and not because anything failed.": "يتعرَّف الكاشف على الهواتف وأجهزة ماك. ولا يتعرَّف على حاسوب ويندوز أو لينكس أو ChromeOS على الإطلاق، لذلك تظهر زيارات الحواسيب المكتبية العادية ضمن «غير مُسجَّل» — وهذه الفئة كبيرة عادةً لهذا السبب لا لأنّ شيئاً قد تعطَّل."
+    "The detector names handsets and Macs. It does not identify a Windows, Linux or ChromeOS computer at all, so ordinary desktop visits appear under not recorded — that bucket is usually large for this reason and not because anything failed.": "يتعرَّف الكاشف على الهواتف وأجهزة ماك. ولا يتعرَّف على حاسوب ويندوز أو لينكس أو ChromeOS على الإطلاق، لذلك تظهر زيارات الحواسيب المكتبية العادية ضمن «غير مُسجَّل» — وهذه الفئة كبيرة عادةً لهذا السبب لا لأنّ شيئاً قد تعطَّل.",
+    "this month (:month)": "هذا الشهر (:month)",
+    "last month (:month)": "الشهر الماضي (:month)",
+    "this year (:year)": "هذه السنة (:year)",
+    ":from to :to": "من :from إلى :to",
+    "a period I choose": "فترة أختارها",
+    "The end of the period was moved to today, because there is nothing recorded after today.": "تم نقل نهاية الفترة إلى اليوم، لأنه لا يوجد أي شيء مُسجَّل بعد اليوم.",
+    "A period longer than :count days was shortened to the most recent :count days.": "تم تقصير الفترة الأطول من :count يوم إلى آخر :count يوم.",
+    "Saved periods": "الفترات المحفوظة",
+    "Save this period as": "احفظ هذه الفترة باسم",
+    "e.g. Ramadan campaign": "مثال: حملة رمضان",
+    "The two dates apply when the period is \"a period I choose\". A period longer than :count days is shortened, and the end is moved to today if it is later.": "يُستخدم التاريخان عندما تكون الفترة «فترة أختارها». وتُقصَّر أي فترة أطول من :count يوم، وتُنقل النهاية إلى اليوم إن كانت بعده."
 }

@@ -84,6 +84,20 @@ final class TableFilterMemory
            DataTable reads but the memory does not know about is remembered by neither leg, so
            the bar forgets it on the next visit and the receipt never mentions it. */
         'order' => ['ss_status', 'ss_payment', 'ss_return', 'ss_source', 'ss_from', 'ss_to'],
+        /*
+         * ANA-002's saved reporting periods. THE ENTRY IS WHAT MAKES SAVING POSSIBLE AT ALL:
+         * `SavedView::sanitiseFilters()` returns `[]` for a screen with no vocabulary -- correctly,
+         * since the docblock above says callers must read that as "nothing may be saved here" --
+         * so without this line a merchant could press Save and get an empty row back, which is the
+         * worst of the three outcomes because it looks like it worked.
+         *
+         * THIS DOES NOT TURN ON SESSION MEMORY FOR `/analytics`. The remember/recall legs are
+         * called explicitly by `ProductController` and `OrderController`; `MerchantAnalyticsController`
+         * calls neither, so a period lives in the URL or in a saved view and nowhere else. Session
+         * memory for a period would be a separate decision, and the "my orders are gone" hazard
+         * this class was written around does not obviously apply to a date range.
+         */
+        'analytics' => ['ss_period', 'ss_from', 'ss_to'],
     ];
 
     /**

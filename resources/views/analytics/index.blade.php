@@ -41,6 +41,115 @@
     </div>
 </div>
 
+{{-- ANA-002 — THE PERIOD FILTER AND THE SAVED PERIODS.
+
+     A GET FORM, SO THE PERIOD IS IN THE URL. That is the whole design: a merchant can bookmark a
+     period, send it to a colleague, or press back and get the period they were looking at. A POST
+     would hide the state in a session and break all three. It also means there is no CSRF token to
+     reason about, because nothing is written — and the one thing that IS written (a saved period)
+     has its own POST form below with its own token.
+
+     `ss_period` is a SELECT over `AnalyticsPeriod::options()`, which is built from the same
+     constant `fromRequest()` validates against, so an option cannot be offered without being
+     accepted or accepted without being offered. The custom dates are `type="date"`, which gives the
+     browser's own picker and an ISO value; the server re-parses them strictly anyway, because a
+     `type="date"` input is a hint to a browser and not a guarantee about bytes.
+
+     THE CLAMP NOTICE IS NOT A TOAST. When a requested period was shortened or moved, the sentence
+     sits above the figures it applies to and stays there, because it describes what these numbers
+     cover. A dismissable toast would leave a merchant reading a window that is not the one they
+     asked for with nothing on screen saying so. --}}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="ss-card">
+            <form method="GET" action="{{ route('analytics.index') }}" class="row g-2 align-items-end">
+                <div class="col-sm-4">
+                    <label class="ss-field__label" for="ss_period">{{ __('Period') }}</label>
+                    <select class="form-control" id="ss_period" name="ss_period">
+                        @foreach ($periodOptions as $value => $words)
+                            <option value="{{ $value }}" @selected($periodKey === $value)>{{ $words }}</option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <div class="col-sm-3">
+                    <label class="ss-field__label" for="ss_from">{{ __('From') }}</label>
+                    <input class="form-control" type="date" id="ss_from" name="ss_from" value="{{ $periodFrom }}">
+                </div>
+
+                <div class="col-sm-3">
+                    <label class="ss-field__label" for="ss_to">{{ __('To') }}</label>
+                    <input class="form-control" type="date" id="ss_to" name="ss_to" value="{{ $periodTo }}">
+                </div>
+
+                <div class="col-sm-2">
+                    <button type="submit" class="ss-btn ss-btn--primary w-100">{{ __('Apply') }}</button>
+                </div>
+
+                {{-- The two date inputs only matter for the custom option, and saying so in text
+                     rather than hiding them with JavaScript keeps the form usable with scripting
+                     off — and keeps the hint available to a screen reader, which a `display:none`
+                     would not. --}}
+                <div class="col-12">
+                    <p class="ss-field__hint mb-0">
+                        {{ __('The two dates apply when the period is "a period I choose". A period longer than :count days is shortened, and the end is moved to today if it is later.', ['count' => \App\Support\Analytics\AnalyticsPeriod::MAX_SPAN_DAYS]) }}
+                    </p>
+                </div>
+            </form>
+
+            @if (! empty($savedPeriods) && count($savedPeriods) > 0)
+                <div class="mt-3">
+                    <h2 class="h6 mb-2">{{ __('Saved periods') }}</h2>
+                    <ul class="list-unstyled d-flex flex-wrap gap-2 mb-0">
+                        @foreach ($savedPeriods as $saved)
+                            <li>
+                                <a class="ss-btn ss-btn--secondary ss-btn--sm"
+                                   href="{{ route('analytics.index', ['ss_view' => $saved->id]) }}">{{ $saved->name }}</a>
+                            </li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
+
+            {{-- SAVING IS A WRITE, so it is a POST with a token, and it posts the period that is
+                 CURRENTLY ON SCREEN rather than whatever is in the select — the two differ after a
+                 clamp, and saving the un-clamped request would store a period the merchant has
+                 never actually seen. --}}
+            <form method="POST" action="{{ route('saved-views.store') }}" class="row g-2 align-items-end mt-2">
+                @csrf
+                <input type="hidden" name="screen" value="analytics">
+
+                {{-- `filters[...]`, NOT flat keys. `SavedViewController::store()` reads
+                     `$request->input('filters')` and runs it through the screen's vocabulary; flat
+                     `ss_period` would sanitise to `[]` and the controller would answer "Select at
+                     least one filter before saving a view" on a screen where one is always
+                     selected. Measured against the controller rather than guessed from the form. --}}
+                <input type="hidden" name="filters[ss_period]" value="{{ $periodKey }}">
+                <input type="hidden" name="filters[ss_from]" value="{{ $periodFrom }}">
+                <input type="hidden" name="filters[ss_to]" value="{{ $periodTo }}">
+
+                <div class="col-sm-6">
+                    <label class="ss-field__label" for="saved_period_name">{{ __('Save this period as') }}</label>
+                    <input class="form-control" type="text" id="saved_period_name" name="name" maxlength="60"
+                           placeholder="{{ __('e.g. Ramadan campaign') }}">
+                </div>
+
+                <div class="col-sm-3">
+                    <button type="submit" class="ss-btn ss-btn--secondary w-100">{{ __('Save') }}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@if (! empty($figures['period']['clamped']))
+    <div class="row mb-4">
+        <div class="col-12">
+            <p class="ss-stat__hint" role="status">{{ $figures['period']['clamped'] }}</p>
+        </div>
+    </div>
+@endif
+
 {{-- ACTIVITY. Orders and page views are counts of rows, so they are always available; conversion is
      a ratio and is "Not available" whenever there is nothing to divide by. --}}
 <div class="row mb-4">

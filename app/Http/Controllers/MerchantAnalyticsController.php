@@ -8,11 +8,17 @@ use Illuminate\Http\Request;
 /**
  * THE MERCHANT ANALYTICS SCREEN. P5-4 / ANA-001…ANA-004.
  *
- * ONE READ, NO WRITES, NO REQUEST INPUT. The store comes from `getCurrentStore()` and the currency
- * from that store's own row; nothing on this screen is selectable, so there is no parameter a caller
- * could supply and therefore nothing to validate. CLAUDE.md records that a tenant predicate built
- * from caller-supplied input is not a tenant check and has produced four separate defects here, so
- * the absence of input is the design rather than an omission.
+ * ONE READ AND NO WRITES. The store comes from `getCurrentStore()` and the currency from that
+ * store's own row -- NEVER from the request, which is the whole of the tenancy argument here.
+ *
+ * ANA-002 ADDED THE ONE THING A CALLER DOES CONTROL: the period. This docblock used to say the
+ * screen took no request input at all and therefore had nothing to validate; that is no longer
+ * true, so it states what is taken and why it is safe instead of repeating a claim that has gone
+ * stale. CLAUDE.md's warning is specifically that *a tenant predicate* built from caller-supplied
+ * input is not a tenant check, and that has produced four separate defects here. A period is not a
+ * tenant predicate: every query still carries the `store_id` resolved above, so what a merchant
+ * chooses is only WHICH OF THEIR OWN DAYS to read. `AnalyticsPeriod::fromRequest()` is the only
+ * reader of that input and resolves it through an allowlist and two clamps, never into SQL.
  *
  * WHY IT IS NOT A METHOD ON ReportController. That class is 3,660 lines and, more to the point,
  * **cannot run under the Feature suite for MOST of its handlers**: 37 `MONTH(` and 10 `YEAR(` in `selectRaw` are absent
@@ -49,9 +55,73 @@ class MerchantAnalyticsController extends Controller
 
         [$storeId, $currencyCode] = $resolved;
 
+        $period = $this->chosenPeriod($request, $storeId);
+
         return view('analytics.index', [
-            'figures' => MerchantAnalyticsFigures::forStore($storeId, $currencyCode),
+            'figures' => MerchantAnalyticsFigures::forStore($storeId, $currencyCode, null, $period),
+            'periodOptions' => \App\Support\Analytics\AnalyticsPeriod::options(),
+            'savedPeriods' => \App\Models\SavedView::forCurrentPrincipal(self::SCREEN)->get(),
+            'periodKey' => $period->key(),
+            'periodFrom' => $period->from()->toDateString(),
+            'periodTo' => $period->to()->toDateString(),
         ]);
+    }
+
+    /**
+     * ANA-002 — THE SAVED-PERIOD SCREEN NAME, shared by the controller, the view and `SavedView`.
+     *
+     * A string literal in three files is how a saved view ends up written under one screen name and
+     * read under another, which presents to a merchant as "my saved periods vanished".
+     */
+    public const SCREEN = 'analytics';
+
+    /**
+     * The period this request is for: an explicitly chosen one, or a saved one, or the default.
+     *
+     * PRECEDENCE IS EXPLICIT-BEATS-SAVED, and that ordering is deliberate. A merchant who picks a
+     * period in the form means it for this request; a saved period is a starting point, not a lock.
+     * The reverse order makes the filter look broken the first time somebody saves one.
+     *
+     * A SAVED VIEW IS NOT TRUSTED EITHER. `appliedFilters()` re-sanitises on read against the
+     * screen's vocabulary -- the row outlives the code that wrote it -- and the result then goes
+     * through `AnalyticsPeriod::fromRequest()` exactly as request input does, so a hand-written or
+     * stale row cannot reach the window by a path the query string does not have.
+     */
+    private function chosenPeriod(Request $request, int $storeId): \App\Support\Analytics\AnalyticsPeriod
+    {
+        $period = \App\Support\Analytics\AnalyticsPeriod::class;
+
+        $input = $request->only([
+            $period::KEY_PERIOD,
+            $period::KEY_FROM,
+            $period::KEY_TO,
+        ]);
+
+        if ($input !== [] && ($input[$period::KEY_PERIOD] ?? '') !== '') {
+            return $period::fromRequest($input);
+        }
+
+        /*
+         * `ss_view` NAMES A ROW ID, so it is resolved through the model's OWN ownership predicate
+         * (`forCurrentPrincipal` scopes to this store and this employee, and fails closed when either is absent) rather than by `find()`. A
+         * `SavedView::find($id)` here would be the exact caller-supplied-identifier shape CLAUDE.md
+         * records as the most productive defect pattern in this codebase: saved views are not in
+         * `config/tenancy.php`'s `scoped_models`, so no global scope would add a predicate for
+         * anybody, and one merchant could read another's saved filters by guessing an id.
+         */
+        $viewId = (int) $request->input('ss_view', 0);
+
+        if ($viewId > 0) {
+            $saved = \App\Models\SavedView::forCurrentPrincipal(self::SCREEN)
+                ->where('id', $viewId)
+                ->first();
+
+            if ($saved !== null) {
+                return $period::fromRequest($saved->appliedFilters());
+            }
+        }
+
+        return $period::default();
     }
 
     /**
@@ -81,7 +151,18 @@ class MerchantAnalyticsController extends Controller
 
         [$storeId, $currencyCode] = $resolved;
 
-        $figures = MerchantAnalyticsFigures::forStore($storeId, $currencyCode);
+        /*
+         * ANA-002 — THE EXPORT HONOURS THE SAME PERIOD AS THE SCREEN, resolved by the same method.
+         *
+         * An export that ignored the filter would be the worst available outcome: a merchant
+         * filters to one week, presses Download, and gets a thirty-day file whose rows are labelled
+         * with the period they really cover -- so nothing is technically false and the figures are
+         * still wrong for what was asked. P5-8's rule is that the file and the screen cannot
+         * disagree about a number; after ANA-002 that has to include WHICH DAYS the number is for.
+         */
+        $period = $this->chosenPeriod($request, $storeId);
+
+        $figures = MerchantAnalyticsFigures::forStore($storeId, $currencyCode, null, $period);
 
         $rows = \App\Support\Metrics\FigureCsv::rows($figures, [
             'orders' => __('Orders'),
@@ -108,6 +189,22 @@ class MerchantAnalyticsController extends Controller
             if (isset($figures[$key])) {
                 $rows = array_merge($rows, \App\Support\Metrics\FigureCsv::breakdownRows($figures[$key], $label));
             }
+        }
+
+        /*
+         * AND THE CLAMP TRAVELS WITH THE FILE. When a requested period was shortened or moved, the
+         * screen says so above the figures; a file that dropped that sentence would be a figure
+         * separated from its own limits, which is the single defect `FigureCsv` exists to prevent.
+         * It is a ROW, in the same four columns, because a header or a trailing comment survives
+         * neither sorting nor copying a range.
+         */
+        if (! empty($figures['period']['clamped'])) {
+            $rows[] = [
+                __('Period'),
+                $figures['period']['label'],
+                $figures['period']['label'],
+                (string) $figures['period']['clamped'],
+            ];
         }
 
         return response(\App\Support\Metrics\FigureCsv::render($rows), 200, [

@@ -42,7 +42,26 @@ class SavedViewPolicy
     private const SCREEN_PERMISSION = [
         'order' => 'Manage Order',
         'product' => 'Manage Products',
+        // ANA-002's saved reporting periods. Same permission as the screen's own door.
+        'analytics' => 'Manage Reports',
     ];
+
+    /**
+     * SCREENS WHOSE OWN DOOR ADMITS THE TENANT OWNER WITHOUT THE PERMISSION ROW.
+     *
+     * `/analytics` is gated by `ReportPermission`, which has THREE limbs -- operator, then the
+     * tenant owner (`creatorId() === id`), then the named permission -- because a merchant created
+     * before a permission name existed holds no row for it and must not be locked out of their own
+     * reports. `useScreen()` below has only two of those limbs, so without this exception a store
+     * owner could READ the analytics screen and be refused SAVING a period on it: a visible button
+     * that always answers "Permission denied", which reads to a merchant as a broken product.
+     *
+     * IT IS A LIST AND NOT A CHANGE TO `useScreen()` FOR EVERYONE. Adding the owner limb to
+     * `order` and `product` would widen two existing surfaces that are not this slice's to widen,
+     * and `SavedViewIsolationTest` encodes their current shape. The third limb is added where the
+     * screen's own door already has it, and nowhere else.
+     */
+    private const OWNER_ADMITTED_SCREENS = ['analytics'];
 
     public static function permissionFor(string $screen): ?string
     {
@@ -62,6 +81,17 @@ class SavedViewPolicy
 
         if ($permission === null) {
             return false;
+        }
+
+        /*
+         * `ReportAccess::permits()` IS the three-limb gate, extracted from `ReportPermission` and
+         * shared rather than re-derived: operator first (Laratrust has no super-admin bypass, so
+         * `isAbleTo()` alone refuses the one principal who reads every store), then the tenant
+         * owner, then the named permission. Reusing it is what keeps this policy and the screen's
+         * middleware from drifting into two different answers for the same user.
+         */
+        if (in_array($screen, self::OWNER_ADMITTED_SCREENS, true)) {
+            return \App\Services\ReportAccess::permits($actor, $permission);
         }
 
         return UserPolicy::isOperator($actor) || $actor->isAbleTo($permission);

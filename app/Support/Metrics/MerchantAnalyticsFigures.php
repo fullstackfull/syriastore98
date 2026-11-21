@@ -3,6 +3,7 @@
 namespace App\Support\Metrics;
 
 use App\Models\Order;
+use App\Support\Analytics\AnalyticsPeriod;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Shetabit\Visitor\Models\Visit;
@@ -40,7 +41,15 @@ use Shetabit\Visitor\Models\Visit;
 final class MerchantAnalyticsFigures
 {
     /** The activity window. Short enough to be about now, long enough that a quiet week is not a cliff. */
-    private const RECENT_DAYS = 30;
+    /*
+     * PUBLIC SINCE ANA-002, and for one specific reason: it is now the number
+     * `AnalyticsPeriod::DEFAULT` has to agree with. `AnalyticsPeriodFilterTest` compares the
+     * default period's bounds against `subDays(RECENT_DAYS - 1)->startOfDay()` so that adding a
+     * filter cannot quietly move the window every pre-existing test was written against. A private
+     * constant would force that check through reflection, which asserts the same thing less
+     * readably and breaks on a rename without saying why.
+     */
+    public const RECENT_DAYS = 30;
 
     /**
      * How many distinct referring URLs are read before folding them into hosts. A bound is needed
@@ -79,15 +88,39 @@ final class MerchantAnalyticsFigures
      * rather than fail. `PlatformAnalyticsFigures` already carries the same three-key shape for its
      * currency block, and that symmetry is what the Blade and the CSV both rely on.
      */
-    public static function forStore(int $storeId, string $storeCurrency, ?CarbonInterface $now = null): array
-    {
+    public static function forStore(
+        int $storeId,
+        string $storeCurrency,
+        ?CarbonInterface $now = null,
+        ?AnalyticsPeriod $chosen = null
+    ): array {
         // The money half, unchanged and not restated: one owner for currency folding and ledger coverage.
         $money = FinanceLedgerFigures::forStore($storeId, $storeCurrency);
 
         $now = $now === null ? CarbonImmutable::now() : CarbonImmutable::instance($now);
-        $from = $now->subDays(self::RECENT_DAYS - 1)->startOfDay();
-        $to = $now->endOfDay();
-        $period = __('last :count days', ['count' => number_format(self::RECENT_DAYS)]);
+
+        /*
+         * ANA-002 — THE CHOSEN PERIOD, AND WHY IT IS OPTIONAL.
+         *
+         * `$chosen === null` resolves to `AnalyticsPeriod::default()`, which is the 30-day rolling
+         * window this screen has always shown, with the same label built from the same words. So a
+         * caller that passes nothing gets BYTE-IDENTICAL figures to before the filter existed --
+         * which is what lets the pre-existing tests stand as the regression proof that adding a
+         * filter changed no unfiltered figure.
+         *
+         * `RECENT_DAYS` is still the constant behind that default: `AnalyticsPeriod::DEFAULT` is
+         * `last_30_days`, and `PeriodDefaultMatchesFiguresTest` pins the two together so the
+         * default cannot drift away from the constant this class documents.
+         *
+         * THE PERIOD IS CALLER-SUPPLIED AND THE STORE IS NOT. That distinction is the whole safety
+         * argument: `$storeId` reaches this method from `getCurrentStore()` only, and every query
+         * below still carries it. What a merchant chooses here is which of their OWN days to read.
+         */
+        $chosen = $chosen ?? AnalyticsPeriod::default($now);
+
+        $from = $chosen->from();
+        $to = $chosen->to();
+        $period = $chosen->label();
 
         $orders = self::countOrders($storeId, $from, $to);
         $visits = self::countVisits($storeId, $from, $to);
@@ -112,7 +145,14 @@ final class MerchantAnalyticsFigures
          */
         $baseline = \App\Support\Metrics\MetricWindow::between($from, $to)->previous();
 
-        $baselinePeriod = __('the :count days before that', ['count' => number_format(self::RECENT_DAYS)]);
+        /*
+         * THE BASELINE'S LABEL COMES FROM THE CHOSEN PERIOD'S OWN LENGTH, not from `RECENT_DAYS`.
+         * Hardcoding 30 here was correct only while the window was fixed: on a 7-day filter it
+         * would have printed "the 30 days before that" beside a delta computed over 7, which is a
+         * figure whose label describes a different window. `previous()` returns the equally long
+         * window ending the day before, so the length is the chosen period's own.
+         */
+        $baselinePeriod = $chosen->baselineLabel();
 
         return [
             'coverage' => $money['coverage'],
@@ -144,6 +184,21 @@ final class MerchantAnalyticsFigures
             'retention' => self::retention($storeId),
             'devices' => self::devices($storeId, $from, $to, $period),
             'channels' => self::channels($storeId, $from, $to, $period, $visits),
+
+            /*
+             * ANA-002 — THE PERIOD ITSELF, so the screen and the CSV can both state what was
+             * actually read without re-deriving it. `clamped` is the sentence saying a requested
+             * period was shortened or moved; it is null when nothing was adjusted. A clamp a
+             * merchant cannot see is a figure whose label does not describe it.
+             */
+            'period' => [
+                'key' => $chosen->key(),
+                'label' => $period,
+                'from' => $chosen->from()->toDateString(),
+                'to' => $chosen->to()->toDateString(),
+                'days' => $chosen->days(),
+                'clamped' => $chosen->clampNote(),
+            ],
         ];
     }
 
