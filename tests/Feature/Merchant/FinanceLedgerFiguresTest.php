@@ -151,12 +151,36 @@ class FinanceLedgerFiguresTest extends SecurityTestCase
         return $tiles;
     }
 
-    private function page(User $merchant): string
+    private function page(User $merchant, array $query = []): string
     {
         return html_entity_decode(
-            $this->actingAs($merchant->fresh())->get('/finance')->assertOk()->getContent(),
+            $this->actingAs($merchant->fresh())
+                ->get('/finance'.($query === [] ? '' : '?'.http_build_query($query)))
+                ->assertOk()->getContent(),
             ENT_QUOTES | ENT_HTML5
         );
+    }
+
+    /**
+     * THE WALLET ROW, WRITTEN BEFORE THE PAGE IS VISITED.
+     *
+     * `StoreFinanceController::index()` provisions a missing wallet with the store's own
+     * `defult_currancy`, so a wallet whose currency DIFFERS from the store's -- the case GAP-222 is
+     * about -- can only be set up by writing the row first. That is not a contrived fixture: a
+     * merchant who changes `defult_currancy` after their wallet was opened produces exactly this
+     * state, and nothing in the product rewrites the wallet when the setting changes.
+     */
+    private function walletRow(Store $store, array $attributes = []): void
+    {
+        \App\Models\StoreWallet::create(array_merge([
+            'store_id' => $store->id,
+            'currency_code' => 'USD',
+            'available_balance' => 0,
+            'pending_balance' => 0,
+            'withdrawal_pending_balance' => 0,
+            'total_income' => 0,
+            'total_withdrawn' => 0,
+        ], $attributes));
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -169,11 +193,20 @@ class FinanceLedgerFiguresTest extends SecurityTestCase
 
         $html = $this->page($merchant);
 
-        $this->assertMatchesRegularExpression('/<h6 class="text-muted mb-2">\s*Available to withdraw\s*<\/h6>/', $html,
+        /* GAP-222 moved this tile into `<x-ss.stat>`, so it is now read the way its two ledger
+           neighbours are -- by label, out of the parsed tile, never out of the whole document. */
+        $tiles = $this->tiles($html);
+
+        $this->assertArrayHasKey('Available to withdraw', $tiles,
             'the wallet tile is no longer labelled for what it is');
-        $this->assertDoesNotMatchRegularExpression('/<h6 class="text-muted mb-2">\s*Available Balance\s*<\/h6>/', $html,
+        $this->assertArrayNotHasKey('Available Balance', $tiles,
             'the old label is still on the tile');
-        $this->assertStringContainsString('A running balance, not revenue.', $html);
+        $this->assertStringNotContainsString('Available Balance', $html,
+            'the old label survives somewhere else on the page');
+        $this->assertStringContainsString('A running balance, not revenue.', $tiles['Available to withdraw']['hint'],
+            'D2 mandated this sentence and it belongs to THIS tile, not merely to the page');
+        $this->assertSame('right now', $tiles['Available to withdraw']['period'],
+            'a running balance has no period, and `<x-ss.stat>` refuses to render a figure without saying so');
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -871,5 +904,247 @@ class FinanceLedgerFiguresTest extends SecurityTestCase
         $this->assertEquals(0, (float) $wallets[0]->total_income);
         $this->assertSame(0, DB::table('store_wallet_transactions')->where('store_id', $store->id)->count());
         $this->assertSame(0, DB::table('store_withdrawals')->where('store_id', $store->id)->count());
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // GAP-222 -- the wallet figure is MONEY, so it has to say which money
+    // ---------------------------------------------------------------------------------------------
+
+    public function test_available_to_withdraw_prints_the_wallets_own_currency(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+        $this->storeCurrency($merchant, $store, 'SYP');
+        $this->walletRow($store, ['currency_code' => 'SYP', 'available_balance' => '1234.56']);
+
+        $tile = $this->tiles($this->page($merchant))['Available to withdraw'];
+
+        $this->assertSame('1,234.56 SYP', $tile['value'], 'a money figure printed without its currency says nothing about how much it is');
+        $this->assertStringContainsString('A running balance, not revenue.', $tile['hint'], 'D2 mandated this sentence');
+    }
+
+    public function test_a_wallet_held_in_a_different_currency_from_the_store_says_so_and_converts_nothing(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+        $this->storeCurrency($merchant, $store, 'USD');                                   // what the storefront prices in...
+        $this->walletRow($store, ['currency_code' => 'SYP', 'available_balance' => '1234.56']);   // ...and what the wallet actually holds
+
+        $tile = $this->tiles($this->page($merchant))['Available to withdraw'];
+
+        $this->assertSame('1,234.56 SYP', $tile['value'], 'the figure is the WALLET balance, so it carries the WALLET currency');
+        $this->assertStringNotContainsString('1,234.56 USD', $tile['value'].$tile['hint'], 'nothing may restate this amount as the store currency: there is no rate here to convert with');
+        $this->assertStringContainsString('SYP', $tile['hint']);
+        $this->assertStringContainsString('USD', $tile['hint'], 'the merchant has to be told the two differ, or they read the balance in the wrong money');
+    }
+
+    public function test_a_zero_balance_in_a_foreign_currency_still_names_that_currency(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+        $this->storeCurrency($merchant, $store, 'USD');
+        $this->walletRow($store, ['currency_code' => 'SYP', 'available_balance' => '0.00']);
+
+        $tile = $this->tiles($this->page($merchant))['Available to withdraw'];
+
+        /*
+         * THE ZERO-BUCKET TRAP. `FinanceLedgerFigures::realBuckets()` drops any amount under half a
+         * cent, which is right for a ledger -- a currency nothing was ever paid in should not make a
+         * tile "mixed". Reused unchanged here it would drop the ONLY bucket, leave
+         * `array_key_first() ?? $storeCurrency` to answer, and print `0.00 USD` for a wallet that is
+         * denominated in SYP. An empty wallet is the commonest wallet there is, so that wrong code
+         * would be the one most merchants saw.
+         */
+        $this->assertSame('0.00 SYP', $tile['value'], 'an empty wallet is still denominated in something');
+    }
+
+    public function test_a_wallet_with_no_currency_recorded_is_counted_in_the_store_currency_and_says_so(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+        $this->storeCurrency($merchant, $store, 'SYP');
+        $this->walletRow($store, ['currency_code' => null, 'available_balance' => '500.00']);
+
+        $tile = $this->tiles($this->page($merchant))['Available to withdraw'];
+
+        // `store_wallets.currency_code` is nullable with no default, so this row is reachable.
+        $this->assertSame('500.00 SYP', $tile['value'], 'an unrecorded currency is read as the store currency, exactly as the ledger tiles do');
+        $this->assertStringContainsString('no currency', $tile['hint'], 'and the assumption is disclosed rather than hidden');
+    }
+
+    public function test_the_wallet_tile_says_the_date_filter_does_not_apply_and_its_value_does_not_move(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+        $this->storeCurrency($merchant, $store, 'SYP');
+        $this->walletRow($store, ['currency_code' => 'SYP', 'available_balance' => '900.00']);
+
+        $unfiltered = $this->tiles($this->page($merchant))['Available to withdraw'];
+        $filtered = $this->tiles($this->page($merchant, ['from_date' => '2026-01-01', 'to_date' => '2026-01-31']))['Available to withdraw'];
+
+        $this->assertSame($unfiltered['value'], $filtered['value'], 'a running balance has no period; filtering must not appear to change it');
+        $this->assertSame('900.00 SYP', $filtered['value']);
+        $this->assertStringContainsString('dates', $filtered['hint'],
+            'the dates ARE on this page and they do not apply here -- a tile that silently ignores them reads as having obeyed them');
+    }
+
+    public function test_another_stores_wallet_never_reaches_this_stores_tile(): void
+    {
+        /*
+         * THE DECOY CARRIES ALL FIVE COLUMNS, and an earlier version of this test did not -- which is
+         * how mutation M6 SURVIVED. Dropping the `store_id` predicate from
+         * `WalletEntitlementFigure::siblings()` leaked nothing while the decoy's four sibling columns
+         * were zero: 0 + 0 is the right answer by accident, and the BALANCE tile goes through the
+         * metric, which carries its own `MetricScope`. Only the sibling read is raw, so only a decoy
+         * with non-zero siblings can test it. Its currency differs too, so a leak would also be
+         * adding EUR to SYP -- the exact invention the refusal branch exists to prevent.
+         */
+        [, $decoy] = $this->makeTenant();
+        $this->walletRow($decoy, [
+            'currency_code' => 'EUR',
+            'available_balance' => '98765.43',
+            'withdrawal_pending_balance' => '11111.11',
+            'pending_balance' => '22222.22',
+            'total_income' => '33333.33',
+            'total_withdrawn' => '44444.44',
+        ]);
+
+        [$merchant, $store] = $this->merchantOnFinance();
+        $this->storeCurrency($merchant, $store, 'SYP');
+        $this->walletRow($store, [
+            'currency_code' => 'SYP',
+            'available_balance' => '12.00',
+            'withdrawal_pending_balance' => '13.00',
+            'pending_balance' => '14.00',
+            'total_income' => '15.00',
+            'total_withdrawn' => '16.00',
+        ]);
+
+        $html = $this->page($merchant);
+        $tiles = $this->tiles($html);
+
+        $this->assertSame('12.00 SYP', $tiles['Available to withdraw']['value']);
+        $this->assertSame('13.00 SYP', $tiles['Pending Withdrawals']['value']);
+        $this->assertSame('14.00 SYP', $tiles['Pending Balance']['value']);
+        $this->assertSame('15.00 SYP', $tiles['Total Income']['value']);
+        $this->assertSame('16.00 SYP', $tiles['Total Withdrawn']['value']);
+
+        foreach (['98,765.43', '11,111.11', '22,222.22', '33,333.33', '44,444.44'] as $decoyFigure) {
+            $this->assertStringNotContainsString($decoyFigure, $html,
+                "another tenant's wallet figure {$decoyFigure} is on this merchant's page");
+        }
+
+        $this->assertStringNotContainsString('EUR', implode(' ', array_map(
+            static fn (array $tile): string => $tile['value'].$tile['hint'],
+            $tiles
+        )));
+    }
+
+    public function test_the_wallet_amount_is_isolated_so_arabic_keeps_it_together(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+        $this->storeCurrency($merchant, $store, 'SYP');
+        $this->walletRow($store, ['currency_code' => 'SYP', 'available_balance' => '1234.56']);
+
+        $raw = $this->tiles($this->page($merchant), true)['Available to withdraw'];
+
+        $this->assertSame("\u{2066}1,234.56 SYP\u{2069}", $raw['value'],
+            'without the isolates an RTL page reorders `amount CODE` and the merchant reads a different number');
+    }
+
+    public function test_the_four_sibling_wallet_figures_carry_the_same_currency_as_the_balance(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+        $this->storeCurrency($merchant, $store, 'USD');
+        $this->walletRow($store, [
+            'currency_code' => 'SYP',
+            'available_balance' => '100.00',
+            'withdrawal_pending_balance' => '200.00',
+            'pending_balance' => '300.00',
+            'total_income' => '400.00',
+            'total_withdrawn' => '500.00',
+        ]);
+
+        $tiles = $this->tiles($this->page($merchant));
+
+        /*
+         * GAP-222 named these four as having the identical defect and said they must move in the same
+         * change or be declared out of scope. They moved. They are columns of the SAME row as the
+         * balance, so a different currency on any of them would be incoherent -- and `number_format`
+         * with no code, which is what they used to print, is how the page let them disagree silently.
+         */
+        $this->assertSame('100.00 SYP', $tiles['Available to withdraw']['value']);
+        $this->assertSame('200.00 SYP', $tiles['Pending Withdrawals']['value']);
+        $this->assertSame('300.00 SYP', $tiles['Pending Balance']['value']);
+        $this->assertSame('400.00 SYP', $tiles['Total Income']['value']);
+        $this->assertSame('500.00 SYP', $tiles['Total Withdrawn']['value']);
+    }
+
+    public function test_only_the_balance_tile_carries_the_currency_caveat_not_all_five(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+        $this->storeCurrency($merchant, $store, 'USD');
+        $this->walletRow($store, ['currency_code' => 'SYP', 'available_balance' => '100.00', 'total_income' => '400.00']);
+
+        $tiles = $this->tiles($this->page($merchant));
+
+        $this->assertStringContainsString('not converted', $tiles['Available to withdraw']['hint']);
+        // Five copies of one sentence on one card is noise, and noise is how a real caveat gets skipped.
+        $this->assertSame('', $tiles['Total Income']['hint'], 'the caveat belongs to the tile it qualifies, once');
+        $this->assertSame('', $tiles['Total Withdrawn']['hint']);
+        $this->assertSame('right now', $tiles['Total Income']['period'], 'every wallet column is a running total, so each still states that');
+    }
+
+    public function test_a_wallet_that_does_not_exist_reads_unavailable_on_all_five_and_never_zero(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        \App\Models\Permission::firstOrCreate(['name' => 'View Finance Dashboard'], ['display_name' => 'View Finance Dashboard']);
+        $this->grantPermission(User::find($merchant->id), 'View Finance Dashboard');
+        Cache::forget('admin_details');
+
+        /*
+         * PREMISE: the handler provisions a missing wallet, so this state is not reachable through
+         * /finance -- which is exactly why the assembler is driven directly here. A figure class that
+         * answers "0.00" for a wallet that does not exist is one controller change away from printing
+         * it, and "no account" and "an empty account" are different facts about a business.
+         */
+        $this->assertNull(\App\Models\StoreWallet::where('store_id', $store->id)->first(), 'premise: no wallet row yet');
+
+        $figure = \App\Support\Metrics\WalletEntitlementFigure::forStore($store->id, 'SYP');
+
+        $this->assertNull($figure['value']);
+        $this->assertSame([null, null, null, null], array_values($figure['siblings']));
+        $this->assertStringContainsString('No wallet has been opened', $figure['hint']);
+    }
+
+    public function test_a_blank_store_currency_never_reaches_the_wallet_tile_as_unknown(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+        $this->storeCurrency($merchant, $store, '');
+        $this->walletRow($store, ['currency_code' => null, 'available_balance' => '7.00']);
+
+        $tile = $this->tiles($this->page($merchant))['Available to withdraw'];
+
+        // The same 'USD' fallback StoreFinanceController::index() applies to a missing setting.
+        $this->assertSame('7.00 USD', $tile['value']);
+        $this->assertStringNotContainsString('UNKNOWN', $tile['value'].$tile['hint']);
+        $this->assertStringNotContainsString('unknown', $tile['value']);
+    }
+
+    public function test_the_wallet_figures_render_in_arabic_with_their_amounts_isolated(): void
+    {
+        [$merchant, $store] = $this->merchantOnFinance();
+        $this->storeCurrency($merchant, $store, 'SYP');
+        $this->walletRow($store, ['currency_code' => 'SYP', 'available_balance' => '1234.56', 'total_income' => '99.00']);
+
+        $merchant->language = 'ar';
+        $merchant->save();
+
+        $html = $this->page($merchant);
+        $raw = $this->tiles($html, true);
+
+        $arabicLabel = \Illuminate\Support\Facades\Lang::get('Available to withdraw', [], 'ar');
+        $this->assertNotSame('Available to withdraw', $arabicLabel, 'premise: the label has an Arabic entry to render');
+
+        /* Read by the ARABIC label, which is also the proof that the page really switched locale --
+           an earlier bilingual test in this project asserted Arabic against an English rendering
+           because `SetLocate` overwrites `app()->setLocale()`. */
+        $this->assertArrayHasKey($arabicLabel, $raw, 'the wallet tile did not render in Arabic');
+        $this->assertSame("\u{2066}1,234.56 SYP\u{2069}", $raw[$arabicLabel]['value']);
     }
 }

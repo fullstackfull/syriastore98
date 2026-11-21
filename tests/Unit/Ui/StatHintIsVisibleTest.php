@@ -289,7 +289,7 @@ class StatHintIsVisibleTest extends TestCase
      * measured as nine across five, and the error reached three committed documents before the
      * recount caught it.
      */
-    public function test_twenty_five_hints_on_this_component_across_nine_files(): void
+    public function test_the_hint_count_on_this_component_is_the_measured_one_across_nine_files(): void
     {
         $views = base_path('resources/views');
         $hits = [];
@@ -369,7 +369,13 @@ class StatHintIsVisibleTest extends TestCase
         // on purpose. Its hint is therefore not decoration -- it is the only thing on the card that
         // explains why the two numbers differ. The file count stays at nine because `_sales_stats`
         // already had hints.
-        $this->assertCount(25, $hits,
+        // 25 -> 26 [GAP-222]: `finance/index.blade.php` gains the wallet tile's hint, which carries D2's
+        // "A running balance, not revenue." plus the currency disclosure -- the sentence that says the
+        // balance may be held in a DIFFERENT currency from the rest of the page. It replaces a standalone
+        // `<p class="ss-stat__hint">` that the same slice removed, so the hint did not appear from nowhere:
+        // it moved inside the component that associates it with its figure via `aria-describedby`. The file
+        // count stays at nine because this file already had the two ledger tiles' hints.
+        $this->assertCount(26, $hits,
             "x-ss.stat hint count moved. Found:\n  " . implode("\n  ", $hits));
 
         $this->assertCount(9, array_unique($hits),

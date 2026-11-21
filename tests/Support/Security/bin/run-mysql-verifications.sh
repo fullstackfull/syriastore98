@@ -441,6 +441,18 @@ run_one verify-consent-ledger-concurrency-on-mysql \
   "CONSENT_MYSQL_SOCKET=${SOCK}" "CONSENT_MYSQL_HOST=${HOST}" "CONSENT_MYSQL_PORT=${PORT}" \
   "CONSENT_MYSQL_USERNAME=${USER_NAME}" "CONSENT_MYSQL_PASSWORD=${PASS}"
 
+# GAP-222 -- the wallet currency presentation. The one question SQLite cannot answer about it:
+# `store_wallets.currency_code` is a VARCHAR, and MySQL's default collation is case-INSENSITIVE and
+# PAD SPACE while SQLite's is BINARY. So 'SYP', 'syp' and 'SYP  ' are ONE `GROUP BY` bucket here and
+# THREE in the suite -- and the bucket COUNT is what decides whether the tile shows a total or
+# refuses one and lists the amounts. MEASURED: one bucket summing 60.00 on this engine. The
+# `strtoupper(trim())` in MoneyText::buckets() is what makes the two engines agree, and it runs AFTER
+# the engine has grouped. Also covers the DECIMAL(15,2) SUM() coming back as a STRING (a missed cast
+# is invisible under SQLite), the zero-bucket flag both callers depend on, and MySQL coercing
+# `store_id = '7abc'` to 7 where SQLite matches nothing.
+run_one verify-gap222-wallet-currency-on-mysql \
+  "GAP222_MYSQL_SOCKET=${SOCK}" "GAP222_MYSQL_USERNAME=${USER_NAME}" "GAP222_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

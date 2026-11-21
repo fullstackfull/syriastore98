@@ -85,52 +85,34 @@
     </div>
     
     {{-- بطاقات الإحصائيات --}}
-    <div class="col-xl col-md-6 mb-4">
-        <div class="card h-100">
-            <div class="card-body">
-                {{-- D2: THE LABEL SAYS WHAT THE FIGURE IS. It is `store_wallets.available_balance`, a RUNNING
-                     balance: what the merchant may withdraw now. It has no period and is not revenue --
-                     a merchant who withdraws their earnings would otherwise read that sales had fallen. --}}
-                <h6 class="text-muted mb-2">{{ __('Available to withdraw') }}</h6>
-                <h3 class="mb-0">{{ number_format($wallet->available_balance, 2) }}</h3>
-                {{-- `.ss-stat__hint` is the design system's own muted-caption class (colour from `--ss-fg-muted`,
-                     contrast-gated in CI) and stands alone: it does not need an `.ss-stat` parent. Used here
-                     instead of Bootstrap's `.text-muted` so the note follows the theme the way the tiles below do. --}}
-                <p class="ss-stat__hint">{{ __('A running balance, not revenue.') }}</p>
-            </div>
-        </div>
-    </div>
-    <div class="col-xl col-md-6 mb-4">
-        <div class="card h-100">
-            <div class="card-body">
-                <h6 class="text-muted mb-2">{{ __('Pending Withdrawals') }}</h6>
-                <h3 class="mb-0">{{ number_format($wallet->withdrawal_pending_balance, 2) }}</h3>
-            </div>
-        </div>
-    </div>
-    <div class="col-xl col-md-6 mb-4">
-        <div class="card h-100">
-            <div class="card-body">
-                <h6 class="text-muted mb-2">{{ __('Pending Balance') }}</h6>
-                <h3 class="mb-0">{{ number_format($wallet->pending_balance, 2) }}</h3>
-            </div>
-        </div>
-    </div>
-    <div class="col-xl col-md-6 mb-4">
-        <div class="card h-100">
-            <div class="card-body">
-                <h6 class="text-muted mb-2">{{ __('Total Income') }}</h6>
-                <h3 class="mb-0">{{ number_format($wallet->total_income, 2) }}</h3>
-            </div>
-        </div>
-    </div>
-    <div class="col-xl col-md-6 mb-4">
-        <div class="card h-100">
-            <div class="card-body">
-                <h6 class="text-muted mb-2">{{ __('Total Withdrawn') }}</h6>
-                <h3 class="mb-0">{{ number_format($wallet->total_withdrawn, 2) }}</h3>
-            </div>
-        </div>
+    {{-- D2 + GAP-222: THE LABELS SAY WHAT THE FIGURES ARE, AND THE FIGURES SAY WHICH MONEY THEY ARE IN.
+         All five are columns of the SAME `store_wallets` row and were all printed as bare decimals. The
+         first is owner decision D2's third figure: `available_balance` is a RUNNING balance -- what the
+         merchant may withdraw now. It has no period and is not revenue; a merchant who withdraws their own
+         earnings would otherwise read that sales had fallen.
+
+         THE CURRENCY IS THE WALLET'S, NOT THE PAGE'S. `store_wallets.currency_code` is written once when
+         the wallet is provisioned, from `defult_currancy`, and nothing rewrites it when that setting later
+         changes -- so a store that switched currency keeps a wallet holding the old one. Nothing here
+         converts: when the two disagree the hint says so and both codes stand.
+
+         ONE GRID, NOT FIVE CARDS. `<x-ss.stat>` is what gives a figure a stated period, a visible caveat
+         and the bidi isolates that keep `amount CODE` together on an Arabic page, and `.ss-stat` needs its
+         `.ss-stats` parent for the grid and hairlines. The caveat is carried once, by the tile it qualifies,
+         rather than repeated five times on one card. --}}
+    <div class="col-12 mb-4">
+        <x-ss.stats :label="__('Wallet')">
+            <x-ss.stat :label="__('Available to withdraw')"
+                   :value="$walletFigure['value']"
+                   :period="$walletFigure['period']"
+                   :hint="$walletFigure['hint']" />
+
+            @foreach ($walletFigure['siblings'] as $siblingLabel => $siblingValue)
+                <x-ss.stat :label="__($siblingLabel)"
+                       :value="$siblingValue"
+                       :period="$walletFigure['period']" />
+            @endforeach
+        </x-ss.stats>
     </div>
 </div>
 

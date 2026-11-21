@@ -4307,5 +4307,11 @@
     "Flat amount": "Flat amount",
     "One item": "One item",
     "More than one item": "More than one item",
-    "Expiry": "Expiry"
+    "Expiry": "Expiry",
+    "Wallet": "Wallet",
+    "No wallet has been opened for this store yet, so there is no balance to show.": "No wallet has been opened for this store yet, so there is no balance to show.",
+    "This store has balances in more than one currency and they are not combined: :amounts.": "This store has balances in more than one currency and they are not combined: :amounts.",
+    "This wallet has no currency recorded, so it is shown in your store currency, :store.": "This wallet has no currency recorded, so it is shown in your store currency, :store.",
+    "This wallet is held in :wallet, and your store currency is :store. The two are not converted.": "This wallet is held in :wallet, and your store currency is :store. The two are not converted.",
+    "This figure has no period: it is the balance right now, so the dates on this page do not change it.": "This figure has no period: it is the balance right now, so the dates on this page do not change it."
 }

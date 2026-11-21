@@ -84,11 +84,6 @@ final class FinanceLedgerFigures
 {
     private const FALLBACK_CURRENCY = 'USD';
 
-    /** U+2066 / U+2069: isolate a run so it is laid out left-to-right whatever the paragraph direction. */
-    private const LRI = "\u{2066}";
-
-    private const PDI = "\u{2069}";
-
     /**
      * @param  ?MetricWindow  $requested  the window the merchant chose, or null to read the whole verified period
      * @param  ?string  $requestedLabel  how that window is named on the surface, kept when nothing was clamped
@@ -221,7 +216,7 @@ final class FinanceLedgerFigures
     /** An amount (with its sign and code) as one left-to-right unit. */
     private static function ltr(string $text): string
     {
-        return self::LRI.$text.self::PDI;
+        return MoneyText::isolate($text);
     }
 
     /**
@@ -232,17 +227,10 @@ final class FinanceLedgerFigures
      */
     private static function realBuckets(array $byCurrency): array
     {
-        $merged = [];
-
-        foreach ($byCurrency as $currency => $amount) {
-            $code = strtoupper(trim((string) $currency));
-            $merged[$code] = round(($merged[$code] ?? 0.0) + (float) $amount, 2);
-        }
-
-        // Alphabetical, so the list reads the same whichever order the engine's GROUP BY happened to return.
-        ksort($merged);
-
-        return array_filter($merged, static fn (float $amount): bool => abs($amount) >= 0.005);
+        /* `true`: a ledger drops a currency nothing was really paid in, so a rounding artefact does
+           not send the tile to the mixed-currency refusal. The WALLET figure passes `false` for the
+           opposite and equally deliberate reason -- MoneyText::buckets() writes both out. */
+        return MoneyText::buckets($byCurrency, true);
     }
 
     /**

@@ -4303,5 +4303,11 @@
     "Flat amount": "مبلغ ثابت",
     "One item": "عنصر واحد",
     "More than one item": "أكثر من عنصر",
-    "Expiry": "انتهاء الصلاحية"
+    "Expiry": "انتهاء الصلاحية",
+    "Wallet": "المحفظة",
+    "No wallet has been opened for this store yet, so there is no balance to show.": "لم تُفتح محفظة لهذا المتجر بعد، فلا يوجد رصيد لعرضه.",
+    "This store has balances in more than one currency and they are not combined: :amounts.": "لهذا المتجر أرصدة بأكثر من عملة ولا تُجمع معًا: :amounts.",
+    "This wallet has no currency recorded, so it is shown in your store currency, :store.": "لا توجد عملة مسجَّلة لهذه المحفظة، لذلك تُعرض بعملة متجرك :store.",
+    "This wallet is held in :wallet, and your store currency is :store. The two are not converted.": "هذه المحفظة بعملة :wallet، وعملة متجرك :store. ولا يُجرى أي تحويل بينهما.",
+    "This figure has no period: it is the balance right now, so the dates on this page do not change it.": "هذا الرقم بلا فترة زمنية: إنه الرصيد في هذه اللحظة، لذلك لا تُغيّره التواريخ في هذه الصفحة."
 }

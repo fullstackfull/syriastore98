@@ -513,7 +513,11 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            backfilled, so a redemption figure needs a derived start rather than a hard-coded cut-over date.
            Scoped by `where('orders.store_id', $storeId)`; classified on the `orders` row below.
            `order_coupon_details` has no model and no `store_id` column, so the join adds no per-table row. */
-        $this->assertSame(['app' => 193, 'packages' => 45], $perDir,
+        /* 193 -> 194 [GAP-222]: `WalletEntitlementFigure::siblings()` is one new literal-table SELECT in
+           app/, on `store_wallets`, carrying `where('store_wallets.store_id', $storeId)`. It is raw only
+           because the four SUM() aliases must be spelled; nothing about it is unscoped, and no wallet
+           figure writes. `packages` does not move -- GAP-222 touches no vendored file. */
+        $this->assertSame(['app' => 194, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -620,7 +624,8 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         /* 236 -> 237 [P1-SEC-67b]: the `users.type` probe in StoreScope (see the per-directory note); it names no `store_id`, so it is also +1 unscoped. */
         /* 237 -> 238 [P5-5]: `CouponRedemptionCoverage::forStore()`, which names `store_id`; the unscoped
            totals do not move. See the note on the per-directory figure above. */
-        $this->assertSame(238, array_sum($perDir));
+        /* 238 -> 239 [GAP-222]: the one new `store_wallets` SELECT in `WalletEntitlementFigure::siblings()`. */
+        $this->assertSame(239, array_sum($perDir));
     }
 
     /**
@@ -866,7 +871,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // on them. Neither table is in `scoped_models` either, so the predicate at the call
             // site is the only one there is.
             'store_wallet_transactions' => [1, 0],
-            'store_wallets' => [1, 0],
+            // 1 -> 2 WITH GAP-222, AND STILL 0 UNSCOPED. `WalletEntitlementFigure::siblings()`
+            // reads the four wallet columns beside `available_balance` for the /finance card, with
+            // `where('store_wallets.store_id', $storeId)` -- the store id the handler already
+            // resolved, never a request value. It is a raw SELECT only because the four SUM()
+            // aliases have to be spelled, and it is a READ: no wallet figure writes anything.
+            'store_wallets' => [2, 0],
             'stores' => [24, 23],    // P1-SEC-10 (DeliverySyriaCredential: stores created by a matched owner), P1-SEC-04 (Duo setting rule) and the P0 deletion guard; the Zid controller's own stores read is gone.
                                      // 20 -> 23 and 20 -> 22 with ModuleStorefrontInputGuard: two slug resolutions (no store_id to predicate on yet) and the thread read's by-id lookup, whose statement names `store_id` because the id comes from the body and is compared, not trusted
             // [1, 0], DOWN FROM [2, 0]. The remaining raw statement is the READ at
@@ -996,7 +1006,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            names `store_id`, so it lands in this per-table census (the `orders` row above, 7 -> 8) and the
            companion unscoped total below does NOT move. Its `leftJoin` target `order_coupon_details` has no
            `store_id` column at all, which is why that side carries no predicate -- see the `orders` row. */
-        $this->assertSame(186, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        /* 186 -> 187 [GAP-222]: the same single `store_wallets` SELECT as the per-directory note above --
+           attributable to its table, so it lands here, and scoped, so the unscoped total does not move. */
+        $this->assertSame(187, array_sum(array_map(fn ($r) => $r[0], $actual)),
             'THE FIGURES INSIDE THIS MESSAGE ARE THE 2026-11-02 MEASUREMENT AND ARE NOT RATCHETED; '
             . 'the current totals are the ones ASSERTED above and in the dated notes beside them. '
             . 'That split is itself one of this file\'s findings, recorded rather than tidied away '

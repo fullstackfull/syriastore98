@@ -1159,10 +1159,20 @@ class StoreFinanceController extends Controller
          */
         $ledgerFigures = \App\Support\Metrics\FinanceLedgerFigures::forStore((int) $storeId, (string) $currencyCode);
 
+        /*
+         | GAP-222. `Available to withdraw` is the third of D2's four figures and was the only one
+         | printed as a bare decimal -- right number, no currency, on the tile whose currency is the
+         | likeliest on this page to differ, because `store_wallets.currency_code` is written once at
+         | provisioning and nothing rewrites it when `defult_currancy` changes. Read-only; converts
+         | nothing. See App\Support\Metrics\WalletEntitlementFigure.
+         */
+        $walletFigure = \App\Support\Metrics\WalletEntitlementFigure::forStore((int) $storeId, (string) $currencyCode);
+
         return view(
             'finance.index',
             compact(
                 'ledgerFigures',
+                'walletFigure',
                 'wallet',
                 'transactions',
                 'orderFinancials',
