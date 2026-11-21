@@ -44,6 +44,26 @@ class SavedViewPolicy
         'product' => 'Manage Products',
         // ANA-002's saved reporting periods. Same permission as the screen's own door.
         'analytics' => 'Manage Reports',
+        /*
+         * MKT-002's five Marketing screens. EACH TAKES ITS OWN SCREEN'S DOOR, read off
+         * `CompanyMenuListener:613-676` -- so whoever may see a list may save a view of it, and
+         * nobody else. `SavedViewIsolationTest` asserts this map and `TableFilterMemory::VOCABULARY`
+         * cover each other in BOTH directions, and it is what caught these five missing: a screen
+         * with filters and no permission has unreachable saved views, which looks like a broken
+         * Save button rather than a missing line.
+         *
+         * NONE OF THE FIVE IS IN `OWNER_ADMITTED_SCREENS`, and that is deliberate rather than an
+         * omission. `/analytics` is there because its own door admits the tenant owner without the
+         * permission row, so without the exception the owner would read the screen and be refused
+         * its Save button. These five are the opposite case: all five controllers gate on
+         * `isAbleTo()` ALONE (GAP-218), so the owner is already refused the SCREEN. Admitting them
+         * here would make saving a view more permissive than seeing the list it describes.
+         */
+        'coupon' => 'Manage Coupon',
+        'newsletter' => 'Manage Newsletter',
+        'flash-sale' => 'Manage Flash Sale',
+        'wishlist' => 'Manage Wishlist',
+        'abandon-cart' => 'Manage Cart',
     ];
 
     /**
