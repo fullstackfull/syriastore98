@@ -15,6 +15,7 @@ use App\Models\ProductBrand;
 use App\Models\Utility;
 use App\Support\Metrics\FinanceLedgerFigures;
 use App\Support\Reports\CalendarPeriod;
+use App\Support\Tenancy\OperatorStoreSelection;
 use App\Support\Metrics\MetricWindow;
 use App\Support\Reports\ReportFigureNote;
 use Carbon\Carbon;
@@ -82,7 +83,7 @@ class ReportController extends Controller
 
     public function reports_chart(Request $request)
     {
-        $store_id = getStoreById(getCurrentStore());
+        $store_id = getStoreById(OperatorStoreSelection::reportStoreId());
         if ($request->chart_data == 'last-month') {
             $data = 'last-month';
             /*
@@ -92,10 +93,10 @@ class ReportController extends Controller
              */
             $period = CalendarPeriod::lastMonth();
             $lastMonth = Carbon::parse($period['from']);
-            $guest = Order::where('store_id', getCurrentStore())->where('is_guest', '=', 1)->whereYear('order_date', $lastMonth->format('Y'))->whereMonth('order_date', $lastMonth->format('m'))->get()->count();
-            $customer = Order::where('store_id', getCurrentStore())->where('is_guest', '=', 0)->whereYear('order_date', $lastMonth->format('Y'))->whereMonth('order_date', $lastMonth->format('m'))->get()->count();
+            $guest = Order::where('store_id', OperatorStoreSelection::reportStoreId())->where('is_guest', '=', 1)->whereYear('order_date', $lastMonth->format('Y'))->whereMonth('order_date', $lastMonth->format('m'))->get()->count();
+            $customer = Order::where('store_id', OperatorStoreSelection::reportStoreId())->where('is_guest', '=', 0)->whereYear('order_date', $lastMonth->format('Y'))->whereMonth('order_date', $lastMonth->format('m'))->get()->count();
 
-            $customer_total = Customer::where('store_id', getCurrentStore())->where('regiester_date', '!=', NULL)->whereYear('regiester_date', $lastMonth->format('Y'))->whereMonth('regiester_date', $lastMonth->format('m'))->get()->count();
+            $customer_total = Customer::where('store_id', OperatorStoreSelection::reportStoreId())->where('regiester_date', '!=', NULL)->whereYear('regiester_date', $lastMonth->format('Y'))->whereMonth('regiester_date', $lastMonth->format('m'))->get()->count();
             $totaluser = $guest + $customer;
 
 
@@ -120,19 +121,19 @@ class ReportController extends Controller
             $start = strtotime($period['from']);
             $end = strtotime($period['to']);
 
-            $user->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 0)->where('store_id', getCurrentStore());
+            $user->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 0)->where('store_id', OperatorStoreSelection::reportStoreId());
             $user = $user->get();
 
             $register_customer = Customer::selectRaw('customers.*,DATE(regiester_date) as DATE,MONTH(regiester_date) as month');
-            $register_customer->whereDate('regiester_date', '>=', date('Y-m-01', $start))->whereDate('regiester_date', '<=', date('Y-m-t', $end))->where('regiester_date', '!=', NULL)->where('store_id', getCurrentStore());
+            $register_customer->whereDate('regiester_date', '>=', date('Y-m-01', $start))->whereDate('regiester_date', '<=', date('Y-m-t', $end))->where('regiester_date', '!=', NULL)->where('store_id', OperatorStoreSelection::reportStoreId());
             $register_customer = $register_customer->get();
 
             $new_guest = Customer::selectRaw('customers.*,DATE(last_active) as DATE,MONTH(last_active) as month');
-            $new_guest->whereDate('last_active', '>=', date('Y-m-01', $start))->whereDate('last_active', '<=', date('Y-m-t', $end))->where('regiester_date', '=', NULL)->where('store_id', getCurrentStore());
+            $new_guest->whereDate('last_active', '>=', date('Y-m-01', $start))->whereDate('last_active', '<=', date('Y-m-t', $end))->where('regiester_date', '=', NULL)->where('store_id', OperatorStoreSelection::reportStoreId());
             $new_guest = $new_guest->get();
 
             $guests = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $guests->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 1)->where('store_id', getCurrentStore());
+            $guests->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 1)->where('store_id', OperatorStoreSelection::reportStoreId());
             $guests = $guests->get();
 
             $userTotalArray = [];
@@ -178,9 +179,9 @@ class ReportController extends Controller
             $monthList = $month = $this->getLastMonthDatesFormatted();
         } elseif ($request->chart_data == 'this-month') {
 
-            $guest = Order::where('store_id', getCurrentStore())->where('is_guest', '=', 1)->whereYear('order_date', date('Y'))->whereMonth('order_date', date('m'))->get()->count();
-            $customer = Order::where('store_id', getCurrentStore())->where('is_guest', '=', 0)->whereYear('order_date', date('Y'))->whereMonth('order_date', date('m'))->get()->count();
-            $customer_total = Customer::where('store_id', getCurrentStore())->where('regiester_date', '!=', NULL)->whereYear('regiester_date', date('Y'))->whereMonth('regiester_date', date('m'))->get()->count();
+            $guest = Order::where('store_id', OperatorStoreSelection::reportStoreId())->where('is_guest', '=', 1)->whereYear('order_date', date('Y'))->whereMonth('order_date', date('m'))->get()->count();
+            $customer = Order::where('store_id', OperatorStoreSelection::reportStoreId())->where('is_guest', '=', 0)->whereYear('order_date', date('Y'))->whereMonth('order_date', date('m'))->get()->count();
+            $customer_total = Customer::where('store_id', OperatorStoreSelection::reportStoreId())->where('regiester_date', '!=', NULL)->whereYear('regiester_date', date('Y'))->whereMonth('regiester_date', date('m'))->get()->count();
             $totaluser = $guest + $customer;
 
 
@@ -189,20 +190,20 @@ class ReportController extends Controller
             $end = strtotime(date('Y-m-t'));
             $day = (int) date('j', strtotime($end));
 
-            $user->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 0)->where('store_id', getCurrentStore());
+            $user->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 0)->where('store_id', OperatorStoreSelection::reportStoreId());
             $user = $user->get();
 
 
             $register_customer = Customer::selectRaw('customers.*,DATE(regiester_date) as DATE,MONTH(regiester_date) as month');
-            $register_customer->whereDate('regiester_date', '>=', date('Y-m-01', $start))->whereDate('regiester_date', '<=', date('Y-m-t', $end))->where('regiester_date', '!=', NULL)->where('store_id', getCurrentStore());
+            $register_customer->whereDate('regiester_date', '>=', date('Y-m-01', $start))->whereDate('regiester_date', '<=', date('Y-m-t', $end))->where('regiester_date', '!=', NULL)->where('store_id', OperatorStoreSelection::reportStoreId());
             $register_customer = $register_customer->get();
 
             $new_guest = Customer::selectRaw('customers.*,DATE(last_active) as DATE,MONTH(last_active) as month');
-            $new_guest->whereDate('last_active', '>=', date('Y-m-01', $start))->whereDate('last_active', '<=', date('Y-m-t', $end))->where('regiester_date', '=', NULL)->where('store_id', getCurrentStore());
+            $new_guest->whereDate('last_active', '>=', date('Y-m-01', $start))->whereDate('last_active', '<=', date('Y-m-t', $end))->where('regiester_date', '=', NULL)->where('store_id', OperatorStoreSelection::reportStoreId());
             $new_guest = $new_guest->get();
 
             $guests = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $guests->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 1)->where('store_id', getCurrentStore());
+            $guests->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 1)->where('store_id', OperatorStoreSelection::reportStoreId());
             $guests = $guests->get();
 
             $userTotalArray = [];
@@ -237,9 +238,9 @@ class ReportController extends Controller
             $monthList = $month = $this->getCurrentMonthDates();
         } elseif ($request->chart_data == 'seven-day') {
             $startDate = now()->subDays(6);
-            $guest = Order::where('store_id', getCurrentStore())->where('is_guest', 1)->where('order_date', '>', $startDate)->get()->count();
-            $customer = Order::where('store_id', getCurrentStore())->where('is_guest', '=', 0)->where('order_date', '>', $startDate)->get()->count();
-            $customer_total = Customer::where('store_id', getCurrentStore())->where('regiester_date', '!=', NULL)->where('regiester_date', '>', $startDate)->get()->count();
+            $guest = Order::where('store_id', OperatorStoreSelection::reportStoreId())->where('is_guest', 1)->where('order_date', '>', $startDate)->get()->count();
+            $customer = Order::where('store_id', OperatorStoreSelection::reportStoreId())->where('is_guest', '=', 0)->where('order_date', '>', $startDate)->get()->count();
+            $customer_total = Customer::where('store_id', OperatorStoreSelection::reportStoreId())->where('regiester_date', '!=', NULL)->where('regiester_date', '>', $startDate)->get()->count();
             $totaluser = $guest + $customer;
 
 
@@ -253,34 +254,34 @@ class ReportController extends Controller
                 $date = date('Y-m-d', $previous_week);
                 $previous_week = strtotime(date('Y-m-d', $previous_week) . " +1 day");
                 $monthList[] = __(date('d-M', strtotime($date)));
-                $userTotal[] = Order::whereDate('order_date', $date)->where('is_guest', '=', 0)->where('store_id', getCurrentStore())->count();
-                $guestTotal[] = Order::whereDate('order_date', $date)->where('is_guest', '=', 1)->where('store_id', getCurrentStore())->count();
-                $registerTotal[] = Customer::whereDate('regiester_date', $date)->where('regiester_date', '!=', NULL)->where('store_id', getCurrentStore())->count();
-                $newguestTotal[] = Customer::whereDate('last_active', $date)->where('regiester_date', '=', NULL)->where('store_id', getCurrentStore())->count();
+                $userTotal[] = Order::whereDate('order_date', $date)->where('is_guest', '=', 0)->where('store_id', OperatorStoreSelection::reportStoreId())->count();
+                $guestTotal[] = Order::whereDate('order_date', $date)->where('is_guest', '=', 1)->where('store_id', OperatorStoreSelection::reportStoreId())->count();
+                $registerTotal[] = Customer::whereDate('regiester_date', $date)->where('regiester_date', '!=', NULL)->where('store_id', OperatorStoreSelection::reportStoreId())->count();
+                $newguestTotal[] = Customer::whereDate('last_active', $date)->where('regiester_date', '=', NULL)->where('store_id', OperatorStoreSelection::reportStoreId())->count();
             }
         } elseif ($request->chart_data == 'year') {
 
-            $guest = Order::where('store_id', getCurrentStore())->where('is_guest', '=', 1)->whereYear('order_date', date('Y'))->get()->count();
-            $customer = Order::where('store_id', getCurrentStore())->where('is_guest', '=', 0)->whereYear('order_date', date('Y'))->get()->count();
-            $customer_total = Customer::where('store_id', getCurrentStore())->where('regiester_date', '!=', NULL)->whereYear('regiester_date', date('Y'))->get()->count();
+            $guest = Order::where('store_id', OperatorStoreSelection::reportStoreId())->where('is_guest', '=', 1)->whereYear('order_date', date('Y'))->get()->count();
+            $customer = Order::where('store_id', OperatorStoreSelection::reportStoreId())->where('is_guest', '=', 0)->whereYear('order_date', date('Y'))->get()->count();
+            $customer_total = Customer::where('store_id', OperatorStoreSelection::reportStoreId())->where('regiester_date', '!=', NULL)->whereYear('regiester_date', date('Y'))->get()->count();
             $totaluser = $guest + $customer;
 
             $user = Order::selectRaw('orders.*,MONTH(order_date) as month,YEAR(order_date) as year');
             $start = strtotime(date('Y-01'));
             $end = strtotime(date('Y-12'));
-            $user->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 0)->where('store_id', getCurrentStore());
+            $user->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 0)->where('store_id', OperatorStoreSelection::reportStoreId());
             $user = $user->get();
 
             $guests = Order::selectRaw('orders.*,MONTH(order_date) as month,YEAR(order_date) as year');
-            $guests->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 1)->where('store_id', getCurrentStore());
+            $guests->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 1)->where('store_id', OperatorStoreSelection::reportStoreId());
             $guests = $guests->get();
 
             $register_customer = Customer::selectRaw('customers.*,MONTH(regiester_date) as month,YEAR(regiester_date) as year');
-            $register_customer->whereDate('regiester_date', '>=', date('Y-m-01', $start))->whereDate('regiester_date', '<=', date('Y-m-t', $end))->where('regiester_date', '!=', NULL)->where('store_id', getCurrentStore());
+            $register_customer->whereDate('regiester_date', '>=', date('Y-m-01', $start))->whereDate('regiester_date', '<=', date('Y-m-t', $end))->where('regiester_date', '!=', NULL)->where('store_id', OperatorStoreSelection::reportStoreId());
             $register_customer = $register_customer->get();
 
             $new_guest = Customer::selectRaw('customers.*,MONTH(last_active) as month,YEAR(last_active) as year');
-            $new_guest->whereDate('last_active', '>=', date('Y-m-01', $start))->whereDate('last_active', '<=', date('Y-m-t', $end))->where('regiester_date', '=', NULL)->where('store_id', getCurrentStore());
+            $new_guest->whereDate('last_active', '>=', date('Y-m-01', $start))->whereDate('last_active', '<=', date('Y-m-t', $end))->where('regiester_date', '=', NULL)->where('store_id', OperatorStoreSelection::reportStoreId());
             $new_guest = $new_guest->get();
 
 
@@ -323,31 +324,31 @@ class ReportController extends Controller
                 $form_date = date('Y-m-d', strtotime($request->Date));
                 $to_date = date('Y-m-d', strtotime($request->Date));
             }
-            $guest = Order::whereDate('order_date', '>=', $form_date)->whereDate('order_date', '<=', $to_date)->where('is_guest', '=', 1)->where('store_id', getCurrentStore())->count();
-            $customer = Order::whereDate('order_date', '>=', $form_date)->whereDate('order_date', '<=', $to_date)->where('is_guest', '=', 0)->where('store_id', getCurrentStore())->count();
+            $guest = Order::whereDate('order_date', '>=', $form_date)->whereDate('order_date', '<=', $to_date)->where('is_guest', '=', 1)->where('store_id', OperatorStoreSelection::reportStoreId())->count();
+            $customer = Order::whereDate('order_date', '>=', $form_date)->whereDate('order_date', '<=', $to_date)->where('is_guest', '=', 0)->where('store_id', OperatorStoreSelection::reportStoreId())->count();
 
-            $customer_total = Customer::whereDate('regiester_date', '>=', $form_date)->whereDate('regiester_date', '<=', $to_date)->where('regiester_date', '!=', NULL)->where('store_id', getCurrentStore())->count();
+            $customer_total = Customer::whereDate('regiester_date', '>=', $form_date)->whereDate('regiester_date', '<=', $to_date)->where('regiester_date', '!=', NULL)->where('store_id', OperatorStoreSelection::reportStoreId())->count();
 
             $totaluser = $guest + $customer;
 
             $user = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
             $user->whereDate('order_date', '>=', $form_date)
-                ->whereDate('order_date', '<=', $to_date)->where('is_guest', '=', 0)->where('store_id', getCurrentStore());
+                ->whereDate('order_date', '<=', $to_date)->where('is_guest', '=', 0)->where('store_id', OperatorStoreSelection::reportStoreId());
             $user = $user->get();
 
             $guests = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
             $guests->whereDate('order_date', '>=', $form_date)
-                ->whereDate('order_date', '<=', $to_date)->where('store_id', getCurrentStore())->where('is_guest', '=', 1);
+                ->whereDate('order_date', '<=', $to_date)->where('store_id', OperatorStoreSelection::reportStoreId())->where('is_guest', '=', 1);
             $guests = $guests->get();
 
             $register_customer = Customer::selectRaw('customers.*,DATE(regiester_date) as DATE,MONTH(regiester_date) as month');
             $register_customer->whereDate('regiester_date', '>=', $form_date)
-                ->whereDate('regiester_date', '<=', $to_date)->where('store_id', getCurrentStore())->where('regiester_date', '!=', NULL);
+                ->whereDate('regiester_date', '<=', $to_date)->where('store_id', OperatorStoreSelection::reportStoreId())->where('regiester_date', '!=', NULL);
             $register_customer = $register_customer->get();
 
             $new_guest = Customer::selectRaw('customers.*,DATE(last_active) as DATE,MONTH(last_active) as month');
             $new_guest->whereDate('last_active', '>=', $form_date)
-                ->whereDate('last_active', '<=', $to_date)->where('store_id', getCurrentStore())->where('regiester_date', '=', NULL);
+                ->whereDate('last_active', '<=', $to_date)->where('store_id', OperatorStoreSelection::reportStoreId())->where('regiester_date', '=', NULL);
             $new_guest = $new_guest->get();
 
             $userTotalArray = [];
@@ -360,7 +361,7 @@ class ReportController extends Controller
             $userTotal = [];
             $monthLists = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
             $monthLists = Order::whereDate('order_date', '>=', $form_date)
-                ->whereDate('order_date', '<=', $to_date)->where('store_id', getCurrentStore());
+                ->whereDate('order_date', '<=', $to_date)->where('store_id', OperatorStoreSelection::reportStoreId());
             $monthLists = $monthLists->get();
 
             foreach ($monthLists as $monthLists_date) {
@@ -600,13 +601,17 @@ class ReportController extends Controller
      */
     private function salesCollectionTile(Request $request, string $periodLabel): ?array
     {
-        $caller = auth()->user();
-
-        if ($caller !== null && \App\Policies\UserPolicy::isOperator($caller) && empty($caller->current_store)) {
+        /*
+         * ONE DEFINITION OF "the operator has chosen no store". This limb was spelled inline here by
+         * ANA-005 -- `isOperator($caller) && empty($caller->current_store)` -- and GAP-223(b) gave the
+         * same predicate a name. Two spellings of one rule is how an operator limb drifts out of
+         * agreement with the helper it guards, so this now calls the shared one.
+         */
+        if (OperatorStoreSelection::unchosen()) {
             return null;
         }
 
-        $storeId = (int) getCurrentStore();
+        $storeId = OperatorStoreSelection::reportStoreId();
 
         if ($storeId <= 0) {
             return null;
@@ -718,7 +723,7 @@ class ReportController extends Controller
 
     public function order_reports_chart(Request $request)
     {
-        $store_id = getStoreById(getCurrentStore());
+        $store_id = getStoreById(OperatorStoreSelection::reportStoreId());
         $currency = Utility::GetValueByName('CURRENCY');
         if ($request->chart_data == 'last-month') {
             $data = 'last-month';
@@ -729,8 +734,8 @@ class ReportController extends Controller
             $start = strtotime($period['from']);
             $end = strtotime($period['to']);
 
-            $customer = Order::where('store_id', getCurrentStore())->whereYear('order_date', date('Y'))->get()->count();
-            $customer_total = Customer::where('store_id', getCurrentStore())->where('regiester_date', '!=', NULL)->whereYear('regiester_date', date('Y'))->get()->count();
+            $customer = Order::where('store_id', OperatorStoreSelection::reportStoreId())->whereYear('order_date', date('Y'))->get()->count();
+            $customer_total = Customer::where('store_id', OperatorStoreSelection::reportStoreId())->where('regiester_date', '!=', NULL)->whereYear('regiester_date', date('Y'))->get()->count();
             $totaluser = 0;
             $guest = '';
 
@@ -740,7 +745,7 @@ class ReportController extends Controller
             $lastday = $period['days'];
 
             $orders = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
+            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', OperatorStoreSelection::reportStoreId());
             $orders = $orders->get();
             $TotalOrder = $orders->count();
 
@@ -806,7 +811,7 @@ class ReportController extends Controller
             $day = (int) date('j', strtotime($end));
 
             $orders = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
+            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', OperatorStoreSelection::reportStoreId());
             $orders = $orders->get();
             $TotalOrder = $orders->count();
 
@@ -896,7 +901,7 @@ class ReportController extends Controller
                 $monthList[] = __(date('d-M', strtotime($date)));
 
                 $ordersForDate = Order::whereDate('order_date', $date)
-                    ->where('store_id', getCurrentStore())
+                    ->where('store_id', OperatorStoreSelection::reportStoreId())
                     ->get();
                 $TotalOrder += $ordersForDate->count();
                 $totalPurchasedItemsForDate = 0;
@@ -916,45 +921,45 @@ class ReportController extends Controller
                 $PurchasedItemTotal[] = $totalPurchasedItemsForDate;
 
                 $totalOrdersForDate = Order::whereDate('order_date', $date)
-                    ->where('store_id', getCurrentStore())
+                    ->where('store_id', OperatorStoreSelection::reportStoreId())
                     ->count();
 
-                $GrossSaleTotal[] = Order::whereDate('order_date', $date)->where('store_id', getCurrentStore())->get()->sum('final_price');
+                $GrossSaleTotal[] = Order::whereDate('order_date', $date)->where('store_id', OperatorStoreSelection::reportStoreId())->get()->sum('final_price');
 
                 $NetSaleTotal[] = Order::whereDate('order_date', $date)
-                    ->where('store_id', getCurrentStore())
+                    ->where('store_id', OperatorStoreSelection::reportStoreId())
                     ->get()
                     ->sum(function ($order) {
                         return $order->final_price - $order->delivery_price - $order->tax_price;
                     });
-                $CouponTotal[] = Order::whereDate('order_date', $date)->where('store_id', getCurrentStore())->get()->sum('coupon_price');
-                $ShippingTotal[] = Order::whereDate('order_date', $date)->where('store_id', getCurrentStore())->get()->sum('delivery_price');
+                $CouponTotal[] = Order::whereDate('order_date', $date)->where('store_id', OperatorStoreSelection::reportStoreId())->get()->sum('coupon_price');
+                $ShippingTotal[] = Order::whereDate('order_date', $date)->where('store_id', OperatorStoreSelection::reportStoreId())->get()->sum('delivery_price');
                 $TotalOrderCount[] = $totalOrdersForDate;
 
                 $averageGrossSales[] = $totalOrdersForDate > 0 ? ($GrossSaleTotal[count($GrossSaleTotal) - 1] / $totalOrdersForDate) : 0;
                 $averageNetSales[] = $totalOrdersForDate > 0 ? ($NetSaleTotal[count($NetSaleTotal) - 1] / $totalOrdersForDate) : 0;
 
-                $TotalgrossSale += Order::whereDate('order_date', $date)->where('store_id', getCurrentStore())->get()->sum('final_price');
+                $TotalgrossSale += Order::whereDate('order_date', $date)->where('store_id', OperatorStoreSelection::reportStoreId())->get()->sum('final_price');
                 $TotalNetSale += Order::whereDate('order_date', $date)
-                    ->where('store_id', getCurrentStore())
+                    ->where('store_id', OperatorStoreSelection::reportStoreId())
                     ->get()
                     ->sum(function ($order) {
                         return $order->final_price - $order->delivery_price - $order->tax_price;
                     });
-                $TotalCouponAmount += Order::whereDate('order_date', $date)->where('store_id', getCurrentStore())->get()->sum('coupon_price');
-                $TotalShippingCharge += Order::whereDate('order_date', $date)->where('store_id', getCurrentStore())->get()->sum('delivery_price');
+                $TotalCouponAmount += Order::whereDate('order_date', $date)->where('store_id', OperatorStoreSelection::reportStoreId())->get()->sum('coupon_price');
+                $TotalShippingCharge += Order::whereDate('order_date', $date)->where('store_id', OperatorStoreSelection::reportStoreId())->get()->sum('delivery_price');
                 $TotalOrderCount[] = $totalOrdersForDate;
             }
         } elseif ($request->chart_data == 'year') {
 
-            $TotalOrder = Order::where('store_id', getCurrentStore())->whereYear('order_date', date('Y'))->get()->count();
+            $TotalOrder = Order::where('store_id', OperatorStoreSelection::reportStoreId())->whereYear('order_date', date('Y'))->get()->count();
 
             $orders = Order::selectRaw('orders.*,MONTH(order_date) as month,YEAR(order_date) as year');
             $start = strtotime(date('Y-01'));
             $end = strtotime(date('Y-12'));
-            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
+            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', OperatorStoreSelection::reportStoreId());
             $orders = $orders->get();
-            $order = Order::where('store_id', getCurrentStore())
+            $order = Order::where('store_id', OperatorStoreSelection::reportStoreId())
                 ->whereYear('order_date', date('Y'))
                 ->get()->count();
 
@@ -1028,7 +1033,7 @@ class ReportController extends Controller
                 $to_date = date('Y-m-d', strtotime($request->Date));
             }
             $orders = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $orders->whereDate('order_date', '>=', $form_date)->whereDate('order_date', '<=', $to_date)->where('store_id', getCurrentStore());
+            $orders->whereDate('order_date', '>=', $form_date)->whereDate('order_date', '<=', $to_date)->where('store_id', OperatorStoreSelection::reportStoreId());
             $orders = $orders->get();
             $TotalOrder = $orders->count();
 
@@ -1050,7 +1055,7 @@ class ReportController extends Controller
 
             $monthLists = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
             $monthLists = Order::whereDate('order_date', '>=', $form_date)
-                ->whereDate('order_date', '<=', $to_date)->where('store_id', getCurrentStore());
+                ->whereDate('order_date', '<=', $to_date)->where('store_id', OperatorStoreSelection::reportStoreId());
             $monthLists = $monthLists->get();
 
             foreach ($monthLists as $monthLists_date) {
@@ -1233,7 +1238,7 @@ class ReportController extends Controller
 
     public function order_reports_chart_data(Request $request)
     {
-        $store_id = getStoreById(getCurrentStore());
+        $store_id = getStoreById(OperatorStoreSelection::reportStoreId());
         $currency = Utility::GetValueByName('CURRENCY');
         if ($request->chart_data == 'last-month') {
             $data = 'last-month';
@@ -1252,9 +1257,9 @@ class ReportController extends Controller
             $start = strtotime($period['from']);
             $end = strtotime($period['to']);
 
-            $TotalOrder = Order::where('store_id', getCurrentStore())->whereYear('order_date', date('Y'))->get()->count();
-            $customer = Order::where('store_id', getCurrentStore())->whereYear('order_date', date('Y'))->get()->count();
-            $customer_total = Customer::where('store_id', getCurrentStore())->where('regiester_date', '!=', NULL)->whereYear('regiester_date', date('Y'))->get()->count();
+            $TotalOrder = Order::where('store_id', OperatorStoreSelection::reportStoreId())->whereYear('order_date', date('Y'))->get()->count();
+            $customer = Order::where('store_id', OperatorStoreSelection::reportStoreId())->whereYear('order_date', date('Y'))->get()->count();
+            $customer_total = Customer::where('store_id', OperatorStoreSelection::reportStoreId())->where('regiester_date', '!=', NULL)->whereYear('regiester_date', date('Y'))->get()->count();
             $totaluser = 0;
             $guest = '';
 
@@ -1265,12 +1270,12 @@ class ReportController extends Controller
             $lastday = $period['days'];
 
             $orders = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
+            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', OperatorStoreSelection::reportStoreId());
             $orders = $orders->get();
             $TotalOrder = $orders->count();
             $TotalOrderCount = Order::selectRaw('orders.*, MONTH(order_date) as month, YEAR(order_date) as year')
                 ->whereBetween('order_date', [$lastMonth, $lastDayofMonth])
-                ->where('store_id', getCurrentStore())
+                ->where('store_id', OperatorStoreSelection::reportStoreId())
                 ->count();
 
             $totalDuePurchaseorder = 0;
@@ -1326,9 +1331,9 @@ class ReportController extends Controller
             $monthList = $month = $this->getLastMonthDatesFormatted();
         } elseif ($request->chart_data == 'this-month') {
 
-            $guest = Order::where('store_id', getCurrentStore())->where('is_guest', '=', 1)->whereYear('order_date', date('Y'))->whereMonth('order_date', date('m'))->get()->count();
-            $customer = Order::where('store_id', getCurrentStore())->where('is_guest', '=', 0)->whereYear('order_date', date('Y'))->whereMonth('order_date', date('m'))->get()->count();
-            $customer_total = Customer::where('store_id', getCurrentStore())->where('regiester_date', '!=', NULL)->whereYear('regiester_date', date('Y'))->get()->count();
+            $guest = Order::where('store_id', OperatorStoreSelection::reportStoreId())->where('is_guest', '=', 1)->whereYear('order_date', date('Y'))->whereMonth('order_date', date('m'))->get()->count();
+            $customer = Order::where('store_id', OperatorStoreSelection::reportStoreId())->where('is_guest', '=', 0)->whereYear('order_date', date('Y'))->whereMonth('order_date', date('m'))->get()->count();
+            $customer_total = Customer::where('store_id', OperatorStoreSelection::reportStoreId())->where('regiester_date', '!=', NULL)->whereYear('regiester_date', date('Y'))->get()->count();
             $totaluser = 0;
             $guest = '';
             $start = strtotime(date('Y-m-01'));
@@ -1336,13 +1341,13 @@ class ReportController extends Controller
             $day = (int) date('j', strtotime($end));
 
             $orders = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
+            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', OperatorStoreSelection::reportStoreId());
             $orders = $orders->get();
             $TotalOrder = $orders->count();
 
             $TotalOrderCount = Order::selectRaw('orders.*, MONTH(order_date) as month, YEAR(order_date) as year')
                 ->whereMonth('order_date', date('m'))
-                ->where('store_id', getCurrentStore())
+                ->where('store_id', OperatorStoreSelection::reportStoreId())
                 ->count();
 
             $totalDuePurchaseorder = 0;
@@ -1402,7 +1407,7 @@ class ReportController extends Controller
 
             $TotalOrderCount = Order::where('order_date', '>=', $startDate)
                 ->where('order_date', '<=', now())
-                ->where('store_id', getCurrentStore())
+                ->where('store_id', OperatorStoreSelection::reportStoreId())
                 ->count();
             $TotalOrder = 0;
             $totalDuePurchaseorder = 0;
@@ -1431,7 +1436,7 @@ class ReportController extends Controller
                 $monthList[] = __(date('d-M', strtotime($date)));
 
                 $ordersForDate = Order::whereDate('order_date', $date)                    
-                    ->where('store_id', getCurrentStore())
+                    ->where('store_id', OperatorStoreSelection::reportStoreId())
                     ->get();
                 $TotalOrder += $ordersForDate->count();
 
@@ -1449,45 +1454,45 @@ class ReportController extends Controller
 
                 $totalOrdersForDate = Order::whereDate('order_date', $date)
                     
-                    ->where('store_id', getCurrentStore())
+                    ->where('store_id', OperatorStoreSelection::reportStoreId())
                     ->count();
 
-                $GrossSaleTotal[] = Order::whereDate('order_date', $date)->where('store_id', getCurrentStore())->get()->sum('final_price');
+                $GrossSaleTotal[] = Order::whereDate('order_date', $date)->where('store_id', OperatorStoreSelection::reportStoreId())->get()->sum('final_price');
                 $NetSaleTotal[] = Order::whereDate('order_date', $date)                    
-                    ->where('store_id', getCurrentStore())
+                    ->where('store_id', OperatorStoreSelection::reportStoreId())
                     ->get()
                     ->sum(function ($order) {
                         return $order->final_price - $order->delivery_price - $order->tax_price;
                     });
-                $CouponTotal[] = Order::whereDate('order_date', $date)->where('store_id', getCurrentStore())->get()->sum('coupon_price');
-                $ShippingTotal[] = Order::whereDate('order_date', $date)->where('store_id', getCurrentStore())->get()->sum('delivery_price');
+                $CouponTotal[] = Order::whereDate('order_date', $date)->where('store_id', OperatorStoreSelection::reportStoreId())->get()->sum('coupon_price');
+                $ShippingTotal[] = Order::whereDate('order_date', $date)->where('store_id', OperatorStoreSelection::reportStoreId())->get()->sum('delivery_price');
 
                 $averageGrossSales[] = $totalOrdersForDate > 0 ? ($GrossSaleTotal[count($GrossSaleTotal) - 1] / $totalOrdersForDate) : 0;
                 $averageNetSales[] = $totalOrdersForDate > 0 ? ($NetSaleTotal[count($NetSaleTotal) - 1] / $totalOrdersForDate) : 0;
 
-                $TotalgrossSale += Order::whereDate('order_date', $date)->where('store_id', getCurrentStore())->get()->sum('final_price');
+                $TotalgrossSale += Order::whereDate('order_date', $date)->where('store_id', OperatorStoreSelection::reportStoreId())->get()->sum('final_price');
                 $TotalNetSale += Order::whereDate('order_date', $date)
                     
-                    ->where('store_id', getCurrentStore())
+                    ->where('store_id', OperatorStoreSelection::reportStoreId())
                     ->get()
                     ->sum(function ($order) {
                         return $order->final_price - $order->delivery_price - $order->tax_price;
                     });
-                $TotalCouponAmount += Order::whereDate('order_date', $date)->where('store_id', getCurrentStore())->get()->sum('coupon_price');
-                $TotalShippingCharge += Order::whereDate('order_date', $date)->where('store_id', getCurrentStore())->get()->sum('delivery_price');
+                $TotalCouponAmount += Order::whereDate('order_date', $date)->where('store_id', OperatorStoreSelection::reportStoreId())->get()->sum('coupon_price');
+                $TotalShippingCharge += Order::whereDate('order_date', $date)->where('store_id', OperatorStoreSelection::reportStoreId())->get()->sum('delivery_price');
             }
         } elseif ($request->chart_data == 'year') {
-            $TotalOrder = Order::where('store_id', getCurrentStore())->whereYear('order_date', date('Y'))->get()->count();
+            $TotalOrder = Order::where('store_id', OperatorStoreSelection::reportStoreId())->whereYear('order_date', date('Y'))->get()->count();
 
             $orders = Order::selectRaw('orders.*,MONTH(order_date) as month,YEAR(order_date) as year');
             $start = strtotime(date('Y-01'));
             $end = strtotime(date('Y-12'));
-            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
+            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', OperatorStoreSelection::reportStoreId());
             $orders = $orders->get();
             $TotalOrderCount = Order::selectRaw('orders.*, MONTH(order_date) as month, YEAR(order_date) as year')
                 ->whereYear('order_date', date('Y')) // Filter by the current year
                 
-                ->where('store_id', getCurrentStore())
+                ->where('store_id', OperatorStoreSelection::reportStoreId())
                 ->get()->count();
 
             $totalgrossSale = 0;
@@ -1558,23 +1563,23 @@ class ReportController extends Controller
             }
 
             $orders = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $orders->whereDate('order_date', '>=', $form_date)->whereDate('order_date', '<=', $to_date)->where('store_id', getCurrentStore());
+            $orders->whereDate('order_date', '>=', $form_date)->whereDate('order_date', '<=', $to_date)->where('store_id', OperatorStoreSelection::reportStoreId());
             $orders = $orders->get();
             $TotalOrder = $orders->count();
 
             $guests = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
             $guests->whereDate('order_date', '>=', $form_date)
-                ->whereDate('order_date', '<=', $to_date)->where('store_id', getCurrentStore())->where('is_guest', '=', 1);
+                ->whereDate('order_date', '<=', $to_date)->where('store_id', OperatorStoreSelection::reportStoreId())->where('is_guest', '=', 1);
             $guests = $guests->get();
 
             $register_customer = Customer::selectRaw('customers.*,DATE(regiester_date) as DATE,MONTH(regiester_date) as month');
             $register_customer->whereDate('regiester_date', '>=', $form_date)
-                ->whereDate('regiester_date', '<=', $to_date)->where('store_id', getCurrentStore())->where('regiester_date', '!=', NULL);
+                ->whereDate('regiester_date', '<=', $to_date)->where('store_id', OperatorStoreSelection::reportStoreId())->where('regiester_date', '!=', NULL);
             $register_customer = $register_customer->get();
 
             $new_guest = Customer::selectRaw('customers.*,DATE(last_active) as DATE,MONTH(last_active) as month');
             $new_guest->whereDate('last_active', '>=', $form_date)
-                ->whereDate('last_active', '<=', $to_date)->where('store_id', getCurrentStore())->where('regiester_date', '=', NULL);
+                ->whereDate('last_active', '<=', $to_date)->where('store_id', OperatorStoreSelection::reportStoreId())->where('regiester_date', '=', NULL);
             $new_guest = $new_guest->get();
 
 
@@ -1582,7 +1587,7 @@ class ReportController extends Controller
                 ->whereDate('order_date', '>=', $form_date)
                 ->whereDate('order_date', '<=', $to_date)
                 
-                ->where('store_id', getCurrentStore())
+                ->where('store_id', OperatorStoreSelection::reportStoreId())
                 ->count();
 
             $totalDuePurchaseorder = 0;
@@ -1604,7 +1609,7 @@ class ReportController extends Controller
 
             $monthLists = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
             $monthLists = Order::whereDate('order_date', '>=', $form_date)
-                ->whereDate('order_date', '<=', $to_date)->where('store_id', getCurrentStore());
+                ->whereDate('order_date', '<=', $to_date)->where('store_id', OperatorStoreSelection::reportStoreId());
             $monthLists = $monthLists->get();
 
             foreach ($monthLists as $monthLists_date) {
@@ -1718,15 +1723,15 @@ class ReportController extends Controller
 
     public function OrderSaleProductReport(Request $request)
     {
-        $store_id = getStoreById(getCurrentStore());
-        $products = Product::where('store_id', getCurrentStore())->pluck('name', 'id');
+        $store_id = getStoreById(OperatorStoreSelection::reportStoreId());
+        $products = Product::where('store_id', OperatorStoreSelection::reportStoreId())->pluck('name', 'id');
         return view('reports.sale_by_product', compact('products'));
     }
 
 
     public function order_product_reports(Request $request)
     {
-        $store_id = getStoreById(getCurrentStore());
+        $store_id = getStoreById(OperatorStoreSelection::reportStoreId());
 
         $currency = Utility::GetValueByName('CURRENCY');
         if ($request->chart_data == 'last-month') {
@@ -1740,7 +1745,7 @@ class ReportController extends Controller
                    so `all()` really is every row in the table; the PHP filter then kept the right
                    ones, so nothing leaked — but a report on a store with ten products read the
                    whole platform's product table to find them. The predicate belongs in SQL. */
-                $selectedProducts = Product::where('store_id', getCurrentStore())->pluck('id');
+                $selectedProducts = Product::where('store_id', OperatorStoreSelection::reportStoreId())->pluck('id');
             }
             $PurchasedItem = 0;
             $Totalsale = 0;
@@ -1768,7 +1773,7 @@ class ReportController extends Controller
 
                         $orders = Order::selectRaw('orders.*, DATE(order_date) as DATE, MONTH(order_date) as month')
                             
-                            ->where('store_id', getCurrentStore())
+                            ->where('store_id', OperatorStoreSelection::reportStoreId())
                             ->where('order_date', '>=', $startOfDay)
                             ->where('order_date', '<=', $endOfDay)
                             ->get();
@@ -1822,7 +1827,7 @@ class ReportController extends Controller
             $PurchasedItem = 0;
             if (empty($selectedProducts)) {
                 /* Scoped in SQL, not in PHP — see the note at the first of these. */
-                $selectedProducts = Product::where('store_id', getCurrentStore())->pluck('id');
+                $selectedProducts = Product::where('store_id', OperatorStoreSelection::reportStoreId())->pluck('id');
             }
             if (!empty($selectedProducts)) {
                 foreach ($selectedProducts as $productId) {
@@ -1834,7 +1839,7 @@ class ReportController extends Controller
                         $startOfDay = "$currentYear-$currentMonth-" . sprintf('%02d', $day);
                         $endOfDay = "$currentYear-$currentMonth-" . sprintf('%02d', $day) . ' 23:59:59';
 
-                        $orders = Order::where('store_id', getCurrentStore())
+                        $orders = Order::where('store_id', OperatorStoreSelection::reportStoreId())
                             ->whereBetween('order_date', [$startOfDay, $endOfDay])
                             ->get();
 
@@ -1884,7 +1889,7 @@ class ReportController extends Controller
 
                     $orders = Order::whereBetween('order_date', [$startOfDay, $endOfDay])
                         
-                        ->where('store_id', getCurrentStore())
+                        ->where('store_id', OperatorStoreSelection::reportStoreId())
                         ->get();
 
                     foreach ($orders as $order) {
@@ -1920,7 +1925,7 @@ class ReportController extends Controller
 
                     $orders = Order::whereBetween('order_date', [$startOfDay, $endOfDay])
                         
-                        ->where('store_id', getCurrentStore())
+                        ->where('store_id', OperatorStoreSelection::reportStoreId())
                         ->get();
 
                     foreach ($orders as $order) {
@@ -1946,7 +1951,7 @@ class ReportController extends Controller
             $PurchasedItemTotal = [];
             if (empty($selectedProducts)) {
                 /* Scoped in SQL, not in PHP — see the note at the first of these. */
-                $selectedProducts = Product::where('store_id', getCurrentStore())->pluck('id');
+                $selectedProducts = Product::where('store_id', OperatorStoreSelection::reportStoreId())->pluck('id');
             }
             $Totalsale = 0;
             $PurchasedItem = 0;
@@ -1962,7 +1967,7 @@ class ReportController extends Controller
                         $startOfMonth = date('Y-m-01', strtotime(date('Y') . '-' . $i . '-01'));
                         $endOfMonth = date('Y-m-t', strtotime(date('Y') . '-' . $i . '-01'));
 
-                        $orders = Order::where('store_id', getCurrentStore())
+                        $orders = Order::where('store_id', OperatorStoreSelection::reportStoreId())
                             ->where('order_date', '>=', $startOfMonth)
                             ->where('order_date', '<=', $endOfMonth)
                             ->get();
@@ -2036,7 +2041,7 @@ class ReportController extends Controller
                 ->whereDate('order_date', '>=', $from_date)
                 ->whereDate('order_date', '<=', $to_date)
                 
-                ->where('store_id', getCurrentStore())
+                ->where('store_id', OperatorStoreSelection::reportStoreId())
                 ->get();
 
             $netSaleTotalArray = [];
@@ -2142,14 +2147,14 @@ class ReportController extends Controller
 
     public function OrderSaleCategoryReport(Request $request)
     {
-        $store_id = getStoreById(getCurrentStore());
-        $MainCategoryList = Category::where('status', 1)->where('store_id', getCurrentStore())->pluck('name', 'id');
+        $store_id = getStoreById(OperatorStoreSelection::reportStoreId());
+        $MainCategoryList = Category::where('status', 1)->where('store_id', OperatorStoreSelection::reportStoreId())->pluck('name', 'id');
         return view('reports.sale_by_category', compact('MainCategoryList'));
     }
 
     public function order_category_reports(Request $request)
     {
-        $store_id = getStoreById(getCurrentStore());
+        $store_id = getStoreById(OperatorStoreSelection::reportStoreId());
         $currency = Utility::GetValueByName('CURRENCY');
         if ($request->chart_data == 'last-month') {
             $selectedCategory = $this->reportSelectionWithinCurrentStore(Category::class, $request->selectedCategory);
@@ -2163,7 +2168,7 @@ class ReportController extends Controller
 
             if (empty($selectedCategory)) {
                 /* Scoped in SQL, not in PHP — see the note at the first of these. */
-                $selectedCategory = Category::where('store_id', getCurrentStore())->pluck('id');
+                $selectedCategory = Category::where('store_id', OperatorStoreSelection::reportStoreId())->pluck('id');
             }
 
             $categoryNetSales = [];
@@ -2175,7 +2180,7 @@ class ReportController extends Controller
                 }
             }
 
-            $orders = Order::where('store_id', getCurrentStore())
+            $orders = Order::where('store_id', OperatorStoreSelection::reportStoreId())
                 ->whereYear('order_date', $year)
                 ->whereBetween('order_date', [$firstDayOfPreviousMonth, $lastDayOfPreviousMonth])
                 ->get();
@@ -2237,7 +2242,7 @@ class ReportController extends Controller
 
             if (empty($selectedCategory)) {
                 /* Scoped in SQL, not in PHP — see the note at the first of these. */
-                $selectedCategory = Category::where('store_id', getCurrentStore())->pluck('id');
+                $selectedCategory = Category::where('store_id', OperatorStoreSelection::reportStoreId())->pluck('id');
             }
 
             $categoryNetSales = [];
@@ -2249,7 +2254,7 @@ class ReportController extends Controller
                 }
             }
 
-            $orders = Order::where('store_id', getCurrentStore())
+            $orders = Order::where('store_id', OperatorStoreSelection::reportStoreId())
                 ->whereYear('order_date', $year)
                 ->whereMonth('order_date', date('m'))
                 ->get();
@@ -2315,7 +2320,7 @@ class ReportController extends Controller
             }
 
             if (empty($selectedCategory)) {
-                $selectedCategory = Category::where('store_id', getCurrentStore())
+                $selectedCategory = Category::where('store_id', OperatorStoreSelection::reportStoreId())
                     
                     ->pluck('id');
             }
@@ -2329,7 +2334,7 @@ class ReportController extends Controller
                 }
             }
 
-            $orders = Order::where('store_id', getCurrentStore())
+            $orders = Order::where('store_id', OperatorStoreSelection::reportStoreId())
                 ->whereDate('order_date', '>=', $sevenDaysAgo)
                 ->get();
 
@@ -2396,7 +2401,7 @@ class ReportController extends Controller
 
             if (empty($selectedCategory)) {
                 /* Scoped in SQL, not in PHP — see the note at the first of these. */
-                $selectedCategory = Category::where('store_id', getCurrentStore())->pluck('id');
+                $selectedCategory = Category::where('store_id', OperatorStoreSelection::reportStoreId())->pluck('id');
             }
 
             $categoryNetSales = [];
@@ -2408,7 +2413,7 @@ class ReportController extends Controller
                 }
             }
 
-            $orders = Order::where('store_id', getCurrentStore())
+            $orders = Order::where('store_id', OperatorStoreSelection::reportStoreId())
                 ->whereYear('order_date', $year)
                 ->get();
 
@@ -2512,7 +2517,7 @@ class ReportController extends Controller
             }
 
             if (empty($selectedCategory)) {
-                $selectedCategory = Category::where('store_id', getCurrentStore())
+                $selectedCategory = Category::where('store_id', OperatorStoreSelection::reportStoreId())
                     
                     ->pluck('id');
             }
@@ -2526,7 +2531,7 @@ class ReportController extends Controller
                 }
             }
 
-            $orders = Order::where('store_id', getCurrentStore())
+            $orders = Order::where('store_id', OperatorStoreSelection::reportStoreId())
                 ->whereDate('order_date', '>=', $from_date)
                 ->whereDate('order_date', '<=', $to_date)
                 ->get();
@@ -2645,15 +2650,15 @@ class ReportController extends Controller
 
     public function OrderSaleBrandReport(Request $request)
     {
-        $store_id = getStoreById(getCurrentStore());
-        $MainCategoryList = ProductBrand::where('status', 1)->where('store_id', getCurrentStore())->pluck('name', 'id');
+        $store_id = getStoreById(OperatorStoreSelection::reportStoreId());
+        $MainCategoryList = ProductBrand::where('status', 1)->where('store_id', OperatorStoreSelection::reportStoreId())->pluck('name', 'id');
 
         return view('reports.sale_by_brand', compact('MainCategoryList'));
     }
 
     public function order_brand_reports(Request $request)
     {
-        $store_id = getStoreById(getCurrentStore());
+        $store_id = getStoreById(OperatorStoreSelection::reportStoreId());
         $currency = Utility::GetValueByName('CURRENCY');
         $selectedBrand = $this->reportSelectionWithinCurrentStore(ProductBrand::class, $request->selectedBrand);
         $year = date('Y');
@@ -2693,7 +2698,7 @@ class ReportController extends Controller
              * the third defect this file has produced from exactly that shape.
              */
             if (empty($selectedBrand)) {
-                $selectedBrand = ProductBrand::where('store_id', getCurrentStore())
+                $selectedBrand = ProductBrand::where('store_id', OperatorStoreSelection::reportStoreId())
                     ->pluck('id');
             }
 
@@ -2706,7 +2711,7 @@ class ReportController extends Controller
                 }
             }
 
-            $orders = Order::where('store_id', getCurrentStore())
+            $orders = Order::where('store_id', OperatorStoreSelection::reportStoreId())
                 ->whereYear('order_date', date('Y', strtotime($firstDayOfPreviousMonth)))
                 ->whereMonth('order_date', date('m', strtotime($firstDayOfPreviousMonth)))
                 ->get();
@@ -2784,7 +2789,7 @@ class ReportController extends Controller
              * the third defect this file has produced from exactly that shape.
              */
             if (empty($selectedBrand)) {
-                $selectedBrand = ProductBrand::where('store_id', getCurrentStore())
+                $selectedBrand = ProductBrand::where('store_id', OperatorStoreSelection::reportStoreId())
                     ->pluck('id');
             }
 
@@ -2797,7 +2802,7 @@ class ReportController extends Controller
                 }
             }
 
-            $orders = Order::where('store_id', getCurrentStore())
+            $orders = Order::where('store_id', OperatorStoreSelection::reportStoreId())
                 ->whereYear('order_date', date('Y'))
                 ->whereMonth('order_date', date('m'))
                 ->get();
@@ -2858,7 +2863,7 @@ class ReportController extends Controller
             $totalNetSalesAllBrands = array_fill(0, count($monthList), 0);
 
             if (empty($selectedBrand)) {
-                $selectedBrand = ProductBrand::where('store_id', getCurrentStore())
+                $selectedBrand = ProductBrand::where('store_id', OperatorStoreSelection::reportStoreId())
                     
                     ->pluck('id');
             }
@@ -2872,7 +2877,7 @@ class ReportController extends Controller
                 }
             }
 
-            $orders = Order::where('store_id', getCurrentStore())
+            $orders = Order::where('store_id', OperatorStoreSelection::reportStoreId())
                 ->whereYear('order_date', $year)
                 ->get();
 
@@ -2991,7 +2996,7 @@ class ReportController extends Controller
             $totalNetSalesAllBrands = array_fill(0, 7, 0);
 
             if (empty($selectedBrand)) {
-                $selectedBrand = ProductBrand::where('store_id', getCurrentStore())
+                $selectedBrand = ProductBrand::where('store_id', OperatorStoreSelection::reportStoreId())
                     
                     ->pluck('id');
             }
@@ -3005,7 +3010,7 @@ class ReportController extends Controller
                 }
             }
 
-            $orders = Order::where('store_id', getCurrentStore())
+            $orders = Order::where('store_id', OperatorStoreSelection::reportStoreId())
                 ->whereDate('order_date', '>=', $sevenDaysAgo)
                 ->get();
 
@@ -3089,7 +3094,7 @@ class ReportController extends Controller
             }
 
             if (empty($selectedBrand)) {
-                $selectedBrand = ProductBrand::where('store_id', getCurrentStore())
+                $selectedBrand = ProductBrand::where('store_id', OperatorStoreSelection::reportStoreId())
                     
                     ->pluck('id');
             }
@@ -3102,7 +3107,7 @@ class ReportController extends Controller
                 }
             }
 
-            $orders = Order::where('store_id', getCurrentStore())
+            $orders = Order::where('store_id', OperatorStoreSelection::reportStoreId())
                 ->whereDate('order_date', '>=', $from_date)
                 ->whereDate('order_date', '<=', $to_date)
                 ->get();
@@ -3206,8 +3211,8 @@ class ReportController extends Controller
 
     public function top_product(Request $request)
     {
-        $productQuery = Product::where('store_id', getCurrentStore());
-        $orderQuery = Order::where('store_id', getCurrentStore());
+        $productQuery = Product::where('store_id', OperatorStoreSelection::reportStoreId());
+        $orderQuery = Order::where('store_id', OperatorStoreSelection::reportStoreId());
 
         [$productNames, $productCounts] = $this->topSellingProducts($orderQuery, $productQuery);
 
@@ -3221,9 +3226,9 @@ class ReportController extends Controller
                 $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
                     ->crossJoin(\DB::raw("(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers"));
             })
-            ->where('products.store_id', getCurrentStore())
-            ->where('orders.store_id', getCurrentStore())
-            ->where('categories.store_id', getCurrentStore())
+            ->where('products.store_id', OperatorStoreSelection::reportStoreId())
+            ->where('orders.store_id', OperatorStoreSelection::reportStoreId())
+            ->where('categories.store_id', OperatorStoreSelection::reportStoreId())
             ->groupBy('categories.name')
             /*
              * P5-3f -- RANKED AND LIMITED, which is what the card beside it already promises:
@@ -3248,9 +3253,9 @@ class ReportController extends Controller
                 $join->on('products.id', '=', \DB::raw("SUBSTRING_INDEX(SUBSTRING_INDEX(orders.product_id, ',', numbers.n), ',', -1)"))
                     ->crossJoin(\DB::raw("(SELECT 1 + a.N + b.N * 10 AS n FROM (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS a CROSS JOIN (SELECT 0 AS N UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9) AS b) AS numbers"));
             })
-            ->where('products.store_id', getCurrentStore())
-            ->where('orders.store_id', getCurrentStore())
-            ->where('product_brands.store_id', getCurrentStore())
+            ->where('products.store_id', OperatorStoreSelection::reportStoreId())
+            ->where('orders.store_id', OperatorStoreSelection::reportStoreId())
+            ->where('product_brands.store_id', OperatorStoreSelection::reportStoreId())
             ->groupBy('product_brands.name')
             // P5-3f -- the same repair as the category chart above, for the same reason and with
             // the same deterministic tie-break.
@@ -3440,7 +3445,7 @@ class ReportController extends Controller
             \App\Http\Controllers\HomeController::ORDER_STATUS_PRE_ORDER      => __('Pre Order'),
         ];
 
-        $byStatus = Order::where('store_id', getCurrentStore())
+        $byStatus = Order::where('store_id', OperatorStoreSelection::reportStoreId())
             ->selectRaw('delivered_status, COUNT(*) as aggregate')
             ->groupBy('delivered_status')
             ->pluck('aggregate', 'delivered_status');
@@ -3682,12 +3687,12 @@ class ReportController extends Controller
 
         $billingData = \DB::table('order_billing_details')
             ->join('countries', 'order_billing_details.country', '=', 'countries.id')
-            ->join('orders', 'order_billing_details.order_id', '=', 'orders.id')->where('orders.store_id', getCurrentStore())
+            ->join('orders', 'order_billing_details.order_id', '=', 'orders.id')->where('orders.store_id', OperatorStoreSelection::reportStoreId())
             ->select('countries.name as country_name', \DB::raw('COUNT(order_billing_details.id) as total_orders'))
             ->groupBy('countries.name')
             ->get();
 
-        $total = Order::where('store_id', getCurrentStore())->count();
+        $total = Order::where('store_id', OperatorStoreSelection::reportStoreId())->count();
 
         /* TWO NUMBERS THAT COUNT DIFFERENT THINGS USED TO SIT SIDE BY SIDE WITH NO EXPLANATION.
            `$total` is every order the store has taken. `$billingData` counts only orders that
@@ -3767,7 +3772,7 @@ class ReportController extends Controller
     public function getLowStockProducts(Request $request)
     {
         session()->put('stock_active_tab', 'pills-low-stock-tab');
-        $products = Product::where('store_id', getCurrentStore())
+        $products = Product::where('store_id', OperatorStoreSelection::reportStoreId())
             ->get();
 
         /*
@@ -3781,7 +3786,7 @@ class ReportController extends Controller
          * closed in the same line that creates it.
          */
         $lowStockFallback = \App\DataTables\ProductDataTable::stockFallbackThreshold(
-            getAdminAllSetting(null, getCurrentStore())
+            getAdminAllSetting(null, OperatorStoreSelection::reportStoreId())
         );
 
         $low_stock_products = [];
@@ -3878,13 +3883,13 @@ class ReportController extends Controller
     public function getOutOfStockProducts(Request $request)
     {
         session()->put('stock_active_tab', 'pills-out-of-stock-tab');
-        $products = Product::where('store_id', getCurrentStore())
+        $products = Product::where('store_id', OperatorStoreSelection::reportStoreId())
             ->get();
         $out_of_stock_products = [];
         // P1-SEC-26: the THRESHOLD must come from the same store as the PRODUCTS above. A no-argument getAdminAllSetting() resolves it
         // from the caller instead, and for a STAFF member it walks up to created_by and then reads the OWNER's current_store -- so a
         // staff member whose owner is currently in another store judged this store's stock by that other store's threshold.
-        $settings = getAdminAllSetting(null, getCurrentStore());
+        $settings = getAdminAllSetting(null, OperatorStoreSelection::reportStoreId());
 
         /*
          * P2-05-3. The same fallback the product list uses, off the store-scoped settings above --
@@ -3973,7 +3978,7 @@ class ReportController extends Controller
     public function getMostStockedProducts(Request $request)
     {
         session()->put('stock_active_tab', 'pills-most-stocked-tab');
-        $products = Product::where('store_id', getCurrentStore())
+        $products = Product::where('store_id', OperatorStoreSelection::reportStoreId())
             ->get();
         $most_stocked_products = [];
         $product_data = [];
@@ -3988,7 +3993,7 @@ class ReportController extends Controller
          * onto the shared rule, because that badge was empty for every row.
          */
         $mostStockedFallback = \App\DataTables\ProductDataTable::stockFallbackThreshold(
-            getAdminAllSetting(null, getCurrentStore())
+            getAdminAllSetting(null, OperatorStoreSelection::reportStoreId())
         );
 
         foreach ($products as $product) {
@@ -4123,7 +4128,22 @@ class ReportController extends Controller
             return $selected;
         }
 
-        $currentStore = getCurrentStore();
+        /*
+         * GAP-223(b), AND THIS LINE IS A NO-OP FOR THE OPERATOR -- stated because an earlier version
+         * of this comment claimed otherwise and the claim was false.
+         *
+         * The operator bypass twelve lines up returns `$selected` UNNARROWED, so a `'super admin'`
+         * never reaches here and the selection was never narrowed to store 1 for them. What this
+         * change does is keep the resolver consistent for everyone else, where `getCurrentStore()`
+         * already answered null and `empty()` already sent them to the empty collection below. So:
+         * behaviour-preserving, one definition instead of two.
+         *
+         * THE BYPASS ITSELF IS PRE-EXISTING AND LEFT ALONE. It lets an operator name ids from any
+         * tenant in a filter, which is a real cross-tenant capability -- but removing it would
+         * NARROW an operator who HAS chosen a store, which is not what GAP-223(b) is about and would
+         * change a live screen beyond the owner's direction. Recorded, not altered.
+         */
+        $currentStore = OperatorStoreSelection::reportStoreId();
 
         // AN UNRESOLVED TENANT IS OUTSIDE, NOT EVERYWHERE. `StoreScope` fails OPEN on a null
         // tenant by design (`null_tenant => 'open'`), and a predicate whose whole job is to hold
