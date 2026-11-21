@@ -94,6 +94,24 @@ class MerchantNotificationController extends Controller
          * is the whole content of the notification.
          */
         'payment_needs_attention' => 'Manage Order',
+        /*
+         * ANA-009. A figure of the merchant's own has fallen below a floor the merchant set.
+         *
+         * `Manage Reports` AND NOT `Manage Order`, which is the opposite choice from the row above
+         * and for a reason that is about audience rather than about money. The message does name an
+         * amount -- so does `payment_needs_attention` -- but THIS amount is one the reader can
+         * already see: it is a tile on `/analytics`, and both that screen and the form that sets
+         * the floor are gated by `ReportPermission`, which resolves to this same seeded
+         * `Manage Reports`. Gating the alert on `Manage Order` would NARROW it incoherently: a
+         * staff member who may read `Payments received` on the screen, and may configure the alert
+         * about it, could not read the alert when it fired. Nothing is widened either -- the
+         * audience is exactly the screen's.
+         *
+         * `Manage Reports` is seeded (`Utility::addNewData()`), which matters more than it sounds:
+         * a permission name absent from the seed cannot exist as a row and evaluates false for
+         * EVERYBODY, the tenant owner included. That exact lockout has happened in this repository.
+         */
+        'metric_threshold_breached' => 'Manage Reports',
     ];
 
     /** The full-page list. */

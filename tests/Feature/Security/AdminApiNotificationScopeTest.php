@@ -22,12 +22,19 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
  * THE OWNER'S CONDITION WAS "DO NOT FIX THE LEAK BY BREAKING THE APP'S COUNTER", and it is met by
  * measurement rather than by hope — two independent reasons:
  *
- *   1. THE REGISTRY IS COMPLETE. `StoreNotificationService` writes exactly three types, and all
- *      three are in `TYPE_PERMISSIONS`. So the filter hides nothing that exists, and a caller
- *      holding `Manage Order` sees an IDENTICAL list and an IDENTICAL count to before — for the
- *      ordinary merchant this change is a no-op. The last case here is the ratchet that keeps it
- *      true: a fourth type written without a permission entry would silently vanish from this
- *      endpoint, which is the one way this fix could break the app.
+ *   1. THE REGISTRY IS COMPLETE. Every type `StoreNotificationService` writes is in
+ *      `TYPE_PERMISSIONS`. So the filter hides nothing that exists, and a caller holding
+ *      `Manage Order` sees an IDENTICAL list and an IDENTICAL count to before — for the ordinary
+ *      merchant this change is a no-op. One case here is the ratchet that keeps it true: a type
+ *      written without a permission entry would silently vanish from this endpoint, which is the
+ *      one way this fix could break the app. It has since fired for real — ANA-009's
+ *      `metric_threshold_breached` was written before it was registered, and this is what caught
+ *      it. The counts here are DERIVED from the registry for the same reason: the three literal
+ *      `3`s went stale as soon as a fourth type existed.
+ *
+ *      That fourth type is gated on `Manage Reports`, NOT `Manage Order`, so "every type" and
+ *      "the types one permission gates" are now different numbers and the cases below say which
+ *      they mean.
  *   2. A COUNT THAT DROPS IS HANDLED BY THE APP ITSELF. For a staff member who may read none of the
  *      three, the count goes to 0. `notification_controller.dart`'s `_calculateUnreadCount()`
  *      computes `currentCount - lastSavedCount`, shows it only when positive, and when
@@ -43,7 +50,7 @@ class AdminApiNotificationScopeTest extends SecurityTestCase
 {
     use RefreshDatabase;
 
-    /** A merchant with `Manage Order` sees exactly what they saw before: all three types. */
+    /** A merchant with `Manage Order` sees exactly what they saw before: every type it gates. */
     public function test_a_caller_with_the_permission_sees_every_type_and_the_full_count(): void
     {
         [$owner, $store] = $this->makeTenant();
@@ -53,13 +60,15 @@ class AdminApiNotificationScopeTest extends SecurityTestCase
 
         $payload = $this->noti($owner);
 
-        $this->assertSame(3, $payload['count'], 'the merchant\'s own count changed, which is the'
+        $this->assertSame($this->typesGatedOn('Manage Order'), $payload['count'],
+            'the merchant\'s own count changed, which is the'
             . ' regression the owner forbade — the Flutter badge arithmetic runs on this number');
-        $this->assertCount(3, $payload['data']['data'], 'the merchant lost rows they could read');
+        $this->assertCount($this->typesGatedOn('Manage Order'), $payload['data']['data'],
+            'the merchant lost rows they could read');
     }
 
     /**
-     * THE LEAK ITSELF. A staff member with only `Manage Products` must read none of the three.
+     * THE LEAK ITSELF. A staff member with only `Manage Products` must read none of them.
      *
      * All three carry money: `order_created` and `order_paid` name `final_price`, `payment_type`
      * and `payment_status`, and `payment_needs_attention` names a gateway and an amount for a
@@ -117,7 +126,12 @@ class AdminApiNotificationScopeTest extends SecurityTestCase
 
         $payload = $this->noti($operator);
 
-        $this->assertSame(3, $payload['count'],
+        /*
+         * EVERY type, not the three `Manage Order` ones: the operator holds no Laratrust role at
+         * all, so `MerchantPermissions::names()` answers them with the wildcard and the type filter
+         * admits the whole registry. A literal here went stale when ANA-009 added a fourth type.
+         */
+        $this->assertSame($this->everyType(), $payload['count'],
             'the platform operator reads nothing, which is the `isAbleTo()`-before-operator ordering'
             . ' trap this codebase records: it refuses the operator outright');
     }
@@ -234,9 +248,36 @@ class AdminApiNotificationScopeTest extends SecurityTestCase
 
         $payload = $this->noti($staff->fresh());
 
-        $this->assertSame(3, $payload['count'],
+        $this->assertSame($this->typesGatedOn('Manage Order'), $payload['count'],
             'the store-scoped gate refuses the store the role WAS granted in, which is a lockout '
             . 'rather than a tightening — and it would make the cross-store case above vacuous');
+    }
+
+    /**
+     * How many seeded rows a holder of ONE permission may read.
+     *
+     * DERIVED, NOT COUNTED BY HAND, and the reason is a measured one. These assertions used to be
+     * the literal `3`, which was right while `TYPE_PERMISSIONS` held three entries all gated on
+     * `Manage Order`. ANA-009 added a fourth type gated on `Manage Reports`, and the literal in the
+     * operator case below went stale the moment it landed -- it failed, correctly, because the
+     * operator now reads four. A literal that has to be revisited every time the registry grows
+     * states a number; this states the property each case is actually about.
+     *
+     * `seedOneOfEachType()` seeds exactly one row per registry entry, so the expected count for a
+     * principal holding one permission is the number of entries naming it.
+     */
+    private function typesGatedOn(string $permission): int
+    {
+        return count(array_filter(
+            MerchantNotificationController::TYPE_PERMISSIONS,
+            static fn (string $named): bool => $named === $permission
+        ));
+    }
+
+    /** Every seeded row -- what a principal who may read everything should see. */
+    private function everyType(): int
+    {
+        return count(MerchantNotificationController::TYPE_PERMISSIONS);
     }
 
     private function seedOneOfEachType(int $storeId): void

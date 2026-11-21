@@ -251,6 +251,84 @@
     </div>
 </div>
 
+{{-- ANA-009 — A FLOOR ON A METRIC, AND THE MERCHANT SETS IT.
+
+     THE WHOLE POINT OF THIS CARD IS THAT THE NUMBER IS THEIRS. The traceability row for ANA-009
+     names the trap rather than the feature: deciding what counts as a "drop" — 20%? against last
+     week? against the same week last year? — is a BUSINESS POLICY, and this project does not invent
+     those. So nothing is pre-filled, nothing is suggested, and a store with every field blank has
+     no alerts at all. That is the shipped state.
+
+     IT IS A FLOOR, NOT A TREND, and the card says so in those words. A merchant who reads
+     "alerts" and expects anomaly detection has been misled by the heading, so the hint states the
+     comparison exactly: this period's figure is below the number you typed. Trend, seasonality and
+     forecasting remain genuinely absent and the requirement row records that.
+
+     A BLANK FIELD IS NOT A ZERO. Clearing a field switches that metric off; typing 0 asks to be
+     told when the store takes nothing at all. Both are real instructions and the hint distinguishes
+     them, because a form that silently treats one as the other is how a merchant ends up either
+     spammed or unwatched without knowing which.
+
+     WHERE THE ALERT GOES is stated too. It is written to the store's notifications — the same bell
+     the rest of the panel uses — and it is NOT e-mailed or pushed, which is a scope statement and
+     not an oversight. Saying "you will be alerted" while only writing a row would be the dishonest
+     version of this card. --}}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="ss-card">
+            <h2 class="h5 mb-1">{{ __('Alert me when a figure falls below') }}</h2>
+
+            <p class="ss-muted">
+                {{ __('Set your own floor for a figure. If the last few days add up to less than the number you type, a notice is written to this store\'s notifications. Nothing is set until you set it, and a figure you leave blank is not watched at all.') }}
+            </p>
+
+            <form method="POST" action="{{ route('analytics.thresholds.store') }}" class="row g-2 align-items-end mt-2">
+                @csrf
+
+                @foreach ($thresholdMetrics as $metricKey => $metricSpec)
+                    <div class="col-sm-4">
+                        <label class="ss-field__label" for="threshold_{{ $metricKey }}">
+                            {{ __($metricSpec['label']) }}
+                        </label>
+                        {{-- `step="any"` because money is not an integer, and `min="0"` because a
+                             negative floor is not a configuration. `MetricThreshold` refuses both on
+                             read as well; the browser's refusal is a courtesy, never the control. --}}
+                        <input class="form-control ss-num" type="number" step="any" min="0"
+                               id="threshold_{{ $metricKey }}" name="{{ $metricKey }}"
+                               value="{{ $thresholds[$metricKey] ?? '' }}"
+                               placeholder="{{ __('Not watched') }}">
+                    </div>
+                @endforeach
+
+                <div class="col-sm-2">
+                    <label class="ss-field__label" for="threshold_window_days">{{ __('Over how many days') }}</label>
+                    <input class="form-control ss-num" type="number" step="1" min="1" max="365"
+                           id="threshold_window_days" name="window_days"
+                           value="{{ $thresholds['window_days'] ?? '' }}"
+                           placeholder="7">
+                </div>
+
+                <div class="col-sm-2">
+                    <button type="submit" class="ss-btn ss-btn--secondary w-100">{{ __('Save') }}</button>
+                </div>
+            </form>
+
+            <p class="ss-stat__hint mt-2">
+                {{ __('The figures are the same ones on this screen, in your store\'s currency. A period that mixes currencies is not compared, because there is no exchange rate here to compare it with.') }}
+            </p>
+
+            <p class="ss-stat__hint">
+                {{ __('Typing 0 asks to be told when the store takes nothing at all. Clearing the field switches that alert off. One notice is written per figure per day, however often the check runs.') }}
+            </p>
+
+            <p class="ss-stat__hint">
+                {{ __('This is a floor, not a trend: it compares the period against the number you typed, and nothing else. The check runs on the server, so if no notice ever arrives, the server\'s scheduler may not be running — ask whoever administers it.') }}
+            </p>
+        </div>
+    </div>
+</div>
+
+
 @if (! empty($figures['period']['clamped']))
     <div class="row mb-4">
         <div class="col-12">

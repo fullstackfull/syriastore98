@@ -465,6 +465,13 @@ run_one verify-gap222-wallet-currency-on-mysql \
 run_one verify-gap223-lastmonth-window-on-mysql \
   "GAP223_MYSQL_SOCKET=${SOCK}" "GAP223_MYSQL_USERNAME=${USER_NAME}" "GAP223_MYSQL_PASSWORD=${PASS}"
 
+# ANA-009. The alert's dedup key against the column types it lands in: a string in an
+# `unsignedBigInteger` is stored verbatim by SQLite, coerced to 0 by a non-strict MySQL and refused
+# with 1366 by a strict one. The script proves the OLD shape fails both ways and the shipped one
+# round-trips, which is the only engine that can answer it.
+run_one verify-ana009-alert-key-on-mysql \
+  "ANA009_MYSQL_SOCKET=${SOCK}" "ANA009_MYSQL_USERNAME=${USER_NAME}" "ANA009_MYSQL_PASSWORD=${PASS}"
+
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"
 if [ "${#FAILED[@]}" -gt 0 ]; then

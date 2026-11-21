@@ -1207,6 +1207,22 @@ Route::get(
         ->name('analytics.schedules.destroy');
 
     /**
+     * ANA-009. The merchant's own floors on their own metrics.
+     *
+     * SAME MIDDLEWARE AS THE SCREEN, and for a sharper reason than the schedule route above: this
+     * write decides what the store is told about its money, so it must not be reachable by someone
+     * who cannot read those figures on the screen. `ReportPermission::ACTIONS` names
+     * `storeThresholds` explicitly; its fallback is `Manage Reports` fail-closed, which would have
+     * been the same answer, but an unnamed action is an accident waiting for the next permission.
+     *
+     * NO STORE PARAMETER. The target store is `resolveStore()`'s, i.e. the authenticated
+     * principal's, and an operator with nothing selected is refused rather than writing onto store 1.
+     */
+    Route::post('analytics/thresholds', [\App\Http\Controllers\MerchantAnalyticsController::class, 'storeThresholds'])
+        ->middleware(\App\Http\Middleware\ReportPermission::class)
+        ->name('analytics.thresholds.store');
+
+    /**
      * P5-7. THE SAME FIGURES ACROSS EVERY TENANT, for the platform operator only.
      *
      * `PlatformOperatorOnly` and NOT `ReportPermission`, which is the difference that matters. The

@@ -26,3 +26,21 @@ Schedule::command('zid:process-events')->everyMinute()->withoutOverlapping();
  * `ScheduledReportRunner`.
  */
 Schedule::command('analytics:send-scheduled-reports')->hourly()->withoutOverlapping();
+
+/*
+ * ANA-009 — the metric floors each merchant set, checked hourly.
+ *
+ * HOURLY FOR THE SAME REASON ANA-003 IS, and it is safe for a different one: the alert is
+ * deduplicated on the PERIOD (metric plus the window's end date), not on the run, so twenty-four
+ * ticks over one breached day record ONE notice. The tick rate bounds how late an alert can be, not
+ * how many there are.
+ *
+ * IT DOES NOTHING ON A PLATFORM WHERE NOBODY HAS SET A FLOOR, which is the shipped state: the
+ * command's candidate set comes from `settings`, so with no configuration it answers in one query
+ * and returns. There is no default threshold anywhere in this feature, by design — choosing one
+ * would be inventing a business policy.
+ *
+ * THE SAME CAVEAT AS ANA-003: `php artisan schedule:run` must be in the server's crontab, which the
+ * Phase 7 readiness notes record as unverified for production.
+ */
+Schedule::command('analytics:check-metric-thresholds')->hourly()->withoutOverlapping();

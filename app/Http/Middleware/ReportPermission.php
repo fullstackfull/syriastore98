@@ -61,6 +61,7 @@ class ReportPermission
            can find by reading this map, and a future action that SHOULD carry a different
            permission would inherit this one silently. Named explicitly for that reason. */
         'storeSchedule' => self::REPORTS, 'destroySchedule' => self::REPORTS,
+        'storeThresholds' => self::REPORTS,
 
         'OrderReport' => self::ORDERS, 'order_reports_chart' => self::ORDERS, 'order_report_export' => self::ORDERS,
         'order_bar_report_export' => self::ORDERS, 'BarChartOrderReport' => self::ORDERS, 'order_reports_chart_data' => self::ORDERS,

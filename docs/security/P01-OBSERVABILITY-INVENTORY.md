@@ -95,7 +95,11 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/GatewayReference.php:198` | gateway capture replayed: the reference is already recorded |
 | `app/Services/GatewayReference.php:213` | gateway capture replayed (23000): the reference is already recorded |
 
-### `warning` — 216 lines
+### `warning` — 217 lines
+
+> **[2026-11-21] 216 -> 217.** One line added by ANA-009 (`Metric threshold alert could not be recorded`, with its destination
+> and reader in its own section below). `resync-observability-inventory.py` REFUSED to write it, correctly: the line is NEW, not
+> moved, and a new row needs a stated destination and reader that only a person can give it.
 
 > **[2026-11-21] 215 -> 216.** One line added by GAP-223(b) (`Report refused: operator has selected no merchant store`, with
 > its destination and reader in its own section below). `resync-observability-inventory.py` REFUSED to write it, which is the
@@ -343,6 +347,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Services/StockMovement.php:214` | stock movement not readable |
 | `app/Services/StockMovement.php:257` | stock movement not attributed |
 | `app/Services/StoreNotificationService.php:311` | No active Firebase devices found for store. |
+| `app/Services/StoreNotificationService.php:493` | Metric threshold alert could not be recorded |
 | `app/Services/StoredUpload.php:90` | a stored upload path points outside the uploads directory and was not touched |
 | `app/Services/StoredUpload.php:99` | a stored upload path names a platform default and was not touched |
 | `app/Services/StoredUpload.php:117` | a stored upload path names another tenant |
@@ -358,6 +363,38 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 <!-- counts: error=95 info=22 debug=1 -->
 
 ---
+
+### The row added 2026-11-21 (ANA-009), with its destination and reader
+
+**`StoreNotificationService::metricThresholdBreached()` — "Metric threshold alert could not be
+recorded", `warning`, one line.** Fires when a merchant's own metric floor was breached, the breach
+was computed correctly, and the NOTICE about it could not be written. The `try/catch` around it is
+deliberate and matches its siblings in the same service: the alert runs inside an hourly command
+that sweeps every store with a configured floor, so an exception on one store must not stop the
+other stores' alerts. Swallowing it silently would be the defect; this line is the swallow's record.
+
+**Where it lands:** the application log, via `Log::warning`, with `store_id` and `metric` so one
+store's failing alert can be told from a platform-wide one.
+
+**Who reads it, and what to do when it fires:** whoever maintains the analytics alerts. A SINGLE
+occurrence is already worth reading, because the consequence is silence: the merchant asked to be
+told when a figure fell below their number, the figure did fall below it, and they were not told.
+Nothing on any screen says so — the only other trace is the absence of a row in
+`store_notifications`. A BURST across many `store_id` values is a platform fault (the notifications
+table, the store-owner lookup) rather than one merchant's; a burst on ONE `store_id` points at that
+store's row (an owner `created_by` that no longer resolves to a user is the known shape, and
+`getStoreOwnerId()` returning null is handled separately and writes nothing).
+
+**Why `warning` and not `critical`:** no money moved, no figure is wrong and nothing is
+inconsistent. What is lost is a notification, and the figure it was about is still correct on the
+merchant's own screens. It is `warning` rather than `error` for the same reason as its siblings in
+this service: the tick continued and every other store's alert was still written.
+
+**What this line does NOT cover, because the feature does not do it:** delivery. ANA-009 writes a
+notification and sends no e-mail and no push (`push_sent` is written `false`, and
+`MetricThresholdAlertTest::test_the_alert_is_not_pushed_and_that_is_the_contract` pins that). So
+there is no send-failure line here to look for, and the absence of one is not evidence that sending
+worked.
 
 ### The row added 2026-11-21 (GAP-223(b)), with its destination and reader
 

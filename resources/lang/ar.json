@@ -4312,5 +4312,16 @@
     "This figure has no period: it is the balance right now, so the dates on this page do not change it.": "هذا الرقم بلا فترة زمنية: إنه الرصيد في هذه اللحظة، لذلك لا تُغيّره التواريخ في هذه الصفحة.",
     "Finance Report": "تقرير مالي",
     "These figures cover the period each tile states. The financial record has no history before that date, so an earlier period would read as zero rather than as unknown.": "تغطي هذه الأرقام الفترة المذكورة في كل بطاقة. لا يحتوي السجل المالي على بيانات قبل ذلك التاريخ، لذلك ستظهر أي فترة أسبق كصفر وليس كقيمة غير معروفة.",
-    "For the full finance screen, including wallet movements and withdrawals, open Finance.": "لعرض شاشة المالية الكاملة، بما في ذلك حركات المحفظة وطلبات السحب، افتح المالية."
+    "For the full finance screen, including wallet movements and withdrawals, open Finance.": "لعرض شاشة المالية الكاملة، بما في ذلك حركات المحفظة وطلبات السحب، افتح المالية.",
+    "Alert me when a figure falls below": "أبلغني عندما ينخفض رقم عن",
+    "Set your own floor for a figure. If the last few days add up to less than the number you type, a notice is written to this store's notifications. Nothing is set until you set it, and a figure you leave blank is not watched at all.": "حدّد الحد الأدنى الخاص بك لأي رقم. إذا كان مجموع الأيام الأخيرة أقل من الرقم الذي تكتبه، يُسجَّل تنبيه في إشعارات هذا المتجر. لا شيء محدَّد حتى تحدّده أنت، والرقم الذي تتركه فارغًا لا تتم مراقبته إطلاقًا.",
+    "Not watched": "غير مراقب",
+    "Over how many days": "خلال كم يومًا",
+    "The figures are the same ones on this screen, in your store's currency. A period that mixes currencies is not compared, because there is no exchange rate here to compare it with.": "الأرقام هي نفسها الظاهرة في هذه الشاشة، بعملة متجرك. والفترة التي تخلط عملات متعددة لا تُقارَن، لعدم وجود سعر صرف هنا تُقارَن به.",
+    "Typing 0 asks to be told when the store takes nothing at all. Clearing the field switches that alert off. One notice is written per figure per day, however often the check runs.": "كتابة 0 تعني أن تُبلَّغ عندما لا يحقّق المتجر أي مبيعات على الإطلاق. وإفراغ الحقل يوقف ذلك التنبيه. ويُسجَّل تنبيه واحد لكل رقم في اليوم، أيًّا كان عدد مرات تنفيذ الفحص.",
+    "This is a floor, not a trend: it compares the period against the number you typed, and nothing else. The check runs on the server, so if no notice ever arrives, the server's scheduler may not be running — ask whoever administers it.": "هذا حد أدنى وليس اتجاهًا: فهو يقارن الفترة بالرقم الذي كتبته ولا شيء غير ذلك. ويُنفَّذ الفحص على الخادم، فإذا لم يصلك أي تنبيه مطلقًا فقد لا يكون مُجدول المهام على الخادم قيد التشغيل — اسأل من يتولى إدارته.",
+    ":metric is below the level you set": "انخفض :metric عن المستوى الذي حدّدته",
+    ":metric over the last :days days is :actual, and the level you set is :floor.": ":metric خلال آخر :days يومًا هو :actual، والمستوى الذي حدّدته هو :floor.",
+    "Metric alert thresholds updated.": "تم تحديث حدود تنبيهات الأرقام.",
+    "Metric alerts are off: no threshold is set.": "تنبيهات الأرقام متوقفة: لم يُحدَّد أي حد."
 }

@@ -70,6 +70,10 @@ class MerchantAnalyticsController extends Controller
             // that has never fired is visibly different from one that works.
             'schedules' => \App\Models\AnalyticsReportSchedule::forCurrentPrincipal()->get(),
             'scheduleFrequencies' => \App\Models\AnalyticsReportSchedule::frequencies(),
+            // ANA-009. The store's own floors, as typed -- see `MetricThreshold::rawFor()` for why
+            // the form reads the raw rows rather than the checker's filtered view of them.
+            'thresholds' => \App\Support\Analytics\MetricThreshold::rawFor($storeId),
+            'thresholdMetrics' => \App\Support\Analytics\MetricThreshold::METRICS,
         ]);
     }
 
@@ -282,6 +286,98 @@ class MerchantAnalyticsController extends Controller
         return redirect()->route('analytics.index')->with(
             'success',
             $existing === null ? __('Scheduled report created.') : __('Scheduled report updated.')
+        );
+    }
+
+    /**
+     * ANA-009 — THE MERCHANT SETS THE FLOOR. This is the configuration surface, and without it the
+     * feature is not configurable, whatever the engine can do.
+     *
+     * THERE IS NO DEFAULT AND THIS HANDLER MUST NOT INVENT ONE. `MetricThreshold` ships no number:
+     * a store has no floors until a merchant writes one, and nothing fires until then. So a blank
+     * field here means "do not watch this metric" and is written as an empty string, NOT as zero --
+     * a merchant who types 0 means "tell me if I take nothing at all", which is a real and different
+     * instruction. `MetricThreshold::nonNegativeFloat()` makes the same distinction on the read side
+     * and the two must not disagree.
+     *
+     * SAME MIDDLEWARE AS THE SCREEN, for the reason the route notes give: a write that decides what
+     * the store gets alerted about must not be reachable by someone who cannot read the figures the
+     * alert is about. `ReportPermission::ACTIONS` names this action explicitly rather than leaning
+     * on the fail-closed fallback.
+     *
+     * THE STORE COMES FROM `resolveStore()`, never from the request -- so a merchant can only set
+     * their own store's floors, and an operator who has selected no store is refused rather than
+     * writing settings onto store 1 (GAP-223(b)).
+     */
+    public function storeThresholds(Request $request)
+    {
+        $resolved = $this->resolveStore();
+
+        if (! is_array($resolved)) {
+            return $resolved;
+        }
+
+        [$storeId] = $resolved;
+
+        $user = auth('web')->user();
+
+        if ($user === null) {
+            return redirect()->route('analytics.index')->with('error', __('Permission denied.'));
+        }
+
+        /*
+         * `nullable` ON EVERY FIELD, because clearing a threshold is how a merchant turns the alert
+         * off and must not be a validation error. The bounds are the same ones `MetricThreshold`
+         * enforces on the read side: a floor is not negative, and a window is 1..365 days. Stating
+         * them here as well is not duplication for its own sake -- the reader refuses silently
+         * (skips the metric) and a silent refusal of something the merchant just typed would present
+         * as "my setting did not save".
+         */
+        $rules = ['window_days' => 'nullable|integer|min:1|max:365'];
+
+        foreach (\App\Support\Analytics\MetricThreshold::METRICS as $key => $spec) {
+            $rules[$key] = 'nullable|numeric|min:0';
+        }
+
+        $validator = \Validator::make($request->all(), $rules);
+
+        if ($validator->fails()) {
+            return redirect()->route('analytics.index')
+                ->with('error', $validator->getMessageBag()->first());
+        }
+
+        foreach (\App\Support\Analytics\MetricThreshold::METRICS as $key => $spec) {
+            $value = $request->input($key);
+
+            // An empty field is "not configured" and is stored as such. `trim` so a field holding
+            // only spaces is the same instruction as an empty one.
+            $value = ($value === null) ? '' : trim((string) $value);
+
+            \App\Models\Setting::putForStore($spec['setting'], $value, $storeId, $user->id);
+        }
+
+        $window = $request->input('window_days');
+        $window = ($window === null) ? '' : trim((string) $window);
+
+        \App\Models\Setting::putForStore(
+            \App\Support\Analytics\MetricThreshold::WINDOW_SETTING,
+            $window,
+            $storeId,
+            $user->id
+        );
+
+        /*
+         * THE CONFIRMATION SAYS WHAT WILL HAPPEN, not just that something saved. A merchant who
+         * clears every field has switched the alerts off and should be told so plainly rather than
+         * reading "updated" and wondering.
+         */
+        $configured = \App\Support\Analytics\MetricThreshold::configuredFor($storeId);
+
+        return redirect()->route('analytics.index')->with(
+            'success',
+            $configured === []
+                ? __('Metric alerts are off: no threshold is set.')
+                : __('Metric alert thresholds updated.')
         );
     }
 
