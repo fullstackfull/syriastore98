@@ -4232,5 +4232,8 @@
     "The money amounts in this row are stored at limited precision and may differ from the ledger in the smallest units.": "The money amounts in this row are stored at limited precision and may differ from the ledger in the smallest units.",
     "What these figures leave out": "What these figures leave out",
     "the :count days before that": "the :count days before that",
-    "There is no figure for the earlier period to compare against, so no percentage is shown.": "There is no figure for the earlier period to compare against, so no percentage is shown."
+    "There is no figure for the earlier period to compare against, so no percentage is shown.": "There is no figure for the earlier period to compare against, so no percentage is shown.",
+    "Up :change from :baseline in :period": "Up :change from :baseline in :period",
+    "Down :change from :baseline in :period": "Down :change from :baseline in :period",
+    "No change from :baseline in :period": "No change from :baseline in :period"
 }

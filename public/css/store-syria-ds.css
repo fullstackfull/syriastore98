@@ -2423,6 +2423,27 @@ html[data-ss-theme="dark"] .ss-dt-card-body .form-switch .form-check-input:check
     color: var(--ss-fg-muted);
     text-wrap: pretty;
 }
+/* ANA-002. The period-over-period line, between the figure's own period and its caveat.
+   NO NEW COLOUR TOKEN, deliberately: it reuses `--ss-fg-muted`, the same token
+   `.ss-stat__period` and `.ss-stat__hint` already use and which the design-system contrast
+   gate already holds to 4.5:1 in light and dark. A green/up / red/down pair would have needed
+   its own proof in four combinations AND would still have failed WCAG 1.4.1 on its own, since
+   colour cannot be the only carrier of the direction -- so the direction is a WORD and the
+   arrow is decorative. Weight, not hue, is what separates this line from the period above it,
+   and weight does not affect contrast. */
+.ss-stat__comparison {
+    margin: var(--ss-space-1) 0 0;
+    font-size: var(--ss-text-xs);
+    line-height: var(--ss-leading-normal, 1.5);
+    font-weight: var(--ss-weight-medium);
+    color: var(--ss-fg-muted);
+    text-wrap: pretty;
+}
+/* The arrow is decorative and `aria-hidden`; it must not become the only indicator, so it is
+   sized with the text and carries no colour of its own. */
+.ss-stat__trend {
+    font-size: var(--ss-text-xs);
+}
 /* A measure the system genuinely cannot produce. An honest absence, and it
    must not look like a zero. */
 /* P2.5-PKG-G SLICE 2. `--ss-text-2xl` is the DASHBOARD figure size, and on a card it outranks the

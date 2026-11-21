@@ -4228,5 +4228,8 @@
     "The money amounts in this row are stored at limited precision and may differ from the ledger in the smallest units.": "المبالغ المالية في هذا الصف مخزَّنة بدقة محدودة وقد تختلف عن السجل المالي في أصغر الوحدات.",
     "What these figures leave out": "ما لا تشمله هذه الأرقام",
     "the :count days before that": "الـ :count يوماً السابقة لها",
-    "There is no figure for the earlier period to compare against, so no percentage is shown.": "لا يوجد رقم للفترة السابقة للمقارنة به، لذلك لا تُعرض نسبة مئوية."
+    "There is no figure for the earlier period to compare against, so no percentage is shown.": "لا يوجد رقم للفترة السابقة للمقارنة به، لذلك لا تُعرض نسبة مئوية.",
+    "Up :change from :baseline in :period": "ارتفاع بمقدار :change عن :baseline في :period",
+    "Down :change from :baseline in :period": "انخفاض بمقدار :change عن :baseline في :period",
+    "No change from :baseline in :period": "لا تغيير عن :baseline في :period"
 }

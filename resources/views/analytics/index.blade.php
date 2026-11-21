@@ -49,12 +49,14 @@
             <x-ss.stat :label="__('Orders')"
                        :value="$figures['orders']['value']"
                        :period="$figures['orders']['period']"
-                       :hint="$figures['orders']['hint']" />
+                       :hint="$figures['orders']['hint']"
+                       :comparison="$figures['orders']['comparison']" />
 
             <x-ss.stat :label="__('Page views')"
                        :value="$figures['visits']['value']"
                        :period="$figures['visits']['period']"
-                       :hint="$figures['visits']['hint']" />
+                       :hint="$figures['visits']['hint']"
+                       :comparison="$figures['visits']['comparison']" />
 
             <x-ss.stat :label="__('Conversion')"
                        :value="$figures['conversion']['value']"

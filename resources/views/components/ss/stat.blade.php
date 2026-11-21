@@ -39,10 +39,56 @@
     'period',
     'href' => null,
     'hint' => null,
+    'comparison' => null,
 ])
 
 @php
     $hintId = $hint ? 'ss-stat-hint-' . uniqid() : null;
+
+    /*
+     * ANA-002. The figures layer hands over MACHINE values -- direction, magnitude, baseline,
+     * period, an optional percentage and an optional note -- and the wording is done here, which
+     * is the split that lets the Arabic read as Arabic rather than as a translated template.
+     *
+     * THE DIRECTION IS IN WORDS, NOT COLOUR. Colour as the sole carrier of meaning fails WCAG
+     * 1.4.1, and a green/red pair would also need its own contrast proof in all four combinations
+     * (AR/EN x light/dark). The arrow is decorative and `aria-hidden`; "Up"/"Down"/"No change" is
+     * the actual statement, in either language.
+     *
+     * NO PERCENTAGE IS PRINTED WHEN THE FIGURES LAYER WITHHELD ONE. `percent` is null when the
+     * earlier period was empty -- there is nothing to divide by -- and `note` then says so. This
+     * view does not reconstruct a figure the metric refused to state.
+     */
+    $trend = null;
+    $comparisonLine = null;
+
+    if (is_array($comparison)) {
+        $trend = match ($comparison['direction'] ?? '') {
+            'up' => '▲',
+            'down' => '▼',
+            default => '—',
+        };
+
+        $replacements = [
+            'change' => $comparison['change'] ?? '',
+            'baseline' => $comparison['baseline'] ?? '',
+            'period' => $comparison['period'] ?? '',
+        ];
+
+        $comparisonLine = match ($comparison['direction'] ?? '') {
+            'up' => __('Up :change from :baseline in :period', $replacements),
+            'down' => __('Down :change from :baseline in :period', $replacements),
+            default => __('No change from :baseline in :period', $replacements),
+        };
+
+        if (! empty($comparison['percent'])) {
+            $comparisonLine .= ' (' . $comparison['percent'] . ')';
+        }
+
+        if (! empty($comparison['note'])) {
+            $comparisonLine .= ' ' . $comparison['note'];
+        }
+    }
 @endphp
 
 <div {{ $attributes->merge(['class' => 'ss-stat' . (is_null($value) ? ' ss-stat--unavailable' : '')]) }}>
@@ -69,6 +115,18 @@
     </span>
 
     <span class="ss-stat__period">{{ $period }}</span>
+
+    {{-- The comparison is a SIBLING paragraph in reading order rather than another
+         `aria-describedby` target. The hint needed that association because it used to sit inside
+         the period span, disconnected from the figure it qualifies; this line already follows the
+         value and the period inside the same tile, and `aria-describedby` only accepts a list,
+         which would change the exact attribute value `StatHintIsVisibleTest` pins. --}}
+    @if ($comparisonLine)
+        <p class="ss-stat__comparison">
+            <span aria-hidden="true" class="ss-stat__trend">{{ $trend }}</span>
+            {{ $comparisonLine }}
+        </p>
+    @endif
 
     @if ($hint)
         <p class="ss-stat__hint" id="{{ $hintId }}">{{ $hint }}</p>
