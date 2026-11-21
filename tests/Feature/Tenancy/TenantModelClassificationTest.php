@@ -193,6 +193,30 @@ class TenantModelClassificationTest extends TestCase
             // control. The explicit pair is the control of record and reverting either one fails
             // a dedicated test in SavedViewIsolationTest.
             \App\Models\SavedView::class => 'SavedView filters on store_id AND created_by explicitly, and fails closed with no tenant; the scope would add only store_id.',
+
+            // D8 / MKT-008. The three consent models. Every method of ConsentLedger takes an explicit `$storeId` and puts it in the query,
+            // and the unsubscribe path is a PUBLIC STOREFRONT page opened by an anonymous visitor holding a token -- exactly the shape
+            // `config/tenancy.php` documents as the one a global scope breaks: a merchant with a live admin session browsing a storefront
+            // resolves THEIR store, not the page's. And `null_tenant => 'open'` means the scope adds no predicate when no tenant resolves,
+            // so it would be a second, maskable predicate beside the explicit one that is the control of record. These three were
+            // pinned only by COUNT before an independent review pointed out that a count does not notice a model gaining the trait.
+            \App\Models\MarketingConsentEvent::class => 'D8: explicit store_id on every ledger query; the unsubscribe page is anonymous and a scope would blank it or mask a missing predicate.',
+            \App\Models\MarketingContactState::class => 'D8: the projection the send gate reads; explicit store_id on every read and write, and a cached or scoped answer to "may I send" is the wrong kind of convenience.',
+            \App\Models\MarketingUnsubscribeToken::class => 'D8: a capability looked up by the hash of a random token; the token names the store, and the page that redeems it is public.',
+
+            // GAP-219. The nudge ledger, and its reason is NOT the consent models' reason. `NudgeLedger` takes an explicit `$storeId` on
+            // every read and write, and the duplicate guard's correctness depends on the read really hitting the database -- which is also
+            // why the model is not `Cachable`: the question it answers is "did this ALREADY happen", so a cached miss is a second
+            // billable WhatsApp message. A global scope would add a predicate that `null_tenant => 'open'` can silently drop, beside the
+            // explicit one that is the control of record, and the explicit one is what `NudgeLedgerReadsTest` drives.
+            \App\Models\MarketingNudgeSend::class => 'GAP-219: explicit store_id on every ledger read and write; not Cachable either, because a cached "already sent?" answer is a second billable message.',
+
+            // ANA-003. The scheduled analytics export. Its runner has NO authenticated principal at all -- it runs from the console, so
+            // `getCurrentStore()` is null and `null_tenant => 'open'` means a global scope would add NO predicate. The schedule's own
+            // `store_id` is therefore not a second line of defence, it is the ONLY tenant control on that path, and every query carries
+            // it. Not `Cachable` either: the runner's correctness rests on reading `next_due_at` as it is right now and winning a
+            // conditional write against it, and a cached "is this due" is a report sent twice or not at all.
+            \App\Models\AnalyticsReportSchedule::class => 'ANA-003: console runner with no principal, so the explicit store_id is the only tenant control; not Cachable because the due-claim is a conditional write.',
         ];
     }
 
@@ -236,7 +260,28 @@ class TenantModelClassificationTest extends TestCase
         // tenant-discriminated, and all three are recorded in doNotScopeDespiteHavingTheColumn()
         // with their reason -- they are NOT allowlisted for scope enforcement. That classification
         // is the review this assertion exists to force, and it was written before the count moved.
-        $this->assertSame(98, $total, 'The model count changed. Re-run the classification and '
+        // 103, UP FROM 102. ANA-003 added `App\Models\AnalyticsReportSchedule`: its table carries `store_id`, it does NOT carry
+        // BelongsToStore, and its classification is recorded in doNotScopeDespiteHavingTheColumn() with a reason of its own -- the
+        // runner has no authenticated principal, so a scope would add nothing and the explicit predicate is the whole control.
+        // 102, UP FROM 101. GAP-219 added `App\Models\MarketingNudgeSend`, the nudge ledger: its table carries `store_id`, so it is
+        // tenant-discriminated, it does NOT carry BelongsToStore, and its classification is recorded in
+        // doNotScopeDespiteHavingTheColumn() with a reason of its own -- the duplicate guard must hit the database, so the model is
+        // not `Cachable` either. The note below is the D8 history and is kept because the count's provenance is the point.
+        // 101, UP FROM 98. D8 / MKT-008 added the three marketing-consent models:
+        // App\Models\MarketingConsentEvent, App\Models\MarketingContactState and
+        // App\Models\MarketingUnsubscribeToken. All three tables carry `store_id`, so all three are
+        // tenant-discriminated -- and NONE of them carries the BelongsToStore trait or is allowlisted
+        // for scope enforcement, which is the classification this assertion exists to force.
+        //
+        // WHY NOT SCOPED, written before the count moved. Consent is read and written through
+        // `ConsentLedger`, every method of which takes an explicit `$storeId` and puts it in the query;
+        // the unsubscribe path is a PUBLIC STOREFRONT page opened by an anonymous visitor holding a
+        // token, which is exactly the shape `config/tenancy.php` documents as the one a global scope
+        // breaks (a merchant with a live admin session browsing a storefront resolves THEIR store, not
+        // the page's). A scope there would blank the page for the person it exists for, and a predicate
+        // built from the caller's own store buys no confidentiality: the token already names the store.
+        // They are not `Cachable` either, because a cached answer to "may I send this" is a stale one.
+        $this->assertSame(103, $total, 'The model count changed. Re-run the classification and '
             . 'review the new model before anything is allowlisted: ' . implode(', ', $this->eloquentModels()));
     }
 
@@ -275,8 +320,16 @@ class TenantModelClassificationTest extends TestCase
         // 68, UP FROM 65: theme_versions, theme_published_versions and theme_publication_events all
         // carry `store_id` (P3-M3-C). The column is real and the rows are tenant-owned; what
         // changed is the count, not the classification rule.
+        // 73, UP FROM 72: `analytics_report_schedules` carries `store_id` (ANA-003). Same as the others: the column is real and the
+        // rows are tenant-owned; what changed is the count, not the classification rule.
+        // 72, UP FROM 71: `marketing_nudge_sends` carries `store_id` (GAP-219). As with the three below, the column is real and the
+        // rows are tenant-owned; what changed is the count, not the classification rule.
+        // 71, UP FROM 68: marketing_consent_events, marketing_contact_states and
+        // marketing_unsubscribe_tokens all carry `store_id` (D8 / MKT-008). The column is real and the
+        // rows are tenant-owned; what changed is the count, not the classification rule. The reason none
+        // is scope-enforced is recorded beside the model count above.
         $this->assertCount(
-            68,
+            73,
             $this->tenantDiscriminated,
             "The set of models whose table carries a `store_id` column changed.\nMeasured now:\n  "
             . implode("\n  ", $this->tenantDiscriminated)
@@ -430,6 +483,19 @@ class TenantModelClassificationTest extends TestCase
                 BelongsToStore::class,
                 class_uses_recursive($class),
                 $class . ' must not carry the trait. Reason on record: ' . $reason
+            );
+        }
+    }
+
+    public function test_the_consent_models_are_never_cached(): void
+    {
+        // A cached read of consent is a STALE answer to "may I send this", and a raw write (which the model cache cannot see) would leave it
+        // serving the pre-write row until the cache expired -- measured elsewhere in this repository. These three are read by the send gate.
+        foreach ([\App\Models\MarketingConsentEvent::class, \App\Models\MarketingContactState::class, \App\Models\MarketingUnsubscribeToken::class] as $class) {
+            $this->assertNotContains(
+                \GeneaLabs\LaravelModelCaching\Traits\Cachable::class,
+                class_uses_recursive($class),
+                $class.' must never be Cachable: a stale answer to "may I send this" is a consent defect.'
             );
         }
     }

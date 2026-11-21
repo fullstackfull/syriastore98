@@ -30,6 +30,7 @@
              This anchor is deliberately OUTSIDE any @permission: its gate is server-side on
              fileExport(), owned by tests/Feature/Security/CouponExportPermissionTest.php. Adding a
              view-level gate would be a behaviour change dressed as consistency. --}}
+        @include('marketing._analytics_link')
         <a class="ss-btn ss-btn--sm ss-btn--icon ss-btn--secondary export-btn me-1" href="{{ route('coupon.export') }}" aria-label="{{ __('Export') }}" data-bs-placement="top" data-bs-toggle="tooltip" title="{{ __('Export') }}" filename="{{ __('Coupon') }}">
             <i class="ti ti-file-export" aria-hidden="true"></i>
         </a>
@@ -56,6 +57,11 @@
 @endsection
 
 @section('content')
+    {{-- MKT-002. The advanced-filter bar, from ONE shared component: it reads this screen's filters
+         from `TableFilterMemory::vocabularyFor()` and their wording from `headingFor()` /
+         `optionsFor()`, so the controls here and the receipt inside the bar cannot disagree. --}}
+    <x-ss.marketing-filters screen="coupon" route="coupon.index" :label="__('Filter coupons')" />
+
 <div class="row">
     <div class="col-xl-12">
     <x-datatable :dataTable="$dataTable" />

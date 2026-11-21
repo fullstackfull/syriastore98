@@ -19,7 +19,18 @@
                     <x-ss.stat :label="\App\Support\Reports\AggregateSeriesLabel::display($name)"
                                :value="$currency . number_format($saleAmount, 2)"
                                :period="$periodLabel"
-                               :hint="__('The total value of items ordered. This is not payments received, and not profit.')" />
+                               {{-- ANA-007. `MetricCaveat` gets its FIRST consumer outside
+                                    app/Support/Metrics and tests here, which is the whole point:
+                                    the 13-message vocabulary existed with ZERO screen consumers, so
+                                    "an export must carry the screen's caveats" was vacuous for every
+                                    ReportController export — there was nothing to carry.
+                                    FLOAT_PRECISION is the one that genuinely applies and is not
+                                    invented: this handler accumulates money as
+                                    `+= (float) ($product['final_price'])` and then `array_sum()`, i.e.
+                                    repeated binary-float addition of a decimal column, which is
+                                    exactly "stored at limited precision and may differ from the
+                                    ledger in the smallest units". --}}
+                               :hint="\App\Support\Reports\ReportFigureNote::orderValueHint()" />
                 @endforeach
             </x-ss.stats>
         </div>

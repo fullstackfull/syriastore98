@@ -392,6 +392,14 @@ return Application::configure(basePath: dirname(__DIR__))
         // counts toward max('bid_amount'), which has no store predicate in the vendored reads. A
         // reconciliation pass belongs with the P1-OWN-07 data-residue work, not here.
         $middleware->appendToGroup('web', \App\Http\Middleware\AuctionBidIdentityGuard::class);
+        // P1-SEC-70: the two vendored sign-in settings handlers (SignInWithFacebook, SignInWithLinkedIn) delete the file named by the
+        // OLDEST `<provider>_sign_in_image` row -- `Setting::where(['name' => ...])->first()`, no store predicate, `Setting` is not in
+        // config/tenancy.php's scoped_models -- so every later tenant's save deleted the first tenant's image, and a merchant who writes their
+        // own row (the Store Setting handlers take every posted name) could name any file under uploads/. The modules are vendored and are not
+        // edited, and a route re-declared in routes/web.php would lose the route (the addons register theirs from `booted()`), so the control is
+        // here: for a POST to those two routes the `File` facade's root is a StoreBoundFilesystem that carries out a delete under uploads/
+        // only for the signed-in user's own store. See the class for what it does not do.
+        $middleware->appendToGroup('web', \App\Http\Middleware\SignInImageDeleteGuard::class);
         // SEC-R1-02 / R2-07 / NEW-throttle-bypass: the RateLimiter named 'api'
         // is defined at app/Providers/RouteServiceProvider.php:27-29 but was
         // never applied to the 'api' middleware group, so it was dead code and

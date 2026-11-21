@@ -443,7 +443,81 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            (which NAMES store_id, so the unscoped half does not move) and P4-F131's
            `DB::table('orders')` primary-key existence probe in AppliesCartStockChanges (which does
            move the unscoped half, and whose reason is written out where that number lives). */
-        $this->assertSame(['app' => 180, 'packages' => 45], $perDir,
+        /* 180 -> 182 on 2026-11-16 [P4-F124]: BOTH in `app`, both in
+           `App\Services\OrderEntitlementReversal`, and BOTH NAME `store_id` -- so the unscoped
+           half of the per-table row below does NOT move.
+
+           They are the locked read of the order's `store_order_financials` row and the status
+           update that records the reversal. RAW rather than Eloquent for the reason every other
+           statement against this table is raw: the row is read, decided on and written inside one
+           `DB::transaction` with `lockForUpdate()`, and a `Cachable` model would serve a pre-write
+           row to the very next read in the same request -- the failure this repository has
+           measured three times.
+
+           The UPDATE carries `->where('store_id', $storeId)` even though the row was selected with
+           it three statements earlier. That is deliberate: this census flagged the statement as
+           store-less when it was keyed on `id` alone, and it was right to -- a reader of that line
+           in isolation could not tell the id came from a scoped lookup. */
+        /* 184 -> 188 on 2026-11-17 [P5-2, the Phase 05 metric layer]: FOUR new sites, all in
+           `app/Support/Metrics/Metric.php`, and ALL FOUR NAME `store_id` -- so no unscoped half
+           moves below.
+
+           They are the whole raw surface of the metric layer **that a metric can reach**, and
+           they are deliberately in ONE file: `orders()`, `financials()`, `transactions()` and
+           `wallets()`, each returning a builder with `whereIn('<table>.store_id',
+           $scope->storeIds())` applied IN THE SAME EXPRESSION that names the table. Ten metric
+           classes are built on them and none of the ten can obtain an unscoped builder, by
+           construction rather than by review. (`LedgerCoverage`, added by P5-16 below, is the one
+           raw query in that namespace OUTSIDE `Metric`, and is protected by review and by tests,
+           not by construction -- corrected after an independent review found this note untrue.)
+
+           WHY RAW AND NOT ELOQUENT. `store_order_financials` has no model at all. The other three
+           are GROUP BY aggregates over money columns; hydrating rows to sum them would be slower
+           and no safer. And `Order` is not in `config/tenancy.php`'s `scoped_models`, so an
+           Eloquent read of it would carry no predicate either -- the thing this census exists to
+           notice.
+
+           WHY THE TENANT PREDICATE CANNOT BE OPTIONAL HERE. `MetricScope` has no constructor
+           meaning "every tenant" and refuses an empty store list, so there is no value a caller
+           can pass that produces an unfiltered money query. `tests/Unit/Metrics/
+           MetricValueObjectTest` pins that, and `tests/Feature/Metrics/MetricLayerTest`'s
+           cross-tenant case drives every one of the ten metrics against a two-store fixture.
+
+           `order_coupon_details` is reached by JOINING from `orders` rather than queried directly,
+           because -- measured -- that table has NO `store_id` column. It therefore adds no row to
+           the per-table census and its tenant predicate comes from the order it belongs to. */
+        /* 190 -> 191 on 2026-11-18 [P5-16, D1 Option A]: ONE new site, `LedgerCoverage::forStore()` in
+           `app/Support/Metrics/LedgerCoverage.php`, and it NAMES `store_id` -- `->where('orders.store_id',
+           $storeId)`, placed BEFORE the join so that this census, which reads a statement only up to its
+           first `;` (inside the join closure), sees the `where` as well as the join's own `store_id`
+           conditions (an independent review found the first ordering hid the `where` from it, so the
+           ratchet could not have seen that predicate deleted) -- so no unscoped half moves below.
+
+           It asks one question of the books: from what day can the financial ledger vouch for every
+           order of THIS store. The LEFT JOIN to `store_order_financials` repeats the store on the join
+           condition (`store_order_financials.store_id = orders.store_id`), and
+           `LedgerCoverageTest::test_a_ledger_row_that_belongs_to_another_store_does_not_cover_this_stores_order`
+           proves a row filed under another store is not cover. It lives beside the metric layer rather
+           than inside `Metric` because it is not a metric: it decides which WINDOW a metric may be read
+           over. `store_order_financials` still has no model, so the join adds no per-table row. */
+        /* 191 -> 192 [P1-SEC-67b]: `StoreScope::rootIsAMerchant()`, ONE raw read of `users.type` for the principal's own tenant root. It is the
+           only way the owned-store set can refuse a root that is not a merchant (a demoted merchant, or staff the operator created: `creatorId()` is
+           then the OPERATOR'S id, and the set held the operator's stores). `users` is the principals' registry -- on the do-not-scope list, not
+           tenant-owned data -- and the read is raw so that no `Cachable` query (and no cached `type`) sits inside query compilation; it does not need
+           to be raw to avoid re-entering the scope, which `User` cannot do. Classified on the `users` row below; asserted by what it reads in
+           ResidualTenancyExposureTest. */
+        /* 192 -> 193 [P5-5]: `CouponRedemptionCoverage::forStore()`, one aggregate over an anti-join from
+           `orders` to `order_coupon_details`, answering from when a store's coupon-redemption record is
+           complete. It is LedgerCoverage's rule applied to a different pair of tables, and exists because
+           P4-F134's fix is forward-only: pre-fix `order-save` orders have no redemption row and are not
+           backfilled, so a redemption figure needs a derived start rather than a hard-coded cut-over date.
+           Scoped by `where('orders.store_id', $storeId)`; classified on the `orders` row below.
+           `order_coupon_details` has no model and no `store_id` column, so the join adds no per-table row. */
+        /* 193 -> 194 [GAP-222]: `WalletEntitlementFigure::siblings()` is one new literal-table SELECT in
+           app/, on `store_wallets`, carrying `where('store_wallets.store_id', $storeId)`. It is raw only
+           because the four SUM() aliases must be spelled; nothing about it is unscoped, and no wallet
+           figure writes. `packages` does not move -- GAP-222 touches no vendored file. */
+        $this->assertSame(['app' => 194, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -528,7 +602,30 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // parameterised on a literal table name, reachable only from the console, and able to
         // produce exactly one outcome: a RuntimeException that stops the migration.
         /* 223 -> 225: the same two P4 sites counted in the per-directory assertion above. */
-        $this->assertSame(225, array_sum($perDir));
+        /* 225 -> 227 [P4-F124]: OrderEntitlementReversal's two `store_order_financials`
+           statements, both naming `store_id`. Classified in full in the per-directory note. */
+        /* 227 -> 228 [P4-F128]: ONE statement, in
+           StoreFinanceController::updateFinancialPaymentStatus. It reads the ORDER's own
+           payment_status into the new audit row, so the divergence that adjustment creates is
+           visible from the audit trail at the moment it is created. It names `store_id`, so the
+           unscoped total does not move -- and that is not a coincidence: the first draft read the
+           order by id alone, THIS INVENTORY FLAGGED IT, and the scope was added in response. The
+           reasoning is in the handler, beside the query. */
+        /* 228 -> 229 [P4-F128, after review]: the entitlement-state re-read in the same handler,
+           replacing a recorded value that was the REQUEST rather than the RESULT. Scoped. */
+        /* 229 -> 233 [P5-2]: the four `App\Support\Metrics\Metric` table accessors, every one
+           of them scoped. See the note on the per-directory assertion above. */
+        /* 233 -> 235 [P5-10]: the two `store_order_financials` coverage counts in
+           StoreFinanceController::index(), both naming `store_id`, so the UNSCOPED totals do not
+           move. They exist to qualify the per-order `Profit` column with how many of its rows
+           report a margin the data cannot support. Classified in full on the per-table row. */
+        /* 235 -> 236 [P5-16]: `LedgerCoverage::forStore()`, which names `store_id`; the unscoped totals
+           do not move. See the note on the per-directory figure above. */
+        /* 236 -> 237 [P1-SEC-67b]: the `users.type` probe in StoreScope (see the per-directory note); it names no `store_id`, so it is also +1 unscoped. */
+        /* 237 -> 238 [P5-5]: `CouponRedemptionCoverage::forStore()`, which names `store_id`; the unscoped
+           totals do not move. See the note on the per-directory figure above. */
+        /* 238 -> 239 [GAP-222]: the one new `store_wallets` SELECT in `WalletEntitlementFigure::siblings()`. */
+        $this->assertSame(239, array_sum($perDir));
     }
 
     /**
@@ -659,7 +756,22 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
              * asserted to still match the statement, so this number is not the only place it is
              * written down.
              */
-            'orders' => [4, 1],
+            // 5 raw entry points, 1 of them unscoped. The fifth was added by P4-F128:
+            // StoreFinanceController::updateFinancialPaymentStatus reads the order's own
+            // payment_status into its audit row, to record the divergence that adjustment
+            // creates. It is SCOPED by store_id -- the unscoped count stays at 1 -- because
+            // this inventory flagged the first draft, which read by id alone.
+            // 5 -> 6 [P5-2]: `Metric::orders()`, which applies `whereIn('orders.store_id', ...)`
+            // in the same expression that names the table, so the unscoped half stays at 1.
+            // 6 -> 7 [P5-16]: `LedgerCoverage::forStore()` -- `where('orders.store_id', $storeId)`, so the
+            // unscoped half stays at 1. See the matching note on the per-directory total above.
+            // 7 -> 8 [P5-5]: `CouponRedemptionCoverage::forStore()`, the same shape as LedgerCoverage for a
+            // different pair of tables -- `where('orders.store_id', $storeId)` in the same expression that
+            // names the table, so the unscoped half stays at 1. Its `leftJoin` reaches
+            // `order_coupon_details`, which HAS NO `store_id` column (measured; `CouponRedemption` records
+            // it), so that side cannot carry a predicate and the rows are reachable only through the
+            // scoped order -- stated here because this inventory exists to make exactly that visible.
+            'orders' => [8, 1],
             'owner_menu_items' => [1, 1],
             'owner_menu_settings' => [1, 1],
             'owner_menus' => [1, 1],
@@ -710,7 +822,31 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // So the census was under-reporting this money table by exactly the two sites that
             // matter. Found by independent review of the wave-4 change, which re-derived the
             // number instead of accepting it.
-            'store_order_financials' => [10, 5],
+            // 10 -> 12 on 2026-11-16 [P4-F124], AND THE UNSCOPED HALF STAYS AT 5.
+            // `App\Services\OrderEntitlementReversal` adds the locked read of the order's
+            // financial row and the status update that records the reversal of entitlement.
+            // BOTH NAME `store_id`, which is the whole point of this row's second number: the
+            // table gained two statements and gained no new cross-tenant exposure.
+            //
+            // The UPDATE names `store_id` even though the SELECT three statements earlier already
+            // did. That is not belt-and-braces -- this census flagged it as store-less when it was
+            // keyed on `id` alone, exactly as it flags the two OrderFinancialService reads above,
+            // and the predicate was added rather than an exception declared.
+            // 12 -> 13 [P4-F128, after review]: the entitlement-state re-read in
+            // updateFinancialPaymentStatus. The UNSCOPED count stays at 5 -- it names store_id.
+            // 13 -> 14 [P5-2]: `Metric::financials()`, scoped at the call site; unscoped half
+            // unchanged at 5.
+            // 14 -> 16 [P5-10], AND THE UNSCOPED HALF AGAIN STAYS AT 5. The two ledger-coverage
+            // counts StoreFinanceController::index() runs for the ANA-006 disclosure: a total
+            // over the store's rows and a count of those whose `product_cost` is <= 0. Both
+            // carry `->where('store_id', $storeId)`, and `$storeId` is `getCurrentStore()`, not
+            // request input -- verified in independent review. They are COUNTS used to qualify
+            // a figure, so they read nothing they do not already display: the table they
+            // describe is the one rendered three columns away on the same screen.
+            // They are raw because `store_order_financials` has NO MODEL, so there is no
+            // Eloquent route to it and no global scope that could help -- the predicate written
+            // at the call site is the only control that exists, which is this row's whole point.
+            'store_order_financials' => [16, 5],
             // 18 -> 19 AND 17 -> 18 with P1-INV-20: LotteryRefundOwnershipGuard's slug lookup,
             // `DB::table('stores')->where('slug', $slug)->value('id')`.
             //
@@ -729,6 +865,18 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // guard's two entry points with a literal table name, which is why `app` moved by 2
             // above and this row by 1. Unscoped on purpose -- it must see every store the user
             // owns, because one it misses is one the delete destroys.
+            // BOTH NEW WITH P5-2 AND BOTH SCOPED, which is what the 0 says. `Metric::
+            // transactions()` and `Metric::wallets()` are the movement-record and running-balance
+            // halves of the metric layer; §6's net receipts and §7's wallet drift check are built
+            // on them. Neither table is in `scoped_models` either, so the predicate at the call
+            // site is the only one there is.
+            'store_wallet_transactions' => [1, 0],
+            // 1 -> 2 WITH GAP-222, AND STILL 0 UNSCOPED. `WalletEntitlementFigure::siblings()`
+            // reads the four wallet columns beside `available_balance` for the /finance card, with
+            // `where('store_wallets.store_id', $storeId)` -- the store id the handler already
+            // resolved, never a request value. It is a raw SELECT only because the four SUM()
+            // aliases have to be spelled, and it is a READ: no wallet figure writes anything.
+            'store_wallets' => [2, 0],
             'stores' => [24, 23],    // P1-SEC-10 (DeliverySyriaCredential: stores created by a matched owner), P1-SEC-04 (Duo setting rule) and the P0 deletion guard; the Zid controller's own stores read is gone.
                                      // 20 -> 23 and 20 -> 22 with ModuleStorefrontInputGuard: two slug resolutions (no store_id to predicate on yet) and the thread read's by-id lookup, whose statement names `store_id` because the id comes from the body and is compared, not trusted
             // [1, 0], DOWN FROM [2, 0]. The remaining raw statement is the READ at
@@ -736,7 +884,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // theme_id AND name. The raw WRITE is gone -- see the note on the per-directory total.
             'theme_customizes' => [1, 0],
             'user_email_templates' => [1, 1], // P1-SEC-04: ModuleAdministrativeRouteGuard::ownsEmailTemplate (the row named in the body)
-            'users' => [5, 5],
+            // [6, 6], UP FROM [5, 5], WITH P1-SEC-67b: StoreScope::rootIsAMerchant() reads `users.type` of the principal's own tenant root. No `store_id`
+            // exists to predicate on (`users` carries none and is not scoped), and the value is one column of one row the principal already resolves
+            // through `creatorId()` -- it carries no tenant data out of the scope.
+            'users' => [6, 6],
             'zid_events' => [2, 2],
             'zid_orders' => [11, 9],   // 11 -> 9 with P1-SEC-10: the lookup and the local status write now carry the authenticated stores
             'zid_stores' => [7, 2],
@@ -826,8 +977,43 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         // count rather than the remainder. 172 literal-table sites of the 222 entry points.
         // 171, DOWN FROM 172: same single removed raw write.
         /* 171 -> 173: P4-F132's customers predicate and P4-F131's orders probe. */
-        $this->assertSame(173, array_sum(array_map(fn ($r) => $r[0], $actual)),
-            '[2026-11-02] 167 -> 170 AND the remainder 52 -> 49, with NOTHING IN app/ CHANGED. '
+        /* 173 -> 175 [P4-F124]: OrderEntitlementReversal's two `store_order_financials`
+           statements. Both name `store_id`, so the companion unscoped total below does not move --
+           which is the assertion that would have caught a cross-tenant addition. */
+        /* 175 -> 176 [P4-F128]: the audit-row read of `orders` in
+           StoreFinanceController::updateFinancialPaymentStatus. Scoped by `store_id`, so again the
+           companion unscoped total does not move. It moved on the first draft, which is how the
+           missing predicate was found. */
+        /* 176 -> 177 [P4-F128, after review]: the entitlement-state re-read. Scoped, so the
+           companion unscoped total below again does not move. */
+        /* 177 -> 181 [2026-11-17, P5-2]: the four `App\Support\Metrics\Metric` table accessors.
+           All four spell their table as a quoted LITERAL, so unlike `StockMovement::TABLE` or
+           `TopSellersByRevenue`'s `DB::table($table)` every one of them lands in this per-table
+           census rather than the unattributable remainder -- which is the point of spelling them
+           that way. All four name `store_id`, so the companion unscoped total below does NOT
+           move. */
+        /* 181 -> 183 [2026-11-17, P5-10]: the two `store_order_financials` ledger-coverage counts
+           in StoreFinanceController::index(). Both spell the table as a quoted literal and both
+           name `store_id`, so they land in this per-table census and the companion unscoped total
+           below does NOT move. Classified in full on the per-table row above. */
+        /* 183 -> 184 [P5-16]: `LedgerCoverage::forStore()` spells `orders` as a quoted literal and names
+           `store_id`, so it lands in this per-table census (the `orders` row above, 6 -> 7) and the
+           companion unscoped total below does NOT move. */
+        /* 184 -> 185 [P1-SEC-67b]: `StoreScope::rootIsAMerchant()`'s read of `users.type`. It spells the table as a quoted literal, so it lands in this
+           per-table census (the `users` row above, 5 -> 6). It names no `store_id` -- `users` has none -- so the companion UNSCOPED total below DOES move,
+           82 -> 83, and the argument for that is written beside it. */
+        /* 185 -> 186 [P5-5]: `CouponRedemptionCoverage::forStore()` spells `orders` as a quoted literal and
+           names `store_id`, so it lands in this per-table census (the `orders` row above, 7 -> 8) and the
+           companion unscoped total below does NOT move. Its `leftJoin` target `order_coupon_details` has no
+           `store_id` column at all, which is why that side carries no predicate -- see the `orders` row. */
+        /* 186 -> 187 [GAP-222]: the same single `store_wallets` SELECT as the per-directory note above --
+           attributable to its table, so it lands here, and scoped, so the unscoped total does not move. */
+        $this->assertSame(187, array_sum(array_map(fn ($r) => $r[0], $actual)),
+            'THE FIGURES INSIDE THIS MESSAGE ARE THE 2026-11-02 MEASUREMENT AND ARE NOT RATCHETED; '
+            . 'the current totals are the ones ASSERTED above and in the dated notes beside them. '
+            . 'That split is itself one of this file\'s findings, recorded rather than tidied away '
+            . 'because the history is what explains the numbers. '
+            . '[2026-11-02] 167 -> 170 AND the remainder 52 -> 49, with NOTHING IN app/ CHANGED. '
             . 'Three entry points were counted by RAW_ENTRY_POINT_PATTERN and NOT attributed to '
             . 'their table, because they write `DB::table(` on one line and the name on the next: '
             . 'OrderFinancialService.php:289 and :402 and StoreFinanceController.php:545, all '
@@ -883,14 +1069,22 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            on `orders`; the argument for why a tenant predicate would weaken rather than strengthen
            it is written in full beside that table's entry, and again as a declaration in
            OwnedPathRawQueryInventoryTest that is asserted to still match the statement. */
-        $this->assertSame(82, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        /* 82 -> 83 [P1-SEC-67b], AND AGAIN THIS IS THE UNSCOPED TOTAL, so the argument is written rather than assumed. The addition is
+           `StoreScope::rootIsAMerchant()`: `DB::table('users')->where('id', $rootId)->value('type')`. It is a statement with no `store_id`, but it is
+           NOT a cross-tenant read, for three reasons that can each be checked: (1) `users` has no `store_id` column (the sibling test classifies it as
+           not discriminated, and says why), so a tenant predicate is not expressible; (2) the id it reads is the principal's OWN tenant root, derived
+           from `creatorId()` of the authenticated user, never from request input; (3) it returns ONE COLUMN, a role name, and its only consumer is a
+           comparison that can make the owned-store set SMALLER (an empty set fails closed through admissibleStoreIds()) -- it cannot widen what a
+           principal reaches. It exists because the previous behaviour widened it: a root that is not a merchant (a demoted merchant, or staff the
+           operator created) resolved to the OPERATOR'S id and "the stores this principal owns" held the operator's stores. */
+        $this->assertSame(83, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**
      * WHICH OF THOSE TABLES REALLY ARE TENANT-DISCRIMINATED, read from the LIVE MIGRATED SCHEMA
      * rather than from a name or a model's $fillable.
      *
-     * This is what separates a finding from a number. `users` has FIVE statements with no
+     * This is what separates a finding from a number. `users` has SIX statements with no (five, plus P1-SEC-67b's `StoreScope::rootIsAMerchant()`)
      * `store_id` and that is correct -- `users` has no such column; membership is
      * `users.current_store` plus `users.created_by`. `migrations` and `personal_access_tokens`
      * are platform tables. Counting those as exposure would have inflated the finding by eight

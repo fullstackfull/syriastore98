@@ -446,7 +446,7 @@ $activeTab = session()->get('setting_tab') ?? 'email_setting';
         var title = $(this).attr('data-title');
         var size = 'md';
         var url = $(this).attr('data-url');
-        $("#commanModel .modal-title").html(title);
+        $("#commanModel .modal-title").text(title); /* P1-SEC-80 round 4: a title is text */
         $("#commanModel .modal-dialog").addClass('modal-' + size);
         $("#commanModel").modal('show');
 
@@ -480,7 +480,7 @@ $activeTab = session()->get('setting_tab') ?? 'email_setting';
         var title = $(this).attr('data-title');
         var size = 'md';
         var url = $(this).attr('data-url');
-        $("#commanModel .modal-title").html(title);
+        $("#commanModel .modal-title").text(title); /* P1-SEC-80 round 4: a title is text */
         $("#commanModel .modal-dialog").addClass('modal-' + size);
         $("#commanModel").modal('show');
 

@@ -209,7 +209,14 @@ means:
    `'succeeded'` is written. One read-only production query settles it:
    `SELECT payment_status, COUNT(*) FROM orders GROUP BY 1`.
 3. **P4-F134 / P4-F135** decide what `user_coupons` counts, which is what any campaign-redemption
-   report would sum.
+   report would sum. **ANSWERED AND FIXED 2026-11-20** — and it was not the engineering-neutral
+   question this entry assumed. Measured end to end: `order-save` recorded NO redemption for any
+   order, so a coupon configured `coupon_limit_user = 1` discounted two orders for the same shopper;
+   `place_order` recorded refused coupons and additionally answered HTTP 500 with no order at all
+   for a client that posted only the code it typed. Both now write through
+   `App\Services\CouponRedemptionRecorder`, from the server's own resolution. See the two register
+   entries for the evidence and the mutation checks. **Pre-fix history is NOT backfilled**, so a
+   redemption figure has a coverage start.
 
 **The first executable Phase 05 action**, once those are answered: inventory every reporting surface
 that reads a money column, the way P4-0 inventoried the commerce surface — a register of claims,
@@ -219,5 +226,5 @@ each confirmed or refuted by independent adversarial review before any of it is 
 eighteen HIGH confirmed findings are still open, and both are owner decisions rather than engineering
 — **P4-F032** (a wallet-less store loses its credit permanently; the loss is now audible but the
 wallet is deliberately not created) and **P4-F046's live half** (the Benefit callback destination and
-the absent Benefit capture verification). Then the P4-F134 / P4-F135 coupon-recording pair, and
-P4-F138's `cart_id` contract.
+the absent Benefit capture verification). The P4-F134 / P4-F135 coupon-recording pair is **done**
+(2026-11-20), which leaves P4-F138's `cart_id` contract.

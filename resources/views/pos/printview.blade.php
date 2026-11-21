@@ -23,19 +23,19 @@
                 {!! isset($details['customer']['name']) ? '' : $details['customer']['details'] !!}
             </div><br>
             <div>
-                {!! isset($details['customer']['name']) ? 'Name:  ' . (isset($customer_detail->name) ? $customer_detail->name : '') : '' !!}
+                {{ isset($details['customer']['name']) ? 'Name:  ' . (isset($customer_detail->name) ? $customer_detail->name : '') : '' }}
             </div>
             <div>
-                {!! isset($details['customer']['address']) ? 'Address:  ' . $details['customer']['address'] : '' !!}
+                {{ isset($details['customer']['address']) ? 'Address:  ' . $details['customer']['address'] : '' }}
             </div>
             <div>
-                {!! isset($details['customer']['email']) ? 'Email:  ' . (isset($customer_detail->email) ? $customer_detail->email : '') : '' !!}
+                {{ isset($details['customer']['email']) ? 'Email:  ' . (isset($customer_detail->email) ? $customer_detail->email : '') : '' }}
             </div>
             <div>
-                {!! isset($details['customer']['phone_number']) ? 'Phone:  ' . (isset($customer_detail->phone) ? $customer_detail->phone : '') : '' !!}
+                {{ isset($details['customer']['phone_number']) ? 'Phone:  ' . (isset($customer_detail->phone) ? $customer_detail->phone : '') : '' }}
             </div>
             <div>
-                {!! isset($details['date']) ? 'Date of POS:  ' . $details['date'] : '' !!}
+                {{ isset($details['date']) ? 'Date of POS:  ' . $details['date'] : '' }}
             </div>
             <div class="product-border">
                 {!! isset($details['store']['details']) ? 'Store Name:  ' . $details['store']['details'] : '' !!}

@@ -855,7 +855,14 @@ foreach ($defaultCurrencies as $currency) {
         // compared eleven different ways across this codebase and the next person copying one of
         // them should copy the normalising form.
         if (strtolower(trim((string) $user->type)) !== 'super admin') {
-            $query->where('created_by', $user->creatorId());
+            // P1-SEC-66: no merchant tenant root, no owned store (see changeStore()).
+            $root = \App\Policies\UserPolicy::merchantTenantRoot($user);
+
+            if ($root === null) {
+                return null;
+            }
+
+            $query->where('created_by', $root);
         }
 
         return $query->first();
@@ -873,7 +880,16 @@ foreach ($defaultCurrencies as $currency) {
         $query = Store::where('id', $id);
 
         if ($user->type !== 'super admin') {
-            $query->where('created_by', $user->creatorId());
+            // P1-SEC-66: the tenant root must be a MERCHANT. `creatorId()` alone is the operator's id for a user rooted at the platform (a merchant who
+            // demoted their own `type`, or staff the operator created), and the operator's own store carries `created_by = 1`: this let that user point
+            // `current_store` -- the discriminator -- at the operator's store.
+            $root = \App\Policies\UserPolicy::merchantTenantRoot($user);
+
+            if ($root === null) {
+                abort(403, __('You do not have permission to access this store.'));
+            }
+
+            $query->where('created_by', $root);
         }
 
         $store = $query->first();

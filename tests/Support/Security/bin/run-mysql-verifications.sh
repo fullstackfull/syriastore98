@@ -233,6 +233,18 @@ run_one verify-host-claims-on-mysql \
   "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
   "FRESH_MYSQL_DATABASE=hostclaims_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
 
+# P1-SEC-78 (and the review of its first form). The write-side rule for the sign-in image rows (StoredPathPolicy::setting) decided "is this such a row" in PHP,
+# on the name as posted; the vendored lookups compare under the COLUMN's collation and the column keeps a name cut to ITS width. The script asks the engine which of
+# ~200,000 candidate names a lookup would find once stored, and whether the hook refuses a poisoned value under each. It is run under three (column, connection) collation
+# pairs, because the first form asked under the connection's and was red when they differed; the UCA 14 pair (utf8mb4_uca1400_ai_ci, MariaDB >= 10.10) is run by hand.
+for pair in "utf8mb4_unicode_ci utf8mb4_unicode_ci" "utf8mb4_general_ci utf8mb4_unicode_ci" "utf8mb4_unicode_ci utf8mb4_general_ci"; do
+  set -- ${pair}
+  run_one verify-setting-name-writer-on-mysql \
+    "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+    "FRESH_MYSQL_DATABASE=signinname_writer_verify" "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}" \
+    "FRESH_COLUMN_COLLATION=${1}" "FRESH_CONNECTION_COLLATION=${2}"
+done
+
 # P1-INV-05 / ACCEPTANCE CRITERION E3, which names the engine in its own text: "Concurrent checkout of the last unit cannot oversell --
 # on MySQL (SQLite cannot show it)". Until this script there was no MySQL evidence for E3 and none of the other scripts covered stock.
 # tests/Feature/Commerce/OrderStockConcurrencyTest.php proves the decrement is not a read-modify-write, by giving ten callers the stale
@@ -390,6 +402,56 @@ run_one verify-plan-purchase-intent-on-mysql \
 run_one verify-order-replacement-concurrency-on-mysql \
   "E13F_MYSQL_SOCKET=${SOCK}" "E13F_MYSQL_HOST=${HOST}" "E13F_MYSQL_PORT=${PORT}" \
   "E13F_MYSQL_DATABASE=e13f_verify" "E13F_MYSQL_USERNAME=${USER_NAME}" "E13F_MYSQL_PASSWORD=${PASS}"
+
+# P5-2 -- the Phase 05 metric layer. Ten money query objects whose tenant predicates, DECIMAL
+# precision and GROUP BY shape only mean anything on the production driver. It forces
+# ONLY_FULL_GROUP_BY on, which this container's server does NOT enable by default, because testing
+# under the stricter mode is the only direction safe to be wrong in. It also drives a genuinely
+# NULL `orders.currency_code` row -- the shape `2026_10_12_000102` deliberately left unbackfilled --
+# and proves `total()` really throws before the fold, which is the HTTP 500 that P5-3a prevents.
+run_one verify-metric-layer-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
+# P5-3b -- the merchant sales report's month window. THIS ONE IS NOT A CONVENIENCE: ReportController
+# calls MONTH() 36 times and YEAR() 9 times inside selectRaw and SQLite has neither, so every
+# handler in that file answers HTTP 500 under the Feature suite and CANNOT be covered by it. This
+# script is the only executable evidence those surfaces have. It measures the figure a merchant is
+# shown for "last month" and keeps negative controls for an out-of-period order and another
+# tenant's order, so a widened bound cannot pass it.
+run_one verify-report-window-boundary-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
+# P5-3f -- the four "Top 5" charts. Also NOT a convenience: the category and brand queries use
+# SUBSTRING_INDEX and the rest of ReportController uses MONTH()/YEAR(), none of which SQLite has,
+# so top_product() cannot run under the Feature suite either. The script seeds SEVEN items so a
+# correct top five must exclude two, and spells one payment method four ways so a case-sensitive
+# grouping shows up as four bars competing for five slots.
+run_one verify-top-five-reports-on-mysql \
+  "FRESH_MYSQL_SOCKET=${SOCK}" "FRESH_MYSQL_HOST=${HOST}" "FRESH_MYSQL_PORT=${PORT}" \
+  "FRESH_MYSQL_USERNAME=${USER_NAME}" "FRESH_MYSQL_PASSWORD=${PASS}"
+
+# D8-1 independent review, F1 and F2 -- the consent ledger under concurrency. SQLite compiles lockForUpdate() to
+# nothing and :memory: is one connection, so neither race is observable in the suite. This uses several REAL PROCESSES
+# on a real server running the REAL ledger, and forces the interleaving with a query listener. Before the fix: log
+# `1:granted 2:granted 3:withdrawn` with the projection `granted` (a withdrawal lost in the table the send gate reads), and
+# a `1213 Deadlock found` that rolled back a first-ever event. After: both hold; with the deadlock retry removed, S2 fails.
+run_one verify-consent-ledger-concurrency-on-mysql \
+  "CONSENT_MYSQL_SOCKET=${SOCK}" "CONSENT_MYSQL_HOST=${HOST}" "CONSENT_MYSQL_PORT=${PORT}" \
+  "CONSENT_MYSQL_USERNAME=${USER_NAME}" "CONSENT_MYSQL_PASSWORD=${PASS}"
+
+# GAP-222 -- the wallet currency presentation. The one question SQLite cannot answer about it:
+# `store_wallets.currency_code` is a VARCHAR, and MySQL's default collation is case-INSENSITIVE and
+# PAD SPACE while SQLite's is BINARY. So 'SYP', 'syp' and 'SYP  ' are ONE `GROUP BY` bucket here and
+# THREE in the suite -- and the bucket COUNT is what decides whether the tile shows a total or
+# refuses one and lists the amounts. MEASURED: one bucket summing 60.00 on this engine. The
+# `strtoupper(trim())` in MoneyText::buckets() is what makes the two engines agree, and it runs AFTER
+# the engine has grouped. Also covers the DECIMAL(15,2) SUM() coming back as a STRING (a missed cast
+# is invisible under SQLite), the zero-bucket flag both callers depend on, and MySQL coercing
+# `store_id = '7abc'` to 7 where SQLite matches nothing.
+run_one verify-gap222-wallet-currency-on-mysql \
+  "GAP222_MYSQL_SOCKET=${SOCK}" "GAP222_MYSQL_USERNAME=${USER_NAME}" "GAP222_MYSQL_PASSWORD=${PASS}"
 
 echo "==========================================================================="
 echo "passed: ${#PASSED[@]}   failed: ${#FAILED[@]}"

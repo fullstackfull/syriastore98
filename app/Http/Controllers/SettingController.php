@@ -321,7 +321,7 @@ $u->save();
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 
-        session()->put(['setting_tab' => 'brand_setting']);
+        if (($colourRefusal = \App\Support\Branding\StoreColour::refusalFor($request)) !== null) { return $colourRefusal; } session()->put(['setting_tab' => 'brand_setting']); // P1-SEC-80 round 3 (C-1): see StoreColour; ONE line so the line-keyed inventories below do not move
         // Get the authenticated user
         $user = auth()->user();
 
@@ -796,7 +796,7 @@ $u->save();
             $device_type = Utility::get_device_type($_SERVER['HTTP_USER_AGENT']);
 
             $ip = $_SERVER['REMOTE_ADDR'];
-            $query = @unserialize(file_get_contents('http://ip-api.com/php/'.$ip));
+            $query = @unserialize(file_get_contents('http://ip-api.com/php/'.$ip), ['allowed_classes' => false]);
             $date = (new \DateTime())->format('Y-m-d');
             $time = (new \DateTime())->format('H:i:s') . ' UTC';
 
@@ -1800,7 +1800,7 @@ if (!$currencyRate) {
     );
 }
 
-if ($newCurrency !== 'USD' && (float) $currencyRate->rate_per_usd <= 1) {
+$post['defult_currancy_symbol'] = $post['CURRENCY'] = \App\Support\Money\CurrencySymbol::clean($currencyRate->symbol); if ($newCurrency !== 'USD' && (float) $currencyRate->rate_per_usd <= 1) { // P1-SEC-80 round 4: the symbol is the store's own currency row's, not the request's
     return redirect()->back()->with(
         'error',
         __('Please set a valid exchange rate before changing the store currency.')

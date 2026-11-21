@@ -685,25 +685,136 @@ claim is released unless the checkout consumed its own cart rows, which is per-c
 than an order count (a count is wrong under concurrency in the direction that refuses an innocent
 shopper).
 
-### P4-F134 — `ordersave` may record no coupon redemption at all — RECORDED, NOT FIXED
+### P4-F134 — `ordersave` recorded NO coupon redemption at all — **MEASURED AND FIXED (2026-11-20)**
 
-`ordersave`'s coupon child-row block reads `$order_array['coupon_info']` and is gated on
-`isset($coupon_data['coupon_id'])`, but an earlier hardening rebuilt `coupon_info` from the server's
-verification with the keys `code`, `discount`, `discount_string`, `price`, `discount_amount` — **no
-`coupon_id`**. If that reading is right, orders placed through `api/{slug}/order-save` write neither
-`order_coupon_details` nor `user_coupons`, so coupon caps never see them. Not yet measured end to end;
-it needs a driven test before anything is changed, because the fix direction (start recording
-redemptions that are not being recorded today) changes what shoppers are allowed to spend.
+The reading was right, and the consequence is worse than "coupon caps never see them".
 
-### P4-F135 — a refused coupon still burns the shopper's allowance — RECORDED, NOT FIXED
+**MEASURED, through the real route with a real Sanctum token and a real cart**
+(`tests/Feature/Commerce/ApiCouponRedemptionRecordingTest`): the complete set of keys `ordersave`
+ever puts in `$order_array['coupon_info']` is `message`, `status`, `code`, `discount`,
+`discount_string`, `discount_string2`, `price`, `discount_amount` — confirmed by enumerating every
+assignment in the method. There is no `coupon_id`, so the gate `isset($coupon_data['coupon_id'])`
+was **always false** and `POST /api/{slug}/order-save` wrote neither child row for any order, with
+the discount granted. **A coupon configured `coupon_limit_user = 1` discounted TWO orders for the
+same shopper.** Every coupon cap is a count on `user_coupons`
+(`Coupon::usesByCustomer()`, `PerUsesCouponCount()`, `coupon_uses()`, `UsesCouponCount()`), so the
+merchant's own limit could not fire however it was set. The rest of the block was dead code of
+F135's shape: had the guard ever been true it would have written every column from `$coupon_data`
+and dereferenced `$Coupon->id` from a `Coupon::find()` of a caller-reachable id with no store
+predicate.
 
-`place_order`'s coupon child-row block is gated on `!empty($request->coupon_info)` rather than on
-whether `apply_coupon()` accepted the coupon, so a coupon the server **refused** still writes both
-`order_coupon_details` and `user_coupons`. The discount is correctly not applied; the redemption is
-recorded anyway. Same block takes `coupon_name`, `coupon_code`, `coupon_discount_type`,
-`coupon_discount_number` and `user_coupons.amount` from request input rather than from the resolved
-coupon row. Queued for P4-1 with the identity fix, because both want the same change: derive the coupon
-from the server's own validated resolution, never from the caller's `coupon_id`.
+**FIXED** by gating on the server's verdict (`$verified_coupon` — `apply_coupon()`'s own answer,
+empty unless this store's coupon was accepted) and writing through
+`App\Services\CouponRedemptionRecorder`.
+
+**WHAT CHANGES FOR SHOPPERS, stated plainly because the original entry flagged it:** a shopper who
+could reuse a limited coupon through the API can no longer do so. That is the merchant's configured
+setting beginning to apply on a path where it silently did not — not a new rule.
+
+### P4-F135 — a refused coupon burned the shopper's allowance — **MEASURED AND FIXED (2026-11-20)**
+
+Confirmed as read, with **a third defect found in the same block while measuring it**.
+
+`place_order`'s child-row block was gated on `!empty($request->coupon_info)` rather than on whether
+`apply_coupon()` accepted anything, and every column came from that request array — so a coupon the
+server refused wrote both `order_coupon_details` and `user_coupons`: no discount, and an allowance
+spent. It also resolved `Coupon::find($coupon_data['coupon_id'])`, a caller-named id with no store
+predicate, so a posted id could name another merchant's coupon.
+
+**AND IT ANSWERED HTTP 500 WITH NO ORDER AT ALL for an honest client.** Measured, not read:
+`Coupon::find($coupon_data['coupon_id'])` on a `coupon_info` carrying only the code the shopper
+typed raised `Undefined array key "coupon_id"` (ApiController:4149), which Laravel turns into an
+`ErrorException` — so `coupon_info[coupon_code]` and nothing else lost the whole checkout. The
+handler required the client to post fields the server should derive, and died otherwise.
+
+**FIXED** by gating on the server's own `$coupon_price > 0` and writing through
+`App\Services\CouponRedemptionRecorder`, which resolves the coupon by CODE within the request's
+store and takes every other value from the coupon row or from the handler's own arithmetic. The
+caller's `coupon_info` is now used for exactly one thing: the code to look up.
+
+**EVIDENCE.** 10 driven cases over both writers; 6 were red before the fix, and the reasons differed
+by handler — `order-save` reached the redemption assertion with the discount applied and no row,
+while `place-order` failed its PREMISE with the 500 above, which is how the third defect surfaced.
+
+Two mutations were then run, each caught by its own cases and nothing else:
+
+| mutation | cases that failed |
+|---|---|
+| `ordersave`'s gate given back its `isset($order_array['coupon_info']['coupon_id'])` limb (the always-false condition) | the two `order-save` cases: accepted-coupon redemption, and the one-per-shopper cap |
+| `place_order`'s gate given back `!empty($request->coupon_info)` **and** the recorder's `$discountAmount <= 0` guard removed — both together, because either alone still blocks the write | `a refused coupon burns no allowance [place-order]` |
+
+**ONE EXISTING TEST WAS INVERTED, NOT REPAIRED.**
+`StorefrontOrderWriteAtomicityTest::test_a_caller_chosen_coupon_id_breaks_the_write_between_the_detail_and_the_redemption`
+existed to DEMONSTRATE F135's trigger, and its own docblock said that if it ever failed on its first
+premise it was to be read rather than made to pass, because that would mean the handler no longer
+reaches the detail write on that input. That is what happened, and for a stronger reason than the one
+anticipated: the posted id is not read at all. The case is now
+`test_a_caller_chosen_coupon_id_no_longer_breaks_the_write_or_steers_it` — same conservation law
+(every surviving discount has a redemption recorded against it), now satisfied the strong way, plus
+an assertion that no row exists for the id the caller posted. The WINDOW itself is still measured
+without that trigger by the sibling injected-failure case, which was left untouched.
+
+Commerce suite on the fix: **1,182 passed, 3 failed** — all three being data sets of that one
+inverted case, now green.
+
+#### The independent review of the fix found two defects IN THE FIX, both now closed
+
+An independent tenant-authz review of the above was run before it was pushed, and it was not a
+formality: it found that the first version of the fix **re-opened both findings in the other
+handler**. Both are reproduced by test and closed; each was measured, not reasoned.
+
+**(i) `ordersave` recorded a redemption on the very path its own guard REFUSED the discount.**
+`$verified_coupon = $apply_coupon;` sat *below* the E6 plausibility guard's `if/else`, so "a coupon
+was accepted" and "the guard refused this discounted total" were indistinguishable downstream — and
+the gate also read `$order->coupon_price`, which is the coupon's **configured** number. MEASURED,
+with no attacker: a `flat` coupon of 100 on a 100.00 basket makes `apply_coupon`'s `final_price`
+`"0.00"`, which `!empty()` admits; `$couponedTotal > 0` is then false, so the discount is refused and
+the shopper is **charged in full** — while `coupon_price` carried 100 and the redemption was written.
+*Full price paid AND the allowance burned*, which is P4-F135's harm arriving in the other handler.
+Fixed by assigning `$verified_coupon` only on the applied arm and gating on
+`$ssCouponChargedDiscount`, the difference the basket actually loses.
+
+**(ii) `place_order` silently dropped the redemption for an unquoted numeric code.** `apply_coupon`
+resolves from `trim($request->coupon_code)`, and `trim()` casts — `trim(2024) === "2024"` — so a JSON
+client posting `{"coupon_code": 2024}` against a coupon coded `"2024"` is **accepted** and
+discounted. The fix's `is_string()` guard is false for an int, so the recorder got null and wrote
+nothing: P4-F134 re-opened on the handler F135 was fixed on, and that coupon uncapped for any JSON
+client. Fixed with the same coercion the acceptance uses (`is_scalar` → `trim((string) …)`).
+
+**The recorded discount is now the charged discount, and a test can tell.** The first fixture used a
+100.00 basket with a 10% coupon, which makes the configured number and the real discount the *same
+figure*, 10 — so no case could distinguish them. A 200.00-basket case now asserts the recorded
+discount exceeds the configured number and that the two child rows agree. Three mutation checks, each
+caught by its own cases and nothing else: restoring the `is_string` guard fails only
+`[place-order]`'s numeric-code case; restoring `$verified_coupon` outside the guard *and* the
+configured-number gate fails only the two `[order-save]` cases, with the message *"charged the
+shopper the full basket (final_price 100) and recorded a redemption anyway"*.
+
+#### Deliberately NOT changed, and why — recorded rather than silently left
+
+* **`orders.coupon_price` still holds the coupon's CONFIGURED number**, not the amount taken off
+  (`apply_coupon:4970` for every type but `fixed product discount`; `ordersave:9840`). That column's
+  meaning is pre-existing — P01-SEC-14 D1 shaped it — and other readers depend on it, so changing a
+  stored financial column is not this fix's to make. The child rows no longer inherit it, so the
+  detail row is now right where the order column is still wrong; **that disagreement is the finding**,
+  and it is the next slice's or the owner's. `place_order` never had it.
+* **`$order_array['coupon_info']['status']` is still set to `true` on both arms** of the E6 guard, so
+  a client is told a refused coupon was accepted. Response-only, pre-existing, and changing a
+  client-visible field is out of a bounded fix's scope.
+* **LATENT, stated so it is not read as live:** `apply_coupon`'s free-shipping arms hard-set
+  `coupon_discount_amount = 0` while the cart allocator still discounts (it never reads
+  `free_shipping_coupon` — commented out at `Cart.php:1216,1282`), which would be a discount given
+  with the gate false, i.e. F134's direction. Those arms need `\Session::get('shipping_method')`, and
+  a token-authenticated API request carries no such session, so they are **unreachable on this
+  surface** today. It becomes live the moment a session-bearing path calls either handler.
+* **Pre-existing fragility on the path both gates depend on:** `apply_coupon` resolves the coupon
+  *trimmed* at `:4531` and *untrimmed* at `:5442`, then dereferences `$coupon->id` — so a code posted
+  with surrounding whitespace is accepted by the first lookup and 500s at the second, losing the
+  checkout. Not introduced here, and it is why a padded code never reaches the recorder at all.
+* **Reporting fidelity, not money:** `order_coupon_details.coupon_final_amount` is the caller's
+  post-discount basket **subtotal** — neither `orders.final_price` (which adds tax and delivery) nor
+  `product_price − discount`. Both figures are server-derived, so no caller input reaches either; the
+  recorder's docblock now says so rather than leaving it to be rediscovered.
 
 ---
 

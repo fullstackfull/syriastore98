@@ -82,6 +82,16 @@ class ArabicUiCoverageTest extends TestCase
         // scanned them, so measured when this line was added: 45 `__()` strings rendered in
         // ENGLISH for an Arabic merchant on the screens that show their own money.
         'resources/views/finance/*.blade.php',
+
+        // ADDED 2026-11-21. `/analytics` (P5-4b, P5-5, P5-6) and `/platform/analytics` (P5-7) were
+        // built with every string in `__()` and both language files updated by hand, but NEITHER
+        // directory was scanned — so that discipline rested on nobody forgetting. Measured before
+        // adding: zero `resources/views/analytics` or `.../platform` globs here, which is why a
+        // read-only audit of the MKT/ANA gaps flagged this as the likeliest way the next analytics
+        // slice goes red. Adding the globs covers RETROACTIVELY: every string already on those two
+        // screens is now asserted, not just future ones.
+        'resources/views/analytics/*.blade.php',
+        'resources/views/platform/*.blade.php',
     ];
 
     /**

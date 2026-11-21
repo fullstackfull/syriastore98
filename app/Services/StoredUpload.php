@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Store;
 use App\Models\User;
+use App\Policies\UserPolicy;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 
@@ -28,6 +29,13 @@ use Illuminate\Support\Facades\Log;
  *     the product gallery, whose helper prepends the prefix twice -- so when the owner is known, the numeric segment after any
  *     leading `uploads` must be one of that owner's stores (the platform operator, who legitimately edits any store's files, is
  *     exempt). Ownership of the ROW is the callers' business; this stops a poisoned row from naming someone else's folder.
+ *     P1-SEC-67d: THE EXEMPTION IS THE OPERATOR ACTING, NOT THE OPERATOR'S ID. "The owner" is whatever a caller passes, and about
+ *     sixty call sites in some thirty-five handlers pass `Auth::user()->creatorId()` -- which IS the operator's id for a principal rooted at the platform (a
+ *     merchant who demoted their own `type` through PUT /users/{self}, or staff the operator created). They presented the
+ *     operator's id and were handed the operator's exemption: any tenant's folder, the operator's own included, from a path
+ *     they stored themselves and an image they then replaced (executed: OperatorRootedStoredUploadTest). So when the owner is
+ *     an operator and a panel user who is NOT the operator is acting, they get what they would get as themselves: a store they
+ *     own. Read `mayTouchStoreFolder()` for who that does and does not change.
  *     RESIDUAL, measured and accepted in writing under P1-SEC-28 acceptance 5: a path whose first segment after any leading
  *     `uploads` is NOT a run of digits -- `uploads/profile/`, `uploads/receipt/`, `uploads/logo/`, `uploads/stylique/`,
  *     `uploads/is_cover_image/` and the loose files sitting directly in `uploads/` -- encodes no owner anywhere in the path,
@@ -58,7 +66,8 @@ final class StoredUpload
     private const PLATFORM_DEFAULTS = ['uploads/profile/avatar.png'];
 
     /**
-     * @param  int|string|null  $ownerId  the tenant owner's user id (User::creatorId()); null skips rule 3
+     * @param  int|string|null  $ownerId  the tenant owner's user id (User::creatorId()); null skips rule 3. It is not trusted to carry
+     *                                    the operator's exemption on its own: see mayTouchStoreFolder()
      * @return string|null the real, absolute path of an existing file that may be touched; null otherwise
      */
     public static function resolve(?string $relativePath, $ownerId = null): ?string
@@ -137,11 +146,54 @@ final class StoredUpload
         return $real !== null && File::delete($real);
     }
 
+    /**
+     * May a file in `uploads/<storeId>/` be touched on behalf of `$ownerId`?
+     *
+     * WHO THE P1-SEC-67d LIMB CHANGES, AND WHO IT DOES NOT. It is reached only when the owner presented is an operator.
+     *
+     *   the operator acting                     unchanged: any store's folder. (A second operator account acting while the first
+     *                                           one's id is presented is still an operator acting.)
+     *   no `User` on the web guard              unchanged: the console, a queue job, a storefront request with no panel session (a
+     *                                           `Customer` is on another guard and is not a `User`). Recorded, not endorsed: two
+     *                                           customer-side callers present a store owner's id -- Api\ApiController (a customer's
+     *                                           profile image, `$store->created_by`) and AccountProfileController::attachmentDestroy
+     *                                           (`$customer->creatorId()`) -- and for a customer of the operator's own store that is
+     *                                           the operator, so the exemption applies there as it always did. No first-party
+     *                                           writer was found that lets a customer store an arbitrary path in either column.
+     *   a merchant, a merchant's staff          never reach it: their `creatorId()` is the merchant.
+     *   staff of a self-demoted merchant        never reach it: their `creatorId()` is their employer, so the ownership limb at the
+     *                                           foot already bounds them to their employer's stores. A uniform "the root must be a
+     *                                           merchant" refusal would cost them their own housekeeping and close nothing.
+     *   a self-demoted merchant                 no exemption: only a store THEY own (they still own theirs). NOT `created_by =
+     *                                           $ownerId`: that is the operator's id, and it would hand them the operator's stores.
+     *   staff the operator created              no exemption, and they own no store: nothing under `uploads/<id>/`, the operator's
+     *                                           own store included. WHAT THAT COSTS THEM: a replaced image's old file stays on disk;
+     *                                           a deleted product's media stays with no row left pointing at it; the storage figure
+     *                                           charged for their uploads is never credited back; and the log line for each refusal
+     *                                           says "another tenant's folder" about what is their own workplace. It is the price of
+     *                                           their being indistinguishable from a demoted merchant by `creatorId()` -- the owner's
+     *                                           fork, P01-SECURITY-WORK-QUEUE f)(2).
+     *
+     * THE WEB GUARD, READ EXPLICITLY, AND A `User`. `CustomAuth` signs an admin-API token's `User` into the DEFAULT guard, which is
+     * `web` (config/auth.php), so the panel and the admin API arrive here the same way. An `auth:customers` route rewrites the
+     * default guard, where `auth()->user()` would be a `Customer`; reading `web` by name keeps a panel session visible there too.
+     * One edge follows and fails closed: a storefront request from a browser that ALSO holds a non-operator panel session is
+     * narrowed like that panel user, so a customer's old file in the operator's store may be left on disk.
+     *
+     * ONE NORMALISATION FOR BOTH QUESTIONS: `UserPolicy::isOperator()` for the owner row and for the actor. The owner test used to
+     * be its own `strtolower(trim())`, which calls a row typed with a leading space or a tab an operator when the policy does not.
+     */
     private static function mayTouchStoreFolder(int $storeId, $ownerId): bool
     {
         $owner = User::find($ownerId);
 
-        if ($owner !== null && strtolower(trim((string) $owner->type)) === 'super admin') {
+        if (UserPolicy::isOperator($owner)) {
+            $actor = auth('web')->user();
+
+            if ($actor instanceof User && ! UserPolicy::isOperator($actor)) {
+                return Store::where('id', $storeId)->where('created_by', $actor->id)->exists();
+            }
+
             return true;
         }
 

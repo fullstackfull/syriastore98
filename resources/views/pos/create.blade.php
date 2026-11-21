@@ -20,7 +20,7 @@
                     </div>
                     <div class="col-6 text-end">
                         <div class="text-dark "><b>{{ __('Store Name') }}: </b>
-                            {!! $details['store']['name'] !!}
+                            {{ $details['store']['name'] }}
                         </div>
                     </div>
                 </div>

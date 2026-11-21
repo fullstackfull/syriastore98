@@ -3392,12 +3392,18 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
          * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
          * right plan (CartController::cart_list_sidebar:38-40,
          * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
-         * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+         * The predicate's TEXT is unchanged but its MEANING is not -- see the plan note below. See App\Support\Commerce\StorePlan.
          */
         $user = \App\Support\Commerce\StorePlan::ownerOf($store);
+        // `$plan` is assigned only inside the owner's `type == 'admin'` test, so it must start null and
+        // shipping is read through `$planShippingMethod` (no plan => 'off', the rule `processOrder` and
+        // `processShipping` already apply). Without this a store whose owner has no resolvable plan dies
+        // here. Held by Tests\Feature\Commerce\ReturnHandlerPlanInitialiserTest (LANDED).
+        $plan = null;
         if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);
         }
+        $planShippingMethod = $plan->shipping_method ?? 'off';
         $rules = [
             'customer_id' => 'required',
             'billing_info' => 'required',
@@ -3525,6 +3531,13 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
 
 
         $coupon_price = 0;
+        /*
+         * P4-F135. The SERVER's post-discount basket total, captured at the point the server
+         * computes it rather than read 600 lines later out of `$apply_coupon` -- a name this method
+         * reassigns twice, and whose later value is only defined when a coupon was posted. The
+         * coupon child rows are written from this and from `$coupon_price`, never from the request.
+         */
+        $ssServerCouponFinalPrice = 0.0;
         // coupon api call
         if (!empty($request->coupon_info)) {
             $coupon_data = $request->coupon_info;
@@ -3583,12 +3596,13 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 // change, not an authorization one, so it is S21/S24 in
                 // docs/security/P01-SECURITY-WORK-QUEUE.md and not made here.
                 $coupon_price = $apply_coupon['amount'];
+                $ssServerCouponFinalPrice = (float) $apply_coupon['final_price'];
                 $order_array['coupon']['status'] = true;
             }
         }
 
         $delivery_price = 0;
-        if ($plan->shipping_method == 'on') {
+        if ($planShippingMethod == 'on') {
             if (!empty($request->method_id)) {
                 $del_charge = new CartController();
                 $delivery_charge = $del_charge->get_shipping_method($request, $slug);
@@ -3986,13 +4000,13 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
          * refusal because apply_coupon has already accepted the coupon by this point.
          */
         if (!\Auth::guard('customers')->user()) {
-            if ($plan->shipping_method == 'on') {
+            if ($planShippingMethod == 'on') {
                 $order->final_price = max(0, $data['shipping_total_price'] - $coupon_price);
             } else {
                 $order->final_price = max(0, $final_price + $tax_price - $coupon_price);
             }
         } else {
-            if ($plan->shipping_method == 'on') {
+            if ($planShippingMethod == 'on') {
                 $order->final_price = max(0, $data['shipping_total_price'] + $tax_price - $coupon_price);
             } else {
                 $order->final_price = max(0, $final_price + $tax_price - $coupon_price);
@@ -4137,49 +4151,80 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $OrderBillingDetail->save();
         // add in Order Billing Detail table end
 
-        // add in Order Coupon Detail table start
-        if (!empty($request->coupon_info)) {
-            $coupon_data = $request->coupon_info;
-            $Coupon = Coupon::find($coupon_data['coupon_id']);
+        /*
+         * add in Order Coupon Detail table start
+         *
+         * P4-F135 -- THIS BLOCK RECORDED A REFUSED COUPON, AND RECORDED IT FROM THE REQUEST.
+         * =========================================================================================
+         *
+         * It was gated on `!empty($request->coupon_info)` -- the REQUEST -- rather than on whether
+         * this handler's own `apply_coupon()` call accepted anything, and every column came from
+         * that request array including `coupon_discount_amount`. So a coupon the server REFUSED
+         * still wrote `order_coupon_details` AND `user_coupons`: the shopper got no discount and
+         * lost an allowance they never spent, because every coupon cap in the application is a
+         * count on `user_coupons`.
+         *
+         * IT ALSO ANSWERED HTTP 500 WITH NO ORDER AT ALL for an honest client. Measured, not read:
+         * `Coupon::find($coupon_data['coupon_id'])` on an array carrying only the code the shopper
+         * typed raised `Undefined array key "coupon_id"` at this line, which Laravel turns into an
+         * ErrorException -- so posting `coupon_info[coupon_code]` and nothing else lost the whole
+         * checkout. And where a `coupon_id` WAS posted it was resolved with no store predicate, so
+         * it could name another merchant's coupon.
+         *
+         * THE GATE IS NOW THE SERVER'S OWN VERDICT (`$coupon_price > 0`) and the writer is
+         * App\Services\CouponRedemptionRecorder, which resolves the coupon by CODE within this
+         * store and takes every other value from the coupon row or from this handler's arithmetic.
+         * The caller's `coupon_info` is used for exactly one thing: the code to look up.
+         */
+        if ($coupon_price > 0) {
+            $ssCouponCode = is_array($request->coupon_info)
+                ? ($request->coupon_info['coupon_code'] ?? null)
+                : null;
 
-            // Order Coupon history
-            $OrderCouponDetail = new OrderCouponDetail();
-            $OrderCouponDetail->order_id = $order->id;
-            $OrderCouponDetail->product_order_id = $order->product_order_id;
-            $OrderCouponDetail->coupon_id = $coupon_data['coupon_id'];
-            $OrderCouponDetail->coupon_name = $coupon_data['coupon_name'];
-            $OrderCouponDetail->coupon_code = $coupon_data['coupon_code'];
-            $OrderCouponDetail->coupon_discount_type = $coupon_data['coupon_discount_type'];
-            $OrderCouponDetail->coupon_discount_number = $coupon_data['coupon_discount_number'];
-            $OrderCouponDetail->coupon_discount_amount = $coupon_data['coupon_discount_amount'];
-            $OrderCouponDetail->coupon_final_amount = $coupon_data['coupon_final_amount'];
-            $OrderCouponDetail->save();
+            /*
+             * COERCED THE SAME WAY `apply_coupon` COERCES IT, and that is a fix rather than a
+             * nicety. That method resolves the coupon from `trim($request->coupon_code)` (:4531),
+             * and `trim()` casts: `trim(2024) === "2024"` is TRUE. So a JSON client posting an
+             * UNQUOTED all-digit code -- `"coupon_info": {"coupon_code": 2024}` against a coupon
+             * whose code is "2024" -- is ACCEPTED upstream, the discount is computed and subtracted
+             * from `orders.final_price`. The first version of this block then asked `is_string()`,
+             * which is FALSE for an int, handed the recorder null, and recorded nothing: discount
+             * given, no `user_coupons` row, every cap blind to it. That is P4-F134's defect
+             * re-opened on the handler P4-F135 was fixed on.
+             *
+             * `is_scalar` rather than a cast on anything: an array or object code must still resolve
+             * to null rather than be stringified into a lookup. Found by independent review.
+             */
+            $ssRecorded = app(\App\Services\CouponRedemptionRecorder::class)->record(
+                $order,
+                $store,
+                is_scalar($ssCouponCode) ? trim((string) $ssCouponCode) : null,
+                (float) $coupon_price,
+                $ssServerCouponFinalPrice,
+                $customerId,
+            );
 
-            // Coupon history
-            $UserCoupon = new UserCoupon();
-            // Was `$request->user_id` -- caller-supplied attribution, and the sibling ordersave
-            // already derives it. Not coupon-limit evasion: Coupon::PerUsesCouponCount() resolves
-            // the user through OrderBillingDetail.email, not through this column. Audit integrity.
-            $UserCoupon->user_id = $customerId;
-            $UserCoupon->coupon_id = $Coupon->id;
-            $UserCoupon->amount = $coupon_data['coupon_discount_amount'];
-            $UserCoupon->order_id = $order->id;
-            $UserCoupon->date_used = now();
-            $UserCoupon->save();
+            /*
+             * The response fields clients read, built from what was RECORDED rather than from what
+             * was posted. `null` means the code resolved to no coupon of this store, in which case
+             * there is nothing truthful to echo and the keys are left unset -- the shopper's total
+             * is unaffected either way, because `$coupon_price` was already applied above.
+             */
+            if ($ssRecorded !== null) {
+                $discount_string = '-' . $ssRecorded->coupon_discount_amount;
+                $CURRENCY = Utility::GetValueByName('CURRENCY');
+                $CURRENCY_NAME = Utility::GetValueByName('CURRENCY_NAME');
+                if ($ssRecorded->coupon_discount_type == 'flat') {
+                    $discount_string .= $CURRENCY;
+                } else {
+                    $discount_string .= '%';
+                }
 
-            $discount_string = '-' . $coupon_data['coupon_discount_amount'];
-            $CURRENCY = Utility::GetValueByName('CURRENCY');
-            $CURRENCY_NAME = Utility::GetValueByName('CURRENCY_NAME');
-            if ($coupon_data['coupon_discount_type'] == 'flat') {
-                $discount_string .= $CURRENCY;
-            } else {
-                $discount_string .= '%';
+                $discount_string .= ' ' . __('for all products');
+                $order_array['coupon']['code'] = $ssRecorded->coupon_code;
+                $order_array['coupon']['discount_string'] = $discount_string;
+                $order_array['coupon']['price'] = SetNumber($ssRecorded->coupon_final_amount);
             }
-
-            $discount_string .= ' ' . __('for all products');
-            $order_array['coupon']['code'] = $coupon_data['coupon_code'];
-            $order_array['coupon']['discount_string'] = $discount_string;
-            $order_array['coupon']['price'] = SetNumber($coupon_data['coupon_final_amount']);
         }
         // add in Order Coupon Detail table end
 
@@ -7390,10 +7435,49 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
             // Was Store::findOrFail($user->store_id), which 404s when the customer's store_id is
             // null -- and that column is nullable. The slug's store is already confirmed to be
             // this customer's by the check above, so it is the right one to bill.
-            $cover_image = upload_theme_image( $theme_image, 0, $store->created_by);
-            \App\Services\StoredUpload::delete($user->profile_image, $store->created_by);
+            // P1-SEC-72: a customer's upload -- raster images only, stored in THIS store's folder (the slug's store: the check
+            // above confirmed it is this customer's, or that the customer has no store at all -- resolveStoreCustomer() lets a
+            // NULL store_id through for any slug), under an extension the server chose. See App\Services\ThemeImageUpload.
+            $cover_image = upload_theme_image($theme_image, 0, $store->created_by, $store->id, true);
+
+            // A REFUSED UPLOAD CHANGES NOTHING. The result used to be taken on trust: the previous avatar was unlinked and
+            // `image_path` stored whatever it held, so an upload refused for the plan's storage erased the avatar it was meant to
+            // replace and wrote '' in its place. HTTP 200 with status 0, never 401: a client signs out on a 401.
+            if (empty($cover_image['status'])) {
+                // The state of the merchant's plan is not a shopper's business: a stranger who registers must not be able to
+                // read from this answer whether the store's storage is full. Every other refusal says what was wrong.
+                $message = ($cover_image['reason'] ?? '') === 'plan' ? __('The image could not be saved.') : $cover_image['message'];
+
+                return $this->error(['message' => $message], $message);
+            }
+
+            // THE NEW PATH IS SAVED FIRST, THEN THE PREVIOUS AVATAR IS UNLINKED AND ITS SIZE HANDED BACK. In that order, so that a
+            // save that fails cannot leave the column naming a file that is already gone.
+            //
+            // The credit: every avatar is charged to the store owner's plan storage (above), and this used to unlink the old
+            // file without crediting it. MEASURED: one registered visitor replacing a 300 KB picture moved the merchant's
+            // used-storage figure 0.29, 0.58, 0.87... with one file on disk, until the plan refused the next upload. (By
+            // reading, not driven: Utility::updateStorageLimit() is the check most of the merchant's own uploads go through
+            // too, so they would have been refused with it.) Utility::changeStorageLimit() is what the panel's replace-an-image
+            // handlers call, and the same StoredUpload rule decides the file.
+            //
+            // WHAT IT DOES NOT HOLD. It credits the file's size on disk, which is what was charged only for an avatar THIS
+            // handler stored (an importer may have charged a remote-reported size, or nothing). And it is not atomic: two
+            // replacements of one avatar at the same moment each store and charge a file and only one is kept by the column.
+            // Both are recorded in P01-SECURITY-WORK-QUEUE (P1-SEC-72); neither gives a customer anything a second
+            // registration does not.
+            $previous = $user->profile_image;
             $user->profile_image = $cover_image['image_path'];
-            $user->save();
+
+            try {
+                $user->save();
+            } catch (\Throwable $e) {
+                Utility::changeStorageLimit($store->created_by, $cover_image['image_path']);   // not kept: unlink it, hand its charge back
+
+                throw $e;
+            }
+
+            Utility::changeStorageLimit($store->created_by, $previous);
         }
 
         if (!empty($user)) {
@@ -7968,7 +8052,15 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 return $order;
             }
 
-            $ownedStoreIds = Store::where('created_by', $actor->creatorId())->pluck('id')->all();
+            // P1-SEC-66: the tenant root must be a MERCHANT. `creatorId()` alone is the operator's id for a user rooted at the platform (a demoted
+            // merchant, or staff the operator created), which made the operator's stores -- and so their orders -- "owned". A null root owns nothing.
+            $root = \App\Policies\UserPolicy::merchantTenantRoot($actor);
+
+            if ($root === null) {
+                return null;
+            }
+
+            $ownedStoreIds = Store::where('created_by', $root)->pluck('id')->all();
 
             return in_array((int) $order->store_id, array_map('intval', $ownedStoreIds), true) ? $order : null;
         }
@@ -8193,32 +8285,56 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 }
             }
         }
-        $orderQuery = Order::query();
-        if (auth('customers')->user()) {
-
-            $Order = (clone $orderQuery)->select(
-                \DB::raw('CAST(SUM(reward_points) AS DECIMAL(10,2))'),
-                \DB::raw('FORMAT((product_price),1,2)')
-            )->where('customer_id', auth('customers')->user()->id)->first();
-            $loyality_program['point'] = $Order ? number_format($Order->reward_points, 2) : number_format(0, 2);
-
-            $loyality_program['reward_history'] = (clone $orderQuery)
-                ->select('*', \DB::raw('CAST(SUM(reward_points) AS DECIMAL(10,2)) AS total_reward_points'))
-                ->selectRaw('FORMAT(product_price, 2) AS product_price')
-                ->selectRaw('FORMAT(coupon_price, 2) AS coupon_price')
-                ->selectRaw('FORMAT(delivery_price, 2) AS delivery_price')
-                ->selectRaw('FORMAT(tax_price, 2) AS tax_price')
-                ->selectRaw('CAST(FORMAT(final_price, 2) AS CHAR) AS final_price')
-                ->selectRaw('FORMAT(return_price, 2) AS return_price')
-                ->where('customer_id', auth('customers')->user()->id)
-                ->where('store_id', $store->id)
-                
-                ->orderBy('id', 'desc')
-                ->paginate(10);
-        } else {
-            $loyality_program['point'] = number_format(0, 2);
-            $loyality_program['reward_history'] = (clone $orderQuery)->where('customer_id', 0)->where('store_id', $store->id)->orderBy('id', 'desc')->paginate(10);
+        // ==================================================================================
+        // P1-SEC-63a. FAILS CLOSED, LIKE ITS SIBLING loyality_reward() ALREADY DOES.
+        //
+        // THE DEFECT, demonstrated by execution and not by reading: the `else` limb below had no
+        // 401, and `$store` comes from `getStore($slug)` -- `Store::where('slug',…)->first()`,
+        // with NO check that the caller belongs to that store. A merchant's or a driver's Sanctum
+        // token passes `custom.auth` while `auth('customers')` stays null, so such a caller took
+        // the else limb and was handed THAT store's `customer_id = 0` orders with no `select()`,
+        // i.e. all 40 columns -- product_json, every money column, payment_type, payment_status,
+        // payment_receipt, the delivery dates -- paginated ten at a time. Two tests in
+        // StorefrontCustomerReadAuthorizationTest drove it with a merchant token and a driver
+        // token against a second tenant's slug and both read `STORE-B-GUEST-REF`.
+        //
+        // A CUSTOMER-TOKEN PROBE CANNOT FIND THIS: a Customer makes auth('customers') non-null and
+        // takes the safe limb. That is why both negative tests use non-customer principals.
+        //
+        // resolveStoreCustomer() is the storefront's shared predicate and also refuses a customer
+        // of ANOTHER store naming this slug, which the old `auth('customers')->user()` did not.
+        // The new 401 is safe on this path for the same reason recorded on the sibling: no client
+        // in either repository calls the storefront API.
+        $customer = $this->resolveStoreCustomer($store);
+        if ($customer === null) {
+            return $this->error(['message' => __('Unauthenticated.')], __('Unauthenticated.'), 401);
         }
+
+        $orderQuery = Order::query();
+        // P1-SEC-63b, ISOLATION HALF ONLY. `->where('store_id', …)` is NEW. `Order` is not in
+        // config/tenancy.php's `scoped_models`, so nothing supplied a predicate and this
+        // summed the customer's reward points across EVERY store -- exactly what the sibling
+        // was fixed for. It changes no figure today, because the `select()` below has no `AS`
+        // alias so `$Order->reward_points` is NULL and the result is discarded; that masking
+        // is why it survived. The alias is deliberately NOT added: see the tripwire test.
+        $Order = (clone $orderQuery)->select(
+            \DB::raw('CAST(SUM(reward_points) AS DECIMAL(10,2))'),
+            \DB::raw('FORMAT((product_price),1,2)')
+        )->where('customer_id', $customer->id)->where('store_id', $store->id)->first();
+        $loyality_program['point'] = $Order ? number_format($Order->reward_points, 2) : number_format(0, 2);
+
+        $loyality_program['reward_history'] = (clone $orderQuery)
+            ->select('*', \DB::raw('CAST(SUM(reward_points) AS DECIMAL(10,2)) AS total_reward_points'))
+            ->selectRaw('FORMAT(product_price, 2) AS product_price')
+            ->selectRaw('FORMAT(coupon_price, 2) AS coupon_price')
+            ->selectRaw('FORMAT(delivery_price, 2) AS delivery_price')
+            ->selectRaw('FORMAT(tax_price, 2) AS tax_price')
+            ->selectRaw('CAST(FORMAT(final_price, 2) AS CHAR) AS final_price')
+            ->selectRaw('FORMAT(return_price, 2) AS return_price')
+            ->where('customer_id', $customer->id)
+            ->where('store_id', $store->id)
+            ->orderBy('id', 'desc')
+            ->paginate(10);
 
         return $this->success($loyality_program,  __('Loyality program get succssfully.'));
     }
@@ -9095,6 +9211,23 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         // coupon api call
         $order_array['coupon_info'] = null;
 
+        /*
+         * P4-F134 REVIEW FOLLOW-UP. THE DISCOUNT THIS HANDLER ACTUALLY APPLIED, and the total it left
+         * to pay. Both are captured as the DIFFERENCE this method makes to the basket, inside the one
+         * arm that makes it -- not read out of `apply_coupon`'s answer, for two measured reasons:
+         *
+         *   1. `$verified_coupon` is set on BOTH arms of the plausibility guard below, so "a coupon was
+         *      accepted" and "the guard REFUSED this discounted total" are indistinguishable from it.
+         *   2. `apply_coupon`'s `coupon_discount_amount` is, for every type but `fixed product
+         *      discount`, the coupon's CONFIGURED number -- the PERCENT for a percentage coupon
+         *      (:4970). A 10% coupon on a 300.00 basket reports 10, having taken off 30.
+         *
+         * A figure recorded as "what was taken off" must be what was taken off, so it is subtracted
+         * here where both sides of the subtraction are in scope. Found by independent review.
+         */
+        $ssCouponChargedDiscount = 0.0;
+        $ssCouponChargedFinal = 0.0;
+
         // P01-SEC-14 D1. `$verified_coupon` is this method's OWN verdict on the coupon, taken from
         // the apply_coupon() call just below, and it is what the money column is written from ~200
         // lines further down. Empty means "no coupon was accepted" -- the state an order with no
@@ -9151,7 +9284,27 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                 $couponedTotal = (float) $apply_coupon['final_price'];
 
                 if ($couponedTotal > 0 && $couponedTotal <= (float) $cartlist_final_price) {
+                    // Both sides of the subtraction are in scope here and nowhere else: this is the
+                    // discount the basket really loses, and the total really left to pay.
+                    $ssCouponChargedDiscount = (float) $cartlist_final_price - $couponedTotal;
+                    $ssCouponChargedFinal = $couponedTotal;
+
                     $cartlist_final_price = $apply_coupon['final_price'];
+
+                    /*
+                     * `$verified_coupon` IS SET ONLY ON THIS ARM, and moving it here is a fix rather
+                     * than tidying. It used to be assigned below the if/else, so the guard's REFUSAL
+                     * still left a verdict behind -- and the coupon-recording gate reads that verdict.
+                     *
+                     * MEASURED: a flat coupon worth the whole basket (discount_amount 100 on a 100.00
+                     * basket) makes `apply_coupon`'s final_price "0.00", which `!empty()` admits, so
+                     * the guard fires, `$couponedTotal > 0` is false, the discount is REFUSED and the
+                     * shopper is charged in full -- and the redemption was recorded anyway, because
+                     * `$order->coupon_price` carries the coupon's configured 100. Full price paid AND
+                     * the allowance burned, which is P4-F135's harm arriving in this handler by the
+                     * back door. Found by independent review of the P4-F134 fix.
+                     */
+                    $verified_coupon = $apply_coupon;
                 } else {
                     \Illuminate\Support\Facades\Log::warning('coupon: refused an implausible discounted total', [
                         'handler' => __FUNCTION__,
@@ -9161,17 +9314,22 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
                     ]);
                 }
                 $order_array['coupon_info']['status'] = true;
-                $verified_coupon = $apply_coupon;
             }
         }
 
         $delivery_price = 0;
         $tax_price = $cartlist['tax_price'];
         $user = User::where('id', $store->created_by)->first();
-        if ($user->type == 'admin') {
+        // `$plan` is assigned only inside the owner's `type == 'admin'` test, so it must start null and
+        // shipping is read through `$planShippingMethod` (no plan => 'off', the rule `processOrder` and
+        // `processShipping` already apply). Without this a store whose owner has no resolvable plan dies
+        // here. Held by Tests\Feature\Commerce\ReturnHandlerPlanInitialiserTest (LANDED).
+        $plan = null;
+        if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);
         }
-        if ($plan->shipping_method == 'on') {
+        $planShippingMethod = $plan->shipping_method ?? 'off';
+        if ($planShippingMethod == 'on') {
             if (!empty($request->method_id)) {
                 $del_charge = new CartController();
                 $delivery_charge = $del_charge->get_shipping_method($request, $slug);
@@ -9667,12 +9825,15 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
          * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
          * right plan (CartController::cart_list_sidebar:38-40,
          * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
-         * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+         * The predicate's TEXT is unchanged but its MEANING is not -- see the plan note below. See App\Support\Commerce\StorePlan.
          */
         $user = \App\Support\Commerce\StorePlan::ownerOf($store);
+        // Re-resolved the same way; see the note on the first resolution in this method.
+        $plan = null;
         if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);
         }
+        $planShippingMethod = $plan->shipping_method ?? 'off';
         $is_guest = 1;
         if (auth('customers')->check()) {
             $product_order_id  = $customer_id . date('YmdHis');
@@ -9895,50 +10056,82 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         $OrderBillingDetail->delivery_state = $deliveryGeography['state_id'];
         $OrderBillingDetail->save();
 
-        // add in Order Coupon Detail table start
-        if (!empty($order_array['coupon_info'])) {
-            $coupon_data = $order_array['coupon_info'];
-            if (isset($coupon_data['coupon_id'])) {
-                $Coupon = Coupon::find($coupon_data['coupon_id']);
-                // coupon stock decrease end
+        /*
+         * add in Order Coupon Detail table start
+         *
+         * P4-F134 -- THIS BLOCK NEVER RAN, FOR ANY ORDER, AND THE COUPON CAPS WERE BLIND TO THIS ROUTE.
+         * =========================================================================================
+         *
+         * It was gated on `isset($coupon_data['coupon_id'])`. The COMPLETE set of keys this handler
+         * ever puts in `$order_array['coupon_info']` is message / status (where apply_coupon's
+         * verdict is recorded) and code / discount / discount_string / discount_string2 / price /
+         * discount_amount (where the display strings are rebuilt from the coupon row). There is no
+         * `coupon_id` and never was, so the guard was ALWAYS FALSE: `POST /api/{slug}/order-save`
+         * granted discounts and wrote neither `order_coupon_details` nor `user_coupons`.
+         *
+         * THAT IS A MONEY DEFECT, NOT AN AUDIT GAP, because every coupon cap in the application is
+         * a count on `user_coupons` -- `Coupon::usesByCustomer()`, `PerUsesCouponCount()`,
+         * `coupon_uses()`, `UsesCouponCount()`. MEASURED end to end before this was changed: a
+         * coupon configured `coupon_limit_user = 1` discounted TWO orders for the same shopper
+         * through this route. The merchant's own limit could not fire however it was set.
+         *
+         * THE REST OF THE BLOCK WAS DEAD CODE OF THE SAME SHAPE AS P4-F135 NEXT DOOR: had the guard
+         * ever been true it would have written every column from `$coupon_data` and dereferenced
+         * `$Coupon->id` on a `Coupon::find()` of a caller-reachable id with no store predicate.
+         *
+         * THE GATE IS NOW THE SERVER'S VERDICT -- `$verified_coupon`, which is apply_coupon()'s own
+         * answer and empty unless THIS store's coupon was accepted -- and the writer is
+         * App\Services\CouponRedemptionRecorder, shared with place_order. The code it resolves by is
+         * the one the server itself verified (`$order_array['coupon_info']['code']`, set from
+         * `$verified_info['coupon_code']` above), not a request field.
+         */
+        /*
+         * THE GATE IS THE DISCOUNT THAT WAS CHARGED, not the verdict and not the coupon's configured
+         * number. Both of the alternatives were measured wrong by the review of the first version of
+         * this fix:
+         *
+         *   * `!empty($verified_coupon)` alone admitted a coupon the plausibility guard above had
+         *     REFUSED, because that variable used to be assigned on both of its arms;
+         *   * `(float) $order->coupon_price > 0` is the coupon's configured number, so a 10% coupon
+         *     reads 10 whatever the basket was, and a flat coupon worth the whole basket reads its
+         *     face value on the very path where the guard refused to apply it.
+         *
+         * `$ssCouponChargedDiscount` is positive only when the basket really lost that much, so gate
+         * and amount are now the same fact. `orders.coupon_price` KEEPS the configured number: that
+         * column's meaning is pre-existing (P01-SEC-14 D1 shaped it), other readers depend on it, and
+         * changing a stored financial column is not this fix's to make -- it is recorded as a finding
+         * instead.
+         */
+        if (!empty($verified_coupon) && $ssCouponChargedDiscount > 0) {
+            $ssRecorded = app(\App\Services\CouponRedemptionRecorder::class)->record(
+                $order,
+                $store,
+                // The same coercion as the sibling writer, so the two cannot drift. Here the value
+                // always IS a string (it comes from the `coupon_code` varchar via apply_coupon's
+                // re-resolved row), so this changes nothing today; one shape for one rule.
+                is_scalar($order_array['coupon_info']['code'] ?? null)
+                    ? trim((string) $order_array['coupon_info']['code'])
+                    : null,
+                $ssCouponChargedDiscount,
+                $ssCouponChargedFinal,
+                !empty($customer_id) ? (int) $customer_id : null,
+            );
 
-                // Order Coupon history
-                $OrderCouponDetail = new OrderCouponDetail();
-                $OrderCouponDetail->order_id = $order->id;
-                $OrderCouponDetail->product_order_id = $order->product_order_id;
-                $OrderCouponDetail->coupon_id = $coupon_data['coupon_id'] ?? 0;
-                $OrderCouponDetail->coupon_name = $coupon_data['coupon_name'] ?? '-';
-                $OrderCouponDetail->coupon_code = $coupon_data['coupon_code'] ?? '-';
-                $OrderCouponDetail->coupon_discount_type = $coupon_data['coupon_discount_type'] ?? '-';
-                $OrderCouponDetail->coupon_discount_number = $coupon_data['coupon_discount_number'] ?? 0;
-                $OrderCouponDetail->coupon_discount_amount = $coupon_data['coupon_discount_amount'] ?? 0;
-                $OrderCouponDetail->coupon_final_amount = $coupon_data['coupon_final_amount'] ?? 0;
-                
-                $OrderCouponDetail->save();
-
-                // Coupon history
-                $UserCoupon = new UserCoupon();
-                $UserCoupon->user_id = !empty($customer_id) ? $customer_id : null;
-                $UserCoupon->coupon_id = $Coupon->id;
-                $UserCoupon->amount = $coupon_data['coupon_discount_amount'];
-                $UserCoupon->order_id = $order->id;
-                $UserCoupon->date_used = now();
-                
-                $UserCoupon->save();
-
-                $discount_string = '-' . $coupon_data['coupon_discount_amount'];
-                $CURRENCY = Utility::GetValueByName('CURRENCY');
-                $CURRENCY_NAME = Utility::GetValueByName('CURRENCY_NAME');
-                if ($coupon_data['coupon_discount_type'] == 'flat') {
+            if ($ssRecorded !== null) {
+                $discount_string = '-' . $ssRecorded->coupon_discount_amount;
+                // `$store->id` is passed for the same reason the display block above passes it: with
+                // no web session the helper otherwise resolves whatever store it happens to find.
+                $CURRENCY = Utility::GetValueByName('CURRENCY', $store->id);
+                if ($ssRecorded->coupon_discount_type == 'flat') {
                     $discount_string .= $CURRENCY;
                 } else {
                     $discount_string .= '%';
                 }
 
                 $discount_string .= ' ' . __('for all products');
-                $order_array['coupon']['code'] = $coupon_data['coupon_code'];
+                $order_array['coupon']['code'] = $ssRecorded->coupon_code;
                 $order_array['coupon']['discount_string'] = $discount_string;
-                $order_array['coupon']['price'] = SetNumber($coupon_data['coupon_final_amount']);
+                $order_array['coupon']['price'] = SetNumber($ssRecorded->coupon_final_amount);
             }
         }
         // add in Order Coupon Detail table end

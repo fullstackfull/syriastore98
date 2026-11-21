@@ -4689,13 +4689,13 @@ $Product->cost_price = $request->cost_price;
 
                         $productprice = currency_format_with_sym($productprice, $store_id->id);
                         $output .= ' <div class="col-xl-4 col-lg-6 col-sm-6 col-xs-6 col-12">
-                                    <div class="tab-pane fade show active toacart w-100" data-url="' . url('/addToCart/' . $product->id . '/' . $lastsegment) . '">
+                                    <div class="tab-pane fade show active toacart w-100" data-url="' . e(url('/addToCart/' . $product->id . '/' . $lastsegment)) . '">
                                         <div class="btn-primary position-relative card">
-                                            <img alt="Image placeholder" src="' . asset($image_url) . '" class="card-image avatar hover-shadow-lg" style=" height: 6rem; width: 100%;">
+                                            <img alt="Image placeholder" src="' . e(asset($image_url)) . '" class="card-image avatar hover-shadow-lg" style=" height: 6rem; width: 100%;">
                                             <div class="p-0 custom-card-body card-body d-flex ">
                                                 <div class="card-body my-2 p-2 text-center card-bottom-content">
-                                                <h6 class="mb-2 text-dark product-title-name">' . $product->name . '</h6>
-                                                <p class="mb-2 text-dark product-title-name small">' . $product->slug . '</p>
+                                                <h6 class="mb-2 text-dark product-title-name">' . e($product->name) . '</h6>
+                                                <p class="mb-2 text-dark product-title-name small">' . e($product->slug) . '</p>
                                                 <small class="text-primary">' . $productprice . '</small>
                                                 <small class="top-badge p-2 badge-danger mb-0">' . $quantity . '</small>
                                             </div>
@@ -4706,13 +4706,13 @@ $Product->cost_price = $request->cost_price;
                     } else {
 
                         $output .= ' <div class="col-xl-4 col-lg-6 col-sm-6 col-xs-6 col-12">
-                                <div class="tab-pane fade show active toacart w-100" data-url="' . url('/pos/product-variant/' . $product->id . '/' . $lastsegment) . '" data-ajax-popup="true" data-size="lg" data-align="centered" data-title="Product Variant">
+                                <div class="tab-pane fade show active toacart w-100" data-url="' . e(url('/pos/product-variant/' . $product->id . '/' . $lastsegment)) . '" data-ajax-popup="true" data-size="lg" data-align="centered" data-title="Product Variant">
                                     <div class="btn-primary position-relative card">
-                                        <img alt="Image placeholder" src="' . asset($image_url) . '" class="card-image avatar hover-shadow-lg" style=" height: 6rem; width: 100%;">
+                                        <img alt="Image placeholder" src="' . e(asset($image_url)) . '" class="card-image avatar hover-shadow-lg" style=" height: 6rem; width: 100%;">
                                         <div class="p-0 custom-card-body card-body d-flex ">
                                             <div class="card-body my-2 p-2 text-center card-bottom-content">
-                                                <h6 class="mb-2 text-dark product-title-name">' . $product->name . '</h6>
-                                                <p class="mb-2 text-dark product-title-name small">' . $product->slug . '</p>
+                                                <h6 class="mb-2 text-dark product-title-name">' . e($product->name) . '</h6>
+                                                <p class="mb-2 text-dark product-title-name small">' . e($product->slug) . '</p>
                                                 <small class="text-primary">In Variant</small>
                                             </div>
                                         </div>
@@ -4810,13 +4810,13 @@ $Product->cost_price = $request->cost_price;
 
                         $productprice = currency_format_with_sym($productprice, $store_id->id);
                         $output .= ' <div class="col-xl-4 col-lg-6 col-sm-6 col-xs-6 col-12">
-                                    <div class="tab-pane fade show active toacart w-100" data-url="' . url('/addToCart/' . $product->id . '/' . $lastsegment) . '">
+                                    <div class="tab-pane fade show active toacart w-100" data-url="' . e(url('/addToCart/' . $product->id . '/' . $lastsegment)) . '">
                                         <div class="btn-primary position-relative card">
-                                            <img alt="Image placeholder" src="' . asset($image_url) . '" class="card-image avatar hover-shadow-lg" style=" height: 6rem; width: 100%;">
+                                            <img alt="Image placeholder" src="' . e(asset($image_url)) . '" class="card-image avatar hover-shadow-lg" style=" height: 6rem; width: 100%;">
                                             <div class="p-0 custom-card-body card-body d-flex ">
                                                 <div class="card-body my-2 p-2 text-center card-bottom-content">
-                                                <h6 class="mb-2 text-dark product-title-name">' . $product->name . '</h6>
-                                                <p class="mb-2 text-dark product-title-name small">' . $product->slug . '</p>
+                                                <h6 class="mb-2 text-dark product-title-name">' . e($product->name) . '</h6>
+                                                <p class="mb-2 text-dark product-title-name small">' . e($product->slug) . '</p>
                                                 <small class="text-primary">' . $productprice . '</small>
                                                 <small class="top-badge badge p-2 badge-danger mb-0">' . $quantity . '</small>
                                             </div>
@@ -4827,13 +4827,13 @@ $Product->cost_price = $request->cost_price;
                     } else {
 
                         $output .= ' <div class="col-xl-4 col-lg-6 col-sm-6 col-xs-6 col-12">
-                                <div class="tab-pane fade show active toacart w-100" data-url="' . url('/pos/product-variant/' . $product->id . '/' . $lastsegment) . '" data-ajax-popup="true" data-size="lg" data-align="centered" data-title="Product Variant">
+                                <div class="tab-pane fade show active toacart w-100" data-url="' . e(url('/pos/product-variant/' . $product->id . '/' . $lastsegment)) . '" data-ajax-popup="true" data-size="lg" data-align="centered" data-title="Product Variant">
                                     <div class="btn-primary position-relative card">
-                                        <img alt="Image placeholder" src="' . asset($image_url) . '" class="card-image avatar hover-shadow-lg" style=" height: 6rem; width: 100%;">
+                                        <img alt="Image placeholder" src="' . e(asset($image_url)) . '" class="card-image avatar hover-shadow-lg" style=" height: 6rem; width: 100%;">
                                         <div class="p-0 custom-card-body card-body d-flex ">
                                             <div class="card-body my-2 p-2 text-center card-bottom-content">
-                                                <h6 class="mb-2 text-dark product-title-name">' . $product->name . '</h6>
-                                                <p class="mb-2 text-dark product-title-name small">' . $product->slug . '</p>
+                                                <h6 class="mb-2 text-dark product-title-name">' . e($product->name) . '</h6>
+                                                <p class="mb-2 text-dark product-title-name small">' . e($product->slug) . '</p>
                                                 <small class="text-primary">In Variant</small>
                                             </div>
                                         </div>
@@ -4968,7 +4968,7 @@ $Product->cost_price = $request->cost_price;
                     $cart_array['tax_info'][$mkey]["tax_name"] = $method->name;
                     $cart_array['tax_info'][$mkey]["tax_type"] = $method->tax_rate;
                     $cart_array['tax_info'][$mkey]["tax_amount"] = $amount;
-                    $product_tax .= !empty($method) ? "<span class='badge bg-primary'>" . $method->name . ' (' . $method->tax_rate . '%)' . "</span><br>" : '';
+                    $product_tax .= !empty($method) ? "<span class='badge bg-primary'>" . e($method->name) . ' (' . e($method->tax_rate) . '%)' . "</span><br>" : '';
                     $cart_array['tax_info'][$mkey]["id"] = $method->id;
                     $cart_array['tax_info'][$mkey]["tax_price"] = SetNumber($amount);
                 }
@@ -4996,21 +4996,21 @@ $Product->cost_price = $request->cost_price;
             }
         }
 
-        $model_delete_id = 'delete-form-' . $id;
+        $model_delete_id = 'delete-form-' . e($id);
 
         $carthtml = '';
 
-        $carthtml .= '<tr data-product-id="' . $id . '" id="product-id-' . $id . '">
+        $carthtml .= '<tr data-product-id="' . e($id) . '" id="product-id-' . e($id) . '">
                         <td class="cart-images">
-                            <img alt="Image placeholder" src="' . ($image_url) . '" class="card-image avatar shadow hover-shadow-lg">
+                            <img alt="Image placeholder" src="' . e($image_url) . '" class="card-image avatar shadow hover-shadow-lg">
                         </td>
 
-                        <td class="name">' . $productname . '</td>
+                        <td class="name">' . e($productname) . '</td>
 
                         <td class="">
                                 <span class="quantity buttons_added">
                                         <input type="button" value="-" class="minus bg-primary">
-                                        <input type="number" step="1" min="1" max="" name="quantity" title="' . __('Quantity') . '" class="input-number" size="4" data-url="' . url('update-cart/') . '" data-id="' . $id . '" style="width:50px;">
+                                        <input type="number" step="1" min="1" max="" name="quantity" title="' . __('Quantity') . '" class="input-number" size="4" data-url="' . url('update-cart/') . '" data-id="' . e($id) . '" style="width:50px;">
                                         <input type="button" value="+" class="plus bg-primary">
                                 </span>
                         </td>
@@ -5027,8 +5027,8 @@ $Product->cost_price = $request->cost_price;
                             </button>
                                 <input name="_method" type="hidden" value="DELETE">
                                 <input name="_token" type="hidden" value="' . csrf_token() . '">
-                                <input type="hidden" name="session_key" value="' . $session_key . '">
-                                <input type="hidden" name="id" value="' . $id . '">
+                                <input type="hidden" name="session_key" value="' . e($session_key) . '">
+                                <input type="hidden" name="id" value="' . e($id) . '">
                             </form>
                         </td>
                     </td>';
@@ -5083,7 +5083,7 @@ $Product->cost_price = $request->cost_price;
                 [
                     'code' => 200,
                     'status' => 'Success',
-                    'success' => $productname . __(' added to cart successfully!'),
+                    'success' => e($productname) . __(' added to cart successfully!'),
                     'product' => $cart[$id],
                     'carthtml' => $carthtml,
                 ]
@@ -5113,7 +5113,7 @@ $Product->cost_price = $request->cost_price;
                         $cart_array['tax_info'][$mkey]["tax_name"] = $method->name;
                         $cart_array['tax_info'][$mkey]["tax_type"] = $method->tax_rate;
                         $cart_array['tax_info'][$mkey]["tax_amount"] = $amount;
-                        $product_tax .= !empty($method) ? "<span class='badge bg-primary'>" . $method->name . ' (' . $method->tax_rate . '%)' . "</span><br>" : '';
+                        $product_tax .= !empty($method) ? "<span class='badge bg-primary'>" . e($method->name) . ' (' . e($method->tax_rate) . '%)' . "</span><br>" : '';
                         $cart_array['tax_info'][$mkey]["id"] = $method->id;
                         $cart_array['tax_info'][$mkey]["tax_price"] = SetNumber($amount);
                     }
@@ -5150,7 +5150,7 @@ $Product->cost_price = $request->cost_price;
                 [
                     'code' => 200,
                     'status' => 'Success',
-                    'success' => $productname . __(' added to cart successfully!'),
+                    'success' => e($productname) . __(' added to cart successfully!'),
                     'product' => $cart[$id],
                     'carttotal' => $cart,
                 ]
@@ -5191,7 +5191,7 @@ $Product->cost_price = $request->cost_price;
             [
                 'code' => 200,
                 'status' => 'Success',
-                'success' => $productname . __(' added to cart successfully!'),
+                'success' => e($productname) . __(' added to cart successfully!'),
                 'product' => $cart[$id],
                 'carthtml' => $carthtml,
                 'carttotal' => $cart,
@@ -5258,7 +5258,7 @@ $Product->cost_price = $request->cost_price;
                         if (count($Tax->tax_methods()) > 0) {
                             foreach ($Tax->tax_methods() as $mkey => $method) {
                                 $tax_price += $method->tax_rate * $price / 100;
-                                $product_tax .= !empty($Tax) ? "<span class='badge bg-primary'>" . $method->name . ' (' . $method->tax_rate . '%)' . "</span><br>" : '';
+                                $product_tax .= !empty($Tax) ? "<span class='badge bg-primary'>" . e($method->name) . ' (' . e($method->tax_rate) . '%)' . "</span><br>" : '';
                             }
                         }
                     }

@@ -253,9 +253,12 @@ class FileUploadKeyboardReachabilityTest extends TestCase
             'the visible caption changed; only the aria-labelledby that referenced it was removed'
         );
 
-        /* And `accept` is byte-identical: it is outside UploadFieldAcceptContractTest's scope and
-           must neither be removed here nor copied to the other ten. */
-        $this->assertStringContainsString('accept="image/*"', $html);
+        /* And `accept` is the list the SERVER enforces (P1-SEC-72), not `image/*`: that offered BMP, ICO, AVIF, TIFF and HEIC in the
+           file dialog and refused all five after the form was posted. It is derived from ThemeImageUpload so the picker and the rule
+           cannot disagree, and it is outside UploadFieldAcceptContractTest's scope: it must neither be removed here nor copied to
+           the other ten. The literal below is the list the work queue states. */
+        $this->assertStringContainsString('accept=".jpg,.jpeg,.png,.gif,.webp,.svg,.jpe,.jfif"', $html);
+        $this->assertStringNotContainsString('accept="image/*"', $html);
 
         $source = (string) file_get_contents(
             base_path('resources/views/setting/payment_partials/gateway_image.blade.php')

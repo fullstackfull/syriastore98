@@ -131,6 +131,18 @@ class StorefrontLocaleFollowsTheStoreTest extends TestCase
         return app()->getLocale();
     }
 
+    /**
+     * The locale on a route that names the store as its FIRST path segment as `{slug}`, not as
+     * `{storeSlug}` -- `routes/customer.php`'s `{slug}/product-wishlist`. `getStore()` reads only
+     * `storeSlug`, so before AUD-4 the middleware could not see the store here at all.
+     */
+    private function localeOnFirstSegmentSlugRoute(string $slug): string
+    {
+        $this->post("/{$slug}/product-wishlist", []);
+
+        return app()->getLocale();
+    }
+
     /** The same question on a page GET, where the composer DOES run. Used to show the divergence. */
     private function localeOnPageRequest(string $slug, array $cookies = []): string
     {
@@ -187,6 +199,38 @@ class StorefrontLocaleFollowsTheStoreTest extends TestCase
         /* NOT 'ar'. The first admin's language is Arabic, so this is the case where the old code
            and the new one differ most visibly. */
         $this->assertSame('en', $this->localeOnJsonRequest($unset->slug));
+    }
+
+    /**
+     * AUD-4. THE ROUTE THAT SPELLS THE PARAMETER `slug`. The PR #140 deletion audit found that the
+     * docblock claiming "`getStore()`, `getRouteStoreId()` and the view composer all use the same
+     * source, so the four agree" was false: `getRouteStoreId()` also reads `{slug}` as a first path
+     * segment and `getStore()` did not. On `{slug}/product-wishlist` -- an unauthenticated
+     * storefront JSON POST -- the locale was therefore the platform default whatever the store's
+     * own language, which is the incident this whole file exists for, surviving in one route.
+     */
+    #[Test]
+    public function a_route_that_names_the_store_as_its_first_segment_gets_that_stores_language(): void
+    {
+        $this->assertSame('ar', $this->localeOnFirstSegmentSlugRoute($this->arabic->slug),
+            'the Arabic store was served the platform default on a {slug}/... route');
+        $this->assertSame('en', $this->localeOnFirstSegmentSlugRoute($this->english->slug));
+    }
+
+    /**
+     * THE NEGATIVE CONTROL, and the half that stops the fix being made by reading any `slug`.
+     * `getRouteStoreId()` refuses `custom-msg/{slug?}` on purpose: a page or article slug that
+     * happens to equal a store's slug must not select that store. If the fallback were widened to
+     * `route('slug')` this would answer `ar` for a path that merely CONTAINS the Arabic store's
+     * slug, which is a store chosen by what a visitor typed into a URL.
+     */
+    #[Test]
+    public function a_route_that_reuses_slug_for_something_else_is_not_read_as_a_store(): void
+    {
+        $this->post('/custom-msg/'.$this->arabic->slug, []);
+
+        $this->assertSame('en', app()->getLocale(),
+            'a path segment that happens to equal a store slug selected that store');
     }
 
     #[Test]

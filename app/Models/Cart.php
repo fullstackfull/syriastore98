@@ -1029,11 +1029,47 @@ class Cart extends Model
              * that applies to everyone leaves those columns null and is taken by the universal
              * branch above, which still applies to everyone.
              *
-             * THIS CHANGES WHAT SHOPPERS ARE CHARGED on stores that have saved tax options, and
-             * it changes it DOWNWARD, toward what the merchant's own configuration says. Nothing
-             * seeds `tax_options`, so a store that has never opened the tax settings form is
-             * unaffected in either direction -- pinned by
+             * WHAT THIS CHANGES DEPENDS ON WHICH CART READS THE FIGURE, and the sentence that stood
+             * here said only "THIS CHANGES WHAT SHOPPERS ARE CHARGED ... DOWNWARD". That is true for
+             * one caller and false for the other:
+             *
+             *   * `Cart::cart_list_cookie` (the GUEST cart) adds `($is_inclusive_tax ? 0 : $tax_price)`
+             *     to its total and says "keep tax_price for display". Under inclusive pricing the
+             *     charge is therefore bit-identical and what moves is the tax the order RECORDS and
+             *     DISPLAYS -- `orders.tax_price`, `order_tax_details.tax_final_amount`: a shopper
+             *     matching no jurisdiction now shows 0.00 where it showed the sum of every method's
+             *     embedded share (the 7.67 measured above). A change to a VAT record on an unchanged
+             *     charge.
+             *
+             *   * `ApiController::cart_list` (the SIGNED-IN customer's cart) adds `$tax_price` to
+             *     `total_sub_price` with NO inclusive exemption (`ApiController.php`, the two
+             *     `$final_total = ... + $tax_price` lines), and the cod / bank-transfer writer
+             *     records that key as `orders.final_price`. So there the swept figure WAS in the
+             *     charged amount, and the charge falls by it. For a signed-in shopper who DOES match
+             *     a jurisdiction nothing changes -- including that cart's pre-existing addition of
+             *     a tax the inclusive price already contains, which this change does not touch and
+             *     which is recorded as its own owner item rather than fixed here.
+             *
+             * THE OTHER CALLERS, read one by one rather than assumed (paths under `packages/workdo/`
+             * are vendored and are NOT edited here):
+             *
+             *   * `AuctionProduct` `Console/Auction.php` prices the winning bid with seven arguments in
+             *     order and ADDS the figure to the amount it charges (`$maxBidAmount + $tax_price + ...`),
+             *     so it follows the signed-in cart's shape: the charge falls with the figure.
+             *   * `BoostSales` (the view composer and the controller) and the auction detail view pass the
+             *     same seven arguments and only DISPLAY the figure.
+             *   * `FrequentlyProduct` (view composer and controller) passes EIGHT: `$store->theme_id` lands
+             *     in `$city_id`, every address id moves one slot, and `$flag` receives the shopper's
+             *     country id. The `LotteryPrizes` detail view does the same and also passes a sub-total of
+             *     0, so it can only show 0.00. `Product::productTaxIncludeAmount` passes eight as well and
+             *     has no caller (Phase 04's tax-shipping finding). All of these are pre-existing, display
+             *     only, and reported rather than repaired -- see GAP-211 in the gap register.
+             *
+             * Both directions are toward what the merchant's own configuration says, and both reach
+             * only stores that have saved tax options. Nothing seeds `tax_options`, so a store that
+             * has never opened the tax settings form is unaffected in either direction -- pinned by
              * `CartTaxJurisdictionTest::test_a_store_with_no_tax_options_still_restricts_by_jurisdiction`.
+             * Whether anyone reports from the old recorded figure is the owner's to confirm.
              */
             return $tax_price;
         }

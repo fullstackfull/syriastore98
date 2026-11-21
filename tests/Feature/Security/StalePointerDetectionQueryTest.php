@@ -1,0 +1,241 @@
+<?php
+
+namespace Tests\Feature\Security;
+
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * THE READ-ONLY QUERIES THE OWNER IS ASKED TO RUN, EXECUTED EXACTLY AS THE DOCUMENT WRITES THEM.
+ * ============================================================================================
+ *
+ * `docs/security/P01-SECURITY-WORK-QUEUE.md` (P1-SEC-66/67/67b) tells the owner how to find users whose `users.current_store` was pointed at the
+ * operator's store by the OLD `StoreController::changeStore`. The first query it offered was
+ *
+ *     s.created_by <> CASE WHEN u.type = 'admin' THEN u.id ELSE u.created_by END
+ *
+ * which is the exact NEGATION of that old gate (`stores.created_by = creatorId()`): it kept only the pointers the gate would have REFUSED, and so could not
+ * return a single one it had written. The fourth independent review found it by hand-evaluating one row. It had no test, because nothing ran it.
+ *
+ * This test reads the SQL out of the document (so the document and the test cannot drift) and runs it on a fixture that holds every population:
+ *
+ *   - a merchant who demoted themselves and is still pointed at the operator's store          (the exposed population)
+ *   - staff the operator created, pointed at the operator's store                             (a designed population)
+ *   - staff of the demoted merchant, whose pointer was COPIED from their creator             (propagation, UserController:160-162)
+ *   - a merchant pointed at the operator's store by an older, unchecked writer
+ *   - a merchant pointed at ANOTHER merchant's store by an older, unchecked writer
+ *   - and, as negatives, a merchant and their staff pointed at their own store, and the operator
+ *
+ * Nothing here talks to production: the document asks the owner to run these read-only, and this test proves they return what the document says.
+ */
+class StalePointerDetectionQueryTest extends SecurityTestCase
+{
+    use RefreshDatabase;
+
+    /** The SQL of the ```sql block whose first line is `-- <label>:` in the work queue. */
+    private function documentedQuery(string $label): string
+    {
+        $doc = (string) file_get_contents(base_path('docs/security/P01-SECURITY-WORK-QUEUE.md'));
+
+        $this->assertSame(
+            1,
+            preg_match('/```sql\n(-- '.preg_quote($label, '/').':.*?)```/s', $doc, $m),
+            "docs/security/P01-SECURITY-WORK-QUEUE.md no longer carries a ```sql block labelled `-- {$label}:`. The owner is told to run it; keep it, and keep it executable."
+        );
+
+        return trim($m[1]);
+    }
+
+    /** @return list<int> the ids a documented query returns, ascending */
+    private function idsOf(string $sql): array
+    {
+        $ids = array_map(fn ($row) => (int) $row->id, DB::select($sql));
+        sort($ids);
+
+        return $ids;
+    }
+
+    /** @return array<string, int> */
+    private function fixture(): array
+    {
+        $operator = $this->makePlatformAdmin();
+        $this->assertSame(1, (int) $operator->id, 'Premise: the operator is user 1, the id every merchant has as created_by.');
+        $operatorStore = $this->makeStore($operator);
+
+        // a merchant who demoted themselves (type is a role name, created_by is the operator) and owns a store, still pointed at the OPERATOR'S store
+        $demoted = User::factory()->create(['type' => 'Manager', 'created_by' => $operator->id, 'is_active' => 1, 'email_verified_at' => now()]);
+        $demotedStore = $this->makeStore($demoted);
+        // staff the operator created
+        $operatorsStaff = User::factory()->create(['type' => 'staff', 'created_by' => $operator->id, 'is_active' => 1, 'email_verified_at' => now()]);
+        // staff the demoted merchant created: the pointer is copied from the creator
+        $demotedsStaff = User::factory()->create(['type' => 'staff', 'created_by' => $demoted->id, 'is_active' => 1, 'email_verified_at' => now()]);
+        // a merchant pointed at the operator's store by an older writer
+        $strayedMerchant = $this->makeMerchant();
+        $this->makeStore($strayedMerchant);
+        // a merchant pointed at ANOTHER merchant's store by an older writer
+        [$merchant, $merchantStore] = $this->makeTenant();
+        $crossed = $this->makeMerchant();
+        $this->makeStore($crossed);
+        // negatives: a merchant and their staff, each pointed at their own merchant's store
+        $staff = $this->makeStaff($merchant);
+
+        $point = fn (User $user, $storeId) => DB::table('users')->where('id', $user->id)->update(['current_store' => $storeId]);
+        $point($demoted, $operatorStore->id);
+        $point($operatorsStaff, $operatorStore->id);
+        $point($demotedsStaff, $operatorStore->id);
+        $point($strayedMerchant, $operatorStore->id);
+        $point($crossed, $merchantStore->id);
+        $point($operator, $operatorStore->id);
+
+        return [
+            'operator' => (int) $operator->id,
+            'demoted' => (int) $demoted->id,
+            'operatorsStaff' => (int) $operatorsStaff->id,
+            'demotedsStaff' => (int) $demotedsStaff->id,
+            'strayedMerchant' => (int) $strayedMerchant->id,
+            'crossed' => (int) $crossed->id,
+            'merchant' => (int) $merchant->id,
+            'staff' => (int) $staff->id,
+        ];
+    }
+
+    public function test_detect_a_finds_every_user_pointed_at_the_operators_store_and_nobody_else(): void
+    {
+        $u = $this->fixture();
+
+        $rows = DB::select($this->documentedQuery('detect-A'));
+        $found = array_map(fn ($r) => (int) $r->id, $rows);
+        sort($found);
+
+        $expected = [$u['demoted'], $u['operatorsStaff'], $u['demotedsStaff'], $u['strayedMerchant']];
+        sort($expected);
+        $this->assertSame($expected, $found, 'detect-A must return exactly the users pointed at an operator-owned store: the demoted merchant, the operator\'s staff, the demoted merchant\'s staff, and the stray merchant.');
+
+        // The triage column the document tells the owner to read: a demoted merchant owns a store, operator-created staff do not.
+        $byId = [];
+        foreach ($rows as $r) {
+            $byId[(int) $r->id] = (int) $r->stores_they_own;
+        }
+        $this->assertSame(1, $byId[$u['demoted']], 'the exposed population owns a store of its own');
+        $this->assertSame(0, $byId[$u['operatorsStaff']], 'staff the operator created own none');
+        $this->assertSame(0, $byId[$u['demotedsStaff']], 'staff of the demoted merchant own none');
+    }
+
+    /**
+     * detect-C (P1-SEC-67c): the settings rows a self-demoted merchant's saves left stamped with the operator's id inside a store the operator does not own.
+     * They are read as the platform's by every reader keyed on `created_by = 1` with no store predicate. The fixture holds the operator's own platform rows
+     * (not returned), a merchant's own rows and a merchant's staff's rows re-stamped to the merchant (not returned), and rows stamped with the operator's
+     * id inside a merchant's store, in NO store, or in a store that no longer exists (returned -- as is a legitimate "parked" save, which is why the document
+     * tells the owner to look before deleting). The first form of the query INNER JOINed `stores`, so a row with no store was invisible to it: the sixth
+     * review's finding (its lens B, B-03), in the same class as the fourth review's.
+     */
+    public function test_detect_c_finds_settings_rows_stamped_with_the_operators_id_inside_a_store_it_does_not_own(): void
+    {
+        $operator = $this->makePlatformAdmin();
+        $operatorStore = $this->makeStore($operator);
+        [$merchant, $merchantStore] = $this->makeTenant();
+
+        $insert = fn (string $name, int $createdBy, ?int $storeId) => DB::table('settings')->insertGetId([
+            'name' => $name, 'value' => 'x', 'created_by' => $createdBy, 'store_id' => $storeId, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $platform = $insert('storage_setting', (int) $operator->id, (int) $operatorStore->id);          // the platform's own row
+        $own = $insert('s3_bucket', (int) $merchant->id, (int) $merchantStore->id);                      // a merchant's row, their id
+        $contaminated = $insert('storage_setting', (int) $operator->id, (int) $merchantStore->id);       // stamped 1 inside a merchant's store
+        $demotedRow = $insert('storage_setting', (int) $this->makeMerchant()->id, (int) $merchantStore->id); // a non-operator's row in a foreign store: what the FIX now leaves behind
+        $noStore = $insert('s3_key', (int) $operator->id, null);                                          // stamped 1 in NO store (a principal with an empty current_store)
+        $dangling = $insert('disable_lang', (int) $operator->id, 987654);                                 // stamped 1 in a store that no longer exists
+
+        $rows = DB::select($this->documentedQuery('detect-C'));
+        $ids = array_map(fn ($r) => (int) $r->id, $rows);
+        sort($ids);
+
+        $expected = [$contaminated, $noStore, $dangling];
+        sort($expected);
+        $this->assertSame($expected, $ids, 'detect-C must return the rows stamped with the operator\'s id inside a store the operator does not own, in no store, or in a deleted one -- every one of which the pool readers read.');
+        $this->assertNotContains($platform, $ids);
+        $this->assertNotContains($own, $ids);
+        $this->assertNotContains($demotedRow, $ids, 'a row stamped with a NON-operator\'s own id -- what the fix leaves behind -- is not in the pool and must not be reported');
+        $byId = [];
+        foreach ($rows as $r) {
+            $byId[(int) $r->id] = $r;
+        }
+        $this->assertSame((int) $merchant->id, (int) $byId[$contaminated]->store_owner, 'the triage column names the store\'s real owner');
+        $this->assertNull($byId[$noStore]->store_owner, 'a row in no store has no owner to name');
+        $this->assertSame('admin', (string) $byId[$contaminated]->store_owner_type, 'the triage column names the store owner\'s TYPE: a demoted merchant\'s store would read otherwise');
+    }
+
+    public function test_detect_b_finds_pointers_into_another_tenant_and_cannot_find_what_the_old_change_store_wrote(): void
+    {
+        $u = $this->fixture();
+
+        // detect-B compares the store's owner with the user's creatorId(). It therefore finds a pointer into a store the user's own root does not own -- the
+        // merchant pointed at ANOTHER merchant's store, the merchant pointed at the operator's, and the staff whose pointer was COPIED from a contaminated creator
+        // (their creatorId() is the demoted merchant, who is not the operator that owns the store).
+        $expected = [$u['crossed'], $u['demotedsStaff'], $u['strayedMerchant']];
+        sort($expected);
+        $this->assertSame($expected, $this->idsOf($this->documentedQuery('detect-B')), 'detect-B returns the pointers into a store the user\'s own root does not own.');
+
+        // THE FOURTH REVIEW'S FINDING, PINNED: it returns neither of the populations the OLD changeStore wrote -- a demoted merchant (creatorId() = the operator)
+        // pointed at the operator's store, and staff the operator created -- because for them the store's owner EQUALS creatorId(), which is the very test the old
+        // gate passed. That is why detect-A exists, and why detect-B must not be offered as the detector for them.
+        $blind = array_intersect($this->idsOf($this->documentedQuery('detect-B')), [$u['demoted'], $u['operatorsStaff']]);
+        $this->assertSame([], array_values($blind), 'detect-B is the negation of the old changeStore gate: it cannot return the users that gate wrote.');
+    }
+
+    /**
+     * detect-D (P1-SEC-67c): the users `getAdminAllSetting()` now resolves to NO settings. The SQL is read out of the document and executed as written. It is
+     * then held against the RULE the helper applies -- for every user who is not `admin` / `super admin`, "is on the list" must equal "`UserPolicy::isMerchantRow()`
+     * refuses their employer" -- and against the HELPER itself, on a fixture where the answer cannot be empty by accident: the operator's store holds a row, which is
+     * exactly what the helper served a principal rooted at the operator before the fix, and a real merchant's store holds one, which their staff must still be served.
+     */
+    public function test_detect_d_lists_exactly_the_users_the_settings_helper_now_resolves_to_nothing(): void
+    {
+        $u = $this->fixture();
+        $row = fn (int $ownerId, string $value) => DB::table('settings')->insert([
+            'name' => 'title_text', 'value' => $value, 'created_by' => $ownerId,
+            'store_id' => \App\Models\Store::withoutGlobalScopes()->where('created_by', $ownerId)->value('id'), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $row($u['operator'], 'operator-title-fixture');
+        $row($u['merchant'], 'merchant-title-fixture');
+
+        // an employer row that is missing altogether: the helper fails closed for it too
+        $orphan = User::factory()->create(['type' => 'staff', 'created_by' => 424242, 'is_active' => 1, 'email_verified_at' => now()]);
+
+        $rows = DB::select($this->documentedQuery('detect-D'));
+        $found = array_map(fn ($r) => (int) $r->id, $rows);
+        sort($found);
+        $byId = [];
+        foreach ($rows as $r) {
+            $byId[(int) $r->id] = $r;
+        }
+        $expected = [$u['demoted'], $u['operatorsStaff'], $u['demotedsStaff'], (int) $orphan->id];
+        sort($expected);
+
+        $this->assertSame($expected, $found, 'detect-D must return exactly: a self-demoted merchant, staff the operator created, staff of the demoted merchant, and a user whose creator row is missing.');
+
+        // THE RULE: on the list exactly when the merchant-row rule refuses the employer. Every non-admin user in the table, not a chosen few.
+        $checked = 0;
+        foreach (User::withoutGlobalScopes()->whereNotIn('type', ['admin', 'super admin'])->get() as $user) {
+            $refused = ! \App\Policies\UserPolicy::isMerchantRow(User::withoutGlobalScopes()->find($user->created_by));
+            $this->assertSame($refused, in_array((int) $user->id, $found, true), "detect-D and UserPolicy::isMerchantRow() disagree about user {$user->id} (type {$user->type}, created_by {$user->created_by}).");
+            $checked++;
+        }
+        $this->assertSame(5, $checked, 'Premise: the fixture holds five non-admin users (four on the list, and a real merchant\'s staff member who is not).');
+        $this->assertNotContains($u['operator'], $found, 'the operator is not a principal the helper empties');
+        $this->assertNotContains($u['merchant'], $found, 'a merchant is not');
+
+        // THE TRIAGE COLUMN: a demoted merchant and staff the operator created both have the operator as employer; only store ownership separates them.
+        $this->assertSame('super admin', (string) $byId[$u['demoted']]->employer_type);
+        $this->assertSame('super admin', (string) $byId[$u['operatorsStaff']]->employer_type);
+        $this->assertSame(1, (int) $byId[$u['demoted']]->stores_they_own, 'a merchant who demoted themselves still owns their store');
+        $this->assertSame(0, (int) $byId[$u['operatorsStaff']]->stores_they_own, 'staff the operator created own none');
+
+        // THE HELPER: nothing for everyone on the list -- and the demoted merchant is the case that could be served the operator's row above.
+        foreach ($found as $id) {
+            $this->assertSame([], getAdminAllSetting($id), "detect-D returned user {$id}, but the settings helper still serves them settings.");
+        }
+        $this->assertSame('merchant-title-fixture', getAdminAllSetting($u['staff'])['title_text'] ?? null, 'Premise: a real merchant\'s staff are still served their employer\'s row, so "resolves to nothing" separates the populations.');
+        $this->assertSame('operator-title-fixture', getAdminAllSetting($u['operator'])['title_text'] ?? null, 'Premise: the operator\'s row is readable -- it is what a principal rooted at the operator was served before the fix.');
+    }
+}

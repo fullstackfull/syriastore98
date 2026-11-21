@@ -68,11 +68,17 @@ return [
      * (`.htaccess` was already defanged by the `video_` prefix — Apache only honours a file named
      * exactly `.htaccess` — but it is refused now rather than relying on that.)
      *
-     * `mimetypes:` is deliberately NOT used for the content half: it matches the MIME string the
-     * CLIENT sent, which a client controls. Laravel's `mimes` rule resolves the file through Symfony's
-     * MIME guesser, which reads the file's MAGIC BYTES and then requires the guessed type to match
-     * one of the named extensions — so a `.mp4` that is really a ZIP is refused. `mimetypes:` would
-     * match the MIME string the CLIENT sent, which a client controls.
+     * `mimes:` IS USED FOR THE CONTENT HALF, AND NOT `mimetypes:`, BECAUSE IT MAPS THE SNIFFED TYPE
+     * ONTO AN EXTENSION LIST -- and the extension is what the stored name has to carry. Laravel's
+     * `mimes` rule resolves the file through Symfony's MIME guesser, which reads the file's MAGIC
+     * BYTES (its signature: the file is not decoded) and then requires the guessed type to match one
+     * of the named extensions — so a `.mp4` that is really a ZIP is refused.
+     *
+     * AN EARLIER VERSION OF THIS COMMENT SAID THAT `mimetypes:` MATCHES THE MIME STRING THE CLIENT
+     * SENT. IT DOES NOT. Measured on this framework version (11.57.1) by the review of P1-SEC-72: the
+     * rule asks the file for its sniffed type too (PHP bytes claimed as image/png are refused by
+     * `mimetypes:image/png`), and the client's own string is a different method that no rule reads.
+     * The choice of `mimes:` stands; the contrast that was drawn to justify it was not true.
      *
      * THE 50 MB CEILING IS CONDITIONAL AND THE CONDITION IS NOT MET IN THIS CONTAINER. Measured:
      * `upload_max_filesize = 2M`, `post_max_size = 8M`. PHP refuses a larger upload before Laravel's

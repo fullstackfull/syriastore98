@@ -795,17 +795,21 @@ public function city_list(Request $request, $slug)
         $tickets->save();
 
         $data              = [];
+        // P1-SEC-71. The folder is THIS STORE'S, taken from the route's store like every other id in this handler. It was assigned inside the
+        // loop below, so the singular `attachment` branch read an undefined variable whenever the plural field was absent.
+        $dir               = $this->shopperAttachmentDir($store, 'tickets');
+        $refused           = $this->rejectedByPhp($request, 'attachments');
+        $planFull          = false;
         if($request->hasfile('attachments'))
         {
-            $errors=[];
                  foreach($request->file('attachments') as $filekey => $file)
                 {
                     $file_size = $file->getSize();
                     $result = Utility::updateStorageLimit(auth('customers')->user()->creatorId(), $file_size);
                     if($result==1)
                     {
-                        $imageName = $file->getClientOriginalName();
-                        $dir        = 'uploads/' . $store->id .'/tickets';
+                        // P1-SEC-71: a name the SERVER builds (a random part), never the client's own -- two shoppers who both attached `proof.png` were one file.
+                        $imageName = \App\Services\PlatformUploadPolicy::storedName($file, 'attachment');
                         $path = Utility::keyWiseUpload_file($request,'attachments',$imageName,$dir,$filekey,[]);
 
                         if($path['flag'] == 1){
@@ -813,33 +817,37 @@ public function city_list(Request $request, $slug)
 
                         }
                         else{
-                            $errors = __($path['msg']);
+                            // P1-SEC-71: counted and SAID. The answer was assigned to a variable nobody read, so a dropped file looked like a saved one.
+                            $refused++;
                         }
                     }
                     else
                     {
-                        return redirect()->back()->with('error', $result);
+                        // The state of the merchant's PLAN is not a shopper's business (P1-SEC-72 answered the avatar door the same way): the file is
+                        // refused like any other, and the shopper is told to contact the store, not to upgrade a plan that is not theirs.
+                        $refused++;
+                        $planFull = true;
                     }
                 }
 
 
-                $file   = 'tickets/' . $imageName;
                 $tickets->attachment    =  json_encode($data);
                 $tickets->save();
 
         }
 
         if ($request->attachment) {
-            $fileName = rand(10, 100) . '_' . time() . "_" . $request->attachment->getClientOriginalName();
+            $fileName = \App\Services\PlatformUploadPolicy::storedName($request->attachment, 'attachment');
             $path = Utility::upload_file($request, 'attachment', $fileName, $dir, []);
             if ($path['flag'] == '0') {
-                return redirect()->back()->with('error', $path['msg']);
+                $refused++;
+            } else {
+                $tickets->attachment    = $path['url'];
+                $tickets->save();
             }
-            $tickets->attachment    = $path['url'];
-            $tickets->save();
         }
 
-        return redirect()->back()->with('success', __('Ticket successfully created.'));
+        return $this->withTheAttachmentRefusal(redirect()->back()->with('success', __('Ticket successfully created.')), $refused, ! $planFull);
     }
 
     public function edit_support_ticket(SupportTicket $tickets, $slug, $id)
@@ -879,14 +887,20 @@ public function city_list(Request $request, $slug)
         if (! empty($request->order_id) && ! $this->ownedOrder($store, $customer, $request->order_id)) {
             return redirect()->back()->with('error', __('Order not found.'));
         }
+        // P1-SEC-71. The folder is THIS STORE'S, from the route. These two sites asked `getCurrentStore()`, which reads the DEFAULT guard (`web`):
+        // for a shopper it is null, so the file went to `uploads/tickets` -- a folder no store's id is part of -- and for a shopper who also
+        // holds a panel login it is THAT merchant's own store, a folder of a tenant the shopper has nothing to do with.
+        $dir     = $this->shopperAttachmentDir($store, 'tickets');
+        $refused = $this->rejectedByPhp($request, 'attachments');
+        $planFull = false;
         if ($request->attachment) {
-            $dir        = 'uploads/' . getCurrentStore() . '/tickets';
-            $fileName = rand(10, 100) . '_' . time() . "_" . $request->attachment->getClientOriginalName();
+            $fileName = \App\Services\PlatformUploadPolicy::storedName($request->attachment, 'attachment');
             $path = Utility::upload_file($request, 'attachment', $fileName, $dir, []);
             if ($path['flag'] == '0') {
-                return redirect()->back()->with('error', $path['msg']);
+                $refused++;
+            } else {
+                $ticket->attachment      = $path['url'];
             }
-            $ticket->attachment      = $path['url'];
         }
 
         // the existing attachments are kept: `$data` started as [] and the save below wrote json_encode($data), so editing a ticket's title wiped them
@@ -898,18 +912,17 @@ public function city_list(Request $request, $slug)
                 $file_size = $file->getSize();
                 $result = Utility::updateStorageLimit(auth('customers')->user()->creatorId(), $file_size);
                 if ($result == 1) {
-                    $imageName = $file->getClientOriginalName();
-                    $dir        = 'uploads/' . getCurrentStore() . '/tickets';
+                    $imageName = \App\Services\PlatformUploadPolicy::storedName($file, 'attachment');
                     $path = Utility::keyWiseUpload_file($request, 'attachments', $imageName, $dir, $filekey, []);
                     if ($path['flag'] == 1) {
                         $data[] = $path['url'];
                     } else {
-                        $errors = __($path['msg']);
+                        $refused++;
                     }
                 } else {
-                    return redirect()->back()->with('error', $result);
+                    $refused++;        // the merchant's plan is full: refused like any other file, and said so without naming the plan
+                    $planFull = true;
                 }
-                $file   = 'tickets/' . $imageName;
             }
         }
         $ticket->attachment      = json_encode($data);
@@ -919,7 +932,7 @@ public function city_list(Request $request, $slug)
         // no `customer_id` write: the owner of a ticket is never taken from the post (it re-parented the ticket to any customer id)
         $ticket->save();
 
-        return redirect()->back()->with('success', __('Ticket successfully updated.'));
+        return $this->withTheAttachmentRefusal(redirect()->back()->with('success', __('Ticket successfully updated.')), $refused, ! $planFull);
     }
 
     public function destroy_support_ticket(Request $request, $slug, $id)
@@ -1001,17 +1014,21 @@ public function city_list(Request $request, $slug)
             $post['ticket_id']   = $ticket->id;
             $post['description'] = $request->reply_description;
             $data                = [];
+            $refused             = $this->rejectedByPhp($request, 'reply_attachments');
             if ($request->hasfile('reply_attachments')) {
 
 
                 foreach ($request->file('reply_attachments') as $filekey => $file) {
-                    $imageName = $file->getClientOriginalName();
-                    $dir    = 'uploads/' . getCurrentStore() . '/reply_tickets';
+                    // P1-SEC-71: THIS store's folder (from the route) and a name the server builds. This asked `getCurrentStore()` -- null for a shopper --
+                    // and wrote the client's own name to `uploads/reply_tickets`, ONE folder for every store: two stores' replies named
+                    // `proof.png` replaced each other (executed on this route).
+                    $imageName = \App\Services\PlatformUploadPolicy::storedName($file, 'attachment');
+                    $dir    = $this->shopperAttachmentDir($store, 'reply_tickets');
                     $path = Utility::keyWiseUpload_file($request, 'reply_attachments', $imageName, $dir, $filekey, []);
                     if ($path['flag'] == 1) {
                         $data[] = $path['url'];
-                    } elseif ($path['flag'] == 0) {
-                        $errors = __($path['msg']);
+                    } else {
+                        $refused++;
                     }
                 }
             }
@@ -1022,7 +1039,7 @@ public function city_list(Request $request, $slug)
             $ticket->status = 'In Progress';
             $ticket->update();
 
-            return redirect()->back()->with('success', __('Reply added successfully') . ((isset($error_msg)) ? '<br> <span class="text-danger">' . $error_msg . '</span>' : '') . ((isset($result) && $result != 1) ? '<br> <span class="text-danger">' . $result . '</span>' : ''));
+            return $this->withTheAttachmentRefusal(redirect()->back()->with('success', __('Reply added successfully') . ((isset($error_msg)) ? '<br> <span class="text-danger">' . $error_msg . '</span>' : '') . ((isset($result) && $result != 1) ? '<br> <span class="text-danger">' . $result . '</span>' : '')), $refused);
         } else {
             return redirect()->back()->with('error', __('Something is wrong'));
         }
@@ -1312,6 +1329,58 @@ public function city_list(Request $request, $slug)
             ->where('customer_id', $customer->id)
             ->where(fn ($q) => $q->where('store_id', $store->id)->orWhereNull('store_id'))
             ->first();
+    }
+
+    /**
+     * The folder a shopper's attachment is stored under: THIS store's, taken from the route's store (P1-SEC-71). `getCurrentStore()` reads the
+     * DEFAULT guard, which is `web`, so for a shopper it answers null and for a shopper who also holds a panel login it answers for that
+     * merchant -- neither is the store the shopper is writing to.
+     */
+    private function shopperAttachmentDir($store, string $kind): string
+    {
+        return 'uploads/' . $store->id . '/' . $kind;
+    }
+
+    /**
+     * An attachment the uploader refused used to be assigned to a variable nobody read, so the shopper was told the ticket, the reply or the
+     * refund had succeeded and never that a file was dropped (P1-SEC-71). ONE FIXED SENTENCE and nothing of the file's name or of the
+     * uploader's own message: the storefront prints a flash inside a script as raw HTML (`notifier.show('Error', '{!! $message !!}')`), so
+     * text that came from the client, or from an exception that quotes a path, is not a thing to put in one. The reason is in the log
+     * (`a platform upload was refused`).
+     */
+    private function withTheAttachmentRefusal($response, int $refused, bool $mayTryAgain = true)
+    {
+        if ($refused === 0) {
+            return $response;
+        }
+
+        return $response->with('error', $mayTryAgain
+            ? __('An attachment was not accepted. Check its type and size and try again.')
+            : __('Your request was sent, but an attachment was not accepted. Check its type and size, then contact the store to add it.'));
+    }
+
+    /**
+     * PHP ITSELF REJECTS A FILE BEFORE ANY OF THIS RUNS -- one larger than `upload_max_filesize`, a partial upload -- and hands the framework an
+     * UploadedFile with an EMPTY path and an error code. `hasFile()` asks for a non-empty path, so it answers false and the whole block under
+     * `if ($request->hasfile(...))` is skipped: the ticket, reply or refund was recorded, nothing counted the file, and the shopper was told it had
+     * succeeded -- the defect the sentence above exists for, for what is probably the commonest cause of a dropped photo (P1-SEC-71 review, BYP-1).
+     *
+     * A rejected file that sits NEXT TO a good one needs no special case in the loops: `getSize()` answers false for it (executed, PHP 8.3.6; the
+     * accounting then adds 0.00 MB), the uploader refuses it as not a valid upload, and it is counted a second time -- which does no harm, since
+     * the count only decides whether the sentence is said. (A first form skipped it, on the premise that `getSize()` raises; it does not, and the
+     * skip could not be told from its absence by any test.)
+     */
+    private function rejectedByPhp(Request $request, string $field): int
+    {
+        $count = 0;
+
+        foreach (\Illuminate\Support\Arr::wrap($request->file($field)) as $file) {
+            if ($file instanceof \Illuminate\Http\UploadedFile && ! $file->isValid()) {
+                $count++;
+            }
+        }
+
+        return $count;
     }
 
     private function notFoundJson(string $message)
@@ -1692,24 +1761,27 @@ public function city_list(Request $request, $slug)
         }
 
         $data              = [];
+        $refused           = $this->rejectedByPhp($request, 'attachments');
         if ($request->hasfile('attachments')) {
             foreach ($request->file('attachments') as $filekey => $file) {
-                $imageName = $file->getClientOriginalName();
-                $dir        = 'uploads/' . $store->id . '/order_refund';
+                // P1-SEC-71: a name the server builds. The folder was already this store's, but the name was the client's own, so a second
+                // refund with `proof.png` -- anybody's, in the same store -- replaced the first one's evidence under its database row.
+                $imageName = \App\Services\PlatformUploadPolicy::storedName($file, 'attachment');
+                $dir        = $this->shopperAttachmentDir($store, 'order_refund');
                 $path = Utility::keyWiseUpload_file($request, 'attachments', $imageName, $dir, $filekey, []);
 
                 if ($path['flag'] == 1) {
                     $data[] = $path['url'];
                 } else {
-                    $errors = __($path['msg']);
+                    $refused++;
                 }
-                $file   = 'order_refund/' . $imageName;
                 $order_refund->attachments    =  json_encode($data);
                 $order_refund->save();
             }
         }
 
-        return redirect()->back()->with('success', __('Refund Request Send successfully!'));
+        // `false`: one refund is allowed per delivered order, so "try again" would send the shopper to a refusal -- this door says so differently
+        return $this->withTheAttachmentRefusal(redirect()->back()->with('success', __('Refund Request Send successfully!')), $refused, false);
     }
 
     public function change_refund_cart(Request $request, $slug)

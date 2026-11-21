@@ -596,6 +596,34 @@ class HomeController extends Controller
 
     public static function getThemeUrl($store)
     {
+        /*
+         * NO STORE, NO STOREFRONT LINK.
+         *
+         * `partision/header.blade.php:12` hands this the result of
+         * `getStoreById(getCurrentStore())`, which is NULL for any principal who resolves no store:
+         * a merchant between stores, and the platform operator, for whom `getCurrentStore()`
+         * returns the hardcoded literal 1 and `getStoreById(1)` finds nothing when store 1 does not
+         * exist. The method then reached `route('landing_page', $store->slug)` and died, so THE
+         * SHARED CHROME WAS A 500 ON EVERY MERCHANT SCREEN SUCH A PRINCIPAL OPENED --
+         * `StoreFinanceController` measured and reported that twice (:806, :1639) and routed its
+         * own refusals to `/dashboard` while recording that the dashboard was a 500 there too.
+         *
+         * THE CALL SITE ALREADY HANDLES NULL. Line 250 of that partial renders
+         * `{{ $theme_url ?? '#' }}`, and `dashboard.blade.php:50` guards with `@isset`, so both
+         * consumers expected this to be absent -- the fallbacks had simply never been reachable,
+         * because the function threw before it could return. Returning null makes existing
+         * defences live rather than adding new ones.
+         *
+         * RETURNING HERE, BEFORE THE SETTINGS READS, IS THE WHOLE REASON THIS LIMB IS SEPARATE.
+         * Each read below falls back to `getCurrentStore()`, which for the operator is the literal
+         * 1, so continuing with no store would read ANOTHER MERCHANT'S `domains` and `subdomain`
+         * and could hand the operator a link to an arbitrary tenant's storefront labelled as their
+         * own. A missing link is correct; a confident wrong one is a disclosure.
+         */
+        if (! $store) {
+            return null;
+        }
+
         $enable_storelink = Utility::GetValueByName('enable_storelink', $store->id ?? getCurrentStore());
         $enable_domain = Utility::GetValueByName('enable_domain', $store->id ?? getCurrentStore());
         $enable_subdomain = Utility::GetValueByName('enable_subdomain', $store->id ?? getCurrentStore());
@@ -604,13 +632,30 @@ class HomeController extends Controller
 
         if ($enable_domain == 'on') {
             return 'https://' . $domains;
-        } elseif ($enable_subdomain == 'on') {
-            return 'https://' . $subdomain;
-        } elseif ($enable_storelink) {
-            return route('landing_page', $store->slug);
-        } else {
-            return route('landing_page', $store->slug);
         }
+
+        if ($enable_subdomain == 'on') {
+            return 'https://' . $subdomain;
+        }
+
+        /*
+         * THE SLUG IS CHECKED HERE AND NOT WITH THE NULL STORE, which is a correction found by
+         * review of the first version of this fix. `stores.slug` is nullable, and a store with no
+         * slug but `enable_domain = 'on'` returned a WORKING custom-domain link above without ever
+         * touching the slug. Guarding it alongside `! $store` would have taken that link away --
+         * a change well beyond the null-store defect, for a store that exists and is reachable.
+         * The two branches below are the only ones that address the store BY SLUG, so this is
+         * where "no slug" means "no link".
+         *
+         * The original `elseif ($enable_storelink) ... else ...` pair had byte-identical bodies,
+         * so collapsing them changes nothing; `$enable_storelink` is still read above because the
+         * read itself is unconditional in the original and this is not the change to alter that.
+         */
+        if (! isset($store->slug)) {
+            return null;
+        }
+
+        return route('landing_page', $store->slug);
     }
 
     /**

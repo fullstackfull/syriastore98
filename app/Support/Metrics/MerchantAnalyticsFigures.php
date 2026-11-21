@@ -1,0 +1,760 @@
+<?php
+
+namespace App\Support\Metrics;
+
+use App\Models\Order;
+use App\Support\Analytics\AnalyticsPeriod;
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
+use Shetabit\Visitor\Models\Visit;
+
+/**
+ * WHAT THE MERCHANT ANALYTICS DASHBOARD SHOWS. P5-4 / ANA.
+ *
+ * Every figure here is either delegated to the P5-2 metric layer or counted from a table that really
+ * records the thing. §3 of the Phase 05 plan forbids inventing a metric, and the data basis for each of
+ * the four the slice asks for was measured before this class was written (PHASE-05-EXECUTION-PLAN, P5-4):
+ *
+ *   MONEY IS NOT RE-IMPLEMENTED. `payments` and `profit` come from {@see FinanceLedgerFigures}, which
+ *   already owns the hard parts: the ledger-coverage start (`store_order_financials` holds nothing before
+ *   2026-11-02 and is not backfilled), `assumingUnknownCurrencyIs()` for the rows whose `currency_code` is
+ *   NULL, and the refusal to add two real currencies -- a tile whose figure would be a number with no unit
+ *   shows no number and says why instead. Duplicating that would be two places to get it wrong.
+ *
+ *   ORDERS AND VISITS ARE COUNTED OVER THE SAME WINDOW, which is the only way their ratio means anything.
+ *   The window is the last {@see self::RECENT_DAYS} days and the period is stated on every tile.
+ *
+ *   CONVERSION IS ORDERS / VISITS, AND `visits` IS NOT A TABLE NOTHING WRITES: `ActiveTheme` logs one row
+ *   per themed storefront request through `SanitisedVisitor`. But it is REQUESTS, not unique visitors --
+ *   there is no cookie-level de-duplication and bots and link prefetchers are counted -- so the figure is
+ *   labelled "visits" and carries that limit as a caveat on every render. No funnel, session or bounce
+ *   rate appears here, because none of those is recorded.
+ *
+ *   NEW VERSUS RETURNING needs nothing invented: a customer who ordered before this window is returning.
+ *
+ * THE STORE PREDICATE IS EXPLICIT EVERYWHERE. `Order` is absent from `config/tenancy.php`'s
+ * `scoped_models`, so no global scope filters it for any principal, and the visit rows are read by
+ * `store_id` -- the column that was found empty and fixed in the same breath as this slice. Counting is
+ * done through Eloquent rather than `DB::table()` on purpose: a raw query here would have to be declared
+ * in the three raw-query tenancy inventories, and an Eloquent read with its own `where` needs no exception.
+ */
+final class MerchantAnalyticsFigures
+{
+    /** The activity window. Short enough to be about now, long enough that a quiet week is not a cliff. */
+    /*
+     * PUBLIC SINCE ANA-002, and for one specific reason: it is now the number
+     * `AnalyticsPeriod::DEFAULT` has to agree with. `AnalyticsPeriodFilterTest` compares the
+     * default period's bounds against `subDays(RECENT_DAYS - 1)->startOfDay()` so that adding a
+     * filter cannot quietly move the window every pre-existing test was written against. A private
+     * constant would force that check through reflection, which asserts the same thing less
+     * readably and breaks on a rename without saying why.
+     */
+    public const RECENT_DAYS = 30;
+
+    /**
+     * How many distinct referring URLs are read before folding them into hosts. A bound is needed
+     * because the host fold happens in PHP (SQLite has no URL functions), and when it is REACHED
+     * the hint says so -- this project's rule is that a cap which is not disclosed reads as
+     * completeness.
+     */
+    private const MAX_REFERER_ROWS = 500;
+
+    /** The only columns `groupedVisits()` will group by; see its docblock for why it is a closed list. */
+    private const GROUPABLE_VISIT_COLUMNS = ['device', 'platform', 'browser', 'referer'];
+
+    /** U+2066 / U+2069: isolate a run so a number lays out left-to-right inside an Arabic paragraph. */
+    private const LRI = "\u{2066}";
+
+    private const PDI = "\u{2069}";
+
+    /**
+     * @return array{
+     *     coverage: LedgerCoverage,
+     *     payments: array<string, mixed>,
+     *     profit: array<string, mixed>,
+     *     orders: array{value: ?string, period: string, hint: string},
+     *     visits: array{value: ?string, period: string, hint: string},
+     *     conversion: array{value: ?string, period: string, hint: string},
+     *     customers: array{value: ?string, period: string, hint: string},
+     *     redemptions: array{value: ?string, period: string, hint: string},
+     *     retention: array{value: ?string, period: string, hint: string},
+     *     devices: array{rows: list<array{label: string, count: string}>, period: string, hint: string},
+     *     channels: array{rows: list<array{label: string, count: string}>, period: string, hint: string}
+     * }
+     *
+     * THE TWO BREAKDOWNS ARE PART OF THIS CONTRACT, not an extra. They are NOT the figure shape:
+     * a figure is one `value`, a breakdown is a `rows` list, and `FigureCsv::rows()` skips any entry
+     * with no `value` key -- so an export that forgot `breakdownRows()` would drop them in SILENCE
+     * rather than fail. `PlatformAnalyticsFigures` already carries the same three-key shape for its
+     * currency block, and that symmetry is what the Blade and the CSV both rely on.
+     */
+    public static function forStore(
+        int $storeId,
+        string $storeCurrency,
+        ?CarbonInterface $now = null,
+        ?AnalyticsPeriod $chosen = null
+    ): array {
+        // The money half, unchanged and not restated: one owner for currency folding and ledger coverage.
+        $money = FinanceLedgerFigures::forStore($storeId, $storeCurrency);
+
+        $now = $now === null ? CarbonImmutable::now() : CarbonImmutable::instance($now);
+
+        /*
+         * ANA-002 — THE CHOSEN PERIOD, AND WHY IT IS OPTIONAL.
+         *
+         * `$chosen === null` resolves to `AnalyticsPeriod::default()`, which is the 30-day rolling
+         * window this screen has always shown, with the same label built from the same words. So a
+         * caller that passes nothing gets BYTE-IDENTICAL figures to before the filter existed --
+         * which is what lets the pre-existing tests stand as the regression proof that adding a
+         * filter changed no unfiltered figure.
+         *
+         * `RECENT_DAYS` is still the constant behind that default: `AnalyticsPeriod::DEFAULT` is
+         * `last_30_days`, and `PeriodDefaultMatchesFiguresTest` pins the two together so the
+         * default cannot drift away from the constant this class documents.
+         *
+         * THE PERIOD IS CALLER-SUPPLIED AND THE STORE IS NOT. That distinction is the whole safety
+         * argument: `$storeId` reaches this method from `getCurrentStore()` only, and every query
+         * below still carries it. What a merchant chooses here is which of their OWN days to read.
+         */
+        $chosen = $chosen ?? AnalyticsPeriod::default($now);
+
+        $from = $chosen->from();
+        $to = $chosen->to();
+        $period = $chosen->label();
+
+        $orders = self::countOrders($storeId, $from, $to);
+        $visits = self::countVisits($storeId, $from, $to);
+
+        /*
+         * ANA-002 — THE BASELINE, AND WHY ONLY THE TWO COUNTS GET ONE.
+         *
+         * `MetricWindow::previous()` gives the equally long period ending the day before this one
+         * begins. It cannot be null here because both bounds are set a few lines above; the null
+         * case exists for unbounded windows and is asserted in its own test.
+         *
+         * THE COUNTS ARE COMPARABLE AND THE MONEY IS NOT, and that asymmetry is measured rather
+         * than cautious. `orders` comes from `orders` and `visits` from `shetabit_visits` -- both
+         * tables hold the whole history, so a 30-day baseline is as complete as the 30 days after
+         * it. The money tiles come from `FinanceLedgerFigures`, which inherits `LedgerCoverage`'s
+         * verified start: `store_order_financials` holds nothing before 2026-11-02 and is NOT
+         * backfilled, by owner decision. A baseline reaching back 31-60 days therefore lands
+         * partly or wholly before coverage, so the prior figure would be understated by an unknown
+         * amount and the delta would be a FALSE CLAIM dressed as a trend -- which is worse than no
+         * comparison, because a merchant reads a delta as a fact about their business. Those tiles
+         * are left alone until the coverage question is answered for them.
+         */
+        $baseline = \App\Support\Metrics\MetricWindow::between($from, $to)->previous();
+
+        /*
+         * THE BASELINE'S LABEL COMES FROM THE CHOSEN PERIOD'S OWN LENGTH, not from `RECENT_DAYS`.
+         * Hardcoding 30 here was correct only while the window was fixed: on a 7-day filter it
+         * would have printed "the 30 days before that" beside a delta computed over 7, which is a
+         * figure whose label describes a different window. `previous()` returns the equally long
+         * window ending the day before, so the length is the chosen period's own.
+         */
+        $baselinePeriod = $chosen->baselineLabel();
+
+        return [
+            'coverage' => $money['coverage'],
+            'payments' => $money['payments'],
+            'profit' => $money['profit'],
+            'orders' => [
+                'value' => self::ltr(number_format($orders)),
+                'period' => $period,
+                'hint' => __('Orders placed in this period, whatever their payment status. It is not a money figure and does not exclude orders later cancelled or refunded.'),
+                'comparison' => self::comparison(
+                    $orders,
+                    self::countOrders($storeId, $baseline->from(), $baseline->to()),
+                    $baselinePeriod
+                ),
+            ],
+            'visits' => [
+                'value' => self::ltr(number_format($visits)),
+                'period' => $period,
+                'hint' => self::visitsMeaning(),
+                'comparison' => self::comparison(
+                    $visits,
+                    self::countVisits($storeId, $baseline->from(), $baseline->to()),
+                    $baselinePeriod
+                ),
+            ],
+            'conversion' => self::conversion($orders, $visits, $period),
+            'customers' => self::customers($storeId, $from, $to, $period),
+            'redemptions' => self::redemptions($storeId, $storeCurrency, $from, $to, $period),
+            'retention' => self::retention($storeId),
+            'devices' => self::devices($storeId, $from, $to, $period),
+            'channels' => self::channels($storeId, $from, $to, $period, $visits),
+
+            /*
+             * ANA-002 — THE PERIOD ITSELF, so the screen and the CSV can both state what was
+             * actually read without re-deriving it. `clamped` is the sentence saying a requested
+             * period was shortened or moved; it is null when nothing was adjusted. A clamp a
+             * merchant cannot see is a figure whose label does not describe it.
+             */
+            'period' => [
+                'key' => $chosen->key(),
+                'label' => $period,
+                'from' => $chosen->from()->toDateString(),
+                'to' => $chosen->to()->toDateString(),
+                'days' => $chosen->days(),
+                'clamped' => $chosen->clampNote(),
+            ],
+        ];
+    }
+
+    /**
+     * WHAT COUPONS COST THIS STORE IN THIS PERIOD. P5-5, section 9.
+     *
+     * The figure is only shown when `CouponRedemption` says it may be: that metric decides per
+     * window, from `CouponRedemptionCoverage`, whether the window lies inside the period whose
+     * redemption records are complete. For a window reaching back before the P4-F134/F135 recording
+     * fix it is not authoritative -- those records are both under- and over-counted and history is
+     * deliberately not backfilled -- and this tile then shows NOTHING rather than a number with a
+     * warning under it.
+     *
+     * THAT CHOICE IS THE POINT, not caution. A merchant who is shown a figure and a sentence saying
+     * it cannot be trusted will read the figure; the component's own `value => null` state exists so
+     * that "we cannot tell you this yet, and here is why" is sayable without printing a number.
+     * The /finance tiles make the same choice for the same reason.
+     */
+    private static function redemptions(
+        int $storeId,
+        string $storeCurrency,
+        CarbonInterface $from,
+        CarbonInterface $to,
+        string $period,
+    ): array {
+        $result = (new CouponRedemption())->for(
+            MetricScope::store($storeId),
+            MetricWindow::between(CarbonImmutable::instance($from), CarbonImmutable::instance($to)),
+        );
+
+        if (! $result->isAuthoritative()) {
+            $coverage = CouponRedemptionCoverage::forStore($storeId);
+
+            return [
+                'value' => null,
+                'period' => $period,
+                'hint' => $coverage->hasNothingComplete()
+                    ? __('No coupon redemption in this store has a complete record, so this figure cannot be shown. Redemptions are recorded in full for orders placed from now on; earlier ones are not reconstructed.')
+                    : __('Coupon redemptions are recorded in full only from :date, which is after this period began, so this figure cannot be shown. Earlier redemptions are not reconstructed. Orders in this store with a discount but no redemption record: :count.', [
+                        'date' => self::day($coverage->completeFrom()),
+                        'count' => number_format($coverage->ordersWithoutRow()),
+                    ]),
+            ];
+        }
+
+        /*
+         * `assumingUnknownCurrencyIs` for the reason the metric layer's own guidance gives: reading
+         * `->total()` on a result with more than one currency bucket THROWS, and a store whose older
+         * orders carry no currency_code has exactly that shape. Folding the unknown bucket into the
+         * store's own currency is what FinanceLedgerFigures does, and it is stated, not silent.
+         */
+        $result = $result->assumingUnknownCurrencyIs($storeCurrency);
+        $buckets = array_filter(
+            $result->byCurrency(),
+            static fn ($amount, $currency) => $currency !== '' && (float) $amount !== 0.0,
+            ARRAY_FILTER_USE_BOTH
+        );
+
+        if (count($buckets) > 1) {
+            // Two real currencies and nothing converted them. No number is invented.
+            return [
+                'value' => null,
+                'period' => $period,
+                'hint' => __('Coupon discounts in this period are recorded in more than one currency and have not been converted, so no single total can be shown.'),
+            ];
+        }
+
+        return [
+            'value' => self::ltr(number_format((float) $result->total(), 2) . ' ' . $storeCurrency),
+            'period' => $period,
+            'hint' => __('The total discount given by coupons on orders in this period. Recorded in full from :date; earlier redemptions are not included and are not reconstructed.', [
+                'date' => self::day(CouponRedemptionCoverage::forStore($storeId)->completeFrom()),
+            ]),
+        ];
+    }
+
+
+    /**
+     * REPEAT PURCHASE. P5-6's surface, and its coverage question is settled rather than reopened.
+     *
+     * THE RECONCILIATION, because the plan recorded this tile as owner-blocked. The stated blocker
+     * was PHASE-05-FOUR-FIGURE-LABELLING-PROPOSAL.md §3: the entitlement record begins 2026-11-02
+     * with no backfill, so a settled-basis figure reads zero for everything before it. §3 put three
+     * options to the owner and recommended A -- "show it with the start date stated, and a window
+     * that cannot be set earlier". **OWNER DECISION D1 IS THAT OPTION**, already approved and
+     * already implemented in `LedgerCoverage`, which `/finance` has used since P5-16. So this tile
+     * applies D1 rather than asking again; nothing new is decided here.
+     *
+     * THE WINDOW IS THE LEDGER'S, NOT THIS SCREEN'S 30 DAYS, and that is deliberate. A repeat
+     * purchase needs two orders, so measuring it over thirty days systematically reports a store as
+     * less loyal than it is -- the figure would be wrong in a direction a merchant cannot see.
+     * `LedgerCoverage::window()` is the longest span the ledger can vouch for, which is the honest
+     * basis, and the tile STATES that period rather than borrowing its neighbours' label.
+     *
+     * THE SETTLED BASIS is `CustomerRetention`'s default: a repeat-purchase rate computed over
+     * orders whose payment nothing confirmed is not a retention figure. The metric discloses what
+     * that costs -- `orders_without_ledger_row` and the unidentified-customer count -- and those
+     * disclosures are carried onto the tile rather than summarised away.
+     */
+    private static function retention(int $storeId): array
+    {
+        $coverage = LedgerCoverage::forStore($storeId);
+        $window = $coverage->window();
+
+        if ($window === null) {
+            return [
+                'value' => null,
+                'period' => __('not yet available'),
+                'hint' => __('Repeat purchase is measured over the period the financial record can vouch for, and this store has no such period yet. No order has a financial record, so there is nothing to measure and nothing is reconstructed.'),
+            ];
+        }
+
+        $period = $coverage->isComplete()
+            ? __('all time')
+            : __('from :date', ['date' => self::day($coverage->verifiedFrom())]);
+
+        $figures = (new CustomerRetention())->for(MetricScope::store($storeId), $window);
+        $rate = $figures->repeatRate();
+
+        if ($rate === null) {
+            return [
+                'value' => null,
+                'period' => $period,
+                'hint' => __('No order in this period belongs to a customer who could be recognised again, so there is nothing to divide by. Orders placed without a customer account cannot be attributed to a person.'),
+            ];
+        }
+
+        $notes = [
+            __('Of :identified buyers who can be recognised again, :repeat ordered more than once. Counted over paid orders only: a repeat rate computed over orders nobody has confirmed were paid is not a retention figure.', [
+                'identified' => self::ltr(number_format($figures->identifiedCustomers())),
+                'repeat' => self::ltr(number_format($figures->repeatCustomers())),
+            ]),
+        ];
+
+        if (($unattributed = (int) ($figures->notes()['orders_without_identifiable_customer'] ?? 0)) > 0) {
+            $notes[] = __('Orders with no customer account, excluded: :count.', [
+                'count' => self::ltr(number_format($unattributed)),
+            ]);
+        }
+
+        if (($unrowed = (int) ($figures->notes()['orders_without_ledger_row'] ?? 0)) > 0) {
+            $notes[] = __('Orders with no financial record, which this basis cannot see: :count.', [
+                'count' => self::ltr(number_format($unrowed)),
+            ]);
+        }
+
+        return [
+            'value' => self::ltr(number_format($rate * 100, 2) . '%'),
+            'period' => $period,
+            'hint' => implode(' ', $notes),
+        ];
+    }
+
+    /** A date a merchant reads, or the word for "the beginning" when the record covers everything. */
+    private static function day(?CarbonInterface $date): string
+    {
+        return $date === null
+            ? __('the beginning')
+            : self::ltr($date->toDateString());
+    }
+
+    /** The one sentence every visit-derived figure has to carry. */
+    private static function visitsMeaning(): string
+    {
+        return __('Page views of your storefront, counted once per request. It is not a count of people: the same visitor browsing five pages is five, and automated traffic such as search-engine crawlers and link previews is included.');
+    }
+
+    /**
+     * Orders per visit, as a percentage.
+     *
+     * NO VISITS MEANS NO RATIO, not zero per cent: dividing by nothing is undefined, and a store whose
+     * visit log is empty (a brand-new store, or one whose theme is unset so `ActiveTheme` never logs)
+     * would otherwise be told its conversion is 0%, which reads as a failure rather than as no data.
+     *
+     * @return array{value: ?string, period: string, hint: string}
+     */
+    private static function conversion(int $orders, int $visits, string $period): array
+    {
+        $meaning = __('Orders divided by storefront page views in this period.').' '.self::visitsMeaning();
+
+        if ($visits <= 0) {
+            return [
+                'value' => null,
+                'period' => $period,
+                'hint' => $meaning.' '.__('No page views were recorded in this period, so there is nothing to divide by.'),
+            ];
+        }
+
+        $rate = ($orders / $visits) * 100;
+
+        return [
+            // Two decimals, because a real storefront rate is commonly under 5% and whole numbers hide it.
+            'value' => self::ltr(number_format($rate, 2).'%'),
+            'period' => $period,
+            'hint' => $orders > $visits
+                ? $meaning.' '.__('There are more orders than recorded page views, so some orders arrived by a route that logs no page view.')
+                : $meaning,
+        ];
+    }
+
+    /**
+     * New versus returning buyers in the window.
+     *
+     * "Returning" is decided by whether the customer had ANY earlier order at this store, not by anything
+     * inside the window, so a buyer whose first-ever order is in this period counts as new exactly once.
+     * A guest order with no `customer_id` cannot be attributed to a person and is excluded from both, with
+     * the count stated rather than folded into "new".
+     *
+     * @return array{value: ?string, period: string, hint: string}
+     */
+    private static function customers(int $storeId, CarbonInterface $from, CarbonInterface $to, string $period): array
+    {
+        $buyers = Order::query()
+            ->where('store_id', $storeId)
+            ->whereBetween('order_date', [$from, $to])
+            ->whereNotNull('customer_id')
+            ->where('customer_id', '>', 0)
+            ->distinct()
+            ->pluck('customer_id')
+            ->all();
+
+        $guestOrders = Order::query()
+            ->where('store_id', $storeId)
+            ->whereBetween('order_date', [$from, $to])
+            ->where(fn ($q) => $q->whereNull('customer_id')->orWhere('customer_id', '<=', 0))
+            ->count();
+
+        $returning = $buyers === [] ? 0 : Order::query()
+            ->where('store_id', $storeId)
+            ->whereIn('customer_id', $buyers)
+            ->where('order_date', '<', $from)
+            ->distinct()
+            ->pluck('customer_id')
+            ->count();
+
+        $new = max(0, count($buyers) - $returning);
+
+        $hint = __('Buyers in this period, split by whether they had ordered from this store before it. A buyer is counted once however many orders they placed.');
+
+        if ($guestOrders > 0) {
+            $hint .= ' '.__('Orders placed without a customer account cannot be attributed to a person and are counted in neither: :count.', [
+                'count' => number_format($guestOrders),
+            ]);
+        }
+
+        return [
+            'value' => self::ltr(__(':new new · :returning returning', [
+                'new' => number_format($new),
+                'returning' => number_format($returning),
+            ])),
+            'period' => $period,
+            'hint' => $hint,
+        ];
+    }
+
+    /**
+     * ONE PERIOD AGAINST THE ONE BEFORE IT. ANA-002.
+     *
+     * The shape is deliberately NOT a pre-formatted sentence: `direction` is a machine value so a
+     * view can word and style it, and the numbers are formatted separately. A single string would
+     * force the view to parse it, and would make the Arabic wording unchangeable without touching
+     * arithmetic.
+     *
+     * NO SIGN CHARACTER IS EMITTED, and that is a bidi decision rather than a style one. A leading
+     * `+` or `-` beside a Western-digit number inside an Arabic sentence reorders unpredictably
+     * -- the sign can end up on the far side of the digits -- so the magnitude is formatted
+     * unsigned and wrapped in the isolates the rest of this class uses, and the DIRECTION travels
+     * as its own value. The view says "up"/"down" in words, in either language.
+     *
+     * THE PERCENTAGE IS WITHHELD WHEN THERE IS NOTHING TO DIVIDE BY, which is the one place a
+     * comparison can state a falsehood with a straight face. A baseline of zero and a current
+     * figure of forty is not "+100%" and is not "+4000%" and is certainly not infinity: it is a
+     * start from nothing, and the only true statement is the absolute change plus the fact that
+     * there was no prior figure. `percent` is null in that case and `note` says why, exactly as
+     * the figure tiles use `value => null` to mean "we cannot tell you this".
+     *
+     * MEASURED while mutation-testing this method: removing that guard does not merely print a
+     * misleading percentage, it throws `DivisionByZeroError` on PHP 8 and the whole screen 500s for
+     * any store whose previous period was empty -- which is every new store. So the guard is the
+     * difference between an honest tile and an outage, not a stylistic nicety.
+     *
+     * Zero against zero is `same` with a 0% change, which IS computable and is not a refusal.
+     *
+     * @return array{direction:string, change:string, baseline:string, period:string, percent:?string, note:?string}
+     */
+    private static function comparison(int $current, int $baseline, string $baselinePeriod): array
+    {
+        $difference = $current - $baseline;
+
+        $direction = match (true) {
+            $difference > 0 => 'up',
+            $difference < 0 => 'down',
+            default => 'same',
+        };
+
+        $percent = null;
+        $note = null;
+
+        if ($baseline === 0 && $current === 0) {
+            $percent = self::ltr(number_format(0, 1) . '%');
+        } elseif ($baseline === 0) {
+            $note = __('There is no figure for the earlier period to compare against, so no percentage is shown.');
+        } else {
+            $percent = self::ltr(number_format(abs($difference) / $baseline * 100, 1) . '%');
+        }
+
+        return [
+            'direction' => $direction,
+            'change' => self::ltr(number_format(abs($difference))),
+            'baseline' => self::ltr(number_format($baseline)),
+            'period' => $baselinePeriod,
+            'percent' => $percent,
+            'note' => $note,
+        ];
+    }
+
+    /**
+     * ANA-004 — WHAT THE VISITS CAME FROM. Device first.
+     *
+     * `visits.device` is written by `App\Services\SanitisedVisitor`, whose own docblock lists
+     * `device` among the columns "the analytics screens read". So this is AGGREGATION, not
+     * user-agent parsing: the classification is the library's and is not re-done or second-guessed
+     * here.
+     *
+     * AN UNRECORDED DEVICE IS ITS OWN ROW, NAMED, and translated. The pre-existing
+     * `ThemeAnalyticController` labels that case `'Other'` -- a hardcoded English word on a
+     * bilingual product, and worse, a word that reads like a KIND of device rather than like an
+     * absence. A visit whose agent the library could not classify is not an "other device"; it is a
+     * visit we cannot tell you the device for.
+     *
+     * ORDERED BY COUNT, DESCENDING. The pre-existing screen orders by the LABEL
+     * (`orderBy('device', 'DESC')`), which puts the alphabet before the magnitude and makes the
+     * biggest share arbitrary to find.
+     *
+     * WINDOWED. The pre-existing screen has no date bound on these three breakdowns at all, so it
+     * reports all time beside figures labelled thirty days. This one takes the screen's own window,
+     * and `period` says which.
+     */
+    private static function devices(int $storeId, CarbonInterface $from, CarbonInterface $to, string $period): array
+    {
+        /*
+         * THE EMPTY BUCKETS ARE FOLDED IN PHP, and a test is the reason this is not a plain loop
+         * over the query's rows. SQL `GROUP BY device` treats NULL and the empty string as TWO
+         * groups, so the first version of this method emitted two rows BOTH labelled "Device not
+         * recorded", with a count of 1 each -- a merchant would have read one absence as two
+         * devices and neither count as the real one. `channels()` below already folded in PHP for
+         * the host; this does it for the same reason.
+         */
+        $buckets = [];
+        foreach (self::groupedVisits($storeId, $from, $to, 'device') as $row) {
+            $label = trim((string) ($row->bucket ?? ''));
+
+            $buckets[$label] = ($buckets[$label] ?? 0) + (int) $row->total;
+        }
+
+        arsort($buckets);
+
+        $rows = [];
+
+        foreach ($buckets as $label => $count) {
+            $rows[] = [
+                'label' => $label === '' ? __('Device not recorded') : (string) $label,
+                'count' => self::ltr(number_format($count)),
+            ];
+        }
+
+        return [
+            'rows' => $rows,
+            'period' => $period,
+            'hint' => $rows === []
+                ? __('No visits were recorded in this period, so there is no device breakdown. Nothing is estimated.')
+                : self::visitsMeaning() . ' ' . __('The device is whatever the visitor\'s browser reported; a visit whose device could not be determined is shown as not recorded rather than guessed.')
+                    . ' ' . __('The detector names handsets and Macs. It does not identify a Windows, Linux or ChromeOS computer at all, so ordinary desktop visits appear under not recorded — that bucket is usually large for this reason and not because anything failed.'),
+        ];
+    }
+
+    /**
+     * ANA-004 — AND WHERE THEY CAME FROM, which is the half that needed a decision about what NOT
+     * to claim.
+     *
+     * THE REFERRING HOST IS REPORTED VERBATIM. No host is classified into "search", "social" or
+     * "paid", and that is deliberate rather than unfinished: such a classification needs a curated
+     * list of hosts, a list is a product decision that goes stale, and a visit filed under the
+     * wrong channel is worse than one filed under its own domain name. What IS measured -- which
+     * host the browser named -- is reported.
+     *
+     * THE REFERER SURVIVES SANITISATION, which had to be checked before any of this was possible.
+     * `SanitisedVisitor::redact()` strips sensitive query-parameter VALUES and replaces an
+     * encrypted path segment, keeping scheme, host and path. So the host is intact; what is gone
+     * is the capability token a referring URL might have carried.
+     *
+     * NO REFERER IS "NOT RECORDED", NOT "DIRECT". A missing referer is commonly read as a direct
+     * visit and it is not evidence of one: a browser's privacy setting, an app's in-app webview, an
+     * HTTPS-to-HTTP hop and a bookmarked link all strip it. Calling that bucket "Direct" would
+     * invent a traffic source; it is named for what is true of it.
+     *
+     * THE HOST IS FOLDED IN PHP BECAUSE SQLITE HAS NO URL FUNCTIONS, so the grouping is done on
+     * distinct referring URLs in SQL and folded to hosts here. That is bounded by
+     * `MAX_REFERER_ROWS` and, when the bound is reached, the hint SAYS SO -- a silently truncated
+     * breakdown reads as a complete one, and it also states how many visits are then missing from
+     * the rows, so this column and the page-views tile cannot disagree by an unstated amount.
+     *
+     * THE BOUND LIMITS PHP, NOT THE DATABASE, and that is worth saying plainly rather than leaving
+     * for someone to discover. `LIMIT` is applied AFTER grouping and ordering, so the engine still
+     * scans every visit this store has in the window and builds a temporary table keyed on a
+     * MEDIUMTEXT column. `visits` is indexed on `store_id` alone -- nothing on `created_at` -- and
+     * one row is written per themed storefront request by `ActiveTheme`, anonymously and with no
+     * throttle, so an unthrottled writer can make this store's own `/analytics` slow over time.
+     * It is NOT an unauthenticated amplifier: the read requires `Manage Reports`. The effective
+     * remedy is a composite `(store_id, created_at)` index, which is a PERSISTENT MIGRATION and
+     * therefore the owner's decision, so it is recorded here rather than taken. The pre-existing
+     * `ThemeAnalyticController` and `Api\DashboardController` run the same shape with no window
+     * and no limit at all, so this is inherited, not introduced.
+     */
+    private static function channels(int $storeId, CarbonInterface $from, CarbonInterface $to, string $period, int $visits): array
+    {
+        /*
+         * MAX + 1 READ, SO THE CAP IS DETECTED EXACTLY. Reading MAX and testing `>= MAX` told a
+         * store with PRECISELY 500 distinct referring pages that its list was truncated when it
+         * was not -- an over-disclosure, which trains a reader to ignore the sentence. One extra
+         * row distinguishes "exactly full" from "more than fits"; the extra row is then dropped.
+         */
+        $raw = self::groupedVisits($storeId, $from, $to, 'referer', self::MAX_REFERER_ROWS + 1);
+        $capped = count($raw) > self::MAX_REFERER_ROWS;
+
+        if ($capped) {
+            $raw = array_slice($raw, 0, self::MAX_REFERER_ROWS);
+        }
+
+        $hosts = [];
+
+        foreach ($raw as $row) {
+            $referer = trim((string) ($row->bucket ?? ''));
+            $count = (int) $row->total;
+
+            if ($referer === '') {
+                $key = '';
+            } else {
+                $host = parse_url($referer, PHP_URL_HOST);
+                // An unparseable referer is not a host and must not be printed as one.
+                $key = is_string($host) && $host !== '' ? strtolower($host) : '?';
+            }
+
+            $hosts[$key] = ($hosts[$key] ?? 0) + $count;
+        }
+
+        arsort($hosts);
+
+        $rows = [];
+
+        foreach ($hosts as $host => $count) {
+            $rows[] = [
+                'label' => match ($host) {
+                    '' => __('No referring page recorded'),
+                    '?' => __('Referring page could not be read'),
+                    default => $host,
+                },
+                'count' => self::ltr(number_format($count)),
+            ];
+        }
+
+        $notes = [];
+
+        if ($rows === []) {
+            $notes[] = __('No visits were recorded in this period, so there is no referrer breakdown. Nothing is estimated.');
+        } else {
+            $notes[] = self::visitsMeaning();
+            $notes[] = __('Each line is the host the visitor\'s browser named. No host is filed under a marketing channel: that would need a maintained list of search and social domains, and a visit filed under the wrong channel is worse than one shown under its own domain. Your own domain appears here when a shopper moved between your pages.');
+            $notes[] = __('A visit with no referring page is shown as not recorded, NOT as direct: a privacy setting, an in-app browser, a bookmark or an HTTPS-to-HTTP hop all remove it.');
+        }
+
+        /*
+         * WHEN THE READ IS CAPPED, THE COLUMN NO LONGER SUMS TO THE PAGE-VIEWS TILE, and saying
+         * only "less frequent ones are not represented" does not cover that -- raised by an
+         * independent review and it was right.
+         *
+         * The cap bounds distinct referring PAGES; the rows a merchant reads are HOSTS. A host's
+         * printed count is the sum of only the page-groups that survived, so a store whose
+         * shoppers navigate internally (one group per product URL) can show its own domain at 499
+         * when the true figure is 600 -- and the reader has no way to know by how much. Two
+         * figures on one screen disagreeing by an UNSTATED amount is the defect this whole
+         * workstream exists to prevent, so the amount is stated.
+         */
+        if ($capped) {
+            $represented = array_sum($hosts);
+            $missing = max(0, $visits - $represented);
+
+            $notes[] = __('Only the :count most common referring pages were read, so the counts above do not add up to the page views for this period: :missing visit(s) are not represented in any row.', [
+                'count' => self::ltr(number_format(self::MAX_REFERER_ROWS)),
+                'missing' => self::ltr(number_format($missing)),
+            ]);
+        }
+
+        return [
+            'rows' => $rows,
+            'period' => $period,
+            'hint' => implode(' ', $notes),
+        ];
+    }
+
+    /**
+     * One grouped count over `visits`, store-scoped and windowed, for whichever column the caller
+     * names.
+     *
+     * THE COLUMN IS NOT CALLER INPUT. It is chosen from a closed list here, because the value is
+     * interpolated into `selectRaw`/`groupBy` and a name from a request would be an injection
+     * point. Both call sites pass a literal; the guard is for the third.
+     *
+     * The store predicate is EXPLICIT. `shetabit_visits` is not in `config/tenancy.php`'s
+     * `scoped_models`, so no global scope adds `store_id` for anybody -- operator included.
+     *
+     * @return list<object>
+     */
+    private static function groupedVisits(int $storeId, CarbonInterface $from, CarbonInterface $to, string $column, ?int $limit = null): array
+    {
+        if (! in_array($column, self::GROUPABLE_VISIT_COLUMNS, true)) {
+            throw new \InvalidArgumentException('visits cannot be grouped by ' . $column);
+        }
+
+        $query = Visit::query()
+            ->selectRaw($column . ' as bucket, COUNT(*) as total')
+            ->where('store_id', $storeId)
+            ->whereBetween('created_at', [$from, $to])
+            ->groupBy($column)
+            ->orderByDesc('total');
+
+        if ($limit !== null) {
+            $query->limit($limit);
+        }
+
+        return $query->get()->all();
+    }
+
+    private static function countOrders(int $storeId, CarbonInterface $from, CarbonInterface $to): int
+    {
+        return Order::query()
+            ->where('store_id', $storeId)
+            ->whereBetween('order_date', [$from, $to])
+            ->count();
+    }
+
+    /**
+     * Visits are read by `store_id`, the column every analytics surface in this product filters on. It was
+     * NULL on every row until the attribution fix that shipped with this slice, so a figure built on it
+     * before then would have been a confident zero.
+     */
+    private static function countVisits(int $storeId, CarbonInterface $from, CarbonInterface $to): int
+    {
+        return Visit::query()
+            ->where('store_id', $storeId)
+            ->whereBetween('created_at', [$from, $to])
+            ->count();
+    }
+
+    private static function ltr(string $value): string
+    {
+        return self::LRI.$value.self::PDI;
+    }
+}

@@ -523,7 +523,30 @@ class OwnedPathRawQueryInventoryTest extends TestCase
            its single statement is declared in STORE_LESS_BY_DESIGN with the reason a primary-key
            probe must not be narrowed. The count is raised because the site is real and accounted
            for, not to make this pass. */
-        $this->assertCount(38, $sites, "The owned-path raw query inventory changed:\n  "
+        /* 38 -> 39 [P4-F128]: StoreFinanceController:436, the audit-row read of `orders` added by
+           updateFinancialPaymentStatus so that the settlement this adjustment does NOT change is
+           recorded beside the entitlement it does. It is TENANT SCOPED -- `where('store_id',
+           $storeId)` -- so it needs no STORE_LESS_BY_DESIGN declaration; it is counted here because
+           the site is real, not to make this pass. The first draft was unscoped and the sibling
+           RawQueryTenancyInventoryTest is what caught it. */
+        /* 39 -> 40 [P4-F128, after review]: a SECOND statement in the same handler. The audit row
+           was recording the state that was REQUESTED; markFinancialAsUnpaid writes nothing unless
+           the row is exactly 'paid', so a request against a terminal row is a no-op that the audit
+           trail described as a movement. The entitlement state is now RE-READ after the operation.
+           Tenant scoped, like its sibling. */
+        /* 40 -> 42 [P5-10]: the two ledger-coverage counts in StoreFinanceController::index(),
+           added so the per-order `Profit` column can say how many of its rows report a margin
+           that `product_cost` cannot support (ANA-006). Both are TENANT SCOPED --
+           `->where('store_id', $storeId)`, with `$storeId` resolved from `getCurrentStore()`
+           and never from request input -- so neither needs a STORE_LESS_BY_DESIGN declaration,
+           and the sibling RawQueryTenancyInventoryTest's unscoped half stays at 5. The file is
+           already classified 'tenant' above, and these statements earn that category rather
+           than taking an exemption from it.
+           They are raw rather than Eloquent because `store_order_financials` has no model at
+           all; there is no scope that could reach them, which is precisely why this census
+           counts them. The count is raised because the sites are real and accounted for, not
+           to make this pass. */
+        $this->assertCount(42, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry

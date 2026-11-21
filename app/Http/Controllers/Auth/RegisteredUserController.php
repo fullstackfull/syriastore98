@@ -144,6 +144,23 @@ class RegisteredUserController extends Controller
                         'default_language' => $superAdmin->default_language ?? 'en'
                     ]);
 
+                /*
+                 * P4-F032 -- THE WALLET, WITHOUT WHICH EVERY ORDER THIS MERCHANT EVER TAKES LOSES
+                 * ITS CREDIT.
+                 *
+                 * `StoreController` has always provisioned one here; this door and
+                 * `Api\DashboardController::createStoreApi` did not. A store created without a
+                 * `store_wallets` row makes `OrderFinancialService::createForOrder()` throw into
+                 * `OrderObserver::created()`'s catch, so the order commits, no
+                 * `store_order_financials` row is written, and the credit is gone permanently --
+                 * with nothing on any path to revisit it.
+                 *
+                 * Provisioning at creation makes deterministic a transition that already happens
+                 * today non-deterministically: a wallet-less merchant's wallet is created the first
+                 * time they open `/finance`.
+                 */
+                app(\App\Services\StoreWalletProvisioning::class)->ensure((int) $store->id);
+
                 $user->current_store = $store->id;
                 $user->save();
                 // event(new Registered($user));
@@ -280,6 +297,10 @@ class RegisteredUserController extends Controller
                     'created_by' => $user->id,
                     'default_language' => $superAdmin->default_language ?? 'en'
                 ]);
+
+            // P4-F032 -- the second registration branch creates a store too, and needs the same
+            // wallet for the same reason. See the sibling call above.
+            app(\App\Services\StoreWalletProvisioning::class)->ensure((int) $store->id);
 
             $user->current_store = $store->id;
             $user->save();

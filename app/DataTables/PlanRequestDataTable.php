@@ -75,7 +75,8 @@ class PlanRequestDataTable extends DataTable
                 }
             });
         })
-        ->rawColumns(['user_id','action']);
+        // P1-SEC-80. `user_id` is the MERCHANT's name and the closure returns plain text: yajra escapes it. Only the action view is markup.
+        ->rawColumns(['action']);
     }
 
     /**

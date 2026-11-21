@@ -25,15 +25,17 @@ class StoreDataTable extends DataTable
             ->addIndexColumn()
             ->editColumn('avatar', function (User $user) {
                 $avatarUrl = check_file($user->profile_image) ? get_file($user->profile_image) : get_file('storage/uploads/avatar.png');
-                return '<a><img src="' . $avatarUrl . '" class="img-fluid rounded-circle card-avatar" width="35" id="blah3"></a>';
+                return '<a><img src="' . e($avatarUrl) . '" class="img-fluid rounded-circle card-avatar" width="35" id="blah3"></a>';
             })
             ->editColumn('type', function (User $user) {
-                return  '<span class="badge bg-primary p-2 px-3 rounded rounded">' . $user->type . '</span>';
+                return  '<span class="badge bg-primary p-2 px-3 rounded rounded">' . e($user->type) . '</span>';
             })
             ->addColumn('action', function (User $user) {
                 return view('store.action', compact('user'));
             })
-            ->rawColumns(['avatar','name','type','action']);
+            // P1-SEC-80. `name` is a MERCHANT's name -- chosen at the open registration -- printed on the OPERATOR's list, so it is no longer a raw column. The avatar and type cells are
+            // markup built here and now escape what they interpolate.
+            ->rawColumns(['avatar','type','action']);
     }
 
     /**

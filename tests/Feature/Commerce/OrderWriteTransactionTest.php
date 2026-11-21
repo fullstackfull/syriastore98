@@ -136,12 +136,48 @@ class OrderWriteTransactionTest extends TestCase
         $this->assertNotFalse($rollback, 'and roll it back on failure');
         $this->assertGreaterThan($begin, $commit, 'the commit must follow the begin');
 
-        // Every one of these writes must land between begin and commit.
+        /*
+         * Every one of these writes must land between begin and commit.
+         *
+         * THE TWO COUPON ROWS ARE NAMED BY THEIR WRITER, NOT BY THEIR `save()`, and that is a
+         * correction forced by P4-F134/F135 rather than a loosening. Those two `save()` calls used
+         * to be inline here; they now live in `App\Services\CouponRedemptionRecorder`, which is the
+         * whole point of that fix — one writer, resolving the coupon server-side, instead of two
+         * copies taking their values from the request. A source scan of the handler can no longer
+         * see them, so scanning for `$OrderCouponDetail->save()` would assert the ABSENCE of a
+         * refactor rather than the presence of a property.
+         *
+         * The property is unchanged and is still asserted: the thing that writes both rows must sit
+         * between begin and commit. `CouponRedemptionRecorder` deliberately opens no boundary of its
+         * own (its docblock says so, and a nested one would let a caller's `rollBack()` unwind to the
+         * wrong level), so it inherits this one — which is exactly what this assertion pins.
+         *
+         * BOTH ROWS STILL STAND OR FALL TOGETHER, and that is proved by execution elsewhere rather
+         * than by this scan: `StorefrontOrderWriteAtomicityTest` injects a failure at the redemption
+         * write and asserts no discount survives without it.
+         */
+        /*
+         * WHICH WRITER WRITES THE COUPON ROWS HOW, stated per writer rather than assumed uniform.
+         * P4-F134/F135 moved the two STOREFRONT API writers onto the shared recorder; the three
+         * gateway/COD writers still save both rows inline and were not in that fix's scope. Keeping
+         * both spellings in one list would let a writer satisfy the assertion by having EITHER, which
+         * is weaker than naming what each one must actually contain — and if a later change moves the
+         * remaining three onto the recorder, this fails and somebody updates it deliberately.
+         */
+        $usesTheRecorder = $class === ApiController::class
+            && in_array($method, ['place_order', 'ordersave'], true);
+
+        $couponWrites = $usesTheRecorder
+            ? ['CouponRedemptionRecorder::class)->record(' => 'the coupon detail and consumption rows']
+            : [
+                '$OrderCouponDetail->save()' => 'the coupon detail',
+                '$UserCoupon->save()' => 'the coupon consumption row',
+            ];
+
         foreach ([
             '$order->save()' => 'the order row',
             '$OrderBillingDetail->save()' => 'the billing detail',
-            '$OrderCouponDetail->save()' => 'the coupon detail',
-            '$UserCoupon->save()' => 'the coupon consumption row',
+            ...$couponWrites,
             '$OrderTaxDetail->save()' => 'the tax detail',
         ] as $needle => $what) {
             $at = strpos($source, $needle);
@@ -149,6 +185,21 @@ class OrderWriteTransactionTest extends TestCase
             $this->assertNotFalse($at, $what . ' write must still be present');
             $this->assertGreaterThan($begin, $at, $what . ' must be inside the transaction');
             $this->assertLessThan($commit, $at, $what . ' must be inside the transaction');
+        }
+
+        /*
+         * AND THE RECORDER MUST NOT HAVE GROWN A BOUNDARY OF ITS OWN while nobody was looking. If it
+         * ever opens one, a caller's `rollBack()` in the catch below computes the wrong level and can
+         * unwind work that already committed — the hazard `ordersave` documents around
+         * `$ssTransactionDepth`. Asserted here because this file is where the boundary rules live.
+         */
+        $recorder = $this->executableSourceOf(\App\Services\CouponRedemptionRecorder::class, 'record');
+
+        foreach (['DB::beginTransaction', 'DB::transaction', 'DB::commit', 'DB::rollBack'] as $forbidden) {
+            $this->assertFalse(strpos($recorder, $forbidden),
+                'CouponRedemptionRecorder::record() must not manage a transaction: both callers are '
+                . 'already inside one, and a nested boundary lets their rollBack() unwind to the '
+                . 'wrong level. Found ' . $forbidden . '.');
         }
     }
 

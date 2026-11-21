@@ -33,6 +33,7 @@ class StoredUploadTest extends SecurityTestCase
     private User $foreignMerchant;
     private Store $foreignStore;
     private bool $createdUploadsRoot = false;
+    private bool $fixtureFoldersAreOurs = false;
 
     private const OWN_STORE_ID = 987001;
     private const FOREIGN_STORE_ID = 987002;
@@ -47,6 +48,9 @@ class StoredUploadTest extends SecurityTestCase
             $this->assertDirectoryDoesNotExist(base_path('uploads/' . $id));
             $this->assertDirectoryDoesNotExist(base_path('uploads/uploads/' . $id));
         }
+        // Only now may tearDown delete them: PHPUnit runs tearDown even when an assertion in setUp fails, and until 2026-11-18 this
+        // class then deleted the very folder its guard had just refused to adopt -- the promise in the class docblock was not kept.
+        $this->fixtureFoldersAreOurs = true;
 
         [$this->merchant, $this->store] = $this->makeTenant();
         [$this->foreignMerchant, $this->foreignStore] = $this->makeTenant();
@@ -64,7 +68,7 @@ class StoredUploadTest extends SecurityTestCase
 
     protected function tearDown(): void
     {
-        foreach ([self::OWN_STORE_ID, self::FOREIGN_STORE_ID] as $id) {
+        foreach ($this->fixtureFoldersAreOurs ? [self::OWN_STORE_ID, self::FOREIGN_STORE_ID] : [] as $id) {
             File::deleteDirectory(base_path('uploads/' . $id));
             File::deleteDirectory(base_path('uploads/uploads/' . $id));   // the product gallery's doubled prefix
         }

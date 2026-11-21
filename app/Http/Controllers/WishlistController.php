@@ -16,9 +16,39 @@ use Illuminate\Support\Facades\Cache;
 
 class WishlistController extends Controller
 {
-    public function index(WishlistDataTable $dataTable)
+    public function index(Request $request, WishlistDataTable $dataTable)
     {
         if (auth()->user() && auth()->user()->isAbleTo('Manage Wishlist')) {
+            /*
+             * MKT-002. The merchant's filter selection survives navigation and reload.
+             *
+             * INSIDE THE PERMISSION GATE, deliberately: a caller who may not see this list never
+             * reads or writes the memory, and never learns from a redirect that one exists.
+             *
+             * THE RESTORE IS A 302, NOT A CLIENT-SIDE FILL. yajra sets the table's `ajax.url` to
+             * `url()->full()` as evaluated when the page RENDERS, so filling the controls -- or
+             * rewriting the query with `history.replaceState` -- would leave the table's second leg
+             * requesting the UNFILTERED url: the page would look filtered and the rows would not be.
+             * A redirect makes a restored request byte-identical to a typed one. This is
+             * `ProductController::index`'s reasoning, which applies here for the same reason.
+             */
+            if ($request->has(\App\Services\TableFilterMemory::CLEAR)) {
+                \App\Services\TableFilterMemory::forget('wishlist');
+
+                return redirect()->route('wishlist.index');
+            }
+
+            if (\App\Services\TableFilterMemory::shouldRestore($request)) {
+                $remembered = \App\Services\TableFilterMemory::recall('wishlist');
+
+                if ($remembered !== []) {
+                    return redirect()->route('wishlist.index', $remembered)
+                        ->with('ss_filters_restored', true);
+                }
+            }
+
+            \App\Services\TableFilterMemory::remember($request, 'wishlist');
+
             return $dataTable->render('wishlist.index');
         } else {
             return redirect()->back()->with('error', __('Permission denied.'));
@@ -202,9 +232,45 @@ class WishlistController extends Controller
                 $dArr = Wishlist::where('customer_id', $customer_id)->where('store_id', $storeId)->get();
 
                 $order_id = 1;
+
+                /*
+                 * GAP-219 — RESERVE THE NUDGE BEFORE HANDING IT OVER, so a double-click does not send
+                 * twice. This endpoint carries no `throttle` middleware and recorded no sent marker, so
+                 * two clicks were two e-mails. Every one is billable.
+                 *
+                 * The gate asks the cadence rule first (switched off until the owner sets an interval --
+                 * how often a shopper may be nudged is a marketing policy, not an engineering choice)
+                 * and then reserves the logical action by identity. The key has no clock in it, so
+                 * suppressing a double-click invents no frequency.
+                 *
+                 * A REFUSAL IS AN ANSWER, not a silent no-op: the merchant pressed a button and is told
+                 * what happened and when, because a button that does nothing gets clicked again.
+                 */
+                $nudge = app(\App\Services\Marketing\NudgeGate::class)->reserve(
+                    (int) $storeId,
+                    'email',
+                    'Abandon Wishlist',
+                    $email,
+                    'wishlist',
+                    (int) $wish->id
+                );
+
+                if (! $nudge->allowed()) {
+                    return response()->json(['is_success' => false, 'message' => $nudge->message()]);
+                }
+
                 $resp = Utility::sendEmailTemplate('Abandon Wishlist', $email, $dArr, $owner, $store, $product_id, $customer_id);
                 // $return = 'Mail send successfully';
                 if ($resp['is_success'] == false) {
+                /*
+                 * GAP-219 — THE CLAIM IS RELEASED, because nothing went out. `reserve()` writes the
+                 * row BEFORE the send so it can stop a second one; leaving it after a failure would
+                 * block this nudge for ever, since the key has no clock in it. Found by an
+                 * independent review: with SMTP misconfigured the first click claimed the nudge and
+                 * failed, and every later click was told it had already been sent.
+                 */
+                app(\App\Services\Marketing\NudgeGate::class)->release($nudge);
+
                     return response()->json(
                         [
                             'is_success' => false,
@@ -221,6 +287,31 @@ class WishlistController extends Controller
                 }
 
             } catch (\Exception $e) {
+                /*
+                 * GAP-219 — RELEASE THE CLAIM, and LOG WHAT ACTUALLY HAPPENED.
+                 *
+                 * Two things an independent review found here. First, the claim: `reserve()` wrote
+                 * the row before the send, so an exception after it would block this nudge for ever
+                 * unless it is released. `isset()` because the reserve is inside this `try` -- a
+                 * throw before it means there is nothing to release.
+                 *
+                 * Second, the diagnosis. `NudgeLedger` deliberately RETHROWS any query failure that
+                 * is not a unique-key violation, on the stated grounds that swallowing it would turn
+                 * a broken ledger into a silent "allow". That rethrow lands here, and this handler
+                 * reported it to the merchant as an SMTP problem while logging nothing at all -- so
+                 * a broken ledger would have produced a confident wrong diagnosis and no trace. The
+                 * message stays generic (it must not leak internals, and SMTP really is the usual
+                 * cause) but the exception is now recoverable, as it already was on the WhatsApp leg.
+                 */
+                if (isset($nudge)) {
+                    app(\App\Services\Marketing\NudgeGate::class)->release($nudge);
+                }
+
+                \Log::warning('abandoned-wishlist e-mail nudge failed', [
+                    'store_id' => $storeId ?? null,
+                    'exception' => $e->getMessage(),
+                ]);
+
                 $smtp_error = __('E-Mail has been not sent due to SMTP configuration');
                 return response()->json(
                     [
@@ -591,6 +682,32 @@ class WishlistController extends Controller
                 return response()->json(['is_success' => false, 'message' => $blocked]);
             }
 
+
+            /*
+             * GAP-219 — RESERVE THE NUDGE BEFORE HANDING IT OVER, so a double-click does not send
+             * twice. This endpoint carries no `throttle` middleware and recorded no sent marker, so
+             * two clicks were two WhatsApp messages. Every one is billable.
+             *
+             * `subject_type` IS `wishlist` HERE WHILE THE TEMPLATE IS STILL `Abandon Cart`. That
+             * template name is the shipped behaviour and is left alone -- it is the name a merchant
+             * has configured in their own WhatsApp settings, and renaming it would silently stop
+             * their wishlist nudges. The subject is what keeps the two apart in the ledger: a
+             * wishlist nudge and a cart nudge to the same shopper are different actions and must not
+             * deduplicate against each other.
+             */
+            $nudge = app(\App\Services\Marketing\NudgeGate::class)->reserve(
+                (int) $storeId,
+                'whatsapp',
+                'Abandon Cart',
+                $mobile,
+                'wishlist',
+                (int) $cart->id
+            );
+
+            if (! $nudge->allowed()) {
+                return response()->json(['is_success' => false, 'message' => $nudge->message()]);
+            }
+
             $dispatch->handOver('Abandon Cart', (string) $mobile, $msg);
 
             return response()->json(
@@ -600,6 +717,14 @@ class WishlistController extends Controller
                 ]
             );
         } catch (\Exception $e) {
+            /*
+             * GAP-219 — release the claim: `handOver()` threw, so nothing went out, and an
+             * unreleased reservation would block this nudge permanently.
+             */
+            if (isset($nudge)) {
+                app(\App\Services\Marketing\NudgeGate::class)->release($nudge);
+            }
+
             \Log::warning('abandoned-wishlist WhatsApp nudge failed', [
                 'store_id' => $storeId,
                 'wish_id' => $request->wish_id,

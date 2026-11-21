@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\ReportAccess;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -37,6 +38,12 @@ class ReportPermission
     public const ACTIONS = [
         'index' => self::REPORTS, 'reports_chart' => self::REPORTS, 'export' => self::REPORTS, 'top_product' => self::REPORTS,
 
+        /* ANA-003's scheduled exports. `ACTIONS[$action] ?? self::REPORTS` would already gate these
+           on `Manage Reports` -- the fallback is fail-CLOSED -- but an implicit gate is one nobody
+           can find by reading this map, and a future action that SHOULD carry a different
+           permission would inherit this one silently. Named explicitly for that reason. */
+        'storeSchedule' => self::REPORTS, 'destroySchedule' => self::REPORTS,
+
         'OrderReport' => self::ORDERS, 'order_reports_chart' => self::ORDERS, 'order_report_export' => self::ORDERS,
         'order_bar_report_export' => self::ORDERS, 'BarChartOrderReport' => self::ORDERS, 'order_reports_chart_data' => self::ORDERS,
         'OrderSaleProductReport' => self::ORDERS, 'order_product_reports' => self::ORDERS, 'product_order_export' => self::ORDERS,
@@ -55,10 +62,14 @@ class ReportPermission
 
         $user = auth('web')->user();
 
-        if ($user !== null) {
-            if (strtolower(trim((string) $user->type)) === 'super admin' || (int) $user->creatorId() === (int) $user->id || $user->isAbleTo($permission)) {
-                return $next($request);
-            }
+        /*
+         * DELEGATED, NOT REIMPLEMENTED. The three checks and their order moved verbatim into
+         * `ReportAccess::permits()` so that a VIEW can ask the same question before offering a link
+         * to a report screen (MKT-001). A null user is refused inside it, which is what the old
+         * `if ($user !== null)` did by falling through to the refusal below.
+         */
+        if (ReportAccess::permits($user, $permission)) {
+            return $next($request);
         }
 
         if ($request->expectsJson() || $request->ajax()) {

@@ -1159,6 +1159,77 @@ Route::get(
         Route::post('theme-enable', [AddonController::class, 'ThemeEnable'])->name('theme.enable');
     });
 
+    /*
+     * P5-4 — THE MERCHANT ANALYTICS SCREEN. ANA-001…ANA-004.
+     *
+     * Declared beside the reports because it IS one and shares their gate. `ReportPermission` is
+     * attached explicitly here rather than inherited from a constructor, because the handler lives on
+     * its own controller (ReportController cannot run under the Feature suite at all: 36 `MONTH(` and
+     * 9 `YEAR(` in `selectRaw` are absent from SQLite, so a screen whose purpose is honest figures
+     * would have been untestable). The action method is `index`, which `ReportPermission::ACTIONS`
+     * maps to the seeded `Manage Reports` — no new permission name, because a name absent from
+     * `Utility::addNewData()` cannot exist as a row and evaluates false for everybody, the tenant
+     * owner included. The middleware's own ordering (operator, then tenant owner, then permission) is
+     * what makes this correct for the platform operator, who holds no Laratrust role.
+     */
+    Route::get('analytics', [\App\Http\Controllers\MerchantAnalyticsController::class, 'index'])
+        ->middleware(\App\Http\Middleware\ReportPermission::class)
+        ->name('analytics.index');
+
+    /**
+     * P5-8. The same figures as a file. SAME middleware as the screen -- an export with a weaker
+     * guard than the surface it exports is how a control gets lost. `ReportPermission::ACTIONS`
+     * maps `export` to the same seeded `Manage Reports` as `index`, so no new permission name is
+     * introduced (a name absent from `Utility::addNewData()` cannot exist as a row and evaluates
+     * false for everybody, the tenant owner included).
+     */
+    Route::get('analytics/export', [\App\Http\Controllers\MerchantAnalyticsController::class, 'export'])
+        ->middleware(\App\Http\Middleware\ReportPermission::class)
+        ->name('analytics.export');
+
+    /**
+     * ANA-003. A merchant's standing request for that export on a schedule.
+     *
+     * SAME MIDDLEWARE AS THE SCREEN AND THE DOWNLOAD, for the reason the note above gives: a write
+     * that creates a recurring send must not be reachable by anyone who cannot read the figures it
+     * would send. `ReportPermission::ACTIONS` names both actions explicitly rather than leaning on
+     * its fail-closed fallback.
+     *
+     * The RECIPIENT is not a parameter -- see `AnalyticsReportSchedule`. It is the authenticated
+     * user's own account address, so this cannot become an authenticated mail relay.
+     */
+    Route::post('analytics/schedules', [\App\Http\Controllers\MerchantAnalyticsController::class, 'storeSchedule'])
+        ->middleware(\App\Http\Middleware\ReportPermission::class)
+        ->name('analytics.schedules.store');
+
+    Route::delete('analytics/schedules/{id}', [\App\Http\Controllers\MerchantAnalyticsController::class, 'destroySchedule'])
+        ->middleware(\App\Http\Middleware\ReportPermission::class)
+        ->name('analytics.schedules.destroy');
+
+    /**
+     * P5-7. THE SAME FIGURES ACROSS EVERY TENANT, for the platform operator only.
+     *
+     * `PlatformOperatorOnly` and NOT `ReportPermission`, which is the difference that matters. The
+     * report middleware admits three principals in order -- operator, then the tenant OWNER, then
+     * the holder of `Manage Reports` -- and the second and third of those are merchants. This
+     * handler reads EVERY store (`Store` is not in `config/tenancy.php`'s `scoped_models`, so no
+     * global scope narrows it for anybody), so admitting a tenant owner here would be a
+     * cross-tenant disclosure. A merchant also creates their own roles, so a permission name is
+     * substantially self-assignable and is the wrong shape of gate for this screen.
+     *
+     * Inside the same `auth` group, so an anonymous caller is redirected to sign in by `auth` --
+     * which runs first -- rather than told 403 by the operator check. 403 and never 401 for a
+     * signed-in non-operator: repo B maps any 401 to a forced logout.
+     */
+    Route::get('platform/analytics', [\App\Http\Controllers\PlatformAnalyticsController::class, 'index'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.analytics');
+
+    // P5-8. Same gate as the screen above, for the same reason, across every tenant at once.
+    Route::get('platform/analytics/export', [\App\Http\Controllers\PlatformAnalyticsController::class, 'export'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.analytics.export');
+
     // Report
     Route::resource('reports', ReportController::class);
     Route::get('reports-chart', [ReportController::class, 'reports_chart'])->name('reports.chart');
@@ -1506,9 +1577,18 @@ Route::get(
      *
      * `theme.editor` resolves the store through the gate -- never `getCurrentStore()`, never a
      * `{store}` parameter from the caller -- and admits the operator naming a store explicitly, the
-     * verified tenant owner, or a same-tenant holder of `Manage Themes`. The controller's own
-     * `isAbleTo()` checks are LEFT IN PLACE: defence in depth, and deleting them on the strength of
-     * a middleware line is how a guard goes missing when a route is later moved out of a group.
+     * verified tenant owner, or a same-tenant holder of `Manage Themes`. The controller keeps its
+     * own check as `mayManageThemes()`, which asks the SAME gate this middleware does, so the two
+     * cannot disagree: defence in depth, and deleting it on the strength of a middleware line is how
+     * a guard goes missing when a route is later moved out of a group.
+     *
+     * THAT IS NOT THE OLD CHECK, and an earlier version of this comment said it was ("the
+     * controller's own `isAbleTo()` checks are LEFT IN PLACE"). The four read handlers used to run
+     * a bare `isAbleTo('Manage Themes')`, which refuses the platform operator (no bypass exists)
+     * and the verified tenant owner (who holds no permission row). The gate admits both on
+     * purpose, so a verified owner without the permission goes from a 302 to a 200 on those four
+     * GETs, pinned by `ThemeEditorAuthorizationMatrixTest::test_the_owner_can_open_the_editor_
+     * without_holding_the_permission`.
      */
     Route::middleware(['theme.editor'])->group(function () {
         Route::get('theme-customize', [ThemeCustomizeController::class, 'index'])->name('theme.index');

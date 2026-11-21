@@ -5,21 +5,135 @@ is the file to read first. It links the six phases, says what is done, what is n
 executable action is. Everything in it is either a measured fact with its source, or an owner
 decision quoted as such.
 
-**Last updated:** 2026-11-16 · **Active phase:** 04 (Commerce) ·
-**Active branch:** `feature/phase-04-commerce`
+**Last updated:** 2026-11-20 · **Active phase:** 05 (Marketing & Analytics) ·
+**Active branch:** `feature/phase-05-marketing-analytics`
 
+> ### NEXT EXECUTABLE ACTION (read this first; owner directive of 2026-11-20, §10)
+>
+> The owner has authorised continuous implementation across **all** phases (01, 02, 2.5, 03, 04, 05,
+> 06) with **Level A** targeted tests during development and **one Level B** consolidated
+> verification campaign at the end — not full-suite runs after every change — and pushes **batched**
+> at safe checkpoints. Do not stop at a clean slice; select the next eligible task from the Master
+> Plan, dependencies and the gap register.
+>
+> **PUSHED head: `91d1992d`** (fast-forward `080ca608..91d1992d`, 2026-11-21 ~08:06Z, 6 commits).
+> **Required CI run 44883318495 (ci.yml #569) was created at 08:06:43Z for this head and was still
+> IN PROGRESS when this was written — DO NOT PUSH UNTIL IT CONCLUDES**, because a push cancels a
+> running required run. Run #568 on `080ca608` concluded **SUCCESS** (owner independently verified
+> both Tests jobs and the merge-base regression gate), and #567 on `9ee54f6d` had failed on
+> `SecurityLogInventoryTest`, fixed at the cause in `9d4879b4`.
+>
+> **TWO COMMITS ARE LOCAL AND UNPUSHED, waiting only on #569:** `321a8f03` (P05-15 export
+> disclosure) and `9a2f4dbd` (its governance update). **CI #568 and #569 say NOTHING about these
+> two** — they were created before the commits existed. The new head must be verified by its own
+> required run after it is pushed.
+>
+> **Local gates on `9a2f4dbd`:** Unit **5,935 passed + 1 declared skip** (33,573 assertions) ·
+> Contract **45 passed** · focused: `tests/Unit/Reports/`, `tests/Feature/Reports/`,
+> `StatHintIsVisibleTest`, `BladeViewsCompileTest`, `SlotLayoutViewsRenderTest`,
+> `MetricCaveatMessagesAreTranslatedTest`, `TranslationFileIntegrityTest`, `ArabicUiCoverageTest`,
+> `tests/Unit/Metrics/` — **105 passed, 1,112 assertions** · `MasterPlanTraceabilityCountsTest`
+> green, so the matrix agrees with itself. **The Feature suite has NOT been run on this head** —
+> that belongs to the Level B campaign, and the Feature gate is the one that must be clean before
+> the final acceptance claim.
+>
+> **A RUN STARTED BEFORE AN EDIT TO `routes/web.php` OR `resources/lang/*.json` IS A MIXED-STATE RUN
+> AND IS NOT A GATE** — Laravel re-reads both per test boot. One such run was discarded for exactly
+> that reason. Do not edit `app/`, `tests/`, `routes/` or the language files while a LOCAL gate run
+> is in flight. (A remote CI run is unaffected by local edits: it tests the pushed SHA.)
+>
+> **What `91d1992d` added on top of `080ca608`:** the Arabic report-caveat anomaly resolved as a
+> MEASUREMENT artifact, not a defect — those routes return `{"html": ...}` and `json_encode` escapes
+> non-ASCII, so a regex for Arabic codepoints over the raw body found nothing while the Arabic sat
+> there escaped, and English passed only because ASCII is not escaped. The assertion got STRONGER
+> (decode the envelope; the Arabic case also asserts the English is absent).
+>
+> **What the two unpushed commits add — P05-15 is now VERIFIED COMPLETE:**
+> five of the six `ReportController` CSV exports carry a disclosure column; the sixth (`export()`)
+> was MEASURED to be counts-only and is correctly caveat-free. All of it reads ONE source,
+> `App\Support\Reports\ReportFigureNote`, because the defect was *caused* by one literal
+> duplicated across four blades — two carried the precision caveat and two silently did not.
+> `MetricCaveat` gains `MONEY_FLOAT_PRECISION`, the plural of a measured claim (nine-column rows
+> hold six money figures, so "This figure" cannot name which), **not** a new monetary definition:
+> `payment_status` appears zero times in these handlers and inclusion rules remain the owner's
+> D1/D2 decision. Traceability counts recounted from the body: VERIFIED COMPLETE 171 → **172**,
+> PARTIALLY IMPLEMENTED 78 → **77**.
+>
+> **Two gates were deliberately moved, and one of those moves repaired a weakening I had caused:**
+> `ReportCsvHeaderLocalisationTest` 3 → 4 and 9 → 10 columns plus `figureNote` in all five payload
+> guards; and `SalesSummaryLabelTruthTest`, whose false-claim census had to be widened to read
+> `ReportFigureNote` — moving the sentence out of the Blade had made that census pass for the wrong
+> reason, since it was grepping a file where the claim no longer was.
+>
+> **SEVEN MUTATIONS RUN, SEVEN CAUGHT — and the seventh is the one worth remembering:** a VERBATIM
+> copy of the composition pasted back into the controller passed all seven of the new Feature tests,
+> because an identical string is identical. `ReportFigureNoteIsTheOnlySourceTest` was added to catch
+> it structurally, and the docblock that had claimed `assertSame` covered it was corrected rather
+> than left standing.
+>
+> **Do next, in this order:**
+> 1. **Check run 44883318495 (#569) on `91d1992d`.** If SUCCESS, push the two local commits and then
+>    verify the NEW head through its own required run. If FAILURE, fix at the cause first. The
+>    `Security-sensitive diff: human checklist` check is red BY DESIGN on every security-touching
+>    head; it is the owner's to clear, the PR body documents it, and it must never be written to or
+>    claimed complete.
+> 2. **Group A of `PHASE-05-MKT-ANA-DISPOSITIONS.md`**, continuing. `ANA-007` is **mostly closed**
+>    (four screens disclose; five exports carry it) with only `GAP-217` left — the `Shipping charged`
+>    and `Coupon value applied` tiles carry no hint at all, which is a NEW on-screen disclosure
+>    rather than a dropped one and moves `StatHintIsVisibleTest`'s census from 23. Remaining group A:
+>    `MKT-001` (link marketing → analytics), `MKT-009` (guard the competing shopper-messaging path),
+>    `MKT-010` (greentic's missing quick-view/compare hook), `ANA-002` (period comparisons),
+>    `ANA-004` (device and channel analysis).
+> 3. Then **Phase 06** on its own branch with a Draft PR, preserving the #138 → #139 → #140 chain.
+> 4. Then the remaining actionable code gaps in earlier phases: P4-1 storefront commerce
+>    correctness, P5-FIN-8, P1-SEC-74's vendored remainder, P1-SEC-76's 75 leads, the D8-B census
+>    remainder.
+>
+> **Still owner-blocked, untouched:** P1-SEC-81 (CRITICAL — publication and production remediation
+> held; the fix is on NO remote), GAP-214 (D6 stage 2), GAP-215, PAY-SEC, D8 enforcement activation
+> (`MARKETING_CONSENT_ENFORCEMENT` stays `off`), and group B of the dispositions (MKT-003 BOGO on
+> variants, MKT-005/006 loyalty reversal, MKT-008 what makes a consent record count).
 Phase 03 engineering is complete and sits in **PR #138, Draft, not merged**. Phase 04 is branched
 from that engineering head, so **PR #139 carries Phase 03's commits and must not be merged ahead of
-PR #138**. Both stay separate and neither merges automatically. The six-phase Master Product Plan in
-§2 is unchanged and remains the governing scope.
+PR #138**. **Phase 05 is branched from Phase 04's head in turn, so PR #140 carries both** and the
+three must merge in order or not at all. None merges automatically. The six-phase Master Product
+Plan in §2 is unchanged and remains the governing scope.
+
+> **THIS DOCUMENT IS TWO PHASES BEHIND BELOW THIS LINE, AND THAT IS FLAGGED RATHER THAN FIXED
+> HERE.** §1's branch table, §4 and §8 still describe Phase 03's milestones as the active work;
+> they were accurate when written and have not been rewritten since. Only the facts above and §1's
+> branch row were corrected on 2026-11-17, because a continuity document that names the wrong
+> active branch misdirects the next session on its first action. The full rewrite — Phase 04's and
+> Phase 05's state, and a current §8 — belongs to the Phase 05 closing slice **P5-Z**, which has
+> not run. **Measured 2026-11-17:** `main` is still `4e878b8d`, so nothing from Phase 03, 04 or 05
+> has merged; `feature/phase-04-commerce` is an ancestor of the Phase 05 head.
+>
+> For what Phase 05 has actually done, read
+> [`phase-5/PHASE-05-EXECUTION-PLAN.md`](phase-5/PHASE-05-EXECUTION-PLAN.md) — slices P5-1…P5-11,
+> each marked shipped or not started — not §8 below.
 
 ---
+
+
+## Original-plan traceability (permanent, added 2026-11-16)
+
+Three documents govern whether the delivered product matches the **owner-approved** plan, as
+distinct from whether the engineering passed:
+
+| document | what it answers |
+|---|---|
+| [`MASTER-PLAN-SOURCE-VERIFICATION.md`](MASTER-PLAN-SOURCE-VERIFICATION.md) | **Can the original plan even be checked?** Answer: **NOT FULLY VERIFIED** — the Decision Register v1.0 was never committed to this repository. |
+| [`MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`](MASTER-PLAN-REQUIREMENT-TRACEABILITY.md) | **350 requirements recovered. 169 VERIFIED COMPLETE. 181 are not.** |
+| [`MASTER-PLAN-GAP-REGISTER.md`](MASTER-PLAN-GAP-REGISTER.md) | **181 open gaps — 56 category A (must complete before release)**, 16 B, 73 C, 11 D, 25 E. |
+
+**CI success does not establish product-scope completeness.** See `CLAUDE.md` §4.1 for the rule and
+the four states that must never be merged into one label.
 
 ## 1. Where the code is, exactly
 
 | | repository | `main` | active branch |
 |---|---|---|---|
-| Laravel (canonical backend) | `fullstackfull/syriastore98` | **`4e878b8d`** — the Phase 2.5 merge (PR #134) | `feature/phase-03-storefront` |
+| Laravel (canonical backend) | `fullstackfull/syriastore98` | **`4e878b8d`** — the Phase 2.5 merge (PR #134) | `feature/phase-05-marketing-analytics` *(corrected 2026-11-17; was `feature/phase-03-storefront`. The Phase 03 and Phase 04 branches still exist and are both ancestors of this one.)* |
 | Flutter (merchant/staff app) | `fullstackfull/StoreSyria_app98` | **`cbf6283f`** — the Phase 2.5 merge (PR #9) | none; stays on `main` unless a Phase 03 contract need arises |
 
 Both SHAs verified against the owner's directive. Both Phase 2.5 heads are ancestors of their

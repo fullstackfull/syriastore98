@@ -674,4 +674,131 @@ class AnonymousAdministrativeModuleRoutesTest extends SecurityTestCase
         $this->actingAs($owner->fresh())->delete('/order-review-store/' . $id);
         $this->assertSame(0, DB::table('order_reviews')->where('id', $id)->count(), 'Premise: the store owner can still delete it.');
     }
+
+    // ---- P1-SEC-64b: the second doors the independent review of P1-SEC-64 found, EXECUTED -------------------------------------------------
+
+    /**
+     * A principal whose TENANT ROOT is the platform operator: a merchant who demoted themselves (every merchant has created_by = 1, which is the
+     * operator's id), or staff the operator created. `creatorId()` returns `created_by` for every type but admin / super admin, so it returns the
+     * OPERATOR'S id -- the same number the operator's own `creatorId()` is.
+     */
+    private function platformRooted(\App\Models\User $operator): \App\Models\User
+    {
+        return \App\Models\User::factory()->create(['type' => 'staff', 'created_by' => $operator->id, 'is_active' => 1, 'email_verified_at' => now()])->fresh();
+    }
+
+    private function lotteryBody(string $from): array
+    {
+        return ['from' => $from, 'subject' => 'EDIT-SUBJECT', 'content' => '<p>EDIT-CONTENT</p>', 'language' => 'en', 'lang' => 'en'];
+    }
+
+    /**
+     * THE SEVENTH MODULE COPY. `LotteryPrizes` carries the same unguarded template write the host route had (`updateLotteryEmailSettings` reads
+     * `EmailTemplate::where('id', $id)->first()` and rewrites it), behind only `auth` and its plan check. P1-SEC-64's write-up said seven module
+     * copies were guarded already; ModuleRouteManifest names six.
+     */
+    public function test_the_lottery_template_door_is_owner_guarded_like_the_other_six(): void
+    {
+        $this->enable(['LotteryPrizes']);
+        $operator = $this->makePlatformAdmin();
+        [$merchant] = $this->makeTenant();
+        [$other] = $this->makeTenant();
+        $this->entitle($merchant, 'LotteryPrizes');
+        [$platformTemplate] = $this->emailTemplate($operator->id);     // one row for the whole platform
+        [$othersTemplate] = $this->emailTemplate($other->id);
+        [$ownTemplate] = $this->emailTemplate($merchant->id);
+
+        foreach ([$platformTemplate, $othersTemplate] as $victim) {
+            $this->actingAs($merchant->fresh())->put('/lottery_email_lang/' . $victim, $this->lotteryBody('ATTACKER-FIXTURE'));
+
+            $this->assertSame('ORIGINAL-FIXTURE', DB::table('email_templates')->where('id', $victim)->value('from'), "A merchant rewrote template #{$victim} through the Lottery door.");
+            $this->assertSame('ORIGINAL-SUBJECT', DB::table('email_template_langs')->where('parent_id', $victim)->value('subject'), "A merchant rewrote the body of template #{$victim} through the Lottery door.");
+        }
+
+        // the READ door: a template the caller does not own is not rendered to them
+        $read = $this->actingAs($merchant->fresh())->get('/lottery_email_lang/' . $platformTemplate . '/en');
+        $this->assertTrue($read->isRedirect() && str_contains((string) session('error'), 'Permission denied'), 'The Lottery read door served a template the caller does not own.');
+
+        // POSITIVE CONTROLS, so "unchanged" cannot pass on a route that is broken for everyone: the merchant edits their OWN template, the operator the platform's
+        $this->actingAs($merchant->fresh())->put('/lottery_email_lang/' . $ownTemplate, $this->lotteryBody('OWNER-EDIT'));
+        $this->assertSame('OWNER-EDIT', DB::table('email_templates')->where('id', $ownTemplate)->value('from'), 'Premise: the owner can edit their own template through the Lottery door.');
+
+        $this->actingAs($operator->fresh())->put('/lottery_email_lang/' . $platformTemplate, $this->lotteryBody('OPERATOR-EDIT'));
+        $this->assertSame('OPERATOR-EDIT', DB::table('email_templates')->where('id', $platformTemplate)->value('from'), 'Premise: the operator can edit the platform template through the Lottery door.');
+    }
+
+    /**
+     * THE GUARD'S OWN COPY OF THE TENANT RULE. `sameTenant()` here was `creatorId()` equality alone -- the rule UserPolicy and ThemeEditorGate were
+     * corrected away from (P0-TENANT-ROOT): a root of 1 is not a tenant. A user rooted at the operator has the operator's `creatorId()`, so the
+     * operator's rows looked like "their tenant's".
+     */
+    public function test_a_user_rooted_at_the_operator_does_not_pass_the_owner_rule_for_the_operators_templates(): void
+    {
+        $this->enable(['ProductCatelog']);
+        $operator = $this->makePlatformAdmin();
+        $rooted = $this->platformRooted($operator);
+        [$template, $operatorsRow] = $this->emailTemplate($operator->id);
+
+        $body = fn (string $from) => ['from' => $from, 'subject' => 'EDIT-SUBJECT', 'content' => '<p>EDIT-CONTENT</p>', 'language' => 'en', 'user_email_template_id' => $operatorsRow, 'is_active' => 'on'];
+
+        $this->actingAs($rooted)->post('/admin_email_template_lang/' . $template, $body('ATTACKER-FIXTURE'));
+        $this->assertSame('ORIGINAL-FIXTURE', DB::table('email_templates')->where('id', $template)->value('from'), "A user rooted at the operator rewrote the operator's template.");
+
+        $this->actingAs($operator->fresh())->post('/admin_email_template_lang/' . $template, $body('OPERATOR-EDIT'));
+        $this->assertSame('OPERATOR-EDIT', DB::table('email_templates')->where('id', $template)->value('from'), 'Premise: the operator can still edit it.');
+    }
+
+    /**
+     * THE ROOT NEED NOT BE THE OPERATOR, AND NEED NOT BE USER 1. UserPolicy::tenantRootIsAMerchant()'s own history: its first version asked the narrower
+     * question "is the root the operator", and a fixture in which the collapsed actor's id happened to match showed it incomplete. Here the root is a
+     * DEMOTED merchant (type staff, created by the operator) and the two principals are staff that merchant created while it was one: they share a
+     * `creatorId()` -- the demoted merchant's id, which is not 1 -- so "same creatorId()" held for them, and the demoted merchant is not a tenant.
+     */
+    public function test_staff_of_a_demoted_merchant_are_not_each_others_tenant(): void
+    {
+        $this->enable(['ProductCatelog']);
+        $operator = $this->makePlatformAdmin();
+        $demoted = $this->platformRooted($operator);
+        $this->assertNotSame(1, (int) $demoted->id, 'premise: the root must not be user 1, or this case cannot tell the real rule from "the root is user 1"');
+        $first = \App\Models\User::factory()->create(['type' => 'staff', 'created_by' => $demoted->id, 'is_active' => 1, 'email_verified_at' => now()])->fresh();
+        $second = \App\Models\User::factory()->create(['type' => 'staff', 'created_by' => $demoted->id, 'is_active' => 1, 'email_verified_at' => now()])->fresh();
+        $this->assertSame((int) $first->creatorId(), (int) $second->creatorId(), 'premise: the two share a creatorId()');
+        [$template, $row] = $this->emailTemplate($second->id);                  // a template the second owns
+
+        $this->actingAs($first)->post('/admin_email_template_lang/' . $template, ['from' => 'ATTACKER-FIXTURE', 'subject' => 'S', 'content' => 'C', 'language' => 'en', 'user_email_template_id' => $row, 'is_active' => 'on']);
+
+        $this->assertSame('ORIGINAL-FIXTURE', DB::table('email_templates')->where('id', $template)->value('from'), "Staff of a demoted merchant rewrote their colleague's template: a tenant rooted at a non-merchant was treated as a tenant.");
+
+        // POSITIVE CONTROL: the owner of the row edits it
+        $this->actingAs($second)->post('/admin_email_template_lang/' . $template, ['from' => 'OWNER-EDIT', 'subject' => 'S', 'content' => 'C', 'language' => 'en', 'user_email_template_id' => $row, 'is_active' => 'on']);
+        $this->assertSame('OWNER-EDIT', DB::table('email_templates')->where('id', $template)->value('from'), 'Premise: the template owner can edit their own template.');
+    }
+
+    /** The same function decides campaigns and tickets, so the same collapse is pinned there: one shared rule, three consumers. */
+    public function test_a_user_rooted_at_the_operator_cannot_act_on_the_operators_campaigns_or_tickets(): void
+    {
+        $this->enable(['Campaigns', 'Helpdesk']);
+        $operator = $this->makePlatformAdmin();
+        $rooted = $this->platformRooted($operator);
+        // The plan check resolves a user's entitlement through their tenant root, which for this principal is the OPERATOR. Without this row the
+        // campaign leg is refused by the plan check, not by the guard under test, and passes for the wrong reason (it did, before this line).
+        // ActivatedModule() is memoised on first read, so the row goes in before anything reads it.
+        $this->entitle($operator, 'Campaigns');
+        $campaign = $this->campaign($operator->id, 0);
+        $ticketId = $this->ticket($operator->id);
+        $number = DB::table('helpdesk_tickets')->where('id', $ticketId)->value('ticket_id');
+
+        $this->actingAs($rooted)->post('/campaigns/campaigns-enable', ['id' => $campaign, 'is_disable' => 1]);
+        $this->assertSame(0, (int) DB::table('campaigns')->where('id', $campaign)->value('status'), "A user rooted at the operator published the operator's campaign.");
+
+        $this->actingAs($rooted->fresh())->post('/helpdesk-ticket/' . $number, ['reply_description' => 'from a user rooted at the operator']);
+        $this->assertSame(0, DB::table('helpdesk_conversions')->where('ticket_id', $ticketId)->count(), "A user rooted at the operator replied on the operator's ticket.");
+
+        // POSITIVE CONTROLS: the operator passes both
+        $this->actingAs($operator->fresh())->post('/campaigns/campaigns-enable', ['id' => $campaign, 'is_disable' => 1]);
+        $this->assertSame(1, (int) DB::table('campaigns')->where('id', $campaign)->value('status'), 'Premise: the operator can publish the campaign.');
+
+        $this->actingAs($operator->fresh())->post('/helpdesk-ticket/' . $number, ['reply_description' => 'from the operator']);
+        $this->assertSame(1, DB::table('helpdesk_conversions')->where('ticket_id', $ticketId)->count(), 'Premise: the operator can reply on the ticket.');
+    }
 }

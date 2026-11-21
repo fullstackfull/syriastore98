@@ -485,7 +485,7 @@ class ContentFamilyCrossTenantTest extends SecurityTestCase
      * could download it.
      *
      * `Manage Newsletter` is the right gate and locks nobody out: `index()` already requires it,
-     * and the export button lives on `newsletter/index.blade.php:24`, a page that principal cannot
+     * and the export button lives on `newsletter/index.blade.php:29`, a page that principal cannot
      * reach. Anyone who can see the button already holds the permission.
      */
     public function test_the_newsletter_export_refuses_a_principal_with_no_permission(): void

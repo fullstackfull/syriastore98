@@ -59,13 +59,11 @@ final class UploadLimits
             $maxKb = (string) ($settings['local_storage_max_upload_size'] ?? '');
         }
 
-        $extensions = [];
-        foreach (explode(',', $rawExt) as $ext) {
-            $ext = strtolower(ltrim(trim($ext), '.'));
-            if ($ext !== '' && ! in_array($ext, $extensions, true)) {
-                $extensions[] = $ext;
-            }
-        }
+        // P1-SEC-73. THE PICKER OFFERS WHAT THE SERVER WILL TAKE: the configured list, cleaned as `PlatformUploadPolicy` cleans it before
+        // it builds the rules -- no type a server runs or reads as configuration (an operator who ticks html, js, exe or php sees no effect,
+        // and must not be told otherwise), no entry that is not a plain word, and for a request that is not a panel request no active
+        // document. (F75's contract: the editors' `accept` is what the validator will accept.)
+        $extensions = \App\Services\PlatformUploadPolicy::allowed($rawExt, \App\Services\PlatformUploadPolicy::panelSession());
 
         $maxKb = $maxKb === '' ? self::DEFAULT_MAX_KB : (int) $maxKb;
         if ($maxKb <= 0) {

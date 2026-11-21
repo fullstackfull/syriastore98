@@ -44,7 +44,7 @@ class UserCouponDataTable extends DataTable
         ->editColumn('product_order_id', function (UserCoupon $coupon) {
             return '<div class="btn btn-primary btn-sm text-sm" data-bs-toggle="tooltip" title="' . __('Invoice ID') . '">
                         <span class="btn-inner--icon"></span>
-                        <span class="btn-inner--text">#'. $coupon->OrderData->product_order_id . '</span>
+                        <span class="btn-inner--text">#'. e($coupon->OrderData->product_order_id) . '</span>
                     </div>';
         })
         ->filterColumn('coupon_name', function ($query, $keyword) {
@@ -71,7 +71,8 @@ class UserCouponDataTable extends DataTable
                 $subQuery->orderBy('product_order_id', $direction);
             });
         })
-        ->rawColumns(['coupon_name','product_order_id','amount', 'date_used']);
+        // P1-SEC-80. The coupon name, the amount and the date are plain text: yajra escapes them. `product_order_id` is built here and escapes the order number it interpolates.
+        ->rawColumns(['product_order_id']);
     }
 
     /**

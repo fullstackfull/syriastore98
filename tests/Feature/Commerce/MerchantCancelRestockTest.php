@@ -202,8 +202,32 @@ class MerchantCancelRestockTest extends SecurityTestCase
         $fresh = $this->orderRow($order->id);
         $this->assertSame(self::DELIVERED_CANCELLED, (int) $fresh->delivered_status);
         $this->assertNotNull($fresh->cancel_date, 'the cancel arm did not run');
-        $this->assertSame('Unpaid', (string) $fresh->payment_status,
-            'the cancel arm did not reach its payment write, so the success branch did not run');
+        /*
+         * INVERTED BY OWNER DECISION P4-F124 (Option A), 2026-11-16.
+         *
+         * This asserted `'Unpaid'`, because the cancel arm used to write it — the "missing magic
+         * line" whose only job was to make `OrderObserver::updated()` fire and reverse the wallet.
+         * The owner's decision is that `orders.payment_status` states the CUSTOMER'S ACTUAL
+         * SETTLEMENT and that "cancellation must not rewrite a captured payment as Unpaid merely to
+         * trigger wallet reversal", so the engine no longer touches the column at all.
+         *
+         * This order was created Paid, the customer's money really was captured, and after a
+         * cancellation the order must GO ON SAYING SO. Asserting `'Paid'` here is the inversion,
+         * not an accident.
+         *
+         * THE PREMISE IT WAS SERVING IS UNCHANGED AND STILL HOLDS. "The success branch ran" is
+         * evidenced by `delivered_status` and `cancel_date` two lines above, which this arm writes
+         * before anything else; the payment column was only ever a convenient third witness and is
+         * now the wrong one to use.
+         *
+         * Where the cancellation is now recorded — the financial row moving to `cancelled`, the
+         * wallet debited exactly once, with a reason — is held by
+         * `CancellationLedgerSemanticsTest`, which owns that contract.
+         */
+        $this->assertSame('Paid', (string) $fresh->payment_status,
+            'cancelling rewrote the customer\'s payment history. The money was captured; P4-F124 '
+            . 'Option A requires the order to keep saying so, with the reversal recorded on the '
+            . 'financial ledger instead.');
     }
 
     /**

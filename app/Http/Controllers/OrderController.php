@@ -113,7 +113,28 @@ public function store(Request $request)
         'products.*.quantity' => 'required|integer|min:1',
         'products.*.price' => 'required|numeric|min:0',
         'payment_type' => 'required|string',
-        'payment_status' => 'required|in:Paid,Unpaid',
+        /*
+         * P4-F126 -- THE VOCABULARY IS UNCHANGED; THE COD COMBINATION IS REFUSED BELOW.
+         *
+         * This rule stays `in:Paid,Unpaid` because those remain the two states a merchant may
+         * assert here. What was missing is that `cod` + `Paid` asserts a collection nobody made:
+         * this screen's own comment calls payment_status "the merchant ASSERTING an out-of-band
+         * fact ('I have the cash')", which is true of a counter sale and false of a parcel awaiting
+         * delivery. The refusal is a closure rule rather than a wider `in:` list, because the
+         * constraint is a RELATIONSHIP between two fields and not a property of either.
+         */
+        'payment_status' => [
+            'required',
+            'in:Paid,Unpaid',
+            function ($attribute, $value, $fail) use ($request) {
+                if (app(\App\Services\PaymentVerificationService::class)
+                        ->isCashOnDelivery($request->input('payment_type'))
+                    && strcasecmp(trim((string) $value), 'Paid') === 0) {
+
+                    $fail(__('A cash-on-delivery order cannot be created as already paid. Record it as Unpaid; it becomes Paid when collection is verified. For an over-the-counter cash sale, use the POS payment type.'));
+                }
+            },
+        ],
         'delivery_price' => 'nullable|numeric|min:0',
         'tax_price' => 'nullable|numeric|min:0',
         'final_price' => 'required|numeric|min:0',
@@ -320,7 +341,7 @@ public function store(Request $request)
                 );
 
                 if (!$variantDecrement['applied']) {
-                    throw new \Exception("المخزون غير كافٍ للمتغير: {$variant->name}. المتاح: {$variant->stock}، المطلوب: {$qty}");
+                    throw new \Exception("المخزون غير كافٍ للمتغير: " . e($variant->name) . ". المتاح: {$variant->stock}، المطلوب: {$qty}"); // P1-SEC-80 round 3 (C-4): flashed, and the layout's toast writes it with innerHTML
                 }
 
                 $productJson[] = [
@@ -350,7 +371,7 @@ public function store(Request $request)
                 );
 
                 if (!$productDecrement['applied']) {
-                    throw new \Exception("المخزون غير كافٍ للمنتج: {$product->name}. المتاح: {$product->product_stock}، المطلوب: {$qty}");
+                    throw new \Exception("المخزون غير كافٍ للمنتج: " . e($product->name) . ". المتاح: {$product->product_stock}، المطلوب: {$qty}"); // P1-SEC-80 round 3 (C-4): see the variant branch above
                 }
 
                 $productJson[] = [

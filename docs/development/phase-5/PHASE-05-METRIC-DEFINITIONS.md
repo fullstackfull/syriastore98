@@ -1,0 +1,349 @@
+# Phase 05 — revenue and commerce metric definitions
+
+**These definitions are the contract between the ledger and every report built on it.** Owner
+instruction: *"Every metric must have an explicit definition, source, inclusion/exclusion rules and
+verification tests"*, and *"Do not reuse `SUM(orders.final_price)` as settled revenue merely because
+existing reports do."*
+
+They are written against the semantics established by the Phase 05 financial-policy work, not
+against the pre-existing ambiguity:
+
+| record | what it now means |
+|---|---|
+| `orders.payment_status` | **the customer's settlement.** `Paid` / `Unpaid` / `Pending`. Cancellation no longer rewrites it (P4-F124). A merchant cannot assert it without evidence (P4-F126, P4-F145). |
+| `store_order_financials.payment_status` | **the merchant's entitlement.** `paid` / `unpaid` / `pending` / `partially_paid` / `cancelled` / `refunded`. One row per order, enforced by `UNIQUE (order_id)`. |
+| `store_wallet_transactions` | **the audit trail of every balance movement**, typed and reasoned: `order_paid`, `order_payment_reversed`, `order_cancelled`, `order_refunded`. |
+
+**The single most important consequence:** settlement and entitlement are deliberately *independent*
+(owner decision on P4-F128). A metric must name which one it is measuring. A report that mixes them
+is not a rounding difference — it is a different question.
+
+---
+
+## 0a. Which approved decisions this document answers to
+
+**Added 2026-11-16, after the Master Product Plan was recovered.** These ids were unreadable when this
+document was written, so it was built from the owner's instruction wording alone. The register
+(`docs/development/master-plan/DECISION-ID-REGISTER.md`) shows it was answering `ANA-*` all along:
+
+| id | recovered decision | where it lands here |
+|---|---|---|
+| `ANA-005` | separate sales, collection, settlements and profitability | §§1–8 — the entire settlement/entitlement split |
+| `ANA-006` | **do not claim precise profitability when cost or fee data is missing** | §8, and its cost caveat |
+| `ANA-007` | show data quality, estimates and omissions | §11 rule 5, and every per-metric caveat |
+| `ANA-008` | **document metric definitions and their sources** | **this document is `ANA-008`** |
+| `ANA-010` | do not build a new accounting engine | §11, and `PHASE-05-EXECUTION-PLAN.md` §3 |
+
+**`ANA-006` and `ANA-007` are already partly delivered, by PHASE 02.** The honest stat grid, the refusal
+to display revenue or profit, the period on every figure and the eleven report screens' qualifications
+were built under the label `PRD-001`, which the recovered plan shows means *"full product editor"* — a
+mis-attribution, traced in `DECISION-ID-REGISTER.md` §4.1. The work is sound; it answers here. Phase 05
+should **extend** it rather than re-derive it, and a Phase 05 completeness claim must count it.
+
+**This is a citation, not a status change.** No metric became verified by acquiring an id.
+
+---
+
+## 0. Why `SUM(orders.final_price)` is not revenue
+
+Measured, and it is the reason this document exists. `app/Http/Controllers/ReportController.php` is
+**3660 lines and contains zero `payment_status` predicates**. Every money figure it produces counts
+orders irrespective of whether the customer ever paid, whether the order was cancelled, and whether
+the money was refunded.
+
+`SUM(orders.final_price)` over an unfiltered order set therefore includes:
+
+- orders never paid for (`Unpaid`, and COD `Pending` that was never collected);
+- orders **cancelled** — which keep their `final_price` and, since P4-F124, correctly keep
+  `payment_status = 'Paid'` when the customer really did pay;
+- orders **fully refunded** — `order_refunds` records the refund; `orders.final_price` does not
+  change on the online path at all;
+- the **shipping and tax** the merchant collects but does not keep as margin.
+
+It is a usable figure for exactly one metric — gross merchandise value — and only with explicit
+exclusions.
+
+---
+
+## 1. Gross merchandise value (GMV)
+
+**Definition.** The total customer-facing value of orders *placed* in the period, before any
+settlement, cancellation or refund is considered. A demand measure, not a money measure.
+
+**Source.** `orders.final_price`, keyed on `orders.store_id`, dated by `orders.order_date`.
+
+**Includes.** Every order regardless of `payment_status`.
+
+**Excludes.** Orders with `delivered_status = 2` (cancelled) — **stated as an option, not a
+default**: GMV conventionally includes cancellations, and this platform has no prior convention. The
+report must label which it used. Never silently pick one.
+
+**Verification test.** Two orders, one paid and one unpaid, both counted; one cancelled order
+counted or not according to the stated flag, and the label asserted to match.
+
+---
+
+## 2. Collected customer payments
+
+**Definition.** Money the customer actually settled. The answer to *"what did shoppers pay us?"*
+
+**Source.** `store_order_financials.paid_amount` where the row's history shows a capture.
+
+**Includes.** Rows whose `payment_status` is `paid`, **and rows now at `cancelled` or `refunded`
+whose `paid_amount > 0`** — because P4-F124 deliberately preserves `paid_amount` and `paid_at`
+through a reversal. The customer *did* pay; that fact does not stop being true.
+
+**Excludes.** `unpaid`, and `pending` (COD not yet collected, bank transfer not yet settled, and any
+gateway return whose capture could not be verified).
+
+**The trap this definition exists to avoid.** Filtering on `payment_status = 'paid'` alone
+*under-counts*, because a cancelled-but-captured order drops out. That is the direct consequence of
+the F124 change and the reason this metric reads `paid_amount`, not the status.
+
+**Verification test.** An order paid then cancelled contributes to this metric and not to net
+receipts (§6).
+
+---
+
+## 3. Unpaid orders
+
+**Definition.** Orders awaiting money, split by *why*.
+
+**Source.** `store_order_financials.payment_status` with `orders.payment_type`.
+
+**Three sub-metrics, never one.** Collapsing them is how a COD book looks like bad debt:
+
+| sub-metric | predicate |
+|---|---|
+| awaiting COD collection | `payment_status = 'pending'` and `payment_type` in the COD set |
+| awaiting manual settlement | `payment_status = 'pending'` and `payment_type = 'bank_transfer'` |
+| genuinely unpaid | `payment_status = 'unpaid'` |
+
+**Excludes.** Cancelled orders — a cancelled unpaid order is not awaiting anything, which is exactly
+why P4-F124 moves such rows to `cancelled` rather than leaving them at `unpaid`.
+
+**Verification test.** A cancelled COD order appears in none of the three.
+
+---
+
+## 4. Cancelled orders
+
+**Definition.** Orders cancelled in the period, with the value involved.
+
+**Source.** `store_order_financials.payment_status = 'cancelled'`, dated by `orders.cancel_date`.
+
+**Note on the date.** `DashboardController::orderCancel` writes **no `cancel_date`** — measured;
+every other door stamps it. Until that is fixed, a `cancel_date`-dated report under-counts
+cancellations from that door, and the ledger row's `updated_at` is the fallback. **Stated rather
+than silently worked around.**
+
+**Verification test.** A cancellation through each door appears, and the one that writes no
+`cancel_date` is still counted via the fallback.
+
+---
+
+## 5. Completed refunds
+
+**Definition.** Money actually returned to customers. **A refund request is not a refund.**
+
+**Source.** `store_order_financials.payment_status = 'refunded'` plus the
+`store_wallet_transactions` row of type `order_refunded`.
+
+**Explicitly NOT** `order_refunds.refund_status`, and this is the sharpest exclusion in the
+document. That column holds `Processing` (a shopper's request), `Accept` (approved, **not settled**)
+and `Refunded` (completed). Only the third is money. For every online gateway the resolved status is
+`Accept` and the `Accept → Refunded` edge is **unreachable by construction**, because
+`hasGatewayRefundDriver()` is a hardcoded `return false` and no refund request has ever left this
+server.
+
+**Partial refunds are excluded entirely and must be reported as a known gap**, per
+`docs/finance/P4-F127-PARTIAL-REFUND-CAPABILITY.md`: the ledger cannot represent them safely, so no
+metric may imply it has counted them.
+
+**Verification test.** An order at `Accept` contributes nothing; one at `Refunded` contributes once;
+a replayed refund contributes once.
+
+---
+
+## 6. Net financial receipts
+
+**Definition.** Collected payments minus completed refunds minus cancellations of captured
+payments. The closest thing to *"money we kept"* at the order level.
+
+**Source.** §2 − §5 − (cancelled rows with `paid_amount > 0`).
+
+**Equivalently, and this is the preferred computation** because it needs no inclusion rules at all:
+the signed sum of `store_wallet_transactions` for `reference_type = 'order'`:
+
+```sql
+SUM(CASE WHEN direction = 'credit' THEN amount ELSE -amount END)
+```
+
+**Why the transaction sum is preferred.** It is the only representation that is *self-reconciling*:
+every movement is typed, reasoned, and written exactly once by a locked, idempotent path. The
+status-based computation has to re-derive what the transactions already record.
+
+**Verification test.** The two computations agree on a dataset containing a paid order, a cancelled
+paid order, a refunded order and an unpaid order. **Disagreement is a reconciliation defect and must
+fail the build, not be averaged.**
+
+---
+
+## 7. Merchant wallet entitlement
+
+**Definition.** What the merchant may withdraw. `store_wallets.available_balance`.
+
+**It is NOT revenue** and must never be labelled as such in any UI: it is reduced by withdrawals
+(`total_withdrawn`) and by reversals, and it is denominated in the **wallet's** currency, which can
+differ from the order's.
+
+**Verification test.** `available_balance` equals the signed transaction sum for the store. This is
+the drift check from `P4-F032-WALLET-RECONCILIATION-PROCEDURE.md` §Q-F032-5, run as a test rather
+than a query.
+
+---
+
+## 8. Actual store revenue (margin)
+
+**Definition.** What the merchant earned, net of the cost of goods.
+
+**Source.** `store_order_financials.gross_profit`, which is
+`(product_amount − discount_amount) − product_cost`.
+
+**Carries a stated caveat and must display it.** `product_cost` is a snapshot of
+`products.cost_price` **at order time**, and for any order whose financial row predates the P1-SEC-44
+fix it may be 0 or, historically, another store's cost. It also excludes shipping and tax by
+construction.
+
+**Verification test.** An order whose product has no `cost_price` reports margin equal to
+`product_amount − discount_amount` and is flagged cost-unknown, not silently treated as 100% margin.
+
+---
+
+## 9. Coupon redemption
+
+**Definition.** Coupons actually consumed.
+
+**Source.** `order_coupon_details` joined to the order.
+
+**CONDITIONALLY AUTHORITATIVE, PER WINDOW** (was: blocked outright). The owner's instruction was
+*"Review P4-F134 and P4-F135 before using coupon-redemption records as authoritative data."* That
+condition is a **review**, not a permanent ban, and the review is done: both defects were measured,
+fixed and mutation-proved on 2026-11-20 (`PHASE-04-FINDINGS-REGISTER.md` P4-F134/F135).
+
+What each was, and what it means for history:
+
+- **P4-F134**: `ordersave` recorded **no coupon redemption at all**, so caps never saw those orders
+  — redemption **under-counted** by an unknown amount before the fix;
+- **P4-F135**: a **refused** coupon still wrote `order_coupon_details` and `user_coupons`, burning
+  the shopper's allowance — redemption **over-counted** by an unknown amount before the fix.
+
+**The fix does not repair the records already written, and nothing reconstructs them.** Errors in
+both directions exist in the back history and are still unquantified. So authority is decided
+**per window**, not once for the metric:
+
+| the window | verdict | mechanism |
+|---|---|---|
+| lies entirely inside the store's fully-recorded period | **authoritative**, qualified by the start date | `MetricCaveat::COUPON_REDEMPTION_COVERAGE` — deliberately **not** blocking |
+| reaches back before the recording fix, or is all-time, or has no `from()` | **not authoritative** | `MetricCaveat::COUPON_REDEMPTION_UNRELIABLE` — the only member of `BLOCKING` |
+
+`CouponRedemption::windowIsFullyRecorded()` decides which, and
+`CouponRedemptionCoverage::forStore()` computes the fully-recorded start date by anti-joining
+`orders` (`coupon_price > 0`) to `order_coupon_details` — **by measurement, never by a hardcoded
+cut-over date**, because the fix date is not the same as the date a given store's records became
+complete. A store with an unrowed discounted order *after* the fix is not complete, and says so.
+
+**A merchant-facing figure must therefore state its period**, which the `Coupon discounts given`
+tile on `/analytics` does: outside the complete period it renders *Not available* with the reason
+rather than a number, because a number under a "this cannot be trusted" sentence gets read as a
+number. **Campaign-redemption reporting over historical windows is still not supported.**
+
+---
+
+## 10. Shipping and tax
+
+**Definition.** Amounts collected on the merchant's behalf and largely passed through.
+
+**Source.** `store_order_financials.shipping_amount` and `tax_amount` — **not**
+`orders.delivery_price` / `tax_price`, because `RefundAmonut` zeroes `orders.delivery_price` on a
+client-supplied boolean without recomputing `final_price`, so the order's own components can stop
+agreeing with its total. The financial row is the snapshot taken at order time and does not move.
+
+**Verification test.** An order whose `delivery_price` was later zeroed still reports its original
+shipping on the financial row.
+
+---
+
+## 11. The rules that apply to every metric
+
+1. **Name the record.** Every figure states whether it measures settlement (`orders`), entitlement
+   (`store_order_financials`) or movement (`store_wallet_transactions`).
+2. **Tenant predicate at the call site.** `Order` is not in `config/tenancy.php`'s `scoped_models`,
+   so no global scope will add `store_id` for you — on any principal, operator included.
+3. **Currency is not assumed.** `store_order_financials` carries `currency_code`;
+   `order_refunds.refund_amount` carries none and is never converted. A cross-store total without
+   conversion is meaningless.
+4. **`FLOAT`, not `DECIMAL`, on `orders`.** ~7 significant digits on a currency that runs to
+   millions. Aggregate on `store_order_financials` (`DECIMAL(15,2)`) wherever both are available.
+   `MetricCaveat::FLOAT_PRECISION` states this of one figure; `MONEY_FLOAT_PRECISION` states the
+   same measured thing of a row carrying several, where "This figure" cannot name which it means.
+   Every money figure in `ReportController`'s report handlers is in this class — each is
+   accumulated in PHP as `+= (float)` off `orders.final_price`, `delivery_price` or `coupon_price`.
+5. **A metric with a known gap displays the gap.** §9 is blocked, §5 excludes partials, §8 has a
+   cost caveat, §4 has a date caveat. A number that hides its own limits is worse than no number —
+   which is the whole point of "trustworthy analytics".
+6. **An export carries the same disclosure as the screen, as a COLUMN.** A caveat in a header
+   preamble or a trailing comment line does not survive sorting, filtering or copying a range out
+   of a spreadsheet, which is exactly what a merchant does to a downloaded file — so the
+   disclosure is a column repeated on every row (`App\Support\Metrics\FigureCsv` for the
+   `/analytics` and `/finance` figures; `figureNote` in the five `ReportController` export
+   payloads, rendered by each view's client-side CSV builder).
+
+   The sentence must be **read from one source, not restated**: `App\Support\Reports\ReportFigureNote`
+   is what both the screen's `<x-ss.stat>` `:hint` and the export handler call, so the two cannot
+   drift. This rule was vacuous until 2026-11-21 — `MetricCaveat` had zero consumers outside
+   `app/Support/Metrics/` and `tests/`, so there was nothing on any report screen for an export to
+   carry, and all five exports shipped a bare money column. The duplication is also what caused
+   the divergence it was meant to prevent: the "Order value" definition was an identical literal in
+   **four** blades, and two of those four carried the precision caveat beside it while two did not.
+
+---
+
+## 12. Customer retention and repeat purchase
+
+**Definition.** Of the customers who can be recognised again, the share who ordered more than once.
+`repeat_customers / identified_customers`. A **customer**, not an order: two orders from one person
+is one repeat buyer, not two.
+
+**Source.** `orders`, joined to `customers` by `orders.customer_id`, over a **declared basis**:
+
+| basis | what it reads | honest about |
+|---|---|---|
+| `settled_only` (**default**) | INNER JOIN `store_order_financials` on `payment_status = 'paid'` | **authoritative** for what it covers, and blind to every order with no financial row |
+| `all_orders` | `orders` alone | **all history**, and overstates retention by however much of the book was never paid |
+
+`RetentionFigures::notes()['basis']` always says which was used. The default is the settled one by
+the P5-2 gate: *a repeat-purchase rate computed over orders nobody has confirmed were paid is not a
+retention figure.*
+
+**Two exclusions, both reported as counts rather than assumed away:**
+
+- `orders_without_identifiable_customer` — a guest order cannot be attributed to a person, so it
+  cannot be a first or a repeat purchase. Excluded from both numerator and denominator.
+- `orders_without_ledger_row` — on the settled basis, an order the ledger cannot see. Reported
+  **by count, never by a cut-over date**, for the reason given in §9.
+
+**Null is a real answer.** `repeatRate()` returns `null`, not `0.0`, when no order in the window
+belongs to an identifiable customer: there is nothing to divide by, and zero would claim every
+buyer is a one-time buyer.
+
+**Its period is not the dashboard's.** A repeat purchase needs two orders, so a thirty-day window
+systematically reports a store as less loyal than it is. The `Repeat purchase` tile measures over
+`LedgerCoverage::window()` — the span the financial record can vouch for under owner decision
+**D1** — and prints that period beside the figure: *all time* when coverage is complete, *from
+&lt;date&gt;* when it is not, and nothing at all, with the reason, when the ledger can vouch for no
+period yet.
+
+**Not built, and not inferred:** cohort retention, churn, lifetime value, and
+new-vs-returning *trend*. The first three need either a subscription record or an assumption about
+what counts as churned; the plan invents neither.

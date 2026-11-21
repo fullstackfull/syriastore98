@@ -222,13 +222,28 @@ class User extends Authenticatable implements LaratrustUser, MustVerifyEmail, \L
      *      exists to drive down — and the comparison cannot be reworded to
      *      dodge the regex, because dodging it is the thing the ratchet is for.
      *
-     * So the type question is not asked at all. For `admin` and `super admin`
+     * So the type question was not asked at all. For `admin` and `super admin`
      * creatorId() returns `$this->id` (creatorId(), above), so the operator's
      * chip lists the stores the OPERATOR created. That is strictly NARROWER
      * than changeStore() accepts, which is the direction the `is_active`
      * narrowing already established, and it cannot be broader for any shape of
      * `users.type` — null, a role name, 'admin', ' super admin', 'Super Admin'
-     * — because every one of them now takes the same single branch.
+     * — because every one of them took the same single branch.
+     *
+     * P1-SEC-67c CHANGED THAT, AND NARROWED IT FURTHER. changeStore() has asked
+     * for a MERCHANT tenant root since P1-SEC-66, and for a principal rooted at
+     * the platform operator (a merchant who demoted their own `type`, or staff
+     * the operator created) creatorId() is the operator's id, so the chip listed
+     * the OPERATOR'S stores and offered a control the handler refuses. The method
+     * now asks the type question: the operator first (their own `creatorId()`
+     * stores, exactly as before), then UserPolicy::merchantTenantRoot() for
+     * everyone else, and an EMPTY list for a root that is not a merchant. The
+     * first attempt's hazard above does not arise: the operator branch still
+     * lists `creatorId()`'s stores, never every store, so a row typed
+     * 'Super Admin' (isOperator() true, creatorId() = created_by) lists the
+     * stores of that id -- none, in practice -- and cannot list another tenant's.
+     * The census pattern is not matched either: no `type === 'super admin'`
+     * literal is written here.
      *
      * It also bounds the query. The operator branch was
      * `Store::where('is_active', 1)->get()` with no limit: every store on the
@@ -249,8 +264,20 @@ class User extends Authenticatable implements LaratrustUser, MustVerifyEmail, \L
      */
     public function switchableStores()
     {
+        // P1-SEC-67c. This list "mirrors changeStore()'s predicate exactly", and changeStore() has asked for a MERCHANT tenant root since P1-SEC-66: for a
+        // principal rooted at the platform operator (a merchant who demoted their own `type`, or staff the operator created) `creatorId()` is the operator's id,
+        // so the chip printed the OPERATOR'S store names and offered a control changeStore() refuses. The operator is admitted first, as there, and keeps the
+        // list of their own stores.
+        $root = \App\Policies\UserPolicy::isOperator($this)
+            ? (int) $this->creatorId()
+            : \App\Policies\UserPolicy::merchantTenantRoot($this);
+
+        if ($root === null || $root <= 0) {
+            return new \Illuminate\Database\Eloquent\Collection();
+        }
+
         return Store::where('is_active', 1)
-            ->where('created_by', $this->creatorId())
+            ->where('created_by', $root)
             ->orderBy('name')
             ->get();
     }

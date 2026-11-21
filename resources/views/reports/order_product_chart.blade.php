@@ -33,7 +33,7 @@
                 <x-ss.stat :label="__('Order value')"
                            :value="$currency . number_format((float) ($Totalsale ?? 0), 2)"
                            :period="$periodLabel"
-                           :hint="__('The total value of items ordered. This is not payments received, and not profit.')" />
+                           :hint="\App\Support\Reports\ReportFigureNote::orderValueHint()" />
 
                 <x-ss.stat :label="__('Items ordered')"
                            :value="number_format((int) ($PurchasedItem ?? 0))"

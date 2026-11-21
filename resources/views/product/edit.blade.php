@@ -1135,8 +1135,7 @@ $low_stock_threshold = \App\Models\Utility::GetValueByName('low_stock_threshold'
                         $('#loader').fadeOut();
                         $.each(data, function(key, value) {
                             $('.attribute_options_datas').empty();
-                            $(".attribute").append('<option value="' + value + '">' +
-                                value + '</option>');
+                            $(".attribute").append($('<option>').val(value).text(value)); // P1-SEC-80: an attribute option's name is text
 
                         });
 

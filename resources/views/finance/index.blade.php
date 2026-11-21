@@ -85,45 +85,56 @@
     </div>
     
     {{-- بطاقات الإحصائيات --}}
-    <div class="col-xl col-md-6 mb-4">
-        <div class="card h-100">
-            <div class="card-body">
-                <h6 class="text-muted mb-2">{{ __('Available Balance') }}</h6>
-                <h3 class="mb-0">{{ number_format($wallet->available_balance, 2) }}</h3>
-            </div>
-        </div>
+    {{-- D2 + GAP-222: THE LABELS SAY WHAT THE FIGURES ARE, AND THE FIGURES SAY WHICH MONEY THEY ARE IN.
+         All five are columns of the SAME `store_wallets` row and were all printed as bare decimals. The
+         first is owner decision D2's third figure: `available_balance` is a RUNNING balance -- what the
+         merchant may withdraw now. It has no period and is not revenue; a merchant who withdraws their own
+         earnings would otherwise read that sales had fallen.
+
+         THE CURRENCY IS THE WALLET'S, NOT THE PAGE'S. `store_wallets.currency_code` is written once when
+         the wallet is provisioned, from `defult_currancy`, and nothing rewrites it when that setting later
+         changes -- so a store that switched currency keeps a wallet holding the old one. Nothing here
+         converts: when the two disagree the hint says so and both codes stand.
+
+         ONE GRID, NOT FIVE CARDS. `<x-ss.stat>` is what gives a figure a stated period, a visible caveat
+         and the bidi isolates that keep `amount CODE` together on an Arabic page, and `.ss-stat` needs its
+         `.ss-stats` parent for the grid and hairlines. The caveat is carried once, by the tile it qualifies,
+         rather than repeated five times on one card. --}}
+    <div class="col-12 mb-4">
+        <x-ss.stats :label="__('Wallet')">
+            <x-ss.stat :label="__('Available to withdraw')"
+                   :value="$walletFigure['value']"
+                   :period="$walletFigure['period']"
+                   :hint="$walletFigure['hint']" />
+
+            @foreach ($walletFigure['siblings'] as $siblingLabel => $siblingValue)
+                <x-ss.stat :label="__($siblingLabel)"
+                       :value="$siblingValue"
+                       :period="$walletFigure['period']" />
+            @endforeach
+        </x-ss.stats>
     </div>
-    <div class="col-xl col-md-6 mb-4">
-        <div class="card h-100">
-            <div class="card-body">
-                <h6 class="text-muted mb-2">{{ __('Pending Withdrawals') }}</h6>
-                <h3 class="mb-0">{{ number_format($wallet->withdrawal_pending_balance, 2) }}</h3>
-            </div>
-        </div>
-    </div>
-    <div class="col-xl col-md-6 mb-4">
-        <div class="card h-100">
-            <div class="card-body">
-                <h6 class="text-muted mb-2">{{ __('Pending Balance') }}</h6>
-                <h3 class="mb-0">{{ number_format($wallet->pending_balance, 2) }}</h3>
-            </div>
-        </div>
-    </div>
-    <div class="col-xl col-md-6 mb-4">
-        <div class="card h-100">
-            <div class="card-body">
-                <h6 class="text-muted mb-2">{{ __('Total Income') }}</h6>
-                <h3 class="mb-0">{{ number_format($wallet->total_income, 2) }}</h3>
-            </div>
-        </div>
-    </div>
-    <div class="col-xl col-md-6 mb-4">
-        <div class="card h-100">
-            <div class="card-body">
-                <h6 class="text-muted mb-2">{{ __('Total Withdrawn') }}</h6>
-                <h3 class="mb-0">{{ number_format($wallet->total_withdrawn, 2) }}</h3>
-            </div>
-        </div>
+</div>
+
+{{-- P5-16 / D1 + D2 -- the two LEDGER figures, each with its period stated and its limits visible.
+     `$ledgerFigures` is built by App\Support\Metrics\FinanceLedgerFigures from the metric layer over
+     the period `LedgerCoverage` can vouch for: `store_order_financials` has no backfill, so an earlier
+     window would read zero for months that simply have no record, and a merchant would read that as
+     a business that stopped. The start date is stated instead. `value` of null renders as "Not
+     available" -- never as a zero. --}}
+<div class="row mb-4">
+    <div class="col-12">
+        <x-ss.stats :label="__('Financial ledger')">
+            <x-ss.stat :label="__('Payments received')"
+                   :value="$ledgerFigures['payments']['value']"
+                   :period="$ledgerFigures['payments']['period']"
+                   :hint="$ledgerFigures['payments']['hint']" />
+
+            <x-ss.stat :label="__('Estimated gross profit')"
+                   :value="$ledgerFigures['profit']['value']"
+                   :period="$ledgerFigures['profit']['period']"
+                   :hint="$ledgerFigures['profit']['hint']" />
+        </x-ss.stats>
     </div>
 </div>
 
@@ -177,6 +188,35 @@
         </div>
     </div>
 </div>
+
+{{-- P5-10 / ANA-006 -- "do NOT claim precise profitability when cost or fee data is missing".
+
+     `products.cost_price` is `decimal(15,2) NOT NULL DEFAULT 0.00`, so a cost nobody entered
+     reads 0.00 and is indistinguishable from a product that genuinely cost nothing. Every such
+     product hands its WHOLE retail value to Potential Profit with nothing subtracted.
+
+     The numbers are MEASURED in the same pass that builds the tiles, so this names how many
+     products and exactly how much is exposed instead of saying "some data may be missing", and
+     it disappears by itself once cost is filled in. `ss-attention` states the reason a caveat
+     must not be permanent furniture; the same reasoning applies here.
+
+     `.ss-help` is used rather than a hand-rolled box because it is built from DS tokens
+     (`--ss-info-bg` / `--ss-info-fg`, ratcheted by CI's token-contrast gate) and its accent uses
+     `border-inline-start`, so it flips correctly in Arabic RTL without a second rule. --}}
+@if (($inventoryUncostedProducts ?? 0) > 0)
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="ss-help">
+                <p class="ss-help__title">{{ __('Potential Profit is not precise') }}</p>
+                {{ __('Cost is not recorded for :uncosted of :valued in-stock products. Those products contribute :amount of retail value with no cost subtracted, so Potential Profit is overstated by up to that amount.', [
+                    'uncosted' => number_format($inventoryUncostedProducts),
+                    'valued'   => number_format($inventoryValuedProducts),
+                    'amount'   => number_format($inventoryUncostedRetail, 2),
+                ]) }}
+            </div>
+        </div>
+    </div>
+@endif
 
 {{-- نظام Tabs المحسن --}}
 <div class="card">
@@ -403,6 +443,36 @@
                 <div class="card border-0 shadow-sm">
                     <div class="card-body">
                         <h5 class="card-title mb-3">{{ __('Order Financial Records') }}</h5>
+
+                        {{-- P5-10 / ANA-006, the SECOND profit figure on this screen. The `Profit`
+                             column below prints `store_order_financials.gross_profit` raw, and
+                             `product_cost` is `decimal(15,2) NOT NULL DEFAULT '0.00'` -- so a row
+                             whose cost was never captured reports the WHOLE order value as margin,
+                             to two decimal places, as though it were measured.
+
+                             The row does print its own `Cost` of 0.00 alongside, but nothing says
+                             why it is zero and nothing adds the rows up, so the column still reads
+                             as a precise margin. Counted over the store's whole ledger, not the
+                             visible page -- see the controller for why. --}}
+                        @if (($orderFinancialsWithoutCost ?? 0) > 0)
+                            <div class="ss-help mb-3">
+                                <p class="ss-help__title">{{ __('Some of these margins cannot be computed') }}</p>
+                                {{-- "discounted product subtotal", NOT "order value", and the
+                                     difference is the whole point of the block. `gross_profit` is
+                                     `(product_amount - discount_amount) - product_cost`
+                                     (`OrderFinancialService.php:82-83`), so with no cost it is the
+                                     product subtotal after discount — NOT the order total, which is
+                                     the adjacent `Total` column (`customer_total`, tax and shipping
+                                     included, :481). On a screen whose purpose is to stop a figure
+                                     claiming more than it can, the caveat must not overstate either.
+                                     Caught in independent review. --}}
+                                {{ __('Cost is not recorded for :uncosted of :total orders in this ledger. Those rows show the discounted product subtotal as margin, because there is no cost to subtract from it.', [
+                                    'uncosted' => number_format($orderFinancialsWithoutCost),
+                                    'total'    => number_format($orderFinancialsTotal),
+                                ]) }}
+                            </div>
+                        @endif
+
                         <div class="table-responsive">
                             <table class="table ss-table ss-table--stack align-middle">
                                 <thead>
@@ -467,15 +537,78 @@
                                                             <select name="payment_status"
                                                                 aria-label="{{ __('Payment status for order :order', ['order' => '#' . $financial->order_id]) }}"
                                                                 class="form-control form-control-sm" style="min-width: 130px;">
+                                                                {{-- P5-1 -- A REVERSED ROW MUST SHOW WHAT IT IS.
+
+                                                                     F124 and F127 write `cancelled` and `refunded` into this
+                                                                     column. With only these two options, NEITHER carried
+                                                                     `selected` on such a row, so the browser displayed the
+                                                                     first one -- the merchant was told a refunded order was
+                                                                     "Not Received", and any click submitted `unpaid`.
+
+                                                                     The terminal state is rendered as a DISABLED option, which
+                                                                     is deliberate in both directions: selected, so the true
+                                                                     state is what the merchant reads; disabled, so it cannot be
+                                                                     CHOSEN. Setting `cancelled` or `refunded` by hand would
+                                                                     fabricate a reversal, and the validator refuses them for
+                                                                     the same reason -- they are written by
+                                                                     OrderEntitlementReversal, never typed.
+
+                                                                     paid/unpaid stay selectable, so the escape hatch
+                                                                     syncFromOrder's docblock describes is not removed. --}}
+                                                                @if(in_array($financial->payment_status, ['cancelled', 'refunded'], true))
+                                                                    <option value="{{ $financial->payment_status }}" selected disabled>
+                                                                        {{ $financial->payment_status === 'cancelled' ? __('Cancelled') : __('Refunded') }}
+                                                                    </option>
+                                                                @endif
                                                                 <option value="unpaid" {{ $financial->payment_status === 'unpaid' ? 'selected' : '' }}>{{ __('Not Received') }}</option>
                                                                 <option value="paid" {{ $financial->payment_status === 'paid' ? 'selected' : '' }}>{{ __('Received') }}</option>
                                                             </select>
+                                                            {{-- P4-F128 -- the reason, required by the handler.
+
+                                                                 This adjustment moves the merchant's entitlement and the
+                                                                 wallet WITHOUT touching the customer's settlement, so after
+                                                                 it the two deliberately disagree. Whether that is correct
+                                                                 (cash arrived outside the gateway) or a mistake is a fact
+                                                                 only the person clicking holds, and it is unrecoverable
+                                                                 afterwards. It goes into an AuditLog row, not a new column.
+
+                                                                 The label is visually hidden rather than absent: the input
+                                                                 sits in a dense table cell where a visible label would wrap
+                                                                 the row, but a screen-reader user still needs to be told
+                                                                 what this box is and that it names an order. --}}
+                                                            <label for="finance-reason-{{ $financial->id }}" class="visually-hidden">
+                                                                {{ __('Reason for changing the payment status of order :order', ['order' => '#' . $financial->order_id]) }}
+                                                            </label>
+                                                            <input type="text"
+                                                                id="finance-reason-{{ $financial->id }}"
+                                                                name="reason"
+                                                                required
+                                                                maxlength="255"
+                                                                class="form-control form-control-sm"
+                                                                style="min-width: 160px;"
+                                                                placeholder="{{ __('Reason (required)') }}">
                                                             <button type="submit" class="btn btn-sm btn-primary">{{ __('Update') }}</button>
                                                         </div>
+                                                        {{-- A server-side refusal on this form is a 302 back to this page. Without
+                                                             this block the merchant gets a silent reload and no idea why: the
+                                                             browser's `required` catches the ordinary case, but the encoding rule
+                                                             and anyone who defeats the attribute land here. --}}
+                                                        @error('reason')
+                                                            <div class="text-danger small mt-1" role="alert">{{ $message }}</div>
+                                                        @enderror
                                                     </form>
                                                 @else
+                                                    {{-- P5-1 -- FOUR STATES, NOT TWO. The @else arm used to label every
+                                                         non-paid row "Not Received" in red, so a REFUNDED order -- one the
+                                                         customer was paid back for -- read as money the merchant was still
+                                                         waiting on. That is not a nuance, it is the opposite of what
+                                                         happened. A reader without the edit permission saw it too. --}}
                                                     @if($financial->payment_status === 'paid')
                                                         <x-ss.status-badge tone="success" :label="__('Received')" />
+                                                    @elseif($financial->payment_status === 'refunded')
+                                                        <x-ss.status-badge tone="info" :label="__('Refunded')" />
+                                                    @elseif($financial->payment_status === 'cancelled')
+                                                        <x-ss.status-badge tone="warning" :label="__('Cancelled')" />
                                                     @else
                                                         <x-ss.status-badge tone="danger" :label="__('Not Received')" />
                                                     @endif
@@ -551,7 +684,12 @@
                 </div>
                 <div class="modal-body">
                     <div class="alert alert-warning">
-                        {{ __('Available balance:') }} <strong>{{ number_format($wallet->available_balance, 2) }}</strong>
+                        {{-- GAP-222, FOUND BY THE AUTHORIZATION REVIEW OF THE TILE ABOVE: this modal printed the
+                             balance with NO CURRENCY while the tile 600 lines up said `1,234.56 SYP ... not converted`.
+                             Same defect, same file, and reachable by a merchant holding `Deduct Finance Balance` --
+                             who is precisely the person about to move that money. `$walletFigure['currency']` is the
+                             WALLET's code, already resolved by the assembler. --}}
+                        {{ __('Available balance:') }} <strong>{{ \App\Support\Metrics\MoneyText::amount((float) $wallet->available_balance, $walletFigure['currency']) }}</strong>
                     </div>
                     <div class="mb-3">
                         <label class="form-label" for="deductBalanceAmount">{{ __('Amount') }}</label>
@@ -585,7 +723,12 @@
                 </div>
                 <div class="modal-body">
                     <div class="alert alert-info">
-                        {{ __('Available Balance') }}: <strong>{{ number_format($wallet->available_balance, 2) }}</strong>
+                        {{-- The same correction as the deduct modal above, and this one also still carried the OLD
+                             label `Available Balance` that P5-16 replaced on the tile with D2's `Available to withdraw`.
+                             A test asserted that old label was gone from the page and could not fail, because this
+                             markup sits behind `Request Finance Withdrawal` and the fixture granted only
+                             `View Finance Dashboard`. The fixture now grants both. --}}
+                        {{ __('Available to withdraw') }}: <strong>{{ \App\Support\Metrics\MoneyText::amount((float) $wallet->available_balance, $walletFigure['currency']) }}</strong>
                     </div>
                     <div class="mb-3">
                         <label class="form-label" for="withdrawalAmount">{{ __('Amount') }}</label>
@@ -631,8 +774,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
     @php
         $currentSearchValue = request('search_value', '');
+        // P1-SEC-80. The search field is written below with innerHTML, and `search_value` is the REQUEST's: a link carrying `?search_field=description&search_value="><img ...>` fired this
+        // script's change handler on load and put the value into the markup unescaped. The script gets TWO copies: the raw one, which is only ever COMPARED (the select templates), and an
+        // HTML-escaped one for every `value="..."` it writes.
+        $currentSearchValue = is_scalar($currentSearchValue) ? (string) $currentSearchValue : '';
+        $currentSearchValueHtml = e($currentSearchValue);
     @endphp
-    const currentSearchValue = {!! json_encode($currentSearchValue) !!};
+    const currentSearchValue = {!! json_encode($currentSearchValue, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) !!};
+    const currentSearchValueHtml = {!! json_encode($currentSearchValueHtml, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) !!};
 
     searchField.addEventListener('change', function() {
         const selectedField = this.value;
@@ -649,9 +798,9 @@ document.addEventListener('DOMContentLoaded', function() {
         searchInputContainer.innerHTML = '';
 
         if (selectedField === 'id') {
-            searchInputContainer.innerHTML = `<input type="number" name="search_value" id="searchValue" class="form-control" placeholder="{{ __('Enter Transaction ID...') }}" value="${currentSearchValue || ''}" min="1">`;
+            searchInputContainer.innerHTML = `<input type="number" name="search_value" id="searchValue" class="form-control" placeholder="{{ __('Enter Transaction ID...') }}" value="${currentSearchValueHtml || ''}" min="1">`;
         } else if (selectedField === 'created_at') {
-            searchInputContainer.innerHTML = `<input type="date" name="search_value" id="searchValue" class="form-control" value="${currentSearchValue || ''}">`;
+            searchInputContainer.innerHTML = `<input type="date" name="search_value" id="searchValue" class="form-control" value="${currentSearchValueHtml || ''}">`;
         } else if (selectedField === 'type') {
             searchInputContainer.innerHTML = `
                 <select name="search_value" id="searchValue" class="form-select">
@@ -661,6 +810,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     <option value="manual_withdrawal" ${currentSearchValue === 'manual_withdrawal' ? 'selected' : ''}>{{ __('Withdrawal') }}</option>
                     <option value="order_paid" ${currentSearchValue === 'order_paid' ? 'selected' : ''}>{{ __('Order Paid') }}</option>
                     <option value="order_payment_reversed" ${currentSearchValue === 'order_payment_reversed' ? 'selected' : ''}>{{ __('Order Payment Reversed') }}</option>
+                    <option value="order_cancelled" ${currentSearchValue === 'order_cancelled' ? 'selected' : ''}>{{ __('Order Cancelled') }}</option>
+                    <option value="order_refunded" ${currentSearchValue === 'order_refunded' ? 'selected' : ''}>{{ __('Order Refunded') }}</option>
                     <option value="withdrawal_request" ${currentSearchValue === 'withdrawal_request' ? 'selected' : ''}>{{ __('Withdrawal Request') }}</option>
                     <option value="withdrawal_paid" ${currentSearchValue === 'withdrawal_paid' ? 'selected' : ''}>{{ __('Withdrawal Paid') }}</option>
                     <option value="withdrawal_refund" ${currentSearchValue === 'withdrawal_refund' ? 'selected' : ''}>{{ __('Withdrawal Refund') }}</option>
@@ -668,11 +819,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     <option value="adjustment" ${currentSearchValue === 'adjustment' ? 'selected' : ''}>{{ __('Adjustment') }}</option>
                 </select>`;
         } else if (selectedField === 'description') {
-            searchInputContainer.innerHTML = `<input type="text" name="search_value" id="searchValue" class="form-control" placeholder="{{ __('Enter description...') }}" value="${currentSearchValue || ''}">`;
+            searchInputContainer.innerHTML = `<input type="text" name="search_value" id="searchValue" class="form-control" placeholder="{{ __('Enter description...') }}" value="${currentSearchValueHtml || ''}">`;
         } else if (selectedField === 'currency_code') {
-            searchInputContainer.innerHTML = `<input type="text" name="search_value" id="searchValue" class="form-control" placeholder="{{ __('e.g., USD, SYP, EUR') }}" value="${currentSearchValue || ''}" style="text-transform: uppercase;">`;
+            searchInputContainer.innerHTML = `<input type="text" name="search_value" id="searchValue" class="form-control" placeholder="{{ __('e.g., USD, SYP, EUR') }}" value="${currentSearchValueHtml || ''}" style="text-transform: uppercase;">`;
         } else if (selectedField === 'credit' || selectedField === 'debit' || selectedField === 'balance_before' || selectedField === 'balance_after') {
-            searchInputContainer.innerHTML = `<input type="number" name="search_value" id="searchValue" class="form-control" placeholder="{{ __('Enter amount...') }}" value="${currentSearchValue || ''}" min="0" step="0.01">`;
+            searchInputContainer.innerHTML = `<input type="number" name="search_value" id="searchValue" class="form-control" placeholder="{{ __('Enter amount...') }}" value="${currentSearchValueHtml || ''}" min="0" step="0.01">`;
         } else if (selectedField === 'status') {
             searchInputContainer.innerHTML = `
                 <select name="search_value" id="searchValue" class="form-select">

@@ -197,6 +197,52 @@ class SavedViewIsolationTest extends SecurityTestCase
         }
     }
 
+    /**
+     * THE OWNER EXCEPTION IS A DECLARED SET, AND WIDENING IT IS A DECISION.
+     *
+     * `SavedViewPolicy::OWNER_ADMITTED_SCREENS` lets a screen's Save button admit the tenant owner
+     * WITHOUT the permission row. `/analytics` needs it because its own door (`ReportAccess::permits`)
+     * already admits the owner that way, so without the exception the owner would read the screen and
+     * be refused its Save button.
+     *
+     * THE RULE A SCREEN MUST SATISFY TO BELONG HERE: its own door must admit the owner too. A screen
+     * gated on `isAbleTo()` ALONE already refuses the owner, so admitting it here would make SAVING A
+     * VIEW more permissive than SEEING THE LIST the view describes. MKT-002's five Marketing screens
+     * are exactly that case (GAP-218: all five gate on `isAbleTo()` only), which is why they are
+     * absent -- a deliberate choice that, until this test, nothing recorded or enforced.
+     *
+     * ADDED BECAUSE A MUTATION COULD NOT BE AIMED. Admitting the five to this set broke no test: the
+     * harness reported "the filter matched NO TEST, so this run proves nothing" rather than counting
+     * a survivor, which is the harness refusing to lie about its own coverage. The set was unpinned,
+     * so the reasoning lived only in a comment.
+     */
+    public function test_the_owner_admitted_set_is_exactly_the_screens_whose_own_door_admits_the_owner(): void
+    {
+        $admitted = (new \ReflectionClass(\App\Policies\SavedViewPolicy::class))
+            ->getConstant('OWNER_ADMITTED_SCREENS');
+
+        $this->assertSame(
+            ['analytics'],
+            $admitted,
+            'A screen belongs here ONLY if its own door admits the tenant owner without the permission '
+            . 'row. Adding one that is gated on isAbleTo() alone makes saving a view more permissive '
+            . 'than seeing the list it describes -- state the reason in the policy and here, together.'
+        );
+
+        /* And the rule's consequence, so this is not merely a literal: every screen that has filters
+           but is NOT admitted must still have a permission, or its Save button is unreachable. */
+        foreach (\App\Services\TableFilterMemory::screens() as $screen) {
+            if (in_array($screen, $admitted, true)) {
+                continue;
+            }
+
+            $this->assertNotNull(
+                \App\Policies\SavedViewPolicy::permissionFor($screen),
+                "screen `{$screen}` is not owner-admitted and has no permission, so nobody can save a view of it"
+            );
+        }
+    }
+
     public function test_a_filter_outside_the_screens_vocabulary_is_dropped(): void
     {
         $this->saveView($this->owner, [

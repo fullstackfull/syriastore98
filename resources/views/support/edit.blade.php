@@ -72,7 +72,7 @@
                 <div class="card-body">
                     <div>
                         <span><b>{{ $ticket->title }}</b></span>
-                        <p>{!! $ticket->description !!}</p>
+                        <p>{!! \App\Support\Html\RichText::clean($ticket->description) !!}</p>
                     </div>
                     @php $attachments = json_decode($ticket->attachment); @endphp
 
@@ -101,7 +101,7 @@
                         </h6>
                     </div>
                     <div class="card-body">
-                        <div>{!! $conversion->description !!}</div>
+                        <div>{!! \App\Support\Html\RichText::clean($conversion->description) !!}</div>
                         @php $attachments = json_decode($conversion->attachments); @endphp
                         @if (!empty($attachments) && count($attachments))
                             <div class="m-1">

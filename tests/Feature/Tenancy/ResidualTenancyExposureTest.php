@@ -523,7 +523,9 @@ class ResidualTenancyExposureTest extends TestCase
             // across all of them.
             // DELIBERATELY NOT FIXED here: the correct store id on the anonymous branch has to
             // come from the slug-resolved store, which is plumbing in app/Http/** and themes/**.
-            'app/Models/Utility.php:910',
+            // SHIFTED (+1 here, +2 below) on 2026-11-19: P1-SEC-73 added the remote-write checks to the uploader functions above these sites.
+            // THE SITES ARE UNCHANGED -- each was verified to be the same construct it named before.
+            'app/Models/Utility.php:912',
 
             // ------------------------------------------------------------------------------
             // FOREIGN_KEY_CHECKS toggles around the country/state/city reference-data import.
@@ -537,12 +539,12 @@ class ResidualTenancyExposureTest extends TestCase
             // numbers moves whenever a comment does, which is why the D13 store-less
             // declaration in OwnedPathRawQueryInventoryTest keys on a statement fragment
             // instead.
-            'app/Models/Utility.php:3406',
-            'app/Models/Utility.php:3408',
-            'app/Models/Utility.php:3431',
-            'app/Models/Utility.php:3433',
-            'app/Models/Utility.php:3447',
-            'app/Models/Utility.php:3449',
+            'app/Models/Utility.php:3410',
+            'app/Models/Utility.php:3412',
+            'app/Models/Utility.php:3435',
+            'app/Models/Utility.php:3437',
+            'app/Models/Utility.php:3451',
+            'app/Models/Utility.php:3453',
 
         ], $sites, 'The raw-query inventory in the owned models changed. A NEW site here is '
             . 'invisible to every global scope and needs an explicit predicate written at the '
@@ -551,10 +553,11 @@ class ResidualTenancyExposureTest extends TestCase
     }
 
     /**
-     * THE SCOPE'S OWN TWO RAW LOOKUPS, asserted by what they query rather than by line number.
+     * THE SCOPE'S OWN RAW LOOKUPS -- TWO WHEN THIS WAS WRITTEN, THREE SINCE P1-SEC-67b -- asserted by what they
+     * query rather than by line number. (The method name keeps its original wording: it is an identity.)
      *
-     * Both are raw ON PURPOSE and the reasons are worth stating, because "the tenancy scope
-     * contains two unscoped raw queries" reads like a contradiction until you see why:
+     * Each is raw ON PURPOSE and the reasons are worth stating, because "the tenancy scope
+     * contains unscoped raw queries" reads like a contradiction until you see why:
      *   - no Eloquent, so neither can re-enter this scope from inside query compilation;
      *   - no `Cachable`, so neither can re-enter the model-cache key machinery either;
      *   - and `stores` is the tenant REGISTRY -- a `stores` row has no tenant above it, so there
@@ -564,8 +567,18 @@ class ResidualTenancyExposureTest extends TestCase
      *
      * The COUNT is what makes this a real ratchet: a third raw query appearing in this class
      * fails here regardless of what it does.
+     *
+     * P1-SEC-67b MADE IT THREE, ON PURPOSE, AND THE RATCHET DID ITS JOB BY FIRING. The third is one read of `users.type` for the principal's own
+     * tenant root (`rootIsAMerchant()`): without it the owned-store set could not refuse a root that is not a merchant, so a merchant who demoted
+     * their own `type` -- or staff the operator created -- had `creatorId()` = the OPERATOR'S id and "the stores this principal owns" held the
+     * operator's stores (executed: with the check reverted, the test that drives `DELETE /menus/{id}` as a self-demoted merchant fails -- the handler answers a
+     * redirect where the narrowed scope answers 404). It is NOT a read of a
+     * TENANT-OWNED table, which is what this ratchet exists to prevent: `users` is the principals' registry on the do-not-scope list, and the
+     * statement reads a single column of the single row `creatorId()` already names. It is raw for the SECOND reason above (no `Cachable`: a cached `type` could be
+     * stale, and the cache-key machinery would run inside query compilation), NOT the first: `User` carries no `store_id` and is on the do-not-scope list, so a
+     * model read could not re-enter this scope. The first review of this change called that reason unsupported for `users`; it is.
      */
-    public function test_the_scopes_own_raw_lookups_are_exactly_two_and_both_read_the_store_registry(): void
+    public function test_the_scopes_own_raw_lookups_are_exactly_two_and_both_read_the_store_registry(): void   // the name is an identity; it now allows three -- see above
     {
         $file = 'app/Scopes/StoreScope.php';
 
@@ -574,8 +587,8 @@ class ResidualTenancyExposureTest extends TestCase
             fn (string $site) => str_starts_with($site, $file . ':')
         ));
 
-        $this->assertCount(2, $sites,
-            'App\Scopes\StoreScope must contain EXACTLY two raw queries. A third one is a new '
+        $this->assertCount(3, $sites,
+            'App\Scopes\StoreScope must contain EXACTLY three raw queries (two on the `stores` registry, one on the principals\' `users` registry). A fourth one is a new '
             . 'scope bypass written inside the scope itself. Found: ' . implode(', ', $sites));
 
         $statements = [];
@@ -592,10 +605,12 @@ class ResidualTenancyExposureTest extends TestCase
             // StoreScope::storeIdForSlug() -- slug => store id, i.e. the STOREFRONT tenant. This
             // one is new in this increment and is what makes per-context resolution possible.
             "\$id = DB::table('stores')->where('slug', \$slug)->value('id');",
+            // StoreScope::rootIsAMerchant() -- the type of the principal's own tenant root (P1-SEC-67b). `users`, the principals' registry.
+            "\$type = DB::table('users')->where('id', \$rootId)->value('type');",
             // StoreScope::ownedStoreIds() -- creatorId => the stores this principal owns.
             "DB::table('stores')->where('created_by', \$creatorId)->pluck('id')->all()",
-        ], $statements, 'The two raw lookups inside the scope changed shape. Both must read the '
-            . '`stores` registry and nothing else -- a raw read of a TENANT-OWNED table from '
+        ], $statements, 'The raw lookups inside the scope changed shape. Two must read the '
+            . '`stores` registry and one the `users` registry (one column of the principal\'s own root) and nothing else -- a raw read of a TENANT-OWNED table from '
             . 'inside the scope would be an unscoped cross-tenant query in the one place that '
             . 'cannot be defended by adding a predicate.');
     }

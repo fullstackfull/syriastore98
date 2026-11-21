@@ -1,8 +1,24 @@
 @props(['product', 'store'])
 
+    {{-- `relative` ADDED FOR MKT-010. greentic was the one theme whose product card never called
+         `Product::actionLinks()`, so its quick-view / compare / PDF / CSV buttons did not exist at
+         all -- the parity gap `GAP-220` records. The other two themes place the hook inside an
+         already-`absolute` container, so this card needs a containing block of its own.
+
+         SAFE: the only absolutely-positioned descendant that existed (the label badge) sits inside
+         the inner `div.relative` below and still resolves to that one. --}}
     <div
-        class="bg-white product-card rounded-lg shadow-lg overflow-hidden transition duration-300 group flex flex-col border border-gray-100 h-full">
+        class="bg-white product-card rounded-lg shadow-lg overflow-hidden transition duration-300 group flex flex-col border border-gray-100 h-full relative">
         {!! \App\Models\Product::productSalesPage( $store->slug, $product->id, false) !!}
+
+        {{-- `right-4` RATHER THAN A LOGICAL UTILITY, deliberately: techzonix and stylique both use
+             `right-4` for the same container, and `MKT-010` asks for PARITY. Using `end-4` here
+             alone would make greentic the only theme that mirrors in Arabic, which is a different
+             layout, not a fix. The shared RTL weakness of that utility is recorded in GAP-220
+             rather than corrected in one theme out of three. --}}
+        <div class="absolute top-4 right-4 z-10">
+            {!! \App\Models\Product::actionLinks( $store, $product) !!}
+        </div>
         
         <a href="{{ route('page.product', [$store->slug, $product->slug]) }}" class="relative">
             <div class="h-60 relative overflow-hidden product-img p-3">

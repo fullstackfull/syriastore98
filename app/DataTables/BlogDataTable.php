@@ -26,7 +26,7 @@ class BlogDataTable extends DataTable
                 ->editColumn('cover_image_path', function (Blog $blog) {
                     // Ensure proper escaping of dynamic variables
                     $imageUrl = get_file($blog->cover_image_path);
-                    return '<img src="'. $imageUrl .'" alt="" width="100" class="cover_img_'. $blog->id .'">';
+                    return '<img src="'. e($imageUrl) .'" alt="" width="100" class="cover_img_'. (int) $blog->id .'">';
                 })
                 ->editColumn('category_id', function (Blog $blog) {
                     return $blog->category->name ?? '-';
@@ -58,7 +58,9 @@ class BlogDataTable extends DataTable
                 ->orderColumn('short_deion', function ($query, $direction) {
                     $query->orderby('blogs.short_description', $direction);
                 })
-                ->rawColumns(['cover_image_path','category_id','title','slug','short_description','action']);
+                // P1-SEC-80. The title, slug, short description and category name are text a staff member types (the closure for `category_id` returns plain text): yajra escapes them. The cover image
+        // and the action are markup, and the image URL is now escaped where it is interpolated.
+        ->rawColumns(['cover_image_path','action']);
     }
 
     /**

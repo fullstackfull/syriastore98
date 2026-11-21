@@ -52,16 +52,25 @@ class ModuleAdministrativeRouteGuardTest extends SecurityTestCase
         }
     }
 
-    private function path(string $uri): string
+    private function path(string $uri, string $segment = '1'): string
     {
-        return '/' . preg_replace(['/\{[^}?]+\?\}/', '/\{[^}]+\}/'], ['', '1'], $uri);
+        return '/' . preg_replace(['/\{[^}?]+\?\}/', '/\{[^}]+\}/'], ['', $segment], $uri);
     }
 
-    private function send(string $key, array $body = [])
+    /**
+     * @param bool $wellFormedLink a link rule decodes its segment, and since P1-SEC-68 it refuses one that is not exactly an encrypted ticket number FOR EVERYBODY,
+     *                             the operator included (the handlers `decrypt()` it with unserialize and APP_KEY is public). Only the OPERATOR case needs a
+     *                             well-formed one -- it asks whether the operator is let THROUGH; every other case keeps `1`, which is refused cleanly by the
+     *                             shape check. (A merchant given a well-formed segment would reach a query on a table this harness does not have, answer 500, and
+     *                             "not REACHED" would pass for the wrong reason: the review's L-A.) The real ownership cases are HelpdeskTicketOwnershipTest's.
+     */
+    private function send(string $key, array $body = [], bool $wellFormedLink = false)
     {
         [$method, $uri] = explode(' ', $key, 2);
 
-        return $this->call($method, rtrim($this->path($uri), '/') ?: '/', $body);
+        $segment = $wellFormedLink && (ModuleRouteManifest::ADMINISTRATIVE[$key] ?? null) === 'owner:helpdesk-ticket-link' ? urlencode(\Illuminate\Support\Facades\Crypt::encrypt(1800000001)) : '1';
+
+        return $this->call($method, rtrim($this->path($uri, $segment), '/') ?: '/', $body);
     }
 
     public static function keys(): array
@@ -97,7 +106,7 @@ class ModuleAdministrativeRouteGuardTest extends SecurityTestCase
 
         $this->actingAs($operator);
 
-        $this->assertSame('REACHED', $this->send($key)->getContent(), "{$key} refused the platform operator.");
+        $this->assertSame('REACHED', $this->send($key, [], true)->getContent(), "{$key} refused the platform operator.");
     }
 
     public static function plainAuthKeys(): array

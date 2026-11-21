@@ -26,7 +26,8 @@ class FaqDataTable extends DataTable
                 ->addColumn('action', function (Faq $faq) {
                     return view('faq.action', compact('faq'));
                 })
-                ->rawColumns(['topic','action']);
+                // P1-SEC-80. `topic` is plain text a staff member types: yajra escapes it.
+        ->rawColumns(['action']);
     }
 
     /**

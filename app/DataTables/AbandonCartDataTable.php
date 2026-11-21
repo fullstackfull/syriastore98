@@ -2,6 +2,7 @@
 
 namespace App\DataTables;
 
+use App\Services\TableFilterMemory;
 use App\Models\Cart;
 use Illuminate\Database\Eloquent\Builder as QueryBuilder;
 use Yajra\DataTables\EloquentDataTable;
@@ -85,7 +86,7 @@ class AbandonCartDataTable extends DataTable
      */
     public function query(Cart $model): QueryBuilder
     {
-         return $model->newQuery()
+        $query = $model->newQuery()
             ->selectRaw('
             MIN(carts.id) as id,
             carts.customer_id,
@@ -95,7 +96,65 @@ class AbandonCartDataTable extends DataTable
         ')->with('UserData')->where('store_id', getCurrentStore())
             ->whereNotNull('carts.customer_id')
             ->groupBy('carts.customer_id');
-       
+
+        return $this->applyFilters($query);
+    }
+
+    /**
+     * MKT-002's abandoned-cart filters, and THE ONE AGGREGATE PREDICATE IN THE SLICE.
+     *
+     * This table is not shaped like the other four. It selects `COUNT(*) as total_carts` and groups
+     * by `carts.customer_id`, so one row out is one SHOPPER, not one basket line. That makes
+     * `ss_items` a question about the group rather than the row, and the distinction is not
+     * stylistic:
+     *
+     *   * `HAVING COUNT(*) = 1` is evaluated after the grouping and is the predicate meant here.
+     *   * `WHERE total_carts = 1` references an alias no row carries. SQLite quietly resolves it to
+     *     nothing and MySQL raises "Unknown column 'total_carts' in 'where clause'", so the same
+     *     mistake is a wrong list on one engine and a 500 on the other. The suite runs on SQLite,
+     *     which is the engine that would have hidden it.
+     *   * `WHERE` on a date, by contrast, IS correct -- `created_at` is a per-row column, so
+     *     `ss_from`/`ss_to` narrow the lines before they are grouped. Both kinds live here together
+     *     on purpose, because that is what makes the difference legible.
+     *
+     * `havingRaw` CARRIES NO CALLER INPUT. The comparison is chosen from a two-value allowlist and
+     * the SQL is a literal either way; the merchant's value never reaches the string. It is also not
+     * a raw query ENTRY POINT -- `RawQueryTenancyInventoryTest::RAW_ENTRY_POINT_PATTERN` matches
+     * `DB::table|select|insert|update|delete|statement|unprepared`, and this is a predicate on an
+     * Eloquent builder that already carries `where('store_id', getCurrentStore())`.
+     *
+     * ONE / SEVERAL RATHER THAN A NUMBER, deliberately. "More than N items" is a marketing
+     * threshold, and the standing instruction is not to invent one. These two are a fact about the
+     * row count, not a policy about which baskets are worth chasing.
+     */
+    private function applyFilters(QueryBuilder $query): QueryBuilder
+    {
+        $request = request();
+
+        /* `is_string` on every read -- see `ProductDataTable::applyFilters()` for why -- and an
+           unrecognised value declines rather than narrowing to nothing, so a typo in a url shows the
+           unfiltered list and the receipt stays silent for the same value. */
+        $items = $request->query('ss_items');
+
+        if (is_string($items) && in_array($items, ['one', 'several'], true)) {
+            $query->havingRaw($items === 'one' ? 'COUNT(*) = 1' : 'COUNT(*) > 1');
+        }
+
+        $from = TableFilterMemory::parseDate($request->query('ss_from'));
+
+        if ($from !== null) {
+            $query->where('carts.created_at', '>=', $from->copy()->startOfDay());
+        }
+
+        $to = TableFilterMemory::parseDate($request->query('ss_to'));
+
+        if ($to !== null) {
+            /* `endOfDay()`, because `created_at` is a DATETIME: a bare `<= '2026-03-17'` compares
+               against midnight and drops everything recorded on the day the merchant typed. */
+            $query->where('carts.created_at', '<=', $to->copy()->endOfDay());
+        }
+
+        return $query;
     }
 
     /**

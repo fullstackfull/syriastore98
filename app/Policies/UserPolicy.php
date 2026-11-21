@@ -132,8 +132,16 @@ class UserPolicy
      */
     public static function tenantRootIsAMerchant(int|string $actorTenant): bool
     {
-        $root = User::withoutGlobalScopes()->whereKey($actorTenant)->first();
+        return self::isMerchantRow(User::withoutGlobalScopes()->whereKey($actorTenant)->first());
+    }
 
+    /**
+     * Is this ROW a merchant tenant root -- a type-`admin` user, the operator excluded? THE one definition of the rule: `tenantRootIsAMerchant()` reads the row by id
+     * and asks it, and a caller that has ALREADY loaded "the employer" asks it directly, so the rule costs no second read (P1-SEC-67c: `getAdminAllSetting()` runs on
+     * every priced cell of a staff member's list pages, and an extra cached read per call is a query per cell). A row that cannot be read is NOT a merchant.
+     */
+    public static function isMerchantRow(?User $root): bool
+    {
         if ($root === null || self::isOperator($root)) {
             return false;
         }
@@ -141,6 +149,27 @@ class UserPolicy
         // Normalised the same way `isOperator()` normalises, for the same reason: MySQL's
         // utf8mb4_unicode_ci ignores a trailing space but not a leading one or a tab.
         return strtolower(rtrim((string) $root->type, ' ')) === 'admin';
+    }
+
+    /**
+     * THE TENANT ROOT A STORE-OWNERSHIP PREDICATE MAY USE -- or NULL when the principal belongs to no merchant tenant (P1-SEC-66 / P1-SEC-67).
+     *
+     * `Store::where('created_by', $user->creatorId())` was copied into ten first-party places as "the stores this user owns" (or "my own key"). It is only that when
+     * `creatorId()` names a MERCHANT. For a user rooted at the platform operator -- a merchant who demoted their own `type`, or staff the operator
+     * created -- `creatorId()` is the operator's id, and the predicate selects the OPERATOR'S stores. One definition, so the next copy cannot be the
+     * wrong one: it is `creatorId()` when `tenantRootIsAMerchant()` says that id is a type-`admin` user, and nothing otherwise.
+     *
+     * The operator is not a tenant and gets null here. Every caller admits the operator BEFORE asking, as `tenantRootIsAMerchant()`'s callers do.
+     */
+    public static function merchantTenantRoot(?User $user): ?int
+    {
+        if ($user === null) {
+            return null;
+        }
+
+        $root = (int) $user->creatorId();
+
+        return $root > 0 && self::tenantRootIsAMerchant($root) ? $root : null;
     }
 
     protected function isPlatformAdmin(?User $actor): bool

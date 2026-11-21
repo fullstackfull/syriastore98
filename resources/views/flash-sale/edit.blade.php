@@ -285,8 +285,7 @@
                         var options = $(this).parent().parent().parent().find('.condition')
                             .find('.form-control');
                         $.each(response.condition, function(i, item) {
-                            $(options).append('<option value="' + i + '">' + item +
-                                '</option>');
+                            $(options).append($('<option>').val(i).text(item)); // P1-SEC-80: a DOM node, not concatenated markup
                         });
 
                         var num = Math.floor(Math.random() * 90000) + 10000;
@@ -316,8 +315,7 @@
                             .find('.form-control');
 
                         $.each(response.condition, function(i, item) {
-                            $(options).append('<option  value="' + i + '">' + item +
-                                '</option>');
+                            $(options).append($('<option>').val(i).text(item)); // P1-SEC-80: a DOM node, not concatenated markup
                         });
 
                         var num = Math.floor(Math.random() * 90000) + 10000;
@@ -337,8 +335,7 @@
                             .find('.project_select');
 
                         $.each(response.product, function(i, item) {
-                            $(option).append('<option value="' + item.id + '">' +
-                                item.name + '</option>');
+                            $(option).append($('<option>').val(item.id).text(item.name)); // P1-SEC-80: a product name is text
                         });
                         $('[id^="options_id_"]').each(function() {
                             new Choices(this, {

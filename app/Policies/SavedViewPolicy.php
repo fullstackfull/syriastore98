@@ -42,7 +42,46 @@ class SavedViewPolicy
     private const SCREEN_PERMISSION = [
         'order' => 'Manage Order',
         'product' => 'Manage Products',
+        // ANA-002's saved reporting periods. Same permission as the screen's own door.
+        'analytics' => 'Manage Reports',
+        /*
+         * MKT-002's five Marketing screens. EACH TAKES ITS OWN SCREEN'S DOOR, read off
+         * `CompanyMenuListener:613-676` -- so whoever may see a list may save a view of it, and
+         * nobody else. `SavedViewIsolationTest` asserts this map and `TableFilterMemory::VOCABULARY`
+         * cover each other in BOTH directions, and it is what caught these five missing: a screen
+         * with filters and no permission has unreachable saved views, which looks like a broken
+         * Save button rather than a missing line.
+         *
+         * NONE OF THE FIVE IS IN `OWNER_ADMITTED_SCREENS`, and that is deliberate rather than an
+         * omission. `/analytics` is there because its own door admits the tenant owner without the
+         * permission row, so without the exception the owner would read the screen and be refused
+         * its Save button. These five are the opposite case: all five controllers gate on
+         * `isAbleTo()` ALONE (GAP-218), so the owner is already refused the SCREEN. Admitting them
+         * here would make saving a view more permissive than seeing the list it describes.
+         */
+        'coupon' => 'Manage Coupon',
+        'newsletter' => 'Manage Newsletter',
+        'flash-sale' => 'Manage Flash Sale',
+        'wishlist' => 'Manage Wishlist',
+        'abandon-cart' => 'Manage Cart',
     ];
+
+    /**
+     * SCREENS WHOSE OWN DOOR ADMITS THE TENANT OWNER WITHOUT THE PERMISSION ROW.
+     *
+     * `/analytics` is gated by `ReportPermission`, which has THREE limbs -- operator, then the
+     * tenant owner (`creatorId() === id`), then the named permission -- because a merchant created
+     * before a permission name existed holds no row for it and must not be locked out of their own
+     * reports. `useScreen()` below has only two of those limbs, so without this exception a store
+     * owner could READ the analytics screen and be refused SAVING a period on it: a visible button
+     * that always answers "Permission denied", which reads to a merchant as a broken product.
+     *
+     * IT IS A LIST AND NOT A CHANGE TO `useScreen()` FOR EVERYONE. Adding the owner limb to
+     * `order` and `product` would widen two existing surfaces that are not this slice's to widen,
+     * and `SavedViewIsolationTest` encodes their current shape. The third limb is added where the
+     * screen's own door already has it, and nowhere else.
+     */
+    private const OWNER_ADMITTED_SCREENS = ['analytics'];
 
     public static function permissionFor(string $screen): ?string
     {
@@ -64,6 +103,17 @@ class SavedViewPolicy
             return false;
         }
 
+        /*
+         * `ReportAccess::permits()` IS the three-limb gate, extracted from `ReportPermission` and
+         * shared rather than re-derived: operator first (Laratrust has no super-admin bypass, so
+         * `isAbleTo()` alone refuses the one principal who reads every store), then the tenant
+         * owner, then the named permission. Reusing it is what keeps this policy and the screen's
+         * middleware from drifting into two different answers for the same user.
+         */
+        if (in_array($screen, self::OWNER_ADMITTED_SCREENS, true)) {
+            return \App\Services\ReportAccess::permits($actor, $permission);
+        }
+
         return UserPolicy::isOperator($actor) || $actor->isAbleTo($permission);
     }
 
@@ -78,7 +128,36 @@ class SavedViewPolicy
      */
     public function create(User $actor, string $screen): bool
     {
-        return $this->useScreen($actor, $screen) && ! empty(getCurrentStore());
+        if (! $this->useScreen($actor, $screen)) {
+            return false;
+        }
+
+        /*
+         * AN OPERATOR WHO HAS CHOSEN NO STORE MAY NOT CREATE A VIEW, and `getCurrentStore()` is
+         * why that needs saying explicitly.
+         *
+         * `getCurrentStore()` returns the HARDCODED LITERAL 1 for a `super admin` (helper.php), so
+         * `! empty(getCurrentStore())` below is satisfied for an operator who has selected nothing
+         * at all -- and `SavedViewController::store()` would then write the row with
+         * `store_id = 1`, filing a platform operator's private filter set inside one particular
+         * merchant's partition. Found by an independent review, which also established the limit of
+         * the harm: every read carries `created_by = Auth::id()`, so only that operator ever sees
+         * the row and nothing is disclosed to merchant 1.
+         *
+         * It is still wrong, and it is an ASYMMETRY: `/analytics` refuses this exact principal
+         * ("No store is selected"), so without this they are refused the screen and allowed its
+         * Save button. The condition is the screen's own, reused rather than re-derived.
+         *
+         * NOT WIDENED BEYOND THE OPERATOR. Every other principal was checked and is symmetric --
+         * an owner without the permission row is admitted by both (that is what
+         * `OWNER_ADMITTED_SCREENS` fixed), staff with the permission by both, and staff with no
+         * resolvable store refused by both.
+         */
+        if (UserPolicy::isOperator($actor) && empty($actor->current_store)) {
+            return false;
+        }
+
+        return ! empty(getCurrentStore());
     }
 
     public function view(User $actor, SavedView $savedView): bool

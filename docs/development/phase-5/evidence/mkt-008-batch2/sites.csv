@@ -1,0 +1,240 @@
+n,"site (file:line, as the run named it)",channel,category (first pass),category (after a parsed category refutation),consent checked,recipient supplied by the caller,seam class,seam verified by the run,severity,adversarial check
+1,packages/workdo/AuctionProduct/src/resources/views/auctionorder/view.blade.php:164,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+2,packages/workdo/AuctionProduct/src/resources/views/auctionorder/view.blade.php:224,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+3,packages/workdo/CouponEmail/src/app/Listeners/CreateCustomerLis.php:34,mail,PROMOTIONAL,,NONE,yes,mail: MessageSending,yes,HIGH,held
+4,packages/workdo/CouponEmail/src/app/Listeners/CreateOrderLis.php:31,mail,PROMOTIONAL,,NONE,yes,mail: MessageSending,yes,MEDIUM,held
+5,packages/workdo/CouponEmail/src/app/Listeners/CreateOrderLis.php:48,mail,PROMOTIONAL,,NONE,yes,mail: MessageSending,yes,MEDIUM,held
+6,packages/workdo/CouponEmail/src/app/Listeners/AuthorizeNetPaymentLis.php:29,mail,PROMOTIONAL,,NONE,yes,mail: MessageSending,yes,MEDIUM,held
+7,packages/workdo/CouponEmail/src/app/Listeners/AuthorizeNetPaymentLis.php:45,mail,PROMOTIONAL,,NONE,yes,mail: MessageSending,yes,MEDIUM,held
+8,packages/workdo/CouponEmail/src/app/Listeners/PaiementProPaymentLis.php:30,mail,PROMOTIONAL,,NONE,yes,mail: MessageSending,yes,MEDIUM,held
+9,packages/workdo/CouponEmail/src/app/Listeners/PaiementProPaymentLis.php:45,mail,PROMOTIONAL,,NONE,yes,mail: MessageSending,yes,MEDIUM,held
+10,packages/workdo/LotteryPrizes/src/app/Http/Controllers/LotteryOrderController.php:142,mail,TRANSACTIONAL,,NONE,no,mail: sendEmailTemplate,yes,LOW,not checked
+11,packages/workdo/EMailBox/src/app/Http/Controllers/EmailBoxController.php:269,mail,PROMOTIONAL,,NONE,yes,mail: MessageSending,yes,MEDIUM,held
+12,packages/workdo/EMailBox/src/app/Http/Controllers/EmailBoxController.php:794,mail,PROMOTIONAL,,NONE,yes,mail: MessageSending,yes,MEDIUM,held
+13,packages/workdo/Helpdesk/src/app/Http/Controllers/HelpdeskController.php:186,none,DEAD_CODE,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+14,packages/workdo/Helpdesk/src/app/Http/Controllers/HelpdeskConversionController.php:82,none,DEAD_CODE,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+15,packages/workdo/Helpdesk/src/app/Http/Controllers/HelpdeskConversionController.php:157,none,DEAD_CODE,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+16,packages/workdo/Helpdesk/src/app/Http/Controllers/HelpdeskConversionController.php:159,none,DEAD_CODE,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+17,packages/workdo/Helpdesk/src/app/Http/Controllers/HelpdeskConversionController.php:162,none,DEAD_CODE,TRANSACTIONAL,NONE,no,NONE (declared Utility seams),yes,NONE,refuted on category
+18,packages/workdo/LotteryPrizes/src/app/Http/Controllers/LotteryOrderController.php:153,whatsapp,TRANSACTIONAL,,NONE,no,whatsapp: Utility::SendMsgs,yes,LOW,not checked
+19,packages/workdo/LotteryPrizes/src/app/Http/Controllers/LotteryResultController.php:170,mail,PROMOTIONAL,MIXED,NONE,no,NONE (declared Utility seams),yes,HIGH,refuted on category
+20,packages/workdo/LotteryPrizes/src/app/Http/Controllers/LotteryResultController.php:110,mail,TRANSACTIONAL,,NONE,no,NONE (declared Utility seams),yes,LOW,held
+21,packages/workdo/LotteryPrizes/src/app/Console/Lottery.php:80,mail,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,refuted on consent
+22,packages/workdo/LotteryPrizes/src/app/Http/Controllers/LotteryPrizesController.php:664,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+23,packages/workdo/LotteryPrizes/src/app/Http/Controllers/LotteryPrizesController.php:686,none,NOT_A_SENDER,,NONE,yes,NONE (declared Utility seams),yes,NONE,held
+24,packages/workdo/LotteryPrizes/src/resources/views/admin/lottery-order/view.blade.php:149,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+25,packages/workdo/LotteryPrizes/src/app/Jobs/SendLotteryWinEmail.php:42,mail,DEAD_CODE,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+26,packages/workdo/LotteryPrizes/src/app/Jobs/SendLotteryFailEmail.php:42,mail,DEAD_CODE,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+27,packages/workdo/LotteryPrizes/src/app/Jobs/SendOrderCreatedEmail.php:38,mail,DEAD_CODE,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+28,packages/workdo/Donation/src/app/Http/Controllers/CustomerDonationController.php:211,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+29,packages/workdo/Donation/src/app/Http/Controllers/CustomerDonationController.php:233,none,NOT_A_SENDER,,NONE,yes,NONE (declared Utility seams),yes,NONE,held
+30,packages/workdo/Campaigns/src/resources/views/superAdmin/share_campaigns.blade.php:4,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+31,packages/workdo/LynomiaChat/src/app/Services/PlatformNotifier.php:212,whatsapp,OPERATIONAL_INTERNAL,,UPSTREAM_ONLY,no,NONE (declared Utility seams),yes,LOW,held
+32,packages/workdo/LynomiaChat/src/app/Services/MerchantContactVerification.php:226,whatsapp,TRANSACTIONAL,,NONE,yes,NONE (declared Utility seams),yes,MEDIUM,held
+33,packages/workdo/LynomiaChat/src/app/Http/Controllers/InboxApiController.php:89,whatsapp,TRANSACTIONAL,MIXED,NONE,no,NONE (declared Utility seams),yes,MEDIUM,refuted on category
+34,packages/workdo/LynomiaChat/src/app/Http/Controllers/CampaignApiController.php:121,whatsapp,PROMOTIONAL,MIXED,UPSTREAM_ONLY,no,NONE (declared Utility seams),yes,MEDIUM,refuted on category
+35,packages/workdo/LynomiaChat/src/app/Http/Controllers/CampaignApiController.php:146,whatsapp,PROMOTIONAL,,UPSTREAM_ONLY,no,NONE (declared Utility seams),yes,MEDIUM,held
+36,packages/workdo/LynomiaChat/src/app/Http/Controllers/AutomationApiController.php:168,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+37,packages/workdo/LynomiaChat/src/app/Http/Controllers/AutomationApiController.php:716,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+38,packages/workdo/Duo2FA/src/app/Http/Controllers/Duo2FAController.php:104,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+39,packages/workdo/SMS/src/app/Listeners/OrderPaymentStatusLis.php:46,sms,TRANSACTIONAL,MIXED,NONE,no,NONE (declared Utility seams),yes,MEDIUM,refuted on category
+40,packages/workdo/SMS/src/app/Listeners/AuthorizeNetPaymentLis.php:39,sms,TRANSACTIONAL,,NONE,yes,NONE (declared Utility seams),yes,MEDIUM,held
+41,packages/workdo/SMS/src/app/Listeners/PaiementProPaymentLis.php:39,sms,TRANSACTIONAL,,NONE,yes,NONE (declared Utility seams),yes,MEDIUM,held
+42,packages/workdo/SMS/src/app/Listeners/GetProductStatusLis.php:39,sms,TRANSACTIONAL,,NONE,yes,NONE (declared Utility seams),yes,HIGH,held
+43,packages/workdo/PreOrder/src/app/Models/PreOrderHistory.php:84,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,LOW,not checked
+44,packages/workdo/PreOrder/src/app/Models/PreOrderHistory.php:85,mail,OPERATIONAL_INTERNAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,NONE,not checked
+45,packages/workdo/PreOrder/src/app/Http/Controllers/PreOrderController.php:348,mail,TRANSACTIONAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,HIGH,not checked
+46,packages/workdo/PreOrder/src/app/Console/PreOrder.php:114,mail,TRANSACTIONAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,MEDIUM,not checked
+47,packages/workdo/PartialPayments/src/app/Console/Payment.php:80,mail,TRANSACTIONAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,HIGH,not checked
+48,packages/workdo/PartialPayments/src/app/Http/Controllers/PartialPaymentsController.php:713,sms,TRANSACTIONAL,MIXED,NONE,no,NONE (declared Utility seams),yes,MEDIUM,refuted on category
+49,packages/workdo/PreOrder/src/app/Models/PreOrder.php:36,sms,TRANSACTIONAL,MIXED,NONE,no,NONE (declared Utility seams),yes,MEDIUM,refuted on category
+50,packages/workdo/ReviewReminder/src/app/Listeners/SendOrderReviewMailListner.php:42,mail,PROMOTIONAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,MEDIUM,held
+51,packages/workdo/ReviewReminder/src/app/Http/Controllers/ReviewReminderController.php:259,mail,PROMOTIONAL,OPERATIONAL_INTERNAL,NONE,no,mail: MessageSending,yes,LOW,refuted on category
+52,packages/workdo/ReviewReminder/src/app/Http/Controllers/ReviewReminderController.php:265,mail,PROMOTIONAL,,NONE,no,mail: MessageSending,yes,MEDIUM,held
+53,packages/workdo/PDFVouchers/src/app/Http/Controllers/MailSettingController.php:156,mail,PROMOTIONAL,,NONE,no,mail: MessageSending,yes,HIGH,held
+54,packages/workdo/SpinToWinReward/src/app/Http/Controllers/SpinToWinRewardController.php:322,mail,PROMOTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,HIGH,held
+55,packages/workdo/SpinToWinReward/src/app/Http/Controllers/SpinToWinRewardController.php:640,mail,PROMOTIONAL,,NONE,yes,mail: MessageSending,yes,HIGH,held
+56,packages/workdo/SpinToWinReward/src/app/Http/Controllers/SpinToWinRewardController.php:469,mail,PROMOTIONAL,,NONE,no,mail: MessageSending,yes,LOW,held
+57,packages/workdo/SpinToWinReward/src/app/Http/Controllers/SpinToWinRewardController.php:475,mail,PROMOTIONAL,,NONE,yes,mail: MessageSending,yes,HIGH,held
+58,packages/workdo/ProductEnquiry/src/app/Http/Controllers/ProductEnquiryController.php:120,mail,TRANSACTIONAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,NONE,not checked
+59,packages/workdo/ProductEnquiry/src/app/Http/Controllers/ProductEnquiryController.php:330,mail,TRANSACTIONAL,,NONE,no,mail: MessageSending,yes,NONE,not checked
+60,packages/workdo/ProductEnquiry/src/app/Http/Controllers/ProductEnquiryController.php:336,mail,TRANSACTIONAL,,NONE,no,mail: MessageSending,yes,NONE,not checked
+61,packages/workdo/ProductCatelog/src/app/Http/Controllers/ProductCatelogController.php:130,mail,PROMOTIONAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,HIGH,held
+62,packages/workdo/ProductCatelog/src/app/Http/Controllers/ProductCatelogController.php:342,mail,PROMOTIONAL,,NONE,no,mail: MessageSending,yes,LOW,held
+63,packages/workdo/ProductCatelog/src/app/Http/Controllers/ProductCatelogController.php:348,mail,PROMOTIONAL,,NONE,no,mail: MessageSending,yes,HIGH,held
+64,resources/views/email/common_email_template.blade.php:1,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+65,resources/views/email/sendOTP.blade.php:1,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+66,resources/views/email/otp_verify.blade.php:1,none,NOT_A_SENDER,,NONE,no,mail: MessageSending,yes,NONE,not checked
+67,resources/views/email/productMail.blade.php:1,none,NOT_A_SENDER,,NONE,no,mail: MessageSending,yes,NONE,not checked
+68,resources/views/email/test_mail.blade.php:1,none,NOT_A_SENDER,,NONE,yes,mail: MessageSending,yes,LOW,not checked
+69,resources/views/vendor/notifications/email.blade.php:1,none,NOT_A_SENDER,,NONE,no,mail: MessageSending,yes,NONE,not checked
+70,packages/workdo/EMailBox/src/resources/views/mail/email_template.blade.php:1,none,NOT_A_SENDER,,NONE,yes,mail: MessageSending,yes,HIGH,not checked
+71,packages/workdo/PDFVouchers/src/resources/views/mail_setting/coupen_mail.blade.php:1,none,NOT_A_SENDER,,NONE,no,mail: MessageSending,yes,HIGH,not checked
+72,resources/views/setting/test_mail.blade.php:8,none,NOT_A_SENDER,,NONE,yes,mail: MessageSending,yes,LOW,not checked
+73,resources/views/auth/verify-email.blade.php:61,none,NOT_A_SENDER,,NONE,no,mail: MessageSending,yes,NONE,not checked
+74,routes/api.php:71,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+75,app/Http/Controllers/Api/AuthController.php:518,mail,TRANSACTIONAL,,NONE,no,mail: MessageSending,yes,LOW,not checked
+76,app/Http/Controllers/Api/ApiController.php:3850,mail,PROMOTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,HIGH,held
+77,app/Http/Controllers/Api/ApiController.php:3858,whatsapp,PROMOTIONAL,,NONE,yes,whatsapp: Utility::SendMsgs,yes,HIGH,held
+78,app/Http/Controllers/Api/ApiController.php:3905,mail,PROMOTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,HIGH,held
+79,app/Http/Controllers/Api/ApiController.php:3915,whatsapp,PROMOTIONAL,TRANSACTIONAL,NONE,yes,whatsapp: Utility::SendMsgs,yes,HIGH,refuted on category
+80,app/Http/Controllers/Api/ApiController.php:3807,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,refuted on consent
+81,app/Http/Controllers/Api/ApiController.php:3814,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,refuted on consent
+82,app/Http/Controllers/Api/ApiController.php:3825,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,refuted on consent
+83,app/Http/Controllers/Api/ApiController.php:3832,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,held
+84,app/Http/Controllers/Api/ApiController.php:3877,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,refuted on consent
+85,app/Http/Controllers/Api/ApiController.php:3885,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,refuted on consent
+86,app/Http/Controllers/Api/ApiController.php:4260,webhook,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,MEDIUM,refuted on seam
+87,app/Http/Controllers/Api/ApiController.php:4274,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,MEDIUM,not checked
+88,app/Http/Controllers/Api/ApiController.php:4275,mail,OPERATIONAL_INTERNAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,LOW,not checked
+89,app/Http/Controllers/Api/ApiController.php:4328,whatsapp,TRANSACTIONAL,,NONE,yes,whatsapp: Utility::SendMsgs,yes,MEDIUM,not checked
+90,routes/api.php:145,none,NOT_A_SENDER,TRANSACTIONAL,NONE,no,NONE (declared Utility seams),yes,NONE,refuted on category
+91,app/Http/Controllers/Api/ApiController.php:9490,mail,PROMOTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,HIGH,held
+92,app/Http/Controllers/Api/ApiController.php:9498,whatsapp,PROMOTIONAL,TRANSACTIONAL,NONE,yes,whatsapp: Utility::SendMsgs,yes,HIGH,refuted on category
+93,app/Http/Controllers/Api/ApiController.php:9544,mail,PROMOTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,HIGH,held
+94,app/Http/Controllers/Api/ApiController.php:9552,whatsapp,PROMOTIONAL,TRANSACTIONAL,NONE,yes,whatsapp: Utility::SendMsgs,yes,HIGH,refuted on category
+95,app/Http/Controllers/Api/ApiController.php:9447,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,held
+96,app/Http/Controllers/Api/ApiController.php:9454,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,held
+97,app/Http/Controllers/Api/ApiController.php:9465,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,refuted on consent
+98,app/Http/Controllers/Api/ApiController.php:9472,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,held
+99,app/Http/Controllers/Api/ApiController.php:9517,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,refuted on consent
+100,app/Http/Controllers/Api/ApiController.php:9525,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,held
+101,routes/api.php:208,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+102,app/Http/Controllers/Api/DashboardController.php:4742,mail,OPERATIONAL_INTERNAL,,NONE,yes,mail: MessageSending,yes,MEDIUM,not checked
+103,routes/api.php:374,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,refuted on seam
+104,routes/auth.php:18,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+105,app/Http/Controllers/Auth/RegisteredUserController.php:167,mail,TRANSACTIONAL,,NONE,yes,mail: MessageSending,yes,LOW,not checked
+106,routes/auth.php:30,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+107,app/Http/Controllers/Auth/PasswordResetLinkController.php:87,mail,TRANSACTIONAL,,NONE,no,mail: MessageSending,yes,NONE,not checked
+108,routes/auth.php:48,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+109,app/Http/Controllers/Auth/EmailVerificationNotificationController.php:36,mail,TRANSACTIONAL,,NONE,no,mail: MessageSending,yes,NONE,not checked
+110,routes/customer.php:111,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+111,packages/workdo/CouponEmail/src/app/Listeners/CreateCustomerLis.php:34,mail,PROMOTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,HIGH,held
+112,routes/customer.php:113,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+113,app/Http/Controllers/Customer/Auth/CustomerLoginController.php:1105,mail,TRANSACTIONAL,,NONE,no,mail: MessageSending,yes,NONE,not checked
+114,routes/customer.php:128,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+115,app/Http/Controllers/Customer/Auth/CustomerLoginController.php:273,sms,TRANSACTIONAL,,NONE,no,NONE (declared Utility seams),yes,LOW,held
+116,app/Http/Controllers/Customer/Auth/CustomerLoginController.php:292,whatsapp,TRANSACTIONAL,,NONE,no,NONE (declared Utility seams),yes,LOW,held
+117,routes/customer.php:174,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,refuted on seam
+118,routes/customer.php:182,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+119,app/Services/PaymentService.php:3364,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate,yes,LOW,not checked
+120,app/Services/PaymentService.php:3365,mail,OPERATIONAL_INTERNAL,,NONE,no,mail: sendEmailTemplate,yes,NONE,not checked
+121,app/Services/PaymentService.php:3418,whatsapp,TRANSACTIONAL,,NONE,yes,whatsapp: Utility::SendMsgs,yes,LOW,not checked
+122,app/Services/PaymentService.php:2867,whatsapp,PROMOTIONAL,TRANSACTIONAL,NONE,yes,whatsapp: Utility::SendMsgs,yes,HIGH,refuted on category
+123,app/Services/PaymentService.php:2859,mail,PROMOTIONAL,,NONE,yes,mail: sendEmailTemplate,yes,HIGH,refuted on seam
+124,app/Services/PaymentService.php:2925,whatsapp,PROMOTIONAL,TRANSACTIONAL,NONE,yes,whatsapp: Utility::SendMsgs,yes,HIGH,refuted on category
+125,app/Services/PaymentService.php:2917,mail,PROMOTIONAL,,NONE,yes,mail: sendEmailTemplate,yes,HIGH,refuted on seam
+126,app/Services/PaymentService.php:2833,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+127,app/Services/PaymentService.php:2841,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,NONE,refuted on consent
+128,app/Services/PaymentService.php:2890,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,NONE,refuted on consent
+129,app/Services/PaymentService.php:2898,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,NONE,refuted on consent
+130,packages/workdo/CouponEmail/src/app/Listeners/CreateOrderLis.php:39,mail,PROMOTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,HIGH,refuted on recipient
+131,packages/workdo/CouponEmail/src/app/Listeners/CreateOrderLis.php:53,mail,PROMOTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,HIGH,refuted on recipient
+132,routes/customer.php:183,telegram,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,held
+133,routes/customer.php:183,none,NOT_A_SENDER,,NONE,no,other / n/a,yes,NONE,not checked
+134,routes/customer.php:184,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,MEDIUM,not checked
+135,routes/customer.php:184,whatsapp,TRANSACTIONAL,,NONE,yes,whatsapp: Utility::SendMsgs,yes,MEDIUM,not checked
+136,routes/customer.php:184,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,held
+137,routes/customer.php:184,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,LOW,not checked
+138,routes/customer.php:184,mail,OPERATIONAL_INTERNAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,NONE,not checked
+139,routes/customer.php:184,whatsapp,TRANSACTIONAL,,NONE,yes,whatsapp: Utility::SendMsgs,yes,LOW,not checked
+140,routes/customer.php:184,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,LOW,not checked
+141,routes/customer.php:184,mail,OPERATIONAL_INTERNAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,NONE,not checked
+142,routes/customer.php:184,mail,PROMOTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,HIGH,held
+143,routes/customer.php:184,sms,TRANSACTIONAL,,NONE,yes,NONE (declared Utility seams),yes,MEDIUM,held
+144,routes/customer.php:186,fcm,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,held
+145,routes/customer.php:186,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,MEDIUM,not checked
+146,routes/customer.php:186,whatsapp,TRANSACTIONAL,,NONE,yes,whatsapp: Utility::SendMsgs,yes,MEDIUM,not checked
+147,routes/customer.php:186,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,refuted on consent
+148,routes/customer.php:186,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,LOW,not checked
+149,routes/customer.php:186,mail,OPERATIONAL_INTERNAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,NONE,not checked
+150,routes/customer.php:186,whatsapp,TRANSACTIONAL,,NONE,yes,whatsapp: Utility::SendMsgs,yes,LOW,not checked
+151,routes/customer.php:186,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,LOW,not checked
+152,routes/customer.php:186,mail,OPERATIONAL_INTERNAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,NONE,not checked
+153,routes/customer.php:186,mail,PROMOTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,HIGH,held
+154,routes/customer.php:186,sms,TRANSACTIONAL,MIXED,NONE,yes,NONE (declared Utility seams),yes,MEDIUM,refuted on category
+155,routes/customer.php:190,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,MEDIUM,not checked
+156,routes/customer.php:190,whatsapp,TRANSACTIONAL,,NONE,yes,whatsapp: Utility::SendMsgs,yes,MEDIUM,not checked
+157,routes/customer.php:190,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,refuted on consent
+158,routes/customer.php:190,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,LOW,not checked
+159,routes/customer.php:190,mail,OPERATIONAL_INTERNAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,NONE,not checked
+160,routes/customer.php:190,whatsapp,TRANSACTIONAL,,NONE,yes,whatsapp: Utility::SendMsgs,yes,LOW,not checked
+161,routes/customer.php:190,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,LOW,not checked
+162,routes/customer.php:190,mail,OPERATIONAL_INTERNAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,NONE,not checked
+163,routes/customer.php:191,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,MEDIUM,not checked
+164,routes/customer.php:191,whatsapp,TRANSACTIONAL,,NONE,yes,whatsapp: Utility::SendMsgs,yes,MEDIUM,not checked
+165,routes/customer.php:191,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,held
+166,routes/customer.php:191,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,LOW,not checked
+167,routes/customer.php:191,mail,OPERATIONAL_INTERNAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,NONE,not checked
+168,routes/customer.php:191,whatsapp,TRANSACTIONAL,,NONE,yes,whatsapp: Utility::SendMsgs,yes,LOW,not checked
+169,routes/customer.php:191,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,LOW,not checked
+170,routes/customer.php:191,mail,OPERATIONAL_INTERNAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,NONE,not checked
+171,routes/customer.php:191,mail,PROMOTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,HIGH,held
+172,routes/customer.php:191,sms,TRANSACTIONAL,,NONE,yes,NONE (declared Utility seams),yes,MEDIUM,held
+173,routes/customer.php:195,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,MEDIUM,not checked
+174,routes/customer.php:195,whatsapp,TRANSACTIONAL,,NONE,yes,whatsapp: Utility::SendMsgs,yes,MEDIUM,not checked
+175,routes/customer.php:195,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,refuted on consent
+176,routes/customer.php:195,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,LOW,not checked
+177,routes/customer.php:195,mail,OPERATIONAL_INTERNAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,NONE,not checked
+178,routes/customer.php:195,whatsapp,TRANSACTIONAL,,NONE,yes,whatsapp: Utility::SendMsgs,yes,LOW,not checked
+179,routes/customer.php:195,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,LOW,not checked
+180,routes/customer.php:195,mail,OPERATIONAL_INTERNAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,NONE,not checked
+181,routes/customer.php:195,mail,PROMOTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,HIGH,held
+182,routes/customer.php:195,sms,TRANSACTIONAL,MIXED,NONE,yes,NONE (declared Utility seams),yes,MEDIUM,refuted on category
+183,routes/customer.php:197,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,MEDIUM,not checked
+184,routes/customer.php:197,whatsapp,TRANSACTIONAL,,NONE,yes,whatsapp: Utility::SendMsgs,yes,MEDIUM,not checked
+185,routes/customer.php:197,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,refuted on consent
+186,routes/customer.php:197,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,LOW,not checked
+187,routes/customer.php:197,mail,OPERATIONAL_INTERNAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,NONE,not checked
+188,routes/customer.php:197,whatsapp,TRANSACTIONAL,,NONE,yes,whatsapp: Utility::SendMsgs,yes,LOW,not checked
+189,routes/customer.php:197,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,LOW,not checked
+190,routes/customer.php:197,mail,OPERATIONAL_INTERNAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,NONE,not checked
+191,routes/customer.php:197,none,DEAD_CODE,,NONE,no,other / n/a,yes,NONE,not checked
+192,routes/customer.php:200,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,MEDIUM,not checked
+193,routes/customer.php:200,whatsapp,TRANSACTIONAL,,NONE,yes,whatsapp: Utility::SendMsgs,yes,MEDIUM,not checked
+194,routes/customer.php:200,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,LOW,held
+195,routes/customer.php:200,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,LOW,not checked
+196,routes/customer.php:200,mail,OPERATIONAL_INTERNAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,NONE,not checked
+197,routes/customer.php:200,whatsapp,TRANSACTIONAL,,NONE,yes,whatsapp: Utility::SendMsgs,yes,LOW,not checked
+198,routes/customer.php:200,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,LOW,not checked
+199,routes/customer.php:200,mail,OPERATIONAL_INTERNAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,NONE,not checked
+200,routes/customer.php:200,mail,PROMOTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,HIGH,held
+201,routes/customer.php:200,sms,TRANSACTIONAL,,NONE,yes,NONE (declared Utility seams),yes,MEDIUM,held
+202,routes/customer.php:355,mail,TRANSACTIONAL,,NONE,no,mail: MessageSending,yes,LOW,not checked
+203,routes/customer.php:375,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,NONE,refuted on consent
+204,routes/customer.php:375,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,NONE,refuted on consent
+205,routes/customer.php:375,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,NONE,refuted on consent
+206,routes/customer.php:375,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,NONE,refuted on consent
+207,routes/customer.php:375,mail,PROMOTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,HIGH,held
+208,routes/customer.php:375,whatsapp,PROMOTIONAL,TRANSACTIONAL,NONE,yes,whatsapp: Utility::SendMsgs,yes,HIGH,refuted on category
+209,routes/customer.php:375,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,NONE,refuted on consent
+210,routes/customer.php:375,sms,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,NONE,refuted on consent
+211,routes/customer.php:375,mail,PROMOTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,HIGH,held
+212,routes/customer.php:375,whatsapp,PROMOTIONAL,TRANSACTIONAL,NONE,yes,whatsapp: Utility::SendMsgs,yes,HIGH,refuted on category
+213,routes/customer.php:375,mail,TRANSACTIONAL,,NONE,yes,mail: sendEmailTemplate + MessageSending,yes,LOW,not checked
+214,routes/customer.php:375,mail,OPERATIONAL_INTERNAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,NONE,not checked
+215,routes/customer.php:375,whatsapp,TRANSACTIONAL,,NONE,yes,whatsapp: Utility::SendMsgs,yes,LOW,not checked
+216,routes/web.php:347,sms,TRANSACTIONAL,,NONE,yes,NONE (declared Utility seams),yes,MEDIUM,held
+217,routes/web.php:347,whatsapp,TRANSACTIONAL,,NONE,yes,NONE (declared Utility seams),yes,MEDIUM,held
+218,routes/web.php:911,mail,TRANSACTIONAL,,NONE,yes,mail: MessageSending,yes,MEDIUM,not checked
+219,routes/web.php:1040,fcm,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,NONE,held
+220,routes/web.php:1192,mail,PROMOTIONAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,HIGH,held
+221,routes/web.php:1210,none,NOT_A_SENDER,,NONE,no,other / n/a,NO,NONE,held
+222,routes/web.php:1193,whatsapp,PROMOTIONAL,,NONE,no,whatsapp: Utility::SendMsgs,yes,HIGH,held
+223,routes/web.php:1200,whatsapp,TRANSACTIONAL,,NONE,yes,NONE (declared Utility seams),yes,MEDIUM,held
+224,routes/web.php:1206,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),NO,NONE,held
+225,app/Http/Controllers/CartController.php:1291,mail,PROMOTIONAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,HIGH,held
+226,routes/web.php:1208,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),NO,NONE,refuted on seam
+227,app/Http/Controllers/CartController.php:1445,whatsapp,PROMOTIONAL,,NONE,no,whatsapp: Utility::SendMsgs,yes,HIGH,held
+228,routes/web.php:1602,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),NO,NONE,held
+229,app/Http/Controllers/OrderController.php:2032,mail,TRANSACTIONAL,,NONE,no,mail: sendEmailTemplate + MessageSending,yes,NONE,not checked
+230,app/Http/Controllers/OrderController.php:2039,mail,PROMOTIONAL,,NONE,no,NONE (declared Utility seams),yes,HIGH,held
+231,app/Http/Controllers/OrderController.php:2059,whatsapp,TRANSACTIONAL,,NONE,no,whatsapp: Utility::SendMsgs,yes,NONE,not checked
+232,app/Http/Controllers/OrderController.php:2091,webhook,OPERATIONAL_INTERNAL,,NONE,no,NONE (declared Utility seams),yes,MEDIUM,refuted on consent
+233,app/Models/Utility.php:606,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),NO,NONE,held
+234,app/Models/Utility.php:804,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),NO,NONE,held
+235,packages/workdo/Helpdesk/src/database/seeders/EmailTemplateDatabaseSeeder.php:21,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),NO,NONE,held
+236,packages/workdo/Helpdesk/src/database/seeders/EmailTemplateDatabaseSeeder.php:161,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),NO,NONE,held
+237,app/Http/Middleware/LotteryMailTemplatePrerequisite.php:160,none,NOT_A_SENDER,,NONE,no,NONE (declared Utility seams),NO,NONE,held
+238,"packages/workdo (task entry 8, given as 'see trigger for per-file line numbers')",none,NOT_A_SENDER,NOT_A_SENDER,NONE,no,NONE (declared Utility seams),NO,NONE,refuted on category
+239,packages/workdo/CouponEmail/src/app/Models/CouponEmail.php:41,mail,PROMOTIONAL,,NONE,no,NONE (declared Utility seams),yes,HIGH,refuted on recipient

@@ -13,6 +13,9 @@ use App\Models\User;
 use App\Models\Customer;
 use App\Models\ProductBrand;
 use App\Models\Utility;
+use App\Support\Metrics\FinanceLedgerFigures;
+use App\Support\Metrics\MetricWindow;
+use App\Support\Reports\ReportFigureNote;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
@@ -29,6 +32,41 @@ class ReportController extends Controller
     {
         $this->middleware(\App\Http\Middleware\ReportPermission::class);
     }
+
+    /*
+     * P5-3b -- WHY EVERY MONTH-WINDOW BOUND IN THIS FILE USES `whereDate` AND NOT `where`.
+     *
+     * Eighteen bounds across three handlers read
+     *   ->where('order_date', '<=', date('Y-m-t', $end))
+     * which compares a BARE DATE STRING against a DATETIME column. MySQL casts it to midnight, so
+     * `order_date <= '2026-10-31'` admitted an order placed at 2026-10-31 00:00:00 and refused one
+     * placed at 00:00:01 -- the whole final day of trading, minus the first second.
+     *
+     * `date('Y-m-t')` for *this month* and *year* resolves to a date in the future for most of the
+     * period, so there it only bit on the final day itself. For *last month* it always resolves to
+     * a date already past, so **the last day of trading was missing from that report every single
+     * month**.
+     *
+     * MEASURED, not inferred. On MariaDB 10.11.14 with 195.00 of orders placed inside the period,
+     * the sales report returned 112.00 -- short by exactly the 70.00 and 13.00 placed on the final
+     * day at 14:00 and 23:59:59, while the 7.00 placed at midnight was admitted.
+     * `tests/Support/Security/bin/verify-report-window-boundary-on-mysql.php` is that measurement.
+     *
+     * `whereDate` compares `DATE(col)` against the bound, which is right at both ends and is the
+     * idiom THIS FILE ALREADY USES at :260-261 and :269-297. The lower bound was already correct
+     * -- `>= 'Y-m-01'` is midnight on the first -- and was converted with it so the pair reads as
+     * one intent; `DATE(col) >= '2026-11-01'` and `col >= '2026-11-01'` select the same rows.
+     *
+     * THERE IS NO INDEX TO LOSE. `orders` carries no `(store_id, order_date)` composite, so these
+     * queries were already a `store_id` scan filtered by date, and wrapping the column in `DATE()`
+     * costs nothing that was being used.
+     *
+     * NOTE FOR ANYONE ADDING A TEST HERE: this controller calls `MONTH()` 36 times and `YEAR()` 9
+     * times inside `selectRaw`, and SQLite has neither -- so every handler in this file answers
+     * HTTP 500 under the project's test suite and CANNOT be covered by it. That is why an
+     * eighteen-site bug survived 9,112 Feature tests, and why the evidence for this fix is a
+     * MySQL script rather than a test.
+     */
 
     /**
      * Display a listing of the resource.
@@ -61,19 +99,19 @@ class ReportController extends Controller
             $end = strtotime(date('Y-m-t', $prevMonth));
             $date = (int) date('j', strtotime($end));
 
-            $user->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 0)->where('store_id', getCurrentStore());
+            $user->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 0)->where('store_id', getCurrentStore());
             $user = $user->get();
 
             $register_customer = Customer::selectRaw('customers.*,DATE(regiester_date) as DATE,MONTH(regiester_date) as month');
-            $register_customer->where('regiester_date', '>=', date('Y-m-01', $start))->where('regiester_date', '<=', date('Y-m-t', $end))->where('regiester_date', '!=', NULL)->where('store_id', getCurrentStore());
+            $register_customer->whereDate('regiester_date', '>=', date('Y-m-01', $start))->whereDate('regiester_date', '<=', date('Y-m-t', $end))->where('regiester_date', '!=', NULL)->where('store_id', getCurrentStore());
             $register_customer = $register_customer->get();
 
             $new_guest = Customer::selectRaw('customers.*,DATE(last_active) as DATE,MONTH(last_active) as month');
-            $new_guest->where('last_active', '>=', date('Y-m-01', $start))->where('last_active', '<=', date('Y-m-t', $end))->where('regiester_date', '=', NULL)->where('store_id', getCurrentStore());
+            $new_guest->whereDate('last_active', '>=', date('Y-m-01', $start))->whereDate('last_active', '<=', date('Y-m-t', $end))->where('regiester_date', '=', NULL)->where('store_id', getCurrentStore());
             $new_guest = $new_guest->get();
 
             $guests = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $guests->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 1)->where('store_id', getCurrentStore());
+            $guests->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 1)->where('store_id', getCurrentStore());
             $guests = $guests->get();
 
             $userTotalArray = [];
@@ -123,20 +161,20 @@ class ReportController extends Controller
             $end = strtotime(date('Y-m-t'));
             $day = (int) date('j', strtotime($end));
 
-            $user->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 0)->where('store_id', getCurrentStore());
+            $user->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 0)->where('store_id', getCurrentStore());
             $user = $user->get();
 
 
             $register_customer = Customer::selectRaw('customers.*,DATE(regiester_date) as DATE,MONTH(regiester_date) as month');
-            $register_customer->where('regiester_date', '>=', date('Y-m-01', $start))->where('regiester_date', '<=', date('Y-m-t', $end))->where('regiester_date', '!=', NULL)->where('store_id', getCurrentStore());
+            $register_customer->whereDate('regiester_date', '>=', date('Y-m-01', $start))->whereDate('regiester_date', '<=', date('Y-m-t', $end))->where('regiester_date', '!=', NULL)->where('store_id', getCurrentStore());
             $register_customer = $register_customer->get();
 
             $new_guest = Customer::selectRaw('customers.*,DATE(last_active) as DATE,MONTH(last_active) as month');
-            $new_guest->where('last_active', '>=', date('Y-m-01', $start))->where('last_active', '<=', date('Y-m-t', $end))->where('regiester_date', '=', NULL)->where('store_id', getCurrentStore());
+            $new_guest->whereDate('last_active', '>=', date('Y-m-01', $start))->whereDate('last_active', '<=', date('Y-m-t', $end))->where('regiester_date', '=', NULL)->where('store_id', getCurrentStore());
             $new_guest = $new_guest->get();
 
             $guests = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $guests->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 1)->where('store_id', getCurrentStore());
+            $guests->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 1)->where('store_id', getCurrentStore());
             $guests = $guests->get();
 
             $userTotalArray = [];
@@ -202,19 +240,19 @@ class ReportController extends Controller
             $user = Order::selectRaw('orders.*,MONTH(order_date) as month,YEAR(order_date) as year');
             $start = strtotime(date('Y-01'));
             $end = strtotime(date('Y-12'));
-            $user->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 0)->where('store_id', getCurrentStore());
+            $user->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 0)->where('store_id', getCurrentStore());
             $user = $user->get();
 
             $guests = Order::selectRaw('orders.*,MONTH(order_date) as month,YEAR(order_date) as year');
-            $guests->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 1)->where('store_id', getCurrentStore());
+            $guests->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 1)->where('store_id', getCurrentStore());
             $guests = $guests->get();
 
             $register_customer = Customer::selectRaw('customers.*,MONTH(regiester_date) as month,YEAR(regiester_date) as year');
-            $register_customer->where('regiester_date', '>=', date('Y-m-01', $start))->where('regiester_date', '<=', date('Y-m-t', $end))->where('regiester_date', '!=', NULL)->where('store_id', getCurrentStore());
+            $register_customer->whereDate('regiester_date', '>=', date('Y-m-01', $start))->whereDate('regiester_date', '<=', date('Y-m-t', $end))->where('regiester_date', '!=', NULL)->where('store_id', getCurrentStore());
             $register_customer = $register_customer->get();
 
             $new_guest = Customer::selectRaw('customers.*,MONTH(last_active) as month,YEAR(last_active) as year');
-            $new_guest->where('last_active', '>=', date('Y-m-01', $start))->where('last_active', '<=', date('Y-m-t', $end))->where('regiester_date', '=', NULL)->where('store_id', getCurrentStore());
+            $new_guest->whereDate('last_active', '>=', date('Y-m-01', $start))->whereDate('last_active', '<=', date('Y-m-t', $end))->where('regiester_date', '=', NULL)->where('store_id', getCurrentStore());
             $new_guest = $new_guest->get();
 
 
@@ -409,6 +447,144 @@ class ReportController extends Controller
         return [date('d M Y', strtotime($raw)), __('Day')];
     }
 
+    /**
+     * The window a `reports_chart` answer actually QUERIES, for a figure that is not accumulated in
+     * the handler's own loop. ANA-005 / owner decisions D1 and D2.
+     *
+     * THIS MIRRORS THE HANDLER'S SQL, NOT `chartPeriodLabels`'s PROSE, and where the two disagree the
+     * SQL wins -- because the point of the figure this feeds is to stand beside the six demand tiles
+     * and cover the same orders. A figure over a different span under the same heading is the
+     * wrong-number-that-looks-right, and it is worse than no figure.
+     *
+     * The branches are the same four presets plus the date picker, read off the queries themselves:
+     * `last-month` and `this-month` are whole calendar months, `seven-day` is the seven days ENDING
+     * TODAY (`-1 week +1 day`, then six more), `year` is 1 January to 31 December of this year, and
+     * the default is the picker's single date or its ` to ` range.
+     *
+     * TWO DEGENERATE INPUTS, both of which must not become an exception:
+     *
+     *   * an unparseable `Date` -- `strtotime('')` is `false` and `date('Y-m-d', false)` is
+     *     `1970-01-01`, so the handler queries a single day in 1970 while its label says "Today".
+     *     That is a real inconsistency, and it is NOT reachable through the shipped UI: the period
+     *     bar defaults to `selected => 'year'` and its date field defaults to `date('Y-m-d')`
+     *     (`components/ss/report-filter.blade.php`), so a preset always wins and the field is never
+     *     empty. Mirrored rather than corrected, because the ledger figure then REFUSES the 1970
+     *     window with its reason -- which surfaces the inconsistency instead of printing a zero.
+     *   * a range the picker sends backwards. `MetricWindow` throws when `from` is after `to`, so
+     *     this returns null and the caller omits the tile. Swapping the bounds would invent a window
+     *     the six tiles beside it are not answering.
+     */
+    private function chartPeriodWindow(Request $request): ?MetricWindow
+    {
+        switch ($request->chart_data) {
+            case 'last-month':
+                $previous = strtotime('-1 month');
+
+                return MetricWindow::between(
+                    Carbon::parse(date('Y-m-01', $previous)),
+                    Carbon::parse(date('Y-m-t', $previous)),
+                );
+            case 'this-month':
+                return MetricWindow::between(Carbon::parse(date('Y-m-01')), Carbon::parse(date('Y-m-t')));
+            case 'seven-day':
+                return MetricWindow::between(
+                    Carbon::parse(date('Y-m-d', strtotime('-1 week +1 day'))),
+                    Carbon::parse(date('Y-m-d')),
+                );
+            case 'year':
+                /* The handler's own bounds, verbatim: `date('Y-01')` parses as 1 January and
+                   `date('Y-12')` as 1 December, so `Y-m-t` on the second is 31 December. */
+                return MetricWindow::between(
+                    Carbon::parse(date('Y-m-01', strtotime(date('Y-01')))),
+                    Carbon::parse(date('Y-m-t', strtotime(date('Y-12')))),
+                );
+        }
+
+        $raw = (string) $request->Date;
+
+        if (str_contains($raw, ' to ')) {
+            $parts = explode(' to ', $raw);
+            $from = date('Y-m-d', strtotime($parts[0]));
+            $to = date('Y-m-d', strtotime($parts[count($parts) > 1 ? 1 : 0]));
+        } else {
+            $from = $to = date('Y-m-d', strtotime($raw));
+        }
+
+        if ($from > $to) {
+            return null;
+        }
+
+        return MetricWindow::between(Carbon::parse($from), Carbon::parse($to));
+    }
+
+    /**
+     * `Payments received` for the sales report, over the window the report is answering.
+     *
+     * The fourth of D2's four figures to reach a merchant screen, and the one the labelling proposal
+     * recorded as decided-but-unbuilt: `Order value` is already on this card, `Available to withdraw`
+     * and `Estimated gross profit` are on `/finance`. It reads through the SAME assembler as those two
+     * (`FinanceLedgerFigures`), so there is one definition of the figure, one set of caveats and one
+     * rule about the period the ledger can vouch for -- rather than a second copy that drifts.
+     *
+     * NULL MEANS NO TILE, and the four ways to get there are all "the question cannot be asked":
+     * no current store, a PLATFORM OPERATOR who has chosen no store, a window the report itself
+     * cannot express, or a reversed range. A null is NOT the figure being unavailable -- that case
+     * is a tile with a stated reason, which is the assembler's job and not this method's.
+     *
+     * THE TENANT IS THE AUTHENTICATED PRINCIPAL'S (`getCurrentStore()`), the same predicate the six
+     * tiles beside it use, and it is never read from request input.
+     *
+     * THE OPERATOR LIMB EXISTS BECAUSE `getCurrentStore()` DOES NOT FAIL CLOSED FOR THEM. For a
+     * `super admin` it returns the hard-coded literal 1 (`helper.php:873`), and store 1 is an
+     * ordinary merchant's tenant -- owner decision 7's own words, at
+     * `StoreFinanceController:833`, are that "store 1 belongs to a merchant who did not ask for
+     * it." `/finance` already refuses this exact principal before it reaches the same assembler
+     * (`operatorHasChosenNoStore()`, used at eight call sites there), so without this limb ONE
+     * assembler would be refused on one surface and render store 1's collected cash on another.
+     * Found by the authorization review of this slice, not by a test: the six demand tiles beside
+     * this one have disclosed store 1's ORDER VALUE to the same principal for as long as they have
+     * existed, so no test encoded the boundary and the MySQL harness drives a type-`admin` owner.
+     * That pre-existing disclosure is recorded as `GAP-223` rather than changed here -- narrowing
+     * six live figures is not this slice's business, and this limb only declines to widen it to
+     * collected cash.
+     *
+     * IT RETURNS NULL RATHER THAN REFUSING, deliberately. An absent tile is not an authorization
+     * refusal: `ReportAuthorizationTest` defines refusal as a 403 or a redirect carrying an error,
+     * and answering one here would change what the whole screen does for the operator.
+     *
+     * `UserPolicy::isOperator()` is the canonical spelling and is reused rather than re-written --
+     * it rtrims SPACE only, matching MySQL's PAD SPACE collation, which a hand-rolled
+     * `strtolower(trim(...))` gets wrong for a tab or a leading space.
+     *
+     * @return array{value: ?string, period: string, hint: string}|null
+     */
+    private function salesCollectionTile(Request $request, string $periodLabel): ?array
+    {
+        $caller = auth()->user();
+
+        if ($caller !== null && \App\Policies\UserPolicy::isOperator($caller) && empty($caller->current_store)) {
+            return null;
+        }
+
+        $storeId = (int) getCurrentStore();
+
+        if ($storeId <= 0) {
+            return null;
+        }
+
+        $window = $this->chartPeriodWindow($request);
+
+        if ($window === null) {
+            return null;
+        }
+
+        $currencyCode = (string) (Setting::where('store_id', $storeId)
+            ->where('name', 'defult_currancy')
+            ->value('value') ?? 'USD');
+
+        return FinanceLedgerFigures::forStore($storeId, $currencyCode, $window, $periodLabel)['payments'];
+    }
+
     public function getCurrentMonthDates()
     {
         $currentYear = date('Y');
@@ -508,7 +684,7 @@ class ReportController extends Controller
             $lastday = date('j', strtotime($lastDayofMonth));
 
             $orders = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $orders->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
+            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
             $orders = $orders->get();
             $TotalOrder = $orders->count();
 
@@ -574,7 +750,7 @@ class ReportController extends Controller
             $day = (int) date('j', strtotime($end));
 
             $orders = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $orders->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
+            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
             $orders = $orders->get();
             $TotalOrder = $orders->count();
 
@@ -720,7 +896,7 @@ class ReportController extends Controller
             $orders = Order::selectRaw('orders.*,MONTH(order_date) as month,YEAR(order_date) as year');
             $start = strtotime(date('Y-01'));
             $end = strtotime(date('Y-12'));
-            $orders->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
+            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
             $orders = $orders->get();
             $order = Order::where('store_id', getCurrentStore())
                 ->whereYear('order_date', date('Y'))
@@ -905,6 +1081,7 @@ class ReportController extends Controller
             'TotalOrder', 'PurchasedProductItemTotal', 'TotalgrossSale', 'currency',
             'TotalNetSale', 'TotalCouponAmount', 'TotalShippingCharge', 'periodLabel'
         ) + [
+            'collection' => $this->salesCollectionTile($request, $periodLabel),
             'labels' => $monthList ?? [],
             'grossSeries' => $GrossSaleTotal ?? [],
             'netSeries' => $NetSaleTotal ?? [],
@@ -940,6 +1117,21 @@ class ReportController extends Controller
         $return['PurchasedItemTotal'] = $requests_data['PurchasedItemTotal'] ?? [];
         $return['ShippingTotal'] = $requests_data['ShippingTotal'] ?? [];
         $return['CouponTotal'] = $requests_data['CouponTotal'] ?? [];
+
+        /*
+         * P05-15 / ANA-007. THE FILE CARRIES THE SCREEN'S DISCLOSURE, FROM THE SCREEN'S OWN SOURCE.
+         *
+         * Phase 05's rule is that an export carries the same caveats as the screen and that one
+         * which drops a caveat is a defect. Before this, all five of these exports handed the
+         * merchant a bare money column: nothing said the figure is not payments received and not
+         * profit, and nothing said it is held at limited precision.
+         *
+         * `ReportFigureNote` is the SAME method the screen's `:hint` calls, so the two cannot
+         * drift -- there is one sentence, already resolved by `__()` in this request's locale, so
+         * an Arabic session exports Arabic. Read its docblock for why FLOAT_PRECISION is the only
+         * caveat here and why no payment-status wording was invented.
+         */
+        $return['figureNote'] = ReportFigureNote::moneyRowHint();
         return response()->json($return);
     }
 
@@ -954,6 +1146,27 @@ class ReportController extends Controller
         $return['AverageGrossSales'] = $requests_data['AverageGrossSales'] ?? [];
         $return['ShippingTotal'] = $requests_data['ShippingTotal'] ?? [];
         $return['CouponTotal'] = $requests_data['CouponTotal'] ?? [];
+        // P5-3: the bar screen also plots Total Orders and Purchased Items (a second chart), and the
+        // chart handler already stores both arrays in this same session key -- so the export must carry
+        // them too, or the downloaded file is narrower than the screen it came from. Read-only, from the
+        // principal's own session; no new query and no request-supplied input.
+        $return['TotalOrderCount'] = $requests_data['TotalOrderCount'] ?? [];
+        $return['PurchasedItemTotal'] = $requests_data['PurchasedItemTotal'] ?? [];
+
+        /*
+         * P05-15 / ANA-007. THE FILE CARRIES THE SCREEN'S DISCLOSURE, FROM THE SCREEN'S OWN SOURCE.
+         *
+         * Phase 05's rule is that an export carries the same caveats as the screen and that one
+         * which drops a caveat is a defect. Before this, all five of these exports handed the
+         * merchant a bare money column: nothing said the figure is not payments received and not
+         * profit, and nothing said it is held at limited precision.
+         *
+         * `ReportFigureNote` is the SAME method the screen's `:hint` calls, so the two cannot
+         * drift -- there is one sentence, already resolved by `__()` in this request's locale, so
+         * an Arabic session exports Arabic. Read its docblock for why FLOAT_PRECISION is the only
+         * caveat here and why no payment-status wording was invented.
+         */
+        $return['figureNote'] = ReportFigureNote::moneyRowHint();
         return response()->json($return);
     }
 
@@ -983,7 +1196,7 @@ class ReportController extends Controller
             $lastday = date('j', strtotime($lastDayofMonth));
 
             $orders = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $orders->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
+            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
             $orders = $orders->get();
             $TotalOrder = $orders->count();
             $TotalOrderCount = Order::selectRaw('orders.*, MONTH(order_date) as month, YEAR(order_date) as year')
@@ -1054,7 +1267,7 @@ class ReportController extends Controller
             $day = (int) date('j', strtotime($end));
 
             $orders = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $orders->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
+            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
             $orders = $orders->get();
             $TotalOrder = $orders->count();
 
@@ -1200,7 +1413,7 @@ class ReportController extends Controller
             $orders = Order::selectRaw('orders.*,MONTH(order_date) as month,YEAR(order_date) as year');
             $start = strtotime(date('Y-01'));
             $end = strtotime(date('Y-12'));
-            $orders->where('order_date', '>=', date('Y-m-01', $start))->where('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
+            $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
             $orders = $orders->get();
             $TotalOrderCount = Order::selectRaw('orders.*, MONTH(order_date) as month, YEAR(order_date) as year')
                 ->whereYear('order_date', date('Y')) // Filter by the current year
@@ -1398,6 +1611,7 @@ class ReportController extends Controller
             'TotalOrder', 'PurchasedProductItemTotal', 'TotalgrossSale', 'currency',
             'TotalNetSale', 'TotalCouponAmount', 'TotalShippingCharge', 'periodLabel'
         ) + [
+            'collection' => $this->salesCollectionTile($request, $periodLabel),
             'labels' => $monthList ?? [],
             'grossSeries' => $GrossSaleTotal ?? [],
             'netSeries' => $NetSaleTotal ?? [],
@@ -1839,6 +2053,21 @@ class ReportController extends Controller
         $return['monthList'] = $requests_data['monthList'] ?? [];
         $return['NetSaleTotal'] = $requests_data['NetSaleTotal'] ?? [];
         $return['PurchasedItemTotal'] = $requests_data['PurchasedItemTotal'] ?? [];
+
+        /*
+         * P05-15 / ANA-007. THE FILE CARRIES THE SCREEN'S DISCLOSURE, FROM THE SCREEN'S OWN SOURCE.
+         *
+         * Phase 05's rule is that an export carries the same caveats as the screen and that one
+         * which drops a caveat is a defect. Before this, all five of these exports handed the
+         * merchant a bare money column: nothing said the figure is not payments received and not
+         * profit, and nothing said it is held at limited precision.
+         *
+         * `ReportFigureNote` is the SAME method the screen's `:hint` calls, so the two cannot
+         * drift -- there is one sentence, already resolved by `__()` in this request's locale, so
+         * an Arabic session exports Arabic. Read its docblock for why FLOAT_PRECISION is the only
+         * caveat here and why no payment-status wording was invented.
+         */
+        $return['figureNote'] = ReportFigureNote::orderValueHint();
         return response()->json($return);
     }
 
@@ -2189,6 +2418,20 @@ class ReportController extends Controller
 
             $startDate = new \DateTime($from_date);
             $endDate = new \DateTime($to_date);
+            /*
+             * P5-3c -- `DatePeriod`'s end is EXCLUSIVE, so without this the category report drops
+             * the last day of a custom range and, for a SINGLE-DAY selection, yields ZERO days:
+             * measured, `DatePeriod('2026-03-05', P1D, '2026-03-05')` iterates nothing, so
+             * `$monthList` is empty, `array_fill(0, 0, 0)` gives empty series and the
+             * `array_search($orderDate, $monthList)` below fails for every order. A merchant
+             * asking for one day got an empty report rather than one day's sales.
+             *
+             * The product report (:1804) and the brand report (:2726) already did this; only the
+             * category report did not, which is why its series were one day short of theirs on
+             * the same range. Written the brand report's way on purpose, so the three now read
+             * alike.
+             */
+            $endDate->modify('+1 day'); // Include the end date
 
             $interval = new \DateInterval('P1D');
             $period = new \DatePeriod($startDate, $interval, $endDate);
@@ -2308,6 +2551,21 @@ class ReportController extends Controller
         $requests_data = Session::get('category_order_report') ?? [];
         $return['monthList'] = $requests_data['monthList'] ?? [];
         $return['NetSaleTotal'] = $requests_data['NetSaleTotal'] ?? [];
+
+        /*
+         * P05-15 / ANA-007. THE FILE CARRIES THE SCREEN'S DISCLOSURE, FROM THE SCREEN'S OWN SOURCE.
+         *
+         * Phase 05's rule is that an export carries the same caveats as the screen and that one
+         * which drops a caveat is a defect. Before this, all five of these exports handed the
+         * merchant a bare money column: nothing said the figure is not payments received and not
+         * profit, and nothing said it is held at limited precision.
+         *
+         * `ReportFigureNote` is the SAME method the screen's `:hint` calls, so the two cannot
+         * drift -- there is one sentence, already resolved by `__()` in this request's locale, so
+         * an Arabic session exports Arabic. Read its docblock for why FLOAT_PRECISION is the only
+         * caveat here and why no payment-status wording was invented.
+         */
+        $return['figureNote'] = ReportFigureNote::orderValueHint();
         return response()->json($return);
     }
 
@@ -2339,9 +2597,30 @@ class ReportController extends Controller
             $lastDayOfPreviousMonth = date('Y-m-t', strtotime('-1 month'));
             $daysInPreviousMonth = date('j', strtotime($lastDayOfPreviousMonth));
 
-            $selectedBrand = $selectedBrand ?? ProductBrand::where('store_id', getCurrentStore())
-                
-                ->pluck('id');
+            /*
+             * P5-3h -- `empty()` AND NOT `??`, matching the three sibling branches.
+             *
+             * `??` fires only on NULL, and `reportSelectionWithinCurrentStore()` returns its
+             * argument UNCHANGED when the argument is empty (:3751) -- so an empty selection
+             * reached the loop below instead of the default. Measured:
+             *
+             *   selectedBrand = ''   `??` does not fire, and `foreach ('')` is not iterable
+             *                        -> PHP error on a merchant admin route
+             *   selectedBrand = []   `??` does not fire, `foreach ([])` iterates nothing
+             *                        -> a silently EMPTY report
+             *
+             * Both are reachable: `$('#brand_id').val()` on a multi-select returns null when
+             * nothing is selected, and the AJAX layer can deliver that as '' .
+             *
+             * The year, seven-day and custom-range branches already used `empty()` and defaulted
+             * correctly, so the same cleared selection behaved differently depending on which
+             * period button the merchant had pressed. That divergence between sibling branches is
+             * the third defect this file has produced from exactly that shape.
+             */
+            if (empty($selectedBrand)) {
+                $selectedBrand = ProductBrand::where('store_id', getCurrentStore())
+                    ->pluck('id');
+            }
 
             $brandNetSales = [];
 
@@ -2409,9 +2688,30 @@ class ReportController extends Controller
             $lastDayOfCurrentMonth = date('Y-m-t');
             $daysInPreviousMonth = date('j', strtotime($lastDayOfCurrentMonth));
 
-            $selectedBrand = $selectedBrand ?? ProductBrand::where('store_id', getCurrentStore())
-                
-                ->pluck('id');
+            /*
+             * P5-3h -- `empty()` AND NOT `??`, matching the three sibling branches.
+             *
+             * `??` fires only on NULL, and `reportSelectionWithinCurrentStore()` returns its
+             * argument UNCHANGED when the argument is empty (:3751) -- so an empty selection
+             * reached the loop below instead of the default. Measured:
+             *
+             *   selectedBrand = ''   `??` does not fire, and `foreach ('')` is not iterable
+             *                        -> PHP error on a merchant admin route
+             *   selectedBrand = []   `??` does not fire, `foreach ([])` iterates nothing
+             *                        -> a silently EMPTY report
+             *
+             * Both are reachable: `$('#brand_id').val()` on a multi-select returns null when
+             * nothing is selected, and the AJAX layer can deliver that as '' .
+             *
+             * The year, seven-day and custom-range branches already used `empty()` and defaulted
+             * correctly, so the same cleared selection behaved differently depending on which
+             * period button the merchant had pressed. That divergence between sibling branches is
+             * the third defect this file has produced from exactly that shape.
+             */
+            if (empty($selectedBrand)) {
+                $selectedBrand = ProductBrand::where('store_id', getCurrentStore())
+                    ->pluck('id');
+            }
 
             $brandNetSales = [];
 
@@ -2529,9 +2829,26 @@ class ReportController extends Controller
                             }
                         }
                     }
-                    $NetSalesofbrand[$brand->name] = array_sum($brandNetSales[$brand->name]);
-
                     $brandNetSales[$brand->name][$index] = $totalNetSales;
+
+                    /*
+                     * P5-3d -- THIS LINE USED TO STAND BEFORE THE ASSIGNMENT ABOVE, so every
+                     * brand card summed the series as it was BEFORE the current month was written
+                     * into it. The loop is months-outer / brands-inner over `yearMonth()`'s twelve
+                     * entries, so on the final iteration the card summed indices 0..10 and
+                     * **December was missing from every brand card, every year.**
+                     *
+                     * Measured: with 40.00 in January and 70.00 in December the card read 40.00;
+                     * it now reads 110.00. The chart series below was always right -- it walks
+                     * `$brandNetSales` after the loop -- so the card and the chart beside it
+                     * disagreed, which is what made this visible without explaining it.
+                     *
+                     * `$NetSalesOfBrand` (capital O) just below accumulates the same figure
+                     * correctly and is read NOWHERE: the view reads `$NetSalesofbrand`. With this
+                     * ordering the two now agree by construction. Removing the dead one is a tidy
+                     * for its own change, not part of a figure fix.
+                     */
+                    $NetSalesofbrand[$brand->name] = array_sum($brandNetSales[$brand->name]);
                     /* D-42.3. `$totalNetSalesAllBrands[$index] += $totalNetSales;` STOOD HERE AND
                        MADE THE YEAR VIEW'S "All Brands" FIGURE EXACTLY DOUBLE. The loop below
                        already walks `$brandNetSales` and array_maps every brand's series onto
@@ -2794,6 +3111,21 @@ class ReportController extends Controller
             'monthList' => $requests_data['monthList'] ?? [],
             'NetSaleTotal' => $requests_data['NetSaleTotal'] ?? []
         ];
+
+        /*
+         * P05-15 / ANA-007. THE FILE CARRIES THE SCREEN'S DISCLOSURE, FROM THE SCREEN'S OWN SOURCE.
+         *
+         * Phase 05's rule is that an export carries the same caveats as the screen and that one
+         * which drops a caveat is a defect. Before this, all five of these exports handed the
+         * merchant a bare money column: nothing said the figure is not payments received and not
+         * profit, and nothing said it is held at limited precision.
+         *
+         * `ReportFigureNote` is the SAME method the screen's `:hint` calls, so the two cannot
+         * drift -- there is one sentence, already resolved by `__()` in this request's locale, so
+         * an Arabic session exports Arabic. Read its docblock for why FLOAT_PRECISION is the only
+         * caveat here and why no payment-status wording was invented.
+         */
+        $return['figureNote'] = ReportFigureNote::orderValueHint();
         return response()->json($return);
     }
 
@@ -2818,6 +3150,21 @@ class ReportController extends Controller
             ->where('orders.store_id', getCurrentStore())
             ->where('categories.store_id', getCurrentStore())
             ->groupBy('categories.name')
+            /*
+             * P5-3f -- RANKED AND LIMITED, which is what the card beside it already promises:
+             * "Categories by the number of distinct orders containing one of their products" and,
+             * above, "the five are the top five". This query ended at `->get()` with NO orderBy
+             * and NO limit, so a store with forty categories got forty bars in whatever order the
+             * engine returned them, under a page headed "Top Sales Report". The metric was never
+             * the problem -- COUNT(DISTINCT orders.id) is exactly what the note describes -- the
+             * ranking simply was not applied.
+             *
+             * The name is a deterministic tie-break. Without it two categories on the same count
+             * swap places between requests, and whichever lands fifth appears and disappears.
+             */
+            ->orderByDesc('total_sale')
+            ->orderBy('categories.name')
+            ->limit(5)
             ->get();
 
         $top_brand_sales = ProductBrand::select('product_brands.name as sale_name', 'product_brands.logo as sale_image_path', \DB::raw('COUNT(DISTINCT orders.id) as total_sale'))
@@ -2830,14 +3177,62 @@ class ReportController extends Controller
             ->where('orders.store_id', getCurrentStore())
             ->where('product_brands.store_id', getCurrentStore())
             ->groupBy('product_brands.name')
+            // P5-3f -- the same repair as the category chart above, for the same reason and with
+            // the same deterministic tie-break.
+            ->orderByDesc('total_sale')
+            ->orderBy('product_brands.name')
+            ->limit(5)
             ->get();
 
         $new_orders = (clone $orderQuery)->orderBy('id', 'DESC')->get();
 
-        // Aggregate payment methods
-        $paymentMethods = $new_orders->groupBy('payment_type')->map(function ($orders) {
-            return $orders->count();
-        });
+        /*
+         * P5-3f -- ONE METHOD WAS BECOMING SEVERAL BARS, and then none of them was ranked.
+         *
+         * `groupBy('payment_type')` grouped the RAW column with PHP's case-sensitive comparison,
+         * while the same method is stored under several spellings -- cash on delivery alone has
+         * three in `PaymentVerificationService::COD_PAYMENT_TYPES`, plus casing and whitespace
+         * variants from the free-text column. So 'cod' and 'COD' were two separate bars competing
+         * for the same five slots, which makes a "top five" wrong rather than merely unordered.
+         *
+         * Grouped case-insensitively on a trimmed key, and each group is DISPLAYED under the
+         * spelling that occurs most often in it -- so the existing `__()` lookups in the view keep
+         * working against the catalogue entries they already have, rather than being handed a
+         * lower-cased key with no translation.
+         *
+         * The metric is unchanged and is what the card says: orders, counted once each. An order
+         * carries one `payment_type`, so distinct orders and row count are the same thing here.
+         */
+        $paymentMethods = $new_orders
+            ->groupBy(fn ($order) => mb_strtolower(trim((string) $order->payment_type)))
+            ->map(function ($orders) {
+                $spellings = $orders
+                    ->map(fn ($order) => trim((string) $order->payment_type))
+                    ->filter(fn ($spelling) => $spelling !== '')
+                    ->countBy()
+                    ->sortDesc();
+
+                return [
+                    'label' => (string) ($spellings->keys()->first() ?? ''),
+                    'orders' => $orders->count(),
+                ];
+            })
+            // `sortByDesc()` on an ARRAY key compares BOTH elements descending, so ties on the
+            // order count resolved by REVERSE alphabet -- the opposite of the two SQL charts above,
+            // whose name tie-break is ascending. Measured with this repository's own Collection:
+            // seven methods of one order each kept g,f,e,d,c and dropped a and b. Orders descending,
+            // then the label ascending AND CASE-FOLDED.
+            //
+            // The fold matters: PHP compares bytes, so without it every capital letter sorted before
+            // every lower-case one ("Stripe" before "cod"), where the SQL charts' collation is
+            // case-insensitive. The two now agree for the names this chart actually sees -- Latin
+            // gateway and method names. They can still differ for a non-Latin name, because the
+            // database orders by its collation weights and PHP by code point; that residue is
+            // recorded rather than claimed away. The fold cannot create a tie of its own: groups are
+            // keyed by the lower-cased label, so no two of them fold to the same string.
+            ->sort(fn ($a, $b) => [$b['orders'], mb_strtolower($a['label'])] <=> [$a['orders'], mb_strtolower($b['label'])])
+            ->take(5)
+            ->mapWithKeys(fn ($group) => [$group['label'] => $group['orders']]);
         return view('reports.top_5_reports', [
             'paymentMethods' => $paymentMethods,
             'top_brand_sales' => $top_brand_sales,
@@ -2906,11 +3301,37 @@ class ReportController extends Controller
      */
     private function topSellingProducts($orderQuery, $productQuery): array
     {
+        /*
+         * P5-3f -- ONE ORDER COUNTS ONCE PER PRODUCT, which is what the card promises: "The five
+         * products appearing in the most orders. Counts orders, not quantity or value."
+         *
+         * `orders.product_id` is a comma-joined list and TWO of its three writers build it with
+         * no de-duplication -- `OrderController::store()` and `Api\DashboardController` both
+         * `implode(',', array_column($request->products, 'product_id'))`, while only
+         * `PaymentService` applies `array_unique`. So an order containing the same product on two
+         * lines contributed 2 to a figure labelled "orders", and merchant-admin and Flutter orders
+         * were inflated relative to storefront ones.
+         *
+         * `unique()` per order makes the count match its own label, and matches the metric the
+         * category and brand charts use -- COUNT(DISTINCT orders.id) - so all four charts now rank
+         * by the same thing.
+         *
+         * THE TIE-BREAK IS THE PRODUCT ID, ASCENDING, and an earlier version of this comment said
+         * it was the name. It was neither: `countBy()->sortDesc()` keeps first-appearance order on
+         * a tie, which follows the database's row order for a query with no ORDER BY, so the fifth
+         * place appeared and disappeared between loads. `sortKeys()` first makes the stable sort
+         * that follows break ties by id. A NAME tie-break would need the names of every candidate
+         * product rather than only the five that survive, which is a wider query than this chart
+         * is worth.
+         */
         $countsById = (clone $orderQuery)->pluck('product_id')
-            ->flatMap(fn ($ids) => explode(',', (string) $ids))
-            ->map(fn ($id) => (int) trim($id))
-            ->filter(fn ($id) => $id > 0)
+            ->flatMap(fn ($ids) => collect(explode(',', (string) $ids))
+                ->map(fn ($id) => (int) trim($id))
+                ->filter(fn ($id) => $id > 0)
+                ->unique()
+                ->values())
             ->countBy()
+            ->sortKeys()
             ->sortDesc()
             ->take(5);
 
@@ -3593,7 +4014,9 @@ class ReportController extends Controller
      *
      * THE RETURN TYPE IS LOAD-BEARING. DO NOT "SIMPLIFY" IT WITH `->all()`.
      *   * An empty selection comes back UNCHANGED, so each caller's own `empty($selected)` default
-     *     (and, in the brand handler's first two branches, its `$selected ?? ...`) still fires, and
+     *     still fires. (This note used to add "and, in the brand handler's first two branches, its
+     *     `$selected ?? ...`". Those two branches now test `empty($selectedBrand)` instead, so the
+     *     parenthesis described a caller shape that no longer exists.) And
      *     the "All Categories" / "All Brands" series -- which are decided from the RAW
      *     `$request->selected*`, untouched here -- behave exactly as before.
      *   * A selection that survives nothing comes back as an EMPTY COLLECTION, and `empty()` on an

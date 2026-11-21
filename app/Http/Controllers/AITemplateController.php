@@ -37,7 +37,16 @@ class AITemplateController extends Controller
             return null;
         }
 
-        $own = ApikeySetiings::where('created_by', $actor->creatorId())->orderBy('id')->value('key');
+        // P1-SEC-66: whose key is "my own" is decided by the tenant root, and that root must be a MERCHANT (or the operator, who is their own root). For a
+        // user rooted at the platform -- a demoted merchant, or staff the operator created -- `creatorId()` is the operator's id, so this returned the
+        // PLATFORM'S key: exactly what the 2026-10-22 owner decision below says a merchant must not consume. Such a user has no key of their own.
+        $ownerRoot = \App\Policies\UserPolicy::isOperator($actor)
+            ? (int) $actor->creatorId()
+            : \App\Policies\UserPolicy::merchantTenantRoot($actor);
+
+        $own = $ownerRoot === null
+            ? null
+            : ApikeySetiings::where('created_by', $ownerRoot)->orderBy('id')->value('key');
 
         if (! empty($own)) {
             return $own;

@@ -29,7 +29,8 @@ class MenuDataTable extends DataTable
                 ->addColumn('action', function (Menu $menu) {
                     return view('menu.action', compact('menu'));
                 })
-                ->rawColumns(['topic','action']);
+                // P1-SEC-80. `topic` is not a column of `menus` (it was copied from the FAQ list) and the name column was never raw; the entry only said that a name MIGHT become one.
+        ->rawColumns(['action']);
     }
 
     /**

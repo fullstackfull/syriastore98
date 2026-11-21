@@ -43,6 +43,7 @@ use App\Models\UserCoupon;
 use App\Facades\ModuleFacade as Module;
 use Illuminate\Support\Facades\Cache;
 use App\Http\Controllers\Concerns\GuardsGatewayReturn;
+use App\Support\Money\RewardPointDiscount;
 
 class KhaltiPaymnetController extends Controller
 {
@@ -353,12 +354,18 @@ class KhaltiPaymnetController extends Controller
          * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
          * right plan (CartController::cart_list_sidebar:38-40,
          * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
-         * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+         * The predicate's TEXT is unchanged but its MEANING is not -- see the plan note below. See App\Support\Commerce\StorePlan.
          */
         $user = \App\Support\Commerce\StorePlan::ownerOf($store);
+        // `$plan` is assigned only inside the owner's `type == 'admin'` test, so it must start null and
+        // shipping is read through `$planShippingMethod` (no plan => 'off', the rule `processOrder` and
+        // `processShipping` already apply). Without this a store whose owner has no resolvable plan dies
+        // here. Held by Tests\Feature\Commerce\ReturnHandlerPlanInitialiserTest (LANDED).
+        $plan = null;
         if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);
         }
+        $planShippingMethod = $plan->shipping_method ?? 'off';
         
         if (!auth('customers')->user()) {
             if ($request->coupon_code != null) {
@@ -627,7 +634,7 @@ class KhaltiPaymnetController extends Controller
         }
 
         $delivery_price = 0;
-        if ($plan->shipping_method == 'on') {
+        if ($planShippingMethod == 'on') {
             if (!empty($request->method_id)) {
                 $del_charge = new CartController();
                 $delivery_charge = $del_charge->get_shipping_method($request, $slug);
@@ -962,7 +969,7 @@ class KhaltiPaymnetController extends Controller
         $order->delivery_price = $delivery_price;
         $order->tax_price = $tax_price;
         if (!auth('customers')->user()) {
-            if ($plan->shipping_method == "on") {
+            if ($planShippingMethod == "on") {
                 $order->final_price = $final_sub_total_price;
             } else {
                 $order->final_price = $final_price + $tax_price - $coupon_price;
@@ -971,14 +978,14 @@ class KhaltiPaymnetController extends Controller
             if (module_is_active('RewardClubPoint') && isset($requests_data['club_point_is_active']) && $requests_data['club_point_is_active'] == 'on') {
                 $customerDetail = Customer::find($customer_id);
                 $rewardSetting = getAdminAllSetting($store->created_by,$store->id) ?? null;
-                $saveRewardPrice = ($customerDetail->total_club_point * $rewardSetting['reward_point_price'] ?? 0) / ($rewardSetting['reward_points'] ?? 0);
-                if ($plan->shipping_method == "on") {
-                    $order->final_price = $final_sub_total_price - $saveRewardPrice;
+                $saveRewardPrice = RewardPointDiscount::for((float) ($customerDetail->total_club_point ?? 0), $rewardSetting);
+                if ($planShippingMethod == "on") {
+                    $order->final_price = RewardPointDiscount::applyTo($final_sub_total_price, $saveRewardPrice);
                 } else {
-                    $order->final_price = $final_price + $tax_price - $saveRewardPrice;
+                    $order->final_price = RewardPointDiscount::applyTo($final_price + $tax_price, $saveRewardPrice);
                 }
             } else {
-                if ($plan->shipping_method == "on") {
+                if ($planShippingMethod == "on") {
                     $order->final_price = $final_sub_total_price;
                 } else {
                     $order->final_price = $final_price + $tax_price - $coupon_price;
@@ -1029,9 +1036,13 @@ class KhaltiPaymnetController extends Controller
          *
          *   1. recordVerification() writes to the SESSION and nothing else clears it, so any
          *      THROW between there and here leaves a usable record behind for the next request.
-         *      One is caller-influenced: the RewardClubPoint branch below divides by
-         *      $rewardSetting['reward_points'] ?? 0, and `club_point_is_active` comes from the
-         *      stored state. Laravel renders the 500 inside the pipeline, so the session is saved.
+         *      Laravel renders the 500 inside the pipeline, so the session is saved.
+         *
+         *      THE EXAMPLE THIS ONCE GAVE IS SPENT. It named the RewardClubPoint branch below,
+         *      which divided by `$rewardSetting['reward_points'] ?? 0` on a caller-influenced
+         *      path. As of the P5-9 loyalty slice (2026-11-17) that division is
+         *      App\Support\Money\RewardPointDiscount and cannot throw. Reason 2 stands on its
+         *      own and is why this control stays; do not re-derive it from the reward path.
          *
          *   2. THE UNVERIFIABLE BRANCH CONSUMES WHATEVER IS IN THE SESSION. gatewayReturnPaymentStatus()
          *      calls consumeVerification() unconditionally, so a stray khalti record from an

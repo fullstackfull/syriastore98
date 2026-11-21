@@ -653,7 +653,7 @@ class CategoryController extends Controller
             $html .= ' <div class="col-xxl-2 col-lg-3  col-sm-4 zoom-in cat-list-btn">
             <div class="overflow-hidden" data-id="'.$cat->id.'">
                <div class="h-100 '.$dcls.'" data-cat-id="'.$cat->id.'">
-                  <button type="button" class="btn h-100 w-100  btn-sm pos-product-text">'.$cat->name.'</button>
+                  <button type="button" class="btn h-100 w-100  btn-sm pos-product-text">'.e($cat->name).'</button>
                </div>
             </div>
          </div>';

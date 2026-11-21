@@ -13,7 +13,7 @@
                         <div class="card-header"><h6 class="mb-2 font-bold">{{ $ticket->UserData->name }} <small>({{$ticket->created_at->diffForHumans()}})</small></h6></div>
                         <div class="card-body w-100">
                             <div>
-                                <p>{!! $ticket->description !!}</p>
+                                <p>{!! \App\Support\Html\RichText::clean($ticket->description) !!}</p>
 
                             </div>
                             @php
@@ -51,7 +51,7 @@
                             </h6>
                         </div>  
                         <div class="card-body w-100">
-                            <div>{!! $conversion->description !!}</div>
+                            <div>{!! \App\Support\Html\RichText::clean($conversion->description) !!}</div>
                             @php
                                 $attachments=json_decode($conversion->attachments);
                             @endphp

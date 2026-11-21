@@ -57,6 +57,11 @@ class StorefrontCartWishlistAuthorizationTest extends SecurityTestCase
     {
         parent::setUp();
 
+        // P1-SEC-72: an avatar is now stored in its store's own folder, `uploads/<store id>/`, and a test store's id is a small
+        // number that a REAL, tracked folder already has. The snapshot below only ever looked at loose files in `uploads/`, so
+        // the upload is kept off the repository's disk altogether; the snapshot stays for whatever a later test writes there.
+        \Illuminate\Support\Facades\Storage::fake('theme');
+
         $dir = base_path('uploads');
         $this->uploadsBefore = is_dir($dir) ? (scandir($dir) ?: []) : [];
     }

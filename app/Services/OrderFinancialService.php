@@ -7,6 +7,8 @@ use App\Models\Product;
 use App\Models\StoreWallet;
 use App\Models\StoreWalletTransaction;
 use App\Models\Setting;
+use App\Services\OrderEntitlementReversal;
+use App\Services\StoreWalletProvisioning;
 use Illuminate\Support\Facades\DB;
 
 class OrderFinancialService
@@ -18,9 +20,38 @@ class OrderFinancialService
     {
         DB::transaction(function () use ($order) {
 
-            $wallet = StoreWallet::where('store_id', $order->store_id)
-                ->lockForUpdate()
-                ->firstOrFail();
+            /*
+             * P4-F032 -- THIS WAS `firstOrFail()`, AND IT LOST MONEY.
+             * =====================================================================================
+             *
+             * A store whose `store_wallets` row did not exist threw `ModelNotFoundException` from
+             * here into `OrderObserver::created()`'s catch. The order committed, no
+             * `store_order_financials` row was written at all, and nothing on any path ever
+             * revisited it: the merchant's credit for that order was gone permanently. Two store
+             * writers created stores in exactly that state -- `RegisteredUserController::store` and
+             * `DashboardController::createStoreApi` -- while `StoreController` provisioned one.
+             *
+             * THE PROVISIONING IS NOT `firstOrCreate`, AND THE REASON IS MEASURED. Laravel's
+             * `firstOrCreate()` recovers from a lost race with a PLAIN consistent read, which under
+             * REPEATABLE READ is served from the snapshot this transaction took at its first read
+             * -- and the read is already behind us by the time any order gets here. Measured on
+             * MariaDB 10.11.14/InnoDB: in exactly this shape it RE-THROWS, so the obvious fix would
+             * have left the defect in place while looking repaired. `StoreWalletProvisioning` uses
+             * a locking re-read instead, which is a current read and does see the winner's row.
+             * Evidence: tests/Support/Security/bin/verify-store-wallet-provisioning-on-mysql.php.
+             *
+             * THE LOCK IS NOT LOST IN THE MOVE. `ensure()` opens with the same
+             * `lockForUpdate()->first()` this line used to take, so the balance mutation below is
+             * serialised exactly as before.
+             *
+             * THIS CREDITS NO PAST ORDER. A wallet appearing now does not and must not reach back:
+             * the orders that already lost their credit are a separate, approval-gated,
+             * read-only reconciliation question.
+             */
+            $wallet = app(StoreWalletProvisioning::class)->ensure(
+                (int) $order->store_id,
+                $this->storeCurrencyCode($order)
+            );
 
             /*
              * منع إنشاء السجل مرتين لنفس الطلب
@@ -184,6 +215,25 @@ class OrderFinancialService
 
 
     /**
+     * The store's configured currency, or null when it has never set one.
+     *
+     * Lifted out so it can be read BEFORE the wallet exists. The `$currencyCode` computation
+     * further down falls back to `$wallet->currency_code`, which is unavailable at provisioning
+     * time by definition -- so a wallet this service opens is denominated in the store's own
+     * currency, and the order that opened it needs no conversion. Returning null rather than
+     * 'USD' keeps that fallback decision in `StoreWalletProvisioning`, where it is documented.
+     */
+    private function storeCurrencyCode(Order $order): ?string
+    {
+        $value = Setting::where('store_id', $order->store_id)
+            ->where('name', 'defult_currancy')
+            ->value('value');
+
+        return is_string($value) && trim($value) !== '' ? $value : null;
+    }
+
+
+    /**
      * حساب تكلفة المنتجات وقت إنشاء الطلب.
      */
     private function calculateProductCost(Order $order): float
@@ -299,6 +349,43 @@ class OrderFinancialService
             ->first();
 
         if (!$financial) {
+            return;
+        }
+
+        /*
+         * P4-F124 -- A TERMINAL REVERSAL IS NOT UNDONE BY A LATER SETTLEMENT CHANGE.
+         * =========================================================================================
+         *
+         * Once `OrderEntitlementReversal` has moved this row to `cancelled` or `refunded`, the
+         * merchant's entitlement has been reversed and a wallet transaction records it. This method
+         * must not then move the row back.
+         *
+         * WITHOUT THIS GUARD THE RECORD IS ERASED, and it is erased silently. The method ends in an
+         * UNCONDITIONAL `update(['payment_status' => $orderStatus])`, so ANY later movement of the
+         * ORDER's own payment status -- a merchant correcting it, a late gateway callback arriving
+         * after a cancellation, a staff member fixing a typo -- rewrote `cancelled` back to `paid`
+         * or `unpaid`. The wallet stayed debited and the ledger stopped saying why. Measured: both
+         * directions reproduce, and they are pinned by
+         * `CancellationLedgerSemanticsTest::test_a_later_payment_status_change_does_not_erase_the_cancellation`
+         * and `::test_a_late_paid_does_not_resurrect_a_cancelled_entitlement`.
+         *
+         * THE `paid` DIRECTION IS THE DANGEROUS ONE. A late `Paid` on a cancelled order would reach
+         * `markFinancialAsPaid()` and CREDIT the merchant a second time for an order that was
+         * cancelled and already reversed.
+         *
+         * This is the owner's principle 2 one layer down: "Cancellation does not erase evidence of a
+         * captured payment." The evidence lives on this row, and this is what stops a routine status
+         * edit destroying it.
+         *
+         * IT IS NOT A DEAD END FOR LEGITIMATE CORRECTIONS. A merchant who genuinely needs to move a
+         * reversed order's entitlement does it through the finance surface, which acts on the
+         * financial record deliberately and with its own authorization -- not as a side effect of
+         * editing the customer's payment status.
+         */
+        if (in_array((string) $financial->payment_status, [
+            OrderEntitlementReversal::REASON_CANCELLED,
+            OrderEntitlementReversal::REASON_REFUNDED,
+        ], true)) {
             return;
         }
 

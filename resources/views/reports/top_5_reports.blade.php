@@ -79,11 +79,19 @@
 
         <div class="col-xl-6 mb-4">
             <x-ss.card :title="__('Top Payment Method')"
-                       :note="__('Orders grouped by the method they were paid with.')">
-                {{-- The keys are raw `orders.payment_type` values, which went to the chart
+                       :note="__('The five methods used on the most orders. Spellings of the same method are counted together.')">
+                {{-- The keys WERE raw `orders.payment_type` values, which went to the chart
                      untranslated — an Arabic merchant read English method names on an Arabic
                      page. A method with no translation falls back to its own name rather than
-                     to an empty label. --}}
+                     to an empty label.
+
+                     P5-3f: they are still real spellings, but one per method rather than one per
+                     variant. `top_product()` now groups case-insensitively on a trimmed key and
+                     labels each group with the spelling that occurs most often in it — so these
+                     `__()` lookups keep matching the catalogue entries they already have, which a
+                     lower-cased key would not. Before that, 'cod' and 'COD' were two separate
+                     bars competing for the same five slots, which makes a "top five" wrong rather
+                     than merely unordered. --}}
                 <x-ss.bar-chart
                     :labels="$paymentMethods->keys()->map(fn ($m) => __($m ?: 'Unknown'))->all()"
                     :values="$paymentMethods->values()->all()"

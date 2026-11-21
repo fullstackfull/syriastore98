@@ -610,6 +610,10 @@ class OperatorImplicitStoreFinancialGuardTest extends SecurityTestCase
         $response = $this->actingAs($this->operator)
             ->post(route('finance.order-financial.status', $financialId), [
                 'payment_status' => 'paid',
+                // P4-F128 requires a reason on this surface. This case is about
+                // AUTHORIZATION, not the reason field, so it supplies one rather
+                // than having the rule relaxed for it.
+                'reason' => 'Fixture: cash received outside the gateway',
             ]);
 
         $this->assertRefusedAsUnselectedOperator($response, 'updateFinancialPaymentStatus');
@@ -800,6 +804,10 @@ class OperatorImplicitStoreFinancialGuardTest extends SecurityTestCase
         $status = $this->actingAs($chose)
             ->post(route('finance.order-financial.status', $financialId), [
                 'payment_status' => 'paid',
+                // P4-F128 requires a reason on this surface. This case is about
+                // AUTHORIZATION, not the reason field, so it supplies one rather
+                // than having the rule relaxed for it.
+                'reason' => 'Fixture: cash received outside the gateway',
             ]);
 
         $this->assertNotSame(__('No store is selected.'), session('error'),

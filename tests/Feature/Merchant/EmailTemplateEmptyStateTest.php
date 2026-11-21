@@ -97,11 +97,21 @@ class EmailTemplateEmptyStateTest extends TestCase
     {
         // THE SECOND DEREFERENCE, one branch further on: a template exists, so the first guard
         // passes, and the `en` fallback is then null.
+        // THE VIEWER OWNS THE TEMPLATE (P1-SEC-64b). The screen now shows a user their OWN first template; with a template owned by someone else the
+        // first guard ("no template set up yet") answers and this case would pass without ever reaching the second branch it is named for.
+        $merchant = $this->merchant();
+
         EmailTemplate::query()->create([
             'name' => 'Order Created',
             'from' => 'Store Syria',
-            'created_by' => $this->templateOwner()->id,
+            'created_by' => $merchant->id,
         ]);
+
+        $this->assertSame(
+            1,
+            EmailTemplate::query()->where('created_by', $merchant->id)->count(),
+            'premise: the viewer owns a template, so the first null guard passes and only the second can answer'
+        );
 
         $this->assertSame(
             0,
@@ -109,7 +119,7 @@ class EmailTemplateEmptyStateTest extends TestCase
             'a language row exists, so this case cannot reach the second null branch'
         );
 
-        $response = $this->actingAs($this->merchant())->get(route('email_template'));
+        $response = $this->actingAs($merchant)->get(route('email_template'));
 
         $this->assertLessThan(
             500,
@@ -125,10 +135,13 @@ class EmailTemplateEmptyStateTest extends TestCase
     {
         // THE OTHER DIRECTION. A guard that turned every request into a redirect would satisfy
         // both cases above.
+        // The viewer owns the template (P1-SEC-64b): the screen shows a user their own, never the lowest id in the table.
+        $merchant = $this->merchant();
+
         $template = EmailTemplate::query()->create([
             'name' => 'Order Created',
             'from' => 'Store Syria',
-            'created_by' => $this->templateOwner()->id,
+            'created_by' => $merchant->id,
         ]);
 
         EmailTemplateLang::query()->create([
@@ -138,7 +151,7 @@ class EmailTemplateEmptyStateTest extends TestCase
             'content' => '<p>Hello</p>',
         ]);
 
-        $this->actingAs($this->merchant())->get(route('email_template'));
+        $this->actingAs($merchant)->get(route('email_template'));
 
         /* ASSERTED ON THE GUARD, NOT ON THE RENDER, AND THE REASON MATTERS.
            =========================================================================================

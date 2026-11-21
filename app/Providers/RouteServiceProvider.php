@@ -101,6 +101,35 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(12)->by($request->ip() . '|' . $slug);
         });
 
+        /*
+         * D8-3a. THE UNSUBSCRIBE REDEMPTION -- KEYED ON THE TOKEN, NOT ON THE CALLER.
+         *
+         * Found by the D8-3 tenant-authz review (F5c). Both halves of the unsubscribe page carried one
+         * `throttle:30,1`, and a bare route throttle keys on the IP. Every recipient of one campaign can
+         * share an egress address -- a corporate gateway, a mobile carrier's NAT, a mail provider's link
+         * scanner -- and the GET is the half that gets prefetched. The scanner's reads could therefore
+         * exhaust the shared budget and the person's own POST would be refused with 429, WHICH MEANS THE
+         * WITHDRAWAL IS NOT RECORDED. A refused unsubscribe is the single failure this surface exists to
+         * prevent, so the budget must not be spendable by anyone but the holder of that token.
+         *
+         * Keyed on the token, a replay flood against one link also stays bounded, which matters because
+         * every redemption appends a row to a table nothing may prune.
+         *
+         * KEYED ON THE SHA-256 THE TABLE ALREADY STORES, NEVER THE TOKEN ITSELF -- for the same reason
+         * order-track hashes its order number: a cache key must not come to hold a working capability.
+         * Falls back to the IP when the route carries no token, so this can never key every caller onto
+         * one bucket.
+         */
+        RateLimiter::for('unsubscribe-redeem', function (Request $request) {
+            $token = $request->route('token');
+
+            return Limit::perMinute(10)->by(
+                is_string($token) && $token !== ''
+                    ? 'unsub|' . hash('sha256', $token)
+                    : 'ip|' . $request->ip()
+            );
+        });
+
         /**
          * P1-SEC-22(e). `POST generate/response` spends an OpenAI key and carried no throttle at all, so
          * bounding the spend PER CALL would have left the spend per minute unbounded -- the same bill in

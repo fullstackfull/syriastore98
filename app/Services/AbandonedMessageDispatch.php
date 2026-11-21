@@ -4,6 +4,9 @@ namespace App\Services;
 
 use App\Models\Utility;
 use App\Models\WhatsappMessage;
+use App\Services\Marketing\MarketingSendGate;
+use App\Support\Marketing\Channel;
+use App\Support\Marketing\MessageClass;
 
 /**
  * P2.5-PKG-K — why a "nudge the shopper" WhatsApp message cannot go out, in words a merchant can act on.
@@ -93,6 +96,28 @@ class AbandonedMessageDispatch
 
         if ((int) $templateRow->is_active !== 1) {
             return __('The ":template" WhatsApp template is switched off. Turn it on to message shoppers.', ['template' => $template]);
+        }
+
+        /*
+         * D8 / GAP-200 / MKT-008 — THE CONSENT GATE, at the send boundary of the one first-party WhatsApp
+         * MARKETING sender (this abandoned-basket nudge; census §5). It is the SAME `MarketingSendGate` the
+         * email seam consults, resolved from the container rather than injected on purpose: this class is
+         * sub-classed by an anonymous test double that has no constructor, so a required dependency would
+         * break it. Ordered LAST, after the configuration checks, so a store that is simply not set up still
+         * hears about that first.
+         *
+         * It is INERT by default. In `off` (the shipped `MARKETING_CONSENT_ENFORCEMENT`) `decide()` allows
+         * WITHOUT TOUCHING THE DATABASE, so this adds one config read and nothing else where the consent
+         * tables do not exist. In `report` the gate records what enforcement would do and still allows, so
+         * this returns null and the nudge goes. Only in `enforce` — which the gate itself reads as `report`
+         * for WhatsApp until `phone_identity_canonical` — does a shopper with no current marketing permission
+         * hold the nudge, and then the merchant is told it was consent, not a fault they can fix in settings.
+         */
+        $consent = app(MarketingSendGate::class)
+            ->decide($storeId, Channel::Whatsapp, MessageClass::Marketing, $mobile);
+
+        if (! $consent->send) {
+            return __('This shopper has not agreed to marketing messages, so this WhatsApp nudge was not sent.');
         }
 
         return null;

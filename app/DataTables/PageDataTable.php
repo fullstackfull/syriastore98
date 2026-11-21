@@ -35,7 +35,8 @@ class PageDataTable extends DataTable
             ->addColumn('action', function (Page $page) {
                 return view('page.action', compact('page'));
             })
-            ->rawColumns(['page_name','page_slug','page_status','action']);
+            // P1-SEC-80. The page name and slug are plain text a staff member types: yajra escapes them. `page_status` is a switch built here from the row's id, and `action` is a view.
+        ->rawColumns(['page_status','action']);
     }
 
     /**

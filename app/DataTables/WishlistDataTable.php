@@ -2,6 +2,7 @@
 
 namespace App\DataTables;
 
+use App\Services\TableFilterMemory;
 use App\Models\Wishlist;
 use Illuminate\Database\Eloquent\Builder as QueryBuilder;
 use Yajra\DataTables\EloquentDataTable;
@@ -85,7 +86,52 @@ class WishlistDataTable extends DataTable
      */
     public function query(Wishlist $model): QueryBuilder
     {
-        return $model->newQuery()->with('UserData')->where('store_id', getCurrentStore())->groupBy('customer_id');
+        /* The filters are applied BEFORE `groupBy()` is appended, so every predicate below is a
+           WHERE over the ungrouped rows. That is the correct half of the aggregate distinction:
+           `status` is a per-ROW column, so a HAVING here would compare something no aggregate
+           produced. The abandoned-cart table is the other half -- see its `ss_items`. */
+        return $this->applyFilters(
+            $model->newQuery()->with('UserData')->where('store_id', getCurrentStore())
+        )->groupBy('customer_id');
+    }
+
+    /** MKT-002's wishlist filters, all per-row and therefore all WHERE. */
+    private function applyFilters(QueryBuilder $query): QueryBuilder
+    {
+        $request = request();
+
+        /*
+         * `is_string` on every read, the shape `ProductDataTable::applyFilters()` established and
+         * states the reason for: `?ss_x[]=v` makes these arrays, and the next filter added here may
+         * compare directly, which is where an array becomes an "Array to string conversion" and a
+         * 500 from a query string. One guard per read makes the safe shape the default.
+         *
+         * AN UNRECOGNISED VALUE DECLINES RATHER THAN NARROWING TO NOTHING. A merchant whose url has
+         * a typo sees the unfiltered list, not an empty one -- and the receipt stays silent for the
+         * same value, so the screen and its wording agree.
+         */
+
+        $status = $request->query('ss_status');
+
+        if (is_string($status) && in_array($status, ['0', '1'], true)) {
+            $query->where('wishlists.status', (int) $status);
+        }
+
+        $from = TableFilterMemory::parseDate($request->query('ss_from'));
+
+        if ($from !== null) {
+            $query->where('wishlists.created_at', '>=', $from->copy()->startOfDay());
+        }
+
+        $to = TableFilterMemory::parseDate($request->query('ss_to'));
+
+        if ($to !== null) {
+            /* `endOfDay()`, because `created_at` is a DATETIME: a bare `<= '2026-03-17'` compares
+               against midnight and drops everything recorded on the day the merchant typed. */
+            $query->where('wishlists.created_at', '<=', $to->copy()->endOfDay());
+        }
+
+        return $query;
     }
 
     /**

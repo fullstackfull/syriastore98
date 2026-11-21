@@ -122,7 +122,30 @@ class SavedViewController extends Controller
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 
-        $route = $view->screen === 'order' ? 'order.index' : 'product.index';
+        /*
+         * ONE ENTRY PER SCREEN, not a two-way branch with a default.
+         *
+         * This was `$view->screen === 'order' ? 'order.index' : 'product.index'`, which was correct
+         * while there were exactly two screens and silently wrong the moment ANA-002 added a third:
+         * an analytics view applied here redirected to the PRODUCT list carrying `ss_period`, and
+         * because that key is outside the product vocabulary `TableFilterMemory::remember()`
+         * resolved to `[]` and FORGOT the merchant's remembered product filters. Found by an
+         * independent review. Nothing in the UI reaches it -- the analytics screen links with
+         * `?ss_view=` instead -- but a default that quietly picks a screen is the shape that made a
+         * two-way branch wrong without anyone editing it.
+         *
+         * A SCREEN WITH NO ENTRY IS REFUSED rather than defaulted, so the next addition fails
+         * loudly here instead of landing a merchant somewhere unrelated.
+         */
+        $route = [
+            'order' => 'order.index',
+            'product' => 'product.index',
+            'analytics' => 'analytics.index',
+        ][$view->screen] ?? null;
+
+        if ($route === null) {
+            return redirect()->back()->with('error', __('This saved view cannot be applied.'));
+        }
 
         return redirect()->route($route, $view->appliedFilters() + [TableFilterMemory::APPLY => 1]);
     }

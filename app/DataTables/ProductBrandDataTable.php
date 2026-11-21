@@ -57,7 +57,7 @@ class ProductBrandDataTable extends DataTable
             ->editColumn('logo', function (ProductBrand $brand) {
                 if (!empty($brand->logo)) {
                     $imagePath = get_file($brand->logo);
-                    $html = '<img src="' . $imagePath . '" alt="" class="category_Image">';
+                    $html = '<img src="' . e($imagePath) . '" alt="" class="category_Image">';
                 } else {
                     $html = '-';
                 }

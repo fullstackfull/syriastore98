@@ -9,11 +9,54 @@ class ThemeAnalyticController extends Controller
     public function index()
     {
         $user  = auth()->user();
+
+        /*
+         * THE PERMISSION WAS ENFORCED ONLY BY THE SIDEBAR MENU, which is the exact sentence
+         * `ReportPermission`'s docblock uses to describe the P1-SEC-09 defect it was created to fix.
+         *
+         * MEASURED 2026-11-21. `CompanyMenuListener:50-60` publishes this screen as "Store
+         * Analytics" with `'permission' => 'Manage Store Analytics'`, and `Menu::permits()` honours
+         * that — so the entry is hidden from a staff member who does not hold it. But the route
+         * (`routes/web.php:471`, `themean-alytic`) carries only
+         * `web, Authenticate, XSS, SetLocate, EmailIsVerified`: NO permission middleware. And the
+         * controller's only check was `$user->type != 'super admin'`, which is a BRANCH deciding
+         * which data path to run, not a refusal. So any verified user reached this store's traffic
+         * analytics — page-view counts by URL, device, browser and platform — by typing the URL.
+         * Store-scoped (`getCurrentStore()` / `current_store`), so within one tenant: vertical, not
+         * cross-tenant, and the same class P1-SEC-09 closed for `ReportController`'s 29 methods.
+         *
+         * THE RULE IS NOT INVENTED, it is the one this product already enforces for the SAME screen
+         * on the API side: `Api\DashboardController` refuses without
+         * `['Manage Store Analytics', 'Manage Dashboard']` (:1278, :3966) through the same
+         * `MerchantPermissions::allowsAny()` helper, and its comment at :1273 states why. The web
+         * screen simply never got it. Matching the API exactly is what keeps the two from
+         * disagreeing about who may read one figure.
+         *
+         * `allowsAny()` RATHER THAN `isAbleTo()`, per CLAUDE.md and the Phase 05 plan: it answers
+         * `[WILDCARD]` for the platform operator (`UserPolicy::isOperator`), because Laratrust has
+         * no super-admin bypass and `isAbleTo()` alone would refuse the one principal who reads
+         * every store. It also scopes roles to THIS store, which `allPermissions()` does not.
+         *
+         * BEFORE THE WORK IT GATES. P1-SEC-22 (f) found this ordering wrong in
+         * `CartController::abandon_carts_messsend` — the lookup and relation load ran before the
+         * permission check, so a staff member without it still drove the queries. The refusal is a
+         * redirect with an error, never a 401: these are web routes, but the shipped Flutter app
+         * force-logs-out on any 401 and the rule is applied uniformly.
+         */
+        $storeId = getCurrentStore();
+
+        if (! \App\Services\MerchantPermissions::allowsAny(
+            $user,
+            ['Manage Store Analytics', 'Manage Dashboard'],
+            $storeId
+        )) {
+            return redirect()->back()->with('error', __('Permission denied.'));
+        }
+
         if($user->type != 'super admin')
         {
             
             $theme     = APP_THEME();     
-            $storeId     = getCurrentStore();            
             $chartData = $this->getStoreOrderChart(['duration' => 'month'], $theme, $user, $storeId);
     
             $visitor_url   = \DB::table('shetabit_visits')
