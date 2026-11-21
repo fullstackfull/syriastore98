@@ -108,6 +108,56 @@ final class MetricWindowPreviousTest extends TestCase
     }
 
     /**
+     * THE BOUNDS COME BACK DAY-ALIGNED, which is the property that stops a 24-hour hole.
+     *
+     * This is a REGRESSION TEST for a defect this method really had: `to` was returned at 00:00,
+     * and `MerchantAnalyticsFigures` counts with `whereBetween` directly rather than through
+     * `applyTo()`, so every order placed DURING the baseline's last day fell between the two
+     * periods and was counted in neither. `AnalyticsComparisonTest`'s boundary case found it.
+     *
+     * `applyTo()` re-applies the same widening, which is idempotent, so aligning here is safe for
+     * both paths -- and it means a consumer cannot get this wrong by forgetting.
+     */
+    public function test_the_baseline_bounds_are_day_aligned_so_a_naive_consumer_cannot_lose_a_day(): void
+    {
+        $previous = MetricWindow::between(
+            CarbonImmutable::parse('2026-10-22 00:00:00'),
+            CarbonImmutable::parse('2026-11-20 23:59:59'),
+        )->previous();
+
+        $this->assertSame('00:00:00', $previous->from()->format('H:i:s'),
+            'The baseline must start at the very beginning of its first day.');
+
+        $this->assertSame('23:59:59', $previous->to()->format('H:i:s'), sprintf(
+            'The baseline ends at %s. Any consumer that passes these bounds straight into a '
+            . 'whereBetween -- which MerchantAnalyticsFigures does -- then drops every row dated '
+            . 'DURING the final day, and since the window itself begins the next midnight those '
+            . 'rows are counted in NEITHER period and vanish from the comparison.',
+            $previous->to()->format('H:i:s')
+        ));
+
+        $window = MetricWindow::between(
+            CarbonImmutable::parse('2026-10-22 00:00:00'),
+            CarbonImmutable::parse('2026-11-20 23:59:59'),
+        );
+
+        /*
+         * CONTIGUITY IS ASSERTED ON DAY BOUNDARIES, NOT BY ADDING A SECOND, and the first draft of
+         * this assertion got that wrong: Carbon's `endOfDay()` is 23:59:59.999999, so
+         * `->addSecond()` lands on 00:00:00.999999 and is NOT equal to the window's 00:00:00. The
+         * assertion failed while the code was right, which is the cheaper of the two mistakes but
+         * still a wrong test. The micros are harmless against the schema -- a DATETIME column
+         * stores at most 23:59:59, so `<= 23:59:59.999999` includes it -- and what actually
+         * matters is that the baseline's last DAY is the one before the window's first.
+         */
+        $this->assertTrue(
+            $previous->to()->startOfDay()->addDay()->equalTo($window->from()->startOfDay()),
+            'The baseline\'s last day is not the day before the window\'s first, so there is a '
+            . 'gap or an overlap between the two periods.'
+        );
+    }
+
+    /**
      * THE REFUSALS, which are the point of the method rather than its edge cases.
      *
      * A window with an open end has no length — `since($from)` runs to whenever the query executes

@@ -4226,5 +4226,7 @@
     "These figures cross store boundaries and are visible to the platform operator only.": "هذه الأرقام تتجاوز حدود المتاجر وتظهر لمشغّل المنصّة فقط.",
     "This figure is stored at limited precision and may differ from the ledger in the smallest units.": "هذا الرقم مخزَّن بدقة محدودة وقد يختلف عن السجل المالي في أصغر الوحدات.",
     "The money amounts in this row are stored at limited precision and may differ from the ledger in the smallest units.": "المبالغ المالية في هذا الصف مخزَّنة بدقة محدودة وقد تختلف عن السجل المالي في أصغر الوحدات.",
-    "What these figures leave out": "ما لا تشمله هذه الأرقام"
+    "What these figures leave out": "ما لا تشمله هذه الأرقام",
+    "the :count days before that": "الـ :count يوماً السابقة لها",
+    "There is no figure for the earlier period to compare against, so no percentage is shown.": "لا يوجد رقم للفترة السابقة للمقارنة به، لذلك لا تُعرض نسبة مئوية."
 }

@@ -4230,5 +4230,7 @@
     "Some orders in this period have no financial record, so they are not included in this figure.": "Some orders in this period have no financial record, so they are not included in this figure.",
     "Orders with no customer attached are not counted: they cannot be matched to a returning shopper.": "Orders with no customer attached are not counted: they cannot be matched to a returning shopper.",
     "The money amounts in this row are stored at limited precision and may differ from the ledger in the smallest units.": "The money amounts in this row are stored at limited precision and may differ from the ledger in the smallest units.",
-    "What these figures leave out": "What these figures leave out"
+    "What these figures leave out": "What these figures leave out",
+    "the :count days before that": "the :count days before that",
+    "There is no figure for the earlier period to compare against, so no percentage is shown.": "There is no figure for the earlier period to compare against, so no percentage is shown."
 }

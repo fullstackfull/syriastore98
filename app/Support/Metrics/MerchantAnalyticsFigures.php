@@ -73,6 +73,28 @@ final class MerchantAnalyticsFigures
         $orders = self::countOrders($storeId, $from, $to);
         $visits = self::countVisits($storeId, $from, $to);
 
+        /*
+         * ANA-002 — THE BASELINE, AND WHY ONLY THE TWO COUNTS GET ONE.
+         *
+         * `MetricWindow::previous()` gives the equally long period ending the day before this one
+         * begins. It cannot be null here because both bounds are set a few lines above; the null
+         * case exists for unbounded windows and is asserted in its own test.
+         *
+         * THE COUNTS ARE COMPARABLE AND THE MONEY IS NOT, and that asymmetry is measured rather
+         * than cautious. `orders` comes from `orders` and `visits` from `shetabit_visits` -- both
+         * tables hold the whole history, so a 30-day baseline is as complete as the 30 days after
+         * it. The money tiles come from `FinanceLedgerFigures`, which inherits `LedgerCoverage`'s
+         * verified start: `store_order_financials` holds nothing before 2026-11-02 and is NOT
+         * backfilled, by owner decision. A baseline reaching back 31-60 days therefore lands
+         * partly or wholly before coverage, so the prior figure would be understated by an unknown
+         * amount and the delta would be a FALSE CLAIM dressed as a trend -- which is worse than no
+         * comparison, because a merchant reads a delta as a fact about their business. Those tiles
+         * are left alone until the coverage question is answered for them.
+         */
+        $baseline = \App\Support\Metrics\MetricWindow::between($from, $to)->previous();
+
+        $baselinePeriod = __('the :count days before that', ['count' => number_format(self::RECENT_DAYS)]);
+
         return [
             'coverage' => $money['coverage'],
             'payments' => $money['payments'],
@@ -81,11 +103,21 @@ final class MerchantAnalyticsFigures
                 'value' => self::ltr(number_format($orders)),
                 'period' => $period,
                 'hint' => __('Orders placed in this period, whatever their payment status. It is not a money figure and does not exclude orders later cancelled or refunded.'),
+                'comparison' => self::comparison(
+                    $orders,
+                    self::countOrders($storeId, $baseline->from(), $baseline->to()),
+                    $baselinePeriod
+                ),
             ],
             'visits' => [
                 'value' => self::ltr(number_format($visits)),
                 'period' => $period,
                 'hint' => self::visitsMeaning(),
+                'comparison' => self::comparison(
+                    $visits,
+                    self::countVisits($storeId, $baseline->from(), $baseline->to()),
+                    $baselinePeriod
+                ),
             ],
             'conversion' => self::conversion($orders, $visits, $period),
             'customers' => self::customers($storeId, $from, $to, $period),
@@ -343,6 +375,67 @@ final class MerchantAnalyticsFigures
             ])),
             'period' => $period,
             'hint' => $hint,
+        ];
+    }
+
+    /**
+     * ONE PERIOD AGAINST THE ONE BEFORE IT. ANA-002.
+     *
+     * The shape is deliberately NOT a pre-formatted sentence: `direction` is a machine value so a
+     * view can word and style it, and the numbers are formatted separately. A single string would
+     * force the view to parse it, and would make the Arabic wording unchangeable without touching
+     * arithmetic.
+     *
+     * NO SIGN CHARACTER IS EMITTED, and that is a bidi decision rather than a style one. A leading
+     * `+` or `-` beside a Western-digit number inside an Arabic sentence reorders unpredictably
+     * -- the sign can end up on the far side of the digits -- so the magnitude is formatted
+     * unsigned and wrapped in the isolates the rest of this class uses, and the DIRECTION travels
+     * as its own value. The view says "up"/"down" in words, in either language.
+     *
+     * THE PERCENTAGE IS WITHHELD WHEN THERE IS NOTHING TO DIVIDE BY, which is the one place a
+     * comparison can state a falsehood with a straight face. A baseline of zero and a current
+     * figure of forty is not "+100%" and is not "+4000%" and is certainly not infinity: it is a
+     * start from nothing, and the only true statement is the absolute change plus the fact that
+     * there was no prior figure. `percent` is null in that case and `note` says why, exactly as
+     * the figure tiles use `value => null` to mean "we cannot tell you this".
+     *
+     * MEASURED while mutation-testing this method: removing that guard does not merely print a
+     * misleading percentage, it throws `DivisionByZeroError` on PHP 8 and the whole screen 500s for
+     * any store whose previous period was empty -- which is every new store. So the guard is the
+     * difference between an honest tile and an outage, not a stylistic nicety.
+     *
+     * Zero against zero is `same` with a 0% change, which IS computable and is not a refusal.
+     *
+     * @return array{direction:string, change:string, baseline:string, period:string, percent:?string, note:?string}
+     */
+    private static function comparison(int $current, int $baseline, string $baselinePeriod): array
+    {
+        $difference = $current - $baseline;
+
+        $direction = match (true) {
+            $difference > 0 => 'up',
+            $difference < 0 => 'down',
+            default => 'same',
+        };
+
+        $percent = null;
+        $note = null;
+
+        if ($baseline === 0 && $current === 0) {
+            $percent = self::ltr(number_format(0, 1) . '%');
+        } elseif ($baseline === 0) {
+            $note = __('There is no figure for the earlier period to compare against, so no percentage is shown.');
+        } else {
+            $percent = self::ltr(number_format(abs($difference) / $baseline * 100, 1) . '%');
+        }
+
+        return [
+            'direction' => $direction,
+            'change' => self::ltr(number_format(abs($difference))),
+            'baseline' => self::ltr(number_format($baseline)),
+            'period' => $baselinePeriod,
+            'percent' => $percent,
+            'note' => $note,
         ];
     }
 

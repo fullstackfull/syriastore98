@@ -133,9 +133,23 @@ final class MetricWindow
 
         $days = $firstDay->diffInDays($lastDay) + 1;
 
+        /*
+         * THE BOUNDS COME BACK DAY-ALIGNED, and that is a fix rather than a flourish.
+         *
+         * MEASURED: returning `to` at 00:00 opened a 24-HOUR HOLE between the two periods for any
+         * consumer that does not route the window through `applyTo()`. `MerchantAnalyticsFigures`
+         * counts with `whereBetween('order_date', [$from, $to])` directly, so a baseline ending
+         * 21 October 00:00 silently dropped every order placed DURING 21 October -- and the
+         * window itself starts 22 October 00:00, so those orders were counted in neither period
+         * and simply vanished from the comparison. The boundary test found it on its first run.
+         *
+         * Aligning here instead of at each call site is the right place for it: `applyTo()`
+         * re-applies startOfDay/endOfDay, which is idempotent, so a window built this way is
+         * correct through BOTH paths and a naive consumer cannot get it wrong.
+         */
         return new self(
-            $firstDay->copy()->subDays($days),
-            $firstDay->copy()->subDay(),
+            $firstDay->copy()->subDays($days)->startOfDay(),
+            $firstDay->copy()->subDay()->endOfDay(),
         );
     }
 
