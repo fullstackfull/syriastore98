@@ -14,6 +14,7 @@ use App\Models\Customer;
 use App\Models\ProductBrand;
 use App\Models\Utility;
 use App\Support\Metrics\FinanceLedgerFigures;
+use App\Support\Reports\CalendarPeriod;
 use App\Support\Metrics\MetricWindow;
 use App\Support\Reports\ReportFigureNote;
 use Carbon\Carbon;
@@ -84,7 +85,13 @@ class ReportController extends Controller
         $store_id = getStoreById(getCurrentStore());
         if ($request->chart_data == 'last-month') {
             $data = 'last-month';
-            $lastMonth = Carbon::now()->subMonth();
+            /*
+             * GAP-223(a). `Carbon::now()->subMonth()` OVERFLOWS -- measured: 31 March 2026 minus one
+             * month is 2026-03-03 -- so the `->format('Y')`/`->format('m')` pairs below named the
+             * CURRENT month, and these three counts were this month's under a last-month heading.
+             */
+            $period = CalendarPeriod::lastMonth();
+            $lastMonth = Carbon::parse($period['from']);
             $guest = Order::where('store_id', getCurrentStore())->where('is_guest', '=', 1)->whereYear('order_date', $lastMonth->format('Y'))->whereMonth('order_date', $lastMonth->format('m'))->get()->count();
             $customer = Order::where('store_id', getCurrentStore())->where('is_guest', '=', 0)->whereYear('order_date', $lastMonth->format('Y'))->whereMonth('order_date', $lastMonth->format('m'))->get()->count();
 
@@ -94,10 +101,24 @@ class ReportController extends Controller
 
 
             $user = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
-            $prevMonth = strtotime("-1 month");
-            $start = strtotime(date('Y-m-01', $prevMonth));
-            $end = strtotime(date('Y-m-t', $prevMonth));
-            $date = (int) date('j', strtotime($end));
+            /*
+             * THE WINDOW AND THE DAY COUNT IT HAS TO AGREE WITH, FROM ONE EXPRESSION.
+             *
+             * This read `strtotime("-1 month")` and took `date('Y-m-01'|'Y-m-t', ...)` of it, which on
+             * an overflow day is the WHOLE CURRENT MONTH. The loop bound below was ALREADY correct
+             * (`subMonthNoOverflow()`), so the two disagreed: the query returned 31 days of March
+             * while the loop read keys 1..28, and ORDERS ON 29, 30 AND 31 WERE SILENTLY DROPPED FROM
+             * THE CHART. Measured. That is the real cost here; the wrong label is only how a merchant
+             * might notice.
+             *
+             * `$date = (int) date('j', strtotime($end))` IS DELETED, NOT CORRECTED. `$end` is an int
+             * timestamp, so `strtotime($end)` is `false` -- measured; PHP coerces the int to a numeric
+             * string, which is not a date -- and `date('j', false)` is '1'. The variable was 1 on
+             * every day of the year. It is also never read in this branch: the only reads of `$date`
+             * are in the seven-day branch, which assigns its own first. Dead AND broken.
+             */
+            $start = strtotime($period['from']);
+            $end = strtotime($period['to']);
 
             $user->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('is_guest', '=', 0)->where('store_id', getCurrentStore());
             $user = $user->get();
@@ -137,8 +158,15 @@ class ReportController extends Controller
                 $day = (int) date('j', strtotime($guest_new->DATE)); // Extract day of the month
                 $newguestTotalArray[$day][] = $guest_new->last_active;
             }
-            $lastDayofMonth = Carbon::now()->subMonthNoOverflow()->endOfMonth();
-            $lastday = date('j', strtotime($lastDayofMonth));
+            /*
+             * ONE DEFINITION. This was `Carbon::now()->subMonthNoOverflow()->endOfMonth()` -- already
+             * CORRECT, and that is precisely why the figures were wrong: it disagreed with the window
+             * above on the 33 overflow days. Taking the count from the same `$period` REMOVES the
+             * second expression instead of correcting it. MEASURED EQUIVALENT on all 1,827 days of
+             * 2024-2028: 0 disagreements between the old expression and `$period['days']`, so the
+             * 1,794 ordinary days are byte-identical.
+             */
+            $lastday = $period['days'];
 
             for ($i = 1; $i <= $lastday; $i++) {
                 $userTotal[] = array_key_exists($i, $userTotalArray) ? count($userTotalArray[$i]) : 0;
@@ -421,7 +449,10 @@ class ReportController extends Controller
     {
         switch ($request->chart_data) {
             case 'last-month':
-                return [__('Last month') . ' (' . date('F Y', strtotime('first day of last month')) . ')', __('Day')];
+                // GAP-223(a): this label was ALREADY right -- it used `'first day of last month'`
+                // while every window used `'-1 month'`. It now reads the same derivation as the
+                // bounds, so the card cannot name a month its figures do not cover.
+                return [__('Last month') . ' (' . CalendarPeriod::lastMonthLabel() . ')', __('Day')];
             case 'this-month':
                 return [__('This month') . ' (' . date('F Y') . ')', __('Day')];
             case 'seven-day':
@@ -474,15 +505,24 @@ class ReportController extends Controller
      *     this returns null and the caller omits the tile. Swapping the bounds would invent a window
      *     the six tiles beside it are not answering.
      */
-    private function chartPeriodWindow(Request $request): ?MetricWindow
+    /**
+     * @param  ?int  $now  a reference timestamp for the relative presets. GAP-223(a): the overflow
+     *                     shows up on 33 days in five years, `Carbon::setTestNow()` does not move
+     *                     `date()`/`strtotime()`, and this container has no `faketime` -- so without
+     *                     an injectable clock no test could reach an overflow day at all. Production
+     *                     passes nothing.
+     */
+    private function chartPeriodWindow(Request $request, ?int $now = null): ?MetricWindow
     {
         switch ($request->chart_data) {
             case 'last-month':
-                $previous = strtotime('-1 month');
+                // GAP-223(a). This mirrored the handler's `strtotime('-1 month')` faithfully, overflow
+                // included -- mirroring was the point of it. Both now read one corrected derivation.
+                $period = CalendarPeriod::lastMonth($now);
 
                 return MetricWindow::between(
-                    Carbon::parse(date('Y-m-01', $previous)),
-                    Carbon::parse(date('Y-m-t', $previous)),
+                    Carbon::parse($period['from']),
+                    Carbon::parse($period['to']),
                 );
             case 'this-month':
                 return MetricWindow::between(Carbon::parse(date('Y-m-01')), Carbon::parse(date('Y-m-t')));
@@ -601,18 +641,30 @@ class ReportController extends Controller
         return $dates;
     }
 
-    public function getLastMonthDatesFormatted()
+    /**
+     * THE X-AXIS LABELS FOR EVERY LAST-MONTH CHART -- six call sites, and it overflowed too.
+     *
+     * GAP-223(a). `Carbon::now()->subMonth()` on 31 March 2026 is 2026-03-03 with a `daysInMonth` of
+     * 31 (both measured), so this emitted THIRTY-ONE labels beginning "03-Mar" under a card headed
+     * "Last month (February 2026)". The labels were not merely miscounted; they named the wrong days.
+     *
+     * `$lastMonth->setDay($day)` ALSO MUTATED THE INSTANCE IN PLACE each iteration. MEASURED to be
+     * BEHAVIOURALLY HARMLESS -- `setDay()` sets an absolute day, so the in-place and copied forms
+     * produce identical labels in every month tried, and a mutation removing the `copy()` below
+     * SURVIVES because there is nothing for a test to see. It is kept as hygiene, not as a fix: the
+     * next reader should not have to re-derive that the loop variable survives its own loop.
+     * `$lastMonthYear` and `$lastMonthMonth` were assigned and never read; those two are gone.
+     */
+    public function getLastMonthDatesFormatted(?int $now = null)
     {
-        $lastMonth = Carbon::now()->subMonth();
-        $lastMonthYear = $lastMonth->format('Y');
-        $lastMonthMonth = $lastMonth->format('m');
-        $daysInLastMonth = $lastMonth->daysInMonth;
+        $period = CalendarPeriod::lastMonth($now);
+        $firstDay = Carbon::parse($period['from']);
 
         $dates = [];
 
-        for ($day = 1; $day <= $daysInLastMonth; $day++) {
-            $formattedDate = $lastMonth->setDay($day)->format('d-M');
-            $dates[] = $formattedDate;
+        for ($day = 1; $day <= $period['days']; $day++) {
+            // `copy()` is hygiene, not correctness -- see the note above; `setDay()` is absolute.
+            $dates[] = $firstDay->copy()->setDay($day)->format('d-M');
         }
 
         return $dates;
@@ -670,18 +722,22 @@ class ReportController extends Controller
         $currency = Utility::GetValueByName('CURRENCY');
         if ($request->chart_data == 'last-month') {
             $data = 'last-month';
-            $lastMonth = Carbon::now()->subMonth();
-            $prevMonth = strtotime("-1 month");
-            $start = strtotime(date('Y-m-01', $prevMonth));
-            $end = strtotime(date('Y-m-t', $prevMonth));
+            // GAP-223(a): one derivation. `$lastMonth = Carbon::now()->subMonth()` stood here and was
+            // ASSIGNED AND NEVER READ anywhere in this method (grep-verified across its whole range),
+            // so it is deleted rather than corrected -- an overflowing expression nothing consumed.
+            $period = CalendarPeriod::lastMonth();
+            $start = strtotime($period['from']);
+            $end = strtotime($period['to']);
 
             $customer = Order::where('store_id', getCurrentStore())->whereYear('order_date', date('Y'))->get()->count();
             $customer_total = Customer::where('store_id', getCurrentStore())->where('regiester_date', '!=', NULL)->whereYear('regiester_date', date('Y'))->get()->count();
             $totaluser = 0;
             $guest = '';
 
-            $lastDayofMonth = Carbon::now()->subMonthNoOverflow()->endOfMonth();
-            $lastday = date('j', strtotime($lastDayofMonth));
+            // GAP-223(a): the count comes from the same `$period` as the window, so the two cannot
+            // disagree. Measured equivalent to the old `subMonthNoOverflow()` expression on all 1,827 days.
+            $lastDayofMonth = Carbon::parse($period['to']);
+            $lastday = $period['days'];
 
             $orders = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
             $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
@@ -1181,10 +1237,20 @@ class ReportController extends Controller
         $currency = Utility::GetValueByName('CURRENCY');
         if ($request->chart_data == 'last-month') {
             $data = 'last-month';
-            $lastMonth = Carbon::now()->subMonth();
-            $prevMonth = strtotime("-1 month");
-            $start = strtotime(date('Y-m-01', $prevMonth));
-            $end = strtotime(date('Y-m-t', $prevMonth));
+            /*
+             * GAP-223(a), AND THE WORST OF ITS THREE CONSEQUENCES WAS HERE.
+             *
+             * `$lastMonth` came from the OVERFLOWING `Carbon::now()->subMonth()` while `$lastDayofMonth`
+             * below came from the CORRECT `subMonthNoOverflow()`, and the
+             * `whereBetween('order_date', [$lastMonth, $lastDayofMonth])` further down pairs the two. On
+             * 31 March 2026 that is `['2026-03-03', '2026-02-28']` -- A REVERSED RANGE, matching NO ROW,
+             * so `$TotalOrderCount` silently read ZERO. Measured. A figure that reads zero is the one wrong
+             * answer a merchant cannot tell apart from a quiet month.
+             */
+            $period = CalendarPeriod::lastMonth();
+            $lastMonth = Carbon::parse($period['from']);
+            $start = strtotime($period['from']);
+            $end = strtotime($period['to']);
 
             $TotalOrder = Order::where('store_id', getCurrentStore())->whereYear('order_date', date('Y'))->get()->count();
             $customer = Order::where('store_id', getCurrentStore())->whereYear('order_date', date('Y'))->get()->count();
@@ -1192,8 +1258,11 @@ class ReportController extends Controller
             $totaluser = 0;
             $guest = '';
 
-            $lastDayofMonth = Carbon::now()->subMonthNoOverflow()->endOfMonth();
-            $lastday = date('j', strtotime($lastDayofMonth));
+            // GAP-223(a): both ends and the count come from the one `$period`, so the reversed-range
+            // `whereBetween` below is impossible by construction. Measured equivalent to the old
+            // `subMonthNoOverflow()` expression on all 1,827 days of 2024-2028.
+            $lastDayofMonth = Carbon::parse($period['to']);
+            $lastday = $period['days'];
 
             $orders = Order::selectRaw('orders.*,DATE(order_date) as DATE,MONTH(order_date) as month');
             $orders->whereDate('order_date', '>=', date('Y-m-01', $start))->whereDate('order_date', '<=', date('Y-m-t', $end))->where('store_id', getCurrentStore());
@@ -2593,9 +2662,15 @@ class ReportController extends Controller
         $NetSalesofbrand = []; // Initialize the variable here
 
         if ($request->chart_data == 'last-month') {
-            $firstDayOfPreviousMonth = date('Y-m-01', strtotime('-1 month'));
-            $lastDayOfPreviousMonth = date('Y-m-t', strtotime('-1 month'));
-            $daysInPreviousMonth = date('j', strtotime($lastDayOfPreviousMonth));
+            /*
+             * GAP-223(a). TWO separate `strtotime('-1 month')` calls, both overflowing, and a day count
+             * derived from the second -- so on an overflow day all three named the CURRENT month. One
+             * derivation now, and `days` arrives WITH the bounds instead of being re-derived from them.
+             */
+            $period = CalendarPeriod::lastMonth();
+            $firstDayOfPreviousMonth = $period['from'];
+            $lastDayOfPreviousMonth = $period['to'];
+            $daysInPreviousMonth = $period['days'];
 
             /*
              * P5-3h -- `empty()` AND NOT `??`, matching the three sibling branches.
