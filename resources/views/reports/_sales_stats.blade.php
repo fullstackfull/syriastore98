@@ -14,12 +14,12 @@
         <x-ss.stat :label="__('Order value, including shipping and tax')"
                :value="$currency . (!empty($TotalgrossSale) ? $TotalgrossSale : '0.00')"
                :period="$periodLabel"
-               :hint="__('The full amount the orders came to: after coupons, and including shipping and tax. This is what customers were asked to pay, not what they paid, and not profit.')" />
+               :hint="\App\Support\Reports\ReportFigureNote::grossOrderValueHint()" />
 
         <x-ss.stat :label="__('Order value')"
                :value="$currency . (!empty($TotalNetSale) ? $TotalNetSale : '0.00')"
                :period="$periodLabel"
-               :hint="__('The total value of items ordered. This is not payments received, and not profit.')" />
+               :hint="\App\Support\Reports\ReportFigureNote::orderValueHint()" />
 
         {{-- COUNTS, so no currency symbol. --}}
         <x-ss.stat :label="__('Orders')"

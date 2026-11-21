@@ -4224,5 +4224,7 @@
     "Some orders in this period have no financial record, so they are not included in this figure.": "بعض الطلبات في هذه الفترة لا تملك سجلاً ماليًا، لذلك لا تدخل في هذا الرقم.",
     "Orders with no customer attached are not counted: they cannot be matched to a returning shopper.": "الطلبات غير المرتبطة بعميل غير محسوبة: لا يمكن مطابقتها بمتسوّق عائد.",
     "These figures cross store boundaries and are visible to the platform operator only.": "هذه الأرقام تتجاوز حدود المتاجر وتظهر لمشغّل المنصّة فقط.",
-    "This figure is stored at limited precision and may differ from the ledger in the smallest units.": "هذا الرقم مخزَّن بدقة محدودة وقد يختلف عن السجل المالي في أصغر الوحدات."
+    "This figure is stored at limited precision and may differ from the ledger in the smallest units.": "هذا الرقم مخزَّن بدقة محدودة وقد يختلف عن السجل المالي في أصغر الوحدات.",
+    "The money amounts in this row are stored at limited precision and may differ from the ledger in the smallest units.": "المبالغ المالية في هذا الصف مخزَّنة بدقة محدودة وقد تختلف عن السجل المالي في أصغر الوحدات.",
+    "What these figures leave out": "ما لا تشمله هذه الأرقام"
 }

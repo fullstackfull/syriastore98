@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Models\Customer;
 use App\Models\ProductBrand;
 use App\Models\Utility;
+use App\Support\Reports\ReportFigureNote;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
@@ -975,6 +976,21 @@ class ReportController extends Controller
         $return['PurchasedItemTotal'] = $requests_data['PurchasedItemTotal'] ?? [];
         $return['ShippingTotal'] = $requests_data['ShippingTotal'] ?? [];
         $return['CouponTotal'] = $requests_data['CouponTotal'] ?? [];
+
+        /*
+         * P05-15 / ANA-007. THE FILE CARRIES THE SCREEN'S DISCLOSURE, FROM THE SCREEN'S OWN SOURCE.
+         *
+         * Phase 05's rule is that an export carries the same caveats as the screen and that one
+         * which drops a caveat is a defect. Before this, all five of these exports handed the
+         * merchant a bare money column: nothing said the figure is not payments received and not
+         * profit, and nothing said it is held at limited precision.
+         *
+         * `ReportFigureNote` is the SAME method the screen's `:hint` calls, so the two cannot
+         * drift -- there is one sentence, already resolved by `__()` in this request's locale, so
+         * an Arabic session exports Arabic. Read its docblock for why FLOAT_PRECISION is the only
+         * caveat here and why no payment-status wording was invented.
+         */
+        $return['figureNote'] = ReportFigureNote::moneyRowHint();
         return response()->json($return);
     }
 
@@ -995,6 +1011,21 @@ class ReportController extends Controller
         // principal's own session; no new query and no request-supplied input.
         $return['TotalOrderCount'] = $requests_data['TotalOrderCount'] ?? [];
         $return['PurchasedItemTotal'] = $requests_data['PurchasedItemTotal'] ?? [];
+
+        /*
+         * P05-15 / ANA-007. THE FILE CARRIES THE SCREEN'S DISCLOSURE, FROM THE SCREEN'S OWN SOURCE.
+         *
+         * Phase 05's rule is that an export carries the same caveats as the screen and that one
+         * which drops a caveat is a defect. Before this, all five of these exports handed the
+         * merchant a bare money column: nothing said the figure is not payments received and not
+         * profit, and nothing said it is held at limited precision.
+         *
+         * `ReportFigureNote` is the SAME method the screen's `:hint` calls, so the two cannot
+         * drift -- there is one sentence, already resolved by `__()` in this request's locale, so
+         * an Arabic session exports Arabic. Read its docblock for why FLOAT_PRECISION is the only
+         * caveat here and why no payment-status wording was invented.
+         */
+        $return['figureNote'] = ReportFigureNote::moneyRowHint();
         return response()->json($return);
     }
 
@@ -1880,6 +1911,21 @@ class ReportController extends Controller
         $return['monthList'] = $requests_data['monthList'] ?? [];
         $return['NetSaleTotal'] = $requests_data['NetSaleTotal'] ?? [];
         $return['PurchasedItemTotal'] = $requests_data['PurchasedItemTotal'] ?? [];
+
+        /*
+         * P05-15 / ANA-007. THE FILE CARRIES THE SCREEN'S DISCLOSURE, FROM THE SCREEN'S OWN SOURCE.
+         *
+         * Phase 05's rule is that an export carries the same caveats as the screen and that one
+         * which drops a caveat is a defect. Before this, all five of these exports handed the
+         * merchant a bare money column: nothing said the figure is not payments received and not
+         * profit, and nothing said it is held at limited precision.
+         *
+         * `ReportFigureNote` is the SAME method the screen's `:hint` calls, so the two cannot
+         * drift -- there is one sentence, already resolved by `__()` in this request's locale, so
+         * an Arabic session exports Arabic. Read its docblock for why FLOAT_PRECISION is the only
+         * caveat here and why no payment-status wording was invented.
+         */
+        $return['figureNote'] = ReportFigureNote::orderValueHint();
         return response()->json($return);
     }
 
@@ -2363,6 +2409,21 @@ class ReportController extends Controller
         $requests_data = Session::get('category_order_report') ?? [];
         $return['monthList'] = $requests_data['monthList'] ?? [];
         $return['NetSaleTotal'] = $requests_data['NetSaleTotal'] ?? [];
+
+        /*
+         * P05-15 / ANA-007. THE FILE CARRIES THE SCREEN'S DISCLOSURE, FROM THE SCREEN'S OWN SOURCE.
+         *
+         * Phase 05's rule is that an export carries the same caveats as the screen and that one
+         * which drops a caveat is a defect. Before this, all five of these exports handed the
+         * merchant a bare money column: nothing said the figure is not payments received and not
+         * profit, and nothing said it is held at limited precision.
+         *
+         * `ReportFigureNote` is the SAME method the screen's `:hint` calls, so the two cannot
+         * drift -- there is one sentence, already resolved by `__()` in this request's locale, so
+         * an Arabic session exports Arabic. Read its docblock for why FLOAT_PRECISION is the only
+         * caveat here and why no payment-status wording was invented.
+         */
+        $return['figureNote'] = ReportFigureNote::orderValueHint();
         return response()->json($return);
     }
 
@@ -2908,6 +2969,21 @@ class ReportController extends Controller
             'monthList' => $requests_data['monthList'] ?? [],
             'NetSaleTotal' => $requests_data['NetSaleTotal'] ?? []
         ];
+
+        /*
+         * P05-15 / ANA-007. THE FILE CARRIES THE SCREEN'S DISCLOSURE, FROM THE SCREEN'S OWN SOURCE.
+         *
+         * Phase 05's rule is that an export carries the same caveats as the screen and that one
+         * which drops a caveat is a defect. Before this, all five of these exports handed the
+         * merchant a bare money column: nothing said the figure is not payments received and not
+         * profit, and nothing said it is held at limited precision.
+         *
+         * `ReportFigureNote` is the SAME method the screen's `:hint` calls, so the two cannot
+         * drift -- there is one sentence, already resolved by `__()` in this request's locale, so
+         * an Arabic session exports Arabic. Read its docblock for why FLOAT_PRECISION is the only
+         * caveat here and why no payment-status wording was invented.
+         */
+        $return['figureNote'] = ReportFigureNote::orderValueHint();
         return response()->json($return);
     }
 

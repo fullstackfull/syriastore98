@@ -285,9 +285,27 @@ shipping on the financial row.
    conversion is meaningless.
 4. **`FLOAT`, not `DECIMAL`, on `orders`.** ~7 significant digits on a currency that runs to
    millions. Aggregate on `store_order_financials` (`DECIMAL(15,2)`) wherever both are available.
+   `MetricCaveat::FLOAT_PRECISION` states this of one figure; `MONEY_FLOAT_PRECISION` states the
+   same measured thing of a row carrying several, where "This figure" cannot name which it means.
+   Every money figure in `ReportController`'s report handlers is in this class — each is
+   accumulated in PHP as `+= (float)` off `orders.final_price`, `delivery_price` or `coupon_price`.
 5. **A metric with a known gap displays the gap.** §9 is blocked, §5 excludes partials, §8 has a
    cost caveat, §4 has a date caveat. A number that hides its own limits is worse than no number —
    which is the whole point of "trustworthy analytics".
+6. **An export carries the same disclosure as the screen, as a COLUMN.** A caveat in a header
+   preamble or a trailing comment line does not survive sorting, filtering or copying a range out
+   of a spreadsheet, which is exactly what a merchant does to a downloaded file — so the
+   disclosure is a column repeated on every row (`App\Support\Metrics\FigureCsv` for the
+   `/analytics` and `/finance` figures; `figureNote` in the five `ReportController` export
+   payloads, rendered by each view's client-side CSV builder).
+
+   The sentence must be **read from one source, not restated**: `App\Support\Reports\ReportFigureNote`
+   is what both the screen's `<x-ss.stat>` `:hint` and the export handler call, so the two cannot
+   drift. This rule was vacuous until 2026-11-21 — `MetricCaveat` had zero consumers outside
+   `app/Support/Metrics/` and `tests/`, so there was nothing on any report screen for an export to
+   carry, and all five exports shipped a bare money column. The duplication is also what caused
+   the divergence it was meant to prevent: the "Order value" definition was an identical literal in
+   **four** blades, and two of those four carried the precision caveat beside it while two did not.
 
 ---
 

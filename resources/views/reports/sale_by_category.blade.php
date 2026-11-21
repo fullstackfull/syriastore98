@@ -250,6 +250,7 @@
                                 @json(__('Duration')),
                                 @json(__('Category')),
                                 @json(__('Order value')),
+                                @json(__('What this leaves out')),
                             ].map(function(h) {
                                 return '"' + String(h).replace(/"/g, '""') + '"';
                             }).join(',');
@@ -266,10 +267,28 @@
                             var csvField = function (v) {
                                 return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
                             };
+
+                            {{-- P05-15. THE DISCLOSURE IS A COLUMN, repeated on every row, which is
+                                 the same choice App\Support\Metrics\FigureCsv made for /analytics and
+                                 for the same measured reason: a caveat in a header row or a trailing
+                                 comment line does not survive sorting, filtering, or copying a range
+                                 out of a spreadsheet -- and that is precisely what a merchant does to
+                                 a downloaded file. A column cannot be separated from its number.
+
+                                 The sentence comes from the server (`ReportFigureNote`, the same
+                                 method this screen's own `:hint` calls), so it is already in this
+                                 request's locale and cannot drift from the screen.
+
+                                 QUOTING IS LOAD-BEARING, for exactly the reason the header's is:
+                                 `encodeURI` does NOT escape a comma, and sentences in the
+                                 MetricCaveat vocabulary carry them. Empty when the key is absent, so
+                                 a session stored before this change still downloads a well-formed
+                                 file instead of the word "undefined". --}}
+                            var note = (typeof data.figureNote === 'string') ? data.figureNote : '';
                             data.NetSaleTotal.forEach(function(category) {
                                 for (var i = 0; i < data.monthList.length; i++) {
                                     var netSale = (category.data && category.data[i] != null) ? category.data[i] : 0;
-                                    csvContent += `${data.monthList[i]},${csvField(category.name)},${netSale}\n`;
+                                    csvContent += `${data.monthList[i]},${csvField(category.name)},${netSale},${csvField(note)}\n`;
                                 }
                             });
 

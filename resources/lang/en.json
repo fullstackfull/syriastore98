@@ -4228,5 +4228,7 @@
     "Refund amounts carry no currency and have not been converted.": "Refund amounts carry no currency and have not been converted.",
     "Some of these orders predate currency recording and are counted in your store's currency.": "Some of these orders predate currency recording and are counted in your store's currency.",
     "Some orders in this period have no financial record, so they are not included in this figure.": "Some orders in this period have no financial record, so they are not included in this figure.",
-    "Orders with no customer attached are not counted: they cannot be matched to a returning shopper.": "Orders with no customer attached are not counted: they cannot be matched to a returning shopper."
+    "Orders with no customer attached are not counted: they cannot be matched to a returning shopper.": "Orders with no customer attached are not counted: they cannot be matched to a returning shopper.",
+    "The money amounts in this row are stored at limited precision and may differ from the ledger in the smallest units.": "The money amounts in this row are stored at limited precision and may differ from the ledger in the smallest units.",
+    "What these figures leave out": "What these figures leave out"
 }

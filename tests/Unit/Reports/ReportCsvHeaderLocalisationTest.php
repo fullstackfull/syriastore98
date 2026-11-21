@@ -51,12 +51,25 @@ class ReportCsvHeaderLocalisationTest extends TestCase
      * here so that a change to the data row cannot silently drag the expectation along with it.
      */
     private const SCREENS = [
-        'resources/views/reports/sale_by_brand.blade.php' => 3,
-        'resources/views/reports/sale_by_category.blade.php' => 3,
-        'resources/views/reports/sale_by_product.blade.php' => 3,
-        'resources/views/reports/order_report.blade.php' => 9,
-        'resources/views/reports/bar_chart_order_report.blade.php' => 9,
+        'resources/views/reports/sale_by_brand.blade.php' => 4,
+        'resources/views/reports/sale_by_category.blade.php' => 4,
+        'resources/views/reports/sale_by_product.blade.php' => 4,
+        'resources/views/reports/order_report.blade.php' => 10,
+        'resources/views/reports/bar_chart_order_report.blade.php' => 10,
     ];
+
+    /*
+     * 3 -> 4 and 9 -> 10, P05-15. Every one of these five exports gained ONE column, the
+     * disclosure column: "What this leaves out" where the row carries a single money figure, and
+     * "What these figures leave out" where it carries six. The cell comes from the server, from
+     * `App\Support\Reports\ReportFigureNote` -- the same method the screen's own `<x-ss.stat>`
+     * `:hint` calls -- so the file states what the screen states and the two cannot drift.
+     *
+     * THE COUNT HAD TO MOVE BY HAND, and that is the point of writing it out here: this gate
+     * compares the header's column count against the data row's field count, so it would have
+     * caught a column added to one side only. It did not catch the absent disclosure, because
+     * "the header matches the row" was true of a file that disclosed nothing at all.
+     */
 
     /** The reports hub, which was already correct and is the model, not a target. */
     private const EXEMPLAR = 'resources/views/reports/index.blade.php';
@@ -365,8 +378,11 @@ class ReportCsvHeaderLocalisationTest extends TestCase
     public function test_the_english_header_without_quoting_would_misalign(): void
     {
         $expectedToBreak = [
-            'resources/views/reports/order_report.blade.php' => 9,
-            'resources/views/reports/bar_chart_order_report.blade.php' => 9,
+            // 9 -> 10, P05-15: both files gained the disclosure column. The control still holds --
+            // the new term is comma-free in en.json AND ar.json, so English is still over by the
+            // comma in "Order value, including shipping and tax" and Arabic is still exact.
+            'resources/views/reports/order_report.blade.php' => 10,
+            'resources/views/reports/bar_chart_order_report.blade.php' => 10,
         ];
 
         foreach ($expectedToBreak as $relative => $fields) {
@@ -421,18 +437,18 @@ class ReportCsvHeaderLocalisationTest extends TestCase
          * set must not move: a shipped client could be reading it.
          */
         $guards = [
-            'resources/views/reports/sale_by_brand.blade.php' => ['monthList', 'NetSaleTotal'],
-            'resources/views/reports/sale_by_category.blade.php' => ['monthList', 'NetSaleTotal'],
-            'resources/views/reports/sale_by_product.blade.php' => ['monthList', 'NetSaleTotal', 'PurchasedItemTotal'],
+            'resources/views/reports/sale_by_brand.blade.php' => ['monthList', 'NetSaleTotal', 'figureNote'],
+            'resources/views/reports/sale_by_category.blade.php' => ['monthList', 'NetSaleTotal', 'figureNote'],
+            'resources/views/reports/sale_by_product.blade.php' => ['monthList', 'NetSaleTotal', 'PurchasedItemTotal', 'figureNote'],
             'resources/views/reports/order_report.blade.php' => [
                 'monthList', 'TotalOrderCount', 'NetSaleTotal', 'AverageNetSales',
                 'GrossSaleTotal', 'AverageGrossSales', 'PurchasedItemTotal', 'ShippingTotal',
-                'CouponTotal',
+                'CouponTotal', 'figureNote',
             ],
             'resources/views/reports/bar_chart_order_report.blade.php' => [
                 'monthList', 'NetSaleTotal', 'AverageNetSales', 'GrossSaleTotal',
                 'AverageGrossSales', 'ShippingTotal', 'CouponTotal', 'TotalOrderCount',
-                'PurchasedItemTotal',
+                'PurchasedItemTotal', 'figureNote',
             ],
         ];
 

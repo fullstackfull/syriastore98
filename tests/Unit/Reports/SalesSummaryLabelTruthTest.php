@@ -40,8 +40,22 @@ use Tests\TestCase;
  */
 class SalesSummaryLabelTruthTest extends TestCase
 {
-    /** Every view that renders or exports a sales-summary figure. */
+    /**
+     * Every file that can state a claim about a sales-summary figure.
+     *
+     * P05-15 ADDED THE LAST ENTRY, and it had to be added or this census would have started
+     * passing for the wrong reason. The gross and net definitions used to be string literals
+     * inside `_sales_stats.blade.php`, so grepping that view was the same as reading the
+     * sentences. They now live in `ReportFigureNote` -- one source, read by the screens AND by the
+     * five CSV exports -- so a view-only census would look at a file where the claim no longer is
+     * and report no false claim because it found no claim at all.
+     *
+     * That is a weakening introduced by moving the sentence, caught by this test's own sibling
+     * failing, and it is recorded here because the quiet version of it is a census that measures
+     * nothing.
+     */
     private const VIEWS = [
+        'app/Support/Reports/ReportFigureNote.php',
         'resources/views/reports/_sales_stats.blade.php',
         'resources/views/reports/order_report.blade.php',
         'resources/views/reports/order_chart_data.blade.php',
@@ -109,11 +123,40 @@ class SalesSummaryLabelTruthTest extends TestCase
             . 'statement is the TRUE one, verified against Cart::cart_list_cookie().'
         );
 
+        /*
+         * THE GROSS TILE'S SENTENCE IS NO LONGER A LITERAL IN THIS FILE, so asserting it by
+         * grepping the view would be asserting nothing. P05-15 moved both definitions into
+         * `ReportFigureNote` so that the five CSV exports state what the screen states.
+         *
+         * Following the data path is STRONGER than the grep it replaces: the grep proved a
+         * substring sat somewhere in a 60-line Blade file, while this proves the tile calls the
+         * accessor AND that what the accessor returns contains the statement. A rename of the
+         * method, a wrong method, or a reworded sentence each fail here; only the first of those
+         * would have failed the grep.
+         */
+        $this->assertStringContainsString(
+            'ReportFigureNote::grossOrderValueHint()',
+            $source,
+            'The gross tile no longer reads its hint from ReportFigureNote, so the screen and the '
+            . 'CSV exports can now disagree about what the figure includes.'
+        );
+
         $this->assertStringContainsString(
             'after coupons',
-            $source,
+            \App\Support\Reports\ReportFigureNote::grossOrderValueHint(),
             'The gross tile no longer states that its figure is after coupons, so the card has '
-            . 'stopped agreeing with itself.'
+            . 'stopped agreeing with itself -- the coupon tile on the same card says the discount '
+            . 'is already deducted.'
+        );
+
+        /*
+         * And the net tile beside it, for the same reason: both money tiles on this card now take
+         * their wording from the one source, and both carry the precision caveat they were missing.
+         */
+        $this->assertStringContainsString(
+            'ReportFigureNote::orderValueHint()',
+            $source,
+            'The net Order value tile no longer reads its hint from ReportFigureNote.'
         );
     }
 

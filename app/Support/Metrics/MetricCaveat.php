@@ -101,6 +101,24 @@ final class MetricCaveat
     public const FLOAT_PRECISION = 'float_precision';
 
     /**
+     * THE SAME MEASURED CLAIM AS `FLOAT_PRECISION`, PLURALISED. Not a new monetary definition.
+     *
+     * `FLOAT_PRECISION` says "This figure", which is exactly right for a row carrying one money
+     * figure and wrong for a row carrying several. `order_report` and `bar_chart_order_report`
+     * export NINE columns per period, SIX of them money -- Order value, Average order value, the
+     * two including shipping and tax, Shipping charged and Coupon value applied -- so a cell
+     * saying "This figure" leaves the reader to guess which of the six it means.
+     *
+     * The basis is identical and was measured, not assumed: every one of those six is accumulated
+     * in `ReportController` as `+= (float) $order->...` off `orders.final_price`, which is FLOAT
+     * (see `FLOAT_PRECISION` above). This constant states that about all of them at once. It adds
+     * no inclusion rule, no payment-status predicate and no new definition of any figure -- those
+     * belong to the owner's D1/D2 labelling decisions, and the column HEADERS already carry the
+     * labels those decisions settled.
+     */
+    public const MONEY_FLOAT_PRECISION = 'money_float_precision';
+
+    /**
      * Section 6. The settlement-based and movement-based computations of net receipts disagreed.
      * The document is explicit that this "is a reconciliation defect and must fail the build, not
      * be averaged" -- so the test fails, and a screen that renders anyway must say so.
@@ -182,6 +200,7 @@ final class MetricCaveat
         self::COUPON_REDEMPTION_COVERAGE => 'Coupon redemptions are recorded in full only from the date shown; earlier orders are not included and are not reconstructed.',
         self::MIXED_CURRENCY => 'These amounts are in more than one currency and have not been converted.',
         self::FLOAT_PRECISION => 'This figure is stored at limited precision and may differ from the ledger in the smallest units.',
+        self::MONEY_FLOAT_PRECISION => 'The money amounts in this row are stored at limited precision and may differ from the ledger in the smallest units.',
         self::RECONCILIATION_DIVERGENCE => 'The ledger and the order records disagree on this figure.',
         self::REFUND_AMOUNT_UNCONVERTED => 'Refund amounts carry no currency and have not been converted.',
         self::CURRENCY_UNRECORDED => 'Some of these orders predate currency recording and are counted in your store\'s currency.',

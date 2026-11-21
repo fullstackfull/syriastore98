@@ -323,14 +323,36 @@
                                 @json(__('Coupon value applied')),
                                 @json(__('Orders')),
                                 @json(__('Items ordered')),
+                                @json(__('What these figures leave out')),
                             ].map(function(h) {
                                 return '"' + String(h).replace(/"/g, '""') + '"';
                             }).join(',');
 
                             var csvContent = "data:text/csv;charset=utf-8,﻿" + header + "\n";
+                            var csvField = function (v) {
+                                return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+                            };
+
+                            {{-- P05-15. THE DISCLOSURE IS A COLUMN, repeated on every row, which is
+                                 the same choice App\Support\Metrics\FigureCsv made for /analytics and
+                                 for the same measured reason: a caveat in a header row or a trailing
+                                 comment line does not survive sorting, filtering, or copying a range
+                                 out of a spreadsheet -- and that is precisely what a merchant does to
+                                 a downloaded file. A column cannot be separated from its number.
+
+                                 The sentence comes from the server (`ReportFigureNote`, the same
+                                 method this screen's own `:hint` calls), so it is already in this
+                                 request's locale and cannot drift from the screen.
+
+                                 QUOTING IS LOAD-BEARING, for exactly the reason the header's is:
+                                 `encodeURI` does NOT escape a comma, and sentences in the
+                                 MetricCaveat vocabulary carry them. Empty when the key is absent, so
+                                 a session stored before this change still downloads a well-formed
+                                 file instead of the word "undefined". --}}
+                            var note = (typeof data.figureNote === 'string') ? data.figureNote : '';
                             for (var i = 0; i < data.monthList.length; i++) {
                                 csvContent +=
-                                    `${data.monthList[i]},${data.NetSaleTotal[i]},${data.AverageNetSales[i]},${data.GrossSaleTotal[i]},${data.AverageGrossSales[i]},${data.ShippingTotal[i]},${data.CouponTotal[i]},${data.TotalOrderCount[i]},${data.PurchasedItemTotal[i]}\n`;
+                                    `${data.monthList[i]},${data.NetSaleTotal[i]},${data.AverageNetSales[i]},${data.GrossSaleTotal[i]},${data.AverageGrossSales[i]},${data.ShippingTotal[i]},${data.CouponTotal[i]},${data.TotalOrderCount[i]},${data.PurchasedItemTotal[i]},${csvField(note)}\n`;
                             }
 
                             var encodedUri = encodeURI(csvContent);

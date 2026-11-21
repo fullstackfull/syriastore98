@@ -30,8 +30,7 @@
                                     repeated binary-float addition of a decimal column, which is
                                     exactly "stored at limited precision and may differ from the
                                     ledger in the smallest units". --}}
-                               :hint="__('The total value of items ordered. This is not payments received, and not profit.')
-                                      . ' ' . \App\Support\Metrics\MetricCaveat::message(\App\Support\Metrics\MetricCaveat::FLOAT_PRECISION)" />
+                               :hint="\App\Support\Reports\ReportFigureNote::orderValueHint()" />
                 @endforeach
             </x-ss.stats>
         </div>
