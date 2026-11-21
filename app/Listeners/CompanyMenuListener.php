@@ -414,6 +414,33 @@ $menu->add([
             'module' => $module,
             'permission' => 'Manage Customer'
         ]);
+
+        /*
+         * MKT-004 — Customer Segments.
+         *
+         * A SIBLING AND NOT A CHILD, deliberately. `Customers` above carries its own `route`, and
+         * every parent in this file that has children (`reports`, `order_reports`) has
+         * `'route' => ''` instead -- so turning `Customers` into a parent would mean taking its
+         * route away and changing navigation every merchant already knows. An additive sibling at
+         * order 181 sits immediately beneath it and changes nothing that exists.
+         *
+         * The permission is the one the ROUTE enforces. Naming a different one here would either
+         * hide the screen from people who may open it or advertise it to people who may not -- this
+         * file's own note on the report entries says so, and it was written after P1-SEC-09, where
+         * the menu was the ONLY place a report permission was enforced.
+         */
+        $menu->add([
+            'title' => __('Customer Segments'),
+            'icon' => 'users',
+            'name' => 'customer_segments',
+            'parent' => null,
+            'order' => 181,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'customer-segments.index',
+            'module' => $module,
+            'permission' => 'Manage Customer'
+        ]);
         /** customer end */
 
         /**Reports Start */

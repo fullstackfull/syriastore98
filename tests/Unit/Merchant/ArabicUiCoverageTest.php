@@ -92,6 +92,13 @@ class ArabicUiCoverageTest extends TestCase
         // screens is now asserted, not just future ones.
         'resources/views/analytics/*.blade.php',
         'resources/views/platform/*.blade.php',
+
+        // ADDED WITH THE SURFACE ITSELF (MKT-004, 2026-11-21), which is the only time this list has
+        // ever been widened BEFORE a gap existed rather than after one was measured. This file's own
+        // comments call out twice that a coverage test is only as wide as its list and that a narrow
+        // glob is the one way such a check quietly stops working -- so a new merchant screen gets
+        // its glob in the same change that creates it, not in the audit that finds it later.
+        'resources/views/customer_segments/*.blade.php',
     ];
 
     /**

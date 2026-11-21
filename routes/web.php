@@ -1325,6 +1325,37 @@ Route::get(
         ->middleware('throttle:ai-generate')
         ->name('generate.response');
 
+    /*
+     * MKT-004 — CUSTOMER SEGMENTS, static and dynamic.
+     *
+     * `Manage Customer` IS THE GATE AND IT IS SEEDED. The controller enforces it (operator, then
+     * the tenant owner, then the permission -- the ordering this codebase gets wrong by default),
+     * and the name is the same one `/customer` requires, because a segment lists the same people
+     * with the same e-mail addresses. Introducing a new name would be worse than reusing this one:
+     * a permission absent from `Utility::addNewData()` cannot exist as a row and evaluates FALSE
+     * for everybody, the tenant owner included, and that exact lockout has happened here.
+     *
+     * NO `store_id` IS A PARAMETER on any of these. The store comes from
+     * `OperatorStoreSelection::reportStoreId()`, so an operator with nothing selected is refused
+     * rather than editing store 1's segments (GAP-223(b)).
+     *
+     * The member routes take the SEGMENT in the URL and the customer in the body, and both are
+     * re-resolved inside the store -- `customers.id` values are reused across tenants in a shared
+     * database, so a posted id that names another store's customer must not resolve.
+     */
+    Route::get('customer-segments', [\App\Http\Controllers\CustomerSegmentController::class, 'index'])
+        ->name('customer-segments.index');
+    Route::post('customer-segments', [\App\Http\Controllers\CustomerSegmentController::class, 'store'])
+        ->name('customer-segments.store');
+    Route::get('customer-segments/{id}', [\App\Http\Controllers\CustomerSegmentController::class, 'show'])
+        ->name('customer-segments.show');
+    Route::delete('customer-segments/{id}', [\App\Http\Controllers\CustomerSegmentController::class, 'destroy'])
+        ->name('customer-segments.destroy');
+    Route::post('customer-segments/{id}/members', [\App\Http\Controllers\CustomerSegmentController::class, 'addMember'])
+        ->name('customer-segments.members.add');
+    Route::delete('customer-segments/{id}/members', [\App\Http\Controllers\CustomerSegmentController::class, 'removeMember'])
+        ->name('customer-segments.members.remove');
+
     // Customer Route
     /*
      * P2.5-PKG-C (F-C-04). `except(['edit','update'])`, because `CustomerController` has NEITHER
