@@ -2,6 +2,7 @@
 
 namespace App\DataTables;
 
+use App\Services\TableFilterMemory;
 use App\Models\FlashSale;
 use Illuminate\Database\Eloquent\Builder as QueryBuilder;
 use Yajra\DataTables\EloquentDataTable;
@@ -58,7 +59,78 @@ class FlashSaleDataTable extends DataTable
      */
     public function query(FlashSale $model): QueryBuilder
     {
-        return $model->newQuery()->where('store_id', getCurrentStore());
+        return $this->applyFilters($model->newQuery()->where('store_id', getCurrentStore()));
+    }
+
+    /**
+     * MKT-002's flash-sale filters. `is_active` is the merchant's switch; `ss_window` is what the
+     * DATES say, which is a different question -- a sale can be active and not yet started.
+     */
+    private function applyFilters(QueryBuilder $query): QueryBuilder
+    {
+        $request = request();
+
+        /*
+         * `is_string` on every read, the shape `ProductDataTable::applyFilters()` established and
+         * states the reason for: `?ss_x[]=v` makes these arrays, and the next filter added here may
+         * compare directly, which is where an array becomes an "Array to string conversion" and a
+         * 500 from a query string. One guard per read makes the safe shape the default.
+         *
+         * AN UNRECOGNISED VALUE DECLINES RATHER THAN NARROWING TO NOTHING. A merchant whose url has
+         * a typo sees the unfiltered list, not an empty one -- and the receipt stays silent for the
+         * same value, so the screen and its wording agree.
+         */
+
+        $status = $request->query('ss_status');
+
+        if (is_string($status) && in_array($status, ['0', '1'], true)) {
+            $query->where('flash_sales.is_active', (int) $status);
+        }
+
+        $type = $request->query('ss_type');
+
+        /* `flash_sales.discount_type` is the narrower pair: there is no product-level type on a
+           flash sale, so the coupon screen's third value is deliberately absent. */
+        if (is_string($type) && in_array($type, ['percentage', 'flat'], true)) {
+            $query->where('flash_sales.discount_type', $type);
+        }
+
+        $window = $request->query('ss_window');
+
+        if (is_string($window) && in_array($window, ['running', 'upcoming', 'ended'], true)) {
+            $today = \Carbon\Carbon::now()->toDateString();
+
+            /*
+             * BOTH BOUNDS ARE INCLUSIVE, and that is the boundary this has to get right: a sale
+             * that starts AND ends today is RUNNING. A `<` on either side would drop a one-day sale
+             * out of all three windows, which reads as a broken filter rather than an empty result.
+             * `start_date` and `end_date` are DATE columns, so whereDate compares exactly.
+             */
+            if ($window === 'running') {
+                $query->whereDate('flash_sales.start_date', '<=', $today)
+                    ->whereDate('flash_sales.end_date', '>=', $today);
+            } elseif ($window === 'upcoming') {
+                $query->whereDate('flash_sales.start_date', '>', $today);
+            } else {
+                $query->whereDate('flash_sales.end_date', '<', $today);
+            }
+        }
+
+        $from = TableFilterMemory::parseDate($request->query('ss_from'));
+
+        if ($from !== null) {
+            $query->where('flash_sales.created_at', '>=', $from->copy()->startOfDay());
+        }
+
+        $to = TableFilterMemory::parseDate($request->query('ss_to'));
+
+        if ($to !== null) {
+            /* `endOfDay()`, because `created_at` is a DATETIME: a bare `<= '2026-03-17'` compares
+               against midnight and drops everything recorded on the day the merchant typed. */
+            $query->where('flash_sales.created_at', '<=', $to->copy()->endOfDay());
+        }
+
+        return $query;
     }
 
     /**

@@ -135,6 +135,54 @@ final class TableFilterMemory
      * @return list<string> empty for a screen with no vocabulary, which callers must treat as
      *                      "nothing may be saved for this screen" rather than "anything may"
      */
+    /**
+     * A `ss_from` / `ss_to` value as a date, or null when it is not one.
+     *
+     * MKT-002. `OrderDataTable` has had this logic since P2-04-11 as a PRIVATE static, so the five
+     * Marketing tables could not call it and would otherwise each carry a copy. One definition
+     * lives here -- the class that already owns the filter vocabulary -- and
+     * `MarketingListFiltersTest` asserts this and the order screen's copy agree on a table of
+     * inputs, so the two cannot drift while both exist.
+     *
+     * STRICT, AND THE ROUND TRIP IS THE POINT. `createFromFormat('Y-m-d', ...)` accepts far more
+     * than it looks: `2026-02-30` rolls into March and `2026-2-3` parses. Comparing
+     * `format('Y-m-d')` back against the input is what refuses both, so a filter either narrows on
+     * the date the merchant typed or declines -- never on a date nobody chose.
+     *
+     * IT RETURNS MIDNIGHT, AND THAT IS A FIX RATHER THAN A FORMALITY. `createFromFormat('Y-m-d', ...)`
+     * fills the unspecified time components FROM THE CURRENT CLOCK, not from midnight -- measured:
+     * at 14:22:48 the string `2026-11-18` parses as `2026-11-18 14:22:48`. So an un-normalised bound
+     * moves through the day, and `created_at <= $to` would admit a row recorded at 12:30 in the
+     * afternoon and exclude the same row in the morning. A filter whose answer depends on when the
+     * merchant looked is worse than one that is simply wrong, because it cannot be reproduced.
+     *
+     * Found by a mutation that would not die: removing `endOfDay()` from a caller's `ss_to` bound
+     * changed nothing, because the drifting time of day was already papering over the difference.
+     *
+     * THE CALLER STILL OWNS THE END OF THE DAY. `startOfDay()` here makes the value deterministic;
+     * an inclusive upper bound still needs `endOfDay()` at the predicate, because `<= midnight`
+     * drops everything recorded during the day that was asked for. That is written out at
+     * `OrderDataTable`'s `ss_to` branch and at every caller here.
+     */
+    public static function parseDate($value): ?\Carbon\Carbon
+    {
+        if (! is_string($value) || $value === '') {
+            return null;
+        }
+
+        try {
+            $date = \Carbon\Carbon::createFromFormat('Y-m-d', $value);
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        if ($date === false || $date->format('Y-m-d') !== $value) {
+            return null;
+        }
+
+        return $date->startOfDay();
+    }
+
     public static function vocabularyFor(string $screen): array
     {
         return self::VOCABULARY[$screen] ?? [];
