@@ -4260,5 +4260,8 @@
     "Saved periods": "Saved periods",
     "Save this period as": "Save this period as",
     "e.g. Ramadan campaign": "e.g. Ramadan campaign",
-    "The two dates apply when the period is \"a period I choose\". A period longer than :count days is shortened, and the end is moved to today if it is later.": "The two dates apply when the period is \"a period I choose\". A period longer than :count days is shortened, and the end is moved to today if it is later."
+    "The two dates apply when the period is \"a period I choose\". A period longer than :count days is shortened, and the end is moved to today if it is later.": "The two dates apply when the period is \"a period I choose\". A period longer than :count days is shortened, and the end is moved to today if it is later.",
+    "This shopper was messaged recently, so this nudge was not sent. You can try again later.": "This shopper was messaged recently, so this nudge was not sent. You can try again later.",
+    "This nudge has already been sent, so it was not sent again.": "This nudge has already been sent, so it was not sent again.",
+    "This nudge was already sent :when, so it was not sent again.": "This nudge was already sent :when, so it was not sent again."
 }

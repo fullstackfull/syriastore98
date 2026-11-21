@@ -1288,6 +1288,33 @@ foreach ($response->data->product_list as $item) {
                 $dArr = Cart::where('customer_id', $user_id)->where('store_id', $storeId)->get();
 
                 $order_id = 1;
+
+                /*
+                 * GAP-219 — RESERVE THE NUDGE BEFORE HANDING IT OVER, so a double-click does not send
+                 * twice. This endpoint carries no `throttle` middleware and recorded no sent marker, so
+                 * two clicks were two e-mails. Every one is billable.
+                 *
+                 * The gate asks the cadence rule first (switched off until the owner sets an interval --
+                 * how often a shopper may be nudged is a marketing policy, not an engineering choice)
+                 * and then reserves the logical action by identity. The key has no clock in it, so
+                 * suppressing a double-click invents no frequency.
+                 *
+                 * A REFUSAL IS AN ANSWER, not a silent no-op: the merchant pressed a button and is told
+                 * what happened and when, because a button that does nothing gets clicked again.
+                 */
+                $nudge = app(\App\Services\Marketing\NudgeGate::class)->reserve(
+                    (int) $storeId,
+                    'email',
+                    'Abandon Cart',
+                    $email,
+                    'cart',
+                    (int) $cart->id
+                );
+
+                if (! $nudge->allowed()) {
+                    return response()->json(['is_success' => false, 'message' => $nudge->message()]);
+                }
+
                 $resp  = Utility::sendEmailTemplate('Abandon Cart', $email, $dArr, $owner, $store, $product_id, $user_id);
 
 
@@ -1440,6 +1467,33 @@ foreach ($response->data->product_list as $item) {
 
             if ($blocked !== null) {
                 return response()->json(['is_success' => false, 'message' => $blocked]);
+            }
+
+
+            /*
+             * GAP-219 — RESERVE THE NUDGE BEFORE HANDING IT OVER, so a double-click does not send
+             * twice. This endpoint carries no `throttle` middleware and recorded no sent marker, so
+             * two clicks were two WhatsApp messages. Every one is billable.
+             *
+             * The gate asks the cadence rule first (switched off until the owner sets an interval --
+             * how often a shopper may be nudged is a marketing policy, not an engineering choice)
+             * and then reserves the logical action by identity. The key has no clock in it, so
+             * suppressing a double-click invents no frequency.
+             *
+             * A REFUSAL IS AN ANSWER, not a silent no-op: the merchant pressed a button and is told
+             * what happened and when, because a button that does nothing gets clicked again.
+             */
+            $nudge = app(\App\Services\Marketing\NudgeGate::class)->reserve(
+                (int) $storeId,
+                'whatsapp',
+                'Abandon Cart',
+                $mobile,
+                'cart',
+                (int) $cart->id
+            );
+
+            if (! $nudge->allowed()) {
+                return response()->json(['is_success' => false, 'message' => $nudge->message()]);
             }
 
             $dispatch->handOver('Abandon Cart', (string) $mobile, $msg);

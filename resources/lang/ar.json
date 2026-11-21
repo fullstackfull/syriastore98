@@ -4256,5 +4256,8 @@
     "Saved periods": "الفترات المحفوظة",
     "Save this period as": "احفظ هذه الفترة باسم",
     "e.g. Ramadan campaign": "مثال: حملة رمضان",
-    "The two dates apply when the period is \"a period I choose\". A period longer than :count days is shortened, and the end is moved to today if it is later.": "يُستخدم التاريخان عندما تكون الفترة «فترة أختارها». وتُقصَّر أي فترة أطول من :count يوم، وتُنقل النهاية إلى اليوم إن كانت بعده."
+    "The two dates apply when the period is \"a period I choose\". A period longer than :count days is shortened, and the end is moved to today if it is later.": "يُستخدم التاريخان عندما تكون الفترة «فترة أختارها». وتُقصَّر أي فترة أطول من :count يوم، وتُنقل النهاية إلى اليوم إن كانت بعده.",
+    "This shopper was messaged recently, so this nudge was not sent. You can try again later.": "تم إرسال رسالة إلى هذا المتسوّق حديثاً، لذلك لم تُرسل هذه التنبيهة. يمكنك المحاولة لاحقاً.",
+    "This nudge has already been sent, so it was not sent again.": "تم إرسال هذه التنبيهة من قبل، لذلك لم تُرسل مرة أخرى.",
+    "This nudge was already sent :when, so it was not sent again.": "تم إرسال هذه التنبيهة :when، لذلك لم تُرسل مرة أخرى."
 }

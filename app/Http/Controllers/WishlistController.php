@@ -202,6 +202,33 @@ class WishlistController extends Controller
                 $dArr = Wishlist::where('customer_id', $customer_id)->where('store_id', $storeId)->get();
 
                 $order_id = 1;
+
+                /*
+                 * GAP-219 — RESERVE THE NUDGE BEFORE HANDING IT OVER, so a double-click does not send
+                 * twice. This endpoint carries no `throttle` middleware and recorded no sent marker, so
+                 * two clicks were two e-mails. Every one is billable.
+                 *
+                 * The gate asks the cadence rule first (switched off until the owner sets an interval --
+                 * how often a shopper may be nudged is a marketing policy, not an engineering choice)
+                 * and then reserves the logical action by identity. The key has no clock in it, so
+                 * suppressing a double-click invents no frequency.
+                 *
+                 * A REFUSAL IS AN ANSWER, not a silent no-op: the merchant pressed a button and is told
+                 * what happened and when, because a button that does nothing gets clicked again.
+                 */
+                $nudge = app(\App\Services\Marketing\NudgeGate::class)->reserve(
+                    (int) $storeId,
+                    'email',
+                    'Abandon Wishlist',
+                    $email,
+                    'wishlist',
+                    (int) $wish->id
+                );
+
+                if (! $nudge->allowed()) {
+                    return response()->json(['is_success' => false, 'message' => $nudge->message()]);
+                }
+
                 $resp = Utility::sendEmailTemplate('Abandon Wishlist', $email, $dArr, $owner, $store, $product_id, $customer_id);
                 // $return = 'Mail send successfully';
                 if ($resp['is_success'] == false) {
@@ -589,6 +616,32 @@ class WishlistController extends Controller
 
             if ($blocked !== null) {
                 return response()->json(['is_success' => false, 'message' => $blocked]);
+            }
+
+
+            /*
+             * GAP-219 — RESERVE THE NUDGE BEFORE HANDING IT OVER, so a double-click does not send
+             * twice. This endpoint carries no `throttle` middleware and recorded no sent marker, so
+             * two clicks were two WhatsApp messages. Every one is billable.
+             *
+             * `subject_type` IS `wishlist` HERE WHILE THE TEMPLATE IS STILL `Abandon Cart`. That
+             * template name is the shipped behaviour and is left alone -- it is the name a merchant
+             * has configured in their own WhatsApp settings, and renaming it would silently stop
+             * their wishlist nudges. The subject is what keeps the two apart in the ledger: a
+             * wishlist nudge and a cart nudge to the same shopper are different actions and must not
+             * deduplicate against each other.
+             */
+            $nudge = app(\App\Services\Marketing\NudgeGate::class)->reserve(
+                (int) $storeId,
+                'whatsapp',
+                'Abandon Cart',
+                $mobile,
+                'wishlist',
+                (int) $cart->id
+            );
+
+            if (! $nudge->allowed()) {
+                return response()->json(['is_success' => false, 'message' => $nudge->message()]);
             }
 
             $dispatch->handOver('Abandon Cart', (string) $mobile, $msg);

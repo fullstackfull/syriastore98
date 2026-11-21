@@ -87,25 +87,9 @@ Each of these has produced a real defect. Do not assume the framework default.
 
 **Model caching**
 
-- **79 of the 95 models in `app/Models/` are `Cachable`** — assume cached; the 16 exceptions are
-  `AuditLog`, `CurrencyRate`, `DeliveryBoy{Device,Notification}`, `DeliveryEarning`,
-  `OtpIntegration`, `Permission`, `Role`, `SavedView`, `Store{Device,Notification,Wallet,
-  WalletTransaction,Withdrawal}`, `Zid{Event,Store}`. A raw write (`DB::table('products')->update()`)
-  leaves Eloquent reads, **route-model binding included**, serving the pre-write row, and under
-  `CACHE_STORE=array` it lives for the rest of the test: **three measured false readings**. Write
-  through Eloquent (it flushes) or `(new User)->flushCache()`; `$model->timestamps = false` keeps
-  an explicit past `updated_at`.
-- Several handlers read the platform admin via `Cache::remember('admin_details', 3600, ...)`, so
-  `Cache::forget('admin_details')` between a fixture and a request or it sees the pre-fixture `User`.
-- **Compiled Blades are a THIRD cache, and the one that reverses a mutation result.** Blade
-  recompiles only when the source's mtime is **newer** than the compiled file, so any tooling that
-  restores a view from a backup must restore its **mtime** too: `shutil.copy` does not, and
-  copy→run→`move` back leaves the source *older* than the compiled view written during the run. The
-  next request then renders the **previous** version. Measured 2026-11-21: a `<th scope="row">`
-  mutation stayed live after the revert, so the test failed against correct source — and in the
-  other direction a mutation reads as **CAUGHT** when the test never saw it. Use
-  `tests/Support/bin/mutate.py`, which restores the mtime and runs `view:clear`; if you touch a
-  Blade by hand outside it, `php artisan view:clear`.
+- **79 of the 95 models in `app/Models/` are `Cachable`** — assume cached; the 16 exceptions are `AuditLog`, `CurrencyRate`, `DeliveryBoy{Device,Notification}`, `DeliveryEarning`, `OtpIntegration`, `Permission`, `Role`, `SavedView`, `Store{Device,Notification,Wallet,WalletTransaction,Withdrawal}`, `Zid{Event,Store}`. A raw write (`DB::table('products')->update()`) leaves Eloquent reads, **route-model binding included**, serving the pre-write row, and under `CACHE_STORE=array` it lives for the rest of the test: **three measured false readings**. Write through Eloquent (it flushes) or `(new User)->flushCache()`; `$model->timestamps = false` keeps an explicit past `updated_at`.
+- Several handlers read the platform admin via `Cache::remember('admin_details', 3600, ...)`, so `Cache::forget('admin_details')` between a fixture and a request or it sees the pre-fixture `User`.
+- **Compiled Blades are a THIRD cache and reverse mutation results.** Blade recompiles only when the source's mtime is **newer**, and `shutil.copy` does not preserve mtime — so copy→run→`move` back renders the *previous* version. Measured 2026-11-21: a reverted `<th scope="row">` mutation stayed live, failing a test against correct source; the other direction reads as **CAUGHT** when the test never saw it. Use `tests/Support/bin/mutate.py` (restores mtime, runs `view:clear`); by hand, `php artisan view:clear`.
 
 **Scoped models — check before asserting absence**
 
