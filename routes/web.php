@@ -1356,6 +1356,23 @@ Route::get(
     Route::delete('customer-segments/{id}/members', [\App\Http\Controllers\CustomerSegmentController::class, 'removeMember'])
         ->name('customer-segments.members.remove');
 
+    /*
+     * MKT-007 — THE RECOVERY QUEUE and the ages that fill it.
+     *
+     * `Abandon Cart` IS THE GATE and the controller enforces it (operator, then the tenant owner,
+     * then the permission). It is the same seeded name the existing one-click recovery requires, so
+     * the audience is the people who already follow baskets up -- neither widened nor narrowed.
+     *
+     * TWO ROUTES AND NEITHER SENDS ANYTHING. There is deliberately no "send" or "release" route:
+     * automatic promotional sending stays disabled until the required consent enforcement is
+     * approved and active, and the per-basket follow-up a merchant can already do stays where it is
+     * (`carts.emailsend`), behind the ledger reservation it already uses.
+     */
+    Route::get('recovery-queue', [\App\Http\Controllers\RecoveryQueueController::class, 'index'])
+        ->name('recovery-queue.index');
+    Route::post('recovery-queue/ages', [\App\Http\Controllers\RecoveryQueueController::class, 'storeAges'])
+        ->name('recovery-queue.ages');
+
     // Customer Route
     /*
      * P2.5-PKG-C (F-C-04). `except(['edit','update'])`, because `CustomerController` has NEITHER

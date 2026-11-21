@@ -44,3 +44,25 @@ Schedule::command('analytics:send-scheduled-reports')->hourly()->withoutOverlapp
  * Phase 7 readiness notes record as unverified for production.
  */
 Schedule::command('analytics:check-metric-thresholds')->hourly()->withoutOverlapping();
+
+/*
+ * MKT-007 — the recovery sweep.
+ *
+ * HOURLY, because the requirement's measured complaint was that nothing looks for an abandoned
+ * basket unless a person remembers to. `withoutOverlapping()` because two concurrent sweeps race on
+ * the dedup insert -- the unique key would refuse the second row, but a lock is cheaper than an
+ * exception per candidate.
+ *
+ * IT SENDS NOTHING, and that is the owner's instruction rather than an unfinished edge: automatic
+ * promotional sending stays disabled until the required consent enforcement is approved and active.
+ * The sweep queues what it finds and records WHICH gate held it, so switching sending on later is a
+ * deliberate release of a known backlog rather than a surprise.
+ *
+ * IT DOES NOTHING ON A PLATFORM WHERE NOBODY HAS SET AN AGE, which is the shipped state: there is no
+ * default age anywhere in this feature, because how long before a basket counts as abandoned is a
+ * marketing judgement.
+ *
+ * SAME CAVEAT AS ITS TWO SIBLINGS: `php artisan schedule:run` must be in the server's crontab, which
+ * the Phase 7 readiness notes record as unverified for production -- so the screen says so too.
+ */
+Schedule::command('marketing:detect-recovery-candidates')->hourly()->withoutOverlapping();

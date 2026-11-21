@@ -517,7 +517,15 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            app/, on `store_wallets`, carrying `where('store_wallets.store_id', $storeId)`. It is raw only
            because the four SUM() aliases must be spelled; nothing about it is unscoped, and no wallet
            figure writes. `packages` does not move -- GAP-222 touches no vendored file. */
-        $this->assertSame(['app' => 194, 'packages' => 45], $perDir,
+        /* 194 -> 196 [MKT-007]: `RecoveryCandidates` has TWO literal-table SELECTs in app/, and both are
+           raw for the same reason -- they read tables with no first-party model that carries the detection
+           predicate (`carts` and the `store_order_financials`/`orders` join), and the anti-join to `orders`
+           cannot be expressed through a relation because `Customer` declares none. BOTH carry an explicit
+           `store_id`: `baskets()` on `carts.store_id` (and on `orders.store_id` inside its anti-join), and
+           `payments()` on BOTH `store_order_financials.store_id` AND `orders.store_id`, because the join
+           does not carry the predicate across and `orders` is not in `scoped_models`. Neither writes
+           anything. `packages` does not move -- MKT-007 touches no vendored file. */
+        $this->assertSame(['app' => 196, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -625,7 +633,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         /* 237 -> 238 [P5-5]: `CouponRedemptionCoverage::forStore()`, which names `store_id`; the unscoped
            totals do not move. See the note on the per-directory figure above. */
         /* 238 -> 239 [GAP-222]: the one new `store_wallets` SELECT in `WalletEntitlementFigure::siblings()`. */
-        $this->assertSame(239, array_sum($perDir));
+        $this->assertSame(241, array_sum($perDir));
     }
 
     /**
@@ -653,6 +661,17 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // carries no scope at all, so keying on it does identify one store's product.
             'auction_product_bids' => [1, 1],
             'campaigns' => [1, 1],
+            // NEW WITH MKT-007, AND STORE-AWARE -- the [1, 0] is the point. `RecoveryCandidates::baskets()`
+            // reads `carts` to find a basket older than the merchant's age whose owner has not BOUGHT since.
+            // Raw because the anti-join to `orders` cannot be expressed through a relation: `Customer`
+            // declares none (checked, not assumed -- the model has no `orders()`, `carts()` or `wishlist()`
+            // method at all). It carries `where('carts.store_id', $storeId)` AND
+            // `where('orders.store_id', $storeId)` inside the anti-join, so both halves name the tenant;
+            // `$storeId` is the settings row's own id in the console path, never request input. It writes
+            // nothing. `Cart` IS allowlisted in config/tenancy.php, which is exactly why the predicate is
+            // written out: the scope filters for a principal who resolves a tenant and adds NOTHING for the
+            // console command that runs this, so leaning on it would protect the web and not the sweep.
+            'carts' => [1, 0],
             // NEW WITH THE D13 REVIEW FOLLOW-UP, and store-AWARE: the child-category guard added to
             // Api\DashboardController::DeleteCategory, which the web twin has had since P1-INV-08. Raw because the
             // question is "does any child exist", scoped to the category's OWN store -- asking the CALLER's store
@@ -846,7 +865,16 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // They are raw because `store_order_financials` has NO MODEL, so there is no
             // Eloquent route to it and no global scope that could help -- the predicate written
             // at the call site is the only control that exists, which is this row's whole point.
-            'store_order_financials' => [16, 5],
+            // 16 -> 17 [MKT-007]: `RecoveryCandidates::payments()`, the incomplete-payment detector. It
+            // reads the LEDGER rather than `orders.payment_status`, because the ledger is where this
+            // project's settled payment state lives (`CollectedCustomerPayments` and
+            // `FinanceLedgerFigures` both read it) and a recovery list that disagreed with the finance
+            // screen about who has paid would be the worst kind of wrong. It carries the predicate on BOTH
+            // tables -- `store_order_financials.store_id` AND `orders.store_id` -- because the join does
+            // not carry it across and `orders` is not in `scoped_models`. Store-aware, so the second number
+            // does not move. The same method's statuses (`unpaid`, `pending`) deliberately exclude
+            // `partially_paid`: money arrived, so that is a different conversation.
+            'store_order_financials' => [17, 5],
             // 18 -> 19 AND 17 -> 18 with P1-INV-20: LotteryRefundOwnershipGuard's slug lookup,
             // `DB::table('stores')->where('slug', $slug)->value('id')`.
             //
@@ -1008,7 +1036,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            `store_id` column at all, which is why that side carries no predicate -- see the `orders` row. */
         /* 186 -> 187 [GAP-222]: the same single `store_wallets` SELECT as the per-directory note above --
            attributable to its table, so it lands here, and scoped, so the unscoped total does not move. */
-        $this->assertSame(187, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        $this->assertSame(189, array_sum(array_map(fn ($r) => $r[0], $actual)),
             'THE FIGURES INSIDE THIS MESSAGE ARE THE 2026-11-02 MEASUREMENT AND ARE NOT RATCHETED; '
             . 'the current totals are the ones ASSERTED above and in the dated notes beside them. '
             . 'That split is itself one of this file\'s findings, recorded rather than tidied away '

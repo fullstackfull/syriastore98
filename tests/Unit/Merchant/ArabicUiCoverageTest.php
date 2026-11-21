@@ -99,6 +99,8 @@ class ArabicUiCoverageTest extends TestCase
         // glob is the one way such a check quietly stops working -- so a new merchant screen gets
         // its glob in the same change that creates it, not in the audit that finds it later.
         'resources/views/customer_segments/*.blade.php',
+        // MKT-007, added with the surface itself for the same reason as the line above.
+        'resources/views/recovery_queue/*.blade.php',
     ];
 
     /**

@@ -441,6 +441,27 @@ $menu->add([
             'module' => $module,
             'permission' => 'Manage Customer'
         ]);
+
+        /*
+         * MKT-007 — the recovery queue. A sibling of Customers for the same reason Customer Segments
+         * is one: `Customers` carries its own route, and every parent with children in this file has
+         * `'route' => ''`, so making it a parent would change navigation every merchant knows.
+         *
+         * `Abandon Cart` is the permission the ROUTE enforces. Naming a different one here would
+         * either hide the screen from people who may open it or advertise it to people who may not.
+         */
+        $menu->add([
+            'title' => __('Recovery Queue'),
+            'icon' => 'shopping-cart',
+            'name' => 'recovery_queue',
+            'parent' => null,
+            'order' => 182,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'recovery-queue.index',
+            'module' => $module,
+            'permission' => 'Abandon Cart'
+        ]);
         /** customer end */
 
         /**Reports Start */

@@ -345,6 +345,38 @@ class ConsentLedgerCensusTest extends TestCase
     ];
 
     /**
+     * Files that may NAME the gate and read its MODE, but may never call `->decide()` and must reference no sender.
+     *
+     * WHY THIS LIST EXISTS, added with MKT-007 (2026-11-21). "Names the gate" and "sends through the gate" were one rule, because
+     * until now every file that named it was a seam. MKT-007 is the first case that separates them: the recovery sweep and its
+     * screen read `mode()` to decide what to RECORD and what to SAY -- "nothing was sent, and this is the gate that held it" --
+     * and neither can send, which a sender census in `RecoveryCandidateDetectionTest` asserts by name.
+     *
+     * PUTTING THEM IN `GATE_CALLERS` WOULD HAVE BEEN THE WRONG FIX and is worth recording as rejected: that list means "a wired
+     * send-boundary seam with its own sender census", and membership also exempts a file from the `->decide()` rule. These files
+     * must stay subject to it. So they get a list of their own, the `->decide()` rule still applies to them, and the assertion
+     * below holds them to naming no sender either -- which is strictly stronger than the exemption would have been.
+     *
+     * A file here is NOT protection: it reads whether enforcement is on, it does not enforce anything.
+     *
+     * @var list<string>
+     */
+    private const GATE_MODE_READERS = [
+        'app/Console/Commands/DetectRecoveryCandidates.php',
+        'app/Http/Controllers/RecoveryQueueController.php',
+        'resources/views/recovery_queue/index.blade.php',
+    ];
+
+    /** Senders a mode reader must not reference. A reader that could send is a seam pretending not to be one. */
+    private const SENDER_MARKERS = [
+        'AbandonedMessageDispatch',
+        'SendMsgs',
+        'Mail::',
+        'Notification::',
+        'NudgeLedger',
+    ];
+
+    /**
      * @param  array<string, string>  $sources
      * @return list<string>
      */
@@ -356,7 +388,13 @@ class ConsentLedgerCensusTest extends TestCase
             $insideTheStore = str_starts_with($file, 'app/Services/Marketing/');
 
             // Outside the store's own directory, naming the gate at all is wiring it -- unless the file is a listed seam.
-            if (! $insideTheStore && ! in_array($file, self::GATE_CALLERS, true) && str_contains($code, 'MarketingSendGate')) {
+            /*
+             * A MODE READER MAY NAME THE GATE. It may not call `->decide()` -- the rule below still applies to it -- and the
+             * separate assertion in `test_the_gate_is_called_only_from_the_listed_seams` holds it to naming no sender.
+             */
+            $isModeReader = in_array($file, self::GATE_MODE_READERS, true);
+
+            if (! $insideTheStore && ! $isModeReader && ! in_array($file, self::GATE_CALLERS, true) && str_contains($code, 'MarketingSendGate')) {
                 $offenders[] = $file.' names MarketingSendGate';
             }
 
@@ -379,6 +417,23 @@ class ConsentLedgerCensusTest extends TestCase
             .'so "wired" is a statement about named files and not an assumption.');
 
         $sources = $this->sources();
+
+        /*
+         * EVERY MODE READER IS HELD TO BEING ONLY THAT. The exemption above lets it name the gate; this is what stops the
+         * exemption becoming a hole. A reader that referenced a sender would be a seam pretending not to be one -- it would read
+         * whether enforcement is on and then send anyway, outside every census that classifies senders.
+         */
+        foreach (self::GATE_MODE_READERS as $reader) {
+            $this->assertArrayHasKey($reader, $sources,
+                'a file is listed as a gate mode reader but does not exist, so the assertion below is vacuous');
+
+            foreach (self::SENDER_MARKERS as $sender) {
+                $this->assertStringNotContainsString($sender, $sources[$reader],
+                    $reader.' is listed as a gate MODE READER but references the sender `'.$sender.'`. A reader reports '
+                    .'whether enforcement is on; it must not be able to send.');
+            }
+        }
+
         $this->assertArrayHasKey('app/Services/Marketing/EnforceMarketingConsentOnMail.php', $sources);
         $this->assertStringContainsString('EnforceMarketingConsentOnMail::class', $sources['app/Providers/EventServiceProvider.php'] ?? '',
             'the email seam exists but is not registered, so it protects nothing');

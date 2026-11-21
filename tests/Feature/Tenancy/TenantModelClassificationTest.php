@@ -230,6 +230,15 @@ class TenantModelClassificationTest extends TestCase
             // only in a numeric bound shared one cache key and the second returned the first's rows. Measured 2026-11-21.
             \App\Models\CustomerSegment::class => 'MKT-004: explicit store_id on every read via forStore() and every write via the controller; not Cachable because a segment is edited and counted on the same screen.',
             \App\Models\CustomerSegmentMember::class => 'MKT-004: membership rows written only by the controller with an explicit store_id; not Cachable, same reason as the segment.',
+
+            // MKT-007. The recovery queue. Its table carries `store_id`, the model does NOT carry `BelongsToStore`, and the reason is the
+            // sharpest case in this list: the ONLY writer is a CONSOLE command, where no principal exists, `getCurrentStore()` is null and
+            // `null_tenant => 'open'` means a global scope would add NO predicate at all. The explicit `store_id` -- taken from the settings
+            // row the sweep is iterating, never from request input -- is therefore not a second line of defence, it is the whole control.
+            //
+            // NOT `Cachable`, for `MarketingNudgeSend`'s reason: the question this table answers is "have I already queued this", so a cached
+            // miss is a duplicate row -- and, on the day sending is approved, a duplicate message about one basket.
+            \App\Models\MarketingRecoveryCandidate::class => 'MKT-007: written only by a console sweep with no principal, so the explicit store_id is the only tenant control; not Cachable because a cached "already queued?" answer is a duplicate row.',
         ];
     }
 
@@ -273,6 +282,9 @@ class TenantModelClassificationTest extends TestCase
         // tenant-discriminated, and all three are recorded in doNotScopeDespiteHavingTheColumn()
         // with their reason -- they are NOT allowlisted for scope enforcement. That classification
         // is the review this assertion exists to force, and it was written before the count moved.
+        // 106, UP FROM 105. MKT-007 added `App\Models\MarketingRecoveryCandidate`, the recovery queue: its table carries `store_id`,
+        // it does NOT carry BelongsToStore, and its classification is recorded in doNotScopeDespiteHavingTheColumn() with a reason of
+        // its own -- the only writer is a console sweep, so no scope could help it and the explicit predicate is the whole control.
         // 105, UP FROM 103. MKT-004 added `App\Models\CustomerSegment` and `App\Models\CustomerSegmentMember`: both tables carry
         // `store_id`, so both are tenant-discriminated, NEITHER carries BelongsToStore, and both classifications are recorded in
         // doNotScopeDespiteHavingTheColumn() with reasons of their own. Neither is `Cachable`, which for these two is a measured
@@ -298,7 +310,7 @@ class TenantModelClassificationTest extends TestCase
         // the page's). A scope there would blank the page for the person it exists for, and a predicate
         // built from the caller's own store buys no confidentiality: the token already names the store.
         // They are not `Cachable` either, because a cached answer to "may I send this" is a stale one.
-        $this->assertSame(105, $total, 'The model count changed. Re-run the classification and '
+        $this->assertSame(106, $total, 'The model count changed. Re-run the classification and '
             . 'review the new model before anything is allowlisted: ' . implode(', ', $this->eloquentModels()));
     }
 
@@ -337,6 +349,8 @@ class TenantModelClassificationTest extends TestCase
         // 68, UP FROM 65: theme_versions, theme_published_versions and theme_publication_events all
         // carry `store_id` (P3-M3-C). The column is real and the rows are tenant-owned; what
         // changed is the count, not the classification rule.
+        // 76, UP FROM 75: `marketing_recovery_candidates` carries `store_id` (MKT-007). The column is real and the rows are
+        // tenant-owned; what changed is the count, not the classification rule.
         // 75, UP FROM 73: `customer_segments` and `customer_segment_members` both carry `store_id` (MKT-004). The column is real on
         // both and the rows are tenant-owned; what changed is the count, not the classification rule. `customer_segment_members`
         // carries it DENORMALISED beside `segment_id`, deliberately, so "which segments is this customer in" is answerable with a
@@ -350,7 +364,7 @@ class TenantModelClassificationTest extends TestCase
         // rows are tenant-owned; what changed is the count, not the classification rule. The reason none
         // is scope-enforced is recorded beside the model count above.
         $this->assertCount(
-            75,
+            76,
             $this->tenantDiscriminated,
             "The set of models whose table carries a `store_id` column changed.\nMeasured now:\n  "
             . implode("\n  ", $this->tenantDiscriminated)
