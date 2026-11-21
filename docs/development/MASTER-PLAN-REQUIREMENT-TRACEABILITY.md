@@ -27,10 +27,10 @@
 
 ## Totals
 
-**350 requirements recovered. 171 VERIFIED COMPLETE. 179 are not.**
+**350 requirements recovered. 172 VERIFIED COMPLETE. 178 are not.**
 
 **Plus 18 recovered on 2026-11-16** and held in the gap register at `COVERAGE NOT ASSESSED`, so the
-project-wide figure is **368 known requirements, 171 verified complete, 197 not.**
+project-wide figure is **368 known requirements, 172 verified complete, 196 not.**
 
 These are exact counts of recovered requirements. They are measured against the recovered plan, not
 against a pre-reorganization original.
@@ -43,11 +43,19 @@ against a pre-reorganization original.
 > asserts every status is in the controlled vocabulary and that each count equals the number of rows
 > carrying it, so a status change that forgets the summary fails CI instead of ageing quietly.
 > `P05-12` moving to VERIFIED COMPLETE the same day is the only *substantive* change to the figures.
+>
+> **2026-11-21.** `P05-15` (P5-8 Export) moves PARTIALLY IMPLEMENTED -> VERIFIED COMPLETE, so
+> VERIFIED COMPLETE 171 -> 172 and PARTIALLY IMPLEMENTED 78 -> 77; the 350 total is unchanged and
+> Phase 05/06 goes 2 -> 3 verified. The row's own stated next action ("give a report screen a
+> caveat consumer, then the six exports have something to carry") is what was built: five of the
+> six `ReportController` exports now carry a disclosure column, and the sixth was MEASURED to be
+> counts-only rather than skipped. Two residuals are named in the row and are not folded into it
+> -- `GAP-217` (two hintless money tiles on `_sales_stats`) and `P05-05`'s unfiltered predicates.
 
 | status | count |
 |---|---|
-| VERIFIED COMPLETE | **171** |
-| PARTIALLY IMPLEMENTED | **78** |
+| VERIFIED COMPLETE | **172** |
+| PARTIALLY IMPLEMENTED | **77** |
 | NOT IMPLEMENTED | **43** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **19** |
 | OWNER-APPROVED DEFERRED | **17** |
@@ -62,7 +70,7 @@ against a pre-reorganization original.
 | 2.5 Premium Merchant Experience | 52 | 29 | **23** |
 | 03 Storefront, Themes, Official Website and Documentation (M | 36 | 10 | **26** |
 | 04 Commerce (P4-0 .. P4-9) | 43 | 15 | **28** |
-| 05 Marketing & Analytics AND 06 SaaS & Premium Super Admin | 35 | 2 | **33** |
+| 05 Marketing & Analytics AND 06 SaaS & Premium Super Admin | 35 | 3 | **32** |
 
 ---
 
@@ -4691,7 +4699,7 @@ carries a caveat today", and as of P5-10 two do.)*
 
 ### `P05-15` — P5-8 Export
 
-**Status: PARTIALLY IMPLEMENTED** *(materially advanced 2026-11-20; the remainder is `ReportController`'s, and is bounded)*
+**Status: VERIFIED COMPLETE** *(half (a) 2026-11-20; half (b) closed 2026-11-21)*
 
 - **Requirement (original wording / faithful reference):** "Wherever the existing export surfaces already support it. Exports carry the same caveats as the screens; an export that drops a caveat is a defect." The scope statement names "data export".
 - **Source:** `docs/development/phase-5/PHASE-05-EXECUTION-PLAN.md §2, slice P5-8; §5`
@@ -4699,11 +4707,16 @@ carries a caveat today", and as of P5-10 two do.)*
 - **Expected behaviour:** Every export carries the same exclusions and caveats as the screen it came from.
 - **Actual behaviour, in two halves, because the two are genuinely different problems.**
   **(a) THE HONEST SURFACES NOW EXPORT, and this row's own next action is what was built:** "treat the export as a view of the metric object so a caveat cannot be dropped at the export boundary". `App\Support\Metrics\FigureCsv` is handed the SAME array the Blade is handed — no second query, so screen and file cannot disagree about a number — and makes the period and the disclosure **columns**, so no sorting or copying in a spreadsheet can separate a figure from its limits. A null exports as the words *Not available*, never as a blank, because a blank cell reads as zero. Bidi isolates are stripped from the value column only (a spreadsheet treats them as text, breaking `=SUM()`), and `fputcsv` with a UTF-8 BOM handles quoting and Arabic. `/analytics/export` carries `ReportPermission`, the same gate as its screen; `/platform/analytics/export` carries `PlatformOperatorOnly`, the same as its screen.
-  **(b) `ReportController`'s SIX EXPORTS CANNOT DROP A CAVEAT, because their screens carry none.** Measured 2026-11-20: `MetricCaveat` has **zero** consumers outside `app/Support/Metrics/` and `tests/`, and the honest figures reach exactly three surfaces (`/finance`, `/analytics`, `/platform/analytics`). So the caveat half of this requirement is vacuous for those six, and the real defect there is that neither screen nor export discloses anything — which is `ANA-007`, tracked separately, and `GAP-201`'s second half. Their *series* half was reconciled by P5-3, which found and fixed two HIGH wrong-data bugs (`category_order_export` and `brand_order_export` each exported one series repeated) and one MEDIUM (`order_bar_report_export` was two columns narrower than its screen).
+  **(b) `ReportController`'s EXPORTS NOW CARRY A DISCLOSURE — five of six, and the sixth was measured, not skipped.** As of 2026-11-20 this half was *vacuous*: `MetricCaveat` had **zero** consumers outside `app/Support/Metrics/` and `tests/`, so there was nothing on any report screen for an export to carry. `ANA-007` closed that for the category and brand screens; this row's remaining work was to get the sentences into the files.
+  **The enforceable version of the rule is one source, not one sentence repeated.** Measured 2026-11-21: the "Order value" definition was an *identical string literal in four blades*, and because nothing read it from one place, **two of the four carried the precision caveat beside it and two silently did not**. The duplication is what permitted the divergence. `App\Support\Reports\ReportFigureNote` now holds both definitions; the screens' `<x-ss.stat>` `:hint` and the export handlers call the same method, so the file and the screen cannot disagree because there is one string. `ReportFigureNoteIsTheOnlySourceTest` asserts each sentence appears in exactly one first-party file.
+  **Which caveat, and why only that one.** Every money figure on these surfaces is accumulated in PHP as `+= (float)` (or `array_sum()` / `->sum()`) off `orders.final_price`, `delivery_price` and `coupon_price` — all FLOAT columns — which is precisely `FLOAT_PRECISION`, with no exceptions. `MONEY_FLOAT_PRECISION` was added as its **plural**, not as a new definition: `order_report` and `bar_chart_order_report` write nine columns of which **six are money**, so "This figure" cannot name which it means. No payment-status wording was invented — `payment_status` appears **zero** times in these handlers, and monetary definitions are the owner's D1/D2 decision.
+  **The sixth export is correctly caveat-free, measured.** `export()` returns `monthList`, `userTotal`, `registerTotal`, `guest`, `newguestTotal` — all counts, no money — so there is no money caveat to carry; its screen twin `chart_data.blade.php` is correctly caveat-free too, and its view is `ReportCsvHeaderLocalisationTest`'s protected exemplar.
+  **Screen half completed in the same change:** `order_product_chart` and **both** money tiles on `_sales_stats` gained the caveat they were missing; the two chart fragments became a pure refactor to the same string. No tile was added, so the `<x-ss.stat>` hint census stays at 23.
+  Their *series* half was reconciled earlier by P5-3, which found and fixed two HIGH wrong-data bugs (`category_order_export` and `brand_order_export` each exported one series repeated) and one MEDIUM (`order_bar_report_export` was two columns narrower than its screen).
 - **Evidence:** `tests/Feature/Analytics/FigureExportTest.php` (11 tests, 68 assertions) — the gate on both exports, that the file carries every tile the screen shows, that every row has its own period and disclosure, that an unavailable figure is words not a blank, that no bidi isolate reaches a value cell, that each currency is its own row and none holds the sum, and that a comma-bearing disclosure stays in one cell. **Five mutations, each caught:** drop the disclosure column; export a null as a blank; sum the currencies; weaken the platform export's gate to `ReportPermission`; drop one tile from the label list. Pre-existing: `ReportExportControlContractTest`, `ReportExportFailureFeedbackTest`, `ReportCsvHeaderLocalisationTest`, `ReportExportBuildsEverySeriesTest`.
-- **Gap:** `ReportController`'s six exports still carry no caveat, because there is none on their screens to carry; closing that is `ANA-007` and needs a caveat consumer on a report screen first. Those six also still inherit the unfiltered predicates of `P05-05`. **CORRECTED 2026-11-21:** this row previously said those surfaces are unreachable by the suite and that their evidence must be an executable script. That followed CLAUDE.md's "`ReportController` cannot run under the suite AT ALL", which is **too strong** — measured: `order_category_reports` (1893-2360) and `order_brand_reports` (2382-2903) contain **0** `MONTH(`/`YEAR(`/`selectRaw`/`DB::raw`/`whereRaw`/`havingRaw`/`orderByRaw` constructs, so those two handlers **are** suite-reachable. Whole-file counts are 37 and 10, not 36 and 9. That makes `ANA-007` closable with a REAL TEST on those two screens rather than only an executable script, and CLAUDE.md has been corrected.
+- **Gap:** **None for this requirement.** Two residuals are tracked elsewhere and are deliberately *not* folded in here: (1) the `Shipping charged` and `Coupon value applied` tiles on `_sales_stats` carry **no hint at all** — they are money on the same measured float basis, so a caveat there would be honest, but it is a NEW on-screen disclosure rather than an export dropping an existing one, and adding two tiles' hints moves the `<x-ss.stat>` census; it belongs to `ANA-007`'s visible half and is recorded as `GAP-217`. (2) These exports still inherit the unfiltered predicates of `P05-05`, which is a question about *which orders* the figure counts, not about whether the file discloses its limits. **CORRECTED 2026-11-21:** this row previously said those surfaces are unreachable by the suite and that their evidence must be an executable script. That followed CLAUDE.md's "`ReportController` cannot run under the suite AT ALL", which is **too strong** — measured: `order_category_reports` (1893-2360) and `order_brand_reports` (2382-2903) contain **0** `MONTH(`/`YEAR(`/`selectRaw`/`DB::raw`/`whereRaw`/`havingRaw`/`orderByRaw` constructs, so those two handlers **are** suite-reachable. Whole-file counts are 37 and 10, not 36 and 9. That makes `ANA-007` closable with a REAL TEST on those two screens rather than only an executable script, and CLAUDE.md has been corrected.
 - **Responsible:** Phase 05 (P5-8), gated on P5-2 and P5-3
-- **Next action:** Give a report screen a caveat consumer (`ANA-007`), then the six exports have something to carry and this row can close.
+- **Next action:** None. Closed 2026-11-21. Evidence for half (b): `tests/Feature/Reports/ReportExportsCarryTheScreensCaveatTest.php` (7 tests, 108 assertions — including the exported sentence compared against the SCREEN's rendered fragment, so the rule is measured at both ends) and `tests/Unit/Reports/ReportFigureNoteIsTheOnlySourceTest.php` (4 tests). **Seven mutations, seven caught**, one of which — a VERBATIM copy of the composition pasted back into the controller — passed all seven Feature tests and was the reason the structural guard exists; the docblock that had claimed `assertSame` covered it was corrected rather than left standing.
 
 ### `P05-16` — Bilingual interfaces
 
