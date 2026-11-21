@@ -34,6 +34,24 @@ class ReportPermission
     private const ORDERS = 'Manage Order Reports';
     private const STOCK = 'Manage Stock Reports';
 
+    /*
+     * ANA-001. THE FINANCE REPORT TAKES THE FINANCE PERMISSION, NOT `Manage Reports`, AND THAT IS THE
+     * WHOLE AUTHORIZATION DECISION OF THIS SLICE.
+     *
+     * The traceability row's complaint is that finance is absent from the Reports CENTRE -- it is a
+     * discoverability gap, not an access one. `/finance` already shows these figures behind
+     * `View Finance Dashboard`. Putting the same figures in the centre behind `Manage Reports` would
+     * show a tenant's money to every principal holding a reports permission, which is a strictly
+     * WIDER audience than the screen they come from. So the centre entry requires the SAME permission
+     * as `/finance`: the screen moves, the audience does not.
+     *
+     * `ACTIONS`'s fallback is `Manage Reports` and is fail-CLOSED for an unmapped action, which means
+     * an unmapped finance action would have been admitted by the wrong permission rather than
+     * refused. Mapping it explicitly is what prevents that, and `ReportAuthorizationTest` asserts
+     * every routed report action is mapped, so the omission could not have passed silently.
+     */
+    private const FINANCE = 'View Finance Dashboard';
+
     /** Controller action => the permission of the menu entry that links to it. */
     public const ACTIONS = [
         'index' => self::REPORTS, 'reports_chart' => self::REPORTS, 'export' => self::REPORTS, 'top_product' => self::REPORTS,
@@ -50,6 +68,8 @@ class ReportPermission
         'OrderSaleCategoryReport' => self::ORDERS, 'order_category_reports' => self::ORDERS, 'category_order_export' => self::ORDERS,
         'OrderDownlodableReport' => self::ORDERS, 'OrderSaleBrandReport' => self::ORDERS, 'order_brand_reports' => self::ORDERS,
         'brand_order_export' => self::ORDERS, 'showOrderStatusReport' => self::ORDERS, 'showCountryOrderReport' => self::ORDERS,
+
+        'financeReport' => self::FINANCE,
 
         'StockReport' => self::STOCK, 'getLowStockProducts' => self::STOCK, 'getOutOfStockProducts' => self::STOCK, 'getMostStockedProducts' => self::STOCK,
     ];

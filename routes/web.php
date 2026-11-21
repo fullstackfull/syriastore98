@@ -1233,6 +1233,17 @@ Route::get(
     // Report
     Route::resource('reports', ReportController::class);
     Route::get('reports-chart', [ReportController::class, 'reports_chart'])->name('reports.chart');
+
+    /*
+     * ANA-001. Finance in the Reports centre. TWO GATES, both required: the group's own
+     * `ReportPermission` (which maps this action to `View Finance Dashboard`, NOT `Manage Reports` --
+     * see the note on that constant) and `finance.permission` on top, the same middleware `/finance`
+     * uses. Either alone would be enough to refuse the wrong principal; both are here because the
+     * two are maintained by different lists and a change to one should not silently widen the other.
+     */
+    Route::get('finance-reports', [ReportController::class, 'financeReport'])
+        ->middleware('finance.permission:View Finance Dashboard')
+        ->name('reports.finance');
     Route::get('report-export', [ReportController::class, 'export'])->name('reports.export');
     Route::get('order-reports', [ReportController::class, 'OrderReport'])->name('reports.order_report');
     Route::get('order-reports-chart', [ReportController::class, 'order_reports_chart'])->name('reports.order.chart');

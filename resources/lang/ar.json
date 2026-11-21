@@ -4309,5 +4309,8 @@
     "This store has balances in more than one currency and they are not combined: :amounts.": "لهذا المتجر أرصدة بأكثر من عملة ولا تُجمع معًا: :amounts.",
     "This wallet has no currency recorded, so it is shown in your store currency, :store.": "لا توجد عملة مسجَّلة لهذه المحفظة، لذلك تُعرض بعملة متجرك :store.",
     "This wallet is held in :wallet, and your store currency is :store. The two are not converted.": "هذه المحفظة بعملة :wallet، وعملة متجرك :store. ولا يُجرى أي تحويل بينهما.",
-    "This figure has no period: it is the balance right now, so the dates on this page do not change it.": "هذا الرقم بلا فترة زمنية: إنه الرصيد في هذه اللحظة، لذلك لا تُغيّره التواريخ في هذه الصفحة."
+    "This figure has no period: it is the balance right now, so the dates on this page do not change it.": "هذا الرقم بلا فترة زمنية: إنه الرصيد في هذه اللحظة، لذلك لا تُغيّره التواريخ في هذه الصفحة.",
+    "Finance Report": "تقرير مالي",
+    "These figures cover the period each tile states. The financial record has no history before that date, so an earlier period would read as zero rather than as unknown.": "تغطي هذه الأرقام الفترة المذكورة في كل بطاقة. لا يحتوي السجل المالي على بيانات قبل ذلك التاريخ، لذلك ستظهر أي فترة أسبق كصفر وليس كقيمة غير معروفة.",
+    "For the full finance screen, including wallet movements and withdrawals, open Finance.": "لعرض شاشة المالية الكاملة، بما في ذلك حركات المحفظة وطلبات السحب، افتح المالية."
 }

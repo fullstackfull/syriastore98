@@ -454,12 +454,30 @@ $menu->add([
             'permission' => 'Manage Reports'
         ]);
 
+        /*
+         * ANA-001. The permission named here is the one the ROUTE enforces -- `View Finance Dashboard`
+         * -- because naming a different one would either hide the screen from people who may open it
+         * or advertise it to people who may not, and this file's own note above says so.
+         */
+        $menu->add([
+            'title' => __('Finance Report'),
+            'icon' => 'home',
+            'name' => '',
+            'parent' => 'reports',
+            'order' => 1,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'reports.finance',
+            'module' => $module,
+            'permission' => 'View Finance Dashboard'
+        ]);
+
         $menu->add([
             'title' => __('Customer Reports'),
             'icon' => 'home',
             'name' => '',
             'parent' => 'reports',
-            'order' => 1,
+            'order' => 2,
             'ignore_if' => [],
             'depend_on' => [],
             'route' => 'reports.index',

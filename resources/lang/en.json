@@ -4313,5 +4313,8 @@
     "This store has balances in more than one currency and they are not combined: :amounts.": "This store has balances in more than one currency and they are not combined: :amounts.",
     "This wallet has no currency recorded, so it is shown in your store currency, :store.": "This wallet has no currency recorded, so it is shown in your store currency, :store.",
     "This wallet is held in :wallet, and your store currency is :store. The two are not converted.": "This wallet is held in :wallet, and your store currency is :store. The two are not converted.",
-    "This figure has no period: it is the balance right now, so the dates on this page do not change it.": "This figure has no period: it is the balance right now, so the dates on this page do not change it."
+    "This figure has no period: it is the balance right now, so the dates on this page do not change it.": "This figure has no period: it is the balance right now, so the dates on this page do not change it.",
+    "Finance Report": "Finance Report",
+    "These figures cover the period each tile states. The financial record has no history before that date, so an earlier period would read as zero rather than as unknown.": "These figures cover the period each tile states. The financial record has no history before that date, so an earlier period would read as zero rather than as unknown.",
+    "For the full finance screen, including wallet movements and withdrawals, open Finance.": "For the full finance screen, including wallet movements and withdrawals, open Finance."
 }

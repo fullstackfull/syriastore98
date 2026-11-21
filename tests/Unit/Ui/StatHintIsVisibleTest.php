@@ -289,7 +289,7 @@ class StatHintIsVisibleTest extends TestCase
      * measured as nine across five, and the error reached three committed documents before the
      * recount caught it.
      */
-    public function test_the_hint_count_on_this_component_is_the_measured_one_across_nine_files(): void
+    public function test_the_hint_count_on_this_component_is_the_measured_one_across_ten_files(): void
     {
         $views = base_path('resources/views');
         $hits = [];
@@ -375,10 +375,13 @@ class StatHintIsVisibleTest extends TestCase
         // `<p class="ss-stat__hint">` that the same slice removed, so the hint did not appear from nowhere:
         // it moved inside the component that associates it with its figure via `aria-describedby`. The file
         // count stays at nine because this file already had the two ledger tiles' hints.
-        $this->assertCount(26, $hits,
+        // 26 -> 29 [ANA-001]: `reports/finance_report.blade.php` carries all three of its tiles'
+        // hints -- the two ledger caveats and the wallet's currency disclosure. A NEW file, so the
+        // span below moves 9 -> 10; every other hint on the component is unchanged.
+        $this->assertCount(29, $hits,
             "x-ss.stat hint count moved. Found:\n  " . implode("\n  ", $hits));
 
-        $this->assertCount(9, array_unique($hits),
-            'x-ss.stat hints should span nine files: ' . implode(', ', array_unique($hits)));
+        $this->assertCount(10, array_unique($hits),
+            'x-ss.stat hints should span ten files: ' . implode(', ', array_unique($hits)));
     }
 }

@@ -716,6 +716,61 @@ class ReportController extends Controller
         return response()->json($return);
     }
 
+    /**
+     * ANA-001 -- FINANCE IN THE REPORTS CENTRE.
+     *
+     * The traceability row's measurement: "FINANCE is not in the centre. The Reports group has no
+     * finance screen and no finance permission, and ReportController's 3,835 lines contain 0
+     * occurrences of payment_status, refund, cost_price, profit or margin." That is a
+     * DISCOVERABILITY gap, and this closes it without becoming a second finance engine.
+     *
+     * NOTHING IS COMPUTED HERE. Every figure comes from the assemblers `/finance` already uses --
+     * `FinanceLedgerFigures` for `Payments received` and `Estimated gross profit`, and
+     * `WalletEntitlementFigure` for `Available to withdraw` -- so the centre and the finance screen
+     * cannot disagree, and the four labels stay exactly as owner decision D2 approved them. That is
+     * also why this method still contains no `payment_status` or `cost_price`: the row counted those
+     * strings as evidence the figures were absent, and the right fix is to reach the metric layer,
+     * not to spell SQL here a second time.
+     *
+     * THE PERMISSION IS `View Finance Dashboard`, NOT `Manage Reports`. See the note on
+     * `ReportPermission::FINANCE`: these figures are already visible at `/finance` behind the finance
+     * permission, and putting them in the centre behind a reports permission would widen the audience
+     * rather than move the screen.
+     *
+     * NO PERIOD PICKER, DELIBERATELY. `FinanceLedgerFigures` reads the window `LedgerCoverage` can
+     * vouch for and states its start; `store_order_financials` has no backfill, so an earlier window
+     * would read zero for months that merely have no record and a merchant would read that as a
+     * business that stopped. Adding a picker here would need D1's clamp-and-refuse semantics wired to
+     * a second surface, which is its own slice.
+     */
+    public function financeReport(Request $request)
+    {
+        /*
+         * GAP-223(b): an operator who has selected no store reads NO store here either. The figures
+         * below are tenant money, and the one thing this screen must never do is default to store 1.
+         */
+        if (OperatorStoreSelection::unchosen()) {
+            OperatorStoreSelection::logRefusal('financeReport');
+
+            return redirect()->route('dashboard')->with('error', __('No store is selected.'));
+        }
+
+        $storeId = OperatorStoreSelection::reportStoreId();
+
+        if ($storeId <= 0) {
+            return redirect()->route('dashboard')->with('error', __('No store is selected.'));
+        }
+
+        $currencyCode = \App\Models\Setting::where('store_id', $storeId)
+            ->where('name', 'defult_currancy')
+            ->value('value') ?? 'USD';
+
+        return view('reports.finance_report', [
+            'ledgerFigures' => FinanceLedgerFigures::forStore($storeId, (string) $currencyCode),
+            'walletFigure' => \App\Support\Metrics\WalletEntitlementFigure::forStore($storeId, (string) $currencyCode),
+        ]);
+    }
+
     public function OrderReport(Request $request)
     {
         return view('reports.order_report');
