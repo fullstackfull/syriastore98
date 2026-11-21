@@ -289,7 +289,7 @@ class StatHintIsVisibleTest extends TestCase
      * measured as nine across five, and the error reached three committed documents before the
      * recount caught it.
      */
-    public function test_twenty_hints_on_this_component_across_eight_files(): void
+    public function test_twenty_three_hints_on_this_component_across_nine_files(): void
     {
         $views = base_path('resources/views');
         $hits = [];
@@ -344,10 +344,18 @@ class StatHintIsVisibleTest extends TestCase
         // figure cannot be read without: how many recognisable buyers it divided, that only PAID
         // orders are counted, and how many orders each of the two exclusions dropped. Its PERIOD also
         // differs from its neighbours' on purpose, which the hint has to make legible.
-        $this->assertCount(20, $hits,
+        // 20 -> 23 and 8 -> 9 files, P5-7. `platform/analytics.blade.php` is the operator's
+        // cross-tenant screen and adds three: Stores, whose hint says how many stores are LEFT OUT
+        // of the money figures rather than counted as zero; Orders, which says a count of orders is
+        // not a count of sales; and Buyers, which says one person with accounts in two stores is
+        // counted in each, because nothing links the two accounts. The money figure on that screen
+        // is a per-currency TABLE rather than a tile -- the number of currencies is however many the
+        // platform's stores use -- so its own disclosure is a plain `ss-stat__hint` paragraph and is
+        // deliberately not counted here.
+        $this->assertCount(23, $hits,
             "x-ss.stat hint count moved. Found:\n  " . implode("\n  ", $hits));
 
-        $this->assertCount(8, array_unique($hits),
-            'x-ss.stat hints should span eight files: ' . implode(', ', array_unique($hits)));
+        $this->assertCount(9, array_unique($hits),
+            'x-ss.stat hints should span nine files: ' . implode(', ', array_unique($hits)));
     }
 }

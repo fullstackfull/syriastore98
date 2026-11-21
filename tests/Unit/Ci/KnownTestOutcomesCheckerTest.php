@@ -681,12 +681,29 @@ XML);
         // the skip set unchanged. The fix is in app/, NOT in guard-protected packages/workdo/,
         // which is what the deleted entries recorded as the blocker.
         //
-        // The two that remain are deliberately NOT this bug and still fail: a seeder fixture gap
-        // exposing silent role-assignment tolerance, and a real null-store defect at
-        // app/Http/Controllers/HomeController.php:367.
+        // ONE MORE ENTRY REMOVED 2026-11-20, and the proof this list demands was produced before
+        // it went. ProfileTest::test_profile_page_is_displayed named the required fix in its own
+        // manifest entry -- a null-store guard at HomeController.php:610 and :612 -- and
+        // `getThemeUrl()` now returns null for a null or slug-less store, which covers both
+        // branches by returning before either is reached. Measured BOTH ways, because "it passes
+        // now" is a weaker claim than "this fix is why": with the guard the test passes, with it
+        // reverted it fails. The nine other files that reference the defect were run too (109
+        // passed) and the only test that reddened was the one designed to --
+        // AddonMigrationStrandingTest::test_the_profile_page_failure_is_not_this_bug, which
+        // asserted the 500 persisted and which its own failure message said to retire if it ever
+        // went green. It is retired in the same commit, and the behaviour is covered positively by
+        // ProfileTest and by tests/Feature/Ui/StorelessChromeRendersTest.
+        //
+        // WHY IT WAS FIXED NOW rather than earlier: P5-7 added the platform operator's
+        // cross-tenant screen, the first surface designed to work for a principal who resolves no
+        // store. Every earlier screen could route around the defect, and StoreFinanceController
+        // did exactly that while recording twice that the shared chrome was a 500 for a storeless
+        // principal and that fixing it was not finance's to do.
+        //
+        // THE ONE THAT REMAINS is deliberately NOT either bug and still fails: a seeder fixture
+        // gap exposing silent role-assignment tolerance.
         $expectedFailureIds = [
             'Tests\Feature\Auth\RegistrationTest::test_new_users_can_register',
-            'Tests\Feature\ProfileTest::test_profile_page_is_displayed',
         ];
 
         // GATE F CLOSED ON 2026-11-02, so SIXTEEN of the seventeen entries that used to be in

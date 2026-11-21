@@ -27,10 +27,10 @@
 
 ## Totals
 
-**350 requirements recovered. 170 VERIFIED COMPLETE. 180 are not.**
+**350 requirements recovered. 171 VERIFIED COMPLETE. 179 are not.**
 
 **Plus 18 recovered on 2026-11-16** and held in the gap register at `COVERAGE NOT ASSESSED`, so the
-project-wide figure is **368 known requirements, 170 verified complete, 198 not.**
+project-wide figure is **368 known requirements, 171 verified complete, 197 not.**
 
 These are exact counts of recovered requirements. They are measured against the recovered plan, not
 against a pre-reorganization original.
@@ -46,9 +46,9 @@ against a pre-reorganization original.
 
 | status | count |
 |---|---|
-| VERIFIED COMPLETE | **170** |
+| VERIFIED COMPLETE | **171** |
 | PARTIALLY IMPLEMENTED | **78** |
-| NOT IMPLEMENTED | **44** |
+| NOT IMPLEMENTED | **43** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **19** |
 | OWNER-APPROVED DEFERRED | **17** |
 | OWNER DECISION REQUIRED | **11** |
@@ -62,7 +62,7 @@ against a pre-reorganization original.
 | 2.5 Premium Merchant Experience | 52 | 29 | **23** |
 | 03 Storefront, Themes, Official Website and Documentation (M | 36 | 10 | **26** |
 | 04 Commerce (P4-0 .. P4-9) | 43 | 15 | **28** |
-| 05 Marketing & Analytics AND 06 SaaS & Premium Super Admin | 35 | 1 | **34** |
+| 05 Marketing & Analytics AND 06 SaaS & Premium Super Admin | 35 | 2 | **33** |
 
 ---
 
@@ -4677,30 +4677,33 @@ carries a caveat today", and as of P5-10 two do.)*
 
 ### `P05-14` — P5-7 Platform / operator reporting
 
-**Status: NOT IMPLEMENTED**
+**Status: VERIFIED COMPLETE** *(2026-11-20)*
 
 - **Requirement (original wording / faithful reference):** "The super-admin view of the same metrics across tenants. Operator-first authorization (`MerchantPermissions::allowsAny()`), never bare `isAbleTo()`." The scope statement names it "platform reporting".
 - **Source:** `docs/development/phase-5/PHASE-05-EXECUTION-PLAN.md §2, slice P5-7; §5`
-- **Owner decisions:** None found.
+- **Owner decisions:** None required. D1 governs the period a ledger-based figure may claim and is applied.
 - **Expected behaviour:** The platform operator sees cross-tenant metrics, with authorization that tests operator status before any Laratrust permission check.
-- **Actual behaviour:** Not built as a Phase 05 deliverable. One pre-existing cross-tenant money surface exists: the operator dashboard's top-five-stores panel, which the inventory records as `Order::select('store_id', SUM(final_price)) GROUP BY store_id ORDER BY total_amount DESC LIMIT 5` across every store, marked dependent on F124, F126 and F127 — 'platform-level GMV built from the same unfiltered sum'. Whether that panel's own authorization is operator-first was not established from code in this pass.
-- **Gap:** The whole operator reporting slice. The one existing cross-tenant figure is an unfiltered GMV sum with no caveat.
+- **Actual behaviour:** **Built.** `/platform/analytics` (`PlatformAnalyticsController` → `PlatformAnalyticsFigures` → the P5-2 metric layer), gated by the pre-existing `PlatformOperatorOnly` middleware. **The gate is identity and NOT a permission, and that is the one decision in the slice.** For a cross-tenant screen "operator-first" collapses to operator-ONLY: `ReportPermission`'s second and third limbs admit the tenant owner and any holder of `Manage Reports`, both merchants, and a merchant creates their own roles (`RoleController::store`, reachable with the `Create Role` that the shared `admin` role carries for every self-registered merchant), so a permission name is substantially self-assignable. `config/superadminaccess.php` was considered and not used: it is a 15-name *grantability* control over plan / country / language / module / currency administration, filtered server-side on both role write paths, and widening it to cover reporting would change an unrelated surface to express what `users.type` already says. Three things the data cannot support are refused rather than faked: money is reported **per currency and never summed** (no historical FX record exists in this schema — `currency_rates` holds current rates and nothing stamps a rate onto an order); a cross-store total is dated from the **latest** `verifiedFrom` among the included stores, because a sum is only as covered as its least-covered contributor; and a store whose ledger can vouch for no period is **excluded and counted**, never counted as zero.
+- **Evidence:** `tests/Feature/Platform/PlatformAnalyticsScreenTest.php` (9 tests). The differentiating case is `test_a_staff_member_holding_manage_reports_is_still_refused`, which first asserts as a premise that the same principal opens `/analytics` with HTTP 200. **Two mutations:** swapping the middleware to `ReportPermission` reddens all three merchant-refusal tests while the operator tests still pass; reverting the chrome fix reddens the two operator tests.
+- **Gap:** None outstanding. The pre-existing operator-dashboard top-five-stores panel is a separate unfiltered-GMV surface, still carried by `P05-05`, and is not claimed by this row.
 - **Responsible:** Phase 05 (P5-7), gated on P5-2
-- **Next action:** Build it on the metric layer with the operator-first ordering CLAUDE.md requires (Laratrust has no super-admin bypass, so isAbleTo alone refuses the operator).
+- **Next action:** None. Not independently accepted — Phase 05 acceptance covers it.
 
 ### `P05-15` — P5-8 Export
 
-**Status: PARTIALLY IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED** *(materially advanced 2026-11-20; the remainder is `ReportController`'s, and is bounded)*
 
 - **Requirement (original wording / faithful reference):** "Wherever the existing export surfaces already support it. Exports carry the same caveats as the screens; an export that drops a caveat is a defect." The scope statement names "data export".
 - **Source:** `docs/development/phase-5/PHASE-05-EXECUTION-PLAN.md §2, slice P5-8; §5`
 - **Owner decisions:** None found.
 - **Expected behaviour:** Every export carries the same exclusions and caveats as the screen it came from.
-- **Actual behaviour:** Export surfaces exist and carry no caveats. routes/web.php registers report-export, order-report-export, order-barchart-report-export, product-order-export, category-order-export and brand-order-export; app/Exports/OrderExport.php writes Order.xlsx with product_price, coupon_price, delivery_price, tax_price, final_price, return_price and payment_status. The inventory notes of the line-chart export that it 'inherits the unfiltered totals verbatim', and of the Excel export that 'a merchant sums the Final Price column'. No caveat mechanism exists to carry.
-- **Evidence:** tests/Unit/Ui/ReportExportControlContractTest.php, tests/Feature/Merchant/ReportExportFailureFeedbackTest.php, tests/Unit/Reports/ReportCsvHeaderLocalisationTest.php (all pre-Phase-05, covering controls, failure feedback and header localisation — not figure correctness)
-- **Gap:** The caveat-carrying requirement entirely; and the exported figures inherit every unfiltered predicate from P05-05.
+- **Actual behaviour, in two halves, because the two are genuinely different problems.**
+  **(a) THE HONEST SURFACES NOW EXPORT, and this row's own next action is what was built:** "treat the export as a view of the metric object so a caveat cannot be dropped at the export boundary". `App\Support\Metrics\FigureCsv` is handed the SAME array the Blade is handed — no second query, so screen and file cannot disagree about a number — and makes the period and the disclosure **columns**, so no sorting or copying in a spreadsheet can separate a figure from its limits. A null exports as the words *Not available*, never as a blank, because a blank cell reads as zero. Bidi isolates are stripped from the value column only (a spreadsheet treats them as text, breaking `=SUM()`), and `fputcsv` with a UTF-8 BOM handles quoting and Arabic. `/analytics/export` carries `ReportPermission`, the same gate as its screen; `/platform/analytics/export` carries `PlatformOperatorOnly`, the same as its screen.
+  **(b) `ReportController`'s SIX EXPORTS CANNOT DROP A CAVEAT, because their screens carry none.** Measured 2026-11-20: `MetricCaveat` has **zero** consumers outside `app/Support/Metrics/` and `tests/`, and the honest figures reach exactly three surfaces (`/finance`, `/analytics`, `/platform/analytics`). So the caveat half of this requirement is vacuous for those six, and the real defect there is that neither screen nor export discloses anything — which is `ANA-007`, tracked separately, and `GAP-201`'s second half. Their *series* half was reconciled by P5-3, which found and fixed two HIGH wrong-data bugs (`category_order_export` and `brand_order_export` each exported one series repeated) and one MEDIUM (`order_bar_report_export` was two columns narrower than its screen).
+- **Evidence:** `tests/Feature/Analytics/FigureExportTest.php` (11 tests, 68 assertions) — the gate on both exports, that the file carries every tile the screen shows, that every row has its own period and disclosure, that an unavailable figure is words not a blank, that no bidi isolate reaches a value cell, that each currency is its own row and none holds the sum, and that a comma-bearing disclosure stays in one cell. **Five mutations, each caught:** drop the disclosure column; export a null as a blank; sum the currencies; weaken the platform export's gate to `ReportPermission`; drop one tile from the label list. Pre-existing: `ReportExportControlContractTest`, `ReportExportFailureFeedbackTest`, `ReportCsvHeaderLocalisationTest`, `ReportExportBuildsEverySeriesTest`.
+- **Gap:** `ReportController`'s six exports still carry no caveat, because there is none on their screens to carry; closing that is `ANA-007` and needs a caveat consumer on a report screen first. Those six also still inherit the unfiltered predicates of `P05-05`. Neither is reachable by the suite (36 `MONTH(` / 9 `YEAR(` in `selectRaw`, absent from SQLite), so evidence for them belongs in an executable script, not a test.
 - **Responsible:** Phase 05 (P5-8), gated on P5-2 and P5-3
-- **Next action:** Treat the export as a view of the metric object so a caveat cannot be dropped at the export boundary.
+- **Next action:** Give a report screen a caveat consumer (`ANA-007`), then the six exports have something to carry and this row can close.
 
 ### `P05-16` — Bilingual interfaces
 

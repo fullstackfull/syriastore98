@@ -115,4 +115,17 @@
         </p>
     </div>
 </div>
+{{-- P5-8. The export is reachable from the screen it exports, and carries the same gate. The
+     description below is not decoration: it is the one place a merchant learns that the file keeps
+     the disclosures, which is why the file is worth downloading instead of copying the tiles. --}}
+<div class="row mb-4">
+    <div class="col-12">
+        <a class="btn btn-sm btn-outline-primary" href="{{ route('analytics.export') }}">
+            {{ __('Download as CSV') }}
+        </a>
+        <p class="ss-stat__hint mt-2">
+            {{ __('Download these figures as a spreadsheet. Every row carries its own period and what it leaves out, so a number cannot be read apart from its limits.') }}
+        </p>
+    </div>
+</div>
 @endsection

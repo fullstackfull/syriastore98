@@ -163,8 +163,8 @@ php artisan test --testsuite=Feature     # 7959 tests, ~9 min. SKIPPED ENTIRELY 
 /tenant-check                            # tenancy + security suites (see .claude/commands)
 ```
 
-**The Feature suite is not green and is not meant to be.** It has **2 accepted failures and 1
-accepted skip** (17 until GATE F closed), declared by name in `.github/known-test-outcomes.json`,
+**The Feature suite is not green and is not meant to be.** It has **1 accepted failure and 1
+accepted skip** (2 until 2026-11-20, 17 until GATE F closed), declared by name in `.github/known-test-outcomes.json`,
 which *requires* a resolved entry to be deleted. The gate asserts the
 outcome *set* in both directions — an undeclared failure *and* an unexpectedly-passing declared
 failure both fail it:
@@ -237,7 +237,7 @@ exception; `PHASE-02-COVERAGE-AUDIT-2026-10-25.md` traces which do and which do 
 
 | | |
 |---|---|
-| **the plan, and traceability** (read all four) | **`docs/development/master-plan/`** — base (historical, unchanged), +amendments (consolidated), `DECISION-ID-REGISTER.md` (181 ids, exclusions, reconciliation) — then `docs/development/MASTER-PLAN-{SOURCE-VERIFICATION,REQUIREMENT-TRACEABILITY,GAP-REGISTER}.md`: 350 requirements, **170 verified complete, 180 not, +18 recovered and untracked = 198 open** |
+| **the plan, and traceability** (read all four) | **`docs/development/master-plan/`** — base (historical, unchanged), +amendments (consolidated), `DECISION-ID-REGISTER.md` (181 ids, exclusions, reconciliation) — then `docs/development/MASTER-PLAN-{SOURCE-VERIFICATION,REQUIREMENT-TRACEABILITY,GAP-REGISTER}.md`: 350 requirements, **171 verified complete, 179 not, +18 recovered and untracked = 197 open** |
 | open security findings | `docs/security/P01-SECURITY-WORK-QUEUE.md` |
 | the next work package | `docs/development/phase-1/10-NEXT-WORK-PACKAGES.md` |
 | token lifetime | `docs/security/P01-TOKEN-EXPIRY-PROPOSAL.md` |

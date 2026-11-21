@@ -95,7 +95,7 @@ the four was checked against what is actually recorded:
 | **Conversion** | **yes, with a narrow basis** | `visits` exists and IS written: `app/Http/Middleware/ActiveTheme.php:30` calls `visitor()->visit($store)` (shetabit/visitor 4.3, `config/visitor.php`, table from `config('visitor.table_name')`, `store_id` plus a `visitable` morph to the Store). So orders ÷ visits is computable per store per period — but it is **requests, not unique visitors**: the package writes one row per themed storefront request, there is no cookie-level de-duplication, and bots and link prefetchers are counted. A conversion tile is therefore only honest with that stated, and it must say "visits" rather than "visitors". Nothing here invents a funnel, a session or a bounce rate: those are not recorded. |
 | **Customer insight** | **DONE (2026-11-20)** | `CustomerRetention` + `RetentionFigures` state their own `basis` (`settled_only` vs `all_orders`), and the `Repeat purchase` tile on `/analytics` renders them under owner decision **D1** — which **is** the §3 labelling question of `PHASE-05-FOUR-FIGURE-LABELLING-PROPOSAL.md`, answered Option A, so no further decision was needed. New-vs-returning counts are computable from `orders` + `customers` without inventing anything. |
 
-### P5-5 — Campaign & promotion analytics — **GATE CLEARED 2026-11-20; the surface is not built**
+### P5-5 — Campaign & promotion analytics — **COMPLETE (2026-11-20)**
 **Gate was P4-F134 / P4-F135**, and both are now measured and fixed (see
 `docs/development/phase-4/PHASE-04-FINDINGS-REGISTER.md`). Until today coupon redemption was
 reportable only with a two-directional error displayed, because `user_coupons` — the only table any
@@ -109,8 +109,19 @@ that used a coupon has no `user_coupons` row and no `order_coupon_details` row, 
 would be a backfill of financial records — forbidden by the same rule as D1's ledger start. So the
 campaign-outcome surface inherits a coverage start exactly as `/finance` does, and
 `App\Support\Metrics\CouponRedemption`'s caveat must change from "errors in both directions" to
-"complete only from the fix date" rather than being dropped. That is the remaining work on this
-slice; it is engineering, not an owner decision.
+"complete only from the fix date" rather than being dropped.
+
+**That work is DONE, same day.** `MetricCaveat::COUPON_REDEMPTION_COVERAGE` was added and is
+deliberately **not** in `BLOCKING` — a window lying entirely inside a store's complete period
+carries no unbounded error, so disqualifying it would withhold a figure the data supports, while a
+window reaching back before the fix still gets `COUPON_REDEMPTION_UNRELIABLE` and is still
+disqualified. `CouponRedemption::windowIsFullyRecorded()` decides which, and
+`CouponRedemptionCoverage::forStore()` computes each store's complete-from date by anti-joining
+`orders` (`coupon_price > 0`) to `order_coupon_details` — **by measurement, never a hardcoded
+cut-over**, because the fix date is not the date a given store's records became complete. The
+surface is the **`Coupon discounts given`** tile on `/analytics`, which renders *Not available* with
+the reason outside the complete period rather than a number under a disclaimer. §9 of
+`PHASE-05-METRIC-DEFINITIONS.md` was rewritten to match.
 
 ### P5-6 — Retention and repeat purchase — **COMPLETE (metric 2026-11-17, surface 2026-11-20)**
 Derived from `orders` + `customers`, no new events invented. **Gate: P5-2** (a repeat-purchase rate
@@ -144,13 +155,57 @@ Three things about the tile are deliberate and each is pinned by its own test:
    row, because `OrderObserver::created()` writes one for every order inserted through Eloquent —
    the row has to be created and then removed, which is what the pre-ledger period actually is.
 
-### P5-7 — Platform/operator reporting
-The super-admin view of the same metrics across tenants. **Operator-first authorization**
-(`MerchantPermissions::allowsAny()`), never bare `isAbleTo()`.
+### P5-7 — Platform/operator reporting — **COMPLETE (2026-11-20)**
+The super-admin view of the same metrics across tenants. **Operator-first authorization**, never
+bare `isAbleTo()`.
 
-### P5-8 — Export
-Wherever the existing export surfaces already support it. Exports carry the same caveats as the
-screens; an export that drops a caveat is a defect.
+`/platform/analytics` → `PlatformAnalyticsController` → `PlatformAnalyticsFigures` → the P5-2 metric
+layer. The screen reuses the metric classes rather than writing SQL, so the platform view and a
+merchant's own view cannot disagree about one number.
+
+**THE GATE IS IDENTITY, NOT A PERMISSION, and that is the one decision in this slice.** For a
+cross-tenant screen "operator-first" collapses to operator-ONLY. `ReportPermission` is right for
+`/analytics` and wrong here: its second and third limbs admit the tenant **owner** and any holder
+of **`Manage Reports`**, both merchants — and a merchant creates their own roles, so a permission
+name is substantially self-assignable while `users.type` is not. The pre-existing
+`PlatformOperatorOnly` middleware is reused: it compares `strtolower(trim(users.type))` against
+`'super admin'`, defers the anonymous case to `auth`, and answers 403 and never 401.
+
+Three things the data cannot support are refused rather than produced:
+
+1. **Money is per currency and never summed.** `MetricResult::total()` throws on more than one
+   bucket, by design. Summing would need the FX rate on each order's own date, and nothing in this
+   schema records one. A single platform revenue number is what an operator most wants and what
+   this data cannot honestly give.
+2. **A cross-store total is dated from the LATEST `verifiedFrom`** among the included stores. A sum
+   is only as covered as its least-covered contributor; taking the earliest would claim coverage
+   the ledger does not have for the others.
+3. **A store the ledger cannot vouch for is excluded and COUNTED**, never counted as zero.
+
+It also fixed a known, separately-reported defect it could not route around:
+`HomeController::getThemeUrl()` dereferenced `$store->slug` on null, so the shared admin chrome was
+a 500 for every storeless principal. See `P05-14` in the traceability matrix for the measurement.
+
+### P5-8 — Export — **MATERIALLY ADVANCED (2026-11-20); the remainder is bounded**
+Exports carry the same caveats as the screens; an export that drops a caveat is a defect.
+
+**Both halves measured, because they are different problems.**
+
+**(a) The honest surfaces now export.** `App\Support\Metrics\FigureCsv` is handed the same array
+the Blade is handed — no second query — and makes the period and the disclosure **columns**, so a
+spreadsheet cannot separate a figure from its limits. A null exports as *Not available*, never a
+blank, because a blank cell reads as zero. `/analytics/export` and `/platform/analytics/export`
+each carry the same middleware as the screen they export.
+
+**(b) `ReportController`'s six exports cannot drop a caveat, because their screens carry none.**
+Measured: `MetricCaveat` has **zero** consumers outside `app/Support/Metrics/` and `tests/`, and the
+honest figures reach exactly three surfaces (`/finance`, `/analytics`, `/platform/analytics`). So
+the caveat half is vacuous for those six; the real defect is that neither screen nor export
+discloses anything, which is **`ANA-007`** and `GAP-201`'s second half. Their *series* half was
+reconciled by P5-3, which fixed two HIGH wrong-data bugs and one MEDIUM.
+
+**To close this slice:** give a report screen a caveat consumer, and the six exports then have
+something to carry.
 
 ### P5-9 — Loyalty — **ADDED 2026-11-17. One fix shipped; MKT-006 needs an owner decision**
 This slice did not exist. The word "loyalty" was in §5's scope prose and in no slice, which is the

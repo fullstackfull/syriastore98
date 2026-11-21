@@ -165,18 +165,32 @@ class AddonMigrationStrandingTest extends TestCase
      * ProfileTest::test_profile_page_is_displayed in the same commit, and drop
      * ProfileTest::test_profile_page_is_displayed from .github/known-test-outcomes.json.
      */
-    public function test_the_profile_page_failure_is_not_this_bug(): void
-    {
-        $response = $this->actingAs(User::factory()->create())->get('/profile');
-
-        $this->assertSame(
-            500,
-            $response->getStatusCode(),
-            'GET /profile now answers ' . $response->getStatusCode() . ' with the stranded '
-            . 'LandingPage migrations present. If that is 200, the null-store dereference at '
-            . 'app/Http/Controllers/HomeController.php:367 has been guarded: retire this test, '
-            . 'green ProfileTest::test_profile_page_is_displayed, and remove its entry from '
-            . '.github/known-test-outcomes.json in the same commit.'
-        );
-    }
+    /*
+     * RETIRED 2026-11-20, ON THIS TEST'S OWN INSTRUCTION.
+     *
+     * `test_the_profile_page_failure_is_not_this_bug` asserted that GET /profile still answered 500
+     * with every stranded LandingPage migration present, which proved the profile failure was a
+     * DIFFERENT defect from the addon-stranding bug this file is about. Its failure message said
+     * what to do if it ever went green:
+     *
+     *     "If that is 200, the null-store dereference ... has been guarded: retire this test,
+     *      green ProfileTest::test_profile_page_is_displayed, and remove its entry from
+     *      .github/known-test-outcomes.json in the same commit."
+     *
+     * That happened. P5-7 needed a screen that works for a principal with no store, so
+     * `HomeController::getThemeUrl()` now returns null instead of dereferencing `$store->slug` --
+     * the exact guard `.github/known-test-outcomes.json` named as the required fix. All three steps
+     * were done together, as instructed.
+     *
+     * MEASURED BOTH WAYS before retiring it, because "it passes now" is not the same claim as
+     * "this fix is why":
+     *     with the guard      ProfileTest::test_profile_page_is_displayed  ->  1 passed
+     *     with it reverted    ProfileTest::test_profile_page_is_displayed  ->  1 failed
+     *
+     * The behaviour it guarded is now covered positively, and by more than one file:
+     * `ProfileTest::test_profile_page_is_displayed` (the screen renders) and
+     * `tests/Feature/Ui/StorelessChromeRendersTest` (the helper itself, including that it must not
+     * borrow another store's domain on the way to answering null). Nothing is left unasserted, so
+     * re-adding a 500 assertion here would only re-pin a defect.
+     */
 }

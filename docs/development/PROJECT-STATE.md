@@ -10,53 +10,68 @@ decision quoted as such.
 
 > ### NEXT EXECUTABLE ACTION (read this first; owner directive of 2026-11-20, §10)
 >
-> The owner has authorised continuous implementation across **all** phases (01, 02, 2.5, 03, 04, 05, 06)
-> with **Level A** targeted tests during development and **one Level B** consolidated verification
-> campaign at the end — not full-suite runs after every change — and pushes **batched** at safe
-> checkpoints. Do not stop at a clean slice; select the next eligible task from the Master Plan,
-> dependencies and the gap register.
+> The owner has authorised continuous implementation across **all** phases (01, 02, 2.5, 03, 04, 05,
+> 06) with **Level A** targeted tests during development and **one Level B** consolidated
+> verification campaign at the end — not full-suite runs after every change — and pushes **batched**
+> at safe checkpoints. Do not stop at a clean slice; select the next eligible task from the Master
+> Plan, dependencies and the gap register.
 >
-> **PUSHED head: `9ee54f6d`** (fast-forward `e132055d..9ee54f6d`, 2026-11-20 ~22:5xZ). The required
-> CI run for it had just been created when this was written — **check its conclusion before the next
-> push**, and do not push while it runs. The previous head `e132055d` passed run 44820694522
-> (ci.yml #566), concluded success 22:32:08Z.
+> **PUSHED head: `9ee54f6d`. Its required CI run 44832133142 (ci.yml #567) concluded FAILURE**, and
+> the cause is fixed in the first unpushed commit below. One undeclared Feature failure:
+> `SecurityLogInventoryTest::test_the_observability_inventory_matches_the_source`. The Feature SUITE
+> passed; the known-outcome gate did not, and the merge-base gate therefore reported it as a NEW
+> failure. `docs/security/P01-OBSERVABILITY-INVENTORY.md` is keyed by `file:line`, and the
+> P4-F134/F135 coupon fix moved 13 rows in `ApiController`. Resynced with the repository's own tool
+> (`docs/development/phase-1/tools/resync-observability-inventory.py --write`), which refuses to
+> write when a line was ADDED rather than moved: 13 re-pointed, 238 unchanged, 251 = 251.
 >
-> **Local gates on `9ee54f6d`:** Unit 5,919 passed + 1 declared skip · Contract 45 passed ·
-> Commerce 1,191 passed, 0 failed. The full Feature suite was NOT re-run locally for this batch
-> (Level A); CI runs it with the known-outcome gate.
+> **UNPUSHED, oldest first (4 commits + working tree):**
+> 1. `9d4879b4` — the CI repair above.
+> 2. `263ca15f` — **P5-6** `Repeat purchase` on `/analytics`, over `LedgerCoverage::window()`;
+>    §12 of `PHASE-05-METRIC-DEFINITIONS.md`; §9 corrected (F134/F135 are fixed, authority is now
+>    per window); `MetricDefinitionsAreDocumentedTest`.
+> 3. `7080a3d5` — the traceability matrix disagreed with its own body (table said PARTIAL 76 /
+>    NOT 47, rows held 79 / 44); corrected and pinned by `MasterPlanTraceabilityCountsTest`.
+>    P05-12 → VERIFIED COMPLETE, GAP-160 CLOSED, counts 170/180.
+> 4. **working tree — P5-7, complete and green but NOT yet committed** (awaiting the
+>    `tenant-authz-reviewer` pass that CLAUDE.md requires before committing an authorization change).
 >
-> **What that head contains, newest first:** three Unit-gate fixes my own P5-4 strings moved ·
-> the transaction-boundary scan re-expressed for the coupon rows' new writer · the coupon review
-> follow-up (two defects the review found IN the first fix) · `CouponRedemptionCoverage` (P5-5's
-> prerequisite) · P4-F134/F135 the coupon-recording fix · continuity · P5-4b the analytics screen ·
-> GAP-215 · P5-4a the analytics figures · the D8-3 review follow-up · the ANA visit-attribution fix.
+> **P5-7 as it stands:** `/platform/analytics`, operator-only via the pre-existing
+> `PlatformOperatorOnly` middleware — deliberately NOT `ReportPermission`, whose 2nd and 3rd limbs
+> admit the tenant owner and any `Manage Reports` holder, both merchants, and a merchant creates
+> their own roles. `PlatformAnalyticsFigures` reports money **per currency and never summed** (no
+> historical FX record exists), dates a cross-store total from the **latest** `verifiedFrom` among
+> included stores (a sum is only as covered as its least-covered contributor), and excludes and
+> COUNTS stores the ledger cannot vouch for. 9 tests + 2 mutations.
+>
+> **It also fixed a known, separately-reported defect:** `HomeController::getThemeUrl()` dereferenced
+> `$store->slug` on null, so the shared admin chrome was a 500 for every storeless principal —
+> `StoreFinanceController` had measured and reported it twice (:806, :1639) and routed around it.
+> P5-7 is the first screen designed to work without a store, so it could not route around it. The
+> header already rendered `{{ $theme_url ?? '#' }}`, so the fix makes an unreachable guard live; it
+> returns BEFORE the settings reads, because those fall back to `getCurrentStore()` (the literal 1
+> for the operator) and would otherwise hand the operator another tenant's domain.
+> `tests/Feature/Ui/StorelessChromeRendersTest.php`, 4 tests, mutation-verified.
 >
 > **Do next, in this order:**
-> 1. **P5-5 campaign & promotion analytics** — its gate (P4-F134 / P4-F135) is CLEARED. Remaining
->    engineering: rewrite `MetricCaveat::COUPON_REDEMPTION_UNRELIABLE` from "errors in both
->    directions" to a coverage statement driven by `App\Support\Metrics\CouponRedemptionCoverage`,
->    stop `CouponRedemption` returning `isAuthoritative() === false` unconditionally, and build the
->    surface. **Pre-fix history is NOT backfilled** — that is why the coverage class exists, and it
->    is the one thing on this slice that must not be "fixed".
-> 2. Then P5-6 (retention surface — metric done; the *rate* tile stays owner-blocked on the §3
->    labelling decision, but new-vs-returning already ships in P5-4b's Buyers tile),
->    P5-7 (platform/operator reporting), P5-8 (export), loyalty completion, and the
->    MKT-001–010 / ANA-001–010 coverage reconciliation.
-> 3. Then **Phase 06** development on its own branch + Draft PR, based to preserve the #138 → #139 →
->    #140 dependency chain.
+> 1. Read the `tenant-authz-reviewer` findings on P5-7; fix anything real IN the fix (the last three
+>    of four packages had a defect found only by that review, two of them in the fix itself).
+> 2. Commit P5-7. Then run the Feature suite **cleanly** with `--log-junit` + `--log-teamcity` and
+>    `.github/scripts/assert-known-test-outcomes.php`. A run started before an edit to
+>    `routes/web.php` or `resources/lang/*.json` is a MIXED-STATE run and is not a gate: Laravel
+>    re-reads both per test boot. One such run was discarded for exactly this reason.
+> 3. Push all of it by fast-forward once that gate is clean and no required CI is running.
+> 4. **P5-8 export** — exports must carry the same caveats as the screens; an export that drops a
+>    caveat is a defect. Then the remaining loyalty and consent work, then the MKT-001…010 /
+>    ANA-001…010 reconciliation.
+> 5. Then **Phase 06** on its own branch with a Draft PR, preserving the #138 → #139 → #140 chain.
+> 6. Then the remaining actionable code gaps in earlier phases: P4-1 storefront commerce
+>    correctness, P5-FIN-8, P1-SEC-74's vendored remainder, P1-SEC-76's 75 leads, the D8-B census
+>    remainder.
 >
-> **TWO LESSONS FROM THIS BATCH worth not re-learning.** (a) The independent review of the coupon fix
-> found that the FIX re-created each finding on the other handler — a money path is not done because
-> its own tests are green, and that review is the reason two live defects are closed rather than
-> shipped. (b) The coupon test's first fixture used a 100.00 basket with a 10% coupon, which made the
-> coupon's *configured* number and the *charged* discount the same figure (10), so no case could tell
-> a handler recording either apart. When a money test's fixture makes two different quantities equal,
-> it is not a test of which one is used.
->
-> **Blocked on the owner, not on engineering** (continue other work; do not let these stop development):
-> P1-SEC-81 publication and production remediation (CRITICAL, held, delivered privately — the repository
-> is public); D6 stage 2 (GAP-214); the PAY-SEC payment findings (private workflow); D8 enforcement
-> activation (`MARKETING_CONSENT_ENFORCEMENT` stays `off`, and its tables are unmigrated in production).
+> **Still owner-blocked, untouched:** P1-SEC-81 (CRITICAL — publication and production remediation
+> held; the fix is on NO remote), GAP-214 (D6 stage 2), GAP-215, PAY-SEC, and D8 enforcement
+> activation (`MARKETING_CONSENT_ENFORCEMENT` stays `off`).
 
 Phase 03 engineering is complete and sits in **PR #138, Draft, not merged**. Phase 04 is branched
 from that engineering head, so **PR #139 carries Phase 03's commits and must not be merged ahead of

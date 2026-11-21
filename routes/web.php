@@ -1176,6 +1176,41 @@ Route::get(
         ->middleware(\App\Http\Middleware\ReportPermission::class)
         ->name('analytics.index');
 
+    /**
+     * P5-8. The same figures as a file. SAME middleware as the screen -- an export with a weaker
+     * guard than the surface it exports is how a control gets lost. `ReportPermission::ACTIONS`
+     * maps `export` to the same seeded `Manage Reports` as `index`, so no new permission name is
+     * introduced (a name absent from `Utility::addNewData()` cannot exist as a row and evaluates
+     * false for everybody, the tenant owner included).
+     */
+    Route::get('analytics/export', [\App\Http\Controllers\MerchantAnalyticsController::class, 'export'])
+        ->middleware(\App\Http\Middleware\ReportPermission::class)
+        ->name('analytics.export');
+
+    /**
+     * P5-7. THE SAME FIGURES ACROSS EVERY TENANT, for the platform operator only.
+     *
+     * `PlatformOperatorOnly` and NOT `ReportPermission`, which is the difference that matters. The
+     * report middleware admits three principals in order -- operator, then the tenant OWNER, then
+     * the holder of `Manage Reports` -- and the second and third of those are merchants. This
+     * handler reads EVERY store (`Store` is not in `config/tenancy.php`'s `scoped_models`, so no
+     * global scope narrows it for anybody), so admitting a tenant owner here would be a
+     * cross-tenant disclosure. A merchant also creates their own roles, so a permission name is
+     * substantially self-assignable and is the wrong shape of gate for this screen.
+     *
+     * Inside the same `auth` group, so an anonymous caller is redirected to sign in by `auth` --
+     * which runs first -- rather than told 403 by the operator check. 403 and never 401 for a
+     * signed-in non-operator: repo B maps any 401 to a forced logout.
+     */
+    Route::get('platform/analytics', [\App\Http\Controllers\PlatformAnalyticsController::class, 'index'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.analytics');
+
+    // P5-8. Same gate as the screen above, for the same reason, across every tenant at once.
+    Route::get('platform/analytics/export', [\App\Http\Controllers\PlatformAnalyticsController::class, 'export'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.analytics.export');
+
     // Report
     Route::resource('reports', ReportController::class);
     Route::get('reports-chart', [ReportController::class, 'reports_chart'])->name('reports.chart');

@@ -30,14 +30,82 @@ use Illuminate\Http\Request;
  * and would evaluate false for everybody -- including the owner. That exact lockout has happened in
  * this repository (all six finance names were gated on while none was seeded).
  *
- * THE FOUR-FIGURE LABELLING DECISION IS NOT PRE-EMPTED. PHASE-05-FOUR-FIGURE-LABELLING-PROPOSAL.md
- * §3 is still with the owner, so this screen shows no retention tile: the figures it does show
- * (orders, page views, conversion, new vs returning, and the two ledger money tiles it inherits from
- * `/finance`) each already have a settled label.
+ * EVERY FIGURE HERE HAS A SETTLED LABEL. This docblock previously said the screen showed no
+ * retention tile because PHASE-05-FOUR-FIGURE-LABELLING-PROPOSAL.md §3 was still with the owner.
+ * Reconciled 2026-11-20: that §3 question IS owner decision D1, answered Option A and already
+ * implemented in `LedgerCoverage`, so P5-6 added the `Repeat purchase` tile and nothing was
+ * reopened. The screen now shows orders, page views, conversion, buyers and repeat purchase, plus
+ * the ledger money tiles it inherits from `/finance` and the P5-5 coupon figure.
  */
 class MerchantAnalyticsController extends Controller
 {
     public function index(Request $request)
+    {
+        $resolved = $this->resolveStore();
+
+        if (! is_array($resolved)) {
+            return $resolved;
+        }
+
+        [$storeId, $currencyCode] = $resolved;
+
+        return view('analytics.index', [
+            'figures' => MerchantAnalyticsFigures::forStore($storeId, $currencyCode),
+        ]);
+    }
+
+    /**
+     * P5-8 — THE SAME FIGURES AS A FILE, WITH EVERY DISCLOSURE ATTACHED TO ITS OWN ROW.
+     *
+     * Phase 05's rule for exports is that they carry the same caveats as the screen and that an
+     * export which drops one is a defect. This calls the SAME figures class with the SAME arguments
+     * as `index()` -- no second query and no second definition -- and `FigureCsv` makes the period
+     * and the limits columns rather than a footnote, so a spreadsheet cannot separate a number from
+     * what it leaves out.
+     *
+     * The labels are repeated from `analytics/index.blade.php` on purpose: they are the only strings
+     * that view chooses, and a test asserts the file's row set matches the screen's tile set so the
+     * two cannot drift. Everything else -- value, period, disclosure -- comes from the figures.
+     *
+     * SAME GATE AS THE SCREEN, by sharing `resolveStore()` rather than re-deriving it. An export
+     * route with a weaker guard than the screen it exports is a classic way to lose a control, and
+     * the refusals here are the screen's refusals, including the operator-with-no-store case.
+     */
+    public function export(Request $request)
+    {
+        $resolved = $this->resolveStore();
+
+        if (! is_array($resolved)) {
+            return $resolved;
+        }
+
+        [$storeId, $currencyCode] = $resolved;
+
+        $figures = MerchantAnalyticsFigures::forStore($storeId, $currencyCode);
+
+        $rows = \App\Support\Metrics\FigureCsv::rows($figures, [
+            'orders' => __('Orders'),
+            'visits' => __('Page views'),
+            'conversion' => __('Conversion'),
+            'customers' => __('Buyers'),
+            'retention' => __('Repeat purchase'),
+            'payments' => __('Payments received'),
+            'profit' => __('Estimated gross profit'),
+            'redemptions' => __('Coupon discounts given'),
+        ]);
+
+        return response(\App\Support\Metrics\FigureCsv::render($rows), 200, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="analytics.csv"',
+        ]);
+    }
+
+    /**
+     * The screen's two refusals, in one place so `index()` and `export()` cannot diverge.
+     *
+     * @return array{0: int, 1: string}|\Illuminate\Http\RedirectResponse
+     */
+    private function resolveStore()
     {
         /*
          * AN OPERATOR WHO HAS CHOSEN NO STORE IS REFUSED, not shown store 1. `getCurrentStore()`
@@ -46,6 +114,9 @@ class MerchantAnalyticsController extends Controller
          * "the" figures. The condition and the message are StoreFinanceController's, reused: for an
          * operator who has chosen nothing, no store is in fact selected. `dashboard` rather than
          * `back()` because `back()` on a refused GET resolves to this handler and loops.
+         *
+         * The operator's own cross-tenant view is `/platform/analytics` (P5-7), which needs no store
+         * selected precisely because it is about all of them.
          */
         $caller = auth()->user();
 
@@ -78,8 +149,6 @@ class MerchantAnalyticsController extends Controller
             ->where('name', 'defult_currancy')
             ->value('value') ?? 'USD';
 
-        return view('analytics.index', [
-            'figures' => MerchantAnalyticsFigures::forStore($storeId, (string) $currencyCode),
-        ]);
+        return [$storeId, (string) $currencyCode];
     }
 }
