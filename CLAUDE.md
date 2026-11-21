@@ -178,6 +178,8 @@ P01-SEC-13 survived. For anything schema-sensitive, use a real MySQL:
 `tests/Support/Security/bin/verify-sec13-migration-on-mysql.php` shows the pattern (it creates and
 drops its own throwaway database).
 
+**A CENSUS THAT READS COMMENTS CAN BE SATISFIED — OR BROKEN — BY PROSE ABOUT THE THING IT MEASURES.** Hit **four times on 2026-11-21 alone**, in three syntaxes: a PHP docblock naming `MerchantPermissions::allowsAny`, a Blade comment containing the literal `` `<a>` `` while explaining that the call was moved *out* of an anchor, and a CSS comment recording that a draft had used `position: relative`. Use `Tests\Support\StripsSourceComments::sourceWithoutComments()` for PHP; strip `{{-- --}}` for Blade and `/* */` for CSS (`ProductActionOverlayTest` has both). **Scope the search to the block too:** an assertion over a whole 7,000-line stylesheet answers "does this string exist anywhere", and a mutation dropping one component's 44px target survived because another component had the same rule.
+
 Evidence that cannot live in the suite goes in `tests/Support/Security/bin/` as an executable script stating its own preconditions — a conditionally-skipped test would break the declared set.
 
 ---
