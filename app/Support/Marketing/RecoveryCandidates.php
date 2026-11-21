@@ -129,7 +129,30 @@ final class RecoveryCandidates
      */
     private static function baskets(int $storeId, CarbonImmutable $before): array
     {
-        $rows = DB::table('carts')
+        /*
+         * `Cart::withoutGlobalScopes()->disableCache()` AND NOT `DB::table('carts')`, and this was a
+         * real finding rather than a style preference. `NullCookieCartTest` forbids
+         * `DB::table('carts')` OUTRIGHT in app/ -- "it would bypass both the scopes and Cart's own
+         * global scope" -- because `Cart::forGuestCookie()` is the single choke point whose job is to
+         * refuse a MISSING guest cookie, so a raw read is how a null cookie comes to select somebody
+         * else's basket. This query never touches `cookie_session_id` and requires
+         * `customer_id > 0`, so that specific hazard could not occur here; the right answer was still
+         * to use the model rather than to exempt a new file from a security census.
+         *
+         * `withoutGlobalScopes()` BECAUSE THE STORE IS A PARAMETER. `Cart` IS in
+         * `config/tenancy.php`'s `scoped_models`, so `StoreScope` would add the CALLER's store --
+         * nothing at all on the console path (`null_tenant => 'open'`), but a second and possibly
+         * contradictory predicate if a web caller ever asked about a store other than their own.
+         * A method that takes a store id must answer for that id or refuse, not silently intersect.
+         *
+         * `disableCache()` BECAUSE THE SWEEP'S CORRECTNESS IS ABOUT TIME. `Cart` is one of the 79
+         * `Cachable` models, and this query's answer changes as baskets age past the merchant's
+         * threshold; a cached answer would re-detect baskets that have since been bought from, or
+         * miss ones that have just crossed the line. CLAUDE.md records three measured false readings
+         * from this trait and MKT-004 measured a fourth.
+         */
+        $rows = \App\Models\Cart::withoutGlobalScopes()
+            ->disableCache()
             ->where('carts.store_id', $storeId)
             ->where('carts.customer_id', '>', 0)
             ->where('carts.created_at', '<=', $before)
