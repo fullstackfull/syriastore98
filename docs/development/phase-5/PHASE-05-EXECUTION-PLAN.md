@@ -186,7 +186,7 @@ It also fixed a known, separately-reported defect it could not route around:
 `HomeController::getThemeUrl()` dereferenced `$store->slug` on null, so the shared admin chrome was
 a 500 for every storeless principal. See `P05-14` in the traceability matrix for the measurement.
 
-### P5-8 — Export — **MATERIALLY ADVANCED (2026-11-20); the remainder is bounded**
+### P5-8 — Export — **COMPLETE (half (a) 2026-11-20; half (b) 2026-11-21)**
 Exports carry the same caveats as the screens; an export that drops a caveat is a defect.
 
 **Both halves measured, because they are different problems.**
@@ -204,8 +204,24 @@ the caveat half is vacuous for those six; the real defect is that neither screen
 discloses anything, which is **`ANA-007`** and `GAP-201`'s second half. Their *series* half was
 reconciled by P5-3, which fixed two HIGH wrong-data bugs and one MEDIUM.
 
-**To close this slice:** give a report screen a caveat consumer, and the six exports then have
-something to carry.
+**CLOSED 2026-11-21, and half (b) above is now historical.** Its stated condition — "give a report
+screen a caveat consumer, and the six exports then have something to carry" — is what was built.
+`ANA-007` put `FLOAT_PRECISION` on four report money tiles and both chart fragments; `P05-15` then
+put the disclosure in the files, as a **column** rather than a footnote, because sorting or copying
+a range in a spreadsheet separates a number from a footnote.
+
+**FIVE OF THE SIX EXPORTS CARRY IT. The sixth was MEASURED, not skipped:** `export()` returns
+`monthList`, `userTotal`, `registerTotal`, `guest` and `newguestTotal` — all counts, no money — so
+it has no money caveat to carry, its screen twin `chart_data.blade.php` is correctly caveat-free,
+and its view is `ReportCsvHeaderLocalisationTest`'s protected exemplar. Three-column exports carry
+the definition **and** the caveat; the two nine-column ones carry `MONEY_FLOAT_PRECISION`, the
+plural of the same measured claim, because six money columns in one row make "This figure"
+unanswerable.
+
+Every sentence is read from `App\Support\Reports\ReportFigureNote` — the same method the screens'
+`:hint` calls — so the file and the screen cannot disagree. A test asserts each sentence appears in
+exactly ONE first-party file, because a mutation proved the identity tests could not see a verbatim
+copy pasted into the controller.
 
 ### P5-9 — Loyalty — **ADDED 2026-11-17. One fix shipped; MKT-006 needs an owner decision**
 This slice did not exist. The word "loyalty" was in §5's scope prose and in no slice, which is the
@@ -590,8 +606,25 @@ checks, 0 failed. Owner items in `GAP-213(a)–(h)`. **The Arabic-page claims we
 measured in a real engine** (`tests/Browser/finance-rtl-money-isolation.mjs`, Chromium, no server needed): on the strings the first
 version produced a negative profit lays out as `USD 20.00 -` and a list of amounts as `USD 15,000,000.00 SYP 1,000.00` (pairing
 broken) — the review was right; on the strings the presenter produces now they lay out as `- 20.00 USD` and `1,000.00 USD
-15,000,000.00 SYP`, and the script **fails all three checks if the isolates are removed**. **Not done, unchanged:** the sales report
-and the exports.
+15,000,000.00 SYP`, and the script **fails all three checks if the isolates are removed**. **The "sales report and exports" remainder, MEASURED 2026-11-21 and split, because the two halves
+are not the same kind of thing:**
+
+**(a) THE D2 LABELLING OBLIGATION ON THE REPORT IS MET.** D2's purpose is that the four figures are
+never conflated. The sales report's own figure carries the settled label **Order value** in **11**
+report views, and since `P05-15` it states, on the screen and in the downloaded file, that it **is
+not payments received, and not profit** — which is exactly the distinction the four labels exist to
+draw. A reader of that report can no longer mistake it for either of the other two.
+
+**(b) PUTTING `Payments received` AND `Estimated gross profit` ON THE SALES REPORT IS NOT DONE, and
+it is a PRODUCT decision rather than an outstanding defect.** Measured: `ReportController` contains
+**zero** occurrences of `payment_status`, `cost_price`, `refund` or `margin`, and its five `profit`
+hits are all caveat prose. So it has no data path to either figure, and the metric classes that do
+(`CollectedCustomerPayments`, `StoreRevenueMargin`) are already read by `/finance`. Wiring them in
+is therefore executable *reuse* and not a new engine — but it would put a settlement figure and a
+cost-based estimate onto an ORDER report, which is arguably the very conflation D1 and D2 exist to
+prevent. D2 names four figures and four labels; it does not say every screen shows all four, and
+`/finance` already shows all four. **So whether the sales report should additionally display them is
+the owner's to say, and no engineering is blocked on it.**
 
 **The D1 rule is `LedgerCoverage`**, and it is data-driven: the verified period starts on **the day after the
 latest order the ledger cannot see** — no hard-coded cut-over date, so a single order lost to a race in the
