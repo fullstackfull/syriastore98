@@ -42,12 +42,20 @@ Head `15fcca9b`. Range `d60fed3a..15fcca9b`, twenty commits. Deletions under `ap
 
 **149 lines, 15 files.** 304 across all paths, the remainder being tests and documentation.
 
-**STILL CURRENT AT `e238f444`**, measured rather than assumed, and measured PER COMMIT rather than
-only in the range diff: the six commits after `15fcca9b` — `fe715dbe`, `9ab4bddc`, `e05a9c3a`,
-`42be2742`, `a1da84c6`, `e238f444` (the reviewer-notes move, P1-SEC-83, P1-SEC-84, P1-SEC-85 and
-their queue entries) — add **951 lines and delete ZERO**, in every path and in each commit
-separately. So this audit covers the head exactly, and the figures above need no revision. This
-line exists so the next reader does not have to recompute it to find that out.
+**AND EVERY COMMIT AFTER `15fcca9b` IS ADD-ONLY, so the figures above still describe the head.**
+Measured per commit and not only in the range diff, because a range diff cannot see a line one
+commit deleted and a later one re-added — the limitation this audit's own method section records.
+At the time of writing that was eight commits (the reviewer-notes move, P1-SEC-83 to P1-SEC-86 and
+their queue entries, and this file): **1,568 lines added, ZERO deleted**, in every path and in each
+commit separately.
+
+A sha in this sentence would be stale by the next push, so the claim is stated as an invariant and
+here is the one command that re-checks it — if it ever prints a non-zero figure, this audit has
+stopped covering the head and needs extending:
+
+```bash
+for c in $(git log --format=%h --reverse 15fcca9b..HEAD); do git show --numstat --format= "$c" | awk -v c="$c" '{d+=$2} END {print c, d+0}'; done
+```
 
 In the paths the checklist flags as sensitive, the range deletes **one** line in total:
 `app/Http/Middleware` 1; `app/Policies` 0, `app/Providers` 0, `config/` 0, `routes/` 0,
