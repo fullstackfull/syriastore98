@@ -50,6 +50,17 @@ final class AnalyticsExportRows
             'devices' => __('Devices'),
             'channels' => __('Referring pages'),
             'sources' => __('Orders by channel'),
+            /*
+             * ADDED after shipping the campaign breakdown to the SCREEN and not to the FILE --
+             * the same "computed but unreachable" defect an independent review had just caught on
+             * the conversion baseline, committed by the same hand on the same day.
+             *
+             * The lesson is in WHICH TEST could see it. `VisitBreakdownTest`'s export test builds
+             * its own `['devices' => ..., 'channels' => ...]` map and calls `breakdownRows()`
+             * directly, so it proves the renderer works and is structurally blind to a breakdown
+             * missing from THIS list. The test that catches it drives `build()`.
+             */
+            'campaigns' => __('Campaign traffic'),
         ];
     }
 

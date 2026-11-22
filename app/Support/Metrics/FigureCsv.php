@@ -53,11 +53,25 @@ final class FigureCsv
 
             $figure = $figures[$key];
 
+            /*
+             * EVERY CELL IS PLAINED, not just the value. Until 2026-11-22 only `value` was, and
+             * the asymmetry was invisible because no hint had ever contained an isolate.
+             *
+             * That changed when the visit-coverage disclosure began wrapping its DATE in `ltr()`
+             * -- correct on the rendered page, where an unwrapped Western-digit date reorders
+             * itself inside an Arabic sentence, and wrong in a spreadsheet cell, where it is an
+             * invisible character that defeats an exact-match filter or a lookup against the same
+             * text typed by hand.
+             *
+             * The invariant is now total and therefore testable in one assertion: NO isolate ever
+             * reaches the file. `plain()` is a no-op on text that never had one, so no existing
+             * output changes.
+             */
             $rows[] = [
-                $label,
+                self::plain($label),
                 $figure['value'] === null ? __('Not available') : self::plain((string) $figure['value']),
-                (string) ($figure['period'] ?? ''),
-                (string) ($figure['hint'] ?? ''),
+                self::plain((string) ($figure['period'] ?? '')),
+                self::plain((string) ($figure['hint'] ?? '')),
             ];
         }
 
@@ -121,19 +135,32 @@ final class FigureCsv
 
         foreach ($breakdown['rows'] as $row) {
             $rows[] = [
-                $label . ' — ' . (string) ($row['label'] ?? ''),
+                /*
+                 * THE LABEL IS PLAINED TOO, and until 2026-11-22 only the count was.
+                 *
+                 * That asymmetry was invisible while every breakdown label was platform-derived
+                 * -- a device name, a parsed host -- and so never carried an isolate. It began to
+                 * matter when a VISITOR-authored campaign label was wrapped in U+2066..U+2069 to
+                 * contain a possible bidi override on the rendered page.
+                 *
+                 * Isolates are right on screen and wrong in a data file: they are invisible, and
+                 * they defeat an exact-match filter or a lookup against the same name typed by
+                 * hand. `plain()` is a no-op on every label that was already clean, so this
+                 * changes no existing output.
+                 */
+                self::plain($label . ' — ' . (string) ($row['label'] ?? '')),
                 self::plain((string) ($row['count'] ?? '')),
-                (string) ($breakdown['period'] ?? ''),
-                (string) ($breakdown['hint'] ?? ''),
+                self::plain((string) ($breakdown['period'] ?? '')),
+                self::plain((string) ($breakdown['hint'] ?? '')),
             ];
         }
 
         if ($rows === []) {
             $rows[] = [
-                $label,
+                self::plain($label),
                 __('Not available'),
-                (string) ($breakdown['period'] ?? ''),
-                (string) ($breakdown['hint'] ?? ''),
+                self::plain((string) ($breakdown['period'] ?? '')),
+                self::plain((string) ($breakdown['hint'] ?? '')),
             ];
         }
 

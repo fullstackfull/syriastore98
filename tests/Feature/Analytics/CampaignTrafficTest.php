@@ -244,6 +244,86 @@ class CampaignTrafficTest extends SecurityTestCase
             'Nothing on the figure refuses attribution, so a merchant may read it as campaign revenue.');
     }
 
+    /** The full figures array, so the export can be built from the real thing. */
+    private function figures($store): array
+    {
+        return MerchantAnalyticsFigures::forStore(
+            $store->id,
+            $store->currency ?? 'USD',
+            null,
+            AnalyticsPeriod::fromRequest([
+                AnalyticsPeriod::KEY_PERIOD => AnalyticsPeriod::CUSTOM,
+                AnalyticsPeriod::KEY_FROM => '2026-02-01',
+                AnalyticsPeriod::KEY_TO => '2026-02-28',
+            ], now()->parse('2026-02-28')->endOfDay())
+        );
+    }
+
+    /**
+     * THE BREAKDOWN MUST REACH THE DOWNLOAD, and this asserts it through the REAL export rather
+     * than through a hand-written list of breakdowns.
+     *
+     * `VisitBreakdownTest::test_the_export_carries_both_breakdowns_with_their_disclosures` builds
+     * its own `['devices' => ..., 'channels' => ...]` map and calls `FigureCsv::breakdownRows()`
+     * directly. That proves the RENDERER works and cannot see a breakdown missing from
+     * `AnalyticsExportRows::breakdownLabels()` -- which is exactly the defect found here: the
+     * campaign breakdown shipped on the screen and was absent from the file, the same
+     * "computed but unreachable" shape as the conversion baseline a review had just caught.
+     *
+     * So this drives `AnalyticsExportRows::build()`, the method the controller and the scheduled
+     * report both actually call.
+     */
+    public function test_the_campaign_breakdown_reaches_the_export(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+
+        $this->visit($store, 'https://shop.test/?utm_source=newsletter&utm_campaign=spring');
+
+        $csv = \App\Support\Metrics\FigureCsv::render(
+            \App\Support\Analytics\AnalyticsExportRows::build($this->figures($store))
+        );
+
+        $this->assertStringContainsString('spring', $csv,
+            'The campaign breakdown is on the screen and absent from the download, so a merchant '
+            . 'can see which campaign sent traffic and cannot take the figure away.');
+
+        $this->assertStringContainsString('arrivals only', $csv,
+            'The exported campaign rows dropped the refusal of attribution. P05-15: an export '
+            . 'that drops a caveat is a defect, and this caveat is the one stopping a reader '
+            . 'treating these counts as campaign revenue.');
+    }
+
+    /**
+     * A CSV CELL MUST NOT CARRY INVISIBLE CONTROLS.
+     *
+     * `FigureCsv::plain()` exists to strip U+2066..U+2069 and `breakdownRows()` already applies it
+     * to the COUNT -- so the file's own convention is that isolates belong on screen and not in
+     * data. The LABEL was not plained, which did not matter while every label was
+     * platform-derived and unisolated, and started to matter the moment a visitor-authored
+     * campaign label was isolated.
+     *
+     * The isolates are correct on the rendered page and wrong in a spreadsheet cell, where they
+     * are invisible characters that break an exact-match filter or a lookup against the same name
+     * typed by hand.
+     */
+    public function test_the_exported_campaign_label_carries_no_bidi_controls(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+
+        $this->visit($store, 'https://shop.test/?utm_source=newsletter&utm_campaign=spring');
+
+        $csv = \App\Support\Metrics\FigureCsv::render(
+            \App\Support\Analytics\AnalyticsExportRows::build($this->figures($store))
+        );
+
+        foreach (["\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}"] as $control) {
+            $this->assertStringNotContainsString($control, $csv,
+                'An exported cell carries a bidi isolate. They are correct on the rendered page '
+                . 'and wrong in a data file: invisible characters defeat an exact-match filter '
+                . 'and a lookup against the same name typed by hand.');
+        }
+    }
+
     /**
      * EMPTY IS A STATED ANSWER, NOT A BLANK. A merchant who has never tagged a link must be told
      * that is why the panel is empty, rather than being left to wonder whether it is broken.

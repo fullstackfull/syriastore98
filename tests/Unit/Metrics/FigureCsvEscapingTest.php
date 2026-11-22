@@ -119,6 +119,81 @@ final class FigureCsvEscapingTest extends TestCase
     }
 
     /**
+     * NO BIDI ISOLATE REACHES THE FILE, FROM ANY COLUMN.
+     *
+     * `plain()` strips U+2066..U+2069 and existed from the start, but until 2026-11-22 it was
+     * applied only to the VALUE and the COUNT. The asymmetry was invisible while no label, period
+     * or hint had ever contained one -- every breakdown label was platform-derived and every hint
+     * was plain prose.
+     *
+     * Two changes on that day ended it: a visitor-authored campaign label was wrapped in an
+     * isolate so a bidi override could not reorder the rendered table, and the visit-coverage
+     * disclosure began wrapping its DATE in one for the same reason. Both are correct ON SCREEN
+     * and wrong in a spreadsheet cell, where an isolate is an invisible character that defeats an
+     * exact-match filter or a lookup against the same text typed by hand.
+     *
+     * THIS IS A UNIT TEST OF THE HELPER AND THAT IS DELIBERATE. A feature-level test can only
+     * catch a column whose content happens to carry an isolate in its fixture, and a mutation
+     * proved the gap: dropping `plain()` from the breakdown HINT was caught by nothing, because
+     * the only breakdown hints that carry one are cap disclosures needing 500+ rows to fire.
+     * Driving `breakdownRows()` directly asserts the invariant for every column at once.
+     */
+    public function test_no_exported_cell_carries_a_bidi_isolate(): void
+    {
+        $lri = "\u{2066}";
+        $pdi = "\u{2069}";
+
+        $rows = FigureCsv::breakdownRows([
+            'rows' => [
+                ['label' => $lri.'spring — newsletter'.$pdi, 'count' => $lri.'12'.$pdi],
+            ],
+            'period' => $lri.'last 30 days'.$pdi,
+            'hint' => 'Page views are recorded from '.$lri.'10 Feb 2026'.$pdi.'.',
+        ], 'Campaign traffic');
+
+        // The empty case takes an ISOLATED breakdown NAME as well. That name comes from
+        // `AnalyticsExportRows::breakdownLabels()` and is a translated constant, so today it
+        // never carries one -- a mutation proved that dropping `plain()` from this row was
+        // caught by nothing while the fixture passed a clean name. Passing a dirty one makes the
+        // invariant hold for every cell rather than for the cells that happen to be dirty.
+        $empty = FigureCsv::breakdownRows([
+            'rows' => [],
+            'period' => $lri.'last 30 days'.$pdi,
+            'hint' => 'Nothing arrived tagged since '.$lri.'10 Feb 2026'.$pdi.'.',
+        ], $lri.'Campaign traffic'.$pdi);
+
+        $single = FigureCsv::rows(
+            ['visits' => [
+                'value' => $lri.'1,240'.$pdi,
+                'period' => $lri.'last 30 days'.$pdi,
+                'hint' => 'Page views are recorded from '.$lri.'10 Feb 2026'.$pdi.'.',
+            ]],
+            ['visits' => 'Page views']
+        );
+
+        foreach (['breakdown' => $rows, 'empty breakdown' => $empty, 'single figure' => $single] as $what => $set) {
+            foreach ($set as $row) {
+                foreach ($row as $column => $cell) {
+                    foreach (["\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}"] as $control) {
+                        $this->assertStringNotContainsString($control, (string) $cell, sprintf(
+                            'A %s cell (column %d) carries a bidi isolate. Isolates belong on the '
+                            . 'rendered page and never in a data file.',
+                            $what,
+                            $column
+                        ));
+                    }
+                }
+            }
+        }
+
+        // The premise: the isolates were really there to begin with, so a scan that found none
+        // proves the stripping rather than an empty fixture.
+        $this->assertStringContainsString('spring', $rows[0][0]);
+        $this->assertStringContainsString('10 Feb 2026', $rows[0][3]);
+        $this->assertStringContainsString('1,240', $single[1][1]);
+    }
+
+    /**
      * THE LABEL PREFIX IS THE FORMULA GUARD, and it is the only one. This asserts the property
      * rather than the implementation: no cell in the label column may begin with a character Excel
      * treats as the start of a formula.
