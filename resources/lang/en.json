@@ -4467,5 +4467,16 @@
     "The Shopify store name must be the shop name only -- letters, digits and hyphens, with no dots, scheme or slashes.": "The Shopify store name must be the shop name only -- letters, digits and hyphens, with no dots, scheme or slashes.",
     "Save a WhatsApp access token before sending a test message.": "Save a WhatsApp access token before sending a test message.",
     "Selected currency is not available for this store.": "Selected currency is not available for this store.",
-    "Please set a valid exchange rate before changing the store currency.": "Please set a valid exchange rate before changing the store currency."
+    "Please set a valid exchange rate before changing the store currency.": "Please set a valid exchange rate before changing the store currency.",
+    "Orders by channel": "Orders by channel",
+    "Sales channel": "Sales channel",
+    "Source not recorded (placed before this was tracked)": "Source not recorded (placed before this was tracked)",
+    ":value (not a source this version knows)": ":value (not a source this version knows)",
+    "Which path created each order: the point of sale, a merchant entering it by hand, or the storefront. It is recorded by the writer when the order is created and is never inferred afterwards.": "Which path created each order: the point of sale, a merchant entering it by hand, or the storefront. It is recorded by the writer when the order is created and is never inferred afterwards.",
+    "These are ORDERS, not visits. There is no link in this product between a page view and an order, so these counts cannot be divided by the page-view breakdowns beside them to produce a rate per channel.": "These are ORDERS, not visits. There is no link in this product between a page view and an order, so these counts cannot be divided by the page-view breakdowns beside them to produce a rate per channel.",
+    "One or more orders carry a source this version does not have a name for. They are shown with the stored value rather than left out of the count.": "One or more orders carry a source this version does not have a name for. They are shown with the stored value rather than left out of the count.",
+    "No orders were placed in this period, so there is no channel breakdown. Nothing is estimated.": "No orders were placed in this period, so there is no channel breakdown. Nothing is estimated.",
+    "percentage points": "percentage points",
+    "no rate": "no rate",
+    "No page views were recorded in the earlier period, so there is no rate to compare against.": "No page views were recorded in the earlier period, so there is no rate to compare against."
 }

@@ -49,6 +49,7 @@ final class AnalyticsExportRows
         return [
             'devices' => __('Devices'),
             'channels' => __('Referring pages'),
+            'sources' => __('Orders by channel'),
         ];
     }
 
@@ -61,7 +62,7 @@ final class AnalyticsExportRows
         $rows = FigureCsv::rows($figures, self::figureLabels());
 
         /*
-         * The two breakdowns are rows, not tiles, so they go through `breakdownRows()` -- same four
+         * The THREE breakdowns are rows, not tiles, so they go through `breakdownRows()` -- same four
          * columns, every row carrying its own period and disclosure. Each is prefixed with its own
          * name so two lists in one download stay readable.
          */

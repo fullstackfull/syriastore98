@@ -383,15 +383,24 @@
      computes, folds, orders or totals: MerchantAnalyticsFigures did all of it, including the
      decision to order by count rather than by label and to name an absence an absence.
 
-     THE TWO DISCLOSURES ARE THE POINT OF THE SECTION. The device list says a visit is a REQUEST
+     THREE BREAKDOWNS, AND THE THIRD IS NOT MADE OF THE SAME STUFF. Devices and referring pages
+     count PAGE VIEWS; orders by channel counts ORDERS, and nothing in this product links a visit
+     to an order, so the three cannot be divided by one another. Its own hint says so.
+
+     THE TWO VISIT DISCLOSURES ARE THE POINT OF THE SECTION. The device list says a visit is a REQUEST
      and not a person, and that an undetermined device is shown as not recorded rather than
      guessed. The referrer list says that no host is filed under a marketing channel — that would
      need a maintained list of search and social domains — and that a visit with no referring page
      is NOT a direct visit, which is the reading a merchant will otherwise make. --}}
 <div class="row">
     @foreach ([
-        'devices' => ['heading' => __('Devices'), 'column' => __('Device')],
-        'channels' => ['heading' => __('Referring pages'), 'column' => __('Referring page')],
+        'devices' => ['heading' => __('Devices'), 'column' => __('Device'), 'count' => __('Visits')],
+        'channels' => ['heading' => __('Referring pages'), 'column' => __('Referring page'), 'count' => __('Visits')],
+        {{-- ANA-004 / GAP-227(a). ORDERS, NOT VISITS, and the count column has to say so: this
+             loop used to hardcode `Visits` as the second header, which over a breakdown of ORDERS
+             would be a false label on a true number -- the defect class this screen keeps fixing.
+             The header is per-breakdown now. --}}
+        'sources' => ['heading' => __('Orders by channel'), 'column' => __('Sales channel'), 'count' => __('Orders')],
     ] as $key => $meta)
         <div class="col-xl-6">
             <div class="ss-card mt-3">
@@ -412,7 +421,7 @@
                             <thead>
                                 <tr>
                                     <th scope="col">{{ $meta['column'] }}</th>
-                                    <th scope="col">{{ __('Visits') }}</th>
+                                    <th scope="col">{{ $meta['count'] }}</th>
                                 </tr>
                             </thead>
                             <tbody>

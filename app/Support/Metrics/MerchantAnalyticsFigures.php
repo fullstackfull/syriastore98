@@ -79,7 +79,8 @@ final class MerchantAnalyticsFigures
      *     redemptions: array{value: ?string, period: string, hint: string},
      *     retention: array{value: ?string, period: string, hint: string},
      *     devices: array{rows: list<array{label: string, count: string}>, period: string, hint: string},
-     *     channels: array{rows: list<array{label: string, count: string}>, period: string, hint: string}
+     *     channels: array{rows: list<array{label: string, count: string}>, period: string, hint: string},
+     *     sources: array{rows: list<array{label: string, count: string}>, period: string, hint: string}
      * }
      *
      * THE TWO BREAKDOWNS ARE PART OF THIS CONTRACT, not an extra. They are NOT the figure shape:
@@ -154,6 +155,15 @@ final class MerchantAnalyticsFigures
          */
         $baselinePeriod = $chosen->baselineLabel();
 
+        /*
+         * READ ONCE, USED THREE TIMES. These were two inline calls inside the orders and visits
+         * tiles; the conversion tile's own baseline (GAP-227(a)) needs BOTH of them, and reading
+         * them a second time would let the rate's baseline be computed from a different pair of
+         * counts than the two tiles above it display.
+         */
+        $baselineOrders = self::countOrders($storeId, $baseline->from(), $baseline->to());
+        $baselineVisits = self::countVisits($storeId, $baseline->from(), $baseline->to());
+
         return [
             'coverage' => $money['coverage'],
             'payments' => $money['payments'],
@@ -162,28 +172,21 @@ final class MerchantAnalyticsFigures
                 'value' => self::ltr(number_format($orders)),
                 'period' => $period,
                 'hint' => __('Orders placed in this period, whatever their payment status. It is not a money figure and does not exclude orders later cancelled or refunded.'),
-                'comparison' => self::comparison(
-                    $orders,
-                    self::countOrders($storeId, $baseline->from(), $baseline->to()),
-                    $baselinePeriod
-                ),
+                'comparison' => self::comparison($orders, $baselineOrders, $baselinePeriod),
             ],
             'visits' => [
                 'value' => self::ltr(number_format($visits)),
                 'period' => $period,
                 'hint' => self::visitsMeaning(),
-                'comparison' => self::comparison(
-                    $visits,
-                    self::countVisits($storeId, $baseline->from(), $baseline->to()),
-                    $baselinePeriod
-                ),
+                'comparison' => self::comparison($visits, $baselineVisits, $baselinePeriod),
             ],
-            'conversion' => self::conversion($orders, $visits, $period),
+            'conversion' => self::conversion($orders, $visits, $period, $baselineOrders, $baselineVisits, $baselinePeriod),
             'customers' => self::customers($storeId, $from, $to, $period),
             'redemptions' => self::redemptions($storeId, $storeCurrency, $from, $to, $period),
             'retention' => self::retention($storeId),
             'devices' => self::devices($storeId, $from, $to, $period),
             'channels' => self::channels($storeId, $from, $to, $period, $visits),
+            'sources' => self::sources($storeId, $from, $to, $period),
 
             /*
              * ANA-002 — THE PERIOD ITSELF, so the screen and the CSV can both state what was
@@ -375,8 +378,14 @@ final class MerchantAnalyticsFigures
      *
      * @return array{value: ?string, period: string, hint: string}
      */
-    private static function conversion(int $orders, int $visits, string $period): array
-    {
+    private static function conversion(
+        int $orders,
+        int $visits,
+        string $period,
+        int $baselineOrders,
+        int $baselineVisits,
+        string $baselinePeriod
+    ): array {
         $meaning = __('Orders divided by storefront page views in this period.').' '.self::visitsMeaning();
 
         if ($visits <= 0) {
@@ -396,6 +405,57 @@ final class MerchantAnalyticsFigures
             'hint' => $orders > $visits
                 ? $meaning.' '.__('There are more orders than recorded page views, so some orders arrived by a route that logs no page view.')
                 : $meaning,
+            'comparison' => self::rateComparison($rate, $baselineOrders, $baselineVisits, $baselinePeriod),
+        ];
+    }
+
+    /**
+     * ANA-004 / GAP-227(a) — THE CONVERSION TILE'S BASELINE, IN PERCENTAGE POINTS.
+     *
+     * BOTH OF ITS INPUTS CARRIED A BASELINE AND THE RATIO CARRIED NONE, measured 2026-11-22. A
+     * merchant could see that orders were up 12% and page views up 40% and could not see that the
+     * rate had therefore FALLEN -- which is the one thing the tile exists to say.
+     *
+     * IT DOES NOT GO THROUGH `comparison()`, AND THAT IS THE WHOLE POINT. That helper reports a
+     * change as a PERCENTAGE OF THE BASELINE, which is right for a count and a lie for a rate:
+     * 2.10% rising to 2.80% is +0.70 PERCENTAGE POINTS, and calling it "+33%" is the classic way an
+     * analytics screen overstates a small movement. So the change is stated in points, and
+     * `percent` is deliberately left null -- the component already renders a comparison without
+     * one, and a percentage of a percentage is the figure this method exists to avoid printing.
+     *
+     * A BASELINE WITH NO PAGE VIEWS IS NOT A ZERO RATE. It is no rate at all, for exactly the
+     * reason the tile itself returns null in that case, so the comparison says so in words and
+     * reports no movement rather than inventing a rise from nothing.
+     *
+     * @return array{direction: string, change: string, baseline: string, period: string, percent: null, note: ?string}
+     */
+    private static function rateComparison(float $rate, int $baselineOrders, int $baselineVisits, string $baselinePeriod): array
+    {
+        if ($baselineVisits <= 0) {
+            return [
+                'direction' => 'same',
+                'change' => self::ltr(number_format(0, 2)).' '.__('percentage points'),
+                'baseline' => __('no rate'),
+                'period' => $baselinePeriod,
+                'percent' => null,
+                'note' => __('No page views were recorded in the earlier period, so there is no rate to compare against.'),
+            ];
+        }
+
+        $baselineRate = ($baselineOrders / $baselineVisits) * 100;
+        $difference = $rate - $baselineRate;
+
+        return [
+            'direction' => match (true) {
+                $difference > 0 => 'up',
+                $difference < 0 => 'down',
+                default => 'same',
+            },
+            'change' => self::ltr(number_format(abs($difference), 2)).' '.__('percentage points'),
+            'baseline' => self::ltr(number_format($baselineRate, 2).'%'),
+            'period' => $baselinePeriod,
+            'percent' => null,
+            'note' => null,
         ];
     }
 
@@ -696,6 +756,110 @@ final class MerchantAnalyticsFigures
             'rows' => $rows,
             'period' => $period,
             'hint' => implode(' ', $notes),
+        ];
+    }
+
+    /**
+     * ANA-004 / GAP-227(a) — ORDERS BY SALES CHANNEL, the one real channel dimension in the schema.
+     *
+     * THE COLUMN ALREADY EXISTED AND NOTHING EVER AGGREGATED IT. `orders.order_source` is
+     * `string(20)`, nullable, with a composite index `(store_id, order_source)` and a vocabulary of
+     * exactly three values. It has been a per-row label on the order list and the kanban card, and
+     * a filter (`?ss_source=`), since P2-04-11 — and the 2026-11-22 measurement of `ANA-004` found
+     * that **no figure, chart or breakdown anywhere in the product ever grouped by it**. This is
+     * that grouping, and nothing more: no new column, no migration, no inference.
+     *
+     * IT IS AN ORDER BREAKDOWN AND NOT A CONVERSION ONE, and the hint says so rather than leaving a
+     * merchant to assume otherwise. The same measurement established that there is NO LINK OF ANY
+     * KIND between a visit and an order in this schema, so these counts cannot be divided by the
+     * referring-page or device breakdowns beside them. Placing three tables on one screen invites
+     * exactly that division; saying it is impossible is cheaper than letting somebody derive a
+     * number that means nothing.
+     *
+     * NULL IS AN ABSENCE AND KEEPS ITS OWN ROW. `Order`'s own docblock is explicit: "THERE IS
+     * DELIBERATELY NO `SOURCE_UNKNOWN`. An order with no source has NULL, and NULL is the ABSENCE
+     * of a record, not a fourth category: it means the order predates the column." So the empty
+     * bucket is labelled as an absence WITH ITS REASON, and `Order::orderSourceLabel()` — which
+     * returns null for anything it does not know, deliberately — is the only namer used.
+     *
+     * A VALUE THE VOCABULARY DOES NOT KNOW IS SHOWN, NOT DROPPED, and not folded into the absence
+     * either. A row written by a future version, by hand or by a restored dump would otherwise
+     * vanish from a breakdown that still showed a plausible total, and the one thing worse than an
+     * unexplained row is a missing one. It is shown verbatim and marked as unrecognised.
+     *
+     * THE STORE PREDICATE IS EXPLICIT. `Order` carries no `StoreScope` and is not in
+     * `config/tenancy.php`'s `scoped_models`, so no global scope adds `store_id` for anybody —
+     * operator included. Windowed on `order_date`, the same column and bounds `countOrders()` uses,
+     * so this breakdown and the Orders tile above it cannot disagree about which orders are in the
+     * period.
+     *
+     * @return array{rows: list<array{label: string, count: string}>, period: string, hint: string}
+     */
+    private static function sources(int $storeId, CarbonInterface $from, CarbonInterface $to, string $period): array
+    {
+        $rows = Order::query()
+            ->selectRaw('order_source as bucket, COUNT(*) as total')
+            ->where('store_id', $storeId)
+            ->whereBetween('order_date', [$from, $to])
+            ->groupBy('order_source')
+            ->get();
+
+        /*
+         * FOLDED IN PHP for the reason `devices()` records: SQL `GROUP BY` treats NULL and the
+         * empty string as two groups, so an unrecorded source would otherwise emit two rows both
+         * labelled as an absence, and a merchant would read one absence as two.
+         *
+         * AND THAT IS WHY THERE IS NO `orderByDesc('total')` ABOVE, although `devices()`'s shared
+         * helper has one. Folding CHANGES the order -- two absence buckets merge into a bucket
+         * larger than either -- so SQL cannot decide it and `arsort()` below must. A draft had
+         * both, and a mutation run showed exactly why that is worse than it looks: with two
+         * orderers, reverting EITHER one leaves the other producing the right answer, so neither
+         * mutation can be caught and the ordering reads as covered when only the pair is. One
+         * orderer, one mutation, one test.
+         */
+        $buckets = [];
+
+        foreach ($rows as $row) {
+            $value = trim((string) ($row->bucket ?? ''));
+
+            $buckets[$value] = ($buckets[$value] ?? 0) + (int) $row->total;
+        }
+
+        arsort($buckets);
+
+        $out = [];
+        $unrecognised = false;
+
+        foreach ($buckets as $value => $count) {
+            if ($value === '') {
+                $label = __('Source not recorded (placed before this was tracked)');
+            } else {
+                $named = Order::orderSourceLabel($value);
+
+                if ($named === null) {
+                    $unrecognised = true;
+                    $label = __(':value (not a source this version knows)', ['value' => $value]);
+                } else {
+                    $label = $named;
+                }
+            }
+
+            $out[] = ['label' => $label, 'count' => self::ltr(number_format($count))];
+        }
+
+        $hint = __('Which path created each order: the point of sale, a merchant entering it by hand, or the storefront. It is recorded by the writer when the order is created and is never inferred afterwards.')
+            .' '.__('These are ORDERS, not visits. There is no link in this product between a page view and an order, so these counts cannot be divided by the page-view breakdowns beside them to produce a rate per channel.');
+
+        if ($unrecognised) {
+            $hint .= ' '.__('One or more orders carry a source this version does not have a name for. They are shown with the stored value rather than left out of the count.');
+        }
+
+        return [
+            'rows' => $out,
+            'period' => $period,
+            'hint' => $out === []
+                ? __('No orders were placed in this period, so there is no channel breakdown. Nothing is estimated.')
+                : $hint,
         ];
     }
 

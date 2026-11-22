@@ -4463,5 +4463,16 @@
     "The Shopify store name must be the shop name only -- letters, digits and hyphens, with no dots, scheme or slashes.": "يجب أن يكون اسم متجر شوبيفاي هو اسم المتجر فقط — أحرف وأرقام وشرطات، دون نقاط أو بروتوكول أو شرطات مائلة.",
     "Save a WhatsApp access token before sending a test message.": "احفظ رمز وصول واتساب قبل إرسال رسالة تجريبية.",
     "Selected currency is not available for this store.": "العملة المحددة غير متاحة لهذا المتجر.",
-    "Please set a valid exchange rate before changing the store currency.": "يرجى ضبط سعر صرف صالح قبل تغيير عملة المتجر."
+    "Please set a valid exchange rate before changing the store currency.": "يرجى ضبط سعر صرف صالح قبل تغيير عملة المتجر.",
+    "Orders by channel": "الطلبات حسب القناة",
+    "Sales channel": "قناة البيع",
+    "Source not recorded (placed before this was tracked)": "لم تُسجَّل القناة (طلبات سابقة لتتبّع القناة)",
+    ":value (not a source this version knows)": ":value (قناة لا يعرفها هذا الإصدار)",
+    "Which path created each order: the point of sale, a merchant entering it by hand, or the storefront. It is recorded by the writer when the order is created and is never inferred afterwards.": "المسار الذي أنشأ كل طلب: نقطة البيع، أو إدخال يدوي من التاجر، أو المتجر الإلكتروني. تُسجَّل القناة عند إنشاء الطلب ولا تُستنتج لاحقًا.",
+    "These are ORDERS, not visits. There is no link in this product between a page view and an order, so these counts cannot be divided by the page-view breakdowns beside them to produce a rate per channel.": "هذه أعداد طلبات وليست زيارات. لا يوجد في هذا المنتج أي ربط بين مشاهدة الصفحة والطلب، لذلك لا يمكن قسمة هذه الأعداد على تفصيلات مشاهدات الصفحة المجاورة لاستخراج معدّل لكل قناة.",
+    "One or more orders carry a source this version does not have a name for. They are shown with the stored value rather than left out of the count.": "يحمل طلب واحد أو أكثر قناةً ليس لهذا الإصدار اسم لها. تُعرض بالقيمة المخزَّنة بدلًا من استبعادها من العدّ.",
+    "No orders were placed in this period, so there is no channel breakdown. Nothing is estimated.": "لم تُسجَّل أي طلبات في هذه الفترة، لذلك لا يوجد تفصيل حسب القناة. ولا يُقدَّر أي رقم.",
+    "percentage points": "نقطة مئوية",
+    "no rate": "لا يوجد معدّل",
+    "No page views were recorded in the earlier period, so there is no rate to compare against.": "لم تُسجَّل أي مشاهدات للصفحات في الفترة السابقة، لذلك لا يوجد معدّل للمقارنة به."
 }

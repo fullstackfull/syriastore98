@@ -208,6 +208,40 @@ final class MerchantAnalyticsScreenTest extends SecurityTestCase
         $response->assertSee(__('Conversion'));
     }
 
+    /**
+     * ANA-004 / GAP-227(a) — THE ORDERS-BY-CHANNEL TABLE IS ON THE SCREEN, AND ITS COUNT COLUMN
+     * DOES NOT SAY "VISITS".
+     *
+     * The breakdown section is one `@foreach` over three entries, and it used to hardcode
+     * `__('Visits')` as the second column header for all of them — correct for devices and
+     * referring pages, and a FALSE LABEL ON A TRUE NUMBER over a breakdown of orders. Caught while
+     * adding the third entry; the header is per-breakdown now, and this is what holds it there.
+     */
+    public function test_the_orders_by_channel_table_counts_orders_and_says_so(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $this->makeOrder($store);
+
+        $response = $this->actingAs($merchant->fresh())->get(self::URI);
+
+        $response->assertStatus(200);
+        $response->assertSee(__('Orders by channel'));
+        $response->assertSee(__('Sales channel'));
+
+        $html = (string) $response->getContent();
+        $heading = strpos($html, __('Orders by channel'));
+
+        $this->assertNotFalse($heading, 'The orders-by-channel heading is not on the page at all.');
+
+        // The table that follows that heading, up to the next card.
+        $table = substr($html, $heading, 1800);
+
+        $this->assertStringContainsString('<th scope="col">' . __('Orders') . '</th>', $table,
+            'The orders-by-channel table does not head its count column "Orders".');
+        $this->assertStringNotContainsString('<th scope="col">' . __('Visits') . '</th>', $table,
+            'The orders-by-channel table heads its count column "Visits", which is a false label: these are orders, and nothing in this product links a visit to an order.');
+    }
+
     public function test_every_tile_states_a_period(): void
     {
         [$merchant] = $this->makeTenant();
