@@ -583,8 +583,11 @@
                                                                 {{-- P5-R4 / GAP-149 -- FOUR ENGINE-WRITTEN STATES, NOT TWO.
                                                                      The branch above named `cancelled` and `refunded` and the
                                                                      ternary could not grow past them. But the column's production
-                                                                     enum holds SIX values and `OrderFinancialService` writes all
-                                                                     six: a `pending` or `partially_paid` row reached here with
+                                                                     enum holds SIX values -- `pending` written by the gateway
+                                                                     normaliser, `partially_paid` written by nothing today but
+                                                                     permitted by the enum and queried by `UnpaidOrders` (see
+                                                                     EntitlementStateLabel's docblock, corrected after review):
+                                                                     such a row reached here with
                                                                      NEITHER option selected, so the browser rendered the first
                                                                      one and the merchant was shown "Not Received" as the current
                                                                      state of a row where money had partly arrived -- the exact

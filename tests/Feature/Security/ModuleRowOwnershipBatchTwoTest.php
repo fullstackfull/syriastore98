@@ -307,6 +307,97 @@ final class ModuleRowOwnershipBatchTwoTest extends SecurityTestCase
             . '`store_id` of its own to scope by.');
     }
 
+    /**
+     * THE DOOR THE FIRST PASS MISSED, AND THE WORST OF THE SET.
+     *
+     * `Route::resource('join_us', ...)` registers `POST join_us` -> `JoinUsController::store()`,
+     * which has NO authorization of any kind, inside a group whose only gate is
+     * `['auth','web','xss','setlocate','verified']`. Registration is open in this product, so the
+     * principal is "any verified account", not "a merchant".
+     *
+     * What it writes is not a tenant's row. `LandingPageSetting::updateOrCreate(['name' => $key])`
+     * keys on NAME alone, and `landing_page_settings` is `id`, `name` (unique), `value`,
+     * `timestamps` -- no `store_id`, no `created_by` -- so the three values are the PLATFORM'S
+     * single copy, and they are printed on the public site through `{!! !!}` in three layouts
+     * (landingpage, marketplace, custompage). The group's `xss` middleware does not make that
+     * safe: its script strip is commented out and `htmlspecialchars_decode()` runs BEFORE its four
+     * substrings are removed.
+     *
+     * The sibling `index()` on the same controller DOES check `type == 'super admin'`. Read gated,
+     * write not -- the shape P1-SEC-85 recorded once already.
+     */
+    public function test_a_merchant_cannot_rewrite_the_platform_landing_page_text(): void
+    {
+        [$merchant] = $this->arrange(['LandingPage']);
+
+        $this->assertTrue(Schema::hasTable('landing_page_settings'),
+            'PREMISE: the module table is absent, so the assertions below would pass for the wrong '
+            . 'reason.');
+
+        $before = DB::table('landing_page_settings')
+            ->whereIn('name', ['joinus_status', 'joinus_heading', 'joinus_description'])
+            ->pluck('value', 'name')->all();
+
+        $this->actingAs($merchant)->post('/join_us', [
+            'joinus_status' => 'on',
+            'joinus_heading' => 'DEFACED BY ANOTHER TENANT',
+            'joinus_description' => '<script>stealTheSession()</script>',
+        ]);
+
+        $after = DB::table('landing_page_settings')
+            ->whereIn('name', ['joinus_status', 'joinus_heading', 'joinus_description'])
+            ->pluck('value', 'name')->all();
+
+        $this->assertSame($before, $after,
+            'A merchant rewrote the PLATFORM\'s public landing-page text. `store()` has no '
+            . 'authorization check, the row is keyed on `name` alone with no tenant column, and '
+            . 'the value is rendered through `{!! !!}` on three public layouts -- so this is '
+            . 'defacement of the platform\'s own site and a stored-markup sink in one request.');
+
+        $this->assertFalse(
+            DB::table('landing_page_settings')->where('value', 'DEFACED BY ANOTHER TENANT')->exists(),
+            'the heading was written under some other name'
+        );
+
+        /*
+         * THE POSITIVE CONTROL: `operator` means the operator, so the operator must still be able
+         * to write. Without this, a rule that silently takes the platform owner's own landing-page
+         * editor away from them would look identical to a working control.
+         *
+         * AND A MUTATION THAT SURVIVES CORRECTLY, recorded because the reason is not obvious and
+         * my first explanation of it was WRONG. Pointing this key at
+         * `store-row:landing_page_settings:join_u` -- a table with no `store_id` and a parameter
+         * this route does not have -- survives both halves of this case, and NOT because the test
+         * is weak. `ModuleAdministrativeRouteGuard:117` is
+         *
+         *     if ($rule === 'auth' || $this->isOperator($user)) { return $next($request); }
+         *
+         * so the operator is admitted BEFORE any rule is evaluated. For a tenantless table that
+         * makes `store-row:` and `operator` the same function: operator in, everyone else closed.
+         * I had assumed `ownsStoreRow()` would refuse the operator too; it never reaches it.
+         *
+         * THEY ARE NOT SYNONYMS IN GENERAL, which is why the key says `operator`. If
+         * `landing_page_settings` ever gained a `store_id`, `store-row:` would begin ADMITTING any
+         * merchant whose store matched the row, while `operator` would go on refusing them. The
+         * equivalence is a property of this table today, not of the vocabulary.
+         */
+        $operator = $this->makePlatformAdmin();
+
+        $this->actingAs($operator)->post('/join_us', [
+            'joinus_status' => 'on',
+            'joinus_heading' => 'Written by the platform owner',
+            'joinus_description' => 'Join our community',
+        ]);
+
+        $this->assertSame(
+            'Written by the platform owner',
+            DB::table('landing_page_settings')->where('name', 'joinus_heading')->value('value'),
+            'The OPERATOR can no longer edit the platform landing page either, so this rule is a '
+            . 'denial of service dressed as a control -- the exact failure a merchant-only test '
+            . 'cannot see.'
+        );
+    }
+
     /** `join_us` carries neither `store_id` nor `created_by`: these rows are the platform's. */
     public function test_a_merchant_cannot_delete_a_platform_join_us_row(): void
     {

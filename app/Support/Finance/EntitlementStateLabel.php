@@ -13,10 +13,29 @@ namespace App\Support\Finance;
  *
  *     enum('unpaid','pending','paid','partially_paid','refunded','cancelled') NOT NULL DEFAULT 'unpaid'
  *
- * and `OrderFinancialService::normalizePaymentStatus()` -- first-party, and the only writer of this
- * column on the insert path -- returns every one of them: a gateway's 'pending' or 'processing'
- * becomes `pending`, its 'partial' becomes `partially_paid`. `syncFromOrder()`'s third arm writes
- * whichever of them the order's status normalises to.
+ * CORRECTED AFTER AN INDEPENDENT REVIEW REFUTED THE FIRST VERSION OF THIS PARAGRAPH, which claimed
+ * `OrderFinancialService` writes all six. It does not, and the difference is worth stating because
+ * the original sentence was offered as a measurement:
+ *
+ *   paid, pending, unpaid   `normalizePaymentStatus()`, and REACHABLE: `PaymentStatusNormalizationTest`
+ *                           measures the input vocabulary of `orders.payment_status` by scanning
+ *                           app/ and packages/, and its order-owned set is
+ *                           Paid/paid/success/succeeded/Succeeded/Pending/pending/Unpaid/unpaid.
+ *   cancelled, refunded     `OrderEntitlementReversal`, when a reversal really happens.
+ *   partially_paid          IN THE ENUM AND READ BY THE APPLICATION, BUT WRITTEN BY NOTHING TODAY.
+ *                           The normaliser HAS a `'partial', 'partially_paid' =>` arm, but no
+ *                           writer puts any partial spelling into `orders.payment_status`, so that
+ *                           arm has no reachable input. (The only other `'partially_paid'` literals
+ *                           in the tree are `UnpaidOrders`' own READ and a LynomiaChat audience
+ *                           filter's option list -- readers, not writers. `'Partially Paid'`
+ *                           elsewhere is a `delivered_status` LABEL, and would not match the arm
+ *                           anyway: `strtolower` gives a SPACE, not an underscore.)
+ *
+ * SO WHY HANDLE IT AT ALL, since nothing writes it: because the column can HOLD it -- the
+ * production enum permits it, `UnpaidOrders` queries for it, and this class's contract is the
+ * COLUMN's vocabulary, not the current writers'. A state the column can hold and the screen cannot
+ * name is the defect this class exists to prevent; whether a writer exists yet is a separate fact.
+ * `pending` alone makes the original defect real, and it was always reachable.
  *
  * WHAT THE SCREEN DID WITH THE TWO IT DID NOT KNOW. `finance/index.blade.php` branched on `paid`,
  * `refunded` and `cancelled` and sent everything else to a DANGER-red "Not Received", so:

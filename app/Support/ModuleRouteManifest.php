@@ -448,6 +448,23 @@ final class ModuleRouteManifest
          * `storefront` in the ANONYMOUS_BY_DESIGN table below, which is correct -- it is the public
          * newsletter form.
          *
+         * AND THAT SENTENCE, AS FIRST WRITTEN, WAS THE WHOLE OF WHAT THIS FILE SAID ABOUT POSTING
+         * TO join_us -- WHICH CONFLATED TWO DIFFERENT ROUTES AND LEFT THE DANGEROUS ONE OPEN.
+         * `POST join_us/store` (three segments, `joinUsUserStore()`, the public form) is NOT
+         * `POST join_us` (two segments, the RESOURCE's `store()`), and only the first was looked
+         * at. `Route::resource('join_us', ...)` registers the second inside
+         * `['auth','web','xss','setlocate','verified']` with no `PlanModuleCheck`, and LandingPage
+         * is in `PackageServiceProvider::$staticAddons`, so it loads on every install. Its
+         * `store()` carries NO authorization of any kind while the sibling `index()` on the same
+         * controller checks `type == 'super admin'` -- the read gated and the write not, the shape
+         * P1-SEC-85 already recorded once. It writes `joinus_status`, `joinus_heading` and
+         * `joinus_description` through `LandingPageSetting::updateOrCreate(['name' => ...])`, and
+         * `landing_page_settings` is `id`, `name` (unique), `value`, `timestamps` -- so the rows
+         * are the PLATFORM'S and `operator` is compelled by the schema here too, not chosen.
+         *
+         * Found by the independent review this change should have had BEFORE it was committed, not
+         * after. Classified above; `ModuleRowOwnershipBatchTwoTest` drives it.
+         *
          * `preordersetting/get-product-variants/{id}` TAKES A PRODUCT ID, NOT A SETTING ID. The URI
          * reads like the latter and the handler is `Product::find($id)`, so the rule names
          * `products`. CLAUDE.md records `Product` as scoped for nobody -- not a merchant, not the
@@ -470,6 +487,7 @@ final class ModuleRouteManifest
         'PATCH join_us/{join_u}' => 'operator',
         'PUT join_us/{join_u}' => 'operator',
         'GET join_us/{join_u}/edit' => 'operator',
+        'POST join_us' => 'operator',
 
         'DELETE product-enquiry/{product_enquiry}' => 'store-row:product_enquiries:product_enquiry',
         'GET product-enquiry/{product_enquiry}' => 'store-row:product_enquiries:product_enquiry',
