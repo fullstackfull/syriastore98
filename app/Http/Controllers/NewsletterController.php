@@ -18,7 +18,14 @@ class NewsletterController extends Controller
      */
     public function index(Request $request, NewsletterDataTable $dataTable)
     {
-        if(auth()->user() && auth()->user()->isAbleTo('Manage Newsletter'))
+        // GAP-218. `isAbleTo()` alone refuses the platform operator -- Laratrust has no
+        // super-admin bypass and no role holds this name on a database built from source. The
+        // predicate is the one `couponReadRefusal()` has used since 2026-10-28; it deliberately
+        // does NOT admit a tenant owner without the permission (see the class docblock).
+        if ($refusal = \App\Services\MarketingScreenAccess::refusal(auth()->user(), 'Manage Newsletter')) {
+            return redirect()->back()->with('error', __($refusal));
+        }
+
         {
             /*
              * MKT-002. The merchant's filter selection survives navigation and reload.
@@ -51,10 +58,6 @@ class NewsletterController extends Controller
             \App\Services\TableFilterMemory::remember($request, 'newsletter');
 
             return $dataTable->render('newsletter.index');
-        }
-        else
-        {
-            return redirect()->back()->with('error', __('Permission denied.'));
         }
     }
 
@@ -219,16 +222,26 @@ class NewsletterController extends Controller
      * `ContentFamilyCrossTenantTest::test_the_newsletter_export_refuses_a_principal_with_no_permission`
      * before this check existed.
      *
-     * `Manage Newsletter` and not a new name: `index()` already requires exactly that, and the
-     * export button lives on `newsletter/index.blade.php:24` -- a page this principal cannot
-     * reach. So anyone who can SEE the button already holds the permission, and this locks nobody
-     * out. Found by the tenant-authz review of the seven-controller tenancy fix; it is an
-     * authorization gap rather than a tenancy one, which is why neither census surfaced it.
+     * `Manage Newsletter` and not a new name: `index()` already requires exactly that. Found by
+     * the tenant-authz review of the seven-controller tenancy fix; it is an authorization gap
+     * rather than a tenancy one, which is why neither census surfaced it.
+     *
+     * CORRECTED 2026-11-22, GAP-218. This docblock used to add that "anyone who can SEE the
+     * button already holds the permission, and this locks nobody out", on the grounds that the
+     * export button sits on a page the principal cannot reach. THAT PREMISE DIED THE MOMENT THE
+     * PLATFORM OPERATOR WAS ADMITTED TO `index()`: the button is gated on the Subscribe module
+     * and the plan, not on a permission, so an operator could open the list, see the button, and
+     * meet `Permission denied.` on every press.
+     *
+     * That is the 2026-10-28 coupon asymmetry inverted -- that decision removed "the operator can
+     * export a book they cannot open"; this would have added "the operator can open a list they
+     * cannot export". Routing both doors through one predicate is what stops the pair drifting
+     * again, which is the whole reason the predicate was extracted.
      */
     public function fileExport()
     {
-        if (! auth()->user() || ! auth()->user()->isAbleTo('Manage Newsletter')) {
-            return redirect()->back()->with('error', __('Permission denied.'));
+        if ($refusal = \App\Services\MarketingScreenAccess::refusal(auth()->user(), 'Manage Newsletter')) {
+            return redirect()->back()->with('error', __($refusal));
         }
 
         $fileName = 'Newsletter.xlsx';

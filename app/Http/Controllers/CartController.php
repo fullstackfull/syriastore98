@@ -1184,7 +1184,15 @@ foreach ($response->data->product_list as $item) {
 
     public function abandon_carts_handled(AbandonCartDataTable $dataTable, Request $request)
     {
-        if (auth()->user()->isAbleTo('Manage Cart')) {
+        // GAP-218. `isAbleTo()` alone refuses the platform operator -- Laratrust has no
+        // super-admin bypass and no role holds this name on a database built from source. The
+        // predicate is the one `couponReadRefusal()` has used since 2026-10-28; it deliberately
+        // does NOT admit a tenant owner without the permission (see the class docblock).
+        if ($refusal = \App\Services\MarketingScreenAccess::refusal(auth()->user(), 'Manage Cart')) {
+            return redirect()->back()->with('error', __($refusal));
+        }
+
+        {
             /*
              * MKT-002. The merchant's filter selection survives navigation and reload.
              *
@@ -1216,8 +1224,6 @@ foreach ($response->data->product_list as $item) {
             \App\Services\TableFilterMemory::remember($request, 'abandon-cart');
 
             return $dataTable->render('cart.index');
-        } else {
-            return redirect()->back()->with('error', __('Permission denied.'));
         }
     }
 

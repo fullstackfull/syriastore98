@@ -18,7 +18,15 @@ class WishlistController extends Controller
 {
     public function index(Request $request, WishlistDataTable $dataTable)
     {
-        if (auth()->user() && auth()->user()->isAbleTo('Manage Wishlist')) {
+        // GAP-218. `isAbleTo()` alone refuses the platform operator -- Laratrust has no
+        // super-admin bypass and no role holds this name on a database built from source. The
+        // predicate is the one `couponReadRefusal()` has used since 2026-10-28; it deliberately
+        // does NOT admit a tenant owner without the permission (see the class docblock).
+        if ($refusal = \App\Services\MarketingScreenAccess::refusal(auth()->user(), 'Manage Wishlist')) {
+            return redirect()->back()->with('error', __($refusal));
+        }
+
+        {
             /*
              * MKT-002. The merchant's filter selection survives navigation and reload.
              *
@@ -50,8 +58,6 @@ class WishlistController extends Controller
             \App\Services\TableFilterMemory::remember($request, 'wishlist');
 
             return $dataTable->render('wishlist.index');
-        } else {
-            return redirect()->back()->with('error', __('Permission denied.'));
         }
     }
 
