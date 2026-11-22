@@ -378,7 +378,19 @@ class StatHintIsVisibleTest extends TestCase
         // 26 -> 29 [ANA-001]: `reports/finance_report.blade.php` carries all three of its tiles'
         // hints -- the two ledger caveats and the wallet's currency disclosure. A NEW file, so the
         // span below moves 9 -> 10; every other hint on the component is unchanged.
-        $this->assertCount(29, $hits,
+        // 29 -> 30 [P5-R13]: `platform/analytics.blade.php` gains `Repeat purchase`, the first of the
+        // NINE figures the operator screen was missing against the merchant screen's thirteen. Its
+        // hint is load-bearing in a way the merchant twin's is not, and carries one sentence that
+        // exists only on the cross-tenant screen: one person with accounts in two stores is counted
+        // in EACH, so the figure is a rate over customers of a store and not over people. "35% of
+        // buyers came back" would otherwise read as a statement about human beings. It also carries
+        // the merchant version's three disclosures -- how many recognisable buyers it divided, that
+        // only PAID orders are counted, and how many orders each exclusion dropped -- plus, when a
+        // start date is actually shown, that the period is the LATEST verified start among the
+        // included stores. Its PERIOD differs from the two tiles beside it on purpose: Orders and
+        // Buyers use the recent window, this one uses the ledger's intersection.
+        // The file count stays at ten because this file already carried three hints.
+        $this->assertCount(30, $hits,
             "x-ss.stat hint count moved. Found:\n  " . implode("\n  ", $hits));
 
         $this->assertCount(10, array_unique($hits),
