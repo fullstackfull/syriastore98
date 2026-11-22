@@ -65,6 +65,10 @@ use Symfony\Component\HttpFoundation\Response;
  *   settings:global      a module's INTEGRATION-CREDENTIAL writer (social-login client secrets, SMS, chat widgets, CRM tokens): `Manage Setting`
  *                        outright (operator and tenant owner included, as StoreSettingsAccess::permits()), like the host's own fixed-name
  *                        credential writers (P1-SEC-30). P1-SEC-31.
+ *   tenant-store:<body key>    the `stores` row named by that POST BODY key must belong to the caller's own merchant tenant (UserPolicy::merchantTenantRoot(),
+ *                        fail closed on null). For an AJAX reader whose handler scopes by `created_by = creatorId()` and takes the store from the body:
+ *                        Campaigns' `campaigns-product`, which answered a principal rooted at the operator with the OPERATOR's product names. It asks
+ *                        `created_by`, not `store_id`/`current_store`, because that is the predicate the handler itself uses (P1-SEC-69 b).
  *   owner:duo-setting    the operator, or the TENANT OWNER (not staff) -- and, while Duo is enforced for the store, only in a session that has
  *                        passed Duo. `duo2fa-setting` switches Duo off and re-keys it; reachable by a password-only session it made the second
  *                        factor optional (found by the P1-SEC-35 review).
@@ -125,7 +129,11 @@ class ModuleAdministrativeRouteGuard
             'settings:store' => StoreSettingsAccess::permitsStoreScreen($user)
                 && ! StoreSettingsAccess::refusesRestrictedPost($request, $user, getCurrentStore($user->id)),
             'settings:global' => StoreSettingsAccess::permits($user),
-            default => str_starts_with($rule, 'store-row:') && $this->ownsStoreRow($user, $rule, $route),   // 'operator' and any unknown rule: fail closed
+            default => match (true) {                                       // 'operator' and any unknown rule: fail closed
+                str_starts_with($rule, 'store-row:') => $this->ownsStoreRow($user, $rule, $route),
+                str_starts_with($rule, 'tenant-store:') => $this->tenantOwnsStore($user, $rule, $request),
+                default => false,
+            },
         };
 
         return $allowed ? $next($request) : $this->deny($request, false);
@@ -165,6 +173,50 @@ class ModuleAdministrativeRouteGuard
         [, $rowStore] = $this->readRowStore($table, $id);
 
         return $this->storeMatches($user, $rowStore);
+    }
+
+    /**
+     * Does the `stores` row named by a BODY key belong to the caller's own merchant tenant?
+     *
+     * WHY A SECOND STORE RULE. `store-row:<table>:<param>` reads a ROUTE parameter and compares the
+     * row's `store_id` to the caller's `current_store`. Neither half fits here:
+     * `CampaignsController::productData` takes its `store_id` from the POST BODY (it is an AJAX
+     * call from the create form), and the question is not "is this the store I am currently working
+     * in" but "is this store MINE" -- a merchant with several stores may legitimately ask about any
+     * of them, and the handler's own predicate is `created_by`, not `store_id`.
+     *
+     * So the comparison is against `UserPolicy::merchantTenantRoot()`, which is the value the
+     * handler's own `creatorId()` should have been: for a merchant owner and their staff the two
+     * agree exactly, and for a principal rooted at the OPERATOR -- staff the operator created, or a
+     * merchant who demoted themselves -- `creatorId()` is the operator's id and this is null, so
+     * the request is refused instead of answered with the operator's product names (MEASURED:
+     * CampaignsFilterListsTenantScopeTest).
+     *
+     * The operator never reaches here: handle() admits them before any rule is asked.
+     */
+    private function tenantOwnsStore(User $user, string $rule, Request $request): bool
+    {
+        [, $key] = array_pad(explode(':', $rule, 2), 2, null);
+
+        if (! is_string($key) || $key === '') {
+            return false;
+        }
+
+        $id = $this->usableId($request->input($key));
+        $tenant = UserPolicy::merchantTenantRoot($user);
+
+        if ($id === null || $tenant === null) {
+            return false;
+        }
+
+        try {
+            $store = DB::table('stores')->where('id', $id)->first(['created_by']);
+        } catch (\Throwable $e) {
+            // Fail closed on an unreadable table, for the reason ComparesRowOwnership::readRowStore records.
+            return false;
+        }
+
+        return $store !== null && (int) $store->created_by === $tenant;
     }
 
     /**

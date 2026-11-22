@@ -92,7 +92,7 @@ final class ModuleRouteManifest
         'PATCH campaigns/campaigns-payu-payment/{pay}' => 'auth',
         'POST campaigns/campaigns-payu-payment/{pay}' => 'auth',
         'PUT campaigns/campaigns-payu-payment/{pay}' => 'auth',
-        'POST campaigns/campaigns-product' => 'auth',
+        'POST campaigns/campaigns-product' => 'tenant-store:store_id',
         'GET campaigns/campaigns-settings' => 'auth',
         'GET campaigns/campaigns-status/{id}/{response}' => 'operator',
         'GET campaigns/campaigns-system-setup' => 'operator',

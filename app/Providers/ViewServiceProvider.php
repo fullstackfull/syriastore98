@@ -20,6 +20,17 @@ class ViewServiceProvider extends ConcreteViewServiceProvider
 {
     public function boot()
     {
+        /*
+         * P1-SEC-69 (b). The Campaigns module builds its store, product and user lists inline in
+         * its own controller, with the bare `created_by = creatorId()` predicate this branch has
+         * been removing everywhere else -- so for a principal rooted at the OPERATOR the screen
+         * offered the operator's stores and products. `packages/workdo/` is not edited, and a
+         * composer is the last writer of a key the handler set, so this narrows those lists without
+         * touching the module. Registered by NAME: the `campaigns::` namespace exists only while
+         * the module is loaded, and a composer for a view that never renders costs nothing.
+         */
+        View::composer(\App\View\Composers\CampaignsTenantFilterScope::VIEWS, \App\View\Composers\CampaignsTenantFilterScope::class);
+
         View::composer(['front_end.layouts.app', 'main_file', 'front_end.pages.*', 'front_end.Auth.*'], function ($view) {
             // PHASE 03 M0 -- THE GUARD BELOW USED TO SIT FOUR LINES FURTHER DOWN, AND SO HAD NEVER
             // ONCE EXECUTED.

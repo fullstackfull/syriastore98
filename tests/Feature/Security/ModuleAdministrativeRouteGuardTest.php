@@ -127,7 +127,9 @@ class ModuleAdministrativeRouteGuardTest extends SecurityTestCase
         $out = [];
 
         foreach (ModuleRouteManifest::ADMINISTRATIVE as $key => $rule) {
-            if (in_array($rule, ['operator', 'owner:campaign', 'owner:campaign-route', 'owner:helpdesk-ticket', 'owner:helpdesk-ticket-link', 'owner:email-template'], true) || str_starts_with($rule, 'store-row:')) {
+            if (in_array($rule, ['operator', 'owner:campaign', 'owner:campaign-route', 'owner:helpdesk-ticket', 'owner:helpdesk-ticket-link', 'owner:email-template'], true)
+                || str_starts_with($rule, 'store-row:')
+                || str_starts_with($rule, 'tenant-store:')) {
                 $out[$key] = [$key, $rule];
             }
         }

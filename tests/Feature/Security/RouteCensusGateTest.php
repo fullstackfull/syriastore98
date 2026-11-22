@@ -221,7 +221,9 @@ class RouteCensusGateTest extends TestCase
         $this->assertSame([], array_keys(array_intersect_key(ModuleRouteManifest::ADMINISTRATIVE, ModuleRouteManifest::ANONYMOUS_BY_DESIGN)));
 
         foreach (ModuleRouteManifest::ADMINISTRATIVE as $key => $rule) {
-            $known = in_array($rule, self::RULES, true) || preg_match('/^store-row:[a-z_]+:\w+$/', $rule) === 1;
+            $known = in_array($rule, self::RULES, true)
+                || preg_match('/^store-row:[a-z_]+:\w+$/', $rule) === 1
+                || preg_match('/^tenant-store:\w+$/', $rule) === 1;
 
             $this->assertTrue($known, "{$key} has an unknown rule '{$rule}': the guard would fail it closed for everyone but the operator.");
         }
