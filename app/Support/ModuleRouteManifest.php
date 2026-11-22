@@ -56,11 +56,32 @@ final class ModuleRouteManifest
          * so the resource routes pointing at them throw. They are listed anyway, for the reason
          * P1-SEC-84 listed `contacts/update`: a rule must not depend on a method staying absent.
          *
-         * STILL OPEN, and recorded rather than implied: `get_appointment_data` (six verbs) reads
-         * its id from the BODY (`$request->id`), so `store-row:` cannot reach it -- it needs a
-         * body-keyed guard like `CampaignsCostOwnershipGuard`. Its scoped branch also reads
-         * `$objUser->current_business`, which is not a column on `users`; whether that attribute
-         * resolves at all is unmeasured, and if it does not the scoped branch never fires.
+         * `get_appointment_data` (six verbs) IS DELIBERATELY NOT LISTED, and it is worth saying why
+         * rather than leaving a gap that looks like an oversight. P1-SEC-87 first recorded it as a
+         * body-keyed door needing its own guard. MEASURED AFTERWARDS, THAT WAS WRONG on both
+         * counts:
+         *
+         *   - `$request->id` is used as a STORE id and not an appointment id, and in BOTH branches
+         *     it is ANDed with a predicate derived from the authenticated principal:
+         *     `where('store_id', $id)->where('created_by', auth()->user()->creatorId())`. A caller
+         *     naming another tenant's store gets `store_id = theirs AND created_by = mine`, which
+         *     is empty. The caller-supplied value never stands alone, which is the whole of the
+         *     objection to such predicates.
+         *   - `$objUser->current_business` is NOT a column on `users` -- `Schema::hasColumn()` is
+         *     false and the only column matching is `current_store`. So it resolves to null, the
+         *     handler takes its `else` branch, and that branch is `where('created_by', creatorId())`:
+         *     scoping still holds through `created_by`. What is lost is the per-STORE narrowing, so
+         *     a merchant with several stores sees their own appointments across all of them rather
+         *     than only the current one. A correctness and interface defect, not a tenant leak, and
+         *     not fixed here because changing a vendored handler's behaviour needs a first-party
+         *     vehicle and an owner who wants that behaviour changed.
+         *
+         * ONE LEAD REMAINS, stated as a lead: `creatorId()` answers with the OPERATOR's id for a
+         * principal the operator roots -- staff they created, or a merchant who changed their own
+         * `type`. Such a caller would read the operator's own appointments here. That is the same
+         * disposition `RolePolicy::tenantOwner()` records for operator-created staff and which
+         * P1-SEC-83 fixed only where the ceiling ROSE, so it needs its own measurement rather than
+         * a reflex.
          */
         'POST appointment-note-store/{id?}' => 'store-row:appointment_deatails:id',
         'GET appointment-note/{id?}' => 'store-row:appointment_deatails:id',
