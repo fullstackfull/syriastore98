@@ -3380,8 +3380,8 @@ public function saveStoreFcmToken(Request $request)
     $storeId = $store->id;
 
     // ✅ 2. الآن سيعمل الكود بشكل صحيح لأن $storeId يحتوي على قيمة
-$currentCurrencyCode = \App\Models\Utility::GetValueByName('CURRENCY', $storeId) ?: 'USD';
-$currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', $storeId) ?: '$';
+$currentCurrencyCode = \App\Support\Money\OrderCurrencyStamp::codeFor($storeId);     // P5-R14: this read the `CURRENCY` setting, which is the SYMBOL (shipped as `$`), so a pound store's orders were recorded as `$`
+$currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($storeId); // P5-R14: and this read a `currency_symbol` setting that nothing writes. Both are now the model hook's own answer.
     $settings = Utility::Setting($storeId); // ✅ يفضل استخدام $storeId هنا أيضاً للاتساق
     
     
@@ -9045,8 +9045,8 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', 
         }
             $storeId = $store->id;
 
-$currentCurrencyCode = \App\Models\Utility::GetValueByName('CURRENCY', $storeId) ?: 'USD';
-$currentCurrencySymbol = \App\Models\Utility::GetValueByName('currency_symbol', $storeId) ?: '$';
+$currentCurrencyCode = \App\Support\Money\OrderCurrencyStamp::codeFor($storeId);     // P5-R14: this read the `CURRENCY` setting, which is the SYMBOL (shipped as `$`), so a pound store's orders were recorded as `$`
+$currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($storeId); // P5-R14: and this read a `currency_symbol` setting that nothing writes. Both are now the model hook's own answer.
         $settings = Setting::where('store_id', $store->id)->pluck('value', 'name')->toArray();
 
         // AUTHZ: the guard-class trap, inverted. The else branch took

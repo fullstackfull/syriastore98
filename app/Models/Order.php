@@ -170,16 +170,16 @@ class Order extends Model
         static::creating(function ($order) {
             $storeId = $order->store_id ?? (function_exists('getCurrentStore') ? getCurrentStore() : null);
 
+            // P5-R14: the chain that lived here is `OrderCurrencyStamp`, unchanged, so that the two
+            // storefront writers which used to stamp their own -- and stamped the SYMBOL as the
+            // code -- read the same answer this hook gives. (Kept to the old block's line count:
+            // a security-log inventory pins sites further down this file by line number.)
             if (empty($order->currency_code)) {
-                $order->currency_code = \App\Models\Utility::GetValueByName('defult_currancy', $storeId) 
-                    ?? \App\Models\Utility::GetValueByName('currency', $storeId) 
-                    ?? 'USD';
+                $order->currency_code = \App\Support\Money\OrderCurrencyStamp::codeFor($storeId);
             }
 
             if (empty($order->currency_symbol)) {
-                $order->currency_symbol = \App\Models\Utility::GetValueByName('defult_currancy_symbol', $storeId) 
-                    ?? \App\Models\Utility::GetValueByName('currency_symbol', $storeId) 
-                    ?? '$';
+                $order->currency_symbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($storeId);
             }
         });
     }

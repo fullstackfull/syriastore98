@@ -233,8 +233,11 @@ public function store(Request $request)
         $totalProductPrice = 0;
         $storeId = getCurrentStore();
 
-        $currentCurrencyCode = \App\Models\Utility::GetValueByName('defult_currancy', $storeId) ?? 'USD';
-        $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_symbol', $storeId) ?? '$';
+        // P5-R14: through the one resolver, so a manual order and a storefront order record the same
+        // currency for the same store. This read the first link of that chain and not the second,
+        // so the two agreed only while `defult_currancy` was set.
+        $currentCurrencyCode = \App\Support\Money\OrderCurrencyStamp::codeFor($storeId);
+        $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($storeId);
 
         /*
          * TENANT OWNERSHIP ON THE PRODUCT AND THE VARIANT.

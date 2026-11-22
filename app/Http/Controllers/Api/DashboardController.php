@@ -6765,8 +6765,8 @@ public function createOrderViaApi(Request $request)
         'store_id' => 'required|integer|exists:stores,id'
     ])->validate();
 
-$currentCurrencyCode = \App\Models\Utility::GetValueByName('defult_currancy', $storeId) ?? 'USD';
-$currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_symbol', $storeId) ?? '$';
+$currentCurrencyCode = \App\Support\Money\OrderCurrencyStamp::codeFor($storeId);          // P5-R14: the one resolver, so the admin app's order
+$currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($storeId);      // and the storefront's record one store's currency alike
 
 
     $validated = $request->validate([

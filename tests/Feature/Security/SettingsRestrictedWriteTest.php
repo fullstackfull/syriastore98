@@ -125,7 +125,11 @@ class SettingsRestrictedWriteTest extends SecurityTestCase
             'local_storage_validation', 'local_storage_max_upload_size',
             'paypal_image', 'paystack_image', 'cinet_pay_image', 'senang_pay_image', 'cybersource_pay_image', 'ozow_pay_image', 'benefit_mode',
             // what a shopper is charged in and what a loyalty point is worth
-            'CURRENCY', 'CURRENCY_NAME', 'defult_currancy', 'defult_currancy_symbol', 'site_currency_symbol_position', 'loyality_program_enabled', 'reward_point',
+            // `currency_symbol` was MISSING from this list and from the control's, found 2026-11-22 by a review of P5-R14. It is not decoration: it is the
+            // SECOND link of the chain `OrderCurrencyStamp::symbolFor()` reads, so on any store with no `defult_currancy_symbol` row -- which is every store
+            // created by registration or by the admin API, neither of which seeds one -- this row decides the symbol stamped onto every order and printed on
+            // its documents. Writable by staff holding only `Manage Store Setting`, through the settings screen's catch-all writer.
+            'CURRENCY', 'CURRENCY_NAME', 'currency_symbol', 'defult_currancy', 'defult_currancy_symbol', 'site_currency_symbol_position', 'loyality_program_enabled', 'reward_point',
             // where an integration's stored token is sent
             'shopify_store_url', 'shopify_setting_enabled', 'woocommerce_store_url', 'woocommerce_consumer_key', 'twilio_sid', 'twilio_from',
             'twilio_notification_number', 'whatsapp_phone_number_id', 'whatsapp_contact_number', 'fcm_Key', 'firebase_enabled',
