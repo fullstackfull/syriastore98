@@ -4479,5 +4479,7 @@
     "percentage points": "percentage points",
     "no rate": "no rate",
     "No page views were recorded in the earlier period, so there is no rate to compare against.": "No page views were recorded in the earlier period, so there is no rate to compare against.",
-    "Payment-processing fees are not subtracted: no fee is recorded for any order, so margin is overstated by whatever the gateway charged.": "Payment-processing fees are not subtracted: no fee is recorded for any order, so margin is overstated by whatever the gateway charged."
+    "Payment-processing fees are not subtracted: no fee is recorded for any order, so margin is overstated by whatever the gateway charged.": "Payment-processing fees are not subtracted: no fee is recorded for any order, so margin is overstated by whatever the gateway charged.",
+    "Review unmatched payments": "Review unmatched payments",
+    "Payments a gateway reported as captured that no order could be matched to.": "Payments a gateway reported as captured that no order could be matched to."
 }

@@ -135,6 +135,31 @@
                    :period="$ledgerFigures['profit']['period']"
                    :hint="$ledgerFigures['profit']['hint']" />
         </x-ss.stats>
+
+        {{-- ANA-007(d). THE ONE DEDICATED DATA-QUALITY SCREEN IN THE PRODUCT, WHICH NOTHING
+             LINKED TO. `/finance/unreconciled-captures` lists payments a gateway reports as
+             captured that no order can be matched to, and until 2026-11-22 it was reachable only
+             by typing the URL: measured, zero references in resources/views/ and zero in
+             config/merchant-navigation.php. A screen a merchant cannot find shows them nothing,
+             which for a requirement about SHOWING data quality is the same as absent.
+
+             THE GATE IS THE ROUTE'S OWN QUESTION. `finance.permission:View Finance Dashboard`
+             resolves `Gate::allows('finance', ...)` (AuthServiceProvider:109-123), which admits
+             the platform operator before consulting Laratrust. `@can('finance', ...)` asks that
+             same gate; `@permission(...)` would be `isAbleTo()` alone and would hide the link
+             from the operator the route admits. CLAUDE.md's "@can is always false" rule is about
+             Laratrust permissions used as gates, not about an explicitly defined Gate ability --
+             checked before relying on it. --}}
+        @can('finance', 'View Finance Dashboard')
+            <p class="mt-2 mb-0">
+                <a href="{{ route('finance.unreconciled.captures') }}" class="ss-link">
+                    {{ __('Review unmatched payments') }}
+                </a>
+                <span class="ss-muted d-block">
+                    {{ __('Payments a gateway reported as captured that no order could be matched to.') }}
+                </span>
+            </p>
+        @endcan
     </div>
 </div>
 
