@@ -765,9 +765,45 @@ class ReportController extends Controller
             ->where('name', 'defult_currancy')
             ->value('value') ?? 'USD';
 
+        /*
+         * ANA-002 / GAP-221. THE PERIOD IS OPT-IN, as on the two report screens before this one:
+         * `AnalyticsPeriod::fromRequest([])` falls through to `last_30_days`, so resolving one
+         * unconditionally would narrow every existing reader's figure without being asked.
+         */
+        $period = $request->filled(\App\Support\Analytics\AnalyticsPeriod::KEY_PERIOD)
+            ? \App\Support\Analytics\AnalyticsPeriod::fromRequest($request->all())
+            : null;
+
         return view('reports.finance_report', [
-            'ledgerFigures' => FinanceLedgerFigures::forStore($storeId, (string) $currencyCode),
+            /*
+             * THE WINDOW GOES TO THE ASSEMBLER, WHICH ALREADY KNEW HOW TO TAKE ONE. D1 Option A
+             * gave `FinanceLedgerFigures::forStore()` a `?MetricWindow` and a label: it clamps the
+             * request to the ledger's VERIFIED coverage and refuses, in words, a period that ends
+             * before the records begin. This handler simply never passed one. Nothing about the
+             * clamp is re-implemented here, and it must not be: a second copy of that rule is how
+             * two screens start disagreeing about the same money.
+             */
+            'ledgerFigures' => FinanceLedgerFigures::forStore(
+                $storeId,
+                (string) $currencyCode,
+                $period?->window(),
+                $period?->label(),
+            ),
+            /*
+             * AND THE WALLET TILE IS DELIBERATELY NOT WINDOWED. `Available to withdraw` is a
+             * BALANCE -- a position at an instant, whose own period reads "right now" and whose
+             * assembler takes no window at all. A date range over it would not narrow a number, it
+             * would invent one. This is the same argument GAP-221 uses to exclude the stock
+             * reports from this workstream, and `FinanceReportPeriodTest` pins it so that a later
+             * "consistency" change cannot quietly wire it up.
+             */
             'walletFigure' => \App\Support\Metrics\WalletEntitlementFigure::forStore($storeId, (string) $currencyCode),
+            'periodOptions' => \App\Support\Analytics\AnalyticsPeriod::options(),
+            'periodKey' => $period === null ? '' : $period->key(),
+            'periodFrom' => $period === null ? '' : $period->from()->toDateString(),
+            'periodTo' => $period === null ? '' : $period->to()->toDateString(),
+            'periodToday' => \Carbon\CarbonImmutable::now()->toDateString(),
+            'periodClamped' => $period === null ? null : $period->clampNote(),
         ]);
     }
 
@@ -3784,14 +3820,36 @@ class ReportController extends Controller
             'Zimbabwe' => 'ZW',
         ];
 
+        /* ANA-002 / GAP-221. THE PERIOD IS OPT-IN. `AnalyticsPeriod::fromRequest([])` falls
+           through to `last_30_days`, so resolving one unconditionally would silently narrow
+           every existing reader's figure to the last thirty days without anyone asking. With no
+           `ss_period` in the query string this screen answers exactly as it did before. The
+           reasoning, and why this converges on `AnalyticsPeriod` rather than the legacy
+           `chart_data` vocabulary the six already-filtered report screens use, is on
+           showOrderStatusReport(). */
+        $period = $request->filled(\App\Support\Analytics\AnalyticsPeriod::KEY_PERIOD)
+            ? \App\Support\Analytics\AnalyticsPeriod::fromRequest($request->all())
+            : null;
+
         $billingData = \DB::table('order_billing_details')
             ->join('countries', 'order_billing_details.country', '=', 'countries.id')
             ->join('orders', 'order_billing_details.order_id', '=', 'orders.id')->where('orders.store_id', OperatorStoreSelection::reportStoreId())
+            // The window JOINS the store predicate, it does not replace it. `Order` is not in
+            // `config/tenancy.php`'s `scoped_models`, so nothing else would confine this.
+            ->when($period !== null, fn ($query) => $query->whereBetween('orders.order_date', [$period->from(), $period->to()]))
             ->select('countries.name as country_name', \DB::raw('COUNT(order_billing_details.id) as total_orders'))
             ->groupBy('countries.name')
             ->get();
 
-        $total = Order::where('store_id', OperatorStoreSelection::reportStoreId())->count();
+        /* THE SAME WINDOW ON BOTH QUERIES, AND THAT IS THE WHOLE RISK ON THIS SCREEN. `$total`
+           comes off a separate count from the join above, and the footer prints the two
+           TOGETHER: "Orders with a billing country: X of Y total orders". Windowing the join
+           and not the count would put a February chart under an all-time total and tell the
+           merchant their orders had lost their billing country -- the exact confusion this
+           screen was fixed for once already, reintroduced through a different door. */
+        $total = Order::where('store_id', OperatorStoreSelection::reportStoreId())
+            ->when($period !== null, fn ($query) => $query->whereBetween('order_date', [$period->from(), $period->to()]))
+            ->count();
 
         /* TWO NUMBERS THAT COUNT DIFFERENT THINGS USED TO SIT SIDE BY SIDE WITH NO EXPLANATION.
            `$total` is every order the store has taken. `$billingData` counts only orders that
@@ -3824,7 +3882,15 @@ class ReportController extends Controller
             'unmapped' => $unmapped,
             'billingData' => $billingData,
             'formattedData' => $formattedData,
-            'periodLabel' => __('All time'),
+            // The caption follows the window. A true number under a false label is the defect
+            // this workstream keeps fixing.
+            'periodLabel' => $period === null ? __('All time') : $period->label(),
+            'periodOptions' => \App\Support\Analytics\AnalyticsPeriod::options(),
+            'periodKey' => $period === null ? '' : $period->key(),
+            'periodFrom' => $period === null ? '' : $period->from()->toDateString(),
+            'periodTo' => $period === null ? '' : $period->to()->toDateString(),
+            'periodToday' => \Carbon\CarbonImmutable::now()->toDateString(),
+            'periodClamped' => $period === null ? null : $period->clampNote(),
         ]);
     }
 

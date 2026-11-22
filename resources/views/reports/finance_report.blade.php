@@ -28,6 +28,28 @@
         caveat associated with its figure by `aria-describedby`, the honest unavailable state for a
         null value, and the bidi isolates that keep `amount CODE` together on an Arabic page.
     --}}
+    {{-- ANA-002 / GAP-221. THE PERIOD CONTROL, and one thing about it worth stating where it is
+         read rather than only where it is built.
+
+         IT NARROWS TWO OF THE THREE TILES. `Payments received` and `Estimated gross profit` are
+         FLOWS -- money that moved on a day -- so a date range narrows them. `Available to
+         withdraw` is a BALANCE: a position at an instant, labelled `right now` by its own
+         assembler, which takes no window. A date range over a balance would invent a figure
+         rather than filter one, which is why the third tile does not move when this form is
+         submitted and why its caption keeps saying so.
+
+         The clamp and the refusal are the assembler's, not this form's: ask for a period that
+         ends before the ledger's verified records begin and the tile says so in words, with the
+         date it could answer from. --}}
+    <x-ss.analytics-period-filter
+        :action="route('reports.finance')"
+        :period-key="$periodKey"
+        :period-options="$periodOptions"
+        :period-from="$periodFrom"
+        :period-to="$periodTo"
+        :period-today="$periodToday"
+        :period-clamped="$periodClamped" />
+
     <div class="row mb-4">
         <div class="col-12">
             <x-ss.stats :label="__('Financial ledger')">
