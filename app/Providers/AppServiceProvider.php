@@ -44,6 +44,11 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(\Workdo\Helpdesk\DataTables\HelpdeskCategoryData::class, \App\DataTables\SafeHelpdeskCategoryData::class);
         $this->app->bind(\Workdo\Helpdesk\DataTables\HelpdeskStatusData::class, \App\DataTables\SafeHelpdeskStatusData::class);
 
+        // P1-SEC-69. The Campaigns module's list applies its tenant predicate only when `users.type` is the literal 'admin' -- a merchant OWNER's type -- so a merchant's STAFF were served
+        // every tenant's campaigns, and the expiry loop at the end of that same query wrote to every row it returned. Measured by driving the route with the module loaded. Bound by NAME for
+        // the same reason as the three above: nothing here loads either class, so this costs nothing while the module is off.
+        $this->app->bind(\Workdo\Campaigns\DataTables\AllCampaignsData::class, \App\DataTables\TenantScopedCampaignsData::class);
+
         $this->app->singleton('module', function ($app) {
             return new Module();
         });
