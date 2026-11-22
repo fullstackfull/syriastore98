@@ -1801,6 +1801,16 @@ if (! $decision['ok']) {
     return redirect()->back()->with('error', $decision['message']);
 }
 
+/*
+ * THE DECISION'S CODE, NOT THE REQUEST'S. `prepare()` normalises the requested code --
+ * `strtoupper(trim(...))` -- and `apply()`/`convertStoreCurrentValues()` write THAT value onto
+ * `store_wallets.currency_code` and onto every converted order. Taking only the symbol back and
+ * saving `explode('-', ...)[1]` verbatim left a lower-case or space-padded selection stored as
+ * `settings.defult_currancy = 'syp'` beside a wallet reading `'SYP'`: the very divergence this
+ * slice exists to close. `$newCurrency` is reassigned too, so the `apply()` call below is given
+ * the same spelling the row will carry.
+ */
+$post['defult_currancy'] = $post['CURRENCY_NAME'] = $newCurrency = $decision['currency'];
 $post['defult_currancy_symbol'] = $post['CURRENCY'] = $decision['symbol'];
     /*
      * إذا العملة تغيرت فعلاً

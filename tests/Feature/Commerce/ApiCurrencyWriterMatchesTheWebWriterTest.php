@@ -429,4 +429,82 @@ final class ApiCurrencyWriterMatchesTheWebWriterTest extends SecurityTestCase
         $this->assertSame('USD', $this->read($store->id, 'defult_currancy'),
             'A staff member with no settings permission changed the store currency.');
     }
+
+    // ---------------------------------------------------------------------------------------
+    //  5. THE CODE THAT IS STORED (FIN-CUR follow-up)
+    // ---------------------------------------------------------------------------------------
+
+    /** The WEB screen's door, which this file's contract measures the API door against. */
+    private function sendWebChange(User $caller, string $selected)
+    {
+        return $this->actingAs($caller)->post('/currency-settings', [
+            'defult_currancy' => $selected,
+            'site_currency_symbol_position' => 'pre',
+        ]);
+    }
+
+    /**
+     * THE WALLET, THE ORDERS AND THE SETTING MUST END UP SPELLED THE SAME WAY.
+     *
+     * This is the whole of FIN-CUR in one assertion, and the web door failed it.
+     *
+     * `StoreCurrencyChange::prepare()` normalises the requested code -- `strtoupper(trim(...))`
+     * -- and returns it as `currency`. `StoreCurrencyConversionService::convertStoreCurrentValues()`
+     * normalises again and writes that UPPERCASED code onto the wallet
+     * (`$wallet->currency_code = $toCurrency`) and onto every converted order
+     * (`$order->currency_code = $toCurrency`). But this screen took only the SYMBOL back from the
+     * decision -- `$post['defult_currancy_symbol'] = $post['CURRENCY'] = $decision['symbol']` --
+     * and left `$post['defult_currancy']` holding `explode('-', ...)[1]` verbatim, which the save
+     * loop then wrote. So a selection whose code was not already upper-case left the store with
+     * `settings.defult_currancy = 'syp'` beside `store_wallets.currency_code = 'SYP'`: the
+     * ledger-and-wallet currency divergence this slice exists to close, reproduced by this slice.
+     *
+     * It is not cosmetic downstream. `MetricResult::make()` keys a money bucket by the raw string,
+     * so 'syp' and 'SYP' are two currencies to every figure that groups by it, and more than one
+     * bucket makes `MetricResult::total()` throw `MixedCurrencyException`.
+     */
+    public function test_a_web_currency_change_leaves_the_wallet_and_the_setting_spelled_the_same(): void
+    {
+        [$merchant, $store] = $this->arrange();
+
+        $this->rate((int) $store->id, 'SYP', 13000, 'ل.س');
+        $this->wallet((int) $store->id, 'USD', 500.00);
+
+        $this->sendWebChange($merchant, 'ل.س-syp')->assertRedirect();
+
+        $storedCode = $this->read((int) $store->id, 'defult_currancy');
+        $walletCode = (string) DB::table('store_wallets')
+            ->where('store_id', $store->id)
+            ->value('currency_code');
+
+        $this->assertSame('SYP', $storedCode,
+            'The web door stored the selection verbatim instead of the normalised code the '
+            . 'decision returned.');
+
+        $this->assertSame($storedCode, $walletCode,
+            'settings.defult_currancy and store_wallets.currency_code disagree after a currency '
+            . 'change. That is the divergence FIN-CUR exists to close.');
+
+        $this->assertSame('SYP', $this->read((int) $store->id, 'CURRENCY_NAME'),
+            'CURRENCY_NAME carries the same code and was written from the same raw value, so it '
+            . 'needs its own assertion -- a fix that corrects only `defult_currancy` leaves the '
+            . 'second spelling behind.');
+    }
+
+    /**
+     * AND THE ORDINARY PATH IS UNCHANGED. A selection that is already upper-case stored the right
+     * code before this fix, so without this case a "fix" that uppercased nothing -- or that threw
+     * the decision away entirely -- would still pass the case above by accident on some inputs.
+     */
+    public function test_an_already_upper_case_selection_stores_exactly_what_it_did_before(): void
+    {
+        [$merchant, $store] = $this->arrange();
+
+        $this->rate((int) $store->id, 'SYP', 13000, 'ل.س');
+
+        $this->sendWebChange($merchant, 'ل.س-SYP')->assertRedirect();
+
+        $this->assertSame('SYP', $this->read((int) $store->id, 'defult_currancy'));
+        $this->assertSame('SYP', $this->read((int) $store->id, 'CURRENCY_NAME'));
+    }
 }
