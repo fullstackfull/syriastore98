@@ -168,6 +168,15 @@ final class StoreCurrencyChange
         $from = strtoupper(trim($from));
         $to = strtoupper(trim($to));
 
+        /*
+         * MEASURED REDUNDANT WITH THE SERVICE'S OWN FIRST LINE, and kept for two reasons that are
+         * not "defence in depth". `convertStoreCurrentValues()` returns immediately when the two
+         * currencies match, so removing this leaves every test passing -- a mutation of it SURVIVES
+         * and that is recorded rather than dressed up. What it buys is (a) the caller's `bool`
+         * answer, which is how a caller knows whether a conversion happened at all, and (b) not
+         * opening a transaction and taking `lockForUpdate` on every product in the store to decide
+         * nothing. It is normalisation plus an early exit, not a control.
+         */
         if ($from === $to) {
             return false;
         }

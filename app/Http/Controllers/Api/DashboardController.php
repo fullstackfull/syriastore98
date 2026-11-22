@@ -8581,8 +8581,34 @@ public function updateCurrencyApi(Request $request)
             ]);
 
 
-            $currencyName = strtoupper(trim($validated['defult_currancy']));
-        $currencySymbol = trim($validated['defult_currancy_symbol']);
+        /*
+         * FIN-CUR -- THE SAME RULES THE WEB CURRENCY SCREEN HAS CARRIED ALL ALONG.
+         *
+         * This handler used to write five `settings` rows from the request and answer 200. It did
+         * not refuse the platform operator (F206), did not require an active `currency_rates` row,
+         * did not check the rate was usable (P1-SEC-80 round 4), took the SYMBOL from the caller
+         * instead of from that row (also P1-SEC-80 round 4), and -- the defect this was opened for
+         * -- did not CONVERT anything. A store that switched currency through the app kept every
+         * product price and every wallet balance at the old currency while every label said the
+         * new one, and the wallet's own `currency_code` still named the old one.
+         *
+         * `defult_currancy_symbol` stays REQUIRED in the validator above so the shipped app's
+         * request shape still validates, and is then IGNORED: the symbol that is stored is the
+         * one on the store's own rate row. The response returns that symbol, so a client that
+         * echoes the response shows the authoritative value.
+         */
+        $decision = \App\Services\StoreCurrencyChange::prepare($adminUser, (int) $storeId, $validated['defult_currancy']);
+
+        if (! $decision['ok']) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => $decision['message']],
+            ], $decision['reason'] === \App\Services\StoreCurrencyChange::REFUSED_OPERATOR ? 403 : 422);
+        }
+
+        $currencyName = $decision['currency'];
+        $currencySymbol = $decision['symbol'];
         $position = $validated['site_currency_symbol_position'] ?? 'pre';
 
         $settingsToUpdate = [
@@ -8593,22 +8619,31 @@ public function updateCurrencyApi(Request $request)
             'site_currency_symbol_position' => $position,
         ];
 
+        /*
+         * ONE TRANSACTION over the conversion AND the label, so a failure cannot leave converted
+         * prices under the old currency's name or the new name over unconverted amounts. The
+         * conversion runs first, as it does on the web screen, and only when the currency really
+         * changes.
+         */
+        \Illuminate\Support\Facades\DB::transaction(function () use ($decision, $storeId, $settingsToUpdate, $adminUser) {
+            \App\Services\StoreCurrencyChange::apply((int) $storeId, $decision['from'], $decision['currency']);
 
-        $settingQuery = \App\Models\Setting::query();
-        foreach ($settingsToUpdate as $key => $data) {
-            (clone $settingQuery)->updateOrCreate(
-                [
-                    'name' => $key,
-                    'store_id' => $storeId
-                ],
-                [
-                    'value' => $data,
-                    'name' => $key,
-                    'store_id' => $storeId,
-                    'created_by' => $adminUser->id,
-                ]
-            );
-        }
+            $settingQuery = \App\Models\Setting::query();
+            foreach ($settingsToUpdate as $key => $data) {
+                (clone $settingQuery)->updateOrCreate(
+                    [
+                        'name' => $key,
+                        'store_id' => $storeId
+                    ],
+                    [
+                        'value' => $data,
+                        'name' => $key,
+                        'store_id' => $storeId,
+                        'created_by' => $adminUser->id,
+                    ]
+                );
+            }
+        });
 
 
         return response()->json([

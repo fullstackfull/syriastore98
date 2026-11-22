@@ -162,6 +162,42 @@ final class ApiCurrencyWriterMatchesTheWebWriterTest extends SecurityTestCase
         $this->assertSame('ل.س', $this->read($store->id, 'defult_currancy_symbol'));
     }
 
+    /**
+     * AND IT IS CLEANED ON THE WAY THROUGH, because a stored symbol is merchant-written text and a
+     * formatted amount is printed raw in more places than a census can keep (P1-SEC-80 round 4).
+     *
+     * ASSERTED ON WHAT `clean()` ACTUALLY PROMISES, and the first version of this case asserted
+     * more. `CurrencySymbol::clean()` removes the characters a tag, an attribute value or a script
+     * string cannot do without -- `< > " ' ` \` and control characters -- and caps the length. It
+     * does NOT remove words, so `'<script>alert(1)</script>ل.س'` cleans to
+     * `'scriptalert(1)/scriptل.س'`: inert text, which is the control, while `alert(1)` is still
+     * spelled in it. Measured here before the assertion was written.
+     */
+    public function test_a_symbol_carrying_markup_is_cleaned_before_it_is_stored(): void
+    {
+        [$merchant, $store] = $this->arrange();
+        $this->rate($store->id, 'SYP', 13000, '<script>alert(1)</script>ل.س');
+
+        $this->sendChange($merchant, [
+            'store_id' => $store->id,
+            'defult_currancy' => 'SYP',
+            'defult_currancy_symbol' => 'ل.س',
+        ]);
+
+        foreach (['CURRENCY', 'defult_currancy_symbol'] as $name) {
+            $stored = (string) $this->read($store->id, $name);
+
+            $this->assertNotSame('', $stored, "PREMISE: `{$name}` was not written at all.");
+
+            foreach (['<', '>', '"', "'", '`', '\\'] as $character) {
+                $this->assertStringNotContainsString($character, $stored,
+                    "`{$name}` was stored still carrying `{$character}`. The symbol is prefixed or "
+                    . 'suffixed onto an amount that several screens print raw, so a character that '
+                    . 'can open a tag or break out of an attribute must not survive the write.');
+            }
+        }
+    }
+
     // ---------------------------------------------------------------------------------------
     //  2 and 3. THE RATE MUST EXIST, AND BE USABLE
     // ---------------------------------------------------------------------------------------
@@ -180,8 +216,17 @@ final class ApiCurrencyWriterMatchesTheWebWriterTest extends SecurityTestCase
             'The API accepted a currency the store has no active `currency_rates` row for. Nothing '
             . 'can convert an amount into it -- `StoreCurrencyConversionService::getRate()` throws '
             . 'for exactly this -- and the web writer refuses it by name.');
-        $this->assertNotSame(200, $response->getStatusCode(),
-            'The API answered 200 for a currency it cannot convert into.');
+        /*
+         * 422 EXACTLY, not merely "not 200" -- WRITTEN BECAUSE A MUTATION SURVIVED. Removing the
+         * missing-rate branch makes the next line dereference a null `$rate`, which Laravel's
+         * handler turns into a 500 that the controller's own catch returns. That is also "not 200"
+         * and also leaves the setting alone, so the weaker assertion passed against a crash. The
+         * difference matters to the Flutter app, which shows the caller a message for a 422 and a
+         * failure for a 500.
+         */
+        $this->assertSame(422, $response->getStatusCode(),
+            'The API did not REFUSE a currency it cannot convert into; it answered '
+            . $response->getStatusCode() . '. Body: ' . substr((string) $response->getContent(), 0, 200));
     }
 
     public function test_a_non_usd_currency_whose_rate_is_not_usable_is_refused(): void
@@ -199,7 +244,42 @@ final class ApiCurrencyWriterMatchesTheWebWriterTest extends SecurityTestCase
             'The API accepted a non-USD currency whose `rate_per_usd` is not usable. The web '
             . 'writer refuses it (P1-SEC-80 round 4) because converting at 1:1 silently restates '
             . 'every price in the store as though the two currencies were worth the same.');
-        $this->assertNotSame(200, $response->getStatusCode());
+        $this->assertSame(422, $response->getStatusCode(),
+            'An unusable rate is refused, but not as a refusal the caller can act on: the API '
+            . 'answered ' . $response->getStatusCode() . '.');
+    }
+
+    /**
+     * THE CURRENCY BEING LEFT NEEDS A USABLE RATE TOO, because the conversion divides by it.
+     *
+     * A store sitting on SYP whose SYP rate row has been deactivated cannot be converted OUT of
+     * SYP: `getRate()` throws for a currency it cannot find. Refusing before the conversion starts
+     * is the difference between a 422 that names the missing currency and a 500 raised half way
+     * through a transaction -- or, worse, the new label written over unconverted amounts.
+     */
+    public function test_a_store_whose_current_currency_has_no_usable_rate_is_refused(): void
+    {
+        [$merchant, $store] = $this->arrange();
+
+        $this->setting($store->id, 'defult_currancy', 'SYP', (int) $merchant->id);
+        $this->rate($store->id, 'SYP', 13000, 'ل.س', 0);          // deactivated
+        $this->rate($store->id, 'USD', 1, '$');
+
+        $product = $this->productIn($store, $merchant, 1300000.00);
+
+        $response = $this->sendChange($merchant, [
+            'store_id' => $store->id,
+            'defult_currancy' => 'USD',
+            'defult_currancy_symbol' => '$',
+        ]);
+
+        $this->assertSame(422, $response->getStatusCode(),
+            'The API did not refuse a conversion it cannot perform. Body: '
+            . substr((string) $response->getContent(), 0, 300));
+        $this->assertSame('SYP', $this->read($store->id, 'defult_currancy'),
+            'The currency label changed although nothing could be converted.');
+        $this->assertSame(1300000.0, (float) Product::withoutGlobalScopes()->find($product)->price,
+            'A price was changed by a request that was refused.');
     }
 
     // ---------------------------------------------------------------------------------------

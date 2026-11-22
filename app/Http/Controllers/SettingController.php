@@ -1788,37 +1788,27 @@ $u->save();
     }
 
     $newCurrency = $post['defult_currancy'];
-$currencyRate = CurrencyRate::where('store_id', $storeId)
-    ->where('currency_code', $newCurrency)
-    ->where('is_active', 1)
-    ->first();
+/*
+ * FIN-CUR: the rate lookup, the "is it available" refusal, the P1-SEC-80 round 4 rate check and
+ * the P1-SEC-80 round 4 symbol now live in `StoreCurrencyChange::prepare()`, so that the admin
+ * API writer asks the same four questions instead of none of them. The messages and the redirect
+ * are unchanged -- the service returns those same translated strings -- and this screen's own
+ * operator refusal above is kept where it is.
+ */
+$decision = \App\Services\StoreCurrencyChange::prepare(auth()->user(), (int) $storeId, $newCurrency);
 
-if (!$currencyRate) {
-    return redirect()->back()->with(
-        'error',
-        __('Selected currency is not available for this store.')
-    );
+if (! $decision['ok']) {
+    return redirect()->back()->with('error', $decision['message']);
 }
 
-$post['defult_currancy_symbol'] = $post['CURRENCY'] = \App\Support\Money\CurrencySymbol::clean($currencyRate->symbol); if ($newCurrency !== 'USD' && (float) $currencyRate->rate_per_usd <= 1) { // P1-SEC-80 round 4: the symbol is the store's own currency row's, not the request's
-    return redirect()->back()->with(
-        'error',
-        __('Please set a valid exchange rate before changing the store currency.')
-    );
-}
+$post['defult_currancy_symbol'] = $post['CURRENCY'] = $decision['symbol'];
     /*
      * إذا العملة تغيرت فعلاً
      * نحول القيم الحالية قبل حفظ العملة الجديدة.
      */
-    if ($oldCurrency !== $newCurrency) {
-
-        app(StoreCurrencyConversionService::class)
-            ->convertStoreCurrentValues(
-                $storeId,
-                $oldCurrency,
-                $newCurrency
-            );
-    }
+    // FIN-CUR: the same one-line call the admin API makes; `apply()` holds the
+    // "only when it really changes" test both writers need.
+    \App\Services\StoreCurrencyChange::apply((int) $storeId, $oldCurrency, $newCurrency);
 
     if (isset($post['site_currency_symbol_position'])) {
 
