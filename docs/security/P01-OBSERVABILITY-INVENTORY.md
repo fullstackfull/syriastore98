@@ -204,7 +204,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/WishlistController.php:316` | abandoned-wishlist e-mail nudge failed |
 | `app/Http/Controllers/WishlistController.php:734` | abandoned-wishlist WhatsApp nudge failed |
 | `app/Services/Reports/ScheduledReportRunner.php:197` | scheduled analytics report: stored recipient differs from the owner address; using the owner |
-| `app/Services/Reports/ScheduledReportRunner.php:235` | scheduled analytics report failed |
+| `app/Services/Reports/ScheduledReportRunner.php:247` | scheduled analytics report failed |
 | `app/Http/Controllers/CinetPayController.php:535` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:133` | Gateway return refused: no server-stored checkout state. |
 | `app/Http/Controllers/Concerns/GuardsGatewayReturn.php:282` | Gateway return carries no claimable identity; falling back to the session control alone. |
