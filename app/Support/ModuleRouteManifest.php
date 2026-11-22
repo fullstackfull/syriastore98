@@ -111,6 +111,55 @@ final class ModuleRouteManifest
         'PUT campaigns/campaigns/{campaign}' => 'auth',
         'GET campaigns/campaigns/{campaign}/edit' => 'auth',
         'POST club-point-setting' => 'settings:store',
+        /*
+         * P1-SEC-84 -- THE MARKETING CONTACT ROWS, WHICH WERE REACHABLE BY ID FOR ANY TENANT.
+         *
+         * `ContactController` (vendored, not edited) acts on a row by bare id in four handlers and
+         * applies a tenant predicate in none of them: `destroy()` checks only the
+         * 'Delete Marketing Contact' PERMISSION, `edit()` checks NOTHING AT ALL and renders the
+         * row, `note_store()` checks only 'Edit Marketing Contact' and writes `status` and `note`,
+         * and `update()` overwrites the four text fields.
+         *
+         * Nothing else supplied the predicate. `MarketingContact` is ABSENT from
+         * `config/tenancy.php` `scoped_models` and declares only `HasFactory, Cachable` -- no
+         * `BelongsToStore`, no `StoreScope` -- so `find($id)` reaches every tenant's rows. And the
+         * only Marketing-contact keys in this file were the six STOREFRONT verbs of
+         * `marketing/contacts/store/{slug}`, the public submit form, so `administrativeRule()`
+         * returned null here and the guard passed through before it read the user.
+         *
+         * `store-row:marketing_contacts:id` IS THE MODULE'S OWN QUESTION, not a convenient one:
+         * it compares the row's `store_id` to the caller's `current_store`, which is exactly what
+         * `MarketingContact::cardContactData()` does (`where('store_id', getCurrentStore())`). The
+         * writer sets `store_id` (`ContactController::store()`, from a Store matched by slug AND
+         * id), so existing rows carry one and this does not fail-close legitimate access.
+         *
+         * The `{id?}` routes deny when the id is absent, which costs nothing real: with a null id
+         * `add_note()` resolves no row and `note_store()` would throw on it.
+         *
+         * `POST contacts/update/{id}` IS CURRENTLY INERT and is listed anyway. Its signature is
+         * `update(Request, Contacts $Contacts, $id)` where `Contacts` is `Melipayamak\Contacts`,
+         * whose constructor takes two required untyped arguments, so the container cannot build it
+         * and the route throws for EVERY caller including the row's owner -- measured, after a
+         * positive control refused to pass. The rule must not depend on a vendor constructor
+         * signature: if that stray import is ever removed, the door goes live with no warning.
+         *
+         * NOT given a rule, deliberately: `GET contacts/store/show{id}` routes to `index()`, which
+         * ignores the id entirely and renders the list, so it is not a row door.
+         *
+         * STILL UNEXAMINED, so not mistaken for covered: the `contacts/{contact}` resource family
+         * and `appointments/delete/{id}` / `appointment-note-store/{id?}` in this same route group
+         * are the same SHAPE and have had no measurement of their own.
+         */
+        'POST contact-note-store/{id?}' => 'store-row:marketing_contacts:id',
+        'GET contact-note/{id?}' => 'store-row:marketing_contacts:id',
+        'DELETE contacts/delete/{id}' => 'store-row:marketing_contacts:id',
+        'GET contacts/delete/{id}' => 'store-row:marketing_contacts:id',
+        'OPTIONS contacts/delete/{id}' => 'store-row:marketing_contacts:id',
+        'PATCH contacts/delete/{id}' => 'store-row:marketing_contacts:id',
+        'POST contacts/delete/{id}' => 'store-row:marketing_contacts:id',
+        'PUT contacts/delete/{id}' => 'store-row:marketing_contacts:id',
+        'GET contacts/edit/{id}' => 'store-row:marketing_contacts:id',
+        'POST contacts/update/{id}' => 'store-row:marketing_contacts:id',
         'POST count-down-setting' => 'settings:store',
         'POST coupencode/Status/store' => 'auth',
         'POST couponemail-settings' => 'settings:global',
