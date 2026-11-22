@@ -390,6 +390,132 @@ final class ModuleRouteManifest
         'PATCH homesection/{homesection}' => 'operator',
         'PUT homesection/{homesection}' => 'operator',
         'GET homesection/{homesection}/edit' => 'operator',
+
+        /*
+         * P1-SEC-90 -- EIGHT MODULE RESOURCES WHOSE ROW ROUTES CARRIED NO TENANT CHECK AT ALL.
+         *
+         * Taken from the P1-SEC-76 lead list and executed rather than inferred: eight controller
+         * groups, one analyst each, then an independent refuter per claimed defect told to default
+         * to REFUTED unless it could confirm from the source. Fourteen survived at high confidence
+         * and NONE was refuted -- but three verdicts came back "needs nothing", which is what makes
+         * the fourteen worth acting on rather than a panel that agreed with itself.
+         *
+         * WHAT NEEDED NOTHING, so that no second control is bolted beside a working one:
+         *   - `DELETE auctionorder/{auctionorder}` and `DELETE auctionsetting/{auctionsetting}` are
+         *     already covered by `ModuleResourceOwnershipGuard`, which names both with their table,
+         *     parameter and permission and is registered on the `web` group (bootstrap/app.php:181).
+         *     Verified by reading that file, not by accepting the verdict.
+         *   - `POST super-admin/lynomia-integration/links/{link}/reauthenticate` -- first-party, and
+         *     its own controller already resolves the row through an owner-scoped predicate.
+         *
+         * THE TWO `operator` RULES ARE FORCED BY THE SCHEMA, not chosen. `join_us` declares
+         * `id`, `email`, `timestamps` and NOTHING else, and `notifications` declares `created_by`
+         * with no `store_id` -- so `store-row:` is not merely wrong for them, it is impossible:
+         * `ComparesRowOwnership::readRowStore()` has no column to read. These rows belong to the
+         * platform, so no merchant is denied anything they had a claim to. Every other table here
+         * was checked the same way and does carry `store_id`.
+         *
+         * THE SIBLING VERBS ARE LISTED EVEN WHERE THE HANDLER IS INERT, for the reason this file
+         * already records for `contacts/update` and the appointment resources: a rule must not
+         * depend on a method staying empty or absent. `donationhistory`'s `update()` is `//`, and
+         * its `show()`/`edit()` return views that do not exist and throw today.
+         *
+         * `product-enquiry` AND `productenquiry` ARE TWO LIVE RESOURCES ON ONE CONTROLLER, and
+         * their route PARAMETERS ARE SPELLED DIFFERENTLY -- `{product_enquiry}` against
+         * `{productenquiry}` -- because only the hyphenated resource name gives
+         * `ResourceRegistrar::getResourceWildcard()` something to convert. A rule string copied
+         * from one to the other would name a parameter the route does not have, `ownsStoreRow()`
+         * would read a null id, and the door would fail closed FOR THE RIGHTFUL OWNER while the
+         * manifest looked complete. Measured from the route census, both spellings.
+         *
+         * THREE OF THESE KEYS WERE IN NO LEAD, and were found by reading the route census against
+         * the module route files rather than the lead list -- so the honest scope of this change is
+         * wider than the batch that prompted it:
+         *   - `GET submenus/{id}` is `SubMenuController::create($id)`, whose `SideMenuOption::find()`
+         *     is unscoped and whose view prints that row's `name` into a hidden input. Its sibling
+         *     write verbs were already classified here; the READ was not.
+         *   - `GET submenus-edit/{id}/{parentid}` reads TWO rows unscoped, but only `{id}`
+         *     ($menu_builder) reaches the view, which renders its link, icon, menu_type,
+         *     window_type and is_enable. `$parent_data` is passed to the view and never used --
+         *     grepped, not assumed -- so one parameter is enough and `store-row:` need not learn to
+         *     name two.
+         *   - `POST notification-template/{pid}` writes a `notification_template_langs` row for the
+         *     template named in the URL. `operator`, for the same schema reason as its GET
+         *     siblings: `NotificationController::index()` is `Notification::get()` with no
+         *     predicate at all, and `notifications` has no `store_id`, so these templates are the
+         *     platform's.
+         * `POST join_us/store` was also never named, and needed nothing: it is already classified
+         * `storefront` in the ANONYMOUS_BY_DESIGN table below, which is correct -- it is the public
+         * newsletter form.
+         *
+         * `preordersetting/get-product-variants/{id}` TAKES A PRODUCT ID, NOT A SETTING ID. The URI
+         * reads like the latter and the handler is `Product::find($id)`, so the rule names
+         * `products`. CLAUDE.md records `Product` as scoped for nobody -- not a merchant, not the
+         * operator -- which is why this one returns another tenant's variant rows as JSON.
+         */
+        'DELETE donationhistory/{donationhistory}' => 'store-row:customer_donations:donationhistory',
+        'GET donationhistory/{donationhistory}' => 'store-row:customer_donations:donationhistory',
+        'PATCH donationhistory/{donationhistory}' => 'store-row:customer_donations:donationhistory',
+        'PUT donationhistory/{donationhistory}' => 'store-row:customer_donations:donationhistory',
+        'GET donationhistory/{donationhistory}/edit' => 'store-row:customer_donations:donationhistory',
+
+        'DELETE donation/{donation}' => 'store-row:donations:donation',
+        'GET donation/{donation}' => 'store-row:donations:donation',
+        'PATCH donation/{donation}' => 'store-row:donations:donation',
+        'PUT donation/{donation}' => 'store-row:donations:donation',
+        'GET donation/{donation}/edit' => 'store-row:donations:donation',
+
+        'DELETE join_us/{join_u}' => 'operator',
+        'GET join_us/{join_u}' => 'operator',
+        'PATCH join_us/{join_u}' => 'operator',
+        'PUT join_us/{join_u}' => 'operator',
+        'GET join_us/{join_u}/edit' => 'operator',
+
+        'DELETE product-enquiry/{product_enquiry}' => 'store-row:product_enquiries:product_enquiry',
+        'GET product-enquiry/{product_enquiry}' => 'store-row:product_enquiries:product_enquiry',
+        'PATCH product-enquiry/{product_enquiry}' => 'store-row:product_enquiries:product_enquiry',
+        'PUT product-enquiry/{product_enquiry}' => 'store-row:product_enquiries:product_enquiry',
+        'GET product-enquiry/{product_enquiry}/edit' => 'store-row:product_enquiries:product_enquiry',
+
+        'DELETE productenquiry/{productenquiry}' => 'store-row:product_enquiries:productenquiry',
+        'GET productenquiry/{productenquiry}' => 'store-row:product_enquiries:productenquiry',
+        'PATCH productenquiry/{productenquiry}' => 'store-row:product_enquiries:productenquiry',
+        'PUT productenquiry/{productenquiry}' => 'store-row:product_enquiries:productenquiry',
+        'GET productenquiry/{productenquiry}/edit' => 'store-row:product_enquiries:productenquiry',
+
+        'DELETE countdowntimer/{countdowntimer}' => 'store-row:count_down_timers:countdowntimer',
+        'GET countdowntimer/{countdowntimer}' => 'store-row:count_down_timers:countdowntimer',
+        'PATCH countdowntimer/{countdowntimer}' => 'store-row:count_down_timers:countdowntimer',
+        'PUT countdowntimer/{countdowntimer}' => 'store-row:count_down_timers:countdowntimer',
+        'GET countdowntimer/{countdowntimer}/edit' => 'store-row:count_down_timers:countdowntimer',
+
+        'DELETE additionalfieldincheckout/{additionalfieldincheckout}' => 'store-row:additional_fields:additionalfieldincheckout',
+        'GET additionalfieldincheckout/{additionalfieldincheckout}' => 'store-row:additional_fields:additionalfieldincheckout',
+        'PATCH additionalfieldincheckout/{additionalfieldincheckout}' => 'store-row:additional_fields:additionalfieldincheckout',
+        'PUT additionalfieldincheckout/{additionalfieldincheckout}' => 'store-row:additional_fields:additionalfieldincheckout',
+        'GET additionalfieldincheckout/{additionalfieldincheckout}/edit' => 'store-row:additional_fields:additionalfieldincheckout',
+
+        'DELETE spintowin-label/{spintowin_label}' => 'store-row:spin_to_win_labels:spintowin_label',
+        'GET spintowin-label/{spintowin_label}' => 'store-row:spin_to_win_labels:spintowin_label',
+        'PATCH spintowin-label/{spintowin_label}' => 'store-row:spin_to_win_labels:spintowin_label',
+        'PUT spintowin-label/{spintowin_label}' => 'store-row:spin_to_win_labels:spintowin_label',
+        'GET spintowin-label/{spintowin_label}/edit' => 'store-row:spin_to_win_labels:spintowin_label',
+
+        'DELETE additionalcustomfields/destroy/{id}' => 'store-row:additional_custom_fields:id',
+        'GET additionalcustomfields/edit/{id}' => 'store-row:additional_custom_fields:id',
+        'PUT additionalcustomfields/update/{id}' => 'store-row:additional_custom_fields:id',
+
+        'DELETE submenus/{submenu}' => 'store-row:side_menus_option:submenu',
+        'PATCH submenus/{submenu}' => 'store-row:side_menus_option:submenu',
+        'PUT submenus/{submenu}' => 'store-row:side_menus_option:submenu',
+        'GET submenus/{id}' => 'store-row:side_menus_option:id',
+        'GET submenus-edit/{id}/{parentid}' => 'store-row:side_menus_option:id',
+
+        'GET preordersetting/get-product-variants/{id}' => 'store-row:products:id',
+
+        'GET notification-template/{id}/{lang?}' => 'operator',
+        'GET notification-template/{notification_template}' => 'operator',
+        'POST notification-template/{pid}' => 'operator',
         'GET invoices/preview/{template}/{color}' => 'auth',
         'POST linkedin-setting' => 'settings:global',
         'POST lottery-order-return' => 'auth',
