@@ -4474,5 +4474,6 @@
     "No orders were placed in this period, so there is no channel breakdown. Nothing is estimated.": "لم تُسجَّل أي طلبات في هذه الفترة، لذلك لا يوجد تفصيل حسب القناة. ولا يُقدَّر أي رقم.",
     "percentage points": "نقطة مئوية",
     "no rate": "لا يوجد معدّل",
-    "No page views were recorded in the earlier period, so there is no rate to compare against.": "لم تُسجَّل أي مشاهدات للصفحات في الفترة السابقة، لذلك لا يوجد معدّل للمقارنة به."
+    "No page views were recorded in the earlier period, so there is no rate to compare against.": "لم تُسجَّل أي مشاهدات للصفحات في الفترة السابقة، لذلك لا يوجد معدّل للمقارنة به.",
+    "Payment-processing fees are not subtracted: no fee is recorded for any order, so margin is overstated by whatever the gateway charged.": "لا تُخصم رسوم معالجة الدفع: لا تُسجَّل أي رسوم لأي طلب، لذلك يكون هامش الربح أعلى من الواقع بمقدار ما اقتطعته بوابة الدفع."
 }

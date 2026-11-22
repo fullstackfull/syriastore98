@@ -61,7 +61,14 @@ final class StoreRevenueMargin extends Metric implements SingleFigureMetric
 
         $rowsWithoutCost = $this->rowsWithoutCost($scope, $window);
 
-        $caveats = [MetricCaveat::EXCLUDES_SHIPPING_AND_TAX];
+        /*
+         * ANA-006(c). TWO UNCONDITIONAL OMISSIONS, NOT ONE. Shipping and tax were already
+         * disclosed; payment-processing fees were not, on any surface, although the arithmetic
+         * omits them just as completely -- `store_order_financials` has no fee column at all.
+         * Both are unconditional because the absence is total: there is no per-order signal that
+         * would let either be shown "only when it applies".
+         */
+        $caveats = [MetricCaveat::EXCLUDES_SHIPPING_AND_TAX, MetricCaveat::EXCLUDES_PAYMENT_FEES];
 
         if ($rowsWithoutCost > 0) {
             $caveats[] = MetricCaveat::COST_UNKNOWN;

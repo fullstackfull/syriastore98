@@ -191,9 +191,29 @@ final class MetricCaveat
      */
     public const UNIDENTIFIED_CUSTOMERS_EXCLUDED = 'unidentified_customers_excluded';
 
+    /**
+     * ANA-006, the FEE half. `gross_profit` is `(product_amount - discount_amount) - product_cost`
+     * and subtracts no payment-processing fee, because THIS PRODUCT RECORDS NONE: measured
+     * 2026-11-22, `store_order_financials` has no fee column, nothing anywhere stores what a
+     * gateway charged, and no figure in the metric layer reads one. So for every store that takes
+     * card payments the margin is overstated by the gateway's cut, silently.
+     *
+     * THIS CONSTANT STATES THE OMISSION AND DEFINES NOTHING. No rate is invented, no fee is
+     * estimated and no figure changes value -- which is precisely why it could be added without an
+     * owner decision while the fee DATA question (`D-N9`/`D-N13`: capture per transaction, or let
+     * a merchant type a rate per method) remains reserved. Writing a fee into the arithmetic needs
+     * a source and a rule; saying the arithmetic has neither needs no permission.
+     *
+     * UNCONDITIONAL, for the same structural reason as `EXCLUDES_SHIPPING_AND_TAX`. There is no
+     * per-store or per-order signal to condition it on -- a caveat shown only "when fees apply"
+     * would require knowing when they apply, which is the very thing that is missing.
+     */
+    public const EXCLUDES_PAYMENT_FEES = 'excludes_payment_fees';
+
     private const MESSAGES = [
         self::COST_UNKNOWN => 'Cost price was not recorded for some orders, so margin is overstated for those rows.',
         self::EXCLUDES_SHIPPING_AND_TAX => 'Margin excludes shipping and tax.',
+        self::EXCLUDES_PAYMENT_FEES => 'Payment-processing fees are not subtracted: no fee is recorded for any order, so margin is overstated by whatever the gateway charged.',
         self::PARTIAL_REFUNDS_EXCLUDED => 'Partial refunds are not counted; only fully refunded orders are.',
         self::CANCEL_DATE_INCOMPLETE => 'Some cancellations carry no cancellation date and are dated by when the ledger row changed.',
         self::COUPON_REDEMPTION_UNRELIABLE => 'Coupon redemption records are known to be both incomplete and inflated. This figure is not authoritative.',

@@ -4478,5 +4478,6 @@
     "No orders were placed in this period, so there is no channel breakdown. Nothing is estimated.": "No orders were placed in this period, so there is no channel breakdown. Nothing is estimated.",
     "percentage points": "percentage points",
     "no rate": "no rate",
-    "No page views were recorded in the earlier period, so there is no rate to compare against.": "No page views were recorded in the earlier period, so there is no rate to compare against."
+    "No page views were recorded in the earlier period, so there is no rate to compare against.": "No page views were recorded in the earlier period, so there is no rate to compare against.",
+    "Payment-processing fees are not subtracted: no fee is recorded for any order, so margin is overstated by whatever the gateway charged.": "Payment-processing fees are not subtracted: no fee is recorded for any order, so margin is overstated by whatever the gateway charged."
 }
