@@ -42,6 +42,13 @@ Head `15fcca9b`. Range `d60fed3a..15fcca9b`, twenty commits. Deletions under `ap
 
 **149 lines, 15 files.** 304 across all paths, the remainder being tests and documentation.
 
+**STILL CURRENT AT `e238f444`**, measured rather than assumed, and measured PER COMMIT rather than
+only in the range diff: the six commits after `15fcca9b` — `fe715dbe`, `9ab4bddc`, `e05a9c3a`,
+`42be2742`, `a1da84c6`, `e238f444` (the reviewer-notes move, P1-SEC-83, P1-SEC-84, P1-SEC-85 and
+their queue entries) — add **951 lines and delete ZERO**, in every path and in each commit
+separately. So this audit covers the head exactly, and the figures above need no revision. This
+line exists so the next reader does not have to recompute it to find that out.
+
 In the paths the checklist flags as sensitive, the range deletes **one** line in total:
 `app/Http/Middleware` 1; `app/Policies` 0, `app/Providers` 0, `config/` 0, `routes/` 0,
 `database/migrations/` 0, `.github/` 0.
