@@ -30,6 +30,52 @@ final class ModuleRouteManifest
         'POST Wizzchat-form' => 'auth',
         'POST admin_email_template_lang/{id}' => 'owner:email-template',
         'GET admin_email_template_lang/{id}/{lang?}' => 'owner:email-template',
+        /*
+         * P1-SEC-87 -- THE APPOINTMENT ROWS, THE SAME SHAPE AS THE CONTACTS P1-SEC-84 CLOSED.
+         *
+         * Found by following P1-SEC-84's own "still unexamined" note rather than by a new census:
+         * these sit in the SAME Marketing route group and looked like the same pattern.
+         *
+         * `AppointmentController` (vendored, not edited) acts on a row by bare id in four
+         * handlers: `destroy()` checks only the 'Delete Appointment' PERMISSION, `note_store()`
+         * only 'Edit Appointment' before writing `status` and `note`, `add_note()` reads the row,
+         * and `getAppointmentDetails()` CHECKS NOTHING AT ALL -- `find($id)` and then renders the
+         * calendar modal, which shows a customer's name, contact details and appointment time.
+         * That last one is the worst of the four and the reason this is not merely tidy-up.
+         *
+         * The module itself knows these rows are tenant-scoped: `index()` and
+         * `getCalenderAllData()` both read
+         * `where('store_id', $id)->where('created_by', auth()->user()->creatorId())`. Nothing else
+         * supplied the predicate -- `appointment_deatails` (the typo is the vendored migration's)
+         * carries `store_id` and `created_by`, and `AppointmentDeatail` is absent from
+         * `config/tenancy.php` `scoped_models`.
+         *
+         * `appointments/delete/{id}` is `Route::any`, hence six verbs. The four
+         * `appointments/{appointment}` keys below take the bound parameter's name instead, and
+         * three of them are DEAD: `show()`, `update()` and `edit()` do not exist on the controller,
+         * so the resource routes pointing at them throw. They are listed anyway, for the reason
+         * P1-SEC-84 listed `contacts/update`: a rule must not depend on a method staying absent.
+         *
+         * STILL OPEN, and recorded rather than implied: `get_appointment_data` (six verbs) reads
+         * its id from the BODY (`$request->id`), so `store-row:` cannot reach it -- it needs a
+         * body-keyed guard like `CampaignsCostOwnershipGuard`. Its scoped branch also reads
+         * `$objUser->current_business`, which is not a column on `users`; whether that attribute
+         * resolves at all is unmeasured, and if it does not the scoped branch never fires.
+         */
+        'POST appointment-note-store/{id?}' => 'store-row:appointment_deatails:id',
+        'GET appointment-note/{id?}' => 'store-row:appointment_deatails:id',
+        'DELETE appointments/delete/{id}' => 'store-row:appointment_deatails:id',
+        'GET appointments/delete/{id}' => 'store-row:appointment_deatails:id',
+        'OPTIONS appointments/delete/{id}' => 'store-row:appointment_deatails:id',
+        'PATCH appointments/delete/{id}' => 'store-row:appointment_deatails:id',
+        'POST appointments/delete/{id}' => 'store-row:appointment_deatails:id',
+        'PUT appointments/delete/{id}' => 'store-row:appointment_deatails:id',
+        'DELETE appointments/{appointment}' => 'store-row:appointment_deatails:appointment',
+        'GET appointments/{appointment}' => 'store-row:appointment_deatails:appointment',
+        'PATCH appointments/{appointment}' => 'store-row:appointment_deatails:appointment',
+        'PUT appointments/{appointment}' => 'store-row:appointment_deatails:appointment',
+        'GET appointments/{appointment}/edit' => 'store-row:appointment_deatails:appointment',
+        'GET get-appointment-detail/{id}' => 'store-row:appointment_deatails:id',
         'POST auction-order-assign' => 'auth',
         'POST auction-order-return' => 'auth',
         'POST auction-order-status-change/{id}' => 'auth',
