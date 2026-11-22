@@ -580,9 +580,27 @@
 
                                                                      paid/unpaid stay selectable, so the escape hatch
                                                                      syncFromOrder's docblock describes is not removed. --}}
-                                                                @if(in_array($financial->payment_status, ['cancelled', 'refunded'], true))
+                                                                {{-- P5-R4 / GAP-149 -- FOUR ENGINE-WRITTEN STATES, NOT TWO.
+                                                                     The branch above named `cancelled` and `refunded` and the
+                                                                     ternary could not grow past them. But the column's production
+                                                                     enum holds SIX values and `OrderFinancialService` writes all
+                                                                     six: a `pending` or `partially_paid` row reached here with
+                                                                     NEITHER option selected, so the browser rendered the first
+                                                                     one and the merchant was shown "Not Received" as the current
+                                                                     state of a row where money had partly arrived -- the exact
+                                                                     defect P5-1 fixed for `refunded`, still live for two more.
+
+                                                                     The condition is now "not one of the two a merchant may
+                                                                     CHOOSE", asked of the one definition, so a seventh state
+                                                                     added to the enum renders correctly instead of silently
+                                                                     pre-selecting a lie. `isKnown()` guards it because an
+                                                                     unrecognised value must not be offered back as a submittable
+                                                                     option -- it falls through to the two real ones, which is the
+                                                                     only way out of a row nothing recognises. --}}
+                                                                @if(\App\Support\Finance\EntitlementStateLabel::isKnown($financial->payment_status)
+                                                                    && ! \App\Support\Finance\EntitlementStateLabel::isSelectable($financial->payment_status))
                                                                     <option value="{{ $financial->payment_status }}" selected disabled>
-                                                                        {{ $financial->payment_status === 'cancelled' ? __('Cancelled') : __('Refunded') }}
+                                                                        {{ \App\Support\Finance\EntitlementStateLabel::label($financial->payment_status) }}
                                                                     </option>
                                                                 @endif
                                                                 <option value="unpaid" {{ $financial->payment_status === 'unpaid' ? 'selected' : '' }}>{{ __('Not Received') }}</option>
@@ -627,16 +645,19 @@
                                                          non-paid row "Not Received" in red, so a REFUNDED order -- one the
                                                          customer was paid back for -- read as money the merchant was still
                                                          waiting on. That is not a nuance, it is the opposite of what
-                                                         happened. A reader without the edit permission saw it too. --}}
-                                                    @if($financial->payment_status === 'paid')
-                                                        <x-ss.status-badge tone="success" :label="__('Received')" />
-                                                    @elseif($financial->payment_status === 'refunded')
-                                                        <x-ss.status-badge tone="info" :label="__('Refunded')" />
-                                                    @elseif($financial->payment_status === 'cancelled')
-                                                        <x-ss.status-badge tone="warning" :label="__('Cancelled')" />
-                                                    @else
-                                                        <x-ss.status-badge tone="danger" :label="__('Not Received')" />
-                                                    @endif
+                                                         happened. A reader without the edit permission saw it too.
+
+                                                         P5-R4 / GAP-149 -- SIX, AND FROM THE SAME DEFINITION AS THE
+                                                         <option> ABOVE. The chain still sent `pending` and
+                                                         `partially_paid` to the red "Not Received", and it held the state
+                                                         vocabulary a second time, so the two could disagree. A row whose
+                                                         money has PARTLY arrived is counted as collected by
+                                                         `CollectedCustomerPayments` while this cell called it money that
+                                                         had not arrived at all. One class now answers both, which is why
+                                                         there is one tag here and not six. --}}
+                                                    <x-ss.status-badge
+                                                        :tone="\App\Support\Finance\EntitlementStateLabel::tone($financial->payment_status)"
+                                                        :label="\App\Support\Finance\EntitlementStateLabel::label($financial->payment_status)" />
                                                 @endif
                                             </td>
                                         </tr>

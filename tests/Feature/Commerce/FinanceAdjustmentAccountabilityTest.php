@@ -46,6 +46,54 @@ class FinanceAdjustmentAccountabilityTest extends TestCase
         return User::find($operator->id);
     }
 
+    /**
+     * P5-R4 -- A PRINCIPAL THE `<select>` ACTUALLY RENDERS FOR.
+     *
+     * Every other case in this file drives `operator()`, and the view gates the control on a BARE
+     * `isAbleTo('Edit Finance Payment Status')`, which in this codebase REFUSES the operator -- so
+     * those cases all measure the read-only BADGE. The `<option>` half is the half that decided
+     * what a click SUBMITTED, so it needs a principal who sees it: the store's own owner, holding
+     * the permission through a Laratrust role, which is how a merchant really holds it.
+     */
+    private function merchantWhoMayEditTheStatus(): User
+    {
+        $merchant = User::find(DB::table('stores')->where('id', $this->storeId)->value('created_by'));
+
+        $role = \App\Models\Role::create([
+            'name' => 'finance-editor', 'display_name' => 'Finance editor',
+            'created_by' => $merchant->id, 'store_id' => $this->storeId,
+        ]);
+
+        /*
+         * BOTH, and the second one is the lesson. `finance.index` carries
+         * `finance.permission:View Finance Dashboard`, so a principal holding only the edit
+         * permission is refused the PAGE and served a 403 -- a 6.6KB error document in which every
+         * assertion about options passes or fails for the wrong reason. Measured, not assumed: the
+         * first run of this case got exactly that page.
+         */
+        foreach (['View Finance Dashboard', 'Edit Finance Payment Status'] as $name) {
+            $role->givePermission(\App\Models\Permission::firstOrCreate(
+                ['name' => $name], ['display_name' => $name],
+            ));
+        }
+
+        $merchant->addRole($role);
+        $merchant->current_store = $this->storeId;
+        $merchant->save();
+        $merchant->flushCache();
+
+        $merchant = User::find($merchant->id);
+
+        foreach (['View Finance Dashboard', 'Edit Finance Payment Status'] as $name) {
+            $this->assertTrue($merchant->isAbleTo($name),
+                "PREMISE: this principal does not hold '{$name}'. Without the first the page is a "
+                . '403 error document; without the second the <select> is never rendered and the '
+                . 'assertions below would measure the read-only badge.');
+        }
+
+        return $merchant;
+    }
+
     private function seedFixture(): array
     {
         $owner = User::factory()->create(['email' => 'owner@example.test', 'type' => 'admin']);
@@ -354,8 +402,8 @@ class FinanceAdjustmentAccountabilityTest extends TestCase
 
     // ---------------------------------------------------------------- P5-1: the screen must SHOW a reversed row
 
-    /** @dataProvider terminalEntitlementStates */
-    public function test_a_reversed_row_shows_its_real_state_on_the_finance_screen(string $state, string $label): void
+    /** @dataProvider engineWrittenEntitlementStates */
+    public function test_an_engine_written_row_shows_its_real_state_on_the_finance_screen(string $state, string $label): void
     {
         /*
          * P5-1. F124 and F127 write `cancelled` and `refunded` into
@@ -386,24 +434,49 @@ class FinanceAdjustmentAccountabilityTest extends TestCase
         $response->assertDontSee(__('Not Received'));
     }
 
-    public static function terminalEntitlementStates(): array
+    /**
+     * P5-R4 / GAP-149 -- FOUR, AND THE NAME CHANGED WITH THEM.
+     *
+     * This provider was `terminalEntitlementStates` and held the two REVERSALS. The screen could
+     * represent only those two plus `paid`, while the column's production enum holds SIX and
+     * `OrderFinancialService::normalizePaymentStatus()` writes every one: a gateway's 'pending' or
+     * 'processing' becomes `pending`, its 'partial' becomes `partially_paid`.
+     *
+     * `pending` and `partially_paid` are NOT terminal, which is why the name had to change rather
+     * than the list quietly growing under it. What the four share is that the ENGINE writes them
+     * and a merchant may not type them -- and that is the property both this test and
+     * `test_an_engine_written_state_cannot_be_chosen_from_the_dropdown` actually turn on.
+     */
+    public static function engineWrittenEntitlementStates(): array
     {
         return [
             'cancelled' => ['cancelled', 'Cancelled'],
             'refunded' => ['refunded', 'Refunded'],
+            'pending' => ['pending', 'Pending'],
+            'partially_paid' => ['partially_paid', 'Partially Paid'],
         ];
     }
 
-    public function test_a_terminal_state_cannot_be_chosen_from_the_dropdown(): void
+    /** @dataProvider engineWrittenEntitlementStates */
+    public function test_an_engine_written_state_cannot_be_chosen_from_the_dropdown(string $state): void
     {
         /*
          * Showing the state must not make it settable. `cancelled` and `refunded` are written by
          * OrderEntitlementReversal when a reversal really happens; typing one here would fabricate
          * one. The option is rendered `disabled`, and the handler's validator refuses the value
          * independently -- two bounds, because the markup one is only as good as the browser.
+         *
+         * P5-R4 -- AND THE SAME HOLDS FOR THE OTHER TWO, FOR A DIFFERENT REASON WORTH STATING.
+         * `pending` and `partially_paid` come from the gateway normaliser, and typing
+         * `partially_paid` would assert a partial capture whose AMOUNT the application was never
+         * told: `OrderFinancialService` leaves `paid_amount` at zero for such a row precisely
+         * because no amount is available, and `CollectedCustomerPayments` only counts the row once
+         * that amount is above zero. A merchant choosing the word would move the badge without
+         * moving a figure. `in:paid,unpaid` was already narrow enough to refuse all four, so this
+         * case widens the EVIDENCE rather than the validator.
          */
         $f = $this->seedFixture();
-        DB::table('store_order_financials')->where('id', $f['financialId'])->update(['payment_status' => 'cancelled']);
+        DB::table('store_order_financials')->where('id', $f['financialId'])->update(['payment_status' => $state]);
 
         /*
          * THE MARKUP HALF IS NOT ASSERTED HERE, and the reason is a pre-existing defect worth
@@ -420,15 +493,109 @@ class FinanceAdjustmentAccountabilityTest extends TestCase
         $this->actingAs($this->operator())
             ->from(route('finance.index'))
             ->post(route('finance.order-financial.status', $f['financialId']), [
-                'payment_status' => 'cancelled',
-                'reason' => 'trying to set a terminal state by hand',
+                'payment_status' => $state,
+                'reason' => 'trying to set an engine-written state by hand',
             ])
             ->assertSessionHasErrors('payment_status');
 
         $this->assertSame(
-            'cancelled',
+            $state,
             DB::table('store_order_financials')->where('id', $f['financialId'])->value('payment_status'),
-            'premise: the row was not left in the terminal state this case is about'
+            'premise: the row was not left in the engine-written state this case is about'
         );
+    }
+
+    /**
+     * P5-R4 / GAP-149 -- THE EDITABLE CELL, WHICH IS WHERE THE DEFECT CHANGED WHAT WAS SUBMITTED.
+     *
+     * The badge cases above prove the merchant READS the right state. This proves the CONTROL
+     * shows it: on a `pending` or `partially_paid` row neither `<option>` carried `selected`, so
+     * the browser rendered the first one -- "Not Received" -- as the row's current state, and any
+     * click posted `unpaid`.
+     *
+     * EVERY ASSERTION IS SCOPED TO THE ROW'S OWN `<select>`, because this page carries a
+     * transaction-status FILTER whose options include `cancelled`, `completed` and the rest.
+     * Measured: a whole-page `assertStringContainsString('<option value="cancelled" >')` is
+     * satisfied by that filter, which is CLAUDE.md's "scope the search to the block too" in its
+     * exact form -- the same mistake that let a 44px target survive because another component
+     * carried the same rule.
+     *
+     * @dataProvider engineWrittenEntitlementStates
+     */
+    public function test_the_editable_cell_preselects_the_engine_written_state(string $state, string $label): void
+    {
+        $f = $this->seedFixture();
+        DB::table('store_order_financials')->where('id', $f['financialId'])->update(['payment_status' => $state]);
+
+        $select = $this->theRowsPaymentStatusSelect(
+            (string) $this->actingAs($this->merchantWhoMayEditTheStatus())
+                ->get(route('finance.index'))
+                ->getContent()
+        );
+
+        $this->assertStringContainsString(
+            '<option value="' . $state . '" selected disabled>',
+            $select,
+            "a `{$state}` row renders no selected+disabled option, so the browser falls back to "
+            . 'the first option and shows the merchant a state the row is not in'
+        );
+
+        $this->assertStringContainsString($label, $select,
+            "the option for `{$state}` carries no readable label");
+
+        /*
+         * AND THE TWO SELECTABLE OPTIONS MUST STILL BE THERE, NEITHER SELECTED. Removing them
+         * would turn a correct label into a dead end: `syncFromOrder`'s docblock records this
+         * surface as the authorised way out of a reversal, so paid/unpaid stay choosable.
+         */
+        foreach (['unpaid', 'paid'] as $selectable) {
+            $this->assertStringContainsString('<option value="' . $selectable . '" >', $select,
+                "the {$selectable} option is gone from the row's select, or carries `selected` on "
+                . 'a row that is not in that state');
+        }
+    }
+
+    /**
+     * The one `<select name="payment_status">` the seeded row renders, with its options.
+     *
+     * The fixture seeds exactly one financial row, so exactly one of these exists; the premise
+     * asserts that rather than trusting it, because a second row would make every assertion above
+     * a statement about whichever one came first.
+     */
+    private function theRowsPaymentStatusSelect(string $html): string
+    {
+        $this->assertSame(1, preg_match_all('/<select name="payment_status".*?<\/select>/s', $html, $m),
+            'PREMISE: the page does not carry exactly one per-row payment_status select. Either the '
+            . 'control is gone (this principal was refused and is reading the badge, or the page is '
+            . 'a 403) or the fixture seeded more than one row.');
+
+        return $m[0][0];
+    }
+
+    /**
+     * WHY THERE IS NO CASE HERE FOR AN UNRECOGNISED STATE, and this is a finding rather than a gap.
+     *
+     * `EntitlementStateLabel` has an unknown-value branch and the view guards the disabled option
+     * with `isKnown()`, so the obvious next case is a row holding something like `chargeback`. IT
+     * CANNOT BE WRITTEN: `2026_..._create_store_order_financials_table` declares the column as
+     * `$table->enum('payment_status', [...six...])`, which SQLite enforces as a CHECK constraint
+     * and MySQL as the enum itself. The attempt fails with
+     *
+     *     SQLSTATE[23000]: CHECK constraint failed: payment_status
+     *
+     * at the fixture, not at the assertion -- measured, which is how this comment exists. So the
+     * unknown branch is a second bound behind one the DATABASE already holds, and the only way to
+     * reach it is a schema change. It is covered where it can be: directly, in
+     * `tests/Unit/Finance/EntitlementStateLabelTest`, which needs no row.
+     */
+    public function test_the_column_itself_refuses_a_state_outside_the_six(): void
+    {
+        $f = $this->seedFixture();
+
+        $this->expectException(\Illuminate\Database\QueryException::class);
+
+        DB::table('store_order_financials')
+            ->where('id', $f['financialId'])
+            ->update(['payment_status' => 'chargeback']);
     }
 }
