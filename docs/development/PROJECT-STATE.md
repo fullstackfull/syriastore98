@@ -8,126 +8,103 @@ decision quoted as such.
 **Last updated:** 2026-11-21 · **Active phase:** 05 (Marketing & Analytics) ·
 **Active branch:** `feature/phase-05-marketing-analytics`
 
-> ### NEXT EXECUTABLE ACTION (read this first; owner directive of 2026-11-20, §10)
+> ### NEXT EXECUTABLE ACTION (read this first; owner directive of 2026-11-22)
 >
-> The owner has authorised continuous implementation across **all** phases (01, 02, 2.5, 03, 04, 05,
-> 06) with **Level A** targeted tests during development and **one Level B** consolidated
-> verification campaign at the end — not full-suite runs after every change — and pushes **batched**
-> at safe checkpoints. Do not stop at a clean slice; select the next eligible task from the Master
-> Plan, dependencies and the gap register.
+> **MODE: EXECUTE THE VERIFIED BACKLOG. DO NOT START ANOTHER SURVEY.** The owner's 2026-11-22
+> directive is explicit: the nine-row investigation is accepted as a basis for correcting the
+> records, and the priority from here is finishing the code, not producing another measurement
+> report. Long multi-agent investigations are reserved for the final integration candidate.
 >
-> **PUSHED head: `2c333001`** (fast-forward `0079535f..2c333001`, 2026-11-21 ~22:59Z, 3 commits),
-> **CI-VERIFIED by ci.yml #581 — SUCCESS, all seven jobs**, including both required Tests jobs and
-> the merge-base regression gate. The document update that carries this paragraph is the only commit
-> after it.
+> **PUSHED head: `62427391`**, CI-VERIFIED by **ci.yml #584 — SUCCESS, all seven jobs**. The two
+> heads beneath it are each verified by their own required run: `306d6a93` by **#583** (7/7) and
+> `704f1eec` by **#582** (7/7). No head on this branch is relying on an earlier run.
 >
-> **THE RULE THAT GOVERNED THE WAIT, because it is the one most easily broken by a stop prompt:** a
-> push CANCELS a running required run (`ci.yml` sets `cancel-in-progress: true`), so nothing is
-> pushed while one is in flight. It has been broken once here, on run #574, and the owner restated
-> it afterwards. #581 was in progress for roughly 40 minutes while this document was written, and the
-> commit waited.
+> **THE RULE THAT GOVERNS EVERY PUSH:** a push CANCELS a running required run (`ci.yml` sets
+> `cancel-in-progress: true`), so nothing is pushed while one is in flight. Broken once, on #574.
+> Held correctly on 2026-11-22 when a stop hook asked for a push while #583 was mid-flight; #583
+> then concluded SUCCESS and the push followed. **Commit freely, push only when the required run on
+> the previous head has concluded.**
 >
-> **THE THREE HEADS OF 2026-11-21 ARE EACH VERIFIED BY THEIR OWN REQUIRED RUN** — not by an earlier
-> run on an earlier SHA, which the owner named explicitly as not counting: `e3506d88` by **#579
-> SUCCESS** (19:50:41Z), `0079535f` by **#580 SUCCESS** (22:14:46Z), `2c333001` by **#581 SUCCESS**.
-> So GAP-222, GAP-223(a), GAP-223(b), the seven-day series fix, ANA-001, ANA-009, MKT-004 and
-> MKT-007 are verified on PUSHED commits, not merely locally.
+> ---
 >
-> **FOUR OWNER-APPROVED ITEMS WERE DELIVERED ON 2026-11-21, in the order approved.** All four reach
-> a merchant screen; **none is COMPLETE**, and each says why in its own words:
+> #### What the 2026-11-22 re-measurement changed, and why the records could not be trusted
 >
-> | item | what shipped | what keeps it PARTIAL |
+> **EIGHT OF NINE Phase 05 rows were wrong about the code.** Only `ANA-003` was accurate. With
+> `ANA-004` the day before, **nine of ten rows measured in 48 hours were stale**, and the cause is
+> one repeatable mistake, now logged as **`GAP-229`**: a census searches for an identifier the
+> feature does not use, and its zero result is written into the matrix as an absence.
+>
+> | row | what the row said | what the code does |
 > |---|---|---|
-> | `ANA-001` | `/finance-reports` in the Reports centre: `Payments received`, `Estimated gross profit`, `Available to withdraw`, from the same assemblers `/finance` uses | `Order value` is deliberately elsewhere; no single screen shows all four D2 figures (`ANA-005`) |
-> | `ANA-009` | merchant-set metric FLOORS (`MetricThreshold`), hourly `analytics:check-metric-thresholds`, dedup per metric per window end, a configuration form on `/analytics` | **delivery is unwired** (`push_sent => false`, no e-mail, no push) and trend/anomaly/forecast remain absent — `GAP-225`, both the owner's |
-> | `MKT-004` | first-party `customer_segments` + `customer_segment_members`, a five-rule dynamic vocabulary, `/customer-segments` | **no spend rule** — currency denomination is an owner decision, and a segment cannot "refuse" a mixed-currency total without silently excluding people |
-> | `MKT-007` | `RecoveryCandidates` detection, the `marketing_recovery_candidates` queue, hourly `marketing:detect-recovery-candidates`, `/recovery-queue` | **nothing is sent** — `GAP-226`: is a recovery nudge transactional or promotional, and how is a backlog released? |
+> | `ANA-004` | conversion analysis "absent entirely" | `conversion()` ships on five merchant surfaces |
+> | `MKT-001` | no marketing screen links to analytics | all five do, via `marketing/_analytics_link.blade.php`; the grep searched `theme_analytic`, a different route |
+> | `ANA-002` | report screens have "no period filter at all" | six have one via `components/ss/report-filter.blade.php:69`, **and `ReportFilterBarTest` already passes on those six** |
+> | `MKT-002` | five disclosure literals absent | true, and misleading: all five surfaces carry a sixth mechanism (`x-ss.marketing-filters`) — phone-only, so the PARTIAL verdict survives |
+> | `MKT-010` | greentic omits the conversion hook | it calls it at `:20`; fixed and closed as `GAP-220` on 2026-11-21 and **the matrix was never updated** |
 >
-> **FIVE DEFECTS IN THAT WORK WERE FOUND BY REVIEW OR BY A CENSUS, NOT BY A PASSING TEST SET.** They
-> are listed because the pattern is the lesson, not the individual bugs:
+> **The rule this establishes, now in force:** an absence claim must be established by BEHAVIOUR —
+> find the surface a merchant would use and read what it renders, read the layer that feeds it, and
+> only then search by name, for several plausible names — and must state which searches were run.
+> A zero grep result is evidence about a string, never about a capability.
 >
-> 1. ANA-009's dedup key was a STRING written into `store_notifications.reference_id`, an
->    `unsignedBigInteger`. **SQLite stores it verbatim and all 13 tests passed**; a non-strict MySQL
->    coerces it to `0` — one notice per store, EVER — and a strict one raises 1366, so no notice at
->    all. The P01-SEC-13 shape exactly. Fixed by splitting the identity across the two columns' real
->    types; `verify-ana009-alert-key-on-mysql.php` proves the OLD shape fails BOTH ways (19 checks).
-> 2. ANA-009's notification type was absent from `MerchantNotificationController::TYPE_PERMISSIONS`,
->    so the web bell and the admin API — both of which filter `whereIn('type', …)` — served it to
->    **nobody**, operator included. It failed closed, so no disclosure; the feature simply did not
->    work. Two existing ratchets caught it. Now mapped to `Manage Reports`.
-> 3. MKT-004's segment query shared ONE `laravel-model-caching` key between two segments differing
->    only in a numeric bound, because `CacheKey::getBindingsSlug()` reads the MODEL's fresh bindings
->    rather than the builder's and a count subquery is an `Expression` column. In production
->    (`CACHE_STORE=database`) a merchant would read one segment's members under another's name.
->    Fixed with `disableCache()`, a behavioural ratchet and a source ratchet. **This is a FOURTH
->    measured false reading from that trait; CLAUDE.md records three.**
-> 4. MKT-007's recovery subquery used an INNER JOIN, so "no `store_order_financials` row" meant "no
->    order" — and `OrderObserver::created()` swallows the exception that produces exactly that. A
->    shopper who BOUGHT would have been chased about the basket they bought from, the one outcome
->    that predicate exists to prevent. LEFT JOIN, with a null status counting as not-unpaid; both
->    halves mutation-proved, because fixing only the join leaves `whereNotIn` false for a NULL.
-> 5. `RecoveryCandidates` read `DB::table('carts')`, which `NullCookieCartTest` forbids OUTRIGHT in
->    `app/`: a raw read bypasses `Cart::forGuestCookie()`, the single choke point whose job is to
->    refuse a MISSING guest cookie. That hazard was unreachable in this query (it never names
->    `cookie_session_id` and requires `customer_id > 0`) and the right answer was still the model,
->    not an exemption — `Cart::withoutGlobalScopes()->disableCache()`.
+> **All nine rows were rewritten on 2026-11-22 and each correction was re-verified by hand against
+> the code, not taken from the measurement alone.** No row was promoted to VERIFIED COMPLETE on the
+> strength of an automated measurement; every one stayed `PARTIAL`, which is why
+> `MasterPlanTraceabilityCountsTest` still passes unchanged.
 >
-> **AND ONE TEST OF MINE PASSED BY ID COINCIDENCE**, found only by a mutation: with one tenant and
-> one order, `orders.id` and `store_id` were both 1, so joining the ledger on the wrong column
-> matched by accident and the payment predicate was inert. A paid decoy now makes them disagree.
+> **`MKT-001`'s verified links are preserved and must not be rebuilt.** Five screens, one shared
+> partial, gated on `ReportAccess::permits()` — the route's own predicate — deliberately NOT on
+> `@permission`, which would hide the link from the operator and from a tenant owner whose role
+> predates the permission name.
 >
-> **Local gate on `2c333001`:** Unit **5,987 passed + 1 declared skip** · Contract **45 passed** ·
-> Feature **10,685 passed, exactly 1 declared failure and 1 declared skip**, with
-> `assert-known-test-outcomes.php` reporting **OK — nothing undeclared**. The MariaDB battery was
-> re-run in full: **45 passed, 0 failed**. (67 `verify-*.php` exist on disk and 45 are registered and
-> run; an earlier commit message said "44 scripts" and that figure was wrong.)
+> ---
 >
-> **Do next, in this order:**
+> #### The backlog this produced
 >
-> 1. **Check ci.yml #581 on `2c333001`.** If SUCCESS, continue; if FAILURE, fix at the cause before
->    anything else. The `Security-sensitive diff: human checklist` check is red BY DESIGN on every
->    security-touching head — it is the owner's to clear, the PR body documents it in three places,
->    and it must never be written to or claimed complete. `Security-sensitive diff: human approval`
->    is green on this head and is a report, not a signed review.
-> 2. **The remaining Phase 05 requirements.** Measured against the matrix on 2026-11-21: of the 18
->    `MKT-*`/`ANA-*` rows, **one is COMPLETE** (`ANA-010`, itself a do-NOT requirement) and
->    **seventeen are PARTIAL**. Of those seventeen, four are owner-blocked outright (`MKT-003`,
->    `MKT-005`/`MKT-006` loyalty reversal, `MKT-008` consent) and four are PARTIAL only by a recorded
->    owner decision (`ANA-005`, `ANA-009`, `MKT-004`, `MKT-007`). **The unblocked remainder is:
->    `MKT-001`, `MKT-002`, `MKT-009`, `MKT-010`, `ANA-002`, `ANA-003`, `ANA-004`, `ANA-006`,
->    `ANA-007`, `ANA-008`.** `ANA-004` is being MEASURED before it is built, because its row's claim
->    ("CONVERSION ANALYSIS — absent entirely… zero hits") is a GREP RESULT, and that kind of claim
->    has already proved stale twice here: `ANA-005`'s did, on a census for the wrong identifier.
-> 3. Then **Phase 06** on its own branch with a Draft PR, preserving the #138 → #139 → #140 chain.
-> 4. Then the remaining actionable code gaps in earlier phases: P4-1 storefront commerce
->    correctness, P5-FIN-8, P1-SEC-74's vendored remainder, P1-SEC-76's 75 leads, the D8-B census
->    remainder.
+> **33 items buildable with no owner decision** (being executed now, in the owner's priority order:
+> security and tenant isolation, then financial and data correctness, then missing functionality,
+> then cross-phase dependencies, then UX/accessibility/bilingual parity).
 >
-> **Still owner-blocked, untouched:** P1-SEC-81 (CRITICAL — publication and production remediation
-> held; the fix is on NO remote), GAP-214 (D6 stage 2), GAP-215, **GAP-225** (ANA-009's delivery, and
-> the trend/anomaly policy), **GAP-226** (MKT-007's sending: transactional or promotional, and how a
-> backlog is released), PAY-SEC, D8 enforcement activation (`MARKETING_CONSENT_ENFORCEMENT` stays
-> `off`), the human security checklist, and group B of the dispositions (MKT-003 BOGO on variants,
-> MKT-005/006 loyalty reversal, MKT-008 what makes a consent record count).
-Phase 03 engineering is complete and sits in **PR #138, Draft, not merged**. Phase 04 is branched
-from that engineering head, so **PR #139 carries Phase 03's commits and must not be merged ahead of
-PR #138**. **Phase 05 is branched from Phase 04's head in turn, so PR #140 carries both** and the
-three must merge in order or not at all. None merges automatically. The six-phase Master Product
-Plan in §2 is unchanged and remains the governing scope.
-
-> **THIS DOCUMENT IS TWO PHASES BEHIND BELOW THIS LINE, AND THAT IS FLAGGED RATHER THAN FIXED
-> HERE.** §1's branch table, §4 and §8 still describe Phase 03's milestones as the active work;
-> they were accurate when written and have not been rewritten since. Only the facts above and §1's
-> branch row were corrected on 2026-11-17, because a continuity document that names the wrong
-> active branch misdirects the next session on its first action. The full rewrite — Phase 04's and
-> Phase 05's state, and a current §8 — belongs to the Phase 05 closing slice **P5-Z**, which has
-> not run. **Measured 2026-11-17:** `main` is still `4e878b8d`, so nothing from Phase 03, 04 or 05
-> has merged; `feature/phase-04-commerce` is an ancestor of the Phase 05 head.
+> **18 items needing a decision**, consolidated into `docs/development/phase-5/PHASE-05-OWNER-DECISION-REGISTER.md`
+> as **D-N13…D-N30**, each with the exact decision, options and consequences, an engineering
+> recommendation, what is safe to build first, and what stays blocked. **Six are already answered by
+> an existing decision and are not re-asked; twelve are genuinely open.** None of the 33 depends on
+> any of the 18.
 >
-> For what Phase 05 has actually done, read
-> [`phase-5/PHASE-05-EXECUTION-PLAN.md`](phase-5/PHASE-05-EXECUTION-PLAN.md) — slices P5-1…P5-11,
-> each marked shipped or not started — not §8 below.
-
+> **ONE NEW CORRECTNESS DEFECT, found by the re-measurement and logged as `GAP-228`:**
+> `ProductController::update()` validates `cost_price` as `required|numeric|min:0|lte:price` at
+> `:1869` and **never assigns it** — the only write in the file is `:837`, inside `store()`. A
+> merchant whose product has no cost can never add one: the form demands the value, accepts it, and
+> discards it in silence. Every "at least N paid orders have no product cost on record" disclosure
+> is therefore permanent by construction. Not a policy question.
+>
+> ---
+>
+> #### Standing constraints, unchanged
+>
+> - **`P1-SEC-81` remains a CRITICAL confidential production-remediation item.** The held fix is on
+>   no remote. Do not publish details, merge, deploy or fabricate human security approval. The
+>   owner/operator action remains outstanding and must stay visible.
+> - **The `Security-sensitive diff: human checklist` CI gate is red by design on every head** and is
+>   the owner's to clear; its companion `human approval` job passes. Writing the marker would
+>   fabricate human security approval, which §9 forbids. Documented on PR #140 in three places.
+> - **Never invent financial, marketing, legal or consent policy.** Where a figure needs a rule that
+>   does not exist, disclose the omission and record the decision — the pattern `ANA-009`,
+>   `MKT-007` and `MetricThreshold` already use.
+> - **Do not rebuild existing WorkDo engines**, and do not edit `packages/workdo/` as a shortcut.
+>
+> ---
+>
+> #### Resource rules added 2026-11-22, after a near-loss
+>
+> - **Check whether equivalent work is already running before launching an investigation.** A
+>   nine-row measurement was duplicated because silence was read as failure; the original was alive
+>   and finished after 4.3 hours.
+> - **Never delete the only copy of a workflow's evidence.** The disk filled and truncated the
+>   completed run's 1 MB result file to **0 bytes**; the findings survived only because its journal
+>   had been kept deliberately during cleanup.
+> - **Keep headroom for test artefacts and logs.** The Feature suite writes a JUnit and a TeamCity
+>   log on every gated run.
 ---
 
 
