@@ -211,9 +211,21 @@ final class ScheduledReportRunner
                 AnalyticsPeriod::KEY_TO => $schedule->period_to?->toDateString() ?? '',
             ], $now);
 
-            // THE SAME FIGURES AND THE SAME ROW SET AS THE SCREEN'S OWN DOWNLOAD. No second query,
-            // no second definition -- that is why `AnalyticsExportRows` exists.
-            $figures = MerchantAnalyticsFigures::forStore($storeId, $currency, $now, $period);
+            /*
+             * THE SAME FIGURES AND THE SAME ROW SET AS THE SCREEN'S OWN DOWNLOAD. No second query,
+             * no second definition -- that is why `AnalyticsExportRows` exists.
+             *
+             * `$moneyFollowsThePeriod` IS FALSE, AND THAT IS NOT AN OVERSIGHT (P5-R15). The stored
+             * period governs the count tiles, as it always has. It does NOT narrow the money
+             * tiles, because `analytics_report_schedules.period_key` is `string(32)` NOT NULL:
+             * every row holds a concrete preset whether or not the merchant ever chose one, so a
+             * stored row is not evidence of a choice. Narrowing the money in a recurring e-mail
+             * somebody set up months ago would change a figure they never asked to change, and
+             * the row cannot tell us whether they asked. Giving a schedule its own answer to that
+             * question means giving the table a column, which is a migration and an owner
+             * decision, not a side effect of this slice.
+             */
+            $figures = MerchantAnalyticsFigures::forStore($storeId, $currency, $now, $period, false);
             $csv = FigureCsv::render(AnalyticsExportRows::build($figures));
 
             Mail::to($recipient)->send(new ScheduledAnalyticsReport(

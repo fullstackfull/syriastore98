@@ -93,11 +93,9 @@ final class MerchantAnalyticsFigures
         int $storeId,
         string $storeCurrency,
         ?CarbonInterface $now = null,
-        ?AnalyticsPeriod $chosen = null
+        ?AnalyticsPeriod $chosen = null,
+        bool $moneyFollowsThePeriod = false,
     ): array {
-        // The money half, unchanged and not restated: one owner for currency folding and ledger coverage.
-        $money = FinanceLedgerFigures::forStore($storeId, $storeCurrency);
-
         $now = $now === null ? CarbonImmutable::now() : CarbonImmutable::instance($now);
 
         /*
@@ -122,6 +120,45 @@ final class MerchantAnalyticsFigures
         $from = $chosen->from();
         $to = $chosen->to();
         $period = $chosen->label();
+
+        /*
+         * P5-R15 -- THE MONEY HALF FOLLOWS THE PERIOD, BUT ONLY WHEN SOMEBODY ASKED FOR ONE.
+         *
+         * This was the first statement of the method and took NO window, so the money tiles
+         * ignored the period control while the ten figures below it obeyed it. A merchant who
+         * chose "Last 7 days" saw seven days of orders beside the ledger's whole coverage of
+         * money. Nothing on screen was false -- `<x-ss.stat>` makes `period` a required prop and
+         * each money tile prints its own, so the tile said "from 2 November 2026" while the
+         * selector said seven days -- but the control did not govern half its own screen.
+         *
+         * `$moneyFollowsThePeriod` IS A SEPARATE SIGNAL FROM `$chosen`, and it has to be. The
+         * shape this copies is already shipped on the sibling screen: `ReportController`'s finance
+         * report resolves `null` unless the REQUEST named a period, because
+         * `AnalyticsPeriod::fromRequest([])` falls through to `last_30_days` and "resolving one
+         * unconditionally would narrow every existing reader's figure without being asked".
+         * `FinanceReportPeriodTest::test_with_no_period_requested_the_figures_are_unchanged` pins
+         * that, and `::test_choosing_all_time_in_the_control_is_not_a_period` pins the other
+         * direction. This screen was the one that was missed.
+         *
+         * WHY NOT JUST `$chosen === null`: the scheduled-report runner has a stored period and
+         * needs it for the counts, yet must NOT narrow the money -- so one nullable period cannot
+         * carry both answers. `analytics_report_schedules.period_key` is `string(32)` NOT NULL, so
+         * every saved schedule row holds a concrete preset whether or not the merchant ever chose
+         * one; a stored row is therefore not evidence of a choice, and narrowing the money in a
+         * recurring e-mail somebody set up months ago would change a figure they never asked to
+         * change. The runner passes `false` and says so at its call site.
+         *
+         * NOTHING ABOUT THE CLAMP IS RE-IMPLEMENTED HERE and it must not be: `narrow()` already
+         * clamps a request to the ledger's verified coverage, re-spells the label as the span it
+         * really read, and refuses in words a period that ends before the records begin. A second
+         * copy of that rule is how two screens start disagreeing about the same money.
+         */
+        $money = FinanceLedgerFigures::forStore(
+            $storeId,
+            $storeCurrency,
+            $moneyFollowsThePeriod ? $chosen->window() : null,
+            $moneyFollowsThePeriod ? $chosen->label() : null,
+        );
 
         $orders = self::countOrders($storeId, $from, $to);
         $visits = self::countVisits($storeId, $from, $to);

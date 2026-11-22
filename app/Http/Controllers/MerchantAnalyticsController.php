@@ -55,10 +55,12 @@ class MerchantAnalyticsController extends Controller
 
         [$storeId, $currencyCode] = $resolved;
 
-        $period = $this->chosenPeriod($request);
+        [$period, $periodWasAskedFor] = $this->chosenPeriod($request);
 
         return view('analytics.index', [
-            'figures' => MerchantAnalyticsFigures::forStore($storeId, $currencyCode, null, $period),
+            // P5-R15: the money tiles follow the period only when one was ASKED for -- see
+            // `MerchantAnalyticsFigures::forStore()`'s `$moneyFollowsThePeriod`.
+            'figures' => MerchantAnalyticsFigures::forStore($storeId, $currencyCode, null, $period, $periodWasAskedFor),
             'periodOptions' => \App\Support\Analytics\AnalyticsPeriod::options(),
             'savedPeriods' => \App\Models\SavedView::forCurrentPrincipal(self::SCREEN)->get(),
             'periodKey' => $period->key(),
@@ -136,8 +138,18 @@ class MerchantAnalyticsController extends Controller
      * screen's vocabulary -- the row outlives the code that wrote it -- and the result then goes
      * through `AnalyticsPeriod::fromRequest()` exactly as request input does, so a hand-written or
      * stale row cannot reach the window by a path the query string does not have.
+     *
+     * IT ALSO SAYS WHICH BRANCH IT TOOK, because "which period" and "did anybody ask for one" are
+     * different questions and the money tiles turn on the second (P5-R15). `AnalyticsPeriod::
+     * default()` is a fallback, not a choice: windowing the money half on it would narrow a figure
+     * for every merchant who has never touched the filter. A SAVED VIEW *IS* a choice -- the
+     * merchant saved it and selected it -- so it counts as asked for, exactly as the explicit form
+     * does. The sibling finance report decides the same question with
+     * `$request->filled(KEY_PERIOD)`; it has no saved views to consider.
+     *
+     * @return array{0: \App\Support\Analytics\AnalyticsPeriod, 1: bool} the period, and whether it was asked for
      */
-    private function chosenPeriod(Request $request): \App\Support\Analytics\AnalyticsPeriod
+    private function chosenPeriod(Request $request): array
     {
         $period = \App\Support\Analytics\AnalyticsPeriod::class;
 
@@ -148,7 +160,7 @@ class MerchantAnalyticsController extends Controller
         ]);
 
         if ($input !== [] && ($input[$period::KEY_PERIOD] ?? '') !== '') {
-            return $period::fromRequest($input);
+            return [$period::fromRequest($input), true];
         }
 
         /*
@@ -167,11 +179,13 @@ class MerchantAnalyticsController extends Controller
                 ->first();
 
             if ($saved !== null) {
-                return $period::fromRequest($saved->appliedFilters());
+                return [$period::fromRequest($saved->appliedFilters()), true];
             }
         }
 
-        return $period::default();
+        // No choice was made, so the money tiles keep the ledger's own coverage -- see the figures'
+        // `$moneyFollowsThePeriod` for why a fallback must not narrow anybody's money.
+        return [$period::default(), false];
     }
 
     /**
@@ -210,9 +224,11 @@ class MerchantAnalyticsController extends Controller
          * still wrong for what was asked. P5-8's rule is that the file and the screen cannot
          * disagree about a number; after ANA-002 that has to include WHICH DAYS the number is for.
          */
-        $period = $this->chosenPeriod($request);
+        [$period, $periodWasAskedFor] = $this->chosenPeriod($request);
 
-        $figures = MerchantAnalyticsFigures::forStore($storeId, $currencyCode, null, $period);
+        // THE SAME RULE AS THE SCREEN, because this file IS the screen's download: a merchant who
+        // exported an unfiltered page must get the figures that page showed them (P5-R15).
+        $figures = MerchantAnalyticsFigures::forStore($storeId, $currencyCode, null, $period, $periodWasAskedFor);
 
         /*
          * ANA-003 — THE ROW SET MOVED TO `AnalyticsExportRows`, because it now has two callers.
@@ -284,7 +300,10 @@ class MerchantAnalyticsController extends Controller
                 ->with('error', __('Your account has no e-mail address, so a report cannot be sent to you.'));
         }
 
-        $period = $this->chosenPeriod($request);
+        // The flag is discarded here on purpose: `analytics_report_schedules.period_key` is NOT
+        // NULL, so the row cannot record "nothing was chosen" and the runner must decide for
+        // itself what a stored period means for money (P5-R15).
+        [$period] = $this->chosenPeriod($request);
         $name = trim((string) $request->input('name'));
 
         $existing = \App\Models\AnalyticsReportSchedule::forCurrentPrincipal()
