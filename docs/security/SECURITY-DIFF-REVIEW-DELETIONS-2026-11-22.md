@@ -12,6 +12,13 @@ measured against the diff as it stood then. Six commits have landed since —
 `4810b874`, `deea9d40`, `61a41b98`, `5dbb6c0c`, `b93e047d`, `39e188ae` — so that draft no longer
 covers the head. This file closes that window.
 
+> **SUPERSEDED FOR THE HEAD, NOT FOR ITS RANGE.** This file audits the six commits ending at
+> `39e188ae` and remains correct for them. Twenty further commits have landed since, deleting 149
+> lines under `app/` and `resources/`; they are audited in
+> `SECURITY-DIFF-REVIEW-DELETIONS-2026-11-22-B.md`, which also shows that the two ranges abut with
+> no gap. Read both, or neither — reading only this one reads as coverage of a head it does not
+> cover.
+
 ## Scope
 
 Head `39e188ae`. Everything the six commits deleted under `app/`, `config/`, `routes/` and
