@@ -69,6 +69,38 @@ final class ModuleRouteManifest
         'PATCH campaigns/campaigns-braintree-payment' => 'auth',
         'POST campaigns/campaigns-braintree-payment' => 'auth',
         'PUT campaigns/campaigns-braintree-payment' => 'auth',
+        /*
+         * P1-SEC-86 -- `auth` IS THE RIGHT CLASSIFICATION HERE, AND IT IS NOT THE WHOLE STORY.
+         *
+         * `campaignsCost()` deletes `cost_setting` rows by `whereIn('id', $deletedIds)` and updates
+         * them by `find($costSetting['id'])`, both from BODY input and neither with an ownership
+         * predicate. The update is a TRANSFER rather than an edit: `created_by` is assigned from
+         * the caller BEFORE `update()`, so naming another principal's row hands it over.
+         *
+         * The ownership check is `App\Http\Middleware\CampaignsCostOwnershipGuard`, appended to
+         * the `web` group, which keys off its own `TARGETS` rather than a rule here. A `guarded:`
+         * rule would be WRONG IN THIS TABLE: `administrativeRule()` reads only `ADMINISTRATIVE`,
+         * and `ModuleAdministrativeRouteGuard`'s `match` has no `guarded:` arm, so such a rule
+         * falls to `default => false` and denies every non-operator -- measured, when a first
+         * version of this change did exactly that and broke a merchant's own create and delete.
+         * `guarded:` belongs in `ANONYMOUS_BY_DESIGN` below, where it records that a named guard
+         * protects a route carrying no authentication.
+         *
+         * AND THIS ROUTE CARRIES NO `Authenticate` MIDDLEWARE EITHER -- measured, the census
+         * reports `authenticated: false`, because the Campaigns group is `['web']` plus
+         * `PlanModuleCheck:Campaigns` and nothing else. The rule below is what authenticates it:
+         * `ModuleAdministrativeRouteGuard` refuses a null `auth('web')` user for an `auth` rule,
+         * and it runs at stack position 21, BEFORE `CampaignsCostOwnershipGuard` at 23. So the
+         * ownership guard's own anonymous limb is unreachable today and is defence in depth; a
+         * mutation removing it survives for that reason, which its test records rather than
+         * hides.
+         *
+         * NOT `store-row:`, which reads a ROUTE parameter and compares `store_id`: these ids are in
+         * the body and `cost_setting` has no `store_id`. NOT `operator` either, which the sibling
+         * `campaigns-system-setup` carries and which was the first thing that came to mind: these
+         * are per-principal pricing tiers keyed on `created_by` alone, so an operator-only rule
+         * would take every merchant's own tiers away from them.
+         */
         'DELETE campaigns/campaigns-cost' => 'auth',
         'GET campaigns/campaigns-cost' => 'auth',
         'OPTIONS campaigns/campaigns-cost' => 'auth',

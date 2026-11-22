@@ -297,6 +297,7 @@ return Application::configure(basePath: dirname(__DIR__))
          * rule requiring a signed-in user. It short-circuits on any other uri.
          */
         $middleware->appendToGroup('web', \App\Http\Middleware\CampaignIntentOwnershipGuard::class);
+        $middleware->appendToGroup('web', \App\Http\Middleware\CampaignsCostOwnershipGuard::class);
         // P1-SEC-04 review follow-up: the SpamPrevent and ProductReview storefront handlers wrote customer_id / store_id / status from the body
         // (anonymous comments as any customer with raw HTML, reviews planted into any store). Derived from the session or the slug instead.
         $middleware->appendToGroup('web', \App\Http\Middleware\ModuleStorefrontInputGuard::class);
