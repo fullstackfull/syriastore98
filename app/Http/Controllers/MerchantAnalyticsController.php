@@ -70,6 +70,7 @@ class MerchantAnalyticsController extends Controller
             // that has never fired is visibly different from one that works.
             'schedules' => \App\Models\AnalyticsReportSchedule::forCurrentPrincipal()->get(),
             'scheduleFrequencies' => \App\Models\AnalyticsReportSchedule::frequencies(),
+            'scheduleOutcomes' => \App\Models\AnalyticsReportSchedule::outcomes(),
             // ANA-009. The store's own floors, as typed -- see `MetricThreshold::rawFor()` for why
             // the form reads the raw rows rather than the checker's filtered view of them.
             'thresholds' => \App\Support\Analytics\MetricThreshold::rawFor($storeId),

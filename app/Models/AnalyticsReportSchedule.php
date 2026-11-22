@@ -80,6 +80,31 @@ class AnalyticsReportSchedule extends Model
     }
 
     /**
+     * What each recorded outcome MEANS, as key => the words for it.
+     *
+     * The list used to print the key itself -- `skipped_no_owner` -- on a merchant's screen, in
+     * either language. An outcome is recorded so that the merchant can tell WHICH of the things
+     * that can go wrong did; an identifier tells them that something has a name.
+     *
+     * The sentences follow `ScheduledReportRunner::send()`, which is the only writer: "no owner"
+     * is one outcome with three causes there (the account is gone, it has no address, it may no
+     * longer read reports), so the sentence names all three rather than guessing which.
+     *
+     * `$locale` exists for the test that holds every outcome to having words in both languages.
+     *
+     * @return array<string, string>
+     */
+    public static function outcomes(?string $locale = null): array
+    {
+        return [
+            self::OUTCOME_SENT => __('The file was sent.', [], $locale),
+            self::OUTCOME_FAILED => __('The last attempt failed: the file could not be built or sent.', [], $locale),
+            self::OUTCOME_SKIPPED_NO_STORE => __('Skipped: the store this was scheduled for no longer exists.', [], $locale),
+            self::OUTCOME_SKIPPED_NO_OWNER => __('Skipped: the person who scheduled it can no longer receive it. Their account is gone, has no e-mail address, or may no longer read reports.', [], $locale),
+        ];
+    }
+
+    /**
      * The schedules the signed-in employee may see, in their own store. FAILS CLOSED.
      *
      * `where('store_id', null)` is `WHERE store_id IS NULL`, which would match nothing here but is

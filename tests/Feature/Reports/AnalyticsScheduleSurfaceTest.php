@@ -277,6 +277,120 @@ final class AnalyticsScheduleSurfaceTest extends SecurityTestCase
             . 'scheduler, so "never sent" reads as a product fault with no next step.');
     }
 
+    /*
+     * ---------------------------------------------------------------------------------------------
+     * P05-16 — THE LIST PRINTED THREE THINGS NO MERCHANT SHOULD BE SHOWN, IN EITHER LANGUAGE
+     * ---------------------------------------------------------------------------------------------
+     *
+     * Found on 2026-11-22 by rendering the screen as an Arabic merchant sees it. The scheduled-
+     * exports table echoed the raw PERIOD KEY (`last_7_days`), the raw OUTCOME CODE
+     * (`skipped_no_owner`) and a date from `toDayDateTimeString()`, which is English whatever the
+     * locale. Two of the three are identifiers, so they were wrong in English too.
+     */
+
+    /** The schedule's own `<tr>`, so an assertion is about the list and not about the whole page. */
+    private function scheduleRow(string $html, string $name): string
+    {
+        $this->assertSame(1, preg_match('/<tr>\s*<th scope="row">' . preg_quote($name, '/') . '<\/th>.*?<\/tr>/su', $html, $m),
+            "PREMISE: the schedule '{$name}' is not listed, so nothing about its row can be read.");
+
+        return html_entity_decode($m[0], ENT_QUOTES | ENT_HTML5);
+    }
+
+    private function scheduleThatWasSkipped($merchant, $store): AnalyticsReportSchedule
+    {
+        return AnalyticsReportSchedule::forceCreate([
+            'store_id' => $store->id, 'created_by' => $merchant->id,
+            'name' => 'Weekly digest', 'frequency' => AnalyticsReportSchedule::FREQ_WEEKLY,
+            'period_key' => 'last_7_days', 'recipient_email' => $merchant->email,
+            'next_due_at' => CarbonImmutable::parse('2026-11-29 09:00:00'),
+            'last_run_at' => CarbonImmutable::parse('2026-11-22 09:00:00'),
+            'last_outcome' => AnalyticsReportSchedule::OUTCOME_SKIPPED_NO_OWNER,
+        ]);
+    }
+
+    public function test_the_list_names_the_period_and_the_outcome_in_words(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $this->scheduleThatWasSkipped($merchant, $store);
+
+        $row = $this->scheduleRow(
+            (string) $this->actingAs($merchant->fresh())->get(self::URI)->assertStatus(200)->getContent(),
+            'Weekly digest'
+        );
+
+        $this->assertStringNotContainsString('last_7_days', $row,
+            'The list shows the period\'s internal key rather than its name.');
+        $this->assertStringContainsString(\App\Support\Analytics\AnalyticsPeriod::options()['last_7_days'], $row,
+            'The list does not name the period the way the period control does.');
+
+        $this->assertStringNotContainsString('skipped_no_owner', $row,
+            'The list shows an outcome code where a merchant needs a reason.');
+        $this->assertStringContainsString(AnalyticsReportSchedule::outcomes()[AnalyticsReportSchedule::OUTCOME_SKIPPED_NO_OWNER], $row,
+            'The list does not say, in words, why the last run was skipped.');
+    }
+
+    public function test_the_list_is_arabic_for_an_arabic_merchant(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $this->scheduleThatWasSkipped($merchant, $store);
+
+        $html = (string) $this->actingAs($merchant->fresh())
+            ->withSession(['LANGUAGE' => 'ar'])
+            ->get(self::URI)->assertStatus(200)->getContent();
+
+        // The premise is a TRANSLATION, not `dir="rtl"`: the layout takes direction from the store's
+        // `SITE_RTL` setting and its words from the session's language, and they are independent.
+        $this->assertStringContainsString('التصديرات المجدولة', $html, 'PREMISE: the page was not rendered in Arabic.');
+
+        $row = $this->scheduleRow($html, 'Weekly digest');
+
+        // Everything in the row but the merchant's own schedule name.
+        $withoutTheName = str_replace('Weekly digest', '', strip_tags($row));
+
+        $this->assertDoesNotMatchRegularExpression('/[A-Za-z]{3,}/', $withoutTheName,
+            'An Arabic merchant is shown Latin-script text in the scheduled-exports list: '
+            . trim(preg_replace('/\s+/u', ' ', $withoutTheName)));
+        $this->assertMatchesRegularExpression('/\p{Arabic}/u', $withoutTheName);
+    }
+
+    /**
+     * EVERY OUTCOME THE RUNNER CAN RECORD HAS WORDS, IN BOTH LANGUAGES. Read from the model's own
+     * constants, so an outcome added to the runner without a sentence fails here rather than
+     * appearing on a merchant's screen as an identifier.
+     */
+    public function test_every_outcome_has_words_in_both_languages(): void
+    {
+        $constants = (new \ReflectionClass(AnalyticsReportSchedule::class))->getConstants();
+        $outcomes = array_values(array_filter($constants, fn ($v, $k) => str_starts_with($k, 'OUTCOME_'), ARRAY_FILTER_USE_BOTH));
+
+        $this->assertGreaterThanOrEqual(4, count($outcomes), 'PREMISE: the outcome constants could not be read.');
+
+        $arabic = json_decode((string) file_get_contents(base_path('resources/lang/ar.json')), true);
+        $english = array_flip(array_map(fn ($o) => AnalyticsReportSchedule::outcomes('en')[$o] ?? '', $outcomes));
+
+        foreach ($outcomes as $outcome) {
+            $words = AnalyticsReportSchedule::outcomes('en')[$outcome] ?? null;
+
+            $this->assertNotNull($words, "The outcome '{$outcome}' has no words.");
+            $this->assertNotSame($outcome, $words);
+            $this->assertArrayHasKey($words, $arabic, "The sentence for '{$outcome}' has no Arabic translation.");
+            $this->assertMatchesRegularExpression('/\p{Arabic}/u', (string) $arabic[$words]);
+        }
+
+        $this->assertCount(count($outcomes), $english, 'Two outcomes share one sentence, so a merchant cannot tell them apart.');
+    }
+
+    /** The one period sentence that had no Arabic: a custom period whose START was moved to today. */
+    public function test_the_sentence_for_a_period_starting_in_the_future_has_arabic(): void
+    {
+        $key = 'The start of the period was moved to today, because there is nothing recorded after today.';
+        $arabic = json_decode((string) file_get_contents(base_path('resources/lang/ar.json')), true);
+
+        $this->assertArrayHasKey($key, $arabic);
+        $this->assertMatchesRegularExpression('/\p{Arabic}/u', (string) $arabic[$key]);
+    }
+
     /** And the list is one employee's own: another employee's schedules are not shown. */
     public function test_one_employees_schedules_are_not_shown_to_another(): void
     {

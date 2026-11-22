@@ -188,15 +188,23 @@
                             @foreach ($schedules as $schedule)
                                 <tr>
                                     <th scope="row">{{ $schedule->name }}</th>
+                                    {{-- P05-16. THREE CELLS HERE PRINTED WHAT NO MERCHANT SHOULD BE SHOWN: the
+                                         period's internal key, the outcome's internal code, and a date from
+                                         `toDayDateTimeString()`, which is English whatever the locale. The
+                                         period is named the way the period control names it; the outcome is
+                                         a sentence from the model; the date is formatted for the reader's
+                                         language. A key this version has no name for is still shown as
+                                         itself -- hiding it would lose the only clue to a stale row. --}}
                                     <td>{{ $schedule->period_key === 'custom'
                                         ? $schedule->period_from?->toDateString() . ' — ' . $schedule->period_to?->toDateString()
-                                        : $schedule->period_key }}</td>
+                                        : ($periodOptions[$schedule->period_key] ?? $schedule->period_key) }}</td>
                                     <td>{{ $scheduleFrequencies[$schedule->frequency] ?? $schedule->frequency }}</td>
                                     <td>
                                         @if ($schedule->hasEverRun())
-                                            {{ $schedule->last_run_at->toDayDateTimeString() }}
+                                            <span class="ss-num">{{ $schedule->last_run_at->locale(app()->getLocale())->isoFormat('D MMMM YYYY') }}</span>
+                                            <span class="ss-num" dir="ltr">{{ $schedule->last_run_at->format('H:i') }}</span>
                                             @if ($schedule->last_outcome !== \App\Models\AnalyticsReportSchedule::OUTCOME_SENT)
-                                                <span class="ss-stat__hint">{{ $schedule->last_outcome }}</span>
+                                                <span class="ss-stat__hint">{{ $scheduleOutcomes[$schedule->last_outcome] ?? $schedule->last_outcome }}</span>
                                             @endif
                                         @else
                                             {{ __('Never sent yet') }}
