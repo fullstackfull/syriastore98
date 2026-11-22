@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Policies\UserPolicy;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -28,9 +29,11 @@ use Symfony\Component\HttpFoundation\Response;
  * No ownership test on either. MEASURED through the real route with the module loaded
  * (`CampaignIntentOwnershipTest`, four cases red before this guard): an entitled merchant created a
  * campaign naming ANOTHER TENANT's store and product; naming a foreign product inside their own
- * store worked too; so did hiding a foreign id in the comma-separated product LIST; and a principal
- * rooted at the operator filed one against the OPERATOR's store, where `created_by = creatorId()`
- * then recorded it as the operator's own. `settingmenuController::campaginSorting` renders approved
+ * store worked too; so did naming it in a comma-separated list, and so did naming it in a form
+ * `filter_var` rejects but a non-strict MySQL column stores (see `intentIsOwned()`, which records
+ * that the list half of that sentence was engine-dependent and the non-canonical half is the live
+ * one); and a principal rooted at the operator filed one against the OPERATOR's store, where
+ * `created_by = creatorId()` then recorded it as the operator's own. `settingmenuController::campaginSorting` renders approved
  * campaigns on the platform's PUBLIC landing page, so the row is not private.
  *
  * ===========================================================================================
@@ -52,9 +55,15 @@ use Symfony\Component\HttpFoundation\Response;
  * ===========================================================================================
  *
  * `ModuleAdministrativeRouteGuard` acts on `ModuleRouteManifest::ADMINISTRATIVE`, and these six
- * keys are in `ANONYMOUS_BY_DESIGN` as `payment-callback`: a gateway return must stay reachable in
- * the shape the gateway sends it. The census forbids a key in both tables, and it is right to —
- * "requires a signed-in user" is not the rule this route wants. So the classification becomes
+ * keys are in `ANONYMOUS_BY_DESIGN` as `payment-callback`, the category for a gateway return.
+ *
+ * BUT THIS GUARD DOES REFUSE AN ANONYMOUS REQUEST, so that category's usual promise does not hold
+ * for these keys and the first version of this paragraph was wrong to imply it did (review,
+ * 2026-11-22). It costs nothing: the server-to-server callback urls that point here already
+ * dereferenced `Auth::user()->id` on null and answered 500, so no gateway ever completed a write
+ * without a session. The classification stays `guarded:` rather than moving to ADMINISTRATIVE
+ * because the census forbids a key in both tables and because "any signed-in user" is not the rule
+ * this route wants. So the classification becomes
  * `guarded:CampaignIntentOwnershipGuard`, the category the census already understands: it asserts
  * the route really carries the named middleware AND that the middleware has a rule for that exact
  * route, which it reads from `TARGETS` below. A module update that renames the route turns the
@@ -80,9 +89,6 @@ final class CampaignIntentOwnershipGuard
      */
     public const TARGETS = ['campaigns/campaigns-card-payment'];
 
-    /** A product list longer than this is refused outright rather than queried. */
-    private const MAX_PRODUCTS = 200;
-
     public function handle(Request $request, Closure $next): Response
     {
         $route = $request->route();
@@ -91,8 +97,25 @@ final class CampaignIntentOwnershipGuard
             return $next($request);
         }
 
-        // The handler's own first branch: a cancelled return writes nothing and only redirects.
-        if ($request->input('return_type') === 'cancel') {
+        /*
+         * The handler's own first branch: a cancelled return writes nothing and only redirects.
+         *
+         * READ EXACTLY AS THE HANDLER READS IT -- CORRECTED AFTER INDEPENDENT REVIEW, WHICH FOUND A
+         * BYPASS IN THE FIRST VERSION. That version asked `$request->input('return_type')`. The
+         * handler asks `$request->return_type`, which is `Request::__get` -> `all()`, and `all()` is
+         * `array_replace_recursive($this->input(), $this->allFiles())`: an UPLOADED FILE named
+         * `return_type` REPLACES the input of the same name, while `input()` never sees files at
+         * all. So one multipart POST carrying `return_type=cancel` as a field AND a file part of the
+         * same name read as "cancel" to the guard -- which skipped its entire ownership check -- and
+         * as an UploadedFile to the handler, which took the else branch and WROTE. That bypassed
+         * every other control in this class.
+         *
+         * `Arr::get($request->all(), ...)` is the handler's expression, and `==` is its comparison,
+         * loose included: mirroring is only safe if it is exact. The two now cannot disagree in
+         * either direction -- a JSON `{"return_type": true}` reads as "cancel" for both, and a
+         * file-only part reads as non-cancel for both.
+         */
+        if (Arr::get($request->all(), 'return_type') == 'cancel') {
             return $next($request);
         }
 
@@ -179,12 +202,45 @@ final class CampaignIntentOwnershipGuard
             return false;
         }
 
-        $products = array_values(array_unique(array_filter(
-            array_map(fn ($value) => $this->usableId($value), explode(',', (string) ($intent['product'] ?? ''))),
-            static fn ($id) => $id !== null
-        )));
+        /*
+         * ONE CANONICAL ID AND NOTHING ELSE -- CORRECTED AFTER INDEPENDENT REVIEW, AND THE FIRST
+         * VERSION WAS BYPASSABLE ON PRODUCTION MySQL WHILE PASSING EVERY TEST.
+         *
+         * That version split `product` on commas, ran each element through `usableId()`, and
+         * silently DROPPED the elements it could not parse -- checking only what was left. Three
+         * measured facts turn that into an authorisation bypass:
+         *
+         *   1. `campaigns.product` is an `integer` column
+         *      (`...Campaigns/src/database/migrations/2024_07_23_065837_create_campaigns_table.php:19`),
+         *      not a string, although `viewCampaigns()` explodes it as though it were a list.
+         *   2. `config/database.php:55` sets `'strict' => false` on the mysql connection, so MySQL
+         *      TRUNCATES a non-numeric value instead of refusing it: `'06,5'` is stored as 6.
+         *   3. `usableId()` is `filter_var(FILTER_VALIDATE_INT)`, which REJECTS `'06'`, `'6abc'`,
+         *      `'6.0'` and `'6e0'` -- verified in this container.
+         *
+         * So `product = '06,5'` was authorised on the strength of the caller's own id 5, and stored
+         * as 6: ANOTHER TENANT'S PRODUCT. The campaign then advertises that product on the caller's
+         * list and on the operator's. A sibling shape, `'0abc,5'`, stores 0, which matches no row and
+         * made the vendored list cell's unguarded `->products->name` answer 500 for the whole list.
+         *
+         * This is the exact defect `ComparesRowOwnership`'s own docblock records having shipped once
+         * before, in `ModuleOrderMutationGuard`, with `'5abc'`. Writing it a second time is why the
+         * rule is now the strict one: the value must be a single canonical id, so that what the guard
+         * authorises and what the database stores cannot be two different rows.
+         *
+         * REFUSING A COMMA LIST IS NOT A REGRESSION. The column is an integer, so a list has never
+         * been storable: on MySQL it collapses to the first element, and the module's own create form
+         * offers a single-select. An existing row that holds a list was not written through this
+         * route, and reading one is handled separately (the list cells are null-safe).
+         *
+         * IT ALSO CORRECTS A CLAIM THIS CLASS MADE. The docblock said hiding a foreign id in the
+         * comma-separated list "worked too". That was measured on SQLite, which keeps `'06,5'` as
+         * TEXT; on MySQL the same request stores 6. The claim was engine-dependent and said so
+         * nowhere, which is the kind of overclaim this project has already paid for twice.
+         */
+        $productId = $this->usableId(trim((string) ($intent['product'] ?? '')));
 
-        if ($products === [] || count($products) > self::MAX_PRODUCTS) {
+        if ($productId === null) {
             return false;
         }
 
@@ -195,38 +251,27 @@ final class CampaignIntentOwnershipGuard
                 return false;
             }
 
-            // LIMB 1: nothing the handler's own list would touch may lie outside this tenant's
-            // rows in this store. A NULL on either column counts as outside.
-            $foreign = DB::table('products')
-                ->whereIn('id', $products)
-                ->where(function ($query) use ($tenant, $storeId) {
-                    $query->whereNull('created_by')
-                        ->orWhere('created_by', '!=', $tenant)
-                        ->orWhereNull('store_id')
-                        ->orWhere('store_id', '!=', $storeId);
-                })
-                ->exists();
-
-            if ($foreign) {
-                return false;
-            }
-
-            // LIMB 2, stricter: every id asked for must be accounted for by a row they own, so an
-            // id that matches NO row cannot be written either.
-            $owned = DB::table('products')
-                ->whereIn('id', $products)
+            /*
+             * ONE QUESTION, ASKED OF THE ROW THAT WILL BE STORED: is there a product with this id,
+             * created by this tenant, in this store? An id that matches no row is refused by the
+             * same predicate -- which matters beyond ownership, because the vendored list cell does
+             * `$campaigns->products->name` with no null guard, so a campaign naming a phantom
+             * product answers 500 for the whole list, the operator's included.
+             *
+             * The two-limb set predicate this replaced was written for a LIST of ids. With a single
+             * canonical id the set question and the row question are the same question, and one
+             * query that cannot be read two ways is better than two that can.
+             */
+            return DB::table('products')
+                ->where('id', $productId)
                 ->where('created_by', $tenant)
                 ->where('store_id', $storeId)
-                ->pluck('id')
-                ->map(static fn ($id) => (int) $id)
-                ->all();
+                ->exists();
         } catch (\Throwable $e) {
             // Fail closed on an unreadable table, for the reason ComparesRowOwnership::readRowStore
             // records: a module's tables exist when its routes do, but "in practice" is not a control.
             return false;
         }
-
-        return array_diff($products, $owned) === [];
     }
 
     /** A refusal is a redirect or a 403, NEVER a 401: the Flutter admin app forces a logout on any 401. */

@@ -575,7 +575,12 @@ class OwnedPathRawQueryInventoryTest extends TestCase
            from request input. Raw rather than Eloquent because `Product` is Cachable and `Store`
            is not tenant-scoped, so no model read would be the engine's own answer. The count is
            raised because the sites are real and accounted for, not to make this pass. */
-        $this->assertCount(46, $sites, "The owned-path raw query inventory changed:\n  "
+        /* 46 -> 45 [2026-11-22, P1-SEC-69 c after review]: CampaignIntentOwnershipGuard's two
+           `products` limbs became a single `exists()`. The guard used to authorise a comma-separated
+           LIST of product ids, which review showed was the bypass itself (an integer column plus a
+           non-strict connection turns a rejected element into another tenant's id), so the rule is
+           now one canonical id and the set question and the row question are the same question. */
+        $this->assertCount(45, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry

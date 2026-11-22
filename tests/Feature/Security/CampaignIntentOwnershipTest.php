@@ -174,6 +174,36 @@ final class CampaignIntentOwnershipTest extends SecurityTestCase
     }
 
     /** THE PRODUCT COLUMN IS A LIST — `viewCampaigns` explodes it — so every id in it must be checked. */
+    /**
+     * THE PRODUCT MUST BE IN THE STORE THE CAMPAIGN NAMES, even when both are the caller's.
+     *
+     * WRITTEN BECAUSE A MUTATION SURVIVED: dropping `->where('store_id', $storeId)` from the
+     * ownership query passed every other case, because in all of them the foreign product also had
+     * a foreign `created_by`, which the surviving limb caught. A merchant with TWO stores is the
+     * only shape that separates the two limbs -- and the campaign would otherwise advertise, on
+     * store A's placement, a product that only exists in store B.
+     */
+    public function test_a_merchant_cannot_advertise_a_product_from_their_other_store(): void
+    {
+        $this->enable();
+
+        [$merchant, $storeA] = $this->makeTenant();
+        $storeB = $this->makeStore($merchant);
+
+        $inB = $this->productFor($merchant, $storeB, 'PRODUCT OF MY OTHER STORE');
+
+        $this->grantPermission($merchant, 'Manage Campaigns');
+        $this->entitle($merchant);
+
+        $this->actingAs($merchant->fresh())->call('POST', self::URI, [
+            'request_data' => $this->intent((int) $storeA->id, (string) $inB, 'WRONG STORE PLACEMENT'),
+        ]);
+
+        $this->assertNull(DB::table('campaigns')->where('name', 'WRONG STORE PLACEMENT')->first(),
+            'A campaign for store A was created naming a product that lives in store B. Both are '
+            . 'the caller\'s, so the tenant limb cannot see it; the store limb is what refuses it.');
+    }
+
     public function test_a_merchant_cannot_smuggle_a_foreign_product_into_a_list_of_their_own(): void
     {
         $this->enable();
@@ -195,6 +225,135 @@ final class CampaignIntentOwnershipTest extends SecurityTestCase
             'A campaign was created whose product list carries another tenant\'s product id '
             . 'alongside the caller\'s own. `campaigns.product` is a comma-separated list, so a '
             . 'check on the first id only would pass this.');
+    }
+
+    /**
+     * THE FORM `filter_var` REJECTS AND A NON-STRICT MySQL COLUMN STORES — the bypass independent
+     * review found in the first version of the guard, and the one that mattered most.
+     *
+     * The guard split `product` on commas, ran each element through `usableId()` and silently
+     * DROPPED what it could not parse, checking only the remainder. `campaigns.product` is an
+     * `integer` column and `config/database.php` sets `strict => false`, so MySQL stores `'06,5'`
+     * as **6** — the rival's product — while the guard had authorised the caller's own 5.
+     *
+     * THE SINGLE-VALUE HALF IS VISIBLE HERE, the list half is not, and the difference is recorded
+     * rather than papered over. Measured in this container: SQLite's INTEGER affinity converts
+     * `'06'` to 6, so the first case below is a real end-to-end measurement; it keeps `'06,5'` as
+     * TEXT, so the second case can only assert that the write is REFUSED. That refusal is
+     * engine-independent, which is why the fix is "one canonical id" rather than a better parser.
+     *
+     * @dataProvider nonCanonicalProductForms
+     */
+    public function test_a_product_id_the_database_would_read_as_another_tenants_is_refused(string $form): void
+    {
+        $this->enable();
+
+        [$merchant, $store] = $this->makeTenant();
+        [$rival, $rivalStore] = $this->makeTenant();
+
+        $mine = $this->productFor($merchant, $store, 'MY OWN PRODUCT');
+        $rivalProduct = $this->productFor($rival, $rivalStore, 'RIVAL SECRET PRODUCT');
+
+        $this->grantPermission($merchant, 'Manage Campaigns');
+        $this->entitle($merchant);
+
+        $product = str_replace(['{rival}', '{mine}'], [(string) $rivalProduct, (string) $mine], $form);
+
+        $this->actingAs($merchant->fresh())->call('POST', self::URI, [
+            'request_data' => $this->intent((int) $store->id, $product, 'COERCED PLACEMENT'),
+        ]);
+
+        $row = DB::table('campaigns')->where('name', 'COERCED PLACEMENT')->first();
+
+        $this->assertNull($row,
+            "A campaign was created from `product = {$product}`. The guard parsed one id and the "
+            . 'database stores another: the column is an integer and the mysql connection is not '
+            . 'strict, so a value the parser rejects is TRUNCATED rather than refused.'
+            . ($row === null ? '' : ' Stored: ' . var_export($row->product, true)));
+    }
+
+    /** @return array<string, array{0: string}> */
+    public static function nonCanonicalProductForms(): array
+    {
+        return [
+            // SQLite converts this one, so it is measured end to end here as well as refused.
+            'a leading zero on the rival id' => ['0{rival}'],
+            // MySQL truncates these to the rival id; SQLite keeps them as text. Refused either way.
+            'the rival id hidden in a list behind a leading zero' => ['0{rival},{mine}'],
+            'the rival id with a trailing suffix' => ['{rival}abc'],
+            'the rival id in exponent form' => ['{rival}e0'],
+            'a list whose first element is the rival' => ['{rival},{mine}'],
+        ];
+    }
+
+    /**
+     * THE FILE PART THAT MADE THE GUARD SKIP ITS WHOLE CHECK — the second review finding.
+     *
+     * The guard read `$request->input('return_type')`; the handler reads `$request->return_type`,
+     * which is `Request::__get` -> `all()`, and `all()` is
+     * `array_replace_recursive(input(), allFiles())`, so an uploaded FILE of that name replaces the
+     * input of that name while `input()` never sees files. A multipart request carrying
+     * `return_type=cancel` as a field AND a file part of the same name therefore read as "cancel"
+     * to the guard, which returned early, and as an UploadedFile to the handler, which wrote.
+     */
+    public function test_a_file_part_named_return_type_does_not_skip_the_ownership_check(): void
+    {
+        $this->enable();
+
+        [$merchant, $store] = $this->makeTenant();
+        [$rival, $rivalStore] = $this->makeTenant();
+
+        $rivalProduct = $this->productFor($rival, $rivalStore, 'RIVAL SECRET PRODUCT');
+
+        $this->grantPermission($merchant, 'Manage Campaigns');
+        $this->entitle($merchant);
+
+        $this->actingAs($merchant->fresh())->call(
+            'POST',
+            self::URI,
+            [
+                'return_type' => 'cancel',
+                'request_data' => $this->intent((int) $rivalStore->id, (string) $rivalProduct, 'FILE PART BYPASS'),
+            ],
+            [],
+            ['return_type' => \Illuminate\Http\UploadedFile::fake()->create('x.txt')]
+        );
+
+        $this->assertNull(DB::table('campaigns')->where('name', 'FILE PART BYPASS')->first(),
+            'A file part named `return_type` made the guard take its cancelled-return branch while '
+            . 'the handler took the branch that WRITES, so a campaign naming another tenant\'s '
+            . 'store and product was created with no ownership check at all.');
+    }
+
+    /** And a genuinely cancelled return is still a no-op, which is what the early branch is for. */
+    public function test_a_cancelled_return_still_writes_nothing_and_is_not_refused(): void
+    {
+        $this->enable();
+
+        [$merchant, $store] = $this->makeTenant();
+        $mine = $this->productFor($merchant, $store, 'MY OWN PRODUCT');
+
+        $this->grantPermission($merchant, 'Manage Campaigns');
+        $this->entitle($merchant);
+
+        /*
+         * NO `request_data` AT ALL, which is what a gateway's cancel callback actually carries --
+         * and it is what makes this control observable. The first version sent the caller's own
+         * intent, which passes the ownership check anyway, so removing the cancelled-return branch
+         * entirely left the case GREEN (measured). With no intent the branch is the only thing
+         * standing between a cancel and a fail-closed refusal, and the two land in different
+         * places: the module's own cancel path redirects to the campaigns index, the guard's
+         * refusal to the dashboard.
+         */
+        $response = $this->actingAs($merchant->fresh())->call('POST', self::URI, ['return_type' => 'cancel']);
+
+        $this->assertSame(0, (int) DB::table('campaigns')->count(), 'A cancelled return created a campaign.');
+
+        $this->assertStringContainsString('/campaigns/campaigns', (string) $response->headers->get('Location'),
+            'POSITIVE CONTROL: a cancelled gateway return no longer reaches the module -- the guard '
+            . 'refused it and sent the caller to the dashboard instead of the campaigns index. The '
+            . 'cancel branch writes nothing, so refusing it only loses the module\'s own message. '
+            . 'Landed on: ' . (string) $response->headers->get('Location'));
     }
 
     public function test_a_principal_rooted_at_the_operator_cannot_create_a_campaign_at_all(): void
@@ -268,7 +427,7 @@ final class CampaignIntentOwnershipTest extends SecurityTestCase
         $this->enable();
 
         [$merchant, $store] = $this->makeTenant();
-        $mine = $this->productFor($merchant, $store, 'MY OWN PRODUCT');
+        $this->productFor($merchant, $store, 'MY OWN PRODUCT');
 
         $this->grantPermission($merchant, 'Manage Campaigns');
         $this->entitle($merchant);
@@ -278,8 +437,13 @@ final class CampaignIntentOwnershipTest extends SecurityTestCase
         $this->assertNull(DB::table('products')->where('id', $absent)->first(),
             'PREMISE: the id this case calls absent exists, so it measures nothing.');
 
+        /*
+         * SENT ALONE, AND IT USED TO BE SENT IN A LIST -- which is why a mutation inverting the
+         * ownership query survived: with a list the strict parse refuses first, so this case never
+         * reached the predicate it was written for. Corrected after measuring it.
+         */
         $this->actingAs($merchant->fresh())->call('POST', self::URI, [
-            'request_data' => $this->intent((int) $store->id, $mine . ',' . $absent, 'PHANTOM PLACEMENT'),
+            'request_data' => $this->intent((int) $store->id, (string) $absent, 'PHANTOM PLACEMENT'),
         ]);
 
         $this->assertNull(DB::table('campaigns')->where('name', 'PHANTOM PLACEMENT')->first(),
@@ -290,19 +454,28 @@ final class CampaignIntentOwnershipTest extends SecurityTestCase
     //  THE POSITIVE CONTROL: the legitimate flow still writes
     // ---------------------------------------------------------------------------------------
 
+    /**
+     * ONE PRODUCT, WHICH IS THE ONLY SHAPE THE PRODUCT EXISTS IN -- and the first version of this
+     * control sent two of the caller's own ids separated by a comma, which the strict rule now
+     * refuses. That is a correction to the TEST, not a narrowing of the product, and it is measured
+     * rather than argued: `campaigns.product` is an `integer` column, so on MySQL a list has never
+     * been storable (it truncates to the first element), and the module's own create form renders a
+     * single `required` select with no `multiple` attribute
+     * (`...Campaigns/src/resources/views/create.blade.php:24-28`). A two-product campaign was
+     * behaviour that existed only under SQLite's text affinity, i.e. only in this suite.
+     */
     public function test_a_merchant_can_still_create_a_campaign_for_their_own_store_and_product(): void
     {
         $this->enable();
 
         [$merchant, $store] = $this->makeTenant();
         $mine = $this->productFor($merchant, $store, 'MY OWN PRODUCT');
-        $second = $this->productFor($merchant, $store, 'MY SECOND PRODUCT');
 
         $this->grantPermission($merchant, 'Manage Campaigns');
         $this->entitle($merchant);
 
         $this->actingAs($merchant->fresh())->call('POST', self::URI, [
-            'request_data' => $this->intent((int) $store->id, $mine . ',' . $second, 'MY OWN PLACEMENT'),
+            'request_data' => $this->intent((int) $store->id, (string) $mine, 'MY OWN PLACEMENT'),
         ]);
 
         $row = DB::table('campaigns')->where('name', 'MY OWN PLACEMENT')->first();
@@ -314,6 +487,36 @@ final class CampaignIntentOwnershipTest extends SecurityTestCase
         $this->assertSame((int) $store->id, (int) $row->store);
         $this->assertSame((int) $merchant->id, (int) $row->created_by,
             'The campaign was filed against a different tenant than the caller\'s.');
+    }
+
+    /**
+     * A LIST OF THE CALLER'S OWN PRODUCTS IS REFUSED TOO, and that is deliberate.
+     *
+     * The guard authorises the value the DATABASE will store, and for an `integer` column a list is
+     * not that value: non-strict MySQL keeps the first element and discards the rest, so a campaign
+     * submitted for products 3 and 4 would be stored, silently, as a campaign for 3. Authorising a
+     * shape the database will not keep is precisely the bypass this guard was corrected for, and
+     * refusing it costs nothing the module offers -- its create form is a single select.
+     */
+    public function test_a_list_of_the_callers_own_products_is_refused_rather_than_truncated(): void
+    {
+        $this->enable();
+
+        [$merchant, $store] = $this->makeTenant();
+        $first = $this->productFor($merchant, $store, 'MY FIRST PRODUCT');
+        $second = $this->productFor($merchant, $store, 'MY SECOND PRODUCT');
+
+        $this->grantPermission($merchant, 'Manage Campaigns');
+        $this->entitle($merchant);
+
+        $this->actingAs($merchant->fresh())->call('POST', self::URI, [
+            'request_data' => $this->intent((int) $store->id, $first . ',' . $second, 'TWO PRODUCT PLACEMENT'),
+        ]);
+
+        $this->assertNull(DB::table('campaigns')->where('name', 'TWO PRODUCT PLACEMENT')->first(),
+            'A campaign was created from a comma-separated product list. The column is an integer, '
+            . 'so what would be stored is the first id alone -- a different campaign from the one '
+            . 'that was authorised.');
     }
 
     /** And the operator, whose own campaigns are the platform's: unchanged. */
