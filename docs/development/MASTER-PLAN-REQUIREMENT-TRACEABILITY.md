@@ -55,8 +55,8 @@ against a pre-reorganization original.
 | status | count |
 |---|---|
 | VERIFIED COMPLETE | **172** |
-| PARTIALLY IMPLEMENTED | **77** |
-| NOT IMPLEMENTED | **43** |
+| PARTIALLY IMPLEMENTED | **79** |
+| NOT IMPLEMENTED | **41** |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | **19** |
 | OWNER-APPROVED DEFERRED | **17** |
 | OWNER DECISION REQUIRED | **11** |
@@ -4593,16 +4593,16 @@ carries a caveat today", and as of P5-10 two do.)*
 
 ### `P05-07` — P5-4 Conversion
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED** *(re-measured 2026-11-22)*
 
 - **Requirement (original wording / faithful reference):** "conversion" is named as part of the merchant analytics dashboard (P5-4) and in the owner scope statement: "merchant analytics, platform reporting, sales and order metrics, conversion and customer insight..."
 - **Source:** `docs/development/phase-5/PHASE-05-EXECUTION-PLAN.md §2 (P5-4) and §5`
 - **Owner decisions:** None. The §3 exclusion is an engineering plan statement, NOT a cited owner decision, so it cannot retire this requirement.
 - **Expected behaviour:** A merchant sees a conversion figure — visitors or sessions against orders — they can act on.
-- **Actual behaviour:** No conversion metric exists. `grep -rln 'conversion_rate\|conversionRate' app/` returns nothing. `shetabit/visitor ^4.3` is installed (composer.json:59) and wrapped by app/Services/SanitisedVisitor.php, and HomeController imports the facade, so visit data may be recorded — but nothing computes a conversion rate from it. PHASE-05-METRIC-DEFINITIONS.md defines ten metrics and conversion is not among them.
-- **Gap:** Conversion has no definition in the metric document and no slice of its own, while the plan's §3 says 'Invent metrics, customer events or campaign outcomes' is out of scope and 'There is no event stream in this repository and none is being created'. Whether visitor-log-based conversion satisfies the requirement, or whether the requirement is being quietly dropped, is unresolved.
-- **Responsible:** Owner decision on what 'conversion' means here, then Phase 05
-- **Next action:** Ask the owner whether conversion is to be computed from the shetabit/visitor log, or whether it is deferred; either way record the answer rather than letting the metric document's silence settle it.
+- **Actual behaviour:** **A conversion figure ships, and this row said none existed because it searched for the wrong name.** The previous text rested on `grep -rln 'conversion_rate\|conversionRate' app/` returning nothing. The method is `MerchantAnalyticsFigures::conversion()` -- the `GAP-229` pattern, and one of that row's own four listed instances. The `Conversion` tile is on `/analytics` (P5-5): orders in the period divided by storefront page views in the same period, to two decimals; no figure and the reason when there are no page views; a stated explanation when orders exceed page views; the date page views began to be recorded when the period starts before it; and the change against the earlier period in percentage POINTS, withheld when that period has no page views or straddles the coverage date. Defined in `PHASE-05-METRIC-DEFINITIONS.md` §13 on 2026-11-22, which `MetricDefinitionsAreDocumentedTest` ties by reflection to the method and to its verification tests (`MerchantAnalyticsFiguresTest`, `ConversionBaselineTest`, `VisitCoverageStartTest`).
+- **Gap:** **The figure divides by PAGE VIEWS, and the expected behaviour above names VISITORS OR SESSIONS.** It is neither, and says so on the tile every time. So the requirement as worded is not met; an honest approximation of it is delivered. Separately, it is a ratio of two counts and not a funnel: no visit row is linked to an order row, so conversion by stage, device, source or campaign is not derivable from this schema.
+- **Responsible:** Owner, for whether page-view-based conversion satisfies the requirement; then Phase 05 or a later phase for anything further
+- **Next action:** Put ONE question to the owner: accept the page-view basis as shipped, ask for a visitor- or session-based figure instead, or withdraw the tile until one exists. A visitor-based or funnel figure needs an order to carry the identity of the visit that produced it -- a persistent schema change, and so the owner's decision. Do not build either by inference.
 
 ### `P05-08` — P5-4 Customer insight
 
@@ -4672,16 +4672,16 @@ carries a caveat today", and as of P5-10 two do.)*
 
 ### `P05-13` — Marketing performance reporting
 
-**Status: NOT IMPLEMENTED**
+**Status: PARTIALLY IMPLEMENTED** *(re-measured 2026-11-22)*
 
 - **Requirement (original wording / faithful reference):** "marketing performance" is named in the Phase 05 scope statement: "...coupon and promotion analytics, loyalty, retention, marketing performance, bilingual premium dashboards, permissions, tenant isolation and export".
 - **Source:** `docs/development/phase-5/PHASE-05-EXECUTION-PLAN.md §5`
 - **Owner decisions:** None found.
 - **Expected behaviour:** A merchant can see whether their marketing activity produced orders and revenue.
-- **Actual behaviour:** Not built. The nearest slice is P5-5 (campaign & promotion analytics), which **is no longer gated** — F134/F135 were measured, fixed and mutation-proved on 2026-11-20, and coupon redemption is now authoritative per window (`PHASE-05-METRIC-DEFINITIONS.md` §9). No marketing-performance metric is defined and no surface exists. The vendored Campaigns module's campaigns-analytics/{id} route is the only thing by that name and has not been inventoried.
-- **Gap:** The requirement has no slice of its own and no metric definition; it is only partially implied by P5-5.
+- **Actual behaviour:** **Half built.** A campaign ARRIVALS panel is on `/analytics` (P5-5, `MerchantAnalyticsFigures::campaigns()`): for each `utm_source` / `utm_campaign` pair, the number of storefront requests whose landing address carried that tag -- on screen and in the export, bounded and saying when the bound is reached. Defined in `PHASE-05-METRIC-DEFINITIONS.md` §14 on 2026-11-22 and tied by `MetricDefinitionsAreDocumentedTest` to the method and to `CampaignTrafficTest`. Coupon redemption is authoritative per window (§9). **What a merchant still cannot see is the thing the expected behaviour names:** whether that activity produced ORDERS AND REVENUE.
+- **Gap:** **Orders and revenue per campaign are not derivable, and must not be inferred.** Nothing links a visit row to an order row, so "this campaign earned you X" would be an invented attribution. No campaign cost is recorded anywhere either, so cost per arrival and return on ad spend have no inputs. The arrivals panel counts landings -- not people, not sessions, not last-touch -- and says so.
 - **Responsible:** Phase 05
-- **Next action:** State explicitly whether marketing performance is P5-5 under another name or a separate deliverable; do not let it be absorbed silently.
+- **Next action:** Recorded as BLOCKED ON THE SCHEMA rather than unimplemented, so nobody builds it by joining on a guess: campaign revenue becomes buildable only if an order starts carrying the identity of the visit that produced it. That is a persistent schema change and an owner decision. Marketing performance is therefore P5-5's arrivals panel PLUS a blocked attribution half -- not P5-5 under another name.
 
 ### `P05-14` — P5-7 Platform / operator reporting
 

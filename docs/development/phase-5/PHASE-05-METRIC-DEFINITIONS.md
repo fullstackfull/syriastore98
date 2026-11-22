@@ -347,3 +347,124 @@ period yet.
 **Not built, and not inferred:** cohort retention, churn, lifetime value, and
 new-vs-returning *trend*. The first three need either a subscription record or an assumption about
 what counts as churned; the plan invents neither.
+
+## 13. Storefront conversion
+
+> **Written from the shipped code on 2026-11-22, not ahead of it.** The `Conversion` tile reached
+> `/analytics` with P5-5 and had no entry here: the definition lived only in the docblocks and
+> on-screen hints of `MerchantAnalyticsFigures`. `GAP-155` recorded that as "conversion has no
+> definition" with a next action of asking the owner. Engineering had by then already settled the
+> only basis the data supports and disclosed its limits on the tile, so this section specifies what
+> is there. It decides nothing new.
+>
+> **THE OWNER HAS NOT RULED ON THIS BASIS, AND THIS SECTION IS NOT THAT RULING.** The traced
+> requirement (`P05-07`) expects *"visitors or sessions against orders"*. What ships is neither: it
+> divides by **page views**. Whether that satisfies the requirement, or whether a visitor- or
+> session-based figure is wanted, or whether conversion should be withdrawn until one exists, is
+> still the owner's to say and stays open on `GAP-155`. Documenting a shipped figure is `ANA-008`;
+> it does not make the figure approved.
+
+**Definition.** Orders placed in the period divided by storefront page views recorded in the same
+period, as a percentage to two decimals: `orders / page_views × 100`.
+
+**Source.** Two records that nothing joins:
+
+| | what it reads | counted by |
+|---|---|---|
+| numerator | `orders` for the store — **every** order, whatever its payment or fulfilment state | `order_date` |
+| denominator | `shetabit_visits` for the store — one row per themed storefront request | `created_at` |
+
+The numerator is the same count as the `Orders` tile beside it (`countOrders()`), so the two
+cannot disagree. A paid-orders rate would be a different metric; it is not built.
+
+**A page view is not a person and not a session.** The tile says so in words every time: *"the
+same visitor browsing five pages is five, and automated traffic such as search-engine crawlers and
+link previews is included."* Nothing in the log distinguishes a crawler from a shopper.
+
+**It is a ratio of two counts, not a funnel.** No visit row is linked to an order row — there is no
+cart token or session key carried onto an order — so the figure cannot say *which* visits became
+orders. Conversion **by device, by source or by campaign is therefore not derivable** and is not
+shown; that is a schema limit recorded under `ANA-004`, not a gap waiting for a query.
+
+**Null is a real answer.** With no page view in the period the tile shows no figure and says
+there is nothing to divide by. `0%` would read as a failing store; the truth is no data.
+
+**More orders than page views is possible, and is stated.** Some orders arrive by a route that
+logs no page view. The tile then says so rather than printing a rate above 100% unexplained.
+
+**Coverage is disclosed, and the period is not silently narrowed.** Page views are attributed to a
+store only from the first row carrying its `store_id`. A period that starts before that date is
+only partly covered, and the tile names the date. The window stays exactly as the merchant asked
+for it — re-scoping it would answer a question they did not ask and make this tile disagree with
+the `Orders` tile.
+
+**The change against the earlier period is in percentage POINTS.** `2.10%` rising to `2.80%` is
+`+0.70` points; calling it `+33%` is how an analytics screen overstates a small movement. And
+**no change is shown at all** when the earlier period has no page views, or when it reaches back
+across the date page views began to be recorded — its figure would be understated, and the
+comparison would report a trend that did not happen.
+
+**Verification test.** `MerchantAnalyticsFiguresTest` — orders over page views, and no figure with
+the reason when there are no page views. `ConversionBaselineTest` — the change in percentage
+points, rising and falling, and no rate rather than a rise from zero when the earlier period has no
+page views. `VisitCoverageStartTest` — the coverage date is this store's own, the partly-covered
+sentence appears only when the period really starts before it, and no comparison is shown when
+the earlier period straddles that date.
+
+**Computed by** `MerchantAnalyticsFigures::conversion()` and `::rateComparison()`. It is a screen
+figure and deliberately **not** a class of the `Metric` family: that base reads the three money
+records of §0, and this reads none of them.
+
+**Not built, and not inferred:** a visitor- or session-based rate; conversion by device, source or
+campaign; a paid-orders rate; attribution of any order to any visit.
+
+## 14. Campaign arrivals
+
+> **Written from the shipped code on 2026-11-22.** `GAP-161` recorded marketing performance as
+> having "no slice and no metric definition". Half of that was overtaken — the arrivals panel
+> shipped under P5-5 — and half is a limit of the data. This section specifies the half that
+> exists and names the half that cannot.
+
+**Definition.** For each `utm_source` / `utm_campaign` pair, the number of storefront requests in
+the period whose **landing address carried that tag**.
+
+**Source.** `shetabit_visits.url` for the store, by `created_at`. The tags have been recorded all
+along — the visit logger keeps the query string and redacts only credential-shaped parameter
+names, which `utm_*` do not match — and nothing displayed them before this panel.
+
+**It counts ARRIVALS — not people, not sessions, and not revenue.**
+
+- **Not people or sessions.** A shopper who arrives on a tagged link and then browses five untagged
+  pages is **one** row here and **six** page views on the tile beside it. The two columns are not
+  comparable and the panel says so, because the layout invites exactly that comparison.
+- **Not last-touch.** Only the request that actually carried the tag is counted. No tag is carried
+  forward across a visit.
+- **A campaign with no source is not shown.** `utm_campaign=spring` alone names a campaign and not
+  where it ran; a row labelled only `spring` beside `spring — newsletter` would read as a third
+  channel. This is a judgement, recorded as one. **The converse is kept:** a source with no
+  campaign is a real statement about where traffic came from, so it is shown and labelled as
+  having no campaign name.
+- `utm_term` and `utm_content` are ad-level and are not shown.
+
+**CAMPAIGN REVENUE AND CAMPAIGN CONVERSION ARE NOT BUILT, AND MUST NOT BE BUILT BY INFERENCE.**
+They need the link §13 says does not exist: a visit row tied to an order row. A per-campaign
+revenue figure derived from tags alone would be an invented attribution, which this plan's own
+rules forbid. `GAP-161`'s revenue half is therefore **blocked on the schema**, not unimplemented:
+it becomes buildable only if an order starts carrying the identity of the visit that produced it,
+which is a persistent schema change and so an owner decision.
+
+**The list is bounded, and says when the bound is reached.** Only the most common tagged landing
+addresses are read; when the cap applies the panel states it, because a silently truncated
+breakdown reads as a complete one.
+
+**Verification test.** `CampaignTrafficTest` — tagged landings counted per campaign; untagged
+requests absent; a source without a campaign kept; the letters `utm` elsewhere in an address not
+mistaken for a tag; another tenant's campaigns never shown; and the breakdown present in the
+export as well as on the screen.
+
+**Computed by** `MerchantAnalyticsFigures::campaigns()` and `::campaignTags()`. A screen figure,
+not a class of the `Metric` family, for the reason given in §13.
+
+**Not built, and not inferred:** revenue, orders or conversion per campaign; a people- or
+session-based count; multi-touch or last-touch attribution; spend, cost per arrival or return on
+ad spend — no campaign cost is recorded anywhere in this product.
