@@ -283,6 +283,33 @@ shipping on the financial row.
 3. **Currency is not assumed.** `store_order_financials` carries `currency_code`;
    `order_refunds.refund_amount` carries none and is never converted. A cross-store total without
    conversion is meaningless.
+
+   **Currency IDENTITY is a separate rule from currency conversion, and only the second one is
+   forbidden** (FIN-SYM, 2026-11-22). `MetricResult::make()` keys its money buckets through
+   `App\Support\Money\CurrencySymbol::code()` — three ASCII letters, case folded, or `''` — which
+   settles two questions the earlier wording left open:
+
+   - **Spellings of one currency are one bucket.** `usd`, `USD` and ` USD ` are the same currency
+     and are summed. They were three buckets, each with a partial subtotal, and the figure was
+     reported as mixed-currency. Summing them converts nothing; it recognises them.
+   - **A recorded value that is NOT a currency code is not a currency.** It joins
+     `MetricResult::UNKNOWN_CURRENCY`, the same bucket a `NULL` or empty `currency_code` goes to,
+     because a writer that stored a symbol recorded no currency. P5-R14 measured that
+     `Api\ApiController::place_order()` and `::ordersave()` really did stamp the store's SYMBOL
+     into `orders.currency_code`, and owner decision D-N34 leaves those rows in place, so this is
+     a live state and not a hypothetical. `assumingUnknownCurrencyIs()` then folds that bucket into
+     the store's own currency **only when a caller opts in**, attaching
+     `MetricCaveat::CURRENCY_UNRECORDED` and the exact amount assumed — no rate is applied, and no
+     rate exists to apply (`currency_rates` holds current rates; nothing stamps one onto an order).
+
+   What this cost before it was fixed was NOT an exception. `total()` does throw on more than one
+   bucket, but every caller checks the bucket count first, so the figure was **suppressed or
+   split**: a single-currency store's tile refused to show one number, the wallet surface offered a
+   merchant a symbol as a currency beside its own code, and `MetricThreshold` skipped the
+   comparison entirely, so a real floor breach went unreported.
+
+   The one bucket key that is deliberately not a currency code is printed through
+   `MoneyText::currencyLabel()` ("Currency not recorded"), never as the raw token.
 4. **`FLOAT`, not `DECIMAL`, on `orders`.** ~7 significant digits on a currency that runs to
    millions. Aggregate on `store_order_financials` (`DECIMAL(15,2)`) wherever both are available.
    `MetricCaveat::FLOAT_PRECISION` states this of one figure; `MONEY_FLOAT_PRECISION` states the
