@@ -36,14 +36,17 @@ use Workdo\Campaigns\DataTables\AllCampaignsData;
  *
  * The predicate is applied to EVERY principal except the platform operator, through
  * `UserPolicy::isOperator()` — this project's one definition of that principal, which normalises
- * the way MySQL's PAD SPACE does. The operator's cross-tenant view is the vendored module's own
+ * the way MySQL's PAD SPACE does — and its VALUE comes from `UserPolicy::merchantTenantRoot()`,
+ * which refuses a root that is not a type-`admin` merchant. See the method for why `creatorId()`
+ * alone is wrong here. The operator's cross-tenant view is the vendored module's own
  * design: Campaigns is a PAID PLACEMENT on the platform's landing page, which the operator prices
  * and approves, so a list of every tenant's campaigns is what that role is for. This fix narrows
  * what a MERCHANT sees; it does not decide whether the operator should see it.
  *
- * `creatorId()` is the same value the vendored code uses, so an owner's list is byte-identical to
- * before — which is what the two positive controls in the test assert. What changes is that staff
- * now get the predicate their owner always had.
+ * For an ordinary merchant and their staff the value is the one the vendored code used, so an
+ * owner's list is byte-identical to before — which is what the two positive controls in the test
+ * assert. What changes is that staff now get the predicate their owner always had, and that a
+ * principal with no merchant tenant root gets nothing instead of everything.
  *
  * THE EXPIRY LOOP IS KEPT, SCOPED. Removing it would be the simpler change and the wrong one: a
  * merchant's own expired campaign would stop being marked expired, which is behaviour this fix has
@@ -92,13 +95,30 @@ final class TenantScopedCampaignsData extends AllCampaignsData
         $query->orderBy('id', 'desc');
 
         /*
-         * THE TENANT PREDICATE, FOR EVERY PRINCIPAL BUT THE OPERATOR — and FAIL CLOSED when there
-         * is no principal at all. The vendored line asked `type == 'admin'`, which is a merchant
-         * OWNER; staff fell through it. `creatorId()` resolves an owner to themselves and staff to
-         * the owner who created them, so one tenant is one answer for both.
+         * THE TENANT PREDICATE, FOR EVERY PRINCIPAL BUT THE OPERATOR, AND IT FAILS CLOSED.
+         *
+         * The vendored line asked `type == 'admin'` — a merchant OWNER's type — so staff fell
+         * through it and got no predicate.
+         *
+         * `merchantTenantRoot()` AND NOT `creatorId()`, which is the correction an earlier version
+         * of this guard needed. `creatorId()` returns the OPERATOR's id for a principal whose root
+         * is the operator: staff the operator created, and a merchant who changed their own `type`
+         * to a role name — which the product allows, and which CLAUDE.md records as having been an
+         * account takeover when `created_by = 1` was read as a tenant. Scoping such a principal to
+         * `creatorId()` would show them the OPERATOR's campaigns:
+         *
+         *   the vendored line   ->  no predicate: every tenant's campaigns
+         *   `creatorId()`       ->  the operator's campaigns
+         *   this                ->  nothing, until their own type is a tenant root
+         *
+         * `merchantTenantRoot()` returns `creatorId()` only when it names a type-`admin` merchant
+         * and null otherwise — the helper the P1-SEC-66/67 family built for this — and a null,
+         * like a missing principal, binds a tenant no row can have.
          */
+        $tenant = UserPolicy::merchantTenantRoot($user);
+
         if (! UserPolicy::isOperator($user)) {
-            $query->where('created_by', $user === null ? 0 : $user->creatorId());
+            $query->where('created_by', $tenant ?? 0);
         }
 
         // The vendored expiry, over the SCOPED query: a listing may not write outside its tenant.
