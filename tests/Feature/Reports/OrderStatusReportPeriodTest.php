@@ -65,10 +65,21 @@ class OrderStatusReportPeriodTest extends SecurityTestCase
             ->get('/Status-reports' . ($query === [] ? '' : '?' . http_build_query($query)));
     }
 
+    /**
+     * A principal this screen admits.
+     *
+     * THE GRANT IS NOT WHAT ADMITS THEM, and the helper used to imply it did by naming the wrong
+     * permission entirely ('Manage Reports'; the action is mapped to
+     * `ReportPermission::ORDERS`). It passed regardless, because `makeTenant()` creates a
+     * type-`admin` user, so `ReportAccess::permits()` returns true at the TENANT OWNER limb
+     * before any permission is consulted. The name is corrected here so the helper stops
+     * claiming something it does not prove -- but the authorization question itself belongs to
+     * `ReportAuthorizationTest`, which already owns it, and is deliberately not re-asserted here.
+     */
     private function merchantWhoMayRead(): array
     {
         [$merchant, $store] = $this->makeTenant();
-        $this->grantPermission($merchant, 'Manage Reports');
+        $this->grantPermission($merchant, 'Manage Order Reports');   // ReportPermission::ORDERS, which is private
         \Illuminate\Support\Facades\Cache::forget('admin_details');
 
         return [$merchant, $store];
@@ -191,6 +202,42 @@ class OrderStatusReportPeriodTest extends SecurityTestCase
             'The control does not offer the unfiltered view as an option, so a merchant who picks '
             . 'a period cannot get back to the report they had before.'
         );
+    }
+
+    /**
+     * WHAT THE SHIPPED CONTROL ACTUALLY SUBMITS, which no test was sending.
+     *
+     * The first option is `value=""`, so a merchant who picks `All time` and presses Apply sends
+     * `?ss_period=&ss_from=&ss_to=` -- NOT an empty query string. The opt-in hinges on
+     * `$request->filled()`, which is false for `''`; `has()` or `isset()` would be true, and the
+     * control's own default option would quietly become a thirty-day window. Every other test
+     * here sends either nothing at all or a full custom triple, so that substitution would have
+     * moved every existing reader's figure with the whole file still green.
+     *
+     * Added 2026-11-22 after an independent review traced the form's real payload. The behaviour
+     * is correct today; this is a ratchet, not a repair.
+     */
+    public function test_choosing_all_time_in_the_control_is_not_a_period(): void
+    {
+        [$merchant, $store] = $this->merchantWhoMayRead();
+
+        $cancel = \App\Http\Controllers\HomeController::ORDER_STATUS_CANCEL;
+
+        $this->order($store, '2026-02-10 10:00:00', $cancel);
+        $this->order($store, '2021-01-01 10:00:00', $cancel);
+
+        $response = $this->openReport($merchant, [
+            AnalyticsPeriod::KEY_PERIOD => '',
+            AnalyticsPeriod::KEY_FROM => '',
+            AnalyticsPeriod::KEY_TO => '',
+        ]);
+        $response->assertOk();
+
+        $this->assertSame(2, $response->viewData('orderStatusCounts')[__('Cancel')],
+            'Submitting the control with All time selected narrowed the report, so the default '
+            . 'option does not return the view the merchant had before.');
+
+        $this->assertSame(__('All time'), $response->viewData('periodLabel'));
     }
 
     /**

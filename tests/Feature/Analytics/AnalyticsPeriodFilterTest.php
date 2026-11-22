@@ -238,6 +238,18 @@ final class AnalyticsPeriodFilterTest extends SecurityTestCase
             '2026-11-1',
             '',
             '2026-11-01T00:00:00Z',
+            /*
+             * THE TWO ALL-ZERO / ALL-NINE SHAPES, added 2026-11-22 after an independent review
+             * traced `AnalyticsPeriod::strictDate()`'s `$parsed === false` limb and found it
+             * UNREACHABLE: `Carbon::rawCreateFromFormat` THROWS under strict mode, which is
+             * Carbon's default and which nothing in `app/` turns off, so a format PHP refuses
+             * outright would 500 rather than fall to the guard. These two are the shapes the list
+             * did not already cover. They are here to settle by measurement which side of that
+             * line they fall on -- a 200 proves PHP rolls them over and the round-trip check
+             * catches them, which is the behaviour the guard was written for.
+             */
+            '0000-00-00',
+            '9999-99-99',
         ] as $bad) {
             $response = $this->actingAs($merchant->fresh())->get(
                 self::URI.'?ss_period=custom&ss_from='.urlencode($bad).'&ss_to=2026-11-21'
