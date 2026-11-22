@@ -221,6 +221,53 @@ final class ModuleRouteManifest
         'GET helpdesk-ticket-show/{ticketId}' => 'owner:helpdesk-ticket-link',
         'POST helpdesk-ticket/{ticketId}' => 'owner:helpdesk-ticket',
         'POST hubspot/setting/store' => 'settings:global',
+        /*
+         * P1-SEC-85 -- THE PLATFORM'S OWN HOME PAGE, WHICH ANY MERCHANT COULD REWRITE.
+         *
+         * `LandingPage\...\HomeController` states its own audience in `index()`:
+         * `if (\Auth::user()->type == 'super admin') { ...the screen... } else { 'Permission
+         * Denied.' }`. A grep for EVERY authorization reference in that file -- `isAbleTo`,
+         * `'super admin'`, `authorize`, `Gate::`, `__construct` -- returns exactly ONE line, that
+         * one, inside `index()`. So `store()`, `update()`, `destroy()`, `create()`, `edit()` and
+         * `show()` had none: the READ was gated and the WRITES were not.
+         *
+         * NOT a tenancy defect, and that distinction is why the rule is `operator` and not
+         * `store-row:`: `landing_page_settings` is `id`, `name` (unique), `value`, `timestamps` --
+         * no `store_id`, no `created_by` -- so it is a single GLOBAL key-value table by design and
+         * no tenant predicate is missing. The rows are the content of the platform's PUBLIC home
+         * page, which is the operator's to set.
+         *
+         * `store()` writes a HARD-CODED list of ten key names, so this is not an arbitrary-name
+         * settings writer either and `settings:global` would be the wrong rule as well as the
+         * wrong table.
+         *
+         * All eight verbs of `Route::resource('homesection', ...)` are listed, `GET homesection`
+         * included: the operator passes the guard and then the handler's own check, and a
+         * non-operator is now refused by the guard instead of by the handler -- the same outcome,
+         * earlier, and it stops the read and the write disagreeing again.
+         *
+         * The group is `['auth','web','xss','setlocate','verified']` with NO `PlanModuleCheck`, and
+         * `verified` is a pass-through unless the operator turns e-mail verification on, so `auth`
+         * was the only thing these routes asked for. The guard itself WAS already on the request
+         * (measured in the census middleware stack); it simply had no rule.
+         *
+         * LandingPage loads UNCONDITIONALLY -- `PackageServiceProvider::register()` carries
+         * `$staticAddons = ['LandingPage', 'LynomiaChat']` and the dynamic loader force-appends it
+         * again -- so these routes exist on every install, not only where an add_on_managers row
+         * does.
+         *
+         * STILL OPEN and recorded rather than implied: the same handler's two upload doors
+         * (`LandingPageSetting::upload_file()` / `::keyWiseUpload_file()`), which
+         * `PlatformUploadPolicy` explicitly disclaims, are a separate item.
+         */
+        'GET homesection' => 'operator',
+        'POST homesection' => 'operator',
+        'GET homesection/create' => 'operator',
+        'DELETE homesection/{homesection}' => 'operator',
+        'GET homesection/{homesection}' => 'operator',
+        'PATCH homesection/{homesection}' => 'operator',
+        'PUT homesection/{homesection}' => 'operator',
+        'GET homesection/{homesection}/edit' => 'operator',
         'GET invoices/preview/{template}/{color}' => 'auth',
         'POST linkedin-setting' => 'settings:global',
         'POST lottery-order-return' => 'auth',
