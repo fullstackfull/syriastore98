@@ -265,6 +265,7 @@ class RouteCensusGateTest extends TestCase
             \App\Http\Middleware\OrderDocumentAccessGuard::class => array_key_exists($row['uri'], $const('TARGETS')),
             \App\Http\Middleware\Duo2FALoginGuard::class => str_ends_with((string) $row['action'], $const('ACTION_SUFFIX')),
             \App\Http\Middleware\ModuleStorefrontInputGuard::class => in_array($row['name'], $const('ROUTE_NAMES'), true),
+            \App\Http\Middleware\CampaignIntentOwnershipGuard::class => in_array($row['uri'], $const('TARGETS'), true),
             default => false,
         };
     }

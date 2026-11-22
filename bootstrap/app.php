@@ -288,6 +288,15 @@ return Application::configure(basePath: dirname(__DIR__))
         // an anonymous caller; six had a real anonymous effect, EXECUTED in AnonymousAdministrativeModuleRoutesTest). The classification is
         // App\Support\ModuleRouteManifest; RouteCensusGateTest fails when a module route is in neither of its two tables.
         $middleware->appendToGroup('web', \App\Http\Middleware\ModuleAdministrativeRouteGuard::class);
+
+        /*
+         * P1-SEC-69 (c). The Campaigns gateway-return handler writes a campaign's store and product
+         * from a caller-supplied JSON blob with no ownership test. Those six route keys are
+         * `payment-callback` in ANONYMOUS_BY_DESIGN -- a gateway return must stay reachable in the
+         * shape the gateway sends it -- so the control is a guard of its own rather than a manifest
+         * rule requiring a signed-in user. It short-circuits on any other uri.
+         */
+        $middleware->appendToGroup('web', \App\Http\Middleware\CampaignIntentOwnershipGuard::class);
         // P1-SEC-04 review follow-up: the SpamPrevent and ProductReview storefront handlers wrote customer_id / store_id / status from the body
         // (anonymous comments as any customer with raw HTML, reviews planted into any store). Derived from the session or the slug instead.
         $middleware->appendToGroup('web', \App\Http\Middleware\ModuleStorefrontInputGuard::class);
