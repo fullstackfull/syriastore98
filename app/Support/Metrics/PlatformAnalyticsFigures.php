@@ -191,16 +191,200 @@ final class PlatformAnalyticsFigures
      */
     public static function topStoresByOrderValue(MetricScope $scope): array
     {
-        $buckets = (new GrossMerchandiseValue())->perStore($scope, MetricWindow::allTime());
+        $metric = new GrossMerchandiseValue();
+        $window = MetricWindow::allTime();
 
-        if ($buckets === []) {
+        /*
+         * STEP 1 -- THE DISTINCT RECORDED SPELLINGS. One row per spelling, not per store.
+         *
+         * THIS METHOD USED TO READ EVERY (store, currency) PAIR ON THE PLATFORM INTO PHP and rank
+         * there, because the bucket key is not the column -- see the fallback below. Its caller's
+         * scope is every store there is, so that read, the `Store` name read and the `Setting`
+         * read each grew with the number of tenants, on the operator's landing page. The panel
+         * this replaced ranked and limited in SQL and returned five rows; the bound was lost when
+         * the ranking moved into PHP, and this is it restored. The answer is unchanged: every one
+         * of `OperatorDashboardTopStoresTest`'s cases, the fallback and duplicate-setting ones
+         * included, passes against both shapes.
+         */
+        $recorded = $metric->distinctCurrencies($scope, $window);
+
+        if ($recorded === []) {
             return [];
         }
 
-        $storeIds = array_values(array_unique(array_column($buckets, 'store_id')));
+        /*
+         * STEP 2 -- WHICH SPELLINGS SHARE A CURRENCY, AND WHICH NAME NO CURRENCY AT ALL.
+         *
+         * THROUGH `CurrencySymbol::code()`, exactly as before and for the same reasons. A currency
+         * code is merchant-written -- a store setting, snapshotted onto each order -- so it is
+         * neither trusted to be safe to print nor trusted to be a currency. `code()` answers both:
+         * three ASCII letters, case folded, or ''.
+         *
+         * `clean()` ALONE WAS NOT ENOUGH, and that was the correction. It removes markup and
+         * control characters, which a SYMBOL passes intact, so `$` and `ل.س` were taken for
+         * currencies -- and P5-R14 measured that the two storefront-API order writers really did
+         * stamp the symbol into `orders.currency_code`, with owner decision D-N34 leaving those
+         * rows in place. A store whose orders came through both writers was therefore listed once
+         * per spelling, each with a partial subtotal, under a heading reading `$`.
+         *
+         * NORMALISATION STAYS IN PHP. Pushing it into SQL -- so one grouped query could do the
+         * whole job -- would put this rule in a second language, in two dialects, with SQLite's
+         * string functions standing in for MySQL's in every test. That is the defect class this
+         * codebase keeps paying for, so the SQL groups by the raw column and PHP decides what the
+         * raw values mean.
+         */
+        /** @var array<string, list<?string>> $spellingsByCurrency */
+        $spellingsByCurrency = [];
+        /** @var list<?string> $uncodedSpellings */
+        $uncodedSpellings = [];
 
-        // One query each, rather than the `Store::find()` per row the view used to run.
-        $names = Store::query()->whereIn('id', $storeIds)->pluck('name', 'id');
+        foreach ($recorded as $spelling) {
+            $code = \App\Support\Money\CurrencySymbol::code($spelling ?? '');
+
+            if ($code === '') {
+                $uncodedSpellings[] = $spelling;
+
+                continue;
+            }
+
+            $spellingsByCurrency[$code][] = $spelling;
+        }
+
+        /*
+         * STEP 3 -- THE STORES WHOSE BUCKET THE DATABASE CANNOT KNOW, computed exactly.
+         *
+         * An order with no recorded currency, or one carrying a symbol, takes its STORE's own
+         * currency setting, and only then the product-wide default. That is the same assumption
+         * `MetricResult::assumingUnknownCurrencyIs()` makes for a merchant's tiles, applied per
+         * store because here every row is a different store -- and it is why a ranked SQL query
+         * per currency cannot do the whole job: the bucket for these rows is in another table.
+         *
+         * So they are read separately and in full, and they are the only rows that still cost one
+         * read per store. That set is the legacy one D-N34 left in place: it does not grow with
+         * the platform, and on a platform without it steps 3 and 6 do not run at all.
+         */
+        $exact = $uncodedSpellings === []
+            ? []
+            : self::figuresForStoresNeedingTheirOwnSetting($metric, $scope, $window, $uncodedSpellings);
+
+        /*
+         * STEP 4 -- ONE RANKED, LIMITED QUERY PER CURRENCY.
+         *
+         * Each returns at most `TOP_STORES` rows, summed over every spelling of that currency, so
+         * a store appears once and the engine does the ranking it has the index for.
+         *
+         * WHY FIVE IS ENOUGH TO BE EXACT: a store with no uncoded rows has its whole total in this
+         * query, so if five stores outrank it here, each of those five has a total at least as
+         * large and it is genuinely not in the top five. A store WITH uncoded rows is in `$exact`
+         * by construction, whether or not this query kept it.
+         */
+        /** @var array<string, array<int, array{amount: float, orders: int}>> $candidates */
+        $candidates = [];
+
+        foreach ($spellingsByCurrency as $code => $spellings) {
+            foreach ($metric->topStoresForCurrencies($scope, $window, $spellings, self::TOP_STORES) as $row) {
+                $candidates[$code][$row['store_id']] = [
+                    'amount' => $row['amount'],
+                    'orders' => $row['orders'],
+                ];
+            }
+        }
+
+        /*
+         * STEP 5 -- the exact figures REPLACE whatever step 4 credited those stores with, because
+         * step 4 counted only their coded rows. A store's figure can only rise this way, so it
+         * cannot promote anyone else into the top five, and a store demoted out of it is still a
+         * candidate and is simply ranked below the five that remain.
+         */
+        foreach ($exact as $code => $stores) {
+            foreach ($stores as $storeId => $figure) {
+                $candidates[$code][$storeId] = $figure;
+            }
+        }
+
+        if ($candidates === []) {
+            return [];
+        }
+
+        /*
+         * STEP 6 -- NAMES, FOR THE CANDIDATES ALONE. This was one query over every store with an
+         * order; it is now one query over at most five stores per currency plus the legacy set.
+         */
+        $wanted = [];
+
+        foreach ($candidates as $stores) {
+            foreach (array_keys($stores) as $storeId) {
+                $wanted[$storeId] = (int) $storeId;
+            }
+        }
+
+        $names = Store::query()->whereIn('id', array_values($wanted))->pluck('name', 'id');
+
+        // Alphabetical, so the panel reads the same whichever order the engine grouped in.
+        ksort($candidates);
+
+        $ranked = [];
+
+        foreach ($candidates as $currency => $stores) {
+            // Highest order value first; the store id breaks a tie so two stores on the same
+            // amount do not swap places between requests. The same rule the SQL ordered by.
+            uksort($stores, static fn (int $a, int $b): int => [$stores[$b]['amount'], $a] <=> [$stores[$a]['amount'], $b]);
+
+            foreach ($stores as $storeId => $figure) {
+                // A store deleted between the ranking and this read has nothing to be listed
+                // under, and loses its place rather than shifting the list -- which is what
+                // `topStoresByPageViews()` has always done with a view logged against a store that
+                // no longer exists.
+                if (! isset($names[$storeId])) {
+                    continue;
+                }
+
+                if (count($ranked[$currency] ?? []) >= self::TOP_STORES) {
+                    break;
+                }
+
+                $ranked[$currency][] = [
+                    'store_id' => (int) $storeId,
+                    'name' => (string) $names[$storeId],
+                    'orders' => (int) $figure['orders'],
+                    'amount' => (float) $figure['amount'],
+                    'value' => MoneyText::amount((float) $figure['amount'], (string) $currency),
+                ];
+            }
+        }
+
+        return $ranked;
+    }
+
+    /**
+     * THE LEGACY ROWS' STORES, AND THEIR WHOLE FIGURE -- the one part of this panel that still
+     * costs a read per store, bounded by a set that does not grow.
+     *
+     * TWO READS OF THE ORDERS, AND THE SECOND IS THE WIDER ONE ON PURPOSE. The first finds WHO has
+     * an uncoded row. The second reads ALL of those stores' rows, coded ones included, because a
+     * store's total in one currency can come from both: its setting may normalise to the same code
+     * its coded rows carry, and adding only half of it would understate the store on the very
+     * screen that ranks it.
+     *
+     * @param  list<?string>  $uncodedSpellings  recorded spellings that are not currency codes
+     * @return array<string, array<int, array{amount: float, orders: int}>> currency => store => figure
+     */
+    private static function figuresForStoresNeedingTheirOwnSetting(
+        GrossMerchandiseValue $metric,
+        MetricScope $scope,
+        MetricWindow $window,
+        array $uncodedSpellings,
+    ): array {
+        $uncoded = $metric->perStore($scope, $window, null, $uncodedSpellings);
+
+        $storeIds = array_values(array_unique(array_map(
+            static fn (array $row): int => (int) $row['store_id'],
+            $uncoded
+        )));
+
+        if ($storeIds === []) {
+            return [];
+        }
 
         /*
          * NEWEST ROW FIRST, so that `pluck()` -- which keeps the LAST value it sees for a key --
@@ -214,67 +398,26 @@ final class PlatformAnalyticsFigures
             ->orderByDesc('id')
             ->pluck('value', 'store_id');
 
-        /** @var array<string, array<int, array{amount: float, orders: int}>> $byCurrency */
-        $byCurrency = [];
+        /** @var array<string, array<int, array{amount: float, orders: int}>> $exact */
+        $exact = [];
 
-        foreach ($buckets as $bucket) {
-            $storeId = $bucket['store_id'];
+        foreach ($metric->perStore($scope, $window, $storeIds) as $row) {
+            $storeId = (int) $row['store_id'];
 
-            // A store deleted between the two queries has nothing to be listed under.
-            if (! isset($names[$storeId])) {
-                continue;
+            $code = \App\Support\Money\CurrencySymbol::code($row['currency'] ?? '');
+
+            if ($code === '') {
+                $own = \App\Support\Money\CurrencySymbol::code($configured[$storeId] ?? '');
+                $code = $own !== '' ? $own : self::FALLBACK_CURRENCY;
             }
-
-            /*
-             * THROUGH `CurrencySymbol::code()`, BOTH SOURCES. A currency code is merchant-written
-             * -- it is a store setting, snapshotted onto each order -- so it is neither trusted to
-             * be safe to print nor trusted to be a currency. `code()` answers both: three ASCII
-             * letters, case folded, or '' .
-             *
-             * `clean()` ALONE WAS NOT ENOUGH, and this is the correction. It removes markup and
-             * control characters, which a SYMBOL passes intact, so `$` and `ل.س` were taken for
-             * currencies -- and P5-R14 measured that the two storefront-API order writers really
-             * did stamp the symbol into `orders.currency_code`, with owner decision D-N34 leaving
-             * those rows in place. A store whose orders came through both writers was therefore
-             * listed once per spelling, each with a partial subtotal, under a heading reading `$`.
-             *
-             * A recorded value that is not a code falls back exactly as a missing one does: the
-             * store's own setting, and only then the product-wide default. Two values that ARE
-             * codes and normalise alike are summed below, so a store appears once per currency.
-             */
-            $recorded = \App\Support\Money\CurrencySymbol::code($bucket['currency'] ?? '');
-            $ownSetting = \App\Support\Money\CurrencySymbol::code($configured[$storeId] ?? '');
-
-            $currency = $recorded !== '' ? $recorded : ($ownSetting !== '' ? $ownSetting : self::FALLBACK_CURRENCY);
 
             // Summed, because 'usd' and 'USD' -- or a recorded code and the store's own -- are one
             // currency once normalised, and a store must appear once in its currency's list.
-            $byCurrency[$currency][$storeId]['amount'] = round(($byCurrency[$currency][$storeId]['amount'] ?? 0.0) + $bucket['amount'], 2);
-            $byCurrency[$currency][$storeId]['orders'] = ($byCurrency[$currency][$storeId]['orders'] ?? 0) + $bucket['orders'];
+            $exact[$code][$storeId]['amount'] = round(($exact[$code][$storeId]['amount'] ?? 0.0) + $row['amount'], 2);
+            $exact[$code][$storeId]['orders'] = ($exact[$code][$storeId]['orders'] ?? 0) + $row['orders'];
         }
 
-        // Alphabetical, so the panel reads the same whichever order the engine grouped in.
-        ksort($byCurrency);
-
-        $ranked = [];
-
-        foreach ($byCurrency as $currency => $stores) {
-            // Highest order value first; the store id breaks a tie so two stores on the same
-            // amount do not swap places between requests.
-            uksort($stores, static fn (int $a, int $b): int => [$stores[$b]['amount'], $a] <=> [$stores[$a]['amount'], $b]);
-
-            foreach (array_slice($stores, 0, self::TOP_STORES, true) as $storeId => $figure) {
-                $ranked[$currency][] = [
-                    'store_id' => (int) $storeId,
-                    'name' => (string) $names[$storeId],
-                    'orders' => (int) $figure['orders'],
-                    'amount' => (float) $figure['amount'],
-                    'value' => MoneyText::amount((float) $figure['amount'], (string) $currency),
-                ];
-            }
-        }
-
-        return $ranked;
+        return $exact;
     }
 
     /**
