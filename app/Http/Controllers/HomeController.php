@@ -250,11 +250,6 @@ class HomeController extends Controller
             ->limit(5)
             ->get();
 
-        $visitors = DB::table('shetabit_visits')->whereNotNull('store_id')->pluck('store_id')->toArray();
-        $visitors = array_count_values($visitors);
-        arsort($visitors);
-        $visitors = array_slice($visitors, 0, 5, true);
-
         $plan_order = Plan::most_purchese_plan();
         $coupons = PlanCoupon::get();
         $maxValue = 0;
@@ -292,9 +287,21 @@ class HomeController extends Controller
             : \App\Support\Metrics\PlatformAnalyticsFigures::topStoresByOrderValue(
                 \App\Support\Metrics\MetricScope::stores($everyStoreId)
             );
+
+        /*
+         * P05-19 (GAP-167). THE OTHER CROSS-TENANT RANKING ON THIS SCREEN, declared the same way.
+         * This was three lines that pulled the store id of EVERY row in the visit log into PHP and
+         * counted it there -- no predicate, no bound, on every load of this page. What it got
+         * wrong is recorded on `PlatformAnalyticsFigures::topStoresByPageViews()`.
+         */
+        $popularStores = $everyStoreId === []
+            ? []
+            : \App\Support\Metrics\PlatformAnalyticsFigures::topStoresByPageViews(
+                \App\Support\Metrics\MetricScope::stores($everyStoreId)
+            );
         $plan_requests = PlanRequest::count();
 
-        $data = compact('user', 'platformTotals', 'chartData', 'couponName', 'plan_order', 'plan_requests', 'topStoresByCurrency', 'topAdmins', 'visitors');
+        $data = compact('user', 'platformTotals', 'chartData', 'couponName', 'plan_order', 'plan_requests', 'topStoresByCurrency', 'popularStores', 'topAdmins');
         return $data;
     }
 

@@ -59,20 +59,25 @@
                             <h4>{{__('Most Popular Store')}}</h4>
                         <div class="card-body">
                             <div class="">
-                                @if (count($visitors) > 0)
-                                    @foreach ($visitors as $key => $visit)
-                                        @php
-                                            $stores = \App\Models\Store::find($key);
-                                            if (!$stores) {
-                                                continue;
-                                            }
-                                        @endphp
+                                {{--
+                                    P05-19 (GAP-167). The rows arrive ranked and named: this loop used to
+                                    call `Store::find()` once per row and `continue` past any store it could
+                                    not find -- after the five had already been chosen, so a page view logged
+                                    against a deleted store cost the panel a place.
+
+                                    The number is PAGE VIEWS, and the sentence says so. Beside a heart, under
+                                    "Most Popular Store", it read as people or as likes.
+                                --}}
+                                @if (count($popularStores) > 0)
+                                    <p class="ss-field__hint">
+                                        {{ __('Storefront page views recorded for each store since recording began. A page view is one request, not one person, and automated traffic is included.') }}
+                                    </p>
+                                    @foreach ($popularStores as $row)
                                         <div class="popular-store d-flex align-items-center justify-content-between gap-2">
-                                            <span class="store-name">{{ $stores->name }}</span>
+                                            <span class="store-name">{{ $row['name'] }}</span>
                                             <div class="store-like d-flex align-items-center gap-2">
-                                                <span class="f-w-600 f-14">
-                                                    {{ $visit }}</span>
-                                                <svg width="23" height="19" viewBox="0 0 23 19" fill="none"
+                                                <span class="f-w-600 f-14 ss-num">{{ number_format($row['views']) }}</span>
+                                                <svg aria-hidden="true" focusable="false" width="23" height="19" viewBox="0 0 23 19" fill="none"
                                                     xmlns="http://www.w3.org/2000/svg">
                                                     <path fill-rule="evenodd" clip-rule="evenodd"
                                                         d="M11.5 19C7.62459 16.7896 0.099763 11.4409 0.00129405 6.10398C-0.106294 0.277333 6.51722 -2.36518 11.5 2.64458C16.4821 -2.36447 23.1053 0.276311 22.9987 6.10296C22.9012 11.4402 15.3756 16.7895 11.5 19Z"

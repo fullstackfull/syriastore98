@@ -5,6 +5,7 @@ namespace App\Support\Metrics;
 use App\Models\Store;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Shetabit\Visitor\Models\Visit;
 
 /**
  * P5-7 — THE PLATFORM OPERATOR'S CROSS-TENANT FIGURES.
@@ -26,8 +27,8 @@ use Carbon\CarbonInterface;
  *
  *   - `forPlatform()` -- `PlatformAnalyticsController`, behind `PlatformOperatorOnly` ON THE ROUTE,
  *     which answers 403 (never 401 — the shipped Flutter app forces a logout on any 401).
- *   - `topStoresByOrderValue()` -- `HomeController::handleSuperAdmin()`, which carries NO route
- *     middleware of its own. Its gate is the dispatch in `HomeController::index()`: an exact,
+ *   - `topStoresByOrderValue()` and `topStoresByPageViews()` -- `HomeController::
+ *     handleSuperAdmin()`, which carries NO route middleware of its own. Its gate is the dispatch in `HomeController::index()`: an exact,
  *     case-sensitive `$user->type == 'super admin'`, stricter than `UserPolicy::isOperator()`.
  *     `OperatorDashboardTopStoresTest` holds a merchant out of it, and a mutation that dispatches
  *     every signed-in user there is caught.
@@ -264,6 +265,73 @@ final class PlatformAnalyticsFigures
                     'value' => MoneyText::amount((float) $figure['amount'], (string) $currency),
                 ];
             }
+        }
+
+        return $ranked;
+    }
+
+    /**
+     * P05-19 (GAP-167) -- THE OPERATOR DASHBOARD'S MOST-VIEWED STORES.
+     *
+     * COUNTED BY THE DATABASE, FIVE ROWS BACK. What this replaces pulled the `store_id` of EVERY
+     * row in the visit log into a PHP array and counted it there, on every load of the operator's
+     * landing page. That table gains a row for every themed storefront request of every tenant,
+     * crawlers included, and nothing prunes it -- so the page's memory use grew with the whole
+     * platform's traffic. `store_id` is indexed (`AnalyticsPeriod` records that as verified
+     * against the schema), and a grouped count over it is the read that index serves.
+     *
+     * THE SCOPE IS A REQUIRED ARGUMENT, as it is for the money ranking above. The visit log is
+     * not in `config/tenancy.php`'s `scoped_models`, so no global scope narrows it for anybody;
+     * the old read was cross-tenant by the absence of a predicate. Naming the stores also settles
+     * what the old one got wrong at the edges: a page view logged against a store that no longer
+     * exists is not a store, and took one of the five places before the view skipped it.
+     *
+     * WHAT THE NUMBER IS: page views, every one recorded, with no window. Requests rather than
+     * people -- one visitor on five pages is five -- and automated traffic is in it. That is the
+     * merchant screen's own definition of a visit (`MerchantAnalyticsFigures::visitsMeaning()`),
+     * and the panel now says so. No window is introduced here: choosing one would change what the
+     * operator is shown, not how it is computed.
+     *
+     * Like every method of this class it is NOT an authorization boundary. Its one caller is
+     * `HomeController::handleSuperAdmin()`, gated as described on `topStoresByOrderValue()`.
+     *
+     * @return list<array{store_id: int, name: string, views: int}> most page views first
+     */
+    public static function topStoresByPageViews(MetricScope $scope): array
+    {
+        $counts = Visit::query()
+            ->whereIn('store_id', $scope->storeIds())
+            ->selectRaw('store_id, COUNT(*) as page_views')
+            ->groupBy('store_id')
+            ->orderByDesc('page_views')
+            // The store id breaks a tie, so two stores level on views do not swap between requests.
+            ->orderBy('store_id')
+            ->limit(self::TOP_STORES)
+            ->toBase()
+            ->get();
+
+        if ($counts->isEmpty()) {
+            return [];
+        }
+
+        // One query, rather than the `Store::find()` per row the view used to run.
+        $names = Store::query()->whereIn('id', $counts->pluck('store_id')->all())->pluck('name', 'id');
+
+        $ranked = [];
+
+        foreach ($counts as $row) {
+            $storeId = (int) $row->store_id;
+
+            // A store deleted between the two queries has nothing to be listed under.
+            if (! isset($names[$storeId])) {
+                continue;
+            }
+
+            $ranked[] = [
+                'store_id' => $storeId,
+                'name' => (string) $names[$storeId],
+                'views' => (int) $row->page_views,
+            ];
         }
 
         return $ranked;

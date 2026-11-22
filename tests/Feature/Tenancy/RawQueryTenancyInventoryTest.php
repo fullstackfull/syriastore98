@@ -530,7 +530,22 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            answer was the model, not an exemption, and it now reads
            `Cart::withoutGlobalScopes()->disableCache()`. The census caught it on the Feature gate, which is
            what it is for. `packages` does not move -- MKT-007 touches no vendored file. */
-        $this->assertSame(['app' => 195, 'packages' => 45], $perDir,
+        /* 195 -> 194 [P05-19, GAP-167]: ONE site REMOVED, and it is the removal this assertion's own
+           message hopes for -- a raw query became a scoped one. `HomeController::handleSuperAdmin()` read
+           `DB::table('shetabit_visits')->whereNotNull('store_id')->pluck('store_id')`: the store id of
+           EVERY row of the visit log, for every tenant, pulled into PHP and counted there to rank five
+           stores on the operator's dashboard. It is now `PlatformAnalyticsFigures::topStoresByPageViews()`
+           -- Eloquent, grouped and limited in the database, with the set of stores passed in as a
+           required `MetricScope`.
+
+           AND THIS CENSUS HAD IT FILED AS SCOPED, which is LIMIT 1 in the class docblock meeting a real
+           case. The statement contained the word `store_id` twice -- in `whereNotNull` and in `pluck` --
+           so it sat in the `shetabit_visits` row's "aware" column while filtering nothing. `store_id` in
+           a statement shows the author knew the discriminator existed; this one read every store's rows
+           ON PURPOSE and said so only by what it left out. The per-table row moves 16 -> 15 and its
+           no-store_id column stays 0, so the number that changed is the honest one. `packages` does not
+           move. */
+        $this->assertSame(['app' => 194, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -638,7 +653,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         /* 237 -> 238 [P5-5]: `CouponRedemptionCoverage::forStore()`, which names `store_id`; the unscoped
            totals do not move. See the note on the per-directory figure above. */
         /* 238 -> 239 [GAP-222]: the one new `store_wallets` SELECT in `WalletEntitlementFigure::siblings()`. */
-        $this->assertSame(240, array_sum($perDir));
+        /* 239 -> 240 [MKT-007]: `RecoveryCandidates::payments()`. This line of the trail was never written
+           when that site landed -- the per-directory note above (194 -> 195) records it, and the figure
+           here had already moved to 240. Added so the trail reaches the number it sits above. */
+        /* 240 -> 239 [P05-19]: the operator dashboard's whole-table read of the visit log, REMOVED. See
+           the per-directory note above (195 -> 194). */
+        $this->assertSame(239, array_sum($perDir));
     }
 
     /**
@@ -821,7 +841,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // mutant B of the removal check. None of the three returns rows -- each is a COUNT read only to refuse.
             'products' => [8, 3],     // 7 -> 8 total [2026-11-11, P1-SEC-61] with AuctionBidIdentityGuard::logSlugCollision()'s twin lookup, WITH a store_id predicate -- it asks whether the ROUTED store holds its own product under the colliding slug, so THE UNSCOPED HALF STAYS AT 3, which is again the assertion that matters. 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own. 5 -> 6 total [2026-10-30, F207 / D-29.2] with ModuleResourceOwnershipGuard:523's existence check; THE UNSCOPED HALF STAYS AT 3, which is the assertion that matters -- the new site names `store_id`. 6 -> 7 [2026-11-01, F242] with TopSellersByRevenue:106's dimension lookup, AGAIN WITH a store_id predicate, so the unscoped half still does not move
             'settings' => [17, 5],   // 16 -> 17 with P1-SEC-11 criterion 4's review follow-up (DocumentDirection::ownRow reads the ORDER store's SITE_RTL and invoice_logo rows, WITH a store_id predicate -- see the entry-point note above for why it cannot go through GetValueByName); 15 -> 16 with P1-SEC-11 (OrderController::shippinglabel reads the order store's five address rows, WITH a store_id predicate); earlier: 15 -> 16 with P1-SEC-27 (StoreSettingsAccess::storedRows, WITH a store_id predicate); 16 -> 15 and 9 -> 5 with P1-SEC-29 (HostClaims)
-            'shetabit_visits' => [16, 0],
+            'shetabit_visits' => [15, 0],   // 16 -> 15 [P05-19]: the operator dashboard's whole-table read is gone (see the entry-point note). It was counted "aware" here while filtering nothing -- LIMIT 1, in the flesh.
             'side_menus_option' => [28, 0],
             'store_devices' => [2, 1],
             // 7 -> 10 AND 3 -> 5 ON 2026-11-02, and NOTHING IN app/ MOVED. This is the scanner's
@@ -1030,7 +1050,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            `store_id` column at all, which is why that side carries no predicate -- see the `orders` row. */
         /* 186 -> 187 [GAP-222]: the same single `store_wallets` SELECT as the per-directory note above --
            attributable to its table, so it lands here, and scoped, so the unscoped total does not move. */
-        $this->assertSame(188, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        /* 187 -> 188 [MKT-007]: `RecoveryCandidates::payments()`, a quoted-literal table, scoped on both
+           sides of its join. The trail line was missing here as it was above; the figure had moved. */
+        /* 188 -> 187 [P05-19]: the operator dashboard's whole-table read of `shetabit_visits`, REMOVED
+           (that table's row above, 16 -> 15). It was counted as scoped, so the unscoped total below does
+           not move -- and that is the point recorded on the per-directory note: it filtered nothing. */
+        $this->assertSame(187, array_sum(array_map(fn ($r) => $r[0], $actual)),
             'THE FIGURES INSIDE THIS MESSAGE ARE THE 2026-11-02 MEASUREMENT AND ARE NOT RATCHETED; '
             . 'the current totals are the ones ASSERTED above and in the dated notes beside them. '
             . 'That split is itself one of this file\'s findings, recorded rather than tidied away '

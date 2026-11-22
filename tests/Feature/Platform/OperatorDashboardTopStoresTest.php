@@ -340,6 +340,30 @@ class OperatorDashboardTopStoresTest extends SecurityTestCase
     }
 
     /**
+     * AND THE NAME BESIDE THE FIGURE. A store's name is merchant-written and this is the
+     * operator's page; the view escapes it and nothing held it to that. Found by independent
+     * review of the sibling panel: a raw echo survived every test, because no fixture name
+     * carried markup.
+     */
+    public function test_a_store_name_carrying_markup_is_printed_as_text(): void
+    {
+        $operator = $this->makePlatformAdmin();
+        [, $store] = $this->makeTenant();
+        $this->nameStore($store, 'Selling <b>Shop</b> & Sons');
+        $this->order($store, 10.00, 'USD');
+
+        $response = $this->dashboard($operator);
+        $response->assertOk();
+
+        $body = (string) $response->getContent();
+
+        $this->assertStringContainsString('Selling &lt;b&gt;Shop&lt;/b&gt; &amp; Sons', $body,
+            'PREMISE: the store is not listed on the panel at all, so its escaping is not being measured.');
+        $this->assertStringNotContainsString('Selling <b>Shop</b>', $body,
+            'A merchant-written store name reached the operator\'s page as markup.');
+    }
+
+    /**
      * THE PANEL IS THE OPERATOR'S ALONE. A merchant asking for the same URL gets the merchant
      * dashboard, and none of another tenant's names or amounts.
      */
