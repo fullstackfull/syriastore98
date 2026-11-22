@@ -77,13 +77,42 @@ final class MetricResult
         $amounts = [];
 
         foreach ($byCurrency as $currency => $amount) {
-            // A null currency_code is a real state in this schema -- the column is nullable on
-            // store_order_financials, store_wallets and store_wallet_transactions alike. It is
-            // kept as a distinct bucket rather than folded into the store's configured currency,
-            // because guessing here is how a figure acquires a unit it was never measured in.
-            $key = ($currency === '' || $currency === null)
-                ? self::UNKNOWN_CURRENCY
-                : (string) $currency;
+            /*
+             * A null currency_code is a real state in this schema -- the column is nullable on
+             * store_order_financials, store_wallets and store_wallet_transactions alike. It is
+             * kept as a distinct bucket rather than folded into the store's configured currency,
+             * because guessing here is how a figure acquires a unit it was never measured in.
+             *
+             * FIN-SYM: AND SO IS A VALUE THAT IS NOT A CURRENCY CODE. This keyed by the raw column
+             * for anything non-empty, so any string became a currency of its own. P5-R14 MEASURED
+             * that `Api\ApiController::place_order()` and `::ordersave()` stamped
+             * `orders.currency_code` from the store's SYMBOL setting, and owner decision D-N34
+             * leaves the rows already written in place, so a store whose orders came through both
+             * writers really does hold 'SYP' on some rows and 'ل.س' on others. Case alone did it
+             * too: 'usd' and 'USD' are one currency and were two buckets.
+             *
+             * WHAT THAT COST WAS NOT AN EXCEPTION, and saying so would be wrong: `total()` throws
+             * on more than one bucket, but every shipped caller checks the bucket count first
+             * (`MerchantAnalyticsFigures`, `FinanceLedgerFigures`, `WalletEntitlementFigure`,
+             * `MetricThreshold`). So the figure was SUPPRESSED OR SPLIT -- a one-currency store's
+             * tile refusing to show one number, the wallet surface offering the merchant a SYMBOL
+             * as a currency beside its own code, and `MetricThreshold` skipping the comparison so
+             * a real floor breach went unreported.
+             *
+             * NOTHING IS CONVERTED HERE AND NOTHING IS GUESSED. A value that is not a code means
+             * the writer recorded no currency, which is the state this class already names: it
+             * joins `unknown`, and `assumingUnknownCurrencyIs()` folds that into the store's own
+             * currency ONLY when a caller opts in, carrying `CURRENCY_UNRECORDED` and the exact
+             * amount assumed. Two values that ARE codes and normalise alike are summed, because
+             * they are one currency -- which is currency IDENTITY, not currency conversion.
+             *
+             * `CurrencySymbol::code()` is the single definition of "is a currency code" in this
+             * application (three ASCII letters, case folded, or ''), and it is called rather than
+             * re-implemented so this bucket key and the operator panel's cannot drift apart.
+             */
+            $code = \App\Support\Money\CurrencySymbol::code($currency === null ? '' : (string) $currency);
+
+            $key = $code === '' ? self::UNKNOWN_CURRENCY : $code;
 
             $amounts[$key] = round(($amounts[$key] ?? 0.0) + (float) $amount, 2);
         }
@@ -171,9 +200,25 @@ final class MetricResult
         return $amounts === [] ? 0.0 : (float) $amounts[0];
     }
 
+    /**
+     * THE CALLER'S SPELLING IS NORMALISED TOO, because the bucket keys are (FIN-SYM). A caller
+     * asking in lower case was told the store held nothing in that currency, which is the same
+     * defect as the split bucket reaching the reader by a different route.
+     *
+     * `UNKNOWN_CURRENCY` STAYS REACHABLE BY NAME. It is the one key that is deliberately not a
+     * currency code, so it is matched before normalisation -- `code('unknown')` is '' and would
+     * otherwise send every unrecognised request to it, turning "how much is in XYZ" into "how much
+     * is in no currency at all".
+     */
     public function totalIn(string $currency): float
     {
-        return (float) ($this->byCurrency[$currency] ?? 0.0);
+        if ($currency === self::UNKNOWN_CURRENCY) {
+            return (float) ($this->byCurrency[self::UNKNOWN_CURRENCY] ?? 0.0);
+        }
+
+        $code = \App\Support\Money\CurrencySymbol::code($currency);
+
+        return $code === '' ? 0.0 : (float) ($this->byCurrency[$code] ?? 0.0);
     }
 
     /** The bucket `Metric::sumByCurrency()` puts a null or empty `currency_code` in. */
@@ -209,6 +254,28 @@ final class MetricResult
      */
     public function assumingUnknownCurrencyIs(string $currency): self
     {
+        /*
+         * THE TARGET IS MERCHANT-WRITTEN TOO (FIN-SYM). Every caller passes the raw
+         * `defult_currancy` setting -- `MerchantAnalyticsController::storeAndCurrency()` reads it
+         * with `->value('value') ?? 'USD'` -- and FIN-CUR-2 fixed the WRITER while owner decision
+         * D-N34 leaves existing rows alone. So the value handed in can itself be a symbol, and
+         * folding the unrecorded rows into it would name a bucket with a symbol and print it to
+         * the merchant as a currency: the same defect arriving by the other door.
+         *
+         * NOTHING IS ASSUMED when the caller names no currency, and the result says so by NOT
+         * carrying `CURRENCY_UNRECORDED` -- the caller does not know the currency either, and the
+         * caveat would claim an assumption that was never made. It does not THROW, because every
+         * caller of this method is rendering a merchant tile and an exception there is the HTTP 500
+         * this method exists to prevent.
+         */
+        $code = \App\Support\Money\CurrencySymbol::code($currency);
+
+        if ($code === '') {
+            return $this;
+        }
+
+        $currency = $code;
+
         $unknown = $this->byCurrency[self::UNKNOWN_CURRENCY] ?? null;
 
         if ($unknown === null) {

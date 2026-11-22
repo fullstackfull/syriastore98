@@ -33,7 +33,27 @@ final class MoneyText
     /** An amount and the currency it is denominated in, as one isolated left-to-right unit. */
     public static function amount(float $amount, string $currency): string
     {
-        return self::isolate(number_format($amount, 2).' '.$currency);
+        return self::isolate(number_format($amount, 2).' '.self::currencyLabel($currency));
+    }
+
+    /**
+     * WHAT A BUCKET KEY IS CALLED ON SCREEN, which for one key is not a currency code.
+     *
+     * `MetricResult::UNKNOWN_CURRENCY` is the bucket for rows that recorded no currency -- nulls
+     * (the `orders.currency_code` migration deliberately did not backfill) and, since FIN-SYM,
+     * values that are not currency codes at all. Printing the literal `unknown` beside an amount
+     * offers an internal token to a merchant as though it were a currency, which is the same
+     * category of wrong as printing a symbol there.
+     *
+     * `PlatformAnalyticsFigures` ALREADY HAD THIS SENTENCE and nothing else did, so the one
+     * definition lives here and that site calls it. Translated, because every money surface in
+     * this application is bilingual.
+     */
+    public static function currencyLabel(string $currency): string
+    {
+        return $currency === MetricResult::UNKNOWN_CURRENCY
+            ? __('Currency not recorded')
+            : $currency;
     }
 
     /**
@@ -58,7 +78,20 @@ final class MoneyText
         $merged = [];
 
         foreach ($byCurrency as $currency => $amount) {
-            $code = strtoupper(trim((string) $currency));
+            /*
+             * THE ONE KEY THAT IS NOT A CURRENCY CODE KEEPS ITS SPELLING (FIN-SYM).
+             * `strtoupper()` turned `MetricResult::UNKNOWN_CURRENCY` into `UNKNOWN`, after which
+             * the one site that labels that bucket -- PlatformAnalyticsFigures' "Currency not
+             * recorded" -- no longer matched it, and the wallet listing printed the bare token
+             * `UNKNOWN` to the merchant beside a balance. Reachable whenever the fold is declined,
+             * which is exactly when the store's own `defult_currancy` setting is not a code either.
+             */
+            $raw = (string) $currency;
+
+            $code = $raw === MetricResult::UNKNOWN_CURRENCY
+                ? MetricResult::UNKNOWN_CURRENCY
+                : strtoupper(trim($raw));
+
             $merged[$code] = round(($merged[$code] ?? 0.0) + (float) $amount, 2);
         }
 

@@ -578,7 +578,8 @@ final class PlatformAnalyticsFigures
 
         foreach ($result->byCurrency() as $currency => $amount) {
             $rows[] = [
-                'currency' => $currency === MetricResult::UNKNOWN_CURRENCY ? __('Currency not recorded') : $currency,
+                // Through MoneyText, which now holds the one definition of this label (FIN-SYM).
+                'currency' => MoneyText::currencyLabel((string) $currency),
                 'amount' => self::ltr(number_format($amount, 2)),
             ];
         }
