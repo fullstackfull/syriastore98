@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\Role;
+use App\Models\Store;
 use App\Models\User;
 
 /**
@@ -415,6 +416,44 @@ class RolePolicy
         $ownerId = (int) $actor->creatorId();
 
         if ($ownerId === (int) $actor->id) {
+            return $actor;
+        }
+
+        /*
+         * SELF-DEMOTION: A TENANT ROOT IS ITS OWN OWNER, WHATEVER ITS CURRENT `users.type` SAYS.
+         *
+         * MEASURED before this limb existed: a merchant changed their own `type` to a role name
+         * -- which the product supports, and which CLAUDE.md records as the action that made
+         * `created_by = 1` an account takeover until `UserPolicy` fail-closed on it -- and their
+         * grant ceiling ROSE from their own held set to the platform operator's minus
+         * `config('superadminaccess')`. In a fixture where the operator held `Manage Plan` and
+         * `Manage Setting` and the merchant held neither, `grantableNames()` answered
+         * `['Manage Product']` before the edit and `['Manage Product', 'Manage Plan',
+         * 'Manage Setting']` after it. Editing your own row must not increase your authority.
+         *
+         * STORE OWNERSHIP IS THE DISCRIMINATOR, and it is the product's own: `StoreController`
+         * reaches its create branch only when `auth()->user()->type == 'admin'` and then stamps
+         * `created_by` with THAT user's id, so a store's owner was a merchant when it was made;
+         * `StoreController:49` pairs `stores.created_by = users.id` with `users.type = 'admin'`
+         * for exactly this purpose. Genuine staff therefore never own a store, and this limb
+         * cannot fire for them.
+         *
+         * WHY NOT BOUND BY THE ACTOR IN GENERAL, which would close this in one line:
+         * `FinancePermissionGrantTest` pins the opposite as the design -- "staff CAN grant what
+         * their merchant holds -- actor-bounding would fail this" -- so a general actor bound
+         * would lock every delegated staff member out of role composition. And the same file's
+         * owner-bounding case exists because that branch had no regression protection at all.
+         *
+         * WHY NOT ALSO "any user is rooted at this actor": `UserController:159` stamps
+         * `created_by = Auth::user()->id`, so a STAFF member who created a user would satisfy it
+         * and would wrongly lose the delegation the test above pins.
+         *
+         * RESIDUAL, stated rather than papered over: a merchant with NO store who demotes
+         * themselves still resolves to the operator. Registration creates a store with the
+         * account (`RegisteredUserController:138`), so the shape is unusual, but it is not
+         * impossible and this limb does not cover it.
+         */
+        if (Store::where('created_by', $actor->id)->exists()) {
             return $actor;
         }
 
