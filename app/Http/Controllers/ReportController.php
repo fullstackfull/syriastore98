@@ -2744,7 +2744,31 @@ class ReportController extends Controller
 
     public function OrderDownlodableReport(SalesDownloadableProductDataTable $dataTable, Request $request)
     {
-        return $dataTable->render('reports.downloadable_product_report');
+        /*
+         * ANA-002 / GAP-221. THE PERIOD IS OPT-IN, as on the three report screens before this
+         * one: `AnalyticsPeriod::fromRequest([])` falls through to `last_30_days`, so resolving
+         * unconditionally would hide every order older than a month from a report that has always
+         * shown all of them.
+         *
+         * THIS RUNS ON BOTH LEGS. The page render and yajra's AJAX draw are the same route and
+         * the same handler, so the window reaches the query either way and the two cannot
+         * disagree. The control is a plain GET form: yajra sets the table's `ajax.url` to
+         * `url()->full()` AS EVALUATED WHEN THE PAGE RENDERS, so reloading with `?ss_period=...`
+         * makes the draw carry the same query string. A client-side fill would have left the draw
+         * requesting the UNFILTERED url -- the page would look filtered and the rows would not be.
+         */
+        $period = $request->filled(\App\Support\Analytics\AnalyticsPeriod::KEY_PERIOD)
+            ? \App\Support\Analytics\AnalyticsPeriod::fromRequest($request->all())
+            : null;
+
+        return $dataTable->forPeriod($period)->render('reports.downloadable_product_report', [
+            'periodOptions' => \App\Support\Analytics\AnalyticsPeriod::options(),
+            'periodKey' => $period === null ? '' : $period->key(),
+            'periodFrom' => $period === null ? '' : $period->from()->toDateString(),
+            'periodTo' => $period === null ? '' : $period->to()->toDateString(),
+            'periodToday' => \Carbon\CarbonImmutable::now()->toDateString(),
+            'periodClamped' => $period === null ? null : $period->clampNote(),
+        ]);
     }
 
     public function OrderSaleBrandReport(Request $request)
