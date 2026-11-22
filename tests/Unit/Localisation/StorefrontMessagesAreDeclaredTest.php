@@ -49,6 +49,27 @@ class StorefrontMessagesAreDeclaredTest extends TestCase
         'Yookassa', 'myfatoorah.',
     ];
 
+    /**
+     * THE REPOSITORY ROOT, COMPUTED RATHER THAN RESOLVED THROUGH THE CONTAINER.
+     *
+     * This is a plain `PHPUnit\Framework\TestCase`: no application is booted, so `app()` returns
+     * a bare `Container` and `base_path()` fatals with
+     * "Call to undefined method Illuminate\Container\Container::basePath()".
+     *
+     * It nevertheless PASSED for weeks, because running the whole Unit suite leaves an
+     * application bound in the container from an earlier test, and `base_path()` then resolves
+     * off that. Running this file ALONE -- which is what a developer does while editing it --
+     * errored. That is precisely the "passes for the wrong reason" class CLAUDE.md warns about,
+     * found 2026-11-22 by running it under `--filter`.
+     *
+     * Deriving the root from this file's own location removes the dependency entirely: the test
+     * reads files, and reading files needs no framework.
+     */
+    private function repoPath(string $relative = ''): string
+    {
+        return dirname(__DIR__, 3) . ($relative === '' ? '' : '/' . $relative);
+    }
+
     /** @return array<int, string> the controllers `routes/customer.php` imports, as repo-relative paths */
     private function storefrontControllers(): array
     {
@@ -61,7 +82,7 @@ class StorefrontMessagesAreDeclaredTest extends TestCase
         foreach (array_unique($matches[1]) as $class) {
             $relative = 'app/' . str_replace('\\', '/', substr($class, strlen('App\\'))) . '.php';
 
-            if (is_file(base_path($relative))) {
+            if (is_file($this->repoPath($relative))) {
                 $paths[] = $relative;
             }
         }
@@ -85,8 +106,8 @@ class StorefrontMessagesAreDeclaredTest extends TestCase
 
     public function test_every_storefront_message_is_declared_in_both_language_files(): void
     {
-        $ar = json_decode((string) file_get_contents(base_path('resources/lang/ar.json')), true);
-        $en = json_decode((string) file_get_contents(base_path('resources/lang/en.json')), true);
+        $ar = json_decode((string) file_get_contents($this->repoPath('resources/lang/ar.json')), true);
+        $en = json_decode((string) file_get_contents($this->repoPath('resources/lang/en.json')), true);
 
         $this->assertIsArray($ar);
         $this->assertIsArray($en);
@@ -127,7 +148,7 @@ class StorefrontMessagesAreDeclaredTest extends TestCase
     /**
      * THE PREMISE. `assertSame([], ...)` is satisfied by a scan that found nothing to look at --
      * a changed import syntax in `routes/customer.php`, a regex that stopped matching `__(`, or a
-     * `base_path()` that resolves somewhere else would all read as a clean result.
+     * `repoPath()` that resolves somewhere else would all read as a clean result.
      */
     public function test_the_scan_actually_reads_the_storefront_controllers(): void
     {

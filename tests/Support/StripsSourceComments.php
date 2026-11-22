@@ -34,9 +34,26 @@ trait StripsSourceComments
      */
     protected function sourceWithoutComments(string $relativePath): string
     {
+        /*
+         * THE ROOT IS COMPUTED, NOT RESOLVED THROUGH THE CONTAINER.
+         *
+         * This trait is used by plain `PHPUnit\Framework\TestCase` tests as well as by booted
+         * ones. In a plain one no application exists, `app()` returns a bare `Container`, and
+         * `base_path()` fatals with
+         * "Call to undefined method Illuminate\Container\Container::basePath()".
+         *
+         * That fatal stayed hidden for weeks: running the FULL Unit suite leaves an application
+         * bound in the container from an earlier booted test, so `base_path()` resolved off that
+         * and every consumer passed. Running one such file ALONE -- `php artisan test <file>`,
+         * which is what a developer does while editing it -- errored before a single assertion.
+         * Found 2026-11-22 while running StorefrontMessagesAreDeclaredTest under `--filter`.
+         *
+         * `dirname(__DIR__, 2)` is this file's own `tests/Support` -> `tests` -> repository root.
+         * It needs no framework, which is correct for a helper whose whole job is reading files.
+         */
         $path = str_starts_with($relativePath, '/')
             ? $relativePath
-            : base_path($relativePath);
+            : dirname(__DIR__, 2) . '/' . $relativePath;
 
         $this->assertFileExists($path);
 
