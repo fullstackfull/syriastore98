@@ -564,7 +564,17 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            into another tenant's id by the database. The rule is now one canonical id, and with one
            id the two limbs are one question: a single `exists()`. `products` moves 10 -> 9 with its
            unscoped half still at 3. */
-        $this->assertSame(['app' => 197, 'packages' => 45], $perDir,
+        /* 197 -> 198 [2026-11-22, P1-SEC-86]: ONE new site in one new middleware file,
+           `CampaignsCostOwnershipGuard`, the same shape as the guard above and the same oversight:
+           33404a32 added the guard, ran its own nine cases, and did not run the censuses its new
+           raw read moves. It counts the `cost_setting` rows a POST body names that the caller's
+           merchant tenant root owns and refuses unless every named id is accounted for -- the
+           vendored handler deleted and re-saved them by bare id with no ownership test, and its
+           update limb reassigned `created_by` to the caller. The new per-table row `cost_setting`
+           [1, 1] is below: its UNSCOPED half is 1 and that is the honest reading, because the
+           table HAS NO `store_id` to carry a predicate on -- `created_by` is its discriminator.
+           `packages` does not move: no vendored file is edited. */
+        $this->assertSame(['app' => 198, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -679,7 +689,8 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            the per-directory note above (195 -> 194). */
         /* 239 -> 243 [P1-SEC-69 b and c]: the four sites recorded in the per-directory note above. */
         /* 243 -> 242 [P1-SEC-69 c after review]: the one site removed in the note above. */
-        $this->assertSame(242, array_sum($perDir));
+        /* 242 -> 243 [2026-11-22, P1-SEC-86]: CampaignsCostOwnershipGuard, per the note above. */
+        $this->assertSame(243, array_sum($perDir));
     }
 
     /**
@@ -730,6 +741,17 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // unreachable behind CodCollectionService::isAvailable(). They are inventoried anyway:
             // the day the table lands is the day nobody re-reads this file.
             'cod_collection_events' => [2, 0],
+            // NEW WITH P1-SEC-86, and unscoped because THERE IS NOTHING TO SCOPE IT BY.
+            // `CampaignsCostOwnershipGuard` counts the `cost_setting` rows a POST body names
+            // against `created_by`, which is that table's whole discriminator: its migration
+            // declares id, min, max, price, created_by and timestamps and no `store_id`
+            // (packages/workdo/Campaigns/src/database/migrations/..._create_cost_setting_table.php).
+            // So the second number is 1 and must be -- a `store_id` predicate is not available,
+            // let alone omitted. What makes the read safe is the comparison that follows it: the
+            // count must equal the number of ids asked for, or the request is refused, and the
+            // tenant compared against is UserPolicy::merchantTenantRoot() rather than anything in
+            // the request. Classified per-site as 'comparison' in OwnedPathRawQueryInventoryTest.
+            'cost_setting' => [1, 1],
         // P1-SEC-04: ModuleAdministrativeRouteGuard::ownsCampaign (the row named by `id`; compared to the caller's tenant)
             'coupon_requests' => [3, 3],
             'coupons' => [2, 0],
@@ -1080,7 +1102,12 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            per-directory note and on the `products` and `stores` rows above. All four name their
            table as a plain literal, so all four are attributable and land here. */
         /* 191 -> 190 [P1-SEC-69 c after review]: the same one site. */
-        $this->assertSame(190, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        /* 190 -> 191 [2026-11-22, P1-SEC-86]: CampaignsCostOwnershipGuard's `cost_setting` count,
+           a plain literal and so attributable. THE UNSCOPED SUM BELOW MOVES TOO, 85 -> 86, and
+           that is the honest reading rather than an escape: the table has no `store_id` column for
+           a statement to carry. See its row above for why the control is the comparison that
+           follows the count. */
+        $this->assertSame(191, array_sum(array_map(fn ($r) => $r[0], $actual)),
             'THE FIGURES INSIDE THIS MESSAGE ARE THE 2026-11-02 MEASUREMENT AND ARE NOT RATCHETED; '
             . 'the current totals are the ones ASSERTED above and in the dated notes beside them. '
             . 'That split is itself one of this file\'s findings, recorded rather than tidied away '
@@ -1159,7 +1186,13 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            the value compared against is never read from the request. The two `products` reads added
            by the same change are NOT here: both carry an explicit `store_id`, so the unscoped total
            moves by two and not by four. */
-        $this->assertSame(85, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        // 85 -> 86 [2026-11-22, P1-SEC-86]: CampaignsCostOwnershipGuard's one `cost_setting`
+        // statement. It is in the unscoped half because `cost_setting` HAS NO `store_id` -- the
+        // column does not exist, so no predicate was omitted -- and its tenancy control is the
+        // `created_by` comparison the count feeds, against UserPolicy::merchantTenantRoot() and
+        // never against request input. Classified per-site as 'comparison' in
+        // OwnedPathRawQueryInventoryTest, which is where its controls are pinned.
+        $this->assertSame(86, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**
@@ -1670,6 +1703,19 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // `campaigns` and `helpdesk_tickets` (P1-SEC-04's ModuleAdministrativeRouteGuard reads each row's owner) are declared only by their
             // PACKAGE module's migrations, like `coupon_requests`: absent from a fresh database until the module is in `add_on_managers`.
             'campaigns',
+            // NEW WITH P1-SEC-86, and here for the same reason `campaigns` is: `cost_setting` is
+            // declared only by the Campaigns module's own migration, and PackageServiceProvider
+            // runs a module's migrations only when it is listed in `add_on_managers`, which is
+            // empty in a fresh database. So the table does not exist under this suite, and the
+            // one raw statement on it cannot be classified by whether it carries a `store_id`
+            // predicate -- it could not, the table has no such column. Listing it here is the
+            // accurate answer rather than an exemption.
+            //
+            // IT IS NOT A TENANCY FINDING: the statement IS the tenancy control. It counts the
+            // rows a caller named that their merchant tenant root owns, and the request is refused
+            // unless every id is accounted for. See the `cost_setting` row in the per-table
+            // assertion above, and the per-site classification in OwnedPathRawQueryInventoryTest.
+            'cost_setting',
             'coupon_requests',
             'helpdesk_tickets',
             // NEW WITH P1-INV-21, and it belongs HERE rather than in the no-store_id list above --

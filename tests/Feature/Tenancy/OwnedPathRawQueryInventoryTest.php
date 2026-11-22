@@ -251,6 +251,22 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             // from request input. Raw rather than Eloquent because `Product` is Cachable and `Store` is not tenant-scoped, so neither model
             // read would be the engine's own answer.
             'app/Http/Middleware/CampaignIntentOwnershipGuard.php' => 'comparison',
+            // P1-SEC-86's CampaignsCostOwnershipGuard, and the entry 33404a32 FORGOT -- which is why CI went red on this inventory and on
+            // three counts in RawQueryTenancyInventoryTest, exactly as cdc213bd did for the guard above. The same mistake twice, from the
+            // same cause: running the targeted tests for a new guard and not the censuses the new raw read moves.
+            //
+            // 'comparison', and its one read is the shape this bucket is for: `cost_setting` rows whose ids a POST body names are counted
+            // `whereIn($ids)->where('created_by', $tenant)`, and the request is refused unless the count equals the number of ids asked for.
+            // The vendored handler deleted and re-saved those rows by bare id with no ownership test at all, and the update limb also
+            // reassigned `created_by` to the caller -- so a refusal, not a narrowing, is the only remedy: narrowing would silently delete the
+            // caller's own subset and report success.
+            //
+            // IT TAKES NO STORE_LESS_BY_DESIGN EXEMPTION AND NEEDS NONE. `cost_setting` HAS NO `store_id`: its migration
+            // (packages/workdo/Campaigns/src/database/migrations/2024_07_23_065400_create_cost_setting_table.php) declares id, min, max,
+            // price, created_by and timestamps. `created_by` IS the discriminator, and the value compared against is
+            // UserPolicy::merchantTenantRoot(), never request input. Raw rather than Eloquent because `CostSetting` is a vendored model this
+            // first-party guard must not depend on, and because no scope reaches the table either way.
+            'app/Http/Middleware/CampaignsCostOwnershipGuard.php' => 'comparison',
             // P1-SEC-04's SIBLING GUARD, and the entry cdc213bd FORGOT -- which is why CI went red on this inventory and on the two
             // platform-wide counts in RawQueryTenancyInventoryTest. 'comparison', like the administrative guard, and the bucket's promise
             // ("every member refuses cross-tenant access") holds for it only because of P1-SEC-34: before that fix the two storefront
@@ -580,7 +596,14 @@ class OwnedPathRawQueryInventoryTest extends TestCase
            LIST of product ids, which review showed was the bypass itself (an integer column plus a
            non-strict connection turns a rejected element into another tenant's id), so the rule is
            now one canonical id and the set question and the row question are the same question. */
-        $this->assertCount(45, $sites, "The owned-path raw query inventory changed:\n  "
+        /* 45 -> 46 [2026-11-22, P1-SEC-86]: ONE site in one new middleware file, classified
+           'comparison' above. CampaignsCostOwnershipGuard counts the `cost_setting` rows a POST
+           body names that the caller's merchant tenant root owns, and refuses unless every named
+           id is accounted for. No exemption: the table has no `store_id` at all, `created_by` is
+           its discriminator, and the tenant compared against comes from
+           UserPolicy::merchantTenantRoot(). The count is raised because the site is real and
+           accounted for, not to make this pass. */
+        $this->assertCount(46, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry
