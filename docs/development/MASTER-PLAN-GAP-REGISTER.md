@@ -3,6 +3,20 @@
 Every recovered requirement that is **not** VERIFIED COMPLETE. Each gap keeps a stable ID
 and traces back to its requirement row in `MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`.
 
+> **A CLOSED GAP KEEPS ITS ROW.** The document's practice has always been to retain a resolved
+> gap with its closure note rather than delete it, so the history of what was wrong and what fixed
+> it stays attached to the ID. Such a row carries `VERIFIED COMPLETE`. The sentence above
+> describes what gets a row in the first place, not what stays.
+
+> **THE REGISTER HAS TWO TABLE SHAPES AND ONLY ONE OF THEM HAS A STATUS COLUMN.** The original
+> **181** rows are `| gap | requirement | phase | status | what remains | next action |`. The
+> **48** rows added since — the 18 recovered on 2026-11-16 (`GAP-182`…`GAP-199`) and the 30 raised
+> by later work (`GAP-200`…`GAP-229`) — are
+> `| gap | decision id(s) | phase | measured | next action |`: they record what was MEASURED in
+> this container, and carry no status term. **229 rows in total.** The status counts below
+> therefore describe the 181, and say nothing about the other 48. That is a real limitation, not a
+> rounding: progress against the later rows cannot be counted mechanically, only read.
+
 > **A category-A gap must never be silently downgraded to C.** If one moves, the move needs
 > an owner decision recorded against the gap ID.
 
@@ -30,7 +44,8 @@ their own category **R** below precisely so that the two sets stay distinguishab
 | status | count |
 |---|---|
 | PARTIALLY IMPLEMENTED | 76 |
-| NOT IMPLEMENTED | 47 |
+| NOT IMPLEMENTED | 46 |
+| VERIFIED COMPLETE | 1 |
 | IMPLEMENTED - VERIFICATION INCOMPLETE | 19 |
 | OWNER-APPROVED DEFERRED | 17 |
 | OWNER DECISION REQUIRED | 11 |
@@ -100,7 +115,7 @@ their own category **R** below precisely so that the two sets stay distinguishab
 | `GAP-155` | `P05-07` | 05 Marketing & Ana | NOT IMPLEMENTED | Conversion has no definition in the metric document and no slice of its own, while the plan's §3 says 'Invent metrics, customer events or campaign outcomes' is out of scope and 'There is no event stream in this repositor | Ask the owner whether conversion is to be computed from the shetabit/visitor log, or whether it is deferred; either way record the answer rather than letting the metric document's silence settle it. |
 | `GAP-156` | `P05-08` | 05 Marketing & Ana | PARTIALLY IMPLEMENTED | Every money-bearing customer figure counts cancelled, unpaid and refunded orders. No customer metric is defined in PHASE-05-METRIC-DEFINITIONS.md. | Define customer lifetime value against §2 (collected payments) rather than §1 (GMV), then repoint both the web and Flutter surfaces. |
 | `GAP-157` | `P05-09` | 05 Marketing & Ana | PARTIALLY IMPLEMENTED | The plan's own precondition — "campaigns ... inventory before building" (§1) — has not been performed, so it is unknown whether the vendored module is enabled, authorised, tenant-safe or usable. CLAUDE.md warns that no W | Inventory the Campaigns / Marketing / BoostSales modules for tenancy, authorization and plan gating before deciding whether a first-party wrapper is needed. |
-| `GAP-160` | `P05-12` | 05 Marketing & Ana | **CLOSED 2026-11-20** | Was: the entire slice, plus its metric definition. The metric landed 2026-11-17; the **surface** (`Repeat purchase` on `/analytics`) and the **written definition** (`PHASE-05-METRIC-DEFINITIONS.md` §12) landed 2026-11-20, and the remedy this row asked for — define it in the metric document — was done as part of it. | **Done.** The slice was recorded as owner-blocked on the §3 labelling question; that question **is** owner decision **D1** (Option A), already implemented in `LedgerCoverage`, so the tile applies a settled decision and nothing was reopened. Pinned by 3 feature tests + 3 mutations, plus `MetricDefinitionsAreDocumentedTest` (4 mutations) which would have caught the missing definition. |
+| `GAP-160` | `P05-12` | 05 Marketing & Ana | VERIFIED COMPLETE | **CLOSED 2026-11-20.** Was: the entire slice, plus its metric definition. The metric landed 2026-11-17; the **surface** (`Repeat purchase` on `/analytics`) and the **written definition** (`PHASE-05-METRIC-DEFINITIONS.md` §12) landed 2026-11-20, and the remedy this row asked for — define it in the metric document — was done as part of it. | **Done.** The slice was recorded as owner-blocked on the §3 labelling question; that question **is** owner decision **D1** (Option A), already implemented in `LedgerCoverage`, so the tile applies a settled decision and nothing was reopened. Pinned by 3 feature tests + 3 mutations, plus `MetricDefinitionsAreDocumentedTest` (4 mutations) which would have caught the missing definition. |
 | `GAP-161` | `P05-13` | 05 Marketing & Ana | NOT IMPLEMENTED | The requirement has no slice of its own and no metric definition; it is only partially implied by P5-5. | State explicitly whether marketing performance is P5-5 under another name or a separate deliverable; do not let it be absorbed silently. |
 | `GAP-162` | `P05-14` | 05 Marketing & Ana | NOT IMPLEMENTED | The whole operator reporting slice. The one existing cross-tenant figure is an unfiltered GMV sum with no caveat. | Build it on the metric layer with the operator-first ordering CLAUDE.md requires (Laratrust has no super-admin bypass, so isAbleTo alone refuses the operator). |
 | `GAP-167` | `P05-19` | 05 Marketing & Ana | PARTIALLY IMPLEMENTED | Phase 05's own call sites do not exist. The one deliberately cross-tenant surface (operator top-five-stores) has no stated isolation design. | Make the tenant predicate a constructor argument of each metric object so it cannot be omitted, and review every metric with the tenant-authz-reviewer before commit. |
