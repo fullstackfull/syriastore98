@@ -74,7 +74,46 @@ class MerchantAnalyticsController extends Controller
             // the form reads the raw rows rather than the checker's filtered view of them.
             'thresholds' => \App\Support\Analytics\MetricThreshold::rawFor($storeId),
             'thresholdMetrics' => \App\Support\Analytics\MetricThreshold::METRICS,
+            'exportQuery' => $this->periodAsAsked($request),
         ]);
+    }
+
+    /**
+     * P5-8 — WHAT THE DOWNLOAD LINK MUST SEND SO THE FILE IS THE SCREEN.
+     *
+     * `export()` has resolved its period through `chosenPeriod()` since ANA-002, and its comment
+     * calls a file that ignores the filter "the worst available outcome". The handler was right and
+     * the PAGE never asked: the screen's only download control was the bare export address, so a
+     * merchant who filtered to a week and pressed Download got thirty days. Both export tests typed
+     * the query string by hand, which is why they passed. Found 2026-11-22 by following the link.
+     *
+     * THE PERIOD AS IT WAS ASKED FOR, NOT AS IT WAS RESOLVED. Sending the resolved dates would give
+     * the right rows and lose a disclosure: when a request is longer than the cap, the screen says
+     * the period was shortened, and the file only says so if the export shortens it AGAIN. So the
+     * link carries the same inputs `chosenPeriod()` reads -- the three period keys and the saved
+     * view's id -- and the export arrives at the same answer by the same route.
+     *
+     * NOTHING ELSE TRAVELS, and nothing that is not a plain value. This becomes a URL on the page;
+     * every key is named here rather than forwarded, and the export re-validates all four exactly
+     * as it would had they been typed -- a saved view through its own ownership predicate.
+     *
+     * @return array<string, string>
+     */
+    private function periodAsAsked(Request $request): array
+    {
+        $period = \App\Support\Analytics\AnalyticsPeriod::class;
+
+        $asked = [];
+
+        foreach ([$period::KEY_PERIOD, $period::KEY_FROM, $period::KEY_TO, 'ss_view'] as $key) {
+            $value = $request->query($key);
+
+            if (is_scalar($value) && (string) $value !== '') {
+                $asked[$key] = (string) $value;
+            }
+        }
+
+        return $asked;
     }
 
     /**

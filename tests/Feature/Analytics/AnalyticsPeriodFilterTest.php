@@ -526,6 +526,140 @@ final class AnalyticsPeriodFilterTest extends SecurityTestCase
     }
 
     /*
+     * THE TWO TESTS ABOVE TYPE THE QUERY STRING BY HAND, AND THAT IS HOW A REAL GAP SURVIVED THEM.
+     *
+     * They prove the HANDLER honours a period it is sent. Nothing proved the PAGE sends one. The
+     * screen's only download control was `href="{{ route('analytics.export') }}"` -- no query
+     * string -- so a merchant who filtered to a week and pressed Download got a thirty-day file.
+     * Each row of it was labelled with the period it really covered, so nothing in the file was
+     * false; it was simply not the figures on the screen it was downloaded from. The handler's own
+     * comment names this as "the worst available outcome", and the view did it anyway.
+     *
+     * Found on 2026-11-22 by a reviewer instructed to refute the claim that the export row was
+     * complete, who followed the link instead of typing the address. So do these.
+     */
+
+    /** The href of the screen's own download control, as the browser would follow it. */
+    private function downloadLinkOn(string $html): string
+    {
+        $this->assertSame(
+            1,
+            preg_match('/<a\b[^>]*href="([^"]*analytics\/export[^"]*)"[^>]*>\s*' . preg_quote(__('Download as CSV'), '/') . '\s*<\/a>/u', $html, $m),
+            'PREMISE: the screen no longer carries a download link this test can find.'
+        );
+
+        return html_entity_decode($m[1], ENT_QUOTES | ENT_HTML5);
+    }
+
+    public function test_the_screens_own_download_link_carries_the_period_on_screen(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $this->visit($store->id, 2);
+        $this->visit($store->id, 20);
+
+        $screen = $this->actingAs($merchant->fresh())->get(self::URI . '?ss_period=last_7_days')->assertStatus(200);
+
+        $this->assertSame('last 7 days', $screen->viewData('figures')['visits']['period'],
+            'PREMISE: the screen itself is not showing the seven-day window.');
+
+        $csv = $this->actingAs($merchant->fresh())
+            ->get($this->downloadLinkOn((string) $screen->getContent()))
+            ->assertStatus(200)
+            ->getContent();
+
+        $this->assertStringContainsString('last 7 days', $csv,
+            'The file downloaded from the screen does not cover the period the screen was showing.');
+        $this->assertStringNotContainsString('last 30 days', $csv,
+            'The screen showed seven days and its own Download button produced thirty.');
+    }
+
+    /**
+     * AND THE SENTENCE SAYING THE PERIOD WAS SHORTENED. The screen prints it; the file must too,
+     * so the link has to carry what was ASKED FOR and let the export shorten it again -- carrying
+     * the already-shortened dates would produce the right rows and lose the disclosure.
+     */
+    public function test_the_screens_own_download_link_carries_a_shortened_period_with_its_sentence(): void
+    {
+        [$merchant] = $this->makeTenant();
+
+        $screen = $this->actingAs($merchant->fresh())
+            ->get(self::URI . '?ss_period=custom&ss_from=2010-01-01&ss_to=' . CarbonImmutable::now()->toDateString())
+            ->assertStatus(200);
+
+        $this->assertStringContainsString('was shortened', (string) $screen->getContent(),
+            'PREMISE: the screen is not showing the shortening sentence, so there is nothing for the file to carry.');
+
+        $csv = $this->actingAs($merchant->fresh())
+            ->get($this->downloadLinkOn((string) $screen->getContent()))
+            ->assertStatus(200)
+            ->getContent();
+
+        $this->assertStringContainsString('was shortened', $csv,
+            'The screen says the period was shortened and the file downloaded from it does not.');
+    }
+
+    /** A period applied from a SAVED view is on screen too, and the address then holds only its id. */
+    public function test_the_screens_own_download_link_carries_a_saved_period(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+        $this->visit($store->id, 2);
+        $this->visit($store->id, 20);
+
+        $this->actingAs($merchant->fresh())->post('/saved-views', [
+            'screen' => 'analytics', 'name' => 'Last week', 'filters' => ['ss_period' => 'last_7_days'],
+        ])->assertRedirect();
+
+        $saved = SavedView::withoutGlobalScopes()->where('screen', 'analytics')->firstOrFail();
+
+        $screen = $this->actingAs($merchant->fresh())->get(self::URI . '?ss_view=' . $saved->id)->assertStatus(200);
+
+        $this->assertSame('last 7 days', $screen->viewData('figures')['visits']['period'],
+            'PREMISE: applying the saved period did not change the screen.');
+
+        $csv = $this->actingAs($merchant->fresh())
+            ->get($this->downloadLinkOn((string) $screen->getContent()))
+            ->assertStatus(200)
+            ->getContent();
+
+        $this->assertStringContainsString('last 7 days', $csv,
+            'A saved period was on screen and the file downloaded from it covers a different one.');
+    }
+
+    /**
+     * WITH NOTHING CHOSEN THE LINK IS THE BARE ADDRESS, as it always was. The default period is
+     * resolved by the handler; a link that spelled it out would pin today's default into every
+     * bookmark of it.
+     */
+    public function test_with_no_period_chosen_the_download_link_is_unchanged(): void
+    {
+        [$merchant] = $this->makeTenant();
+
+        $screen = $this->actingAs($merchant->fresh())->get(self::URI)->assertStatus(200);
+
+        $this->assertSame(route('analytics.export'), $this->downloadLinkOn((string) $screen->getContent()));
+    }
+
+    /**
+     * ONLY THE PERIOD'S OWN KEYS TRAVEL. The link is built from the request, so anything else in
+     * the address -- and anything that is not a plain value -- stays out of it.
+     */
+    public function test_the_download_link_carries_nothing_but_the_period(): void
+    {
+        [$merchant] = $this->makeTenant();
+
+        $screen = $this->actingAs($merchant->fresh())
+            ->get(self::URI . '?ss_period=last_7_days&store_id=999&next=https%3A%2F%2Fevil.example&ss_from[]=x')
+            ->assertStatus(200);
+
+        $link = $this->downloadLinkOn((string) $screen->getContent());
+
+        parse_str((string) parse_url($link, PHP_URL_QUERY), $query);
+
+        $this->assertSame(['ss_period' => 'last_7_days'], $query,
+            'The download link carried something from the address other than the period.');
+    }
+
+    /*
      * ---------------------------------------------------------------------------------------------
      * 6. Saved periods: ownership, and the gate
      * ---------------------------------------------------------------------------------------------
