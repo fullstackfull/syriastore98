@@ -199,10 +199,10 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:398` | AuthorizeNet capture refused: no server-computed payable in the stored state. |
 | `app/Http/Controllers/CartController.php:262` | product_cart: refused a non-positive or non-integer quantity |
 | `app/Http/Controllers/CartController.php:315` | product_cart: refused a product belonging to another store |
-| `app/Http/Controllers/CartController.php:1432` | abandoned-cart e-mail nudge failed |
-| `app/Http/Controllers/CartController.php:1619` | abandoned-cart WhatsApp nudge failed |
-| `app/Http/Controllers/WishlistController.php:310` | abandoned-wishlist e-mail nudge failed |
-| `app/Http/Controllers/WishlistController.php:728` | abandoned-wishlist WhatsApp nudge failed |
+| `app/Http/Controllers/CartController.php:1438` | abandoned-cart e-mail nudge failed |
+| `app/Http/Controllers/CartController.php:1625` | abandoned-cart WhatsApp nudge failed |
+| `app/Http/Controllers/WishlistController.php:316` | abandoned-wishlist e-mail nudge failed |
+| `app/Http/Controllers/WishlistController.php:734` | abandoned-wishlist WhatsApp nudge failed |
 | `app/Services/Reports/ScheduledReportRunner.php:197` | scheduled analytics report: stored recipient differs from the owner address; using the owner |
 | `app/Services/Reports/ScheduledReportRunner.php:235` | scheduled analytics report failed |
 | `app/Http/Controllers/CinetPayController.php:535` | Pending partial payment refused: the balance named does not belong to this customer. |
