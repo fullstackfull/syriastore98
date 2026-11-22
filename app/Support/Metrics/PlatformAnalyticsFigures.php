@@ -80,6 +80,7 @@ final class PlatformAnalyticsFigures
             'stores' => self::stores($storeIds, $coverage),
             'orders' => self::orders($storeIds, $now),
             'buyers' => self::buyers($storeIds, $now),
+            'retention' => self::retention($coverage),
             'payments' => self::payments($coverage),
             'coverage' => $coverage,
         ];
@@ -558,6 +559,98 @@ final class PlatformAnalyticsFigures
      *
      * @param array{included: list<int>, excluded: list<int>, verifiedFrom: ?CarbonImmutable, allComplete: bool, undatedWithoutRow: int} $coverage
      */
+    /**
+     * P05-14 / P5-R13 -- REPEAT PURCHASE, ACROSS EVERY STORE THE LEDGER CAN VOUCH FOR.
+     *
+     * P05-14 says the operator sees "the same metrics" as a merchant. Counted, the merchant screen
+     * carries THIRTEEN figures and this one carried FOUR, so nine were missing. This is the first
+     * of them, and it is first because it needed no new machinery: the intersection `payments()`
+     * already computes is exactly the window this needs.
+     *
+     * IT IS LEDGER-BOUND, WHICH IS WHY IT TAKES `$coverage` AND NOT A STORE LIST. The merchant's
+     * own version reads `LedgerCoverage::forStore()` because `CustomerRetention`'s default basis is
+     * SETTLED-ONLY -- paid orders -- and its docblock gives the reason: "a repeat rate computed
+     * over orders nobody has confirmed were paid is not a retention figure". So the same three
+     * cross-tenant rules this class states for money apply here too, and are applied the same way:
+     * the window is the INTERSECTION (the latest verified start among the included stores), a store
+     * the ledger cannot vouch for is EXCLUDED and COUNTED rather than silently dropped, and the
+     * sentence about the intersection is printed only when a start date is actually shown.
+     *
+     * ONE EXTRA CAVEAT THAT THE MERCHANT VERSION DOES NOT NEED, and without it the figure would be
+     * read as something it is not: nothing links one person's accounts in two stores, so this is a
+     * rate over store-customer pairs, not over people. `buyers()` already says that of its count;
+     * a RATE invites the misreading more strongly, because "35% of buyers came back" sounds like a
+     * statement about human beings.
+     *
+     * @param  array{included: list<int>, excluded: list<int>, verifiedFrom: ?CarbonImmutable, allComplete: bool, undatedWithoutRow: int}  $coverage
+     */
+    private static function retention(array $coverage): array
+    {
+        if ($coverage['included'] === []) {
+            return [
+                'value' => null,
+                'period' => __('not yet available'),
+                'hint' => __('Repeat purchase is measured over the period the financial record can vouch for, and no store has such a period yet. Nothing is reconstructed.'),
+            ];
+        }
+
+        $window = $coverage['verifiedFrom'] === null
+            ? MetricWindow::allTime()
+            : MetricWindow::since($coverage['verifiedFrom']);
+
+        $figures = (new CustomerRetention())->for(MetricScope::stores($coverage['included']), $window);
+        $rate = $figures->repeatRate();
+
+        $period = $coverage['verifiedFrom'] === null
+            ? __('all time')
+            : __('from :date', ['date' => $coverage['verifiedFrom']->isoFormat('D MMM YYYY')]);
+
+        if ($rate === null) {
+            return [
+                'value' => null,
+                'period' => $period,
+                'hint' => __('No order in this period belongs to a customer who could be recognised again, so there is nothing to divide by. Orders placed without a customer account cannot be attributed to a person.'),
+            ];
+        }
+
+        $notes = [
+            __('Of :identified buyers who can be recognised again, :repeat ordered more than once. Counted over paid orders only: a repeat rate computed over orders nobody has confirmed were paid is not a retention figure.', [
+                'identified' => self::ltr(number_format($figures->identifiedCustomers())),
+                'repeat' => self::ltr(number_format($figures->repeatCustomers())),
+            ]),
+            __('One person with accounts in two stores is counted in each, because nothing links the two accounts: this is a rate over customers of a store, not over people.'),
+        ];
+
+        if ($coverage['excluded'] !== []) {
+            $notes[] = __('Stores left out because their financial record cannot vouch for any period: :count.', [
+                'count' => self::ltr(number_format(count($coverage['excluded']))),
+            ]);
+        }
+
+        // Only when a start date is actually shown -- the same correction review made to payments().
+        if (! $coverage['allComplete'] && $coverage['verifiedFrom'] !== null) {
+            $notes[] = __('The period shown is the latest start among the stores included, because a rate across stores is only as complete as its least complete contributor.');
+        }
+
+        if (($unattributed = (int) ($figures->notes()['orders_without_identifiable_customer'] ?? 0)) > 0) {
+            $notes[] = __('Orders with no customer account, excluded: :count.', [
+                'count' => self::ltr(number_format($unattributed)),
+            ]);
+        }
+
+        if (($unrowed = (int) ($figures->notes()['orders_without_ledger_row'] ?? 0)) > 0) {
+            $notes[] = __('Orders with no financial record, which this basis cannot see: :count.', [
+                'count' => self::ltr(number_format($unrowed)),
+            ]);
+        }
+
+        return [
+            'value' => self::ltr(number_format($rate * 100, 2).'%'),
+            'period' => $period,
+            'hint' => implode(' ', $notes),
+        ];
+    }
+
     private static function payments(array $coverage): array
     {
         if ($coverage['included'] === []) {

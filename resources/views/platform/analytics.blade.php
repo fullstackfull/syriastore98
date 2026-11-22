@@ -56,6 +56,16 @@
                        :value="$figures['buyers']['value']"
                        :period="$figures['buyers']['period']"
                        :hint="$figures['buyers']['hint']" />
+
+            {{-- P5-R13. The first of the nine figures the merchant screen had and this one did not.
+                 It sits beside Buyers because it is the same population seen twice -- how many can
+                 be recognised again, and how many of those came back -- and its period is the
+                 LEDGER's intersection rather than the recent window the two tiles above use, which
+                 is why the tile states its own. --}}
+            <x-ss.stat :label="__('Repeat purchase')"
+                       :value="$figures['retention']['value']"
+                       :period="$figures['retention']['period']"
+                       :hint="$figures['retention']['hint']" />
         </x-ss.stats>
     </div>
 </div>

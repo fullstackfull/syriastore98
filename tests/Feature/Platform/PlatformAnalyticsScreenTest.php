@@ -60,6 +60,12 @@ final class PlatformAnalyticsScreenTest extends SecurityTestCase
         ]);
     }
 
+    /** Figures are wrapped in bidi isolates for mixed-script rendering; compare without them. */
+    private function plain(?string $text): string
+    {
+        return str_replace(["\u{2066}", "\u{2069}"], '', (string) $text);
+    }
+
     /** A shopper of one store. Mirrors MerchantAnalyticsFiguresTest's own helper. */
     private function customerIn(int $storeId): \App\Models\Customer
     {
@@ -388,5 +394,287 @@ final class PlatformAnalyticsScreenTest extends SecurityTestCase
             'the platform-wide verified start must be the day after the LATEST order the ledger '
             . 'cannot see, which is store B\'s, not store A\'s'
         );
+    }
+
+    /*
+     * ---------------------------------------------------------------------------------------------
+     * P5-R13 — repeat purchase, the first of the nine figures the operator screen was missing
+     * ---------------------------------------------------------------------------------------------
+     */
+
+    /** A paid order for a NAMED customer, so the retention metric can recognise them again. */
+    private function paidOrderFor($store, \App\Models\Customer $customer, ?CarbonImmutable $paidAt = null): void
+    {
+        $order = $this->makeOrder($store, [
+            'order_date' => $paidAt ?? CarbonImmutable::now()->subDay(),
+            'customer_id' => $customer->id,
+            'is_guest' => 0,
+        ]);
+
+        DB::table('store_order_financials')->where('order_id', $order->id)->update([
+            'payment_status' => 'paid',
+            'currency_code' => 'USD',
+            'paid_amount' => 10.00,
+            'remaining_amount' => 0.00,
+            'paid_at' => $paidAt ?? CarbonImmutable::now()->subDay(),
+        ]);
+    }
+
+    /**
+     * A ledgered but UNPAID order for a named customer. The ledger row stays (so the store still
+     * vouches for a period) and only `payment_status` differs, which is the single thing the
+     * settled-only basis turns on.
+     */
+    private function unpaidOrderFor($store, \App\Models\Customer $customer): void
+    {
+        $order = $this->makeOrder($store, [
+            'order_date' => CarbonImmutable::now()->subDay(),
+            'customer_id' => $customer->id,
+            'is_guest' => 0,
+        ]);
+
+        DB::table('store_order_financials')->where('order_id', $order->id)->update([
+            'payment_status' => 'unpaid',
+            'currency_code' => 'USD',
+            'paid_amount' => 0.00,
+            'paid_at' => null,
+        ]);
+    }
+
+    /**
+     * THE BASIS IS PAID ORDERS, and this is the case that can tell. R2 of the mutation run —
+     * swapping `CustomerRetention()` for `CustomerRetention(false)` — SURVIVED the refusal case
+     * above, because that one returns before the metric is ever constructed. A fixture where the
+     * two bases give the SAME rate cannot catch it either, which ruled out the obvious ones.
+     *
+     * One buyer with a single PAID order, one with two UNPAID ones:
+     *   settled-only (shipped): identified {paid buyer}, repeat {} -> 0.00%
+     *   all orders  (mutation): identified {both},       repeat {unpaid buyer} -> 50.00%
+     */
+    /**
+     * THE WINDOW IS THE INTERSECTION, AND THIS IS THE CASE THAT CAN TELL. Replacing it with
+     * all-time SURVIVED my first mutation run, because the mutation was pointed at a PRE-EXISTING
+     * test about the payments tile which does not touch retention at all — my error in choosing
+     * the filter, not a gap in the code.
+     *
+     * The fixture makes the two answers differ. `verifiedFrom` is the day after the latest order
+     * the ledger cannot see, per the payments case below, so:
+     *   store A unseen at -10d, paid orders for ONE customer at -9d and -1d  -> A starts at -9d
+     *   store B unseen at  -3d, a guest paid order at -1d                    -> B starts at -2d
+     * The intersection is the LATEST start, -2d, which hides that customer's -9d order:
+     *   intersection (shipped): identified {X}, repeat {}  -> 0.00%
+     *   all time    (mutation): identified {X}, repeat {X} -> 100.00%
+     */
+    /**
+     * AN EXCLUDED STORE IS ABSENT FROM THE FIGURE, not merely mentioned beneath it.
+     *
+     * `test_repeat_purchase_counts_the_stores_it_left_out` asserts the SENTENCE, and a mutation
+     * merging the excluded stores back into the scope SURVIVED it — the disclosure stayed while
+     * the data came back, which is the "the caveat is present and the figure is still wrong" shape
+     * this project keeps finding. This case asserts the FIGURE.
+     *
+     * It needs the one excluded state where the difference is observable. A store excluded by
+     * `hasNothingVerified()` has NO ledger row on any order, and the settled-only basis INNER JOINs
+     * `store_order_financials` on `payment_status = 'paid'` (CustomerRetention:68-71), so merging
+     * such a store in changes nothing and the mutation is genuinely equivalent there. The other
+     * excluded state is `startsInTheFuture()` — `verifiedFrom > now` — where the store DOES have
+     * paid rows, so including it would move the rate:
+     *   store A: one buyer with two paid orders
+     *   store B: an unseen order dated in the FUTURE (so B is excluded) plus a buyer with ONE
+     *   shipped:  identified {A's buyer},            repeat {A's buyer} -> 100.00%
+     *   mutation: identified {A's buyer, B's buyer}, repeat {A's buyer} ->  50.00%
+     */
+    public function test_an_excluded_store_is_absent_from_the_rate_and_not_only_disclosed(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $a] = $this->makeTenant();
+        [, $b] = $this->makeTenant();
+
+        $returning = $this->customerIn((int) $a->id);
+        $this->paidOrderFor($a, $returning, $now->subDays(2));
+        $this->paidOrderFor($a, $returning, $now->subDay());
+
+        // B's latest unseen order is in the FUTURE, so its verified period starts after today.
+        $this->orderTheLedgerCannotSee($b, ['order_date' => $now->addDays(5)]);
+        $this->paidOrderFor($b, $this->customerIn((int) $b->id), $now->subDay());
+
+        $figures = PlatformAnalyticsFigures::forPlatform($now);
+
+        $this->assertContains((int) $b->id, $figures['coverage']['excluded'],
+            'PREMISE: store B is not actually excluded, so this case cannot tell the difference.');
+
+        $this->assertSame('100.00%', $this->plain($figures['retention']['value']),
+            'A store the ledger cannot vouch for contributed buyers to the platform repeat rate '
+            . 'while being listed as left out. Being disclosed is not being excluded.');
+    }
+
+    public function test_repeat_purchase_uses_the_intersection_and_not_all_time(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $a] = $this->makeTenant();
+        [, $b] = $this->makeTenant();
+
+        $this->orderTheLedgerCannotSee($a, ['order_date' => $now->subDays(10)]);
+        $this->orderTheLedgerCannotSee($b, ['order_date' => $now->subDays(3)]);
+
+        $straddling = $this->customerIn((int) $a->id);
+        $this->paidOrderFor($a, $straddling, $now->subDays(9));
+        $this->paidOrderFor($a, $straddling, $now->subDays(1));
+
+        // A guest order in B, so B contributes a start date without adding an identified buyer.
+        $this->paidOrder($b, 'USD', 10.00, $now->subDays(1));
+
+        $figures = PlatformAnalyticsFigures::forPlatform($now);
+
+        $this->assertSame($now->subDays(2)->toDateString(), $figures['coverage']['verifiedFrom']->toDateString(),
+            'PREMISE: the intersection is not where this case needs it, so it proves nothing.');
+
+        $this->assertSame('0.00%', $this->plain($figures['retention']['value']),
+            'The repeat rate counted an order from BEFORE the platform-wide verified start. A rate '
+            . 'is only as complete as its least complete contributor, and reading all time here '
+            . 'claims coverage the ledger does not have for every store in the figure.');
+    }
+
+    public function test_repeat_purchase_counts_paid_orders_only(): void
+    {
+        [, $a] = $this->makeTenant();
+
+        $this->paidOrderFor($a, $this->customerIn((int) $a->id));
+
+        $unpaidRepeater = $this->customerIn((int) $a->id);
+        $this->unpaidOrderFor($a, $unpaidRepeater);
+        $this->unpaidOrderFor($a, $unpaidRepeater);
+
+        $this->assertSame('0.00%', $this->plain(PlatformAnalyticsFigures::forPlatform()['retention']['value']),
+            'A buyer whose two orders nobody has confirmed were paid is being counted as a repeat '
+            . 'customer. The metric definition is explicit: "a repeat rate computed over orders '
+            . 'nobody has confirmed were paid is not a retention figure".');
+    }
+
+    public function test_repeat_purchase_counts_buyers_across_every_store(): void
+    {
+        [, $a] = $this->makeTenant();
+        [, $b] = $this->makeTenant();
+
+        // Store A: one buyer who came back, one who did not.
+        $returning = $this->customerIn((int) $a->id);
+        $this->paidOrderFor($a, $returning);
+        $this->paidOrderFor($a, $returning);
+        $this->paidOrderFor($a, $this->customerIn((int) $a->id));
+
+        // Store B: one buyer who did not come back. 1 of 3 across the platform.
+        $this->paidOrderFor($b, $this->customerIn((int) $b->id));
+
+        $figures = PlatformAnalyticsFigures::forPlatform();
+
+        $this->assertArrayHasKey('retention', $figures,
+            'The operator screen still carries no repeat-purchase figure, so P05-14\'s "the same '
+            . 'metrics" is still unmet for it.');
+
+        $this->assertSame('33.33%', $this->plain($figures['retention']['value']),
+            'The cross-tenant repeat rate is not 1 of 3 identified buyers. A rate computed per '
+            . 'store and then averaged, or one that stopped at the first store, would differ.');
+    }
+
+    /**
+     * THE CAVEAT WITHOUT WHICH THE FIGURE WOULD BE READ AS SOMETHING IT IS NOT. Nothing links one
+     * person's accounts in two stores, so this is a rate over store-customer pairs.
+     */
+    public function test_repeat_purchase_says_it_counts_a_person_once_per_store(): void
+    {
+        [, $a] = $this->makeTenant();
+        $this->paidOrderFor($a, $this->customerIn((int) $a->id));
+
+        $hint = (string) PlatformAnalyticsFigures::forPlatform()['retention']['hint'];
+
+        $this->assertStringContainsString('counted in each', $hint,
+            'The platform repeat rate does not say that one person with accounts in two stores is '
+            . 'counted in each. "35% of buyers came back" otherwise reads as a statement about '
+            . 'people rather than about customers of a store.');
+    }
+
+    /** A store the ledger cannot vouch for at all is EXCLUDED and COUNTED, never silently dropped. */
+    public function test_repeat_purchase_counts_the_stores_it_left_out(): void
+    {
+        [, $a] = $this->makeTenant();
+        [, $b] = $this->makeTenant();
+
+        $returning = $this->customerIn((int) $a->id);
+        $this->paidOrderFor($a, $returning);
+        $this->paidOrderFor($a, $returning);
+
+        // Store B has an order and NO ledger row for it, so it can vouch for no period at all.
+        $this->orderTheLedgerCannotSee($b);
+
+        $hint = (string) PlatformAnalyticsFigures::forPlatform()['retention']['hint'];
+
+        $this->assertStringContainsString('Stores left out', $hint,
+            'A store whose financial record can vouch for nothing was dropped from the repeat rate '
+            . 'without being counted, which reads as "that tenant had no repeat buyers".');
+    }
+
+    /** No store the ledger can vouch for: the figure refuses rather than printing a zero. */
+    public function test_repeat_purchase_refuses_when_no_store_has_a_financial_record(): void
+    {
+        [, $a] = $this->makeTenant();
+        $this->orderTheLedgerCannotSee($a);
+
+        $figures = PlatformAnalyticsFigures::forPlatform();
+
+        $this->assertNull($figures['retention']['value'],
+            'A zero per cent was printed for a platform whose ledger can vouch for nothing. Zero '
+            . 'reads as "nobody came back"; the truth is "we cannot say".');
+        $this->assertStringContainsString('Nothing is reconstructed', (string) $figures['retention']['hint']);
+    }
+
+    /** The screen renders it, with its OWN period rather than the recent window beside it. */
+    public function test_the_screen_shows_the_repeat_purchase_tile(): void
+    {
+        [, $a] = $this->makeTenant();
+        $returning = $this->customerIn((int) $a->id);
+        $this->paidOrderFor($a, $returning);
+        $this->paidOrderFor($a, $returning);
+
+        // A DISTINCTIVE RATE: 1 repeat of 3 identified. "33.33%" is not a prefix or suffix of any
+        // other figure on this screen, which the label was -- see the comment below.
+        $this->paidOrderFor($a, $this->customerIn((int) $a->id));
+        $this->paidOrderFor($a, $this->customerIn((int) $a->id));
+
+        $operator = $this->makePlatformAdmin();
+        \Illuminate\Support\Facades\Cache::forget('admin_details');
+
+        $body = $this->plain((string) $this->actingAs($operator->fresh())->get('/platform/analytics')
+            ->assertStatus(200)->getContent());
+
+        /*
+         * ASSERTED ON THE RENDERED VALUE, NOT ONLY THE LABEL. The first version of this case
+         * asserted the label alone, and a mutation renaming it to `Repeat purchaseX` SURVIVED --
+         * the old label is a SUBSTRING of the new one. The value is what proves the figure reached
+         * the page; the label is asserted too, so a tile that renders a bare number still fails.
+         */
+        $this->assertSame('33.33%', $this->plain(PlatformAnalyticsFigures::forPlatform()['retention']['value']),
+            'PREMISE: the fixture no longer produces the distinctive rate this case asserts on.');
+
+        $this->assertStringContainsString('33.33%', $body,
+            'The repeat-purchase figure is computed but never reaches the page.');
+        /*
+         * THE DELIMITED FORM, because the bare one cannot tell a rename from the real thing: a
+         * mutation changing the label to `Repeat purchaseX` SURVIVED `assertStringContainsString`,
+         * since the old label is a SUBSTRING of the new one. `<x-ss.stat>` prints the label as the
+         * entire text of a `ss-stat__label` span (stat.blade.php:95-99), so the whitespace-trimmed
+         * span content is an exact comparison.
+         */
+        $labels = [];
+        preg_match_all('/class="ss-stat__label">\s*(.*?)\s*<\/span>/s', $body, $m);
+        foreach ($m[1] as $raw) {
+            $labels[] = trim(strip_tags($raw));
+        }
+
+        $this->assertContains(__('Repeat purchase'), $labels,
+            'No stat label on the operator screen is exactly "Repeat purchase". A label that merely '
+            . 'STARTS with it would satisfy a substring assertion, which is why this compares the '
+            . 'span\'s whole content. Labels found: '.implode(' | ', $labels));
     }
 }
