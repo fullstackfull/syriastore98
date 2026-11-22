@@ -232,16 +232,16 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/KhaltiPaymnetController.php:466` | Khalti verification refused: no server-computed payable in the stored state. |
 | `app/Http/Controllers/KhaltiPaymnetController.php:511` | Khalti order refused before any stock moved: the gateway rejected the capture |
 | `app/Http/Controllers/NMIPayController.php:436` | Pending partial payment refused: the balance named does not belong to this customer. |
-| `app/Http/Controllers/OrderController.php:439` | Manual order total did not match its components; the computed total was stored |
-| `app/Http/Controllers/OrderController.php:1408` | order receipt could not be rendered |
-| `app/Http/Controllers/OrderController.php:1570` | Return approval restored no stock: order carries no readable product_json |
-| `app/Http/Controllers/OrderController.php:1616` | Return approval skipped a line whose stock was already credited |
-| `app/Http/Controllers/OrderController.php:1636` | Return approval skipped a line with an unusable product id or quantity |
-| `app/Http/Controllers/OrderController.php:1657` | Return approval skipped a line whose product is not in the order |
-| `app/Http/Controllers/OrderController.php:1691` | Return approval skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/OrderController.php:1806` | Order replacement refused. |
-| `app/Http/Controllers/OrderController.php:2273` | Customer cancellation endpoint refused a status it does not serve |
-| `app/Http/Controllers/OrderController.php:2491` | Order assignment refused: the delivery boy is not in a store this caller owns |
+| `app/Http/Controllers/OrderController.php:442` | Manual order total did not match its components; the computed total was stored |
+| `app/Http/Controllers/OrderController.php:1411` | order receipt could not be rendered |
+| `app/Http/Controllers/OrderController.php:1573` | Return approval restored no stock: order carries no readable product_json |
+| `app/Http/Controllers/OrderController.php:1619` | Return approval skipped a line whose stock was already credited |
+| `app/Http/Controllers/OrderController.php:1639` | Return approval skipped a line with an unusable product id or quantity |
+| `app/Http/Controllers/OrderController.php:1660` | Return approval skipped a line whose product is not in the order |
+| `app/Http/Controllers/OrderController.php:1694` | Return approval skipped a line whose variant does not belong to its product |
+| `app/Http/Controllers/OrderController.php:1809` | Order replacement refused. |
+| `app/Http/Controllers/OrderController.php:2276` | Customer cancellation endpoint refused a status it does not serve |
+| `app/Http/Controllers/OrderController.php:2494` | Order assignment refused: the delivery boy is not in a store this caller owns |
 | `app/Http/Controllers/OrderRefundController.php:180` | Refund transition refused: unrecognised current state |
 | `app/Http/Controllers/OrderRefundController.php:202` | Refund transition refused: illegal transition |
 | `app/Http/Controllers/OrderRefundController.php:416` | Refund cancellation refused: the record does not match the order |

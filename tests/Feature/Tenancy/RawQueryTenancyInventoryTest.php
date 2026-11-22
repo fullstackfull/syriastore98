@@ -545,7 +545,17 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            ON PURPOSE and said so only by what it left out. The per-table row moves 16 -> 15 and its
            no-store_id column stays 0, so the number that changed is the honest one. `packages` does not
            move. */
-        $this->assertSame(['app' => 194, 'packages' => 45], $perDir,
+        /* 194 -> 198 [2026-11-22, P1-SEC-69 b and c]: FOUR new sites in two middleware files, both
+           ownership guards over a vendored Campaigns handler that takes its row from caller-supplied
+           input. `ModuleAdministrativeRouteGuard` gains the `stores` read behind the new
+           `tenant-store:` rule; `CampaignIntentOwnershipGuard` is a new file with three -- one
+           `stores` read whose `created_by` is compared with the caller's merchant tenant root, and
+           the two `products` limbs (is any matched row foreign, is every requested id owned). The
+           per-table rows below move with them: `products` 8 -> 10 with its UNSCOPED HALF STILL AT 3,
+           and `stores` 24 -> 26 with the unscoped half 23 -> 25, which is the honest reading -- a
+           `stores` row IS the store, so there is no `store_id` for those two statements to carry.
+           `packages` does not move: no vendored file is edited. */
+        $this->assertSame(['app' => 198, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -658,7 +668,8 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            here had already moved to 240. Added so the trail reaches the number it sits above. */
         /* 240 -> 239 [P05-19]: the operator dashboard's whole-table read of the visit log, REMOVED. See
            the per-directory note above (195 -> 194). */
-        $this->assertSame(239, array_sum($perDir));
+        /* 239 -> 243 [P1-SEC-69 b and c]: the four sites recorded in the per-directory note above. */
+        $this->assertSame(243, array_sum($perDir));
     }
 
     /**
@@ -839,7 +850,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // remedy is, uniquely here, the defect. Verified on MySQL 8.0.46 by
             // tests/Support/Security/bin/verify-category-product-cascade-on-mysql.php (6 checks, 0 failures) and by
             // mutant B of the removal check. None of the three returns rows -- each is a COUNT read only to refuse.
-            'products' => [8, 3],     // 7 -> 8 total [2026-11-11, P1-SEC-61] with AuctionBidIdentityGuard::logSlugCollision()'s twin lookup, WITH a store_id predicate -- it asks whether the ROUTED store holds its own product under the colliding slug, so THE UNSCOPED HALF STAYS AT 3, which is again the assertion that matters. 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own. 5 -> 6 total [2026-10-30, F207 / D-29.2] with ModuleResourceOwnershipGuard:523's existence check; THE UNSCOPED HALF STAYS AT 3, which is the assertion that matters -- the new site names `store_id`. 6 -> 7 [2026-11-01, F242] with TopSellersByRevenue:106's dimension lookup, AGAIN WITH a store_id predicate, so the unscoped half still does not move
+            'products' => [10, 3],    // 8 -> 10 total [2026-11-22, P1-SEC-69 c] with CampaignIntentOwnershipGuard's two ownership limbs over the product ids a campaign names. BOTH carry a `store_id` comparison -- built from the store the caller was just authorised for, never from request input -- so THE UNSCOPED HALF STAYS AT 3, which is the assertion that matters. 7 -> 8 total [2026-11-11, P1-SEC-61] with AuctionBidIdentityGuard::logSlugCollision()'s twin lookup, WITH a store_id predicate -- it asks whether the ROUTED store holds its own product under the colliding slug, so THE UNSCOPED HALF STAYS AT 3, which is again the assertion that matters. 1 -> 2 with P1-SEC-04 ModuleStorefrontInputGuard::productOfStoreOrAbsent, WITH a store_id predicate -- the product must be the slug store's own. 5 -> 6 total [2026-10-30, F207 / D-29.2] with ModuleResourceOwnershipGuard:523's existence check; THE UNSCOPED HALF STAYS AT 3, which is the assertion that matters -- the new site names `store_id`. 6 -> 7 [2026-11-01, F242] with TopSellersByRevenue:106's dimension lookup, AGAIN WITH a store_id predicate, so the unscoped half still does not move
             'settings' => [17, 5],   // 16 -> 17 with P1-SEC-11 criterion 4's review follow-up (DocumentDirection::ownRow reads the ORDER store's SITE_RTL and invoice_logo rows, WITH a store_id predicate -- see the entry-point note above for why it cannot go through GetValueByName); 15 -> 16 with P1-SEC-11 (OrderController::shippinglabel reads the order store's five address rows, WITH a store_id predicate); earlier: 15 -> 16 with P1-SEC-27 (StoreSettingsAccess::storedRows, WITH a store_id predicate); 16 -> 15 and 9 -> 5 with P1-SEC-29 (HostClaims)
             'shetabit_visits' => [15, 0],   // 16 -> 15 [P05-19]: the operator dashboard's whole-table read is gone (see the entry-point note). It was counted "aware" here while filtering nothing -- LIMIT 1, in the flesh.
             'side_menus_option' => [28, 0],
@@ -919,7 +930,7 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // resolved, never a request value. It is a raw SELECT only because the four SUM()
             // aliases have to be spelled, and it is a READ: no wallet figure writes anything.
             'store_wallets' => [2, 0],
-            'stores' => [24, 23],    // P1-SEC-10 (DeliverySyriaCredential: stores created by a matched owner), P1-SEC-04 (Duo setting rule) and the P0 deletion guard; the Zid controller's own stores read is gone.
+            'stores' => [26, 25],    // P1-SEC-10 (DeliverySyriaCredential: stores created by a matched owner), P1-SEC-04 (Duo setting rule) and the P0 deletion guard; the Zid controller's own stores read is gone. 24 -> 26, AND THE UNSCOPED HALF 23 -> 25 [2026-11-22, P1-SEC-69 b and c]: the two ownership reads that fetch the `created_by` of the store a caller NAMED, so that it can be compared with their merchant tenant root and the request refused -- ModuleAdministrativeRouteGuard's `tenant-store:` rule and CampaignIntentOwnershipGuard. Neither can carry a `store_id` predicate, because the row IS the store; a predicate would compare the column with itself. The thing that makes them safe is not a predicate but the comparison that follows, and the value compared against comes from UserPolicy::merchantTenantRoot(), never from the request. This is the one direction this ratchet is designed to make somebody read, so it is spelled out rather than absorbed.
                                      // 20 -> 23 and 20 -> 22 with ModuleStorefrontInputGuard: two slug resolutions (no store_id to predicate on yet) and the thread read's by-id lookup, whose statement names `store_id` because the id comes from the body and is compared, not trusted
             // [1, 0], DOWN FROM [2, 0]. The remaining raw statement is the READ at
             // Api/DashboardController::extractSocialMediaLinks(), which constrains store_id,
@@ -1055,7 +1066,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         /* 188 -> 187 [P05-19]: the operator dashboard's whole-table read of `shetabit_visits`, REMOVED
            (that table's row above, 16 -> 15). It was counted as scoped, so the unscoped total below does
            not move -- and that is the point recorded on the per-directory note: it filtered nothing. */
-        $this->assertSame(187, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        /* 187 -> 191 [2026-11-22, P1-SEC-69 b and c]: the four ownership reads recorded on the
+           per-directory note and on the `products` and `stores` rows above. All four name their
+           table as a plain literal, so all four are attributable and land here. */
+        $this->assertSame(191, array_sum(array_map(fn ($r) => $r[0], $actual)),
             'THE FIGURES INSIDE THIS MESSAGE ARE THE 2026-11-02 MEASUREMENT AND ARE NOT RATCHETED; '
             . 'the current totals are the ones ASSERTED above and in the dated notes beside them. '
             . 'That split is itself one of this file\'s findings, recorded rather than tidied away '
@@ -1124,7 +1138,17 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            comparison that can make the owned-store set SMALLER (an empty set fails closed through admissibleStoreIds()) -- it cannot widen what a
            principal reaches. It exists because the previous behaviour widened it: a root that is not a merchant (a demoted merchant, or staff the
            operator created) resolved to the OPERATOR'S id and "the stores this principal owns" held the operator's stores. */
-        $this->assertSame(83, array_sum(array_map(fn ($r) => $r[1], $actual)));
+        /* 83 -> 85 [2026-11-22, P1-SEC-69 b and c]: the TWO `stores` ownership reads, and this is
+           the half of the ratchet that is supposed to make somebody read. Each fetches the
+           `created_by` of the store a caller NAMED -- in a POST body's `store_id`, and in the JSON
+           intent blob the Campaigns gateway-return handler writes from -- so that it can be
+           compared with `UserPolicy::merchantTenantRoot()` and the request REFUSED. A `store_id`
+           predicate is not expressible on them: the row IS the store, and the predicate would
+           compare the column with itself. What makes them safe is the comparison that follows, and
+           the value compared against is never read from the request. The two `products` reads added
+           by the same change are NOT here: both carry an explicit `store_id`, so the unscoped total
+           moves by two and not by four. */
+        $this->assertSame(85, array_sum(array_map(fn ($r) => $r[1], $actual)));
     }
 
     /**

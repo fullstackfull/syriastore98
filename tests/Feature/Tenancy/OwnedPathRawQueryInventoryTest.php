@@ -234,12 +234,23 @@ class OwnedPathRawQueryInventoryTest extends TestCase
             // line quoted back.
             'app/Http/Middleware/ModuleResourceOwnershipGuard.php' => 'tenant',
             'app/Http/Middleware/Concerns/ComparesRowOwnership.php' => 'comparison',
-            // P1-SEC-04's ModuleAdministrativeRouteGuard. 'comparison', for the same reason as the sibling guards: its five raw reads
-            // (campaigns, helpdesk_tickets, email_templates, user_email_templates, and the caller's own store for the Duo rule) fetch the
-            // OWNER of the row the request NAMES - created_by / user_id - so that the caller's tenant (User::creatorId()) can be compared with
+            // P1-SEC-04's ModuleAdministrativeRouteGuard. 'comparison', for the same reason as the sibling guards: its SIX raw reads
+            // (campaigns, helpdesk_tickets, email_templates, user_email_templates, the caller's own store for the Duo rule, and -- added by
+            // P1-SEC-69 b -- the `stores` row a POST body names for the `tenant-store:` rule) fetch the OWNER of the row the request NAMES
+            // - created_by / user_id - so that the caller's tenant (UserPolicy::merchantTenantRoot(), User::creatorId()) can be compared with
             // it and the request REFUSED. A store_id predicate would collapse "another tenant's row" into "no such row" and these module
             // tables (campaigns, helpdesk_tickets) have no store_id to put one on. The tenant compared against is never read from the request.
+            // (This comment said FIVE until the sixth was added; the count is part of the claim, so it moves with the code.)
             'app/Http/Middleware/ModuleAdministrativeRouteGuard.php' => 'comparison',
+            // P1-SEC-69 (c)'s CampaignIntentOwnershipGuard, the same shape again. Its three raw reads answer "may this caller name this store
+            // and these products" for the Campaigns gateway-return handler, which takes both from a caller-supplied JSON blob: one `stores`
+            // read fetches that row's `created_by` so it can be compared with UserPolicy::merchantTenantRoot(), and two `products` reads are
+            // the two limbs ComparesRowOwnership documents -- "is any matched row outside this tenant's rows in this store" and "is every
+            // requested id accounted for by a row they own". A `store_id` predicate on the `stores` read is meaningless (it IS the store), and
+            // the `products` reads already carry an explicit `store_id` comparison built from the row the caller was authorised for, never
+            // from request input. Raw rather than Eloquent because `Product` is Cachable and `Store` is not tenant-scoped, so neither model
+            // read would be the engine's own answer.
+            'app/Http/Middleware/CampaignIntentOwnershipGuard.php' => 'comparison',
             // P1-SEC-04's SIBLING GUARD, and the entry cdc213bd FORGOT -- which is why CI went red on this inventory and on the two
             // platform-wide counts in RawQueryTenancyInventoryTest. 'comparison', like the administrative guard, and the bucket's promise
             // ("every member refuses cross-tenant access") holds for it only because of P1-SEC-34: before that fix the two storefront
@@ -484,7 +495,7 @@ class OwnedPathRawQueryInventoryTest extends TestCase
         // Both are 'comparison' sites and both deliberately carry no store predicate -- see the
         // classification above, where the reason is that a store predicate would break the
         // module's own cross-store bidding and close nothing.
-        // 20 -> 26: ModuleAdministrativeRouteGuard's five reads (P1-SEC-04, 'comparison' - see its classification) and OrderDocumentAccessGuard's
+        // 20 -> 26: ModuleAdministrativeRouteGuard's reads (P1-SEC-04, 'comparison' - see its classification) and OrderDocumentAccessGuard's
         // refund-id -> order-id read (P1-ORD-12, in a file already classified 'comparison').
         // 26 -> 31: ModuleStorefrontInputGuard's five reads (`customers`, `products`, `stores` x3), which cdc213bd added to the stack and
         // did not record here -- the omission that failed this assertion and the two totals in RawQueryTenancyInventoryTest.
@@ -546,7 +557,25 @@ class OwnedPathRawQueryInventoryTest extends TestCase
            all; there is no scope that could reach them, which is precisely why this census
            counts them. The count is raised because the sites are real and accounted for, not
            to make this pass. */
-        $this->assertCount(42, $sites, "The owned-path raw query inventory changed:\n  "
+        /* 42 -> 46 [2026-11-22, P1-SEC-69 b and c]: FOUR sites in two middleware files, both
+           classified 'comparison' above, because both answer "may this caller name this row"
+           for a vendored Campaigns handler that takes the row from caller-supplied input.
+             ModuleAdministrativeRouteGuard  +1  the `stores` row a POST body's `store_id` names,
+                                                 for the new `tenant-store:` rule (the AJAX
+                                                 product reader answered an operator-rooted caller
+                                                 with the OPERATOR's product names).
+             CampaignIntentOwnershipGuard    +3  the `stores` read whose `created_by` is compared
+                                                 with the caller's merchant tenant root, and the
+                                                 two `products` limbs ComparesRowOwnership
+                                                 documents -- "is any matched row foreign" and "is
+                                                 every requested id owned".
+           None takes a STORE_LESS_BY_DESIGN exemption: the `stores` reads ARE the store (a
+           `store_id` predicate on them is meaningless) and both `products` reads carry an explicit
+           `store_id` comparison built from the store the caller was just authorised for, never
+           from request input. Raw rather than Eloquent because `Product` is Cachable and `Store`
+           is not tenant-scoped, so no model read would be the engine's own answer. The count is
+           raised because the sites are real and accounted for, not to make this pass. */
+        $this->assertCount(46, $sites, "The owned-path raw query inventory changed:\n  "
             . implode("\n  ", array_keys($sites)));
 
         // Why `$relatedColumn` counts as a tenant predicate: every DERIVED_OWNERSHIP entry
