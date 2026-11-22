@@ -74,7 +74,11 @@ class CampaignTrafficTest extends SecurityTestCase
         $out = [];
 
         foreach ($breakdown['rows'] as $row) {
-            $out[$row['label']] = str_replace(["\u{2066}", "\u{2069}"], '', $row['count']);
+            // BOTH sides are stripped. The label is isolated too, because a visitor writes it --
+            // see `campaigns()`. Stripping here keeps these assertions about the GROUPING; the
+            // isolation itself is asserted separately, on the raw label.
+            $out[str_replace(["\u{2066}", "\u{2069}"], '', $row['label'])]
+                = str_replace(["\u{2066}", "\u{2069}"], '', $row['count']);
         }
 
         return $out;
@@ -165,6 +169,39 @@ class CampaignTrafficTest extends SecurityTestCase
         $this->assertStringContainsString('nothing to break down', $breakdown['hint'],
             'Rows that reached the loop and were rejected produced neither a row nor the '
             . 'empty-panel explanation, so the panel is blank with no reason given.');
+    }
+
+    /**
+     * THE LABEL IS WRITTEN BY A VISITOR, AND IS THE ONLY ONE ON THIS SCREEN THAT IS.
+     *
+     * Every other breakdown labels its rows from something the platform derived -- a device name
+     * from a detector, a HOST parsed out of a referer. A campaign tag is whatever text someone put
+     * in the query string of a link, and it reaches a merchant's admin screen verbatim.
+     *
+     * Blade's `{{ }}` escapes the HTML, so this is not an injection. What `e()` does NOT
+     * neutralise is a Unicode BIDI OVERRIDE (U+202E and its family): it is not markup, it survives
+     * escaping intact, and it reorders the glyphs of whatever follows it. A crafted tag can
+     * therefore make the rest of a row read as something other than what the data says.
+     *
+     * `ltr()` wraps the value in U+2066 ... U+2069, an ISOLATE, which confines any direction
+     * change to the wrapped text. It is also the ordinary bilingual fix and would be worth doing
+     * with no attacker in the picture: a Latin campaign name in an Arabic RTL table reorders
+     * around its neighbouring digits without it.
+     */
+    public function test_the_campaign_label_is_direction_isolated(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+
+        $this->visit($store, 'https://shop.test/?utm_source=newsletter&utm_campaign=spring');
+
+        $rows = $this->campaigns($store)['rows'];
+
+        $this->assertCount(1, $rows, 'Premise: the fixture did not produce the single row this is about.');
+
+        $this->assertStringStartsWith("\u{2066}", $rows[0]['label'],
+            'The campaign label is not direction-isolated, so a tag carrying a bidi override '
+            . 'reorders the text around it on the merchant\'s screen.');
+        $this->assertStringEndsWith("\u{2069}", $rows[0]['label']);
     }
 
     /**

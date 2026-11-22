@@ -896,7 +896,29 @@ final class MerchantAnalyticsFigures
         $rows = [];
 
         foreach ($buckets as $label => $count) {
-            $rows[] = ['label' => (string) $label, 'count' => self::ltr(number_format($count))];
+            /*
+             * THE LABEL IS ISOLATED BECAUSE A VISITOR WROTE IT.
+             *
+             * Every other breakdown on this screen labels its rows from something the platform
+             * derived -- a device name from a detector, a HOST parsed out of a referer. A campaign
+             * tag is different in kind: it is whatever text a visitor put in the query string of a
+             * link they followed, and it reaches a merchant's admin screen verbatim.
+             *
+             * Blade's `{{ }}` escapes the HTML, so this is not an injection. What `e()` does NOT
+             * neutralise is a Unicode BIDI OVERRIDE (U+202E and its family), which is not markup
+             * and survives escaping intact: a tag containing one reorders the glyphs of whatever
+             * follows it, so a crafted campaign name can make the rest of the row -- or the rows
+             * after it -- read as something other than what the data says.
+             *
+             * `ltr()` wraps the value in U+2066 ... U+2069, an ISOLATE. That is the construct for
+             * exactly this: it confines any direction change to the wrapped text, so the worst a
+             * crafted tag can do is scramble its own cell.
+             *
+             * It is also the ordinary bilingual fix, and would be worth doing with no attacker in
+             * the picture: a Latin campaign name sitting in an Arabic RTL table reorders around
+             * the neighbouring digits without it.
+             */
+            $rows[] = ['label' => self::ltr((string) $label), 'count' => self::ltr(number_format($count))];
         }
 
         $notes = [];
