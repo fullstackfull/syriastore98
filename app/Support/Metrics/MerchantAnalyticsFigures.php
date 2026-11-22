@@ -60,7 +60,7 @@ final class MerchantAnalyticsFigures
     private const MAX_REFERER_ROWS = 500;
 
     /** The only columns `groupedVisits()` will group by; see its docblock for why it is a closed list. */
-    private const GROUPABLE_VISIT_COLUMNS = ['device', 'platform', 'browser', 'referer'];
+    private const GROUPABLE_VISIT_COLUMNS = ['device', 'platform', 'browser', 'referer', 'url'];
 
     /** U+2066 / U+2069: isolate a run so a number lays out left-to-right inside an Arabic paragraph. */
     private const LRI = "\u{2066}";
@@ -127,6 +127,25 @@ final class MerchantAnalyticsFigures
         $visits = self::countVisits($storeId, $from, $to);
 
         /*
+         * ANA-004 / GAP-227(a) -- WHEN PAGE-VIEW LOGGING ACTUALLY BEGAN FOR THIS STORE.
+         *
+         * Orders reach back as far as the store does. Page views reach back only as far as
+         * `shetabit_visits` holds rows for it, and that table starts whenever `ActiveTheme` first
+         * logged one -- when the store first set a theme, or when the feature shipped, whichever
+         * is later. Nothing backfills it.
+         *
+         * So for any window reaching back past that first row, `$visits` covers less of the window
+         * than `$orders` does, and the ratio between them is a larger number that looks like a
+         * conversion rate. Measured in VisitCoverageStartTest: 20.00% reported where the covered
+         * period's own rate is 10.00%, with no warning of any kind before this.
+         *
+         * READ ONCE AND SHARED, for the same reason the baseline counts are: the visits tile and
+         * the rate derived from it must not disagree about when coverage starts.
+         */
+        $visitCoverageStart = self::visitCoverageStart($storeId);
+        $visitCoverageNote = self::visitCoverageNote($visitCoverageStart, $from, $visits);
+
+        /*
          * ANA-002 — THE BASELINE, AND WHY ONLY THE TWO COUNTS GET ONE.
          *
          * `MetricWindow::previous()` gives the equally long period ending the day before this one
@@ -134,9 +153,20 @@ final class MerchantAnalyticsFigures
          * case exists for unbounded windows and is asserted in its own test.
          *
          * THE COUNTS ARE COMPARABLE AND THE MONEY IS NOT, and that asymmetry is measured rather
-         * than cautious. `orders` comes from `orders` and `visits` from `shetabit_visits` -- both
-         * tables hold the whole history, so a 30-day baseline is as complete as the 30 days after
-         * it. The money tiles come from `FinanceLedgerFigures`, which inherits `LedgerCoverage`'s
+         * than cautious. `orders` comes from `orders`, which holds the whole history.
+         *
+         *   CORRECTED 2026-11-22, by the measurement two methods below. This paragraph used to
+         *   say `shetabit_visits` holds the whole history too, "so a 30-day baseline is as
+         *   complete as the 30 days after it". THAT IS FALSE. Visit rows carried no `store_id`
+         *   at all until the attribution fix of 2026-11-20 (`SanitisedVisitor`'s docblock), and
+         *   nothing is backfilled -- so an earlier window can be partly or wholly outside this
+         *   store's attributed history exactly as the money tiles are. `visitCoverageStart()`
+         *   is what measures it, and the two visit-derived comparisons are now suppressed when
+         *   the BASELINE window reaches back past coverage, for the same reason the money tiles
+         *   were left alone. An independent review caught that the first version of this change
+         *   disclosed only the CHOSEN window and left the baseline free to report a false trend.
+         *
+         * The money tiles come from `FinanceLedgerFigures`, which inherits `LedgerCoverage`'s
          * verified start: `store_order_financials` holds nothing before 2026-11-02 and is NOT
          * backfilled, by owner decision. A baseline reaching back 31-60 days therefore lands
          * partly or wholly before coverage, so the prior figure would be understated by an unknown
@@ -164,6 +194,27 @@ final class MerchantAnalyticsFigures
         $baselineOrders = self::countOrders($storeId, $baseline->from(), $baseline->to());
         $baselineVisits = self::countVisits($storeId, $baseline->from(), $baseline->to());
 
+        /*
+         * IS THE EARLIER WINDOW ITSELF COVERED? A chosen window can start AFTER coverage -- so it
+         * gets no note -- while the equally long window before it starts BEFORE coverage and is
+         * therefore understated by an unknown amount. The delta between them would then be a
+         * false trend presented as a fact, which is the precise failure this slice exists to
+         * prevent, so the two visit-derived comparisons are withheld rather than shown wrong.
+         *
+         * ONLY THE PARTLY-COVERED CASE, and the boundary matters. A baseline window lying
+         * WHOLLY before coverage produces `$baselineVisits === 0`, and `comparison()` already
+         * has a deliberate answer for that -- "There is no figure for the earlier period to
+         * compare against" -- which four tests in `MerchantAnalyticsFiguresTest` and
+         * `ConversionBaselineTest` encode as the shipped contract. A first version of this guard
+         * fired on that case too and reddened seven tests; suppressing it would have replaced a
+         * stated answer with silence, which is worse.
+         *
+         * The case `comparison()` CANNOT see is the window that STRADDLES the coverage start:
+         * its figure is a real non-zero number counted over only part of the window, so the
+         * delta looks sound and is not.
+         */
+        $baselineCovered = ! self::straddlesCoverage($visitCoverageStart, $baseline->from(), $baseline->to());
+
         return [
             'coverage' => $money['coverage'],
             'payments' => $money['payments'],
@@ -177,16 +228,22 @@ final class MerchantAnalyticsFigures
             'visits' => [
                 'value' => self::ltr(number_format($visits)),
                 'period' => $period,
-                'hint' => self::visitsMeaning(),
-                'comparison' => self::comparison($visits, $baselineVisits, $baselinePeriod),
+                // The count itself is short by whatever happened before logging began, so the note
+                // belongs here too and not only on the rate derived from it.
+                'hint' => self::visitsMeaning().$visitCoverageNote
+                    .($baselineCovered ? '' : ' '.self::baselineUncoveredNote()),
+                'comparison' => $baselineCovered
+                    ? self::comparison($visits, $baselineVisits, $baselinePeriod)
+                    : null,
             ],
-            'conversion' => self::conversion($orders, $visits, $period, $baselineOrders, $baselineVisits, $baselinePeriod),
+            'conversion' => self::conversion($orders, $visits, $period, $baselineOrders, $baselineVisits, $baselinePeriod, $visitCoverageNote, $baselineCovered),
             'customers' => self::customers($storeId, $from, $to, $period),
             'redemptions' => self::redemptions($storeId, $storeCurrency, $from, $to, $period),
             'retention' => self::retention($storeId),
             'devices' => self::devices($storeId, $from, $to, $period),
             'channels' => self::channels($storeId, $from, $to, $period, $visits),
             'sources' => self::sources($storeId, $from, $to, $period),
+            'campaigns' => self::campaigns($storeId, $from, $to, $period),
 
             /*
              * ANA-002 — THE PERIOD ITSELF, so the screen and the CSV can both state what was
@@ -363,6 +420,90 @@ final class MerchantAnalyticsFigures
             : self::ltr($date->toDateString());
     }
 
+    /**
+     * The first page view this store ever logged, or null if it has never logged one.
+     *
+     * STORE-SCOPED BY HAND, because nothing else will do it. `shetabit_visits` carries `store_id`
+     * but the model is NOT in `config/tenancy.php`'s `scoped_models`, so `StoreScope` adds no
+     * predicate for any principal -- merchant, operator or guest. Without the `where` below, one
+     * tenant's long log would make every other tenant's short one look complete, and a
+     * single-tenant fixture cannot see the difference. Pinned by
+     * `VisitCoverageStartTest::test_the_coverage_start_is_this_stores_own`.
+     */
+    private static function visitCoverageStart(int $storeId): ?CarbonImmutable
+    {
+        $first = Visit::query()
+            ->where('store_id', $storeId)
+            ->min('created_at');
+
+        return $first === null ? null : CarbonImmutable::parse($first);
+    }
+
+    /**
+     * The sentence a figure carries when the window reaches back past the first page view --
+     * EMPTY STRING when it does not, which is most of the time and is the point.
+     *
+     * THREE WAYS THIS RETURNS NOTHING, each for its own reason:
+     *
+     *   - NO ROWS AT ALL (`$start === null`). That is the no-page-views case, which the figures
+     *     already answer by refusing the division outright. A coverage sentence on top of it
+     *     would answer the same question a second time and differently.
+     *   - THE WINDOW STARTS AT OR AFTER COVERAGE. Nothing is missing, so there is nothing to say.
+     *     A permanent "data may be incomplete" note on every render is not a disclosure, it is
+     *     wallpaper: merchants stop reading it, and the real warning loses its meaning.
+     *   - NO VISITS IN THIS WINDOW (`$visits <= 0`), even though the store has logged some. Same
+     *     reason as the first: the refusal already covers it.
+     *
+     * IT DOES NOT RE-SCOPE THE FIGURES. The window stays exactly as the merchant asked for it,
+     * and the sentence says which part of it has data. Silently narrowing the period to the
+     * covered one would answer a question they did not ask and would make this tile disagree with
+     * the Orders tile beside it. Which of the two is wanted is a product question; saying nothing
+     * is wrong under either answer, which is why this is the part that can ship without one.
+     */
+    private static function visitCoverageNote(?CarbonImmutable $start, CarbonInterface $from, int $visits): string
+    {
+        if ($start === null || $visits <= 0 || ! $start->startOfDay()->greaterThan(CarbonImmutable::parse($from)->startOfDay())) {
+            return '';
+        }
+
+        return ' '.__('Page views are recorded against this store from :date, so this period is only partly covered. Earlier visits were not attributed to any store and cannot be counted here.', [
+            // `isoFormat` over `format` so the month name is translated; the locale is passed
+            // explicitly rather than relying on Carbon's global one being in step with the app's.
+            // `ltr()` because every other date this class prints is isolated, and an unwrapped
+            // Western-digit date reorders itself inside an Arabic sentence.
+            'date' => self::ltr($start->locale(app()->getLocale())->isoFormat('D MMM YYYY')),
+        ]);
+    }
+
+    /**
+     * Does this window BEGIN before page views were attributed to the store and END at or after
+     * that point? That is the case whose count is non-zero and still short.
+     *
+     * Whole days, for the same reason `visitCoverageNote()` uses them: coverage begins at a clock
+     * time while a window begins at midnight.
+     */
+    private static function straddlesCoverage(?CarbonImmutable $start, CarbonInterface $from, CarbonInterface $to): bool
+    {
+        if ($start === null) {
+            return false;
+        }
+
+        $day = $start->startOfDay();
+
+        return $day->greaterThan(CarbonImmutable::parse($from)->startOfDay())
+            && $day->lessThanOrEqualTo(CarbonImmutable::parse($to)->startOfDay());
+    }
+
+    /**
+     * Said when the EARLIER window is the one outside coverage, so its figure is understated and
+     * the delta is withheld. Separate from the note above because the two describe different
+     * windows and a merchant who sees one must not be told the other.
+     */
+    private static function baselineUncoveredNote(): string
+    {
+        return __('No change against the earlier period is shown: that period reaches back before page views were recorded against this store, so its figure would be understated and the comparison would report a trend that did not happen.');
+    }
+
     /** The one sentence every visit-derived figure has to carry. */
     private static function visitsMeaning(): string
     {
@@ -384,9 +525,12 @@ final class MerchantAnalyticsFigures
         string $period,
         int $baselineOrders,
         int $baselineVisits,
-        string $baselinePeriod
+        string $baselinePeriod,
+        string $coverageNote = '',
+        bool $baselineCovered = true
     ): array {
-        $meaning = __('Orders divided by storefront page views in this period.').' '.self::visitsMeaning();
+        $meaning = __('Orders divided by storefront page views in this period.').' '.self::visitsMeaning().$coverageNote
+            .($baselineCovered ? '' : ' '.self::baselineUncoveredNote());
 
         if ($visits <= 0) {
             return [
@@ -405,7 +549,9 @@ final class MerchantAnalyticsFigures
             'hint' => $orders > $visits
                 ? $meaning.' '.__('There are more orders than recorded page views, so some orders arrived by a route that logs no page view.')
                 : $meaning,
-            'comparison' => self::rateComparison($rate, $baselineOrders, $baselineVisits, $baselinePeriod),
+            'comparison' => $baselineCovered
+                ? self::rateComparison($rate, $baselineOrders, $baselineVisits, $baselinePeriod)
+                : null,
         ];
     }
 
@@ -673,6 +819,143 @@ final class MerchantAnalyticsFigures
      * `ThemeAnalyticController` and `Api\DashboardController` run the same shape with no window
      * and no limit at all, so this is inherited, not introduced.
      */
+    /** The tags read off a landing URL. `utm_term` and `utm_content` are ad-level and not shown. */
+    private const CAMPAIGN_TAGS = ['utm_source', 'utm_campaign'];
+
+    /** Distinct tagged LANDING URLS read before the list is capped; see the note the cap emits. */
+    private const MAX_CAMPAIGN_URL_ROWS = 500;
+
+    /**
+     * ANA-004 / GAP-227(a) -- WHICH CAMPAIGNS SENT TRAFFIC.
+     *
+     * MEASURED 2026-11-22: `utm_source` / `utm_medium` / `utm_campaign` occur 20+ times in this
+     * repository and EVERY occurrence is an outbound link in a vendored WorkDo view pointing at
+     * workdo.io. No first-party code read an INBOUND tag. Meanwhile `SanitisedVisitor::url()`
+     * keeps the query string and redacts only credential-shaped parameter NAMES -- `utm_*` match
+     * none of them -- so the tags have been recorded all along and nothing displayed them.
+     *
+     * THREE CLAIMS THIS REFUSES TO MAKE, each because the data cannot support it:
+     *
+     *   NO ATTRIBUTION AND NO CAMPAIGN REVENUE. Nothing links a visit row to an order row --
+     *   established for the conversion tile and unchanged. "This campaign earned you X" is not
+     *   derivable, so it is not shown and the hint says why.
+     *
+     *   IT COUNTS LANDINGS, NOT PEOPLE AND NOT SESSIONS. A shopper arriving on a tagged link and
+     *   then browsing five untagged pages is ONE row here and six page views on the tile beside
+     *   it. The two columns are therefore not comparable and the hint says so, because the layout
+     *   invites exactly that comparison.
+     *
+     *   LAST-TOUCH IS NOT ASSUMED EITHER. Only the request that actually carried the tag is
+     *   counted; no tag is carried forward across a visit.
+     *
+     * THE PRE-FILTER IS A SUPERSET, DELIBERATELY. `LIKE '%utm%'` narrows the read cheaply but
+     * decides nothing: what counts as a tag is settled by parsing the query string, so
+     * `/products/autumn-outmoded-hat` and `?sutm_source=` are read and then dropped. A tighter
+     * SQL pattern would have to reason about LIKE's own `_` wildcard and could silently MISS
+     * campaign traffic, which is the worse failure of the two.
+     */
+    private static function campaigns(int $storeId, CarbonInterface $from, CarbonInterface $to, string $period): array
+    {
+        // MAX + 1, so "exactly full" is distinguishable from "more than fits" -- the same reason
+        // `channels()` reads one extra row rather than testing `>= MAX`.
+        $raw = self::groupedVisits($storeId, $from, $to, 'url', self::MAX_CAMPAIGN_URL_ROWS + 1, '%utm%');
+        $capped = count($raw) > self::MAX_CAMPAIGN_URL_ROWS;
+
+        if ($capped) {
+            $raw = array_slice($raw, 0, self::MAX_CAMPAIGN_URL_ROWS);
+        }
+
+        $buckets = [];
+
+        foreach ($raw as $row) {
+            $tags = self::campaignTags((string) ($row->bucket ?? ''));
+
+            if ($tags === null) {
+                continue;
+            }
+
+            [$source, $campaign] = $tags;
+
+            /*
+             * A CAMPAIGN NAME AND A SOURCE ARE DIFFERENT QUESTIONS AND BOTH ARE SHOWN. Folding
+             * `spring` from the newsletter together with `spring` from Instagram would hide the
+             * one thing the merchant is asking -- which channel delivered it. A half-tagged link
+             * (source only) keeps its own row rather than being dropped, because half-tagged
+             * links are what people actually paste.
+             */
+            $label = $campaign === '' ? $source : $campaign.' — '.$source;
+
+            $buckets[$label] = ($buckets[$label] ?? 0) + (int) $row->total;
+        }
+
+        // One orderer, in PHP, because the buckets are formed after the SQL read -- a second
+        // `orderBy` in the query would make either orderer individually revertible and so
+        // untestable, which a mutation caught on `sources()`.
+        arsort($buckets);
+
+        $rows = [];
+
+        foreach ($buckets as $label => $count) {
+            $rows[] = ['label' => (string) $label, 'count' => self::ltr(number_format($count))];
+        }
+
+        $notes = [];
+
+        if ($rows === []) {
+            // An empty panel that says nothing leaves a merchant unable to tell "no tagged
+            // traffic" from "this is broken".
+            $notes[] = __('No visit in this period arrived on a link carrying campaign tags, so there is nothing to break down. Nothing is estimated.');
+            $notes[] = __('Add utm_source and utm_campaign to the links you share to see them counted here.');
+        } else {
+            $notes[] = __('Each line counts landings: requests that arrived carrying campaign tags. It is not a count of people or of sessions, and a visitor who arrives on a tagged link and then browses further adds one line here and several page views to the figure above, so the two are not comparable.');
+            $notes[] = __('No order is linked to a campaign anywhere in the data, so this cannot say what a campaign earned and no revenue figure is offered. It reports arrivals only.');
+            $notes[] = __('A link tagged with a source but no campaign name is shown under its source alone.');
+        }
+
+        if ($capped) {
+            $notes[] = __('Only the :count most common tagged landing addresses were read, so a rarely used tagged link may not be represented in any row.', [
+                'count' => self::ltr(number_format(self::MAX_CAMPAIGN_URL_ROWS)),
+            ]);
+        }
+
+        return ['rows' => $rows, 'period' => $period, 'hint' => implode(' ', $notes)];
+    }
+
+    /**
+     * The `[source, campaign]` a URL carries, or NULL when it carries no usable tag.
+     *
+     * A campaign with no SOURCE returns null: `utm_campaign=spring` alone names a campaign but
+     * not where it ran, and a row labelled only `spring` would sit beside rows labelled
+     * `spring — newsletter` and read as a third channel. Recorded rather than silently dropped
+     * in a comment, because it is a judgement and not a fact.
+     *
+     * @return array{0: string, 1: string}|null
+     */
+    private static function campaignTags(string $url): ?array
+    {
+        $query = parse_url($url, PHP_URL_QUERY);
+
+        if (! is_string($query) || $query === '') {
+            return null;
+        }
+
+        parse_str($query, $parameters);
+
+        $values = [];
+
+        foreach (self::CAMPAIGN_TAGS as $tag) {
+            $raw = $parameters[$tag] ?? '';
+            // An array-shaped parameter (`utm_source[]=x`) is not a tag; `trim` would fatal on it.
+            $values[$tag] = is_string($raw) ? trim($raw) : '';
+        }
+
+        if ($values['utm_source'] === '') {
+            return null;
+        }
+
+        return [$values['utm_source'], $values['utm_campaign']];
+    }
+
     private static function channels(int $storeId, CarbonInterface $from, CarbonInterface $to, string $period, int $visits): array
     {
         /*
@@ -876,7 +1159,7 @@ final class MerchantAnalyticsFigures
      *
      * @return list<object>
      */
-    private static function groupedVisits(int $storeId, CarbonInterface $from, CarbonInterface $to, string $column, ?int $limit = null): array
+    private static function groupedVisits(int $storeId, CarbonInterface $from, CarbonInterface $to, string $column, ?int $limit = null, ?string $contains = null): array
     {
         if (! in_array($column, self::GROUPABLE_VISIT_COLUMNS, true)) {
             throw new \InvalidArgumentException('visits cannot be grouped by ' . $column);
@@ -888,6 +1171,17 @@ final class MerchantAnalyticsFigures
             ->whereBetween('created_at', [$from, $to])
             ->groupBy($column)
             ->orderByDesc('total');
+
+        /*
+         * An OPTIONAL coarse pre-filter, bound as a parameter. It exists so the campaign read
+         * does not pull every distinct storefront URL through the row cap before discovering that
+         * almost none carry tags -- without it the cap would drop campaign traffic systematically
+         * on any busy store. It narrows the READ and decides nothing: the caller parses what
+         * comes back.
+         */
+        if ($contains !== null) {
+            $query->where($column, 'like', $contains);
+        }
 
         if ($limit !== null) {
             $query->limit($limit);

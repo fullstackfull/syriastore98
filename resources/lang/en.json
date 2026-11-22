@@ -4481,5 +4481,16 @@
     "No page views were recorded in the earlier period, so there is no rate to compare against.": "No page views were recorded in the earlier period, so there is no rate to compare against.",
     "Payment-processing fees are not subtracted: no fee is recorded for any order, so margin is overstated by whatever the gateway charged.": "Payment-processing fees are not subtracted: no fee is recorded for any order, so margin is overstated by whatever the gateway charged.",
     "Review unmatched payments": "Review unmatched payments",
-    "Payments a gateway reported as captured that no order could be matched to.": "Payments a gateway reported as captured that no order could be matched to."
+    "Payments a gateway reported as captured that no order could be matched to.": "Payments a gateway reported as captured that no order could be matched to.",
+    "Campaign traffic": "Campaign traffic",
+    "Campaign": "Campaign",
+    "Landings": "Landings",
+    "No visit in this period arrived on a link carrying campaign tags, so there is nothing to break down. Nothing is estimated.": "No visit in this period arrived on a link carrying campaign tags, so there is nothing to break down. Nothing is estimated.",
+    "Add utm_source and utm_campaign to the links you share to see them counted here.": "Add utm_source and utm_campaign to the links you share to see them counted here.",
+    "Each line counts landings: requests that arrived carrying campaign tags. It is not a count of people or of sessions, and a visitor who arrives on a tagged link and then browses further adds one line here and several page views to the figure above, so the two are not comparable.": "Each line counts landings: requests that arrived carrying campaign tags. It is not a count of people or of sessions, and a visitor who arrives on a tagged link and then browses further adds one line here and several page views to the figure above, so the two are not comparable.",
+    "No order is linked to a campaign anywhere in the data, so this cannot say what a campaign earned and no revenue figure is offered. It reports arrivals only.": "No order is linked to a campaign anywhere in the data, so this cannot say what a campaign earned and no revenue figure is offered. It reports arrivals only.",
+    "A link tagged with a source but no campaign name is shown under its source alone.": "A link tagged with a source but no campaign name is shown under its source alone.",
+    "Only the :count most common tagged landing addresses were read, so a rarely used tagged link may not be represented in any row.": "Only the :count most common tagged landing addresses were read, so a rarely used tagged link may not be represented in any row.",
+    "Page views are recorded against this store from :date, so this period is only partly covered. Earlier visits were not attributed to any store and cannot be counted here.": "Page views are recorded against this store from :date, so this period is only partly covered. Earlier visits were not attributed to any store and cannot be counted here.",
+    "No change against the earlier period is shown: that period reaches back before page views were recorded against this store, so its figure would be understated and the comparison would report a trend that did not happen.": "No change against the earlier period is shown: that period reaches back before page views were recorded against this store, so its figure would be understated and the comparison would report a trend that did not happen."
 }

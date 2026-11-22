@@ -67,6 +67,24 @@ final class AnalyticsComparisonTest extends SecurityTestCase
         return MerchantAnalyticsFigures::forStore($store->id, 'USD', $this->now());
     }
 
+    /**
+     * A STORE WHOSE PAGE-VIEW HISTORY PREDATES EVERY WINDOW THESE TESTS LOOK AT.
+     *
+     * The comparison tiles withhold their delta when the EARLIER window straddles the day page
+     * views began being attributed to the store, because a count taken over part of a window and
+     * compared with a full one reports a trend that did not happen (found by review, 2026-11-22).
+     *
+     * A fixture whose FIRST EVER visit sits inside the baseline window is exactly that case, so
+     * it legitimately gets no comparison -- which is right for the product and useless for a test
+     * about comparison ARITHMETIC. This seeds one visit far enough back that coverage is complete
+     * for every window used here, which is what a real store of any age looks like. It is outside
+     * both the chosen and the baseline window, so it changes no count either test asserts.
+     */
+    private function establishedVisitHistory(int $storeId): void
+    {
+        $this->logVisit($storeId, $this->now()->subDays(400));
+    }
+
     public function test_the_premise_that_both_count_tiles_carry_a_comparison(): void
     {
         [, $store] = $this->makeTenant();
@@ -224,6 +242,8 @@ final class AnalyticsComparisonTest extends SecurityTestCase
     public function test_visits_are_compared_on_their_own_table(): void
     {
         [, $store] = $this->makeTenant();
+
+        $this->establishedVisitHistory($store->id);
 
         $this->logVisit($store->id, $this->now()->subDays(2));
         $this->logVisit($store->id, $this->now()->subDays(3));

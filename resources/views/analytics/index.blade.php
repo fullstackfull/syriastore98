@@ -354,10 +354,15 @@
                        :hint="$figures['visits']['hint']"
                        :comparison="$figures['visits']['comparison']" />
 
+            {{-- `:comparison` was MISSING here while the two tiles above it carried one, so the
+                 rate baseline GAP-227(a) added was computed and shown to nobody. Found by an
+                 independent review after that slice's CI was green; every test asserted the
+                 array rather than the page, so none of them could see it. --}}
             <x-ss.stat :label="__('Conversion')"
                        :value="$figures['conversion']['value']"
                        :period="$figures['conversion']['period']"
-                       :hint="$figures['conversion']['hint']" />
+                       :hint="$figures['conversion']['hint']"
+                       :comparison="$figures['conversion']['comparison'] ?? null" />
 
             <x-ss.stat :label="__('Buyers')"
                        :value="$figures['customers']['value']"
@@ -401,6 +406,9 @@
              would be a false label on a true number -- the defect class this screen keeps fixing.
              The header is per-breakdown now. --}}
         'sources' => ['heading' => __('Orders by channel'), 'column' => __('Sales channel'), 'count' => __('Orders')],
+        {{-- ANA-004. Landings, not visits and not people: the column header says so, because the
+             row beside it is headed `Visits` and a reader compares the two columns. --}}
+        'campaigns' => ['heading' => __('Campaign traffic'), 'column' => __('Campaign'), 'count' => __('Landings')],
     ] as $key => $meta)
         <div class="col-xl-6">
             <div class="ss-card mt-3">

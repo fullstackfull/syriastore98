@@ -56,6 +56,24 @@ final class AnalyticsPeriodFilterTest extends SecurityTestCase
         $visit->save();
     }
 
+    /**
+     * A STORE WHOSE PAGE-VIEW HISTORY PREDATES EVERY WINDOW THESE TESTS LOOK AT.
+     *
+     * The comparison tiles withhold their delta when the EARLIER window straddles the day page
+     * views began being attributed to the store, because a count taken over part of a window and
+     * compared with a full one reports a trend that did not happen (found by review, 2026-11-22).
+     *
+     * A fixture whose FIRST EVER visit sits inside the baseline window is exactly that case, so
+     * it legitimately gets no comparison -- which is right for the product and useless for a test
+     * about comparison ARITHMETIC. This seeds one visit far enough back that coverage is complete
+     * for every window used here, which is what a real store of any age looks like. It is outside
+     * both the chosen and the baseline window, so it changes no count either test asserts.
+     */
+    private function establishedVisitHistory(int $storeId): void
+    {
+        $this->visit($storeId, 400);
+    }
+
     /** The figure's value with the bidi isolates removed, for an exact assertion. */
     private function plain(?string $value): ?string
     {
@@ -291,6 +309,8 @@ final class AnalyticsPeriodFilterTest extends SecurityTestCase
     public function test_the_comparison_baseline_is_labelled_with_the_chosen_periods_length(): void
     {
         [$merchant, $store] = $this->makeTenant();
+
+        $this->establishedVisitHistory($store->id);
 
         $this->visit($store->id, 2);    // inside the chosen 7 days
         $this->visit($store->id, 10);   // inside the 7 days BEFORE that, so the baseline is 1

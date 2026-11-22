@@ -4477,5 +4477,16 @@
     "No page views were recorded in the earlier period, so there is no rate to compare against.": "لم تُسجَّل أي مشاهدات للصفحات في الفترة السابقة، لذلك لا يوجد معدّل للمقارنة به.",
     "Payment-processing fees are not subtracted: no fee is recorded for any order, so margin is overstated by whatever the gateway charged.": "لا تُخصم رسوم معالجة الدفع: لا تُسجَّل أي رسوم لأي طلب، لذلك يكون هامش الربح أعلى من الواقع بمقدار ما اقتطعته بوابة الدفع.",
     "Review unmatched payments": "مراجعة المدفوعات غير المطابَقة",
-    "Payments a gateway reported as captured that no order could be matched to.": "مدفوعات أبلغت بوابة الدفع عن تحصيلها ولم يُعثر على طلب مطابق لها."
+    "Payments a gateway reported as captured that no order could be matched to.": "مدفوعات أبلغت بوابة الدفع عن تحصيلها ولم يُعثر على طلب مطابق لها.",
+    "Campaign traffic": "حركة الحملات",
+    "Campaign": "الحملة",
+    "Landings": "عمليات الوصول",
+    "No visit in this period arrived on a link carrying campaign tags, so there is nothing to break down. Nothing is estimated.": "لم تصل أي زيارة في هذه الفترة عبر رابط يحمل وسوم حملة، لذا لا يوجد ما يمكن تفصيله. لا يوجد أي تقدير.",
+    "Add utm_source and utm_campaign to the links you share to see them counted here.": "أضف utm_source و utm_campaign إلى الروابط التي تشاركها لتظهر محسوبة هنا.",
+    "Each line counts landings: requests that arrived carrying campaign tags. It is not a count of people or of sessions, and a visitor who arrives on a tagged link and then browses further adds one line here and several page views to the figure above, so the two are not comparable.": "يحصي كل سطر عمليات الوصول: الطلبات التي وصلت وهي تحمل وسوم حملة. وهو ليس عدداً للأشخاص ولا للجلسات، والزائر الذي يصل عبر رابط موسوم ثم يتابع التصفح يضيف سطراً واحداً هنا وعدة مشاهدات صفحات إلى الرقم أعلاه، لذا فإن الرقمين غير قابلين للمقارنة.",
+    "No order is linked to a campaign anywhere in the data, so this cannot say what a campaign earned and no revenue figure is offered. It reports arrivals only.": "لا يرتبط أي طلب بحملة في أي موضع من البيانات، لذا لا يمكن لهذا أن يبيّن ما حققته الحملة ولا يُقدَّم أي رقم إيرادات. إنه يبلّغ عن عمليات الوصول فقط.",
+    "A link tagged with a source but no campaign name is shown under its source alone.": "الرابط الموسوم بمصدر دون اسم حملة يُعرض تحت مصدره وحده.",
+    "Only the :count most common tagged landing addresses were read, so a rarely used tagged link may not be represented in any row.": "تمت قراءة أكثر :count عنوان وصول موسوم شيوعاً فقط، لذا قد لا يكون الرابط الموسوم نادر الاستخدام ممثَّلاً في أي سطر.",
+    "Page views are recorded against this store from :date, so this period is only partly covered. Earlier visits were not attributed to any store and cannot be counted here.": "تُسجَّل مشاهدات الصفحات لهذا المتجر اعتباراً من :date، لذا فإن هذه الفترة مغطاة جزئياً فقط. الزيارات الأقدم لم تُنسب إلى أي متجر ولا يمكن احتسابها هنا.",
+    "No change against the earlier period is shown: that period reaches back before page views were recorded against this store, so its figure would be understated and the comparison would report a trend that did not happen.": "لا يُعرض أي تغيّر مقارنةً بالفترة السابقة: فتلك الفترة تمتد إلى ما قبل تسجيل مشاهدات الصفحات لهذا المتجر، لذا سيكون رقمها أقل من الواقع وستُبلّغ المقارنة عن اتجاه لم يحدث."
 }

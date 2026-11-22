@@ -48,6 +48,64 @@ class ConversionBaselineTest extends SecurityTestCase
         ]);
     }
 
+    /**
+     * A STORE WHOSE PAGE-VIEW HISTORY PREDATES EVERY WINDOW THESE TESTS LOOK AT.
+     *
+     * The comparison tiles withhold their delta when the EARLIER window straddles the day page
+     * views began being attributed to the store, because a count taken over part of a window and
+     * compared with a full one reports a trend that did not happen (found by review, 2026-11-22).
+     *
+     * A fixture whose FIRST EVER visit sits inside the baseline window is exactly that case, so
+     * it legitimately gets no comparison -- which is right for the product and useless for a test
+     * about comparison ARITHMETIC. This seeds one visit far enough back that coverage is complete
+     * for every window used here, which is what a real store of any age looks like. It is outside
+     * both the chosen and the baseline window, so it changes no count either test asserts.
+     */
+    private function establishedVisitHistory($store): void
+    {
+        $this->visit($store, now()->subDays(400)->toDateTimeString());
+    }
+
+    /**
+     * THE BASELINE MUST REACH THE SCREEN, not merely the array.
+     *
+     * Found by an independent review of the NEXT slice, after this one was committed and its CI
+     * run was green: `analytics/index.blade.php` passed `:value`, `:period` and `:hint` to the
+     * Conversion tile and NOT `:comparison`, unlike the Orders and Page views tiles above it. So
+     * the rate baseline was computed, tested, exported-adjacent and shown to nobody -- the exact
+     * "shipped into a slot nobody could read" failure `ss.stat`'s own docblock records for hints.
+     *
+     * Every other test in this file asserts the ARRAY, which is why none of them could see it. A
+     * figure that no merchant can read is not delivered, so the assertion is made against the
+     * rendered page.
+     */
+    public function test_the_baseline_is_rendered_on_the_analytics_screen(): void
+    {
+        [$merchant, $store] = $this->makeTenant();
+
+        $this->establishedVisitHistory($store);
+
+        $this->grantPermission($merchant, 'Manage Reports');
+
+        for ($i = 0; $i < 10; $i++) {
+            $this->visit($store, now()->subDays(5)->toDateTimeString());
+            $this->visit($store, now()->subDays(40)->toDateTimeString());
+        }
+
+        $this->order($store, now()->subDays(5)->toDateTimeString());
+        $this->order($store, now()->subDays(40)->toDateTimeString());
+        $this->order($store, now()->subDays(41)->toDateTimeString());
+
+        \Illuminate\Support\Facades\Cache::forget('admin_details');
+
+        $response = $this->actingAs($merchant->fresh())->get('/analytics');
+
+        $this->assertSame(200, $response->status(),
+            'Premise: the analytics screen did not open, so the assertion below measures nothing.');
+
+        $response->assertSee(__('percentage points'), false);
+    }
+
     private function comparison($store): array
     {
         $conversion = MerchantAnalyticsFigures::forStore($store->id, $store->currency ?? 'USD')['conversion'];
@@ -73,6 +131,8 @@ class ConversionBaselineTest extends SecurityTestCase
     {
         [, $store] = $this->makeTenant();
 
+        $this->establishedVisitHistory($store);
+
         $this->order($store, '-2 days');
         for ($i = 0; $i < 50; $i++) {
             $this->visit($store, '-2 days');
@@ -97,6 +157,8 @@ class ConversionBaselineTest extends SecurityTestCase
     public function test_a_falling_rate_is_reported_as_down(): void
     {
         [, $store] = $this->makeTenant();
+
+        $this->establishedVisitHistory($store);
 
         $this->order($store, '-2 days');
         for ($i = 0; $i < 100; $i++) {
@@ -142,6 +204,8 @@ class ConversionBaselineTest extends SecurityTestCase
     public function test_the_rates_baseline_reads_the_same_counts_as_the_tiles_above_it(): void
     {
         [, $store] = $this->makeTenant();
+
+        $this->establishedVisitHistory($store);
 
         $this->order($store, '-45 days');
         for ($i = 0; $i < 20; $i++) {
