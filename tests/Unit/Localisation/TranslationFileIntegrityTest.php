@@ -161,6 +161,93 @@ class TranslationFileIntegrityTest extends TestCase
     }
 
     /**
+     * P4-1 — AN ARABIC VALUE MUST CARRY EVERY PLACEHOLDER ITS ENGLISH KEY DECLARES.
+     *
+     * Laravel substitutes placeholders in the TRANSLATED line, not in the key. So a translation
+     * that drops `:product` is not "the same sentence without a name" -- the name is never
+     * substituted at all, and whatever the caller passed is lost.
+     *
+     * MEASURED, not reasoned. Rendering `__(':product added successfully.', ['product' => 'X'])`
+     * under each locale gave:
+     *
+     *     en   X added successfully.
+     *     ar   :تم إضافة المنتج بنجاح
+     *
+     * -- so every Arabic shopper who added anything to a basket was told that "the product" had
+     * been added, with a stray leading colon where the name should have been, on the single most
+     * frequent confirmation in the storefront. Two pagination strings had the same shape
+     * (`Change :page Page Order`, `Go to page :page`, both rendering the word "page" in place of
+     * the number). All three are fixed; this test is what stops a fourth.
+     *
+     * ONE DECLARED EXCEPTION, by name and with its reason -- a count would hide which. The footer
+     * key `© 2025, eCommerce Theme Powered by:workdo.io` has no space after `by`, so `:workdo`
+     * READS as a placeholder to this scan and to Laravel, but no caller ever passes a `workdo`
+     * replacement: English renders the literal text and the Arabic value spells `by: workdo.io`
+     * with the space. Both are correct as they stand; it is vendored boilerplate, not a defect.
+     */
+    public function test_every_arabic_value_carries_the_placeholders_its_key_declares(): void
+    {
+        $ar = json_decode((string) file_get_contents($this->path('resources/lang/ar.json')), true);
+
+        $this->assertIsArray($ar);
+
+        $allowed = ['© 2025, eCommerce Theme Powered by:workdo.io'];
+        $dropped = [];
+
+        foreach ($ar as $key => $value) {
+            if (in_array($key, $allowed, true)) {
+                continue;
+            }
+
+            preg_match_all('/:([a-zA-Z_][a-zA-Z0-9_]*)/', (string) $key, $inKey);
+
+            if ($inKey[1] === []) {
+                continue;
+            }
+
+            preg_match_all('/:([a-zA-Z_][a-zA-Z0-9_]*)/', (string) $value, $inValue);
+
+            $missing = array_diff(array_unique($inKey[1]), array_unique($inValue[1]));
+
+            if ($missing !== []) {
+                $dropped[] = ':' . implode(', :', $missing) . '  in  "' . $key . '"  ->  "' . $value . '"';
+            }
+        }
+
+        $this->assertSame([], $dropped, sprintf(
+            "%d Arabic value(s) drop a placeholder their English key declares, so the value the "
+            . "caller passes is never substituted and the Arabic reader loses it:\n%s",
+            count($dropped),
+            implode("\n", $dropped)
+        ));
+    }
+
+    /**
+     * The scan above must actually be looking at the Arabic file and at placeholders.
+     *
+     * Its assertion is `assertSame([], ...)`, which an empty read satisfies just as well as a
+     * clean file -- the same way the double-dot scan below needed its own premise test.
+     */
+    public function test_the_placeholder_scan_reads_the_arabic_file(): void
+    {
+        $ar = json_decode((string) file_get_contents($this->path('resources/lang/ar.json')), true);
+
+        $this->assertIsArray($ar);
+        $this->assertGreaterThan(4000, count($ar), 'The Arabic file read far smaller than it is.');
+
+        $withPlaceholders = 0;
+
+        foreach (array_keys($ar) as $key) {
+            if (preg_match('/:[a-zA-Z_]/', (string) $key) === 1) {
+                $withPlaceholders++;
+            }
+        }
+
+        $this->assertGreaterThan(50, $withPlaceholders,
+            'Almost no key was seen to declare a placeholder, so the scan above had nothing to check.');
+    }
+
+    /**
      * P2.5-PKG-J — a translation must not end in a bare `..`.
      *
      * FOUND BY LOOKING AT A SCREENSHOT, not by a test and not by reading the file. The Arabic

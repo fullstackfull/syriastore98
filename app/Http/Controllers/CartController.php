@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\{ActivityLog, ProductAttributeOption, ProductVariant, Store};
 use App\Models\Utility;
+use App\Support\Commerce\GuestBasketIdentity;
 use App\Services\AbandonedMessageDispatch;
 use App\Models\Cart;
 use App\Models\{Customer, Product, User};
@@ -398,7 +399,24 @@ class CartController extends Controller
                 }
             }
 
-            $session_id = session()->getId();
+            /*
+             * P4-F004. THE BASKET THIS REQUEST IS ABOUT, NOT THE SESSION THIS REQUEST IS IN.
+             *
+             * This was `session()->getId()`. Every READER of a guest basket keys it on the `cart`
+             * cookie (`cart_remove`:135, `cartClear`:170, `change_cart`:189,
+             * `Cart::cart_list_cookie`:243, `PaymentService`, the gateway return handlers,
+             * `CustomerLoginController`'s sign-in migration) -- only this writer keyed it on the
+             * session id, and then overwrote the cookie with it where it is queued below.
+             *
+             * A session lives 120 minutes (`config/session.php`); the cookie below is queued for
+             * 1440. So for twenty-two hours of every day the cookie outlives the session that
+             * minted its value, and the first add after the id turned over created a row under an
+             * identifier no earlier row carried AND renamed the basket to it: every line already
+             * in that basket became unreadable, unbuyable and undeletable at once. To the shopper,
+             * adding an item emptied their basket; to the merchant it is an abandoned basket the
+             * shopper did not abandon.
+             */
+            $session_id = GuestBasketIdentity::forRequest();
             $cart = Cart::forGuestCookie($session_id)
                 ->where('product_id', $request->product_id)
                 ->where('variant_id', $variant_id)
@@ -556,7 +574,23 @@ class CartController extends Controller
         $cart->save();
 
         if (!$customer) {
-            $cart_count = Cart::forGuestCookie($session_id)->count();
+            /*
+             * THE BADGE COUNTS THIS STORE, which the lookup and the write above already do and
+             * this line did not. `Cart` is allowlisted in `config/tenancy.php`, but
+             * `null_tenant => 'open'` means the global scope adds NO predicate for an anonymous
+             * guest -- so an unscoped count here answered with the shopper's lines in EVERY store
+             * that shares the cookie (`config/session.php`'s path is `/`, and storefronts are
+             * path-prefixed on one host). A shopper who had visited store B saw B's lines in
+             * store A's basket badge.
+             *
+             * Pre-existing -- the session id spanned stores within a session too -- but the fix
+             * above makes the identifier last the cookie's 24 hours instead of the session's two,
+             * so the window grows and it is closed here. Found by the independent review of this
+             * change, which also noted the shape: for a signed-in MERCHANT browsing a storefront
+             * the scope DOES resolve and narrow this line, so the control worked for one
+             * principal and not for another.
+             */
+            $cart_count = Cart::forGuestCookie($session_id)->where('store_id', $store->id)->count();
             Cookie::queue('cart', $session_id, 1440);
         } else {
             $cart_count = Cart::where('customer_id', $customer_id)->where('store_id', $store->id)->count();

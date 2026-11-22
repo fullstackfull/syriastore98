@@ -874,11 +874,20 @@ private function normalizePhone($phone)
         // rendered, so an admin form left open in another tab answers 419 and needs a reload.
         // `invalidate()` does the same and takes the session with it.
         //
-        // WHY GATED. A GUEST cart row is keyed to `session()->getId()` (`Cart.php:154`,
-        // `CartController.php:352`) and the add path rewrites the `cart` cookie to the current id,
-        // so rotating the id for a caller who never had a shopper session orphans that caller's
-        // basket -- measured through `POST {slug}/product_cart`: one row became two. A logged-in
-        // shopper has nothing to lose, because their row carries `cookie_session_id = NULL`.
+        // WHY GATED -- AND THE BASKET HALF OF THIS REASON NO LONGER HOLDS (P4-F004, 2026-11-22).
+        // It used to read: a GUEST cart row is keyed to `session()->getId()` and the add path
+        // rewrites the `cart` cookie to the current id, so rotating the id for a caller who never
+        // had a shopper session orphans that caller's basket -- measured through
+        // `POST {slug}/product_cart`: one row became two. That was true of the WRITER, and the
+        // writer is where it has now been fixed: `CartController::product_cartlist` takes the
+        // identifier from the `cart` cookie (`App\Support\Commerce\GuestBasketIdentity`) and no
+        // longer renames the basket, so rotating a guest's session id orphans nothing.
+        //
+        // THE GATE STAYS, on its OTHER and independent justification, set out above: this route
+        // carries no auth middleware and the two guards share one cookie, so rotating for a caller
+        // who never held a shopper session wipes a `web` session -- an admin's -- that nobody
+        // asked to end. A logged-in shopper has nothing to lose either way, because their row
+        // carries `cookie_session_id = NULL`.
         //
         // The test is on the SESSION KEY, not `Auth::guard('customers')->check()`: no provider
         // lookup, and immune to `SessionGuard`'s `$loggedOut` memoisation, which made a

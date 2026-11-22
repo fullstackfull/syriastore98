@@ -146,7 +146,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Middleware/ThemeEditorAccess.php:59` | Theme editor access refused. |
 | `app/Http/Middleware/ThemeDraftAccess.php:56` | Theme draft access refused. |
 | `app/Http/Controllers/Api/ApiController.php:6363` | shipping quote refused a cart line naming another store |
-| `app/Models/Cart.php:1314` | flat-rate shipping refused a cart line naming another store |
+| `app/Models/Cart.php:1319` | flat-rate shipping refused a cart line naming another store |
 | `app/Http/Controllers/PaymentCallbackController.php:106` | Paytm plan callback refused: no usable order reference. |
 | `app/Http/Controllers/PaymentCallbackController.php:131` | Paytm plan callback refused: the provider did not confirm the payment. |
 | `app/Http/Controllers/PaymentCallbackController.php:163` | Paytm plan callback refused at the intent. |
@@ -197,10 +197,10 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Api/DeliverySyriaOrderController.php:84` | Delivery Syria invalid credentials |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:356` | Pending partial payment refused: the balance named does not belong to this customer. |
 | `app/Http/Controllers/AuthorizeNetPaymnetController.php:398` | AuthorizeNet capture refused: no server-computed payable in the stored state. |
-| `app/Http/Controllers/CartController.php:261` | product_cart: refused a non-positive or non-integer quantity |
-| `app/Http/Controllers/CartController.php:314` | product_cart: refused a product belonging to another store |
-| `app/Http/Controllers/CartController.php:1398` | abandoned-cart e-mail nudge failed |
-| `app/Http/Controllers/CartController.php:1585` | abandoned-cart WhatsApp nudge failed |
+| `app/Http/Controllers/CartController.php:262` | product_cart: refused a non-positive or non-integer quantity |
+| `app/Http/Controllers/CartController.php:315` | product_cart: refused a product belonging to another store |
+| `app/Http/Controllers/CartController.php:1432` | abandoned-cart e-mail nudge failed |
+| `app/Http/Controllers/CartController.php:1619` | abandoned-cart WhatsApp nudge failed |
 | `app/Http/Controllers/WishlistController.php:310` | abandoned-wishlist e-mail nudge failed |
 | `app/Http/Controllers/WishlistController.php:728` | abandoned-wishlist WhatsApp nudge failed |
 | `app/Services/Reports/ScheduledReportRunner.php:197` | scheduled analytics report: stored recipient differs from the owner address; using the owner |
@@ -223,7 +223,7 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/RestoresCancelledOrderStock.php:208` | Order cancellation skipped a line the stock record says never took stock out |
 | `app/Http/Controllers/Concerns/RestoresCancelledOrderStock.php:252` | Order cancellation skipped a line whose variant does not belong to its product |
 | `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:778` | customer login: refused a social row still holding its module-assigned password |
-| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:1007` | Newsletter subscription failed during customer registration |
+| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:1016` | Newsletter subscription failed during customer registration |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:95` | Delivery Syria status webhook: invalid credentials. |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:179` | Zid store not found for order status sync. |
 | `app/Http/Controllers/ESewaPaymentController.php:196` | Plan payment return rejected: claimed amount does not match the plan price. |

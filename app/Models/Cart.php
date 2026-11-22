@@ -923,7 +923,12 @@ class Cart extends Model
 
             // P1-SEC-24. The count of THIS guest's basket. It was `Cart::where('customer_id', $request->user_id)`: a
             // request-chosen customer's line count (an oracle for any customer id), or, with no user_id, the NULL-customer rows.
-            $cart_count = Cart::forGuestCookie($Carts)->count();
+            // P4-F004 follow-up. SCOPED TO THE STORE THE CHANGED LINE BELONGS TO, for the reason
+            // given at `CartController::product_cartlist`'s own count: `null_tenant => 'open'`
+            // means the global scope adds no predicate for a guest, so this counted the shopper's
+            // lines in every store sharing the `cart` cookie and reported them as this store's
+            // basket. `$cart_array` is non-null here -- the `empty()` arm returned above.
+            $cart_count = Cart::forGuestCookie($Carts)->where('store_id', $cart_array->store_id)->count();
             return Utility::success(['message' => 'Cart successfully updated.'], "successfull", 200, $cart_count);
         }
     }

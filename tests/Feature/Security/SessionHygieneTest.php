@@ -389,9 +389,12 @@ class SessionHygieneTest extends SecurityTestCase
         $this->assertStringContainsString(
             "\$hadCustomerSession = \$session->has(Auth::guard('customers')->getName());",
             $logout,
-            'The rotation must be gated on whether this cookie really held a shopper session. A '
-            . "GUEST cart row is keyed to session()->getId() (Cart.php:154), so rotating a "
-            . "guest's id orphans their basket -- measured: one row became two.");
+            'The rotation must be gated on whether this cookie really held a shopper session: '
+            . 'the web and customers guards share one cookie and this route has no auth '
+            . 'middleware, so rotating for a caller who never held a shopper session wipes an '
+            . "admin's web session. (The gate's ORIGINAL reason -- that rotating orphaned a "
+            . 'guest basket keyed on session()->getId() -- was fixed at the writer by P4-F004 '
+            . 'and is no longer why this gate is here.)');
         $this->assertStringContainsString('if ($hadCustomerSession) {', $logout);
         $this->assertStringNotContainsString("guard('customers')->check()", $logout,
             'Do not gate on check(): it made a probe report "never rotates" when it always did.');
