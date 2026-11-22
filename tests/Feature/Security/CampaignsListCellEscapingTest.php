@@ -246,6 +246,27 @@ final class CampaignsListCellEscapingTest extends SecurityTestCase
             . 'principal, the operator included.');
     }
 
+    /** A STATUS THE MODULE'S OWN MAP DOES NOT HOLD, which was an undefined key and so a 500. */
+    public function test_a_campaign_with_an_unknown_status_does_not_break_the_list(): void
+    {
+        $this->enable();
+
+        $operator = $this->makePlatformAdmin();
+
+        [$merchant, $store] = $this->makeTenant();
+        $product = $this->productFor($merchant, $store, 'Ordinary product');
+
+        $id = $this->campaign($merchant, $store, $product, 'ODD STATUS PLACEMENT');
+        DB::table('campaigns')->where('id', $id)->update(['status' => 9]);
+
+        $body = $this->drawFor(User::find($operator->id));
+
+        $this->assertStringContainsString('ODD STATUS PLACEMENT', $body,
+            'A campaign whose `status` is outside the module\'s own four-entry map made the whole '
+            . 'list unreadable: `Campaigns::$statuses[$status]` was an undefined key, which '
+            . 'Laravel\'s handler promotes to a 500.');
+    }
+
     /** THE STATUS BADGE IS MARKUP THE MODULE MEANS, so escaping the data must not escape that. */
     public function test_the_status_badge_is_still_rendered_as_markup(): void
     {
@@ -259,9 +280,17 @@ final class CampaignsListCellEscapingTest extends SecurityTestCase
 
         $body = $this->drawFor(User::find($operator->id));
 
+        /*
+         * THE NEGATIVE IS THE LOAD-BEARING HALF, and the first version of this case did not have
+         * it. Dropping `status` from `rawColumns` makes yajra escape the module's own badge markup
+         * -- and the escaped form still CONTAINS the string `btn-badge`, inside
+         * `&lt;span class=&quot;...btn-badge...`, so a contains-assertion alone passed the mutation.
+         */
         $this->assertStringContainsString('btn-badge', $body,
-            'The status badge is no longer rendered as HTML, so escaping the DATA has escaped the '
-            . 'module\'s own markup with it.');
+            'The status badge markup is missing entirely.');
+        $this->assertStringNotContainsString('&lt;span class=&quot;btn', $body,
+            'The status badge is no longer rendered as HTML -- it arrives escaped, so escaping the '
+            . 'DATA has escaped the module\'s own markup with it.');
         $this->assertStringContainsString('Active', $body, 'The status label is missing from the badge.');
     }
 }

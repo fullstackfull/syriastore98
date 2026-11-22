@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Workdo\Campaigns\app\Models\Campaigns;
 use Workdo\Campaigns\DataTables\AllCampaignsData;
+use Yajra\DataTables\EloquentDataTable;
 
 /**
  * P1-SEC-69 — THE CAMPAIGNS LIST, SCOPED TO THE CALLER'S OWN TENANT.
@@ -63,10 +64,13 @@ use Workdo\Campaigns\DataTables\AllCampaignsData;
  * so Laravel resolves this subclass. That is the mechanism P1-SEC-75 already uses for the three
  * Helpdesk lists, and it leaves `packages/workdo/` untouched.
  *
- * ONLY `query()` IS REPLACED. `dataTable()`, the columns, the HTML builder and the filename stay
- * the vendored ones — this is a tenancy fix, not a re-implementation, and every cell the module
- * renders is unchanged. `parent::query()` is NOT called: it would run the unscoped expiry loop
- * before this method could narrow anything.
+ * `query()` AND `dataTable()` ARE REPLACED; the columns, the HTML builder and the filename stay the
+ * vendored ones. `query()` is the tenancy fix. `dataTable()` is P1-SEC-69 (d) and is a DIFFERENT
+ * defect in the same class — see the method. `parent::query()` is NOT called: it would run the
+ * unscoped expiry loop before this method could narrow anything.
+ *
+ * (This paragraph said "only `query()` is replaced" while that was true; it is kept in the shape of
+ * a claim about the code because that is what makes it checkable.)
  */
 final class TenantScopedCampaignsData extends AllCampaignsData
 {
@@ -132,5 +136,72 @@ final class TenantScopedCampaignsData extends AllCampaignsData
         });
 
         return $query;
+    }
+
+    /**
+     * THE CELLS, WITH THE DATA ESCAPED AND THE MODULE'S OWN MARKUP KEPT.
+     *
+     * The vendored `dataTable()` declares `user`, `store` and `product` RAW and fills each with
+     * merchant-written text (`ucfirst($campaigns->users->name)`), which is a stored-XSS sink whose
+     * most privileged reader is the platform OPERATOR: their list is every tenant's by design, and
+     * approving a placement is exactly what puts another tenant's product name on their screen.
+     * This is the shape `SafeHelpdeskData` already fixes for the three Helpdesk lists (P1-SEC-75)
+     * and the shape P1-SEC-79 fixed for support-ticket text.
+     *
+     * THE STRUCTURE IS THE VENDORED ONE, deliberately: the same columns, the same `rawColumns` set,
+     * the same badge classes, the same `filterColumn` closures (which yajra attaches with
+     * `addNestedWhereQuery`, so they can only narrow the already-scoped query). Only the DATA goes
+     * through `e()`. A test asserts the badge is still rendered as markup, so escaping the data
+     * cannot quietly escape the module's own HTML with it.
+     *
+     * AND THE THREE RELATIONS ARE NULL-SAFE, which is a second defect in the same three lines.
+     * `->products->name` dereferences a `hasOne` with no guard, and `campaigns.product` holds a
+     * COMMA-SEPARATED LIST of ids (`viewCampaigns()` explodes it), so a campaign naming more than
+     * one product -- or one whose product, store or user row has been deleted -- made the relation
+     * null and the WHOLE draw answer 500. One such row and nobody could open the screen, the
+     * operator included. Measured both ways.
+     */
+    public function dataTable(QueryBuilder $query): EloquentDataTable
+    {
+        return (new EloquentDataTable($query))
+            ->addIndexColumn()
+            ->addColumn('action', function (Campaigns $campaigns) {
+                return view('campaigns::action', compact('campaigns'));
+            })
+            ->editColumn('user', fn ($campaigns) => e(ucfirst((string) ($campaigns->users->name ?? ''))))
+            ->filterColumn('user', function ($query, $keyword) {
+                $query->whereHas('users', function ($q) use ($keyword) {
+                    $q->where('name', 'like', "%{$keyword}%");
+                });
+            })
+            ->editColumn('store', fn ($campaigns) => e(ucfirst((string) ($campaigns->stores->name ?? ''))))
+            ->filterColumn('store', function ($query, $keyword) {
+                $query->whereHas('stores', function ($q) use ($keyword) {
+                    $q->where('name', 'like', "%{$keyword}%");
+                });
+            })
+            ->editColumn('product', fn ($campaigns) => e(ucfirst((string) ($campaigns->products->name ?? ''))))
+            ->filterColumn('product', function ($query, $keyword) {
+                $query->whereHas('products', function ($q) use ($keyword) {
+                    $q->where('name', 'like', "%{$keyword}%");
+                });
+            })
+            ->editColumn('status', function ($campaigns) {
+                $badgeClass = match ((int) $campaigns->status) {
+                    0 => 'bg-danger',
+                    1 => 'bg-info',
+                    2 => 'bg-warning',
+                    3 => 'bg-secondary',
+                    default => '',
+                };
+
+                // `$statuses` is the module's own four-entry map; an id outside it used to be an
+                // undefined-key warning, which Laravel's handler promotes to a 500.
+                $label = Campaigns::$statuses[(int) $campaigns->status] ?? '';
+
+                return '<span class="btn btn-sm btn-icon btn-badge ' . $badgeClass
+                    . '" style="cursor: default;">' . e($label) . '</span>';
+            })
+            ->rawColumns(['action', 'status', 'user', 'store', 'product']);
     }
 }
