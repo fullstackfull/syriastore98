@@ -260,6 +260,29 @@ final class ModuleRouteManifest
         'GET contacts/edit/{id}' => 'store-row:marketing_contacts:id',
         'POST contacts/update/{id}' => 'store-row:marketing_contacts:id',
         'POST count-down-setting' => 'settings:store',
+        /*
+         * P1-SEC-89 (a) -- A CUSTOMER'S LOYALTY HISTORY, KEYED ON THE CUSTOMER'S ID.
+         *
+         * `RewardClubPointController::clubPointHistory($customerId)` runs
+         * `RewardClubPoint::with('orderData')->where('customer_id', $customerId)->get()` with no
+         * permission check and no store predicate, and `RewardClubPoint` is NOT one of the eleven
+         * `config/tenancy.php` `scoped_models` and declares only `HasFactory, Cachable`. So the
+         * points, used_points, reward_price, order_id and product_id of SOMEBODY ELSE'S shopper
+         * were rendered.
+         *
+         * EASY TO MISS, AND WORTH SAYING WHY: `App\Models\Customer` IS scoped, so the
+         * `Customer::find($customerId)` beside that query returns null for another tenant's
+         * customer and the page renders with no customer at all -- it looks broken rather than
+         * leaky, while the figures beside it are real and foreign.
+         *
+         * THE RULE NAMES `customers`, NOT `reward_club_points`, and that is the whole point of
+         * classifying this door separately from the module's `show()` below: the parameter is a
+         * CUSTOMER id, so the row whose ownership decides the request is the customer's.
+         * `store-row:reward_club_points:customerId` would compare a customer id against
+         * reward-row ids and so admit or refuse the wrong rows -- a rule that is wrong in a way
+         * that still looks like a control.
+         */
+        'GET customer-club-point-history/{customerId}' => 'store-row:customers:customerId',
         'POST coupencode/Status/store' => 'auth',
         'POST couponemail-settings' => 'settings:global',
         'GET couponlist' => 'auth',
@@ -429,6 +452,27 @@ final class ModuleRouteManifest
         'POST purchase-notification-setting' => 'settings:store',
         'POST recent-orders-settings' => 'settings:store',
         'POST recently-view-setting' => 'settings:store',
+        /*
+         * P1-SEC-89 (b) -- THE POINT TRANSACTION ITSELF.
+         *
+         * `show($id)` is `RewardClubPoint::find($id)` then `explode(',', $row->product_id)`, with
+         * no check of any kind, so another tenant's transaction rendered its product ids; and a
+         * null row made `->product_id` a 500 rather than a refusal.
+         *
+         * `reward_club_points` carries `store_id`, so the existing rule reaches it. Here the
+         * parameter IS the reward row's id, which is why this rule names a different table from
+         * the history route above.
+         *
+         * THE OTHER VERBS ARE INERT AND ARE CLASSIFIED ANYWAY: `destroy()` and `update()` have
+         * empty bodies (`//`) and `edit()` returns a static view and ignores its id. Listed for
+         * the reason P1-SEC-84 listed `contacts/update` and P1-SEC-87 the three dead resource
+         * verbs -- a rule must not depend on a method body staying empty.
+         */
+        'DELETE rewardclubpoint/{rewardclubpoint}' => 'store-row:reward_club_points:rewardclubpoint',
+        'GET rewardclubpoint/{rewardclubpoint}' => 'store-row:reward_club_points:rewardclubpoint',
+        'PATCH rewardclubpoint/{rewardclubpoint}' => 'store-row:reward_club_points:rewardclubpoint',
+        'PUT rewardclubpoint/{rewardclubpoint}' => 'store-row:reward_club_points:rewardclubpoint',
+        'GET rewardclubpoint/{rewardclubpoint}/edit' => 'store-row:reward_club_points:rewardclubpoint',
         'GET request-amount/{id}/{status}' => 'store-row:transaction_orders:id',
         'GET search-products-barcode' => 'auth',
         'POST skip-cart-settings' => 'settings:store',
