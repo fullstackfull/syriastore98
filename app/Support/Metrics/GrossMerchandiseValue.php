@@ -33,6 +33,83 @@ final class GrossMerchandiseValue extends Metric implements SingleFigureMetric
 
     public function for(MetricScope $scope, MetricWindow $window): MetricResult
     {
+        $query = $this->placedOrders($scope, $window);
+
+        $aggregate = $this->sumByCurrency(
+            $query,
+            'orders.currency_code',
+            'orders.final_price'
+        );
+
+        return MetricResult::make(
+            $this->key(),
+            MetricResult::RECORD_SETTLEMENT,
+            'orders.order_date',
+            $aggregate['byCurrency'],
+            $aggregate['rowCount'],
+            $scope,
+            $window,
+            // `orders.final_price` is FLOAT -- about seven significant digits. GMV is the one
+            // metric with no DECIMAL alternative, because an order that was never given a
+            // financial row has no entitlement figure at all.
+            [MetricCaveat::FLOAT_PRECISION],
+            ['cancellations' => $this->includeCancelled ? 'included' : 'excluded'],
+        );
+    }
+
+    /**
+     * THE SAME FIGURE, PER STORE AND PER CURRENCY -- for a ranking, which is the one thing a
+     * `MetricResult` cannot express.
+     *
+     * It is the same metric and deliberately not a second class: same record, same date column,
+     * same cancellations flag, same FLOAT caveat, same section of the definitions document. A
+     * ranking that reached for its own SQL is how the operator dashboard's "Top Selling Store"
+     * panel came to disagree with every other figure about currency (GAP-162): it summed
+     * `final_price` across every store and ordered by the raw number, so a store trading in a
+     * large-nominal currency outranked every dollar store by arithmetic alone.
+     *
+     * GROUPED BY CURRENCY AS WELL AS BY STORE, AND THE CALLER MUST KEEP THEM APART. Nothing in this
+     * schema stamps an exchange rate onto an order, so two amounts in different currencies are
+     * not comparable -- comparing them is the same error as adding them, which
+     * `MetricResult::total()` already refuses. This method returns the buckets and ranks nothing.
+     *
+     * A null `currency` means the order never recorded one. It is returned as null rather than
+     * guessed here, because the honest fallback is the STORE's own currency and this class does
+     * not read settings; see `PlatformAnalyticsFigures::topStoresByOrderValue()`.
+     *
+     * @return list<array{store_id: int, currency: ?string, amount: float, orders: int}>
+     */
+    public function perStore(MetricScope $scope, MetricWindow $window): array
+    {
+        $rows = $this->placedOrders($scope, $window)
+            ->selectRaw(
+                'orders.store_id as metric_store, '
+                . 'orders.currency_code as metric_currency, '
+                . 'SUM(orders.final_price) as metric_amount, '
+                . 'COUNT(*) as metric_rows'
+            )
+            ->groupBy('orders.store_id', 'orders.currency_code')
+            ->get();
+
+        $buckets = [];
+
+        foreach ($rows as $row) {
+            $currency = $row->metric_currency;
+
+            $buckets[] = [
+                'store_id' => (int) $row->metric_store,
+                'currency' => ($currency === null || trim((string) $currency) === '') ? null : (string) $currency,
+                'amount' => round((float) $row->metric_amount, 2),
+                'orders' => (int) $row->metric_rows,
+            ];
+        }
+
+        return $buckets;
+    }
+
+    /** The orders this metric counts: the scope, the window, and the cancellations choice. */
+    private function placedOrders(MetricScope $scope, MetricWindow $window): \Illuminate\Database\Query\Builder
+    {
         $query = $this->orders($scope);
         $window->applyTo($query, 'orders.order_date');
 
@@ -57,25 +134,6 @@ final class GrossMerchandiseValue extends Metric implements SingleFigureMetric
             });
         }
 
-        $aggregate = $this->sumByCurrency(
-            $query,
-            'orders.currency_code',
-            'orders.final_price'
-        );
-
-        return MetricResult::make(
-            $this->key(),
-            MetricResult::RECORD_SETTLEMENT,
-            'orders.order_date',
-            $aggregate['byCurrency'],
-            $aggregate['rowCount'],
-            $scope,
-            $window,
-            // `orders.final_price` is FLOAT -- about seven significant digits. GMV is the one
-            // metric with no DECIMAL alternative, because an order that was never given a
-            // financial row has no entitlement figure at all.
-            [MetricCaveat::FLOAT_PRECISION],
-            ['cancellations' => $this->includeCancelled ? 'included' : 'excluded'],
-        );
+        return $query;
     }
 }

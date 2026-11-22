@@ -835,10 +835,27 @@ class OperatorImplicitStoreFinancialGuardTest extends SecurityTestCase
      *       `getCurrentStore()` answers 1 for this operator the shared chrome resolves a real store
      *       and the page renders. MEASURED, AND THAT IS FALSE:
      *
-     *         /dashboard  operator, no selection   -> 500
+     *         /dashboard  operator, no selection   -> 500   (REPAIRED 2026-11-22: now 200)
      *         /dashboard  operator, store selected -> 200
      *         /dashboard  merchant, store resolved -> 200
-     *         /dashboard  merchant, no store       -> 500
+     *         /dashboard  merchant, no store       -> 500   (STILL OPEN, and now a different defect)
+     *
+     *       REPAIRED FOR THE OPERATOR ON 2026-11-22, AS THIS NOTE ASKED WHOEVER DID IT TO RECORD.
+     *       The row above and everything below it describe the state this case was written
+     *       against; it is kept because it is the diagnosis the repair was built from.
+     *       `HomeController::handleSuperAdmin()` no longer writes the three undeclared attributes
+     *       onto the authenticated `User` -- they are a plain `$platformTotals` array -- and
+     *       `getOrderChart()` no longer signs an operator out for lacking a store its operator
+     *       branch never reads. So the refusal below now lands on a page that renders, and THE
+     *       REFUSAL REACHES THE EYE, which is the thing this paragraph said it could not do.
+     *
+     *       THE STORELESS MERCHANT'S 500 IS NOT REPAIRED AND IS NO LONGER "THE SAME 500". With the
+     *       operator's cause removed, what is left is a second one: a merchant with no resolvable
+     *       store is signed out by `APP_THEME()` / `getOrderChart()`, the redirect those return is
+     *       assigned and never sent, and `handleRegularUser()` carries on to dereference the store
+     *       it does not have. That is recorded on the gap register with its root cause -- store
+     *       deletion re-points only the DELETING user's `current_store` -- and is asserted below as
+     *       the open finding it still is.
      *
      *       AND THE CAUSE IS NOT THE ONE THE NULL-STORE SLICE RECORDED. That slice attributes the
      *       storeless `/dashboard` 500 to `partision/header.blade.php` handing a null store to
@@ -884,48 +901,68 @@ class OperatorImplicitStoreFinancialGuardTest extends SecurityTestCase
             'the refusal no longer terminates at the dashboard, so the measurement below is about '
             . 'a page this guard no longer sends anybody to');
 
-        $landing = $this->actingAs($this->operator)->get(route('dashboard'));
-        $this->assertSame(500, $landing->getStatusCode(),
-            'RECORDED OPEN FINDING, NOT A REQUIREMENT. /dashboard was measured as a 500 for a '
-            . 'principal who resolves no store, because HomeController:224 sets users.total_user / '
-            . 'total_orders / total_plan, which NO migration declares. If this now passes, the '
-            . 'chrome or the schema has been repaired -- that is good news: change this assertion '
-            . 'to assertNotSame(500, ...) and delete this note.');
+        /*
+         * THE REFUSAL NOW LANDS ON A PAGE THAT RENDERS. This was `assertSame(500, ...)`, a recorded
+         * open finding with an instruction to change it rather than delete it when the cause was
+         * repaired. It was repaired on 2026-11-22 (see the note in the docblock above), so it is
+         * asserted as the requirement it always should have been -- and the flashed message is
+         * followed through to the page, because a refusal nobody can read was the whole complaint.
+         */
+        $landing = $this->actingAs($this->operator)
+            ->withSession(['error' => $refused->getSession()->get('error')])
+            ->get(route('dashboard'));
+        $this->assertSame(200, $landing->getStatusCode(),
+            '/dashboard no longer renders for an operator who has selected no store, so the '
+            . 'refusal at /finance sends them to an error page again and the message is never seen.');
+        $this->assertStringContainsString(__('No store is selected.'), (string) $landing->getContent(),
+            'the refusal was redirected to a dashboard that renders, and the reason for it is '
+            . 'still not on the page -- so it reaches the screen and not the eye.');
 
-        // THE SAME 500 FOR A STORELESS MERCHANT, so it is a shared-chrome / schema defect and not
-        // something this operator guard introduced. Without this the case above would read as a
-        // defect created here.
+        // THE CONTROL: the same page with nothing flashed does not carry the sentence. Without
+        // this the assertion above would be satisfied by a translation table or any other copy of
+        // the words that the layout happens to embed.
+        $this->assertStringNotContainsString(
+            __('No store is selected.'),
+            (string) $this->actingAs(User::find($this->operator->id))->get(route('dashboard'))->getContent(),
+            'the dashboard carries the refusal sentence even when nothing was refused, so the '
+            . 'assertion above proves nothing about the message being delivered.'
+        );
+
+        // A STORELESS MERCHANT STILL GETS A 500, AND IT IS A RECORDED OPEN FINDING, NOT A
+        // REQUIREMENT. It used to be asserted as "the same 500" to show the operator's was not
+        // created by this guard. It is no longer the same: the operator's cause is gone and this
+        // one -- a sign-out whose redirect is assigned and never sent -- is what remains.
         $storelessMerchant = User::find($this->makeMerchant(['current_store' => null])->id);
         $this->assertSame(0, DB::table('stores')->where('created_by', $storelessMerchant->id)->count(),
             'premise: this merchant owns a store, so they are not storeless');
         $this->assertSame(500,
             $this->actingAs($storelessMerchant)->get(route('dashboard'))->getStatusCode(),
-            'a storeless MERCHANT now renders /dashboard while the unselected OPERATOR does not. '
-            . 'That would make the 500 above specific to this guard, which it is not supposed to '
-            . 'be -- re-measure before trusting either case.');
+            'RECORDED OPEN FINDING, NOT A REQUIREMENT. A merchant who resolves no store was '
+            . 'measured as signed out AND answered 500, because HomeController::handleRegularUser() '
+            . 'ignores the redirect getOrderChart() returns and dereferences a null store. If this '
+            . 'now answers a redirect to sign-in, that is the repair: change this assertion and '
+            . 'close the gap-register lead that records it.');
+
+        // Re-authenticate: the storeless merchant's request above ended that session.
 
         /*
-         * (b) THE OPERATOR SWITCHES STORE THEMSELVES -- from a FRESHLY READ instance, and that is
-         * not tidiness. Driving `/dashboard` above left `total_user`, `total_orders` and
-         * `total_plan` SET ON THE IN-MEMORY `User`, because `HomeController:224` assigns them and
-         * the failed save does not unset them. Reusing that instance makes
-         * `StoreController::changeStore`'s `$user->update()` fail against the test schema, so
-         * `current_store` silently stays null and this case reports a LOCKOUT THAT DOES NOT EXIST.
-         * MEASURED both ways: same instance -> current_store NULL; fresh instance -> 1.
+         * (b) THE OPERATOR SWITCHES STORE THEMSELVES.
          *
-         * Over HTTP every request rebuilds the principal from the session, so this is an artefact
-         * of a test driving two requests through one object -- but it is worth naming, because any
-         * test that opens /dashboard for a storeless principal and then saves that same User will
-         * silently write nothing.
+         * This used to need a FRESHLY READ instance, with a long note explaining why: driving
+         * `/dashboard` left `total_user`, `total_orders` and `total_plan` set on the in-memory
+         * `User`, and reusing it made `changeStore`'s `$user->update()` fail silently, reporting a
+         * lockout that did not exist. That pollution is gone with its cause, and the note asked
+         * for exactly this simplification when it was. The premise is now asserted the other way
+         * round, so the decoration cannot come back unnoticed.
          */
         $polluted = array_intersect_key(
             $this->operator->getAttributes(),
             array_flip(['total_user', 'total_orders', 'total_plan'])
         );
-        $this->assertNotSame([], $polluted,
-            'premise: the /dashboard request no longer leaves undeclared attributes on the User '
-            . 'instance, so the re-read below is no longer necessary -- simplify this case and '
-            . 'delete the note above');
+        $this->assertSame([], $polluted,
+            'the /dashboard request is writing undeclared attributes onto the authenticated User '
+            . 'again. Any save of that user later in the same request -- a remember-token cycle is '
+            . 'enough -- fails with an unknown-column error.');
 
         $switch = $this->actingAs(User::find($this->operator->id))
             ->post(route('change.store', $this->storeOne->id));

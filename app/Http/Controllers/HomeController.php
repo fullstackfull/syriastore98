@@ -221,9 +221,27 @@ class HomeController extends Controller
 
     private function handleSuperAdmin($user)
     {
-        $user['total_user'] = $user->countCompany();
-        $user['total_orders'] = PlanOrder::total_orders();
-        $user['total_plan'] = Plan::total_plan();
+        /*
+         * PLAIN DATA, NOT ATTRIBUTES ON THE AUTHENTICATED MODEL.
+         *
+         * These three were written as `$user['total_user'] = ...` -- onto the very `User`
+         * instance the session guard holds, as attributes `users` has no column for. That is
+         * harmless until anything SAVES the user later in the request, and something did:
+         * `getOrderChart()` signed out an operator with no resolvable store, `logout()` cycles the
+         * remember token, and that save became `UPDATE users SET total_user = ...` -- HTTP 500 on
+         * the operator's landing page.
+         *
+         * NOT A DISCOVERY OF THIS CHANGE. The 500 and its cause were already written down as an
+         * open finding in `OperatorImplicitStoreFinancialGuardTest::
+         * test_the_refusal_does_not_strand_the_operator`, with an instruction to turn its
+         * assertion round when somebody repaired it. Repaired 2026-11-22, that assertion turned
+         * round, and `OperatorDashboardWithoutAStoreTest` holds the repair.
+         */
+        $platformTotals = [
+            'stores' => $user->countCompany(),
+            'orders' => PlanOrder::total_orders(),
+            'plans' => Plan::total_plan(),
+        ];
         $chartData = $this->getOrderChart(['duration' => 'week']);
         $topAdmins = $user->createdAdmins()
             ->with('stores')
@@ -249,14 +267,34 @@ class HomeController extends Controller
             }
         }
 
-        $allStores = Order::select('store_id', DB::raw('SUM(final_price) as total_amount'))
-            ->groupBy('store_id')
-            ->orderByDesc('total_amount')
-            ->limit(5)
-            ->get();
+        /*
+         * P05-14 / P05-19 (GAP-162, GAP-167). THE ONE DELIBERATELY CROSS-TENANT MONEY FIGURE ON
+         * THIS SCREEN, AND IT NOW SAYS SO WHERE IT IS READ.
+         *
+         * `MetricScope::stores()` with every store id: the breadth is an argument at the call
+         * site, as it is for every Phase 05 figure, instead of the absence of a predicate on a bare
+         * `Order` query. Nothing here is an authorization boundary. This handler is reached only
+         * for the platform operator -- `index()` dispatches on `users.type`, and
+         * `OperatorDashboardTopStoresTest` holds a merchant out.
+         *
+         * WHAT THE OLD QUERY GOT WRONG is recorded on `PlatformAnalyticsFigures::
+         * topStoresByOrderValue()`: it ranked stores across currencies by the raw number, and its
+         * view printed every total in the signed-in operator's own store's currency.
+         *
+         * An empty platform is answered here because a scope with no store is refused by
+         * construction: it would compile to "0 = 1" and read as stores that sold nothing.
+         */
+        $everyStoreId = \App\Models\Store::query()->orderBy('id')->pluck('id')
+            ->map(fn ($id) => (int) $id)->all();
+
+        $topStoresByCurrency = $everyStoreId === []
+            ? []
+            : \App\Support\Metrics\PlatformAnalyticsFigures::topStoresByOrderValue(
+                \App\Support\Metrics\MetricScope::stores($everyStoreId)
+            );
         $plan_requests = PlanRequest::count();
 
-        $data = compact('user', 'chartData', 'couponName', 'plan_order', 'plan_requests', 'allStores', 'topAdmins', 'visitors');
+        $data = compact('user', 'platformTotals', 'chartData', 'couponName', 'plan_order', 'plan_requests', 'topStoresByCurrency', 'topAdmins', 'visitors');
         return $data;
     }
 
@@ -695,9 +733,18 @@ class HomeController extends Controller
         if (!$user) {
             return redirect()->route('login')->with('message', __('You have been logged out.'));
         }
-        $store = getStoreById($user->current_store);
+        /*
+         * THE OPERATOR IS NOT ASKED FOR A STORE THEIR BRANCH NEVER READS. Below, the operator's
+         * chart is built from `PlanOrder` alone; only the merchant branch touches a store. This
+         * check used to run for both, so an operator whose selected store had been deleted, or
+         * was never set, was signed out of the platform by their own dashboard -- and
+         * `handleSuperAdmin()` then rendered the view anyway with this redirect where the chart
+         * data should be. A merchant or staff member with no resolvable store is still signed
+         * out, exactly as before.
+         */
+        $isOperator = \App\Policies\UserPolicy::isOperator($user);
 
-        if (!$store) {
+        if (! $isOperator && ! getStoreById($user->current_store)) {
             if (auth()->check()) {
                 auth()->logout();
             }
@@ -757,8 +804,6 @@ class HomeController extends Controller
          * operator to be defined ONCE, and that helper normalises the way
          * MySQL's PAD SPACE does.
          */
-        $isOperator = \App\Policies\UserPolicy::isOperator($user);
-
         foreach ($arrDuration as $date => $label) {
             if (! $isOperator) {
                 $data = Order::select(\DB::raw('count(*) as total'))                    

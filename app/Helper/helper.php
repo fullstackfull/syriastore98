@@ -902,6 +902,48 @@ if (!function_exists('APP_THEME')) {
                 $store = Store::find($storeId);
 
                 if (!$store) {
+                    /*
+                     * THE OPERATOR IS NOT SIGNED OUT FOR A SELECTION THAT NO LONGER EXISTS.
+                     *
+                     * This helper runs from the LAYOUT, so the sign-out below happened in the
+                     * middle of rendering every page. For a merchant that is the designed answer
+                     * to losing their store. For the platform operator it was a trap with no exit:
+                     * `StoreController::destroy()` re-points only the DELETING user's
+                     * `current_store`, so when a merchant deleted a store the operator happened to
+                     * have selected, the operator's selection dangled -- and from then on each
+                     * sign-in rendered one page and signed them out again while drawing it. The
+                     * session ended while the page was being drawn.
+                     * Measured 2026-11-22: `OperatorDashboardWithoutAStoreTest`.
+                     *
+                     * WHAT THIS DOES AND DOES NOT REPAIR -- corrected after independent review,
+                     * because the first version of this comment claimed two things that are false.
+                     *
+                     * It removes the LOCKOUT: the operator gets the same theme the store-less
+                     * operator gets two branches below, and stays signed in.
+                     *
+                     * IT DOES NOT GIVE THEM A WAY TO CHOOSE ANOTHER STORE FROM THE SCREEN. Neither
+                     * switcher renders for this principal: the header's is `type == 'admin'` only
+                     * (`partision/header.blade.php`), and the workspace chip renders only when
+                     * `getStoreById($user->current_store)` resolves
+                     * (`partision/workspace-chip.blade.php`) -- which is exactly what does not.
+                     * The way out is still a hand-made `POST /change-store/{id}`, or repairing
+                     * the pointer at its source.
+                     *
+                     * AND THE OPERATOR'S SELECTION IS NOT IRRELEVANT TO THEIR OWN SCREENS.
+                     * Platform-level settings and file-storage settings are looked up by the
+                     * operator's `current_store` (`getSuperAdminAllSetting()` and the storage
+                     * resolver in this file), so while the pointer dangles those resolve to
+                     * nothing -- for everybody, signed in or not. That is older than this change
+                     * and independent of it; signing the operator out never repaired it.
+                     *
+                     * THE ROOT CAUSE IS UPSTREAM AND IS NOT FIXED HERE: deleting a store leaves
+                     * every OTHER user's `current_store` pointing at it. Recorded on the gap
+                     * register (`GAP-162`) rather than widened into this change.
+                     */
+                    if (\App\Policies\UserPolicy::isOperator($user)) {
+                        return 'stylique';
+                    }
+
                     if (auth()->check()) {
                         auth()->logout();
                     }

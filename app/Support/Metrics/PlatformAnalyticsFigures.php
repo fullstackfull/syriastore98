@@ -17,10 +17,22 @@ use Carbon\CarbonInterface;
  *
  * THIS CLASS IS NOT AN AUTHORIZATION BOUNDARY AND MUST NEVER BE THE ONLY ONE. It deliberately
  * reads EVERY store, so calling it from a merchant-reachable handler would be a cross-tenant
- * disclosure. The gate is `PlatformOperatorOnly` on the route, which answers 403 (never 401 — the
- * shipped Flutter app forces a logout on any 401). `Store` is `Cachable` and is NOT in
- * `config/tenancy.php`'s `scoped_models`, so no global scope narrows the read for anybody: that is
- * what makes the figure possible here and what makes the route gate load-bearing.
+ * disclosure. `Store` is `Cachable` and is NOT in `config/tenancy.php`'s `scoped_models`, so no
+ * global scope narrows the read for anybody: that is what makes the figures possible here and what
+ * makes each caller's own gate load-bearing.
+ *
+ * IT HAS TWO CALLERS, AND THEY ARE GATED DIFFERENTLY. This sentence used to name one gate and was
+ * left false when the second caller arrived:
+ *
+ *   - `forPlatform()` -- `PlatformAnalyticsController`, behind `PlatformOperatorOnly` ON THE ROUTE,
+ *     which answers 403 (never 401 — the shipped Flutter app forces a logout on any 401).
+ *   - `topStoresByOrderValue()` -- `HomeController::handleSuperAdmin()`, which carries NO route
+ *     middleware of its own. Its gate is the dispatch in `HomeController::index()`: an exact,
+ *     case-sensitive `$user->type == 'super admin'`, stricter than `UserPolicy::isOperator()`.
+ *     `OperatorDashboardTopStoresTest` holds a merchant out of it, and a mutation that dispatches
+ *     every signed-in user there is caught.
+ *
+ * A third caller must bring a third gate. Nothing in this class will refuse it.
  *
  * THREE THINGS ARE HARDER ACROSS TENANTS THAN WITHIN ONE, and each is answered by refusing to
  * invent rather than by producing a number:
@@ -136,6 +148,125 @@ final class PlatformAnalyticsFigures
                     'count' => self::ltr(number_format($excluded)),
                 ]),
         ];
+    }
+
+    /** How many stores each currency's list shows -- the panel has always been a top five. */
+    private const TOP_STORES = 5;
+
+    /** The fallback `ReportController::financeReport()` applies to a store with no currency setting. */
+    private const FALLBACK_CURRENCY = 'USD';
+
+    /**
+     * P05-14 / P05-19 (GAP-162, GAP-167) -- THE OPERATOR DASHBOARD'S TOP STORES, BY ORDER VALUE.
+     *
+     * ONE RANKED LIST PER CURRENCY, NEVER ONE LIST. Point 1 of this class's docblock is the rule:
+     * a cross-tenant money figure is a SET of per-currency amounts, because nothing stamps an
+     * exchange rate onto an order. A ranking is a comparison, and comparing two currencies by
+     * their digits is the same error as adding them. The panel this replaces did exactly that --
+     * `SUM(final_price) ... ORDER BY total_amount DESC` across every store -- so a store trading in
+     * a large-nominal currency outranked every dollar store by arithmetic alone.
+     *
+     * WITHIN one currency nothing changes: order value, highest first, top five. On a platform
+     * whose stores all trade in one currency this is the list the dashboard always showed, now
+     * printed in that currency instead of the signed-in operator's own store's.
+     *
+     * THE SCOPE IS A REQUIRED ARGUMENT, so the breadth of the read is written at the call site
+     * (P05-19) rather than implied by which method was called. This class is still not an
+     * authorization boundary -- see the docblock above -- and the caller is still responsible for
+     * being reachable by the operator alone.
+     *
+     * THE BASIS IS `GrossMerchandiseValue`'s DEFAULT -- cancelled orders INCLUDED -- which is what
+     * this panel has always summed and what `orders()` below already uses for the platform count.
+     * The merchant dashboard's order-value figure excludes cancellations by owner decision F257;
+     * whether the operator's ranking should follow is a decision F257 does not make, so it is
+     * left as shipped and STATED on the panel rather than quietly changed here.
+     *
+     * AN ORDER WITH NO RECORDED CURRENCY takes its STORE's own currency setting. That is the same
+     * assumption `MetricResult::assumingUnknownCurrencyIs()` makes for a merchant's tiles, applied
+     * per store because here every row is a different store.
+     *
+     * @return array<string, list<array{store_id: int, name: string, orders: int, amount: float, value: string}>>
+     *         currency code => that currency's stores, highest order value first
+     */
+    public static function topStoresByOrderValue(MetricScope $scope): array
+    {
+        $buckets = (new GrossMerchandiseValue())->perStore($scope, MetricWindow::allTime());
+
+        if ($buckets === []) {
+            return [];
+        }
+
+        $storeIds = array_values(array_unique(array_column($buckets, 'store_id')));
+
+        // One query each, rather than the `Store::find()` per row the view used to run.
+        $names = Store::query()->whereIn('id', $storeIds)->pluck('name', 'id');
+
+        /*
+         * NEWEST ROW FIRST, so that `pluck()` -- which keeps the LAST value it sees for a key --
+         * ends on each store's OLDEST row. That is the row `ReportController::financeReport()`'s
+         * `->value('value')` reads for the same setting, so a store with duplicate rows is given
+         * the same currency on both screens instead of whichever the engine returned last.
+         */
+        $configured = \App\Models\Setting::query()
+            ->whereIn('store_id', $storeIds)
+            ->where('name', 'defult_currancy')
+            ->orderByDesc('id')
+            ->pluck('value', 'store_id');
+
+        /** @var array<string, array<int, array{amount: float, orders: int}>> $byCurrency */
+        $byCurrency = [];
+
+        foreach ($buckets as $bucket) {
+            $storeId = $bucket['store_id'];
+
+            // A store deleted between the two queries has nothing to be listed under.
+            if (! isset($names[$storeId])) {
+                continue;
+            }
+
+            /*
+             * THROUGH `CurrencySymbol::clean()`, BOTH SOURCES. A currency code is merchant-written
+             * -- it is a store setting, snapshotted onto each order -- and that class is this
+             * product's control for printing one (P1-SEC-80 round 4): no markup characters, no
+             * control characters, bounded length. The view escapes it as well; this is the rule
+             * that does not depend on every future caller remembering to.
+             *
+             * A recorded code that cleans to NOTHING falls back exactly as a missing one does:
+             * the store's own setting, and only then the product-wide default.
+             */
+            $recorded = \App\Support\Money\CurrencySymbol::clean($bucket['currency'] ?? '');
+            $ownSetting = \App\Support\Money\CurrencySymbol::clean($configured[$storeId] ?? '');
+
+            $currency = strtoupper($recorded !== '' ? $recorded : ($ownSetting !== '' ? $ownSetting : self::FALLBACK_CURRENCY));
+
+            // Summed, because 'usd' and 'USD' -- or a recorded code and the store's own -- are one
+            // currency once normalised, and a store must appear once in its currency's list.
+            $byCurrency[$currency][$storeId]['amount'] = round(($byCurrency[$currency][$storeId]['amount'] ?? 0.0) + $bucket['amount'], 2);
+            $byCurrency[$currency][$storeId]['orders'] = ($byCurrency[$currency][$storeId]['orders'] ?? 0) + $bucket['orders'];
+        }
+
+        // Alphabetical, so the panel reads the same whichever order the engine grouped in.
+        ksort($byCurrency);
+
+        $ranked = [];
+
+        foreach ($byCurrency as $currency => $stores) {
+            // Highest order value first; the store id breaks a tie so two stores on the same
+            // amount do not swap places between requests.
+            uksort($stores, static fn (int $a, int $b): int => [$stores[$b]['amount'], $a] <=> [$stores[$a]['amount'], $b]);
+
+            foreach (array_slice($stores, 0, self::TOP_STORES, true) as $storeId => $figure) {
+                $ranked[$currency][] = [
+                    'store_id' => (int) $storeId,
+                    'name' => (string) $names[$storeId],
+                    'orders' => (int) $figure['orders'],
+                    'amount' => (float) $figure['amount'],
+                    'value' => MoneyText::amount((float) $figure['amount'], (string) $currency),
+                ];
+            }
+        }
+
+        return $ranked;
     }
 
     /** @param list<int> $storeIds */

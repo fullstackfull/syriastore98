@@ -2,7 +2,13 @@
 
 @section('page-title', __('Dashboard'))
 
+{{-- `action-button` was OPENED AND NEVER CLOSED: the next line began another section and the
+     single `@endsection` below closed that one. Each open section holds an output buffer, so
+     every render of this dashboard leaked one. The page still drew, by accident -- the layout is
+     echoed into whichever buffer is on top -- and PHPUnit reported any test that rendered it as
+     risky ("did not close its own output buffers"), which is why no test ever had. --}}
 @section('action-button')
+@endsection
 @section('breadcrumb')
 @endsection
 
@@ -20,11 +26,11 @@
     <div class="row">
         <div class="col-sm-12 superadmin-wrp">
             <div class="row g-4 mb-4">
-                <x-dashboard-card :count="$user->total_user" :label="__('Total Store')" :icon="$total_user_icon"
+                <x-dashboard-card :count="$platformTotals['stores']" :label="__('Total Store')" :icon="$total_user_icon"
                     :url="route('stores.index')" columnClass="col-xl-4 col-md-6 col-12" />
-                <x-dashboard-card :count="$user->total_orders" :label="__('Total Orders')" :icon="$total_order_icon"
+                <x-dashboard-card :count="$platformTotals['orders']" :label="__('Total Orders')" :icon="$total_order_icon"
                     :url="route('plan.index')" columnClass="col-xl-4 col-md-6 col-12" />
-                <x-dashboard-card :count="$user->total_plan" :label="__('Total Plans')" :icon="$total_plan_icon"
+                <x-dashboard-card :count="$platformTotals['plans']" :label="__('Total Plans')" :icon="$total_plan_icon"
                     :url="route('plan.index')" columnClass="col-xl-4 col-md-6 col-12" />
                 <x-dashboard-card :count="$couponName" :label="__('Total Coupon')" :icon="$coupon_icon"
                     :url="route('plan-coupon.index')" columnClass="col-xl-4 col-md-6 col-12" />
@@ -38,7 +44,10 @@
                     {{-- orders chart --}}
                     <div class="dashboard-card">
                        
-                            <h4>{{ __('Orders') }}</h5>
+                            {{-- All four card headings on this screen opened `<h4>` and closed with the
+                                 wrong tag. Browsers recover; a validator and a screen reader's
+                                 heading outline do not have to. --}}
+                            <h4>{{ __('Orders') }}</h4>
                      
                         <div class="card-body">
                             <div id="traffic-chart"></div>
@@ -47,7 +56,7 @@
                 </div>
                 <div class="col-xl-4 col-12">
                     <div class="dashboard-card">
-                            <h4>{{__('Most Popular Store')}}</h5>
+                            <h4>{{__('Most Popular Store')}}</h4>
                         <div class="card-body">
                             <div class="">
                                 @if (count($visitors) > 0)
@@ -84,22 +93,42 @@
                 </div>
                 <div class="col-xl-4 col-12">
                     <div class="dashboard-card">
-                            <h4>{{__('Top Selling Store')}}</h5>
+                            <h4>{{__('Top Selling Store')}}</h4>
                         <div class="card-body">
                             <div class="">
-                                @if (count($allStores) > 0)
-                                    @foreach ($allStores as $store)
-                                        @php
-                                            $store_name = \App\Models\Store::find($store->store_id);
-                                            if (!$store_name) {
-                                                continue;
-                                            }
-                                        @endphp
+                                {{--
+                                    P05-14 / P05-19 (GAP-162, GAP-167).
+
+                                    THE AMOUNT IS PRINTED IN THE CURRENCY IT IS DENOMINATED IN. This cell
+                                    used to be `currency_format_with_sym($store->total_amount,
+                                    getCurrentStore())` -- and `getCurrentStore()` is the SIGNED-IN
+                                    OPERATOR's store, not the row's. A store that took five million Syrian
+                                    pounds was shown as "$5,000,000".
+
+                                    ONE LIST PER CURRENCY, never one list: two amounts in different
+                                    currencies are not comparable, so they are not ranked against each
+                                    other. The currency is a heading only when there is more than one,
+                                    so a single-currency platform sees the panel it always had.
+
+                                    `$row['value']` is `MoneyText::amount()`: already an isolated
+                                    left-to-right unit, so the figure and its code stay together on an
+                                    Arabic page. It is built from a number and a currency code, never
+                                    from input, and is escaped here regardless.
+                                --}}
+                                @if (count($topStoresByCurrency) > 0)
+                                    <p class="ss-field__hint">
+                                        {{ __('Order value: every order placed, including unpaid and cancelled orders. Stores are ranked only against stores in the same currency.') }}
+                                    </p>
+                                    @foreach ($topStoresByCurrency as $currency => $rows)
+                                        @if (count($topStoresByCurrency) > 1)
+                                            <h5 class="f-14 f-w-600 mt-3 mb-1">{{ $currency }}</h5>
+                                        @endif
+                                    @foreach ($rows as $row)
                                         <div class="popular-store d-flex align-items-center justify-content-between">
-                                            <span>{{ $store_name->name }}</span>
+                                            <span>{{ $row['name'] }}</span>
                                             <div>
                                                 <span
-                                                    class="badge rounded p-0 pe-2 f-w-600 text-dark f-14">{{  currency_format_with_sym($store->total_amount, getCurrentStore()) ?? SetNumberFormat($store->total_amount) }}</span>
+                                                    class="badge rounded p-0 pe-2 f-w-600 text-dark f-14">{{ $row['value'] }}</span>
                                                 <svg xmlns="http://www.w3.org/2000/svg" width="17" height="15" viewBox="0 0 17 15"
                                                     fill="none">
                                                     <mask id="path-1-outside-1_835_1300" maskUnits="userSpaceOnUse" x="0"
@@ -118,6 +147,7 @@
                                             </div>
                                         </div>
                                     @endforeach
+                                    @endforeach
                                 @else
                                     <div class="popular-store d-flex align-items-center justify-content-center">
                                         <span>{{ __('No Data Found') }}</span>
@@ -131,19 +161,23 @@
             <div class="row">
             <div class="col-12">
                 <div class="dashboard-card">
-                        <h4 class="mb-3">{{__('Top Customers')}}</h5>
+                        <h4 class="mb-3">{{__('Top Customers')}}</h4>
                     <div class="card-body">
                         <div class="customers-wrp row">
-                            @foreach ($topAdmins as $user)
+                            {{-- `$topAdmin`, not `$user`: the loop used to reuse the name of the
+                                 authenticated principal, so everything after it in this view -- and the
+                                 layout it extends -- saw the LAST top merchant as `$user`. Inert today
+                                 (found by review, 2026-11-22), and a trap for the next reader. --}}
+                            @foreach ($topAdmins as $topAdmin)
                                 <div class="col-xxl-3 col-md-6 col-12">
                                     <div class="dashboard-card d-flex gap-3">
-                                        <img src="{{ !empty($user->profile_image) ? asset($user->profile_image) : asset('storage/uploads/profile/avatar.png') }}"
+                                        <img src="{{ !empty($topAdmin->profile_image) ? asset($topAdmin->profile_image) : asset('storage/uploads/profile/avatar.png') }}"
                                             class=" " width="60px" height="60px">
                                         <div>
-                                            <h5 class="f-16 f-w-600 mb-2">{{ $user->name }}</h5>
-                                            <p class="f-12 user-mail">{{ $user->email }}</p>
+                                            <h5 class="f-16 f-w-600 mb-2">{{ $topAdmin->name }}</h5>
+                                            <p class="f-12 user-mail">{{ $topAdmin->email }}</p>
                                             <span class="badge  py-2 px-3 f-w-600 rounded-1 bg-primary">{{ __('Total Store') }} :
-                                                {{ $user->stores_count ?? 0 }}</span>
+                                                {{ $topAdmin->stores_count ?? 0 }}</span>
                                         </div>
                                     </div>
                                 </div>
