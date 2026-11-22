@@ -2224,6 +2224,44 @@ $Product->cost_price = $request->cost_price;
                 // find before __get, and on PHP 8.3 that is a deprecation. The guard belongs on
                 // the line that writes the NOT NULL column, not three hundred lines away.
                 $product->sale_price = $request->sale_price ?? 0;
+                /*
+                 * GAP-228. THE EDIT FORM DEMANDED THIS VALUE, ACCEPTED IT AND THREW IT AWAY.
+                 *
+                 * `cost_price` is validated `required|numeric|min:0|lte:price` at :1869 with its
+                 * own bespoke messages -- and until now it was never assigned anywhere in
+                 * `update()`. The only write in this 5,000-line file was `store():837`. It is not
+                 * in `Product::$fillable` either, so mass assignment did not rescue it.
+                 *
+                 * So a merchant could not change a cost, and -- the half that matters for money --
+                 * a product carrying a cost of 0 could never be given a real one: the form refuses
+                 * to submit without the field, accepts what is typed, reports success and discards
+                 * it. (`cost_price` is NOT NULL, so "no cost on record" means 0, not NULL.)
+                 *
+                 * WHAT THIS FIX DOES AND DOES NOT DO, stated precisely because the first draft of
+                 * this comment over-claimed it. `store_order_financials.product_cost` is a
+                 * SNAPSHOT taken at order time, and the four surfaces that disclose "at least N
+                 * paid orders have no product cost on record" (/finance, /analytics,
+                 * /finance-reports, the analytics CSV) count rows where that snapshot is 0. So
+                 * this fix does NOT reduce N for orders already placed -- nor should it, because
+                 * those are historical records and rewriting them would be a financial
+                 * modification. What it does is stop the defect PROPAGATING: until now a product
+                 * created with a cost of 0 was stuck at 0 for ever, so every future order of it
+                 * snapshotted 0 and joined the uncosted count. Now a merchant can correct the
+                 * product, and orders placed after the correction carry the real cost.
+                 *
+                 * NO COALESCE, and that is deliberate rather than an oversight copied from the
+                 * neighbour above: `sale_price` is validated `nullable` and writes a NOT NULL
+                 * column, which is why IT needs `?? 0`. `cost_price` is validated `required` on
+                 * this branch, so an absent value cannot reach here -- and defaulting it to 0
+                 * would be worse than failing, because 0 is a MEANINGFUL cost ("this costs me
+                 * nothing") and must not be how "they sent nothing" is recorded.
+                 *
+                 * THE VARIANT BRANCH IS DELIBERATELY NOT TOUCHED. `cost_price` appears in neither
+                 * the variant rule set nor `store()`'s variant path; a variant product's parent
+                 * row carries `price = 0` because the money lives per variant. Giving the parent
+                 * a cost there would invent a figure. Recorded on `GAP-228`, not assumed.
+                 */
+                $product->cost_price = $request->cost_price;
 
 
                 if ($request->track_stock == 0) {
