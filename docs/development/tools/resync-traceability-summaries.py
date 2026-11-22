@@ -18,6 +18,18 @@ hand-recounted numbers -- which is the step that was skipped both times.
 THE ROWS ARE THE SOURCE OF TRUTH. This never changes a row. It rewrites only the count cells of
 the two summary tables and the matrix's one-line headline, and it refuses to write if a row
 carries a status the table has no line for: a new status is a decision, not a recount.
+
+TWO MORE DERIVED FIGURES WERE ADDED ON 2026-11-22, the first time this tool was used in anger.
+Re-tracing `P05-14` down from VERIFIED COMPLETE repaired the status table and the headline and
+left two numbers behind, both derived from the same rows and both unchecked:
+
+  * the PER-PHASE table, which still credited Phase 05/06 with three verified rows;
+  * the PROJECT-WIDE sentence under the headline -- the matrix total plus the requirements
+    recovered later and held in the register -- which still said 172 of 368.
+
+A tool that repairs some of a document's summaries is a way to be confident and wrong, so it now
+repairs all four. An AGGREGATE row (a section that summarises other requirements rather than being
+one) is counted in neither, exactly as `MasterPlanTraceabilityCountsTest` counts.
 """
 import io
 import re
@@ -52,6 +64,45 @@ def matrix(write: bool) -> list[str]:
     if found.group(0) != headline:
         changes.append(f'matrix   headline: "{found.group(0)}" -> "{headline}"')
         out = out.replace(found.group(0), headline)
+
+    # ---- the per-phase table: one row per `## Phase` section, requirement rows only ----------
+    headings = [(m.start(), m.group(1)) for m in re.finditer(r'^## (.+)$', out, re.M)]
+    sections = []
+    for index, (offset, title) in enumerate(headings):
+        if not title.startswith('Phase '):
+            continue
+        end = headings[index + 1][0] if index + 1 < len(headings) else len(out)
+        statuses = [s.strip() for s in re.findall(r'^\*\*Status: ([^*]+)\*\*', out[offset:end], re.M)]
+        statuses = [s for s in statuses if s in table]          # an aggregate row is not a requirement
+        sections.append((title[len('Phase '):], len(statuses), statuses.count('VERIFIED COMPLETE')))
+
+    phase_rows = list(re.finditer(r'^\| (\d[^|]*?) \| (\d+) \| (\d+) \| \*\*(\d+)\*\* \|$', out, re.M))
+    if len(phase_rows) != len(sections):
+        sys.exit(f'matrix: the per-phase table has {len(phase_rows)} rows for {len(sections)} '
+                 '`## Phase` sections; refusing to guess which is which.')
+
+    # Rewritten last-to-first so earlier match offsets stay valid.
+    for found_row, (title, count, done) in reversed(list(zip(phase_rows, sections))):
+        label = found_row.group(1)
+        if not title.startswith(label):
+            sys.exit(f"matrix: per-phase row '{label}' is not the section in its position ('{title}').")
+        declared = tuple(int(found_row.group(i)) for i in (2, 3, 4))
+        actual = (count, done, count - done)
+        if declared != actual:
+            changes.append(f'matrix   phase "{label[:28]}": table {declared} -> rows {actual}')
+            line = f'| {label} | {count} | {done} | **{count - done}** |'
+            out = out[:found_row.start()] + line + out[found_row.end():]
+
+    # ---- the project-wide sentence: the matrix plus the requirements recovered later ---------
+    plus = re.search(r'\*\*Plus (\d+) recovered on ', out)
+    sentence = re.search(r'\*\*\d+ known requirements, \d+ verified complete, \d+ not\.\*\*', out)
+    if plus is None or sentence is None:
+        sys.exit('matrix: the project-wide sentence could not be found; refusing to guess where it goes.')
+    known = total + int(plus.group(1))
+    wanted = f'**{known} known requirements, {verified} verified complete, {known - verified} not.**'
+    if sentence.group(0) != wanted:
+        changes.append(f'matrix   project-wide: "{sentence.group(0)}" -> "{wanted}"')
+        out = out.replace(sentence.group(0), wanted)
 
     if write and out != doc:
         io.open(MATRIX, 'w', encoding='utf-8').write(out)

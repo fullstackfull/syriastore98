@@ -233,7 +233,7 @@ exception; `PHASE-02-COVERAGE-AUDIT-2026-10-25.md` traces which do and which do 
 
 | | |
 |---|---|
-| **the plan, and traceability** (read all four) | **`docs/development/master-plan/`** — base (historical, unchanged), +amendments (consolidated), `DECISION-ID-REGISTER.md` (181 ids, exclusions, reconciliation) — then `docs/development/MASTER-PLAN-{SOURCE-VERIFICATION,REQUIREMENT-TRACEABILITY,GAP-REGISTER}.md`: 350 requirements, **171 verified complete, 179 not, +18 recovered and untracked = 197 open** |
+| **the plan, and traceability** (read all four) | **`docs/development/master-plan/`** — base (historical, unchanged), +amendments (consolidated), `DECISION-ID-REGISTER.md` (181 ids, exclusions, reconciliation) — then `docs/development/MASTER-PLAN-{SOURCE-VERIFICATION,REQUIREMENT-TRACEABILITY,GAP-REGISTER}.md`: 350 requirements, **170 verified complete, 180 not, +18 recovered and untracked = 198 open** |
 | open security findings | `docs/security/P01-SECURITY-WORK-QUEUE.md` |
 | the next work package | `docs/development/phase-1/10-NEXT-WORK-PACKAGES.md` |
 | token lifetime | `docs/security/P01-TOKEN-EXPIRY-PROPOSAL.md` |

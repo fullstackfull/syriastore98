@@ -130,4 +130,127 @@ class MasterPlanTraceabilityCountsTest extends TestCase
             . ($total - $verified) . " are not.' to match the summary table."
         );
     }
+
+    /*
+     * TWO MORE DERIVED FIGURES, ADDED 2026-11-22 BECAUSE BOTH WENT STALE IN ONE CHANGE AND EVERY
+     * TEST ABOVE STILL PASSED.
+     *
+     * `P05-14` was re-traced from VERIFIED COMPLETE to PARTIALLY IMPLEMENTED. The status table and
+     * the headline were repaired by the resync tool, and this class was green -- while the
+     * per-phase table still credited Phase 05/06 with three verified rows, and the sentence under
+     * the headline still said 172 of 368. The same failure this class exists for, one summary
+     * further down: a number a reader quotes, derived from the rows, checked by nothing.
+     */
+
+    /**
+     * @return list<array{title: string, total: int, verified: int}> one entry per `## Phase` section,
+     *         counting REQUIREMENT rows only -- an aggregate row is a summary, not a requirement
+     */
+    private function phaseSections(): array
+    {
+        preg_match_all('/^## (.+)$/m', $this->doc, $headings, PREG_OFFSET_CAPTURE);
+
+        $sections = [];
+
+        foreach ($headings[1] as $index => [$title, $offset]) {
+            if (! str_starts_with($title, 'Phase ')) {
+                continue;
+            }
+
+            $end = $headings[1][$index + 1][1] ?? strlen($this->doc);
+            preg_match_all('/^\*\*Status: ([^*]+)\*\*/m', substr($this->doc, $offset, $end - $offset), $m);
+
+            $statuses = array_values(array_filter(
+                array_map('trim', $m[1]),
+                fn (string $status): bool => in_array($status, self::VOCABULARY, true)
+            ));
+
+            $sections[] = [
+                'title' => substr($title, strlen('Phase ')),
+                'total' => count($statuses),
+                'verified' => count(array_keys($statuses, 'VERIFIED COMPLETE', true)),
+            ];
+        }
+
+        return $sections;
+    }
+
+    public function test_the_per_phase_table_agrees_with_the_sections_it_summarises(): void
+    {
+        preg_match_all('/^\| (\d[^|]*?) \| (\d+) \| (\d+) \| \*\*(\d+)\*\* \|$/m', $this->doc, $rows, PREG_SET_ORDER);
+
+        $sections = $this->phaseSections();
+
+        $this->assertGreaterThan(3, count($sections), 'PREMISE: fewer than four `## Phase` sections were read; the scan is stale.');
+        $this->assertCount(count($sections), $rows,
+            'The per-phase table does not have one row per `## Phase` section.');
+
+        foreach ($sections as $index => $section) {
+            [, $label, $recovered, $verified, $notComplete] = $rows[$index];
+
+            // The table truncates long phase names, so the label is a prefix of the section title.
+            $this->assertStringStartsWith($label, $section['title'],
+                "Row {$index} of the per-phase table is labelled '{$label}', which is not the section in that position.");
+
+            $this->assertSame(
+                [$section['total'], $section['verified'], $section['total'] - $section['verified']],
+                [(int) $recovered, (int) $verified, (int) $notComplete],
+                "The per-phase table's row for '{$label}' does not match the rows of that section. "
+                . 'Run docs/development/tools/resync-traceability-summaries.py --write.'
+            );
+        }
+
+        $this->assertSame(
+            array_sum(array_column($sections, 'total')),
+            array_sum(array_map(fn (string $s): int => $this->bodyCounts()[$s] ?? 0, self::VOCABULARY)),
+            'The phase sections do not account for every requirement row: one sits outside every `## Phase` heading.'
+        );
+    }
+
+    /**
+     * THE FIGURE THAT INCLUDES THE EIGHTEEN. The recovered requirements are held in the gap
+     * register, not here, so the sentence adds them to the matrix total -- and none of them is
+     * verified complete, so the verified figure is the matrix's own.
+     */
+    public function test_the_project_wide_sentence_agrees_with_the_headline(): void
+    {
+        $this->assertSame(1, preg_match('/\*\*(\d+) requirements recovered\. (\d+) VERIFIED COMPLETE\./', $this->doc, $headline));
+        $this->assertSame(1, preg_match('/\*\*Plus (\d+) recovered on /', $this->doc, $plus),
+            'PREMISE: the sentence naming how many requirements were recovered later could not be found.');
+
+        $known = (int) $headline[1] + (int) $plus[1];
+        $verified = (int) $headline[2];
+
+        $this->assertMatchesRegularExpression(
+            '/\*\*' . $known . ' known requirements, ' . $verified . ' verified complete, ' . ($known - $verified) . ' not\.\*\*/',
+            $this->doc,
+            "The project-wide sentence must read '{$known} known requirements, {$verified} verified complete, "
+            . ($known - $verified) . " not.' to match the headline above it."
+        );
+    }
+
+    /**
+     * AND THE COPY EVERY SESSION READS FIRST. `CLAUDE.md` quotes these figures in its "Where to
+     * look" table. It said 171 for a day while this document said 172, and nothing noticed: the
+     * instruction file is the one place a stale figure is read before the matrix is.
+     */
+    public function test_the_instruction_file_quotes_the_matrix_figures(): void
+    {
+        $this->assertSame(1, preg_match('/\*\*(\d+) requirements recovered\. (\d+) VERIFIED COMPLETE\. (\d+) are not\.\*\*/', $this->doc, $headline));
+        $this->assertSame(1, preg_match('/\*\*Plus (\d+) recovered on /', $this->doc, $plus));
+
+        $claude = (string) file_get_contents(base_path('CLAUDE.md'));
+
+        $this->assertSame(
+            1,
+            preg_match('/(\d+) requirements, \*\*(\d+) verified complete, (\d+) not, \+(\d+) recovered and untracked = (\d+) open\*\*/', $claude, $quoted),
+            'PREMISE: CLAUDE.md no longer quotes the traceability figures in the form this test reads.'
+        );
+
+        $this->assertSame(
+            [(int) $headline[1], (int) $headline[2], (int) $headline[3], (int) $plus[1], (int) $headline[3] + (int) $plus[1]],
+            array_map('intval', array_slice($quoted, 1)),
+            'CLAUDE.md quotes traceability figures that are not the matrix\'s. It is read before the matrix is.'
+        );
+    }
 }

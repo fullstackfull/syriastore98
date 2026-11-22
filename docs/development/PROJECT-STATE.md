@@ -5,7 +5,7 @@ is the file to read first. It links the six phases, says what is done, what is n
 executable action is. Everything in it is either a measured fact with its source, or an owner
 decision quoted as such.
 
-**Last updated:** 2026-11-21 · **Active phase:** 05 (Marketing & Analytics) ·
+**Last updated:** 2026-11-22 · **Active phase:** 05 (Marketing & Analytics) ·
 **Active branch:** `feature/phase-05-marketing-analytics`
 
 > ### NEXT EXECUTABLE ACTION (read this first; owner directive of 2026-11-22)
@@ -15,9 +15,58 @@ decision quoted as such.
 > records, and the priority from here is finishing the code, not producing another measurement
 > report. Long multi-agent investigations are reserved for the final integration candidate.
 >
-> **PUSHED head: `62427391`**, CI-VERIFIED by **ci.yml #584 — SUCCESS, all seven jobs**. The two
-> heads beneath it are each verified by their own required run: `306d6a93` by **#583** (7/7) and
-> `704f1eec` by **#582** (7/7). No head on this branch is relying on an earlier run.
+> **LAST CI-VERIFIED HEAD: `d60fed3a`** — **ci.yml #589, SUCCESS** (2026-11-22 13:20Z). Earlier heads
+> each have their own run (`62427391` #584, `306d6a93` #583, `704f1eec` #582). **Commits after
+> `d60fed3a` are verified by the LOCAL gate only until their own required run concludes** — read the
+> run for the head you are on rather than trusting this line, which is written before the push it
+> describes.
+>
+> #### Executed since `62427391` (all 2026-11-22, in the owner's priority order)
+>
+> | what | where it is recorded |
+> |---|---|
+> | Four Marketing read screens refused the platform operator | `GAP-218`, closed |
+> | Period filters on the five report screens that genuinely had none; a crash in the downloadable report found by its own fixture | `ANA-002` / `GAP-221` |
+> | The gap register's summary had drifted from its rows; it now has a consistency gate like the matrix's | `GapRegisterConsistencyTest` |
+> | The Phase 05 analytics routes were outside every authorization census | `P05-18` / `GAP-166`, `AnalyticsRouteAuthorizationCensusTest` |
+> | Conversion and campaign arrivals had no written definition | `PHASE-05-METRIC-DEFINITIONS.md` §13, §14 |
+> | **The operator dashboard:** *Top Selling Store* ranked across currencies and printed in the wrong one; *Most Popular Store* loaded the whole visit log into PHP; the page answered 500, or signed the operator out mid-render | `P05-14`, `P05-19` / `GAP-162`, `GAP-167` |
+> | `P05-14` re-traced DOWN from VERIFIED COMPLETE: the operator's view mirrors 3 of the merchant's 12 figure groups | matrix note dated 2026-11-22 |
+> | Storefront-API orders recorded the currency SYMBOL as their currency CODE | `P5-R14`, `OrderCurrencyCodeAgreesAcrossWritersTest`; a read-only count for the rows already written, `report-order-currency-codes.php` |
+> | The analytics screen's own Download button ignored the period on screen | `P05-15`; five tests that follow the link |
+> | Three of the analytics screen's eight store predicates were held by no test | `MerchantAnalyticsTenantIsolationSweepTest`, one mutation per predicate |
+> | **Eight rows a measurement called *already done* were put to refutation; seven fell** | matrix note dated 2026-11-22; `P05-15` re-traced DOWN from VERIFIED COMPLETE |
+> | Ten owner questions met while building or reviewing, recorded and not decided | `D-N31`…`D-N40` |
+>
+> #### Next, in order
+>
+> **The refutation changed the order.** It did not only correct rows; its reviewers DROVE the
+> vendored modules and the financial doors, and what they found outranks the items that were next.
+>
+> 1. **SECURITY — the vendored Campaigns and Marketing modules.** Two items are already on the
+>    security queue as read-but-not-executed (`P1-SEC-69`, `P1-SEC-76`); a reviewer has now driven
+>    them with the modules loaded and found tenancy and authorization defects, some not yet on the
+>    queue. **They are being fixed before they are described** — an unpatched finding is not
+>    written up in a repository. Exposure exists only where a module is enabled, and **whether one
+>    is enabled in production cannot be read from here** — the owner or operator can answer that
+>    with one query against `add_on_managers`, and should. Vendored code is not edited: guard from
+>    first-party code, failing-first with the module loaded through the production loader.
+> 2. **SECURITY — three leads from the dashboard review**, read and not executed: the role-grant
+>    ceiling for a merchant who changed their own type; the reserved role-name gate under an
+>    accent-insensitive collation; a LandingPage writer with no check beyond sign-in.
+> 3. **FINANCIAL — a currency change through the admin API does not convert the wallet**, so the
+>    next paid order writes its ledger row in one currency and its wallet movement in another.
+>    Reported from a reviewer's probe; reproduce it first. The shipped Flutter app calls that door.
+> 4. **`P5-R15`** — `/analytics`: the two money tiles do not follow the period control; an Arabic
+>    merchant meets untranslated text; the Sales Report's files carry none of their screen's
+>    sentences, and no test compares a file with its screen in the direction that matters.
+> 5. **`P5-R4`…`R7`, financial correctness** — payment-state badges (`GAP-149`), missing caveats
+>    (`GAP-152`), a collected-payments customer figure beside Total Spend (`GAP-156`), Payments
+>    received on the demand-only reports (`GAP-153`).
+> 6. **`P5-R13`** — the nine cross-tenant figures the operator's view lacks.
+> 7. **`P5-R8`…`R12`** — four-combination evidence, the per-slice eight-point record, the Phase 05
+>    final report, the loyalty metric as a MySQL harness script; register the ANA-005 harness.
+> 8. Then Phase 06 on its own branch and Draft PR, without merging the existing phase PRs.
 >
 > **THE RULE THAT GOVERNS EVERY PUSH:** a push CANCELS a running required run (`ci.yml` sets
 > `cancel-in-progress: true`), so nothing is pushed while one is in flight. Broken once, on #574.
