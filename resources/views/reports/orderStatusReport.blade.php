@@ -42,6 +42,68 @@
         with a caption and `scope` on both axes, and the bars are `aria-hidden` because they are
         a picture OF that table.
     --}}
+    {{-- ANA-002 / GAP-221. THE CONTROL SITS OUTSIDE `#printableArea` DELIBERATELY: a printed
+         report should carry the period as a CAPTION, which the chart already does, not as a
+         form the reader cannot use on paper.
+
+         A PLAIN GET FORM, NO JAVASCRIPT. The six already-filtered report screens drive an AJAX
+         fragment through per-view jQuery; this page has no fragment, it renders server-side, so a
+         GET form is the whole mechanism. That also makes the filtered view bookmarkable and
+         shareable, and keeps it working with scripting off.
+
+         `ss_period` / `ss_from` / `ss_to` are `AnalyticsPeriod`'s keys, the same ones `/analytics`
+         posts -- see the handler for why this converges on that vocabulary rather than the legacy
+         `chart_data` one. --}}
+    <div class="row">
+        <div class="col-12">
+            <div class="ss-card">
+                <form method="GET" action="{{ route('reports.orderStatusReport') }}" class="row g-2 align-items-end">
+                    <div class="col-sm-4">
+                        <label class="ss-field__label" for="ss_period">{{ __('Period') }}</label>
+                        <select class="form-control" id="ss_period" name="ss_period">
+                            {{-- The empty option is the SHIPPED DEFAULT and must stay first: with
+                                 no `ss_period` the report covers all time, exactly as it did
+                                 before this filter existed. Selecting a period is opt-in. --}}
+                            <option value="" @selected($periodKey === '')>{{ __('All time') }}</option>
+                            @foreach ($periodOptions as $value => $words)
+                                <option value="{{ $value }}" @selected($periodKey === $value)>{{ $words }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div class="col-sm-3">
+                        <label class="ss-field__label" for="ss_from">{{ __('From') }}</label>
+                        {{-- `max` is a hint to the browser and never a guarantee about bytes; the
+                             server clamp in `AnalyticsPeriod::custom()` is the control. --}}
+                        <input class="form-control" type="date" id="ss_from" name="ss_from"
+                               max="{{ $periodToday }}" value="{{ $periodFrom }}">
+                    </div>
+
+                    <div class="col-sm-3">
+                        <label class="ss-field__label" for="ss_to">{{ __('To') }}</label>
+                        <input class="form-control" type="date" id="ss_to" name="ss_to"
+                               max="{{ $periodToday }}" value="{{ $periodTo }}">
+                    </div>
+
+                    <div class="col-sm-2">
+                        <button type="submit" class="ss-btn ss-btn--primary w-100">{{ __('Apply') }}</button>
+                    </div>
+
+                    <div class="col-12">
+                        <p class="ss-muted mb-0">
+                            {{ __('The two dates apply only when the period is set to Custom.') }}
+                        </p>
+                        @if ($periodClamped)
+                            {{-- A period that was shortened or moved must say so beside the
+                                 figure, not silently answer a different question. --}}
+                            <p class="ss-muted mb-0" role="status">{{ $periodClamped }}</p>
+                        @endif
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <div class="row" id="printableArea">
         <div class="col-12">
             <x-ss.card :title="__('Orders by status')"

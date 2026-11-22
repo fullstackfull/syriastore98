@@ -3494,8 +3494,33 @@ class ReportController extends Controller
         return [$names, $counts];
     }
 
-    public function showOrderStatusReport()
+    public function showOrderStatusReport(Request $request)
     {
+        /*
+         * ANA-002 / GAP-221 -- THE PERIOD, AND WHY IT IS OPT-IN.
+         *
+         * This screen counted ALL TIME and said so in a hardcoded `periodLabel`, which named the
+         * limitation without removing it: a merchant could not ask how many orders were cancelled
+         * last month.
+         *
+         * A PERIOD IS APPLIED ONLY WHEN ONE IS ASKED FOR, and that is deliberate.
+         * `AnalyticsPeriod::fromRequest([])` falls through to `DEFAULT` (`last_30_days`), so
+         * resolving unconditionally would silently narrow every existing reader's figure to the
+         * last 30 days without anyone requesting it -- the same figure, quietly answering a
+         * different question. With no `ss_period` in the query string the screen answers exactly
+         * as before.
+         *
+         * IT USES `AnalyticsPeriod` AND NOT THE LEGACY `chart_data` VOCABULARY. Six report
+         * screens post `chart_data=last-month|this-month|...` with a `Date` range parsed on
+         * `' to '`; `/analytics` posts `ss_period` through `AnalyticsPeriod`, which CLAMPS the
+         * span, labels it and yields a comparable baseline. GAP-221 names `AnalyticsPeriod` as
+         * the building block and it is the one with tests and a clamp, so this converges on the
+         * newer vocabulary rather than inventing a third. The legacy six are what should migrate.
+         */
+        $period = $request->filled(\App\Support\Analytics\AnalyticsPeriod::KEY_PERIOD)
+            ? \App\Support\Analytics\AnalyticsPeriod::fromRequest($request->all())
+            : null;
+
         $labels = [
             \App\Http\Controllers\HomeController::ORDER_STATUS_PENDING        => __('Pending'),
             \App\Http\Controllers\HomeController::ORDER_STATUS_DELIVERED      => __('Delivered'),
@@ -3509,6 +3534,9 @@ class ReportController extends Controller
         ];
 
         $byStatus = Order::where('store_id', OperatorStoreSelection::reportStoreId())
+            // The window JOINS the store predicate, it does not replace it. `Order` is not in
+            // `config/tenancy.php`'s `scoped_models`, so nothing else would confine this.
+            ->when($period !== null, fn ($query) => $query->whereBetween('order_date', [$period->from(), $period->to()]))
             ->selectRaw('delivered_status, COUNT(*) as aggregate')
             ->groupBy('delivered_status')
             ->pluck('aggregate', 'delivered_status');
@@ -3529,7 +3557,15 @@ class ReportController extends Controller
         return view('reports.orderStatusReport', [
             'orderStatusCounts' => $orderStatusCounts,
             'orderStatusTotal' => $total,
-            'periodLabel' => __('All time'),
+            // The caption follows the window. A true number under a false label is the defect
+            // this workstream keeps fixing.
+            'periodLabel' => $period === null ? __('All time') : $period->label(),
+            'periodOptions' => \App\Support\Analytics\AnalyticsPeriod::options(),
+            'periodKey' => $period === null ? '' : $period->key(),
+            'periodFrom' => $period === null ? '' : $period->from()->toDateString(),
+            'periodTo' => $period === null ? '' : $period->to()->toDateString(),
+            'periodToday' => \Carbon\CarbonImmutable::now()->toDateString(),
+            'periodClamped' => $period === null ? null : $period->clampNote(),
         ]);
     }
 
