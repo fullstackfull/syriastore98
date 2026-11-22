@@ -7668,3 +7668,67 @@ already records this route for that reason. So the ordering is asserted by readi
 the refusal path, which returns before any query, is driven for real.
 
 **Not deployed.** Fixed on the Phase 05 branch only.
+
+---
+
+## P1-SEC-83 — editing your own `users.type` raised your permission-grant ceiling — **FIXED on the branch 2026-11-22**
+
+**How it was found.** Not by a census. It was one of three leads parked during the 2026-11-22
+dashboard review, carried forward as "`RolePolicy::tenantOwner()` resolves a self-demoted
+merchant's grant ceiling to the OPERATOR's held set", and executed here. The lead was right.
+
+**What the control is.** `RolePolicy` bounds what a principal may put into a role by what their
+TENANT OWNER holds, minus `config('superadminaccess')`. That design is deliberate: a merchant must
+be able to delegate role composition to staff, so the bound is the owner's set and not the actor's.
+
+**The defect.** `tenantOwner()` read `User::creatorId()`, which returns the actor's own id for type
+`admin` and `created_by` otherwise. The product lets a merchant change their own `type` to a role
+name they created — CLAUDE.md records this as a supported action and as the vector that made
+`created_by = 1` an account takeover until `UserPolicy::merchantTenantRoot()` fail-closed on it.
+Every merchant's `created_by` is the platform operator, so after such an edit the ceiling became the
+OPERATOR's held set. The denylist does not cover it: it carries `Create Plan`, `Edit Plan` and
+`Delete Plan`, but not `Manage Plan` and not `Manage Setting`.
+
+**The measurement**, on the real policy, with every premise asserted rather than assumed — the
+operator is id 1 because that is the `created_by` a merchant carries; the operator holds a name the
+merchant does not; the pre-edit ceiling is the merchant's own set; and the edit really does move
+`creatorId()` onto the operator:
+
+| | `grantableNames()` |
+|---|---|
+| merchant, type `admin` | `['Manage Product']` |
+| the same row after `type` → a role name | `['Manage Product', 'Manage Plan', 'Manage Setting']` |
+
+Two permissions the actor had never held, obtained by editing their own row.
+
+**The fix, and why it is not the one-liner.** Bounding by the ACTOR closes this in one line, and
+`FinancePermissionGrantTest` pins the opposite as the design — *"staff CAN grant what their merchant
+holds — actor-bounding would fail this"* — adding that such a change *"would have locked every
+delegated staff member out of role composition and passed the whole suite green"*. So the limb has
+to distinguish a self-demoted merchant from genuine staff.
+
+**Store ownership is the discriminator, and it is the product's own.** `StoreController` reaches its
+create branch only when `auth()->user()->type == 'admin'`, and stamps `created_by` with that user's
+id; `StoreController:49` pairs `stores.created_by = users.id` with `users.type = 'admin'` for
+exactly this purpose. Genuine staff never own a store, so the limb cannot fire for them. "Any user
+is rooted at this actor" was considered and **rejected**: `UserController:159` stamps
+`created_by = Auth::user()->id`, so a staff member who had created a user would satisfy it and
+would lose the delegation the test above pins.
+
+**Deliberately unchanged.** The platform operator's own exemption (it short-circuits before this
+method), and the ceiling of staff the OPERATOR created, which `tenantOwner()`'s docblock accepts on
+the ground that the operator genuinely is their tenant. This slice does not revisit that decision.
+
+**Residual, stated rather than papered over.** A merchant with **no store** who demotes themselves
+still resolves to the operator. Registration creates a store with the account
+(`RegisteredUserController:138`), so the shape is unusual, but this limb does not cover it.
+
+**Evidence.** `tests/Feature/Security/RoleGrantCeilingSelfDemotionTest.php`: the probe failed first,
+showing both added names, and a second case asserts the only thing the new limb could break — that
+staff who own no store still take their merchant's ceiling, with the premise that they hold nothing
+of their own, so owner-bounding and actor-bounding are distinguishable. 4 mutations run, **3
+caught**; the fourth (dropping the denylist) **survived and is equivalent for this test**, because
+none of its three candidate names is on the denylist — recorded as equivalent rather than counted as
+caught. 64 tests green across the five files that hold this control's contract.
+
+**Not deployed.** Nothing in this queue is deployed; this is a branch fix.
