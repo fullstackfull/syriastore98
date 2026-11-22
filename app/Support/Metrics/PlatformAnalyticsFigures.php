@@ -226,19 +226,26 @@ final class PlatformAnalyticsFigures
             }
 
             /*
-             * THROUGH `CurrencySymbol::clean()`, BOTH SOURCES. A currency code is merchant-written
-             * -- it is a store setting, snapshotted onto each order -- and that class is this
-             * product's control for printing one (P1-SEC-80 round 4): no markup characters, no
-             * control characters, bounded length. The view escapes it as well; this is the rule
-             * that does not depend on every future caller remembering to.
+             * THROUGH `CurrencySymbol::code()`, BOTH SOURCES. A currency code is merchant-written
+             * -- it is a store setting, snapshotted onto each order -- so it is neither trusted to
+             * be safe to print nor trusted to be a currency. `code()` answers both: three ASCII
+             * letters, case folded, or '' .
              *
-             * A recorded code that cleans to NOTHING falls back exactly as a missing one does:
-             * the store's own setting, and only then the product-wide default.
+             * `clean()` ALONE WAS NOT ENOUGH, and this is the correction. It removes markup and
+             * control characters, which a SYMBOL passes intact, so `$` and `ل.س` were taken for
+             * currencies -- and P5-R14 measured that the two storefront-API order writers really
+             * did stamp the symbol into `orders.currency_code`, with owner decision D-N34 leaving
+             * those rows in place. A store whose orders came through both writers was therefore
+             * listed once per spelling, each with a partial subtotal, under a heading reading `$`.
+             *
+             * A recorded value that is not a code falls back exactly as a missing one does: the
+             * store's own setting, and only then the product-wide default. Two values that ARE
+             * codes and normalise alike are summed below, so a store appears once per currency.
              */
-            $recorded = \App\Support\Money\CurrencySymbol::clean($bucket['currency'] ?? '');
-            $ownSetting = \App\Support\Money\CurrencySymbol::clean($configured[$storeId] ?? '');
+            $recorded = \App\Support\Money\CurrencySymbol::code($bucket['currency'] ?? '');
+            $ownSetting = \App\Support\Money\CurrencySymbol::code($configured[$storeId] ?? '');
 
-            $currency = strtoupper($recorded !== '' ? $recorded : ($ownSetting !== '' ? $ownSetting : self::FALLBACK_CURRENCY));
+            $currency = $recorded !== '' ? $recorded : ($ownSetting !== '' ? $ownSetting : self::FALLBACK_CURRENCY);
 
             // Summed, because 'usd' and 'USD' -- or a recorded code and the store's own -- are one
             // currency once normalised, and a store must appear once in its currency's list.

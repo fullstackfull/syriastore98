@@ -53,4 +53,37 @@ final class CurrencySymbol
     {
         return $value !== null && is_string($name) && in_array($name, self::SETTING_NAMES, true) ? self::clean($value) : $value;
     }
+
+    /**
+     * THE STORED VALUE AS A CURRENCY CODE, or '' when it is not one.
+     *
+     * `clean()` answers "is this safe to print"; this answers "is this a currency at all". They
+     * are different questions, and a reader that GROUPS money by the value needs the second one:
+     * `clean()` removes markup and control characters, so a SYMBOL -- `$`, `ل.س` -- passes it
+     * intact and was then taken for a currency.
+     *
+     * That is not hypothetical in this schema. P5-R14 measured that the two storefront-API order
+     * writers stamped `orders.currency_code` from the store's SYMBOL setting, and owner decision
+     * D-N34 leaves the rows already written untouched, so the column really does hold a mix of
+     * codes and symbols. A grouping reader that trusts it prints a symbol as a currency heading
+     * and splits one store's money across two buckets.
+     *
+     * The test is three ASCII letters, which is the shape of every currency code this product
+     * stores: `currency_rates.currency_code`, seeded with the thirteen the settings screen offers
+     * (`SettingController::seedDefaultCurrencyRates()`, `'currency_code' => $currency[0]`), and
+     * ISO 4217 has no other shape. The case is folded, because `'syp'` and `'SYP'` are one
+     * currency and keeping them apart is the same defect in a smaller font.
+     *
+     * A value that is not a code is NOT repaired or guessed at here; '' is returned and the
+     * CALLER decides what to fall back to. Guessing is how a figure acquires a unit it was never
+     * measured in.
+     *
+     * @param  mixed  $stored
+     */
+    public static function code($stored): string
+    {
+        $value = self::clean($stored);
+
+        return preg_match('/\A[A-Za-z]{3}\z/', $value) === 1 ? strtoupper($value) : '';
+    }
 }

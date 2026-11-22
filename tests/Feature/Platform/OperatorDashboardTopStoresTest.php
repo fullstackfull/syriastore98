@@ -294,6 +294,85 @@ class OperatorDashboardTopStoresTest extends SecurityTestCase
      * product applies wherever one is printed (P1-SEC-80). The view escapes it too — asserted on
      * the DATA here, so this pins the cleaner and not merely the escaping.
      */
+    /**
+     * A SYMBOL RECORDED WHERE A CODE BELONGS IS NOT A CURRENCY.
+     *
+     * P5-R14 (commit 9f8e18ee, this same branch) MEASURED that `Api\ApiController::place_order()`
+     * and `::ordersave()` stamped `orders.currency_code` from the store's SYMBOL setting, and the
+     * owner's decision D-N34 leaves orders already written untouched --
+     * `tests/Support/Security/bin/report-order-currency-codes.php` exists to count them on
+     * production. So a store whose orders came through both the web writer and the storefront API
+     * carries 'SYP' on some rows and 'ل.س' on others.
+     *
+     * `CurrencySymbol::clean()` removes markup and control characters, which a symbol passes
+     * intact, so the recorded value was taken as the currency and the store's own setting was
+     * never consulted. The store appeared TWICE -- once per spelling, each with a partial
+     * subtotal -- and a symbol was printed to the operator as a currency heading. Each half is
+     * also ranked separately, so a store can fall out of its own currency's top five while a
+     * web-only competitor on less money stays in it.
+     */
+    public function test_an_order_whose_recorded_currency_is_a_symbol_takes_its_stores_own_currency(): void
+    {
+        $operator = $this->makePlatformAdmin();
+        [$merchant, $store] = $this->makeTenant();
+        $this->nameStore($store, 'Both Writers');
+
+        DB::table('settings')->insert([
+            'name' => 'defult_currancy', 'value' => 'SYP', 'created_by' => $merchant->id,
+            'store_id' => $store->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        (new \App\Models\Setting)->flushCache();
+
+        $this->order($store, 100.00, 'SYP');    // the web writer
+        $this->order($store, 150.00, 'ل.س');    // the storefront API writer, before P5-R14
+
+        $ranked = $this->dashboard($operator)->viewData('topStoresByCurrency');
+
+        $this->assertSame(['SYP'], array_keys($ranked),
+            'A recorded currency SYMBOL became a currency group of its own, and is printed to the '
+            . 'operator as a currency heading.');
+
+        $this->assertCount(1, $ranked['SYP'],
+            'The store is listed more than once inside its own currency.');
+
+        $this->assertSame(250.00, round((float) $ranked['SYP'][0]['amount'], 2),
+            "The store's figure is a partial subtotal: the orders the storefront API stamped are "
+            . 'in a different bucket from the ones the web writer stamped.');
+    }
+
+    /**
+     * AND A LOWER-CASE CODE IS STILL A CODE. Without this, a "fix" that discarded every recorded
+     * value -- not only the ones that are not codes -- would pass the case above, and the panel
+     * would stop reading the column at all.
+     */
+    public function test_a_lower_case_recorded_code_is_normalised_rather_than_discarded(): void
+    {
+        $operator = $this->makePlatformAdmin();
+        [$merchant, $store] = $this->makeTenant();
+
+        DB::table('settings')->insert([
+            'name' => 'defult_currancy', 'value' => 'EUR', 'created_by' => $merchant->id,
+            'store_id' => $store->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        (new \App\Models\Setting)->flushCache();
+
+        $this->order($store, 40.00, 'syp');
+
+        $ranked = $this->dashboard($operator)->viewData('topStoresByCurrency');
+
+        $this->assertSame(['SYP'], array_keys($ranked),
+            'A lower-case recorded code was either kept unnormalised or thrown away in favour of '
+            . "the store's own setting. It is a code, and it is the one the order carries.");
+    }
+
+    /**
+     * UPDATED when `CurrencySymbol::code()` replaced `clean()` on both of this panel's currency
+     * sources. This case used to assert the group key was `'USBD'` -- `clean()` strips the angle
+     * brackets and the remains were used as the currency. That was the same defect as printing
+     * `$` as a currency: a value that is not a code, presented as one. The contract is now the
+     * stronger one, that a non-code never names a group at all, and the markup assertion below is
+     * unchanged and still the reason this case exists.
+     */
     public function test_a_currency_code_carrying_markup_is_cleaned_before_it_is_grouped_or_printed(): void
     {
         $operator = $this->makePlatformAdmin();
@@ -304,8 +383,11 @@ class OperatorDashboardTopStoresTest extends SecurityTestCase
         $response = $this->dashboard($operator);
         $ranked = $response->viewData('topStoresByCurrency');
 
-        $this->assertSame(['USBD'], array_keys($ranked),
-            'A currency code reached the panel without passing through CurrencySymbol::clean().');
+        $this->assertSame(['USD'], array_keys($ranked),
+            'A recorded value that is not a currency code became a currency heading. Markup makes '
+            . "it fail `CurrencySymbol::code()`'s three-ASCII-letter test, so it is treated as "
+            . "missing and the fallback chain answers -- here the product-wide default, because "
+            . 'this store has no currency setting of its own.');
 
         $this->assertStringNotContainsString('<b>D', (string) $response->getContent());
     }
@@ -313,8 +395,11 @@ class OperatorDashboardTopStoresTest extends SecurityTestCase
     /**
      * AND THE SECOND SOURCE. The case above carries the markup on the ORDER; the fallback reads a
      * different column of a different table -- the store's own `defult_currancy` setting -- and
-     * the code cleans that as well. Nothing tested it: a mutation removing the cleaner from the
+     * the code tests that as well. Nothing tested it: a mutation removing the check from the
      * fallback alone survived the case above, because its fixture never takes the fallback.
+     *
+     * Still true after `code()` replaced `clean()` here, and still discriminating: dropping the
+     * check from the fallback alone gives `'SYIP'` again, which this assertion catches.
      */
     public function test_a_stores_own_currency_setting_carrying_markup_is_cleaned_too(): void
     {
@@ -332,9 +417,10 @@ class OperatorDashboardTopStoresTest extends SecurityTestCase
 
         $response = $this->dashboard($operator);
 
-        $this->assertSame(['SYIP'], array_keys($response->viewData('topStoresByCurrency')),
+        $this->assertSame(['USD'], array_keys($response->viewData('topStoresByCurrency')),
             'A store\'s own currency setting reached the panel without passing through '
-            . 'CurrencySymbol::clean(). The recorded code is cleaned and the fallback is not.');
+            . 'CurrencySymbol::code(). The recorded value is tested and the fallback is not, so a '
+            . 'setting that is not a currency code still named a group.');
 
         $this->assertStringNotContainsString('<i>P', (string) $response->getContent());
     }

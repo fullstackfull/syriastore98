@@ -104,4 +104,69 @@ final class CurrencySymbolTest extends TestCase
         $this->assertSame('<img>', CurrencySymbol::cleanSetting(null, '<img>'));
         $this->assertSame('<img>', CurrencySymbol::cleanSetting('currency_symbol ', '<img>'), 'a name is compared exactly');
     }
+
+    // -------------------------------------------------------------------------------------------
+    //  `code()` -- the SECOND question, for a reader that GROUPS money by the value (FIN-SYM)
+    // -------------------------------------------------------------------------------------------
+
+    /** @return array<string,array{0:mixed,1:string}> */
+    public static function valuesAndTheCodeTheyName(): array
+    {
+        return [
+            // The thirteen the settings screen seeds into `currency_rates`, and the case fold.
+            'a code' => ['USD', 'USD'],
+            'a code, lower case' => ['syp', 'SYP'],
+            'a code, mixed case' => ['eUr', 'EUR'],
+            'a code, padded' => ['  SAR  ', 'SAR'],
+
+            // Symbols. Each of these REALLY APPEARS in `orders.currency_code` on this schema:
+            // P5-R14 measured the two storefront-API order writers stamping the symbol setting
+            // into that column, and owner decision D-N34 leaves the rows already written alone.
+            'a dollar sign' => ['$', ''],
+            'a Syrian pound sign' => ['ل.س', ''],
+            'a Lebanese pound sign' => ['ل.ل', ''],
+            'a dirham sign' => ['د.إ', ''],
+            'a euro sign' => ['€', ''],
+            'a rupee sign, with a dot' => ['Rs.', ''],
+            'a real sign' => ['R$', ''],
+
+            // Not a code for other reasons.
+            'empty' => ['', ''],
+            'null' => [null, ''],
+            'two letters' => ['US', ''],
+            'four letters' => ['USDX', ''],
+            'a code with a digit' => ['US1', ''],
+            'what is left of markup once clean() has run' => ['US<b>D', ''],
+            'a sentence' => ['United States Dollar', ''],
+            'a number' => [1, ''],
+            'an array' => [['USD'], ''],
+        ];
+    }
+
+    /**
+     * @param  mixed  $stored
+     */
+    #[DataProvider('valuesAndTheCodeTheyName')]
+    public function test_only_a_three_letter_code_is_a_currency_and_the_case_is_folded($stored, string $expected): void
+    {
+        $this->assertSame($expected, CurrencySymbol::code($stored));
+    }
+
+    /**
+     * THE TWO QUESTIONS ARE DIFFERENT, and this is the case that says so. `clean()` asks "is this
+     * safe to print" and a symbol passes it unchanged -- which is correct, a symbol IS printable.
+     * `code()` asks "is this a currency at all" and the same value fails. A reader that groups
+     * money needs the second question; one that prints a sign beside an amount needs the first.
+     */
+    public function test_a_symbol_survives_clean_and_is_refused_by_code(): void
+    {
+        foreach (['$', 'ل.س', '€', 'R$'] as $symbol) {
+            $this->assertSame($symbol, CurrencySymbol::clean($symbol),
+                'clean() must keep a symbol printable; that is what it is for');
+
+            $this->assertSame('', CurrencySymbol::code($symbol),
+                'code() must refuse a symbol; a symbol is not a currency code, and treating one '
+                . 'as a currency is how a store got listed twice under two spellings of its money');
+        }
+    }
 }
