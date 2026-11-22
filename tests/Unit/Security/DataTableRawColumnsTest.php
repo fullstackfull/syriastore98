@@ -55,6 +55,12 @@ final class DataTableRawColumnsTest extends TestCase
         'app/DataTables/SalesDownloadableProductDataTable.php' => ['order_id' => ['E'], 'product_name' => ['E'], 'attachment' => ['E']],
         'app/DataTables/StoreDataTable.php' => ['avatar' => ['E'], 'type' => ['E']],
         'app/DataTables/SupportTicketDataTable.php' => ['ticket_id' => ['E'], 'order_id' => ['E'], 'created_at' => ['S'], 'customer_id' => ['E'], 'status' => ['E']],
+        // P1-SEC-69 (d). The vendored Campaigns list declared these four raw and filled three of them
+        // with `ucfirst($campaigns->users->name)` / `->stores->name` / `->products->name` -- a user's, a
+        // store's and a PRODUCT's name, all merchant-written. The bound subclass keeps the vendored
+        // structure and the same `rawColumns` SET, and runs the data through `e()`; the status cell is
+        // markup built here from an integer, with the module's own label escaped and a missing-key guard.
+        'app/DataTables/TenantScopedCampaignsData.php' => ['product' => ['E'], 'status' => ['E', 'a badge built here from the integer status, with the module\'s own label through e() and a guard for a status outside its four'], 'store' => ['E'], 'user' => ['E']],
         'app/DataTables/TestimonialDataTable.php' => ['avatar' => ['E'], 'rating_no' => ['S', 'five icons built from an integer']],
         'app/DataTables/UserCouponDataTable.php' => ['product_order_id' => ['E']],
         'app/DataTables/UserDataTable.php' => ['avatar' => ['E'], 'type' => ['B']],
