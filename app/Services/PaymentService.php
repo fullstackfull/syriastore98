@@ -1050,8 +1050,7 @@ private function processPaymera00000($request, $slug)
         $provider = new PayPalClient;
 
         $provider->setApiCredentials(config('paypal'));
-        $paypalToken = $provider->getAccessToken();
-        Session::put('paypal_payment_id', $paypalToken['access_token']);
+        $provider->getAccessToken();
         $objUser = \Auth::user();
         $orderID = $request->user_id . date('YmdHis');
         $cartlist_final_price = $request->cartlist_final_price;
