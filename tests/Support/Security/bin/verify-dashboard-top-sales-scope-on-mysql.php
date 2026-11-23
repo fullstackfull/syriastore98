@@ -139,8 +139,31 @@ try {
            input. The old query never read it, which is the root of F242. */
         $t->text('product_json')->nullable();
         $t->decimal('final_price', 16, 4)->default(0);
+        /* ANA-TOP. `currency_code` IS NOW READ BY `revenueByProduct()`, so the fixture must carry
+           it or this whole script dies before it checks anything.
+
+           THAT IS EXACTLY WHAT HAPPENED, AND NOTHING WOULD HAVE TOLD ANYBODY. The independent
+           review of ANA-TOP measured it: `compute()` calls `revenueByProduct()` first, MySQL
+           answers `Unknown column 'currency_code' in 'field list'`, and this file's
+           `try { ... } finally { ... }` has NO `catch` -- so the exception propagates, the
+           `exit($failures === 0 ? 0 : 1)` at the end never runs, and the process dies at 255
+           after printing the earlier checks as passed. It is a script rather than a test, so the
+           Feature suite stays green; and SQLite cannot see it because migrations give SQLite the
+           column. Two tests name this script as the evidence that the computation is right on the
+           engine production runs, so a silently dead script is a silently absent guarantee. */
+        $t->string('currency_code', 3)->nullable();
         $t->unsignedBigInteger('store_id')->nullable();
         $t->timestamps();
+    });
+    /* ANA-TOP. `primaryCurrency()` reads this store's configured currency, so the table has to
+       exist here too -- the same reason, one step later: with the column added but the table
+       missing, the script would die on the next line instead. Only the three columns the read
+       really touches. */
+    Schema::connection('ogr_a')->create('settings', function ($t) {
+        $t->bigIncrements('id');
+        $t->string('name', 191);
+        $t->text('value')->nullable();
+        $t->unsignedBigInteger('store_id')->nullable();
     });
 
     echo "0. the premise -- MySQL has the functions SQLite does not, so the OLD shape can be RUN here\n";

@@ -181,8 +181,14 @@ class DashboardTypeScaleTest extends TestCase
         $this->assertStringContainsString("__('No sales yet')", $partial);
 
         $controller = $this->read('app/Http/Controllers/HomeController.php');
+        /* ANA-TOP added a FOURTH name, `top_sales_store`, so the figures and the currency symbol
+           cannot resolve the store independently -- the GAP-156 defect. The literal is kept EXACT
+           rather than loosened to "contains 'type'", which would pass against a file that had
+           stopped passing it: `'type'` occurs all over this controller. An exact list means the
+           next addition breaks this line too, and that is the ratchet working rather than failing:
+           whoever adds a fifth has to read what the list is for. */
         $this->assertStringContainsString(
-            "compact('tab_name', 'top_sales', 'type')",
+            "compact('tab_name', 'top_sales', 'type', 'top_sales_store')",
             $controller,
             'The view cannot name the dimension unless the controller passes it.'
         );

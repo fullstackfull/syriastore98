@@ -1689,7 +1689,14 @@ class HomeController extends Controller
            shared by the Top Category and Top Brand cards and had no way to tell them apart, so
            both rendered the same bare "No Data Found" -- display-only; nothing is computed from
            it and the populated path is untouched. */
-        $html = view('order.brand_category_chart', compact('tab_name', 'top_sales', 'type'))->render();
+        /* ANA-TOP. THE STORE THE FIGURES WERE COMPUTED FOR GOES TO THE VIEW, rather than the view
+           calling `getCurrentStore()` a second time. GAP-156 is the precedent and the reason: the
+           customer timeline summed from one store and formatted with another's currency for
+           months, because the sum and the symbol each resolved the store independently. One
+           resolution, passed down. */
+        $top_sales_store = getCurrentStore();
+
+        $html = view('order.brand_category_chart', compact('tab_name', 'top_sales', 'type', 'top_sales_store'))->render();
 
         $return['html'] = $html;
         $return['tab_name'] = $tab_name;

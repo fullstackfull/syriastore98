@@ -39,6 +39,7 @@ use Tests\Feature\Security\SecurityTestCase;
 class TopSellersRevenueAccuracyTest extends SecurityTestCase
 {
     use RefreshDatabase;
+    use \Tests\Support\StripsSourceComments;
 
     private $store;
 
@@ -80,7 +81,7 @@ class TopSellersRevenueAccuracyTest extends SecurityTestCase
     /**
      * @param  array<int, array{0:Product, 1:int, 2:float}>  $lines  [product, qty, unit price]
      */
-    private function order(array $lines, $store = null, ?string $createdAt = null): Order
+    private function order(array $lines, $store = null, ?string $createdAt = null, ?string $currency = null): Order
     {
         $store = $store ?? $this->store;
         $json = [];
@@ -121,6 +122,11 @@ class TopSellersRevenueAccuracyTest extends SecurityTestCase
             'delivered_status' => 0,
             'store_id' => $store->id,
             'created_by' => $store->created_by,
+            /* ANA-TOP. `null` BY DEFAULT, which is what every pre-existing case here writes and
+               what a lot of real rows carry -- `orders.currency_code` is nullable and P5-R14
+               measured the storefront API writing a SYMBOL into it. Those rows must still be
+               counted, folded into the store's own currency and disclosed, never dropped. */
+            'currency_code' => $currency,
         ]);
 
         if ($createdAt !== null) {
@@ -132,6 +138,233 @@ class TopSellersRevenueAccuracyTest extends SecurityTestCase
         }
 
         return $order->fresh();
+    }
+
+    /** The store's configured currency, which is what the ranking is denominated in. */
+    private function storeCurrency($store, string $code): void
+    {
+        \Illuminate\Support\Facades\DB::table('settings')->insert([
+            'store_id' => $store->id, 'name' => 'defult_currancy', 'value' => $code,
+            'created_by' => $store->created_by,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    /** @return array<string, float> the other-currency map for a named row */
+    private function othersFor(array $rows, string $name): array
+    {
+        foreach ($rows as $row) {
+            if ($row->sale_name === $name) {
+                return (array) $row->other_currencies;
+            }
+        }
+
+        return ['MISSING' => -1.0];
+    }
+
+    // ------------------------------------------------------- ANA-TOP: currency integrity
+
+    public function test_two_currencies_are_never_added_together(): void
+    {
+        /*
+         * THE DEFECT, AS ONE FIXTURE. This method used to return a single bare float per category,
+         * summed over every order regardless of `orders.currency_code`, and the card printed it
+         * under the store's one symbol. 100 USD of Lamps plus 200 EUR of Lamps read as "300" in
+         * whatever symbol the store had configured -- arithmetic on incommensurable units,
+         * presented as a fact, with nothing on screen admitting it.
+         *
+         * No conversion is performed, because no conversion basis has been approved. The store's
+         * own currency is the figure; the other is listed beside it.
+         */
+        $this->storeCurrency($this->store, 'USD');
+
+        $lamps = $this->category('Lamps');
+        $product = $this->product($lamps);
+
+        $this->order([[$product, 1, 100.0]], null, null, 'USD');
+        $this->order([[$product, 1, 200.0]], null, null, 'EUR');
+
+        $rows = TopSellersByRevenue::compute(TopSellersByRevenue::CATEGORY, $this->store->id);
+
+        $this->assertSame(100.0, $this->totalFor($rows, 'Lamps'),
+            'the figure must be the store-currency amount alone, never 300');
+        $this->assertSame(['EUR' => 200.0], $this->othersFor($rows, 'Lamps'),
+            'the other currency must be carried separately so the card can disclose it');
+    }
+
+    public function test_an_order_with_no_recorded_currency_is_counted_and_disclosed(): void
+    {
+        /*
+         * THE OPPOSITE FAILURE, and the one a careless fix introduces. Bucketing by currency and
+         * then keeping only the store's code would DROP every row whose `currency_code` is null or
+         * a symbol -- trading an over-report for a quietly smaller number, which is worse because
+         * nothing looks wrong. `MetricResult::assumingUnknownCurrencyIs()` plus a
+         * `CURRENCY_UNRECORDED` caveat is the established treatment and this mirrors it.
+         */
+        $this->storeCurrency($this->store, 'USD');
+
+        $lamps = $this->category('Lamps');
+        $product = $this->product($lamps);
+
+        $this->order([[$product, 1, 40.0]], null, null, 'USD');
+
+        /*
+         * A NULL HAS TO BE WRITTEN RAW, AND THE FIRST DRAFT OF THIS TEST DID NOT KNOW THAT.
+         *
+         * `Order::create(['currency_code' => null])` does NOT produce a null row:
+         * `Order.php:177-178` stamps `OrderCurrencyStamp::codeFor($storeId)` on any order created
+         * without one. So this fixture measured the stamp, not the gap -- the total came out right
+         * for the wrong composition, and only the caveat assertion noticed. Writing it raw is what
+         * a LEGACY row actually looks like: rows that predate the stamp, or any path that inserts
+         * without Eloquent.
+         *
+         * `Order` is `Cachable`, so the raw write is followed by a flush -- CLAUDE.md records
+         * three measured false readings from skipping it -- and the read-back is asserted so this
+         * case cannot silently go back to measuring the stamp.
+         */
+        $legacy = $this->order([[$product, 1, 60.0]], null, null, 'USD');
+        \Illuminate\Support\Facades\DB::table('orders')
+            ->where('id', $legacy->id)->update(['currency_code' => null]);
+        (new Order)->flushCache();
+
+        $this->assertNull(Order::withoutGlobalScopes()->find($legacy->id)->currency_code,
+            'PREMISE: the raw write did not stick, so this case is measuring the stamped code again');
+
+        /* A SYMBOL rather than a code, which P5-R14 measured the storefront API really writing.
+           `CurrencySymbol::code()` refuses it, so it lands in the same unreadable bucket. */
+        $symbolled = $this->order([[$product, 1, 25.0]], null, null, 'USD');
+        \Illuminate\Support\Facades\DB::table('orders')
+            ->where('id', $symbolled->id)->update(['currency_code' => '$']);
+        (new Order)->flushCache();
+
+        $rows = TopSellersByRevenue::compute(TopSellersByRevenue::CATEGORY, $this->store->id);
+
+        $this->assertSame(125.0, $this->totalFor($rows, 'Lamps'),
+            'an unreadable currency must still be counted, in the store currency');
+        $this->assertSame([], $this->othersFor($rows, 'Lamps'));
+        $this->assertSame(85.0, $rows[0]->unrecorded_currency_amount,
+            'both unreadable rows must land in the unrecorded bucket: 60 null + 25 symbol');
+        $this->assertStringContainsString('85.00', $rows[0]->caveat,
+            'the amount counted from rows with no currency must be disclosed, not absorbed');
+    }
+
+    public function test_a_category_earning_only_a_foreign_currency_is_listed_without_a_comparable_total(): void
+    {
+        /* Not dropped -- a merchant would never learn the category existed -- and not ranked
+           against store-currency rows either, because there is no rate to rank it by. */
+        $this->storeCurrency($this->store, 'USD');
+
+        $lamps = $this->category('Lamps');
+        $rugs = $this->category('Rugs');
+
+        $this->order([[$this->product($lamps), 1, 10.0]], null, null, 'USD');
+        $this->order([[$this->product($rugs), 1, 900.0]], null, null, 'EUR');
+
+        $rows = TopSellersByRevenue::compute(TopSellersByRevenue::CATEGORY, $this->store->id);
+
+        $names = array_map(fn ($r) => $r->sale_name, $rows);
+        $this->assertContains('Rugs', $names, 'a foreign-currency category must not vanish');
+        $this->assertSame('Lamps', $rows[0]->sale_name,
+            'the store-currency row ranks first; 900 EUR must not outrank 10 USD');
+
+        foreach ($rows as $row) {
+            if ($row->sale_name === 'Rugs') {
+                $this->assertNull($row->total_sale,
+                    '0.00 would rank it against categories that genuinely earned nothing');
+                $this->assertSame(['EUR' => 900.0], (array) $row->other_currencies);
+            }
+        }
+    }
+
+    public function test_another_tenants_revenue_never_reaches_this_ranking_in_any_currency(): void
+    {
+        $this->storeCurrency($this->store, 'USD');
+        $this->storeCurrency($this->otherStore, 'USD');
+
+        $mine = $this->category('Mine');
+        $theirs = $this->category('Theirs', $this->otherStore);
+
+        $this->order([[$this->product($mine), 1, 5.0]], null, null, 'USD');
+        $this->order([[$this->product($theirs, $this->otherStore), 1, 5000.0]], $this->otherStore, null, 'USD');
+        $this->order([[$this->product($theirs, $this->otherStore), 1, 7000.0]], $this->otherStore, null, 'EUR');
+
+        $rows = TopSellersByRevenue::compute(TopSellersByRevenue::CATEGORY, $this->store->id);
+
+        $names = array_map(fn ($r) => $r->sale_name, $rows);
+        $this->assertSame(['Mine'], $names);
+        $this->assertSame(5.0, $this->totalFor($rows, 'Mine'));
+    }
+
+    public function test_the_primary_currency_is_read_from_this_store_and_not_another(): void
+    {
+        /*
+         * ADDED BECAUSE A MUTATION SURVIVED. Removing the `store_id` predicate from the
+         * `defult_currancy` lookup changed nothing in the cross-tenant test above, because both
+         * fixtures configured USD -- so the predicate was untested, and an untested predicate is
+         * one a later edit can delete for free.
+         *
+         * THE FIXTURE IS BUILT SO THE WRONG ANSWER IS VISIBLE: this store configures NOTHING and
+         * the other store configures EUR. Scoped, the lookup finds no row here and falls back to
+         * this store's busiest bucket, USD. Unscoped, it finds the other tenant's EUR and
+         * denominates this merchant's ranking in a currency they never chose -- while the amount
+         * stays the USD amount, which is the mislabelling this whole slice is about.
+         */
+        $this->storeCurrency($this->otherStore, 'EUR');
+
+        $lamps = $this->category('Lamps');
+        $this->order([[$this->product($lamps), 1, 55.0]], null, null, 'USD');
+
+        $rows = TopSellersByRevenue::compute(TopSellersByRevenue::CATEGORY, $this->store->id);
+
+        $this->assertSame('USD', $rows[0]->currency,
+            "another tenant's configured currency is naming this store's figures");
+        $this->assertSame(55.0, $this->totalFor($rows, 'Lamps'));
+    }
+
+    public function test_an_unconfigured_store_is_denominated_in_its_busiest_currency_rather_than_nothing(): void
+    {
+        /* No `defult_currancy` row at all. Classing every bucket as foreign would leave the whole
+           ranking without a comparable total, which is a refusal where an answer exists. */
+        $lamps = $this->category('Lamps');
+        $product = $this->product($lamps);
+
+        $this->order([[$product, 1, 30.0]], null, null, 'EUR');
+        $this->order([[$product, 1, 70.0]], null, null, 'EUR');
+        $this->order([[$product, 1, 10.0]], null, null, 'GBP');
+
+        $rows = TopSellersByRevenue::compute(TopSellersByRevenue::CATEGORY, $this->store->id);
+
+        $this->assertSame('EUR', $rows[0]->currency);
+        $this->assertSame(100.0, $this->totalFor($rows, 'Lamps'));
+        $this->assertSame(['GBP' => 10.0], $this->othersFor($rows, 'Lamps'));
+    }
+
+    public function test_the_brand_ranking_obeys_the_same_currency_rule_as_the_category_ranking(): void
+    {
+        /* The two dimensions share one computation, and the user-visible requirement is that they
+           AGREE. Pinned rather than assumed, because they are reached by different request
+           parameters and a future change could touch one path only. */
+        $this->storeCurrency($this->store, 'USD');
+
+        $lamps = $this->category('Lamps');
+        $product = $this->product($lamps);
+
+        $brand = \Illuminate\Support\Facades\DB::table('product_brands')->insertGetId([
+            'name' => 'Acme', 'logo' => 'uploads/acme.png', 'status' => 1,
+            'store_id' => $this->store->id, 'created_by' => $this->store->created_by,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        \Illuminate\Support\Facades\DB::table('products')
+            ->where('id', $product->id)->update(['brand_id' => $brand]);
+
+        $this->order([[$product, 1, 100.0]], null, null, 'USD');
+        $this->order([[$product, 1, 200.0]], null, null, 'EUR');
+
+        $rows = TopSellersByRevenue::compute(TopSellersByRevenue::BRAND, $this->store->id);
+
+        $this->assertSame(100.0, $this->totalFor($rows, 'Acme'),
+            'the brand ranking added two currencies where the category ranking did not');
+        $this->assertSame(['EUR' => 200.0], $this->othersFor($rows, 'Acme'));
     }
 
     private function totalFor(array $rows, string $name): float
@@ -323,15 +556,33 @@ class TopSellersRevenueAccuracyTest extends SecurityTestCase
      */
     public function test_both_store_predicates_are_present_because_neither_alone_is_detectable(): void
     {
-        $source = file_get_contents(app_path('Support/TopSellersByRevenue.php'));
+        /*
+         * COMMENTS STRIPPED, and the review of ANA-TOP is why. This census counts occurrences of
+         * a literal in the source. Read raw, it is satisfiable by PROSE: an edit that removes a
+         * predicate AND adds a comment containing `->where('store_id', $storeId)` keeps the count
+         * at four and the removal survives. CLAUDE.md records that exact failure hit four times in
+         * one day, in three syntaxes; the sibling census in RawQueryTenancyInventoryTest strips
+         * comments, which is why its numbers are trustworthy and this one's were not.
+         *
+         * This file's own docblocks now DO quote that literal, several times, so stripping is no
+         * longer merely prudent -- without it the count would be wrong today.
+         */
+        $source = $this->sourceWithoutComments('app/Support/TopSellersByRevenue.php');
 
         /* THREE, not two: the `orders` query carries one on the same line as its `DB::table()`,
            so it matches this needle too. Counted after measuring rather than predicted — the first
-           version of this assertion said 2 and failed against a correct file. */
-        $this->assertSame(3, substr_count($source, "->where('store_id', \$storeId)"),
-            'TopSellersByRevenue no longer carries all THREE store predicates — one on `orders`, '
-            . 'one on the `products` '
-            . 'lookup and one on the `categories`/`product_brands` lookup. Removing either alone '
+           version of this assertion said 2 and failed against a correct file.
+
+           FOUR SINCE ANA-TOP, and the direction matters: `primaryCurrency()` reads this store's
+           configured currency from `settings`, and that read is scoped like every other. This
+           ratchet counts tenant predicates, so a NEW scoped read raises it and a REMOVED one
+           lowers it. Raising it to record a new predicate is the honest edit; lowering it to make
+           a removal pass would be the defect this test exists to catch. */
+        $this->assertSame(4, substr_count($source, "->where('store_id', \$storeId)"),
+            'TopSellersByRevenue no longer carries all FOUR store predicates — one on `orders`, '
+            . 'one on the `products` lookup, one on the `categories`/`product_brands` lookup, '
+            . 'and one on the `settings` read that decides which currency the ranking is '
+            . 'denominated in. Removing any one alone '
             . 'breaks no test, because each covers the other; removing both leaks another tenant\'s '
             . 'revenue into this dashboard. Product registers no StoreScope and is absent from '
             . "config/tenancy.php's scoped_models, so neither predicate is inherited.");
@@ -467,8 +718,17 @@ class TopSellersRevenueAccuracyTest extends SecurityTestCase
         $this->assertStringNotContainsString('/ 100', $view,
             'the `/100` fan-out compensation is back, but the cross join it compensated for is gone, '
             . 'so every figure on both cards now reads a hundredth of the truth');
-        $this->assertStringContainsString('currency_format_with_sym(($sale->total_sale ?? 0)', $view,
+        /* ANA-TOP changed the EXPRESSION and kept the property. `?? 0` is gone deliberately:
+           `total_sale` is now null for a row that earned nothing in the store's own currency, and
+           `?? 0` would have printed that as 0.00 -- ranking it against rows that genuinely earned
+           nothing. The view branches on null and prints "Not available" instead. What this
+           assertion still guarantees is the one thing it was written for: the amount reaches
+           `currency_format_with_sym` UNMODIFIED, with no divisor applied on the way. */
+        $this->assertStringContainsString('currency_format_with_sym($sale->total_sale,', $view,
             'the figure is no longer printed as-is');
+        $this->assertStringNotContainsString('$sale->total_sale ?? 0', $view,
+            'a null total is being printed as zero again, which turns "no revenue in your '
+            . 'currency" into "no revenue"');
     }
 
     /**
