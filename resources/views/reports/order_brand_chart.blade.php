@@ -16,8 +16,15 @@
                          category name through untouched -- a blanket `__($name)` would
                          rewrite a merchant's record whenever its name collided with a UI
                          translation key. --}}
+                    {{-- ANA-TOP part 4. See `order_category_chart` for why the symbol is used
+                         only when the store CONFIGURED a currency, and why a null total reads as
+                         "Not available" rather than `0.00`. --}}
                     <x-ss.stat :label="\App\Support\Reports\AggregateSeriesLabel::display($name)"
-                               :value="$currency . number_format($saleAmount, 2)"
+                               :value="$saleAmount === null
+                                   ? __('Not available')
+                                   : (($figureCurrencyIsConfigured ?? true)
+                                       ? $currency . number_format($saleAmount, 2)
+                                       : \App\Support\Metrics\MoneyText::amount($saleAmount, $figureCurrency ?? ''))"
                                :period="$periodLabel"
                                {{-- ANA-007. `MetricCaveat` gets its FIRST consumer outside
                                     app/Support/Metrics and tests here, which is the whole point:
@@ -30,7 +37,9 @@
                                     repeated binary-float addition of a decimal column, which is
                                     exactly "stored at limited precision and may differ from the
                                     ledger in the smallest units". --}}
-                               :hint="\App\Support\Reports\ReportFigureNote::orderValueHint()" />
+                               :hint="($figureCaveats[$name] ?? '') !== ''
+                                   ? $figureCaveats[$name]
+                                   : \App\Support\Reports\ReportFigureNote::orderValueHint()" />
                 @endforeach
             </x-ss.stats>
         </div>

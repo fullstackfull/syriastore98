@@ -285,10 +285,31 @@
                                  a session stored before this change still downloads a well-formed
                                  file instead of the word "undefined". --}}
                             var note = (typeof data.figureNote === 'string') ? data.figureNote : '';
+                            {{-- ANA-TOP part 4. THE ROW'S OWN CAVEAT, NOT JUST THE SHARED ONE, and the
+                                 review of that slice is why: the handler had started putting
+                                 `figureCaveats` in the payload and this builder still read only
+                                 `figureNote`, so the sentence about the second currency reached the
+                                 JSON and stopped there. The merchant's file said nothing about it.
+
+                                 The resolution is the SCREEN'S resolution, character for character:
+                                 the chart blade's `:hint` is
+                                 `($figureCaveats[$name] ?? '') !== '' ? $figureCaveats[$name] : orderValueHint()`,
+                                 and this is the same choice in JavaScript. One column, because the
+                                 per-row caveat already OPENS with `orderValueHint()` -- a second
+                                 column would print that sentence twice. A branch not yet converted,
+                                 or a session stored before this change, has no entry and falls back
+                                 to the shared note exactly as before. --}}
+                            var rowNote = function(name) {
+                                var perRow = (data.figureCaveats && typeof data.figureCaveats[name] === 'string')
+                                    ? data.figureCaveats[name]
+                                    : '';
+
+                                return perRow !== '' ? perRow : note;
+                            };
                             data.NetSaleTotal.forEach(function(category) {
                                 for (var i = 0; i < data.monthList.length; i++) {
                                     var netSale = (category.data && category.data[i] != null) ? category.data[i] : 0;
-                                    csvContent += `${data.monthList[i]},${csvField(category.name)},${netSale},${csvField(note)}\n`;
+                                    csvContent += `${data.monthList[i]},${csvField(category.name)},${netSale},${csvField(rowNote(category.name))}\n`;
                                 }
                             });
 

@@ -16,8 +16,25 @@
                          category name through untouched -- a blanket `__($name)` would
                          rewrite a merchant's record whenever its name collided with a UI
                          translation key. --}}
+                    {{-- ANA-TOP part 4. THE FIGURE AND THE SYMBOL CAME FROM TWO INDEPENDENT
+                         SETTINGS READS, which is how a card could print `$100.00` while its own
+                         caveat said `100.00 EUR`. When the store HAS configured a currency, the
+                         figure is denominated in it and `currency_format_with_sym` is correct.
+                         When it has not, the denomination was INFERRED from the busiest bucket
+                         and the store's symbol would contradict it, so the code is printed
+                         instead. `MoneyText::amount()` isolates the number so a right-to-left
+                         page cannot reorder it.
+
+                         A NULL TOTAL IS "Not available", NOT `0.00`. `number_format(null)` prints
+                         `0.00`, and `0.00` reads as "no sales" -- a different and false
+                         statement from "nothing was earned in your store's currency, and here is
+                         what was earned in another". --}}
                     <x-ss.stat :label="\App\Support\Reports\AggregateSeriesLabel::display($name)"
-                               :value="$currency . number_format($saleAmount, 2)"
+                               :value="$saleAmount === null
+                                   ? __('Not available')
+                                   : (($figureCurrencyIsConfigured ?? true)
+                                       ? $currency . number_format($saleAmount, 2)
+                                       : \App\Support\Metrics\MoneyText::amount($saleAmount, $figureCurrency ?? ''))"
                                :period="$periodLabel"
                                {{-- ANA-007. `MetricCaveat` gets its FIRST consumer outside
                                     app/Support/Metrics and tests here, which is the whole point:
@@ -30,7 +47,9 @@
                                     repeated binary-float addition of a decimal column, which is
                                     exactly "stored at limited precision and may differ from the
                                     ledger in the smallest units". --}}
-                               :hint="\App\Support\Reports\ReportFigureNote::orderValueHint()" />
+                               :hint="($figureCaveats[$name] ?? '') !== ''
+                                   ? $figureCaveats[$name]
+                                   : \App\Support\Reports\ReportFigureNote::orderValueHint()" />
                 @endforeach
             </x-ss.stats>
         </div>

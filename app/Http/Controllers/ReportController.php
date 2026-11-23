@@ -17,6 +17,7 @@ use App\Support\Metrics\FinanceLedgerFigures;
 use App\Support\Reports\CalendarPeriod;
 use App\Support\Tenancy\OperatorStoreSelection;
 use App\Support\Metrics\MetricWindow;
+use App\Support\Reports\DimensionPeriodRevenue;
 use App\Support\Reports\ReportFigureNote;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -2279,51 +2280,69 @@ class ReportController extends Controller
                 }
             }
 
+            /*
+             * ANA-TOP part 4, review finding 6. THIS ARM REPORTED ZERO FOR EVERY CATEGORY IN
+             * JANUARY, and it is the GAP-223(a) shape the brand twin was already fixed for.
+             * `$year` is `date('Y')` -- the CURRENT year -- while the bounds are the PREVIOUS
+             * month, so every January the two predicates contradict each other and no row
+             * matches. The brand arm derives both from `$firstDayOfPreviousMonth`; this now does
+             * the same, which is the already-approved remedy rather than a new rule.
+             *
+             * `whereMonth` replaces the `whereBetween` for the same reason it does on the brand
+             * side: the bounds were date STRINGS compared against a `dateTime` column, so an
+             * order placed after 00:00:00 on the last day of the month fell outside the upper
+             * bound. Found by the review of this slice; the test case for `category, last-month`
+             * would have gone red every January and become an undeclared Feature failure.
+             */
             $orders = Order::where('store_id', OperatorStoreSelection::reportStoreId())
-                ->whereYear('order_date', $year)
-                ->whereBetween('order_date', [$firstDayOfPreviousMonth, $lastDayOfPreviousMonth])
+                ->whereYear('order_date', date('Y', strtotime($firstDayOfPreviousMonth)))
+                ->whereMonth('order_date', date('m', strtotime($firstDayOfPreviousMonth)))
                 ->get();
             $NetSalesofcategory = [];
+            /* ANA-TOP part 4, the last-month arm. Same shape and same remedy as the
+               this-month arm below; `DimensionPeriodRevenue` carries the reasoning. */
+            $revenue = DimensionPeriodRevenue::forOrders(
+                (int) OperatorStoreSelection::reportStoreId(),
+                DimensionPeriodRevenue::CATEGORY,
+                $orders,
+                (int) $daysInPreviousMonth,
+                fn ($order) => (int) date('j', strtotime((string) $order->order_date)) - 1
+            );
+
+            $seriesIds = [];
+
             foreach ($selectedCategory as $categoryId) {
                 $category = Category::find($categoryId);
                 if (!$category) {
                     continue;
                 }
 
-                foreach ($orders as $order) {
-                    $orderDate = date('j', strtotime($order->order_date));
+                $seriesIds[] = (int) $categoryId;
+                $categoryNetSales[$category->name] = $revenue->series((int) $categoryId);
+                $NetSalesofcategory[$category->name] = $revenue->total((int) $categoryId);
+                $figureCaveats[$category->name] = $revenue->caveat((int) $categoryId);
+            }
 
-                    $products = json_decode($order->product_json, true);
+            $figureCurrency = $revenue->primaryCurrency();
+            $figureCurrencyIsConfigured = $revenue->primaryCurrencyIsConfigured();
 
-                    foreach ($products as $product) {
-                        $product_data = Product::find($product['product_id']);
+            /* ANA-TOP part 4, review finding 2. THIS ARM WAS THE ONE THAT KEPT THE OLD
+               AGGREGATE: it collected `$seriesIds` and then never used them, summing the
+               name-keyed array with its own `array_map` instead. So the assurance written in the
+               brand year arm -- that the aggregate is computed in exactly one place, which is
+               what stops the D-42.3 double coming back -- did not hold here. It does now. */
+            foreach ($selectedCategory as $categoryId) {
+                $category = Category::find($categoryId);
 
-                        if ($product_data && $product_data->category_id == $categoryId) {
-                            $totalProductQuantity = intval(($product['qty'] ?? ($product['quantity'] ?? '1')));
-                            $categoryNetSales[$category->name][$orderDate - 1] += (float) ($product['final_price']);
-                        }
-                    }
+                if ($category && isset($categoryNetSales[$category->name])) {
+                    $NetSaleTotal[] = [
+                        'name' => $category->name,
+                        'data' => $categoryNetSales[$category->name],
+                    ];
                 }
-
-                $NetSalesofcategory[$category->name] = array_sum($categoryNetSales[$category->name]);
             }
 
-            $allCategoriesTotal = array_fill(0, $daysInPreviousMonth, 0);
-
-            foreach ($categoryNetSales as $categoryName => $categoryArray) {
-                $NetSaleTotal[] = [
-                    'name' => $categoryName,
-                    'data' => $categoryArray,
-                ];
-
-                $allCategoriesTotal = array_map(
-                    function ($a, $b) {
-                        return $a + $b;
-                    },
-                    $allCategoriesTotal,
-                    $categoryArray
-                );
-            }
+            $allCategoriesTotal = $revenue->aggregateSeries($seriesIds);
             if (!$request->selectedCategory) {
                 $NetSaleTotal[] = [
                     'name' => 'All Categories',
@@ -2358,52 +2377,69 @@ class ReportController extends Controller
                 ->whereMonth('order_date', date('m'))
                 ->get();
 
+            /*
+             * ANA-TOP part 4. THE ACCUMULATION MOVED OUT, AND THE THREE DEFECTS WENT WITH IT.
+             *
+             * What stood here was `+= (float) ($product['final_price'])` with no reference to
+             * `orders.currency_code`, so a store that had taken 25 EUR and 90 USD was shown
+             * `115.00` behind one symbol -- a number that is not a quantity of any currency. It
+             * also called `Product::find()` once per ORDER LINE inside a triple-nested loop, and
+             * `Product` registers no `StoreScope`, so a line naming another tenant's product was
+             * attributed by that FOREIGN catalogue's `category_id`.
+             *
+             * `DimensionPeriodRevenue` carries the rule the dashboard card already follows and
+             * resolves every product in ONE scoped query. Its docblock states why this is not
+             * simply a call to `TopSellersByRevenue`: that windows on `created_at` and these
+             * handlers window on `order_date`, so the rule is shared and the window is not.
+             */
+            $revenue = DimensionPeriodRevenue::forOrders(
+                (int) OperatorStoreSelection::reportStoreId(),
+                DimensionPeriodRevenue::CATEGORY,
+                $orders,
+                (int) $daysInCurrentMonth,
+                fn ($order) => (int) date('j', strtotime((string) $order->order_date)) - 1
+            );
+
+            $NetSalesofcategory = [];
+            $seriesIds = [];
+
             foreach ($selectedCategory as $categoryId) {
                 $category = Category::find($categoryId);
                 if (!$category) {
                     continue;
                 }
 
-                foreach ($orders as $order) {
-                    $orderDay = date('j', strtotime($order->order_date));
+                $seriesIds[] = (int) $categoryId;
+                $categoryNetSales[$category->name] = $revenue->series((int) $categoryId);
+                $NetSalesofcategory[$category->name] = $revenue->total((int) $categoryId);
+                $figureCaveats[$category->name] = $revenue->caveat((int) $categoryId);
 
-                    $products = json_decode($order->product_json, true);
-
-                    foreach ($products as $product) {
-                        $product_data = Product::find($product['product_id']);
-
-                        if ($product_data && $product_data->category_id == $categoryId) {
-                            $totalProductQuantity = intval(($product['qty'] ?? ($product['quantity'] ?? '1')));
-                            $categoryNetSales[$category->name][$orderDay - 1] += (float) ($product['final_price']);
-                        }
-                    }
-                }
-            }
-
-            $allCategoriesTotal = array_fill(0, $daysInCurrentMonth, 0);
-            $NetSalesofcategory = [];
-            foreach ($categoryNetSales as $categoryName => $categoryArray) {
                 $NetSaleTotal[] = [
-                    'name' => $categoryName,
-                    'data' => $categoryArray,
+                    'name' => $category->name,
+                    'data' => $categoryNetSales[$category->name],
                 ];
-                $totalNetSale = array_sum($categoryArray);
-                $NetSalesofcategory[$categoryName] = $totalNetSale;
-                $allCategoriesTotal = array_map(
-                    function ($a, $b) {
-                        return $a + $b;
-                    },
-                    $allCategoriesTotal,
-                    $categoryArray
-                );
             }
+
+            $allCategoriesTotal = $revenue->aggregateSeries($seriesIds);
 
             if (!$request->selectedCategory) {
                 $NetSaleTotal[] = [
                     'name' => 'All Categories',
                     'data' => $allCategoriesTotal,
                 ];
+                /* ANA-TOP part 4, review finding 3. NO `All Categories` TILE IS SET HERE, and
+                   the first draft of this arm set one. The category handler has never shipped an
+                   aggregate money tile in ANY of its five arms -- the `git diff` confirms the
+                   key appears only as an addition, so none was lost -- and adding one in a
+                   single arm gave this screen a figure the other four periods do not show. The
+                   brand handler is different and keeps its own: it HAS always written
+                   `$NetSalesofbrand['All Brands']`, in every arm, so preserving that is
+                   fidelity rather than inconsistency. A new tile on four category screens is a
+                   product change, not a currency fix. */
             }
+
+            $figureCurrency = $revenue->primaryCurrency();
+            $figureCurrencyIsConfigured = $revenue->primaryCurrencyIsConfigured();
 
             $monthList = $month = $this->getCurrentMonthDates();
         } elseif ($request->chart_data == 'seven-day') {
@@ -2437,50 +2473,48 @@ class ReportController extends Controller
                 ->whereDate('order_date', '>=', $sevenDaysAgo)
                 ->get();
 
+            /*
+             * ANA-TOP part 4, the seven-day arm.
+             *
+             * `date_diff(...)->days` IS ABSOLUTE, so a future `order_date` within a week also
+             * produced a bucket index in range -- the `>= 0` half of the shipped guard could
+             * never fire. That behaviour is PRESERVED rather than quietly tightened: the
+             * accumulator drops an index outside `[0, bucketCount)` exactly as the old `< 7`
+             * check did, and whether a future-dated order belongs in a "last seven days" report
+             * is a question about the data, not about currency. Recorded, not changed.
+             */
+            $revenue = DimensionPeriodRevenue::forOrders(
+                (int) OperatorStoreSelection::reportStoreId(),
+                DimensionPeriodRevenue::CATEGORY,
+                $orders,
+                7,
+                fn ($order) => date_diff(
+                    date_create($currentDate),
+                    date_create(date('Y-m-d', strtotime((string) $order->order_date)))
+                )->days
+            );
+
+            $NetSalesofcategory = [];
+            $seriesIds = [];
+
             foreach ($selectedCategory as $categoryId) {
                 $category = Category::find($categoryId);
                 if (!$category) {
                     continue;
                 }
 
-                foreach ($orders as $order) {
-                    $orderDate = date('Y-m-d', strtotime($order->order_date));
+                $seriesIds[] = (int) $categoryId;
+                $categoryNetSales[$category->name] = $revenue->series((int) $categoryId);
+                $NetSalesofcategory[$category->name] = $revenue->total((int) $categoryId);
+                $figureCaveats[$category->name] = $revenue->caveat((int) $categoryId);
 
-                    $products = json_decode($order->product_json, true);
-
-                    foreach ($products as $product) {
-                        $product_data = Product::find($product['product_id']);
-
-                        if ($product_data && $product_data->category_id == $categoryId) {
-                            $totalProductQuantity = intval(($product['qty'] ?? ($product['quantity'] ?? '1')));
-                            $daysAgo = date_diff(date_create($currentDate), date_create($orderDate))->days;
-
-                            if ($daysAgo >= 0 && $daysAgo < 7) {
-                                $categoryNetSales[$category->name][$daysAgo] += (float) ($product['final_price']);
-                            }
-                        }
-                    }
-                }
-            }
-
-            $allCategoriesTotal = array_fill(0, 7, 0);
-            $NetSalesofcategory = [];
-            foreach ($categoryNetSales as $categoryName => $categoryArray) {
                 $NetSaleTotal[] = [
-                    'name' => $categoryName,
-                    'data' => $categoryArray,
+                    'name' => $category->name,
+                    'data' => $categoryNetSales[$category->name],
                 ];
-                $totalNetSale = array_sum($categoryArray);
-
-                $NetSalesofcategory[$categoryName] = $totalNetSale;
-                $allCategoriesTotal = array_map(
-                    function ($a, $b) {
-                        return $a + $b;
-                    },
-                    $allCategoriesTotal,
-                    $categoryArray
-                );
             }
+
+            $allCategoriesTotal = $revenue->aggregateSeries($seriesIds);
 
             if (!$request->selectedCategory) {
                 $NetSaleTotal[] = [
@@ -2488,6 +2522,9 @@ class ReportController extends Controller
                     'data' => $allCategoriesTotal,
                 ];
             }
+
+            $figureCurrency = $revenue->primaryCurrency();
+            $figureCurrencyIsConfigured = $revenue->primaryCurrencyIsConfigured();
         } elseif ($request->chart_data == 'year') {
 
             $selectedCategory = $this->reportSelectionWithinCurrentStore(Category::class, $request->selectedCategory);
@@ -2516,53 +2553,46 @@ class ReportController extends Controller
                 ->whereYear('order_date', $year)
                 ->get();
 
-            foreach ($monthList as $index => $month) {
-                foreach ($selectedCategory as $categoryId) {
-                    $category = Category::find($categoryId);
-                    if (!$category) {
-                        continue;
-                    }
+            /*
+             * ANA-TOP part 4, the year arm -- and the only one of the eight whose LOOPS were
+             * inverted: month outside, category inside, re-walking every order of the year once
+             * per month per category and comparing `date('Y-m')` to the month it was currently
+             * on. For a store with 12 categories and a year of orders that is 144 passes over
+             * the whole collection, each with a `Product::find()` per line.
+             *
+             * The bucket is just the order's month: `$monthList` is indexed 0..11 against months
+             * 1..12 -- the shipped comparison was `date('Y-m', $year . '-' . ($index + 1))`, so
+             * index 0 IS January. The orders query already restricts to `$year`, which is what
+             * makes `date('n') - 1` sufficient and the string comparison redundant.
+             */
+            $revenue = DimensionPeriodRevenue::forOrders(
+                (int) OperatorStoreSelection::reportStoreId(),
+                DimensionPeriodRevenue::CATEGORY,
+                $orders,
+                count($monthList),
+                fn ($order) => (int) date('n', strtotime((string) $order->order_date)) - 1
+            );
 
-                    $totalNetSales = 0;
+            $seriesIds = [];
 
-                    foreach ($orders as $order) {
-                        $products = json_decode($order->product_json, true);
-                        if (!is_array($products)) {
-                            continue;
-                        }
-                        foreach ($products as $product) {
-                            if (!is_array($product) || !isset($product['product_id'])) {
-                                continue;
-                            }
-                            $product_data = Product::find($product['product_id']);
-
-                            if ($product_data && $product_data->category_id == $categoryId) {
-                                $orderDate = date('Y-m', strtotime($order->order_date));
-                                if ($orderDate == date('Y-m', strtotime($year . '-' . ($index + 1)))) {
-                                    // $totalProductQuantity = intval(($product['qty'] ?? ($product['quantity'] ?? '1')));
-                                    $totalNetSales += (float) ($product['final_price']);
-                                }
-                            }
-                        }
-                    }
-
-                    $categoryNetSales[$category->name][$index] = $totalNetSales;
-
-                    $totalNetSalesAllCategories[$index] += $totalNetSales;
-
-                    if (!isset($NetSalesofcategory[$category->name])) {
-                        $NetSalesofcategory[$category->name] = 0;
-                    }
-                    $NetSalesofcategory[$category->name] += $totalNetSales;
+            foreach ($selectedCategory as $categoryId) {
+                $category = Category::find($categoryId);
+                if (!$category) {
+                    continue;
                 }
-            }
 
-            foreach ($categoryNetSales as $categoryName => $categoryArray) {
+                $seriesIds[] = (int) $categoryId;
+                $categoryNetSales[$category->name] = $revenue->series((int) $categoryId);
+                $NetSalesofcategory[$category->name] = $revenue->total((int) $categoryId);
+                $figureCaveats[$category->name] = $revenue->caveat((int) $categoryId);
+
                 $NetSaleTotal[] = [
-                    'name' => $categoryName,
-                    'data' => $categoryArray,
+                    'name' => $category->name,
+                    'data' => $categoryNetSales[$category->name],
                 ];
             }
+
+            $totalNetSalesAllCategories = $revenue->aggregateSeries($seriesIds);
 
             if (!$request->selectedCategory) {
                 $NetSaleTotal[] = [
@@ -2570,6 +2600,9 @@ class ReportController extends Controller
                     'data' => $totalNetSalesAllCategories,
                 ];
             }
+
+            $figureCurrency = $revenue->primaryCurrency();
+            $figureCurrencyIsConfigured = $revenue->primaryCurrencyIsConfigured();
         } else {
             if (str_contains($request->Date, ' to ')) {
                 $date_range = explode(' to ', $request->Date);
@@ -2635,51 +2668,48 @@ class ReportController extends Controller
                 ->whereDate('order_date', '<=', $to_date)
                 ->get();
 
+            /*
+             * ANA-TOP part 4, the custom-range arm.
+             *
+             * The bucket index is `array_search($orderDate, $monthList)` where `$orderDate` is
+             * `d-M` -- a LABEL LOOKUP, not arithmetic, and that is kept exactly. `$monthList`
+             * holds one entry per day of the chosen range, so an order whose formatted date is
+             * not in the list has no bucket; `array_search` returns false and the accumulator
+             * drops it, which is what the shipped `!== false` guard did.
+             */
+            $revenue = DimensionPeriodRevenue::forOrders(
+                (int) OperatorStoreSelection::reportStoreId(),
+                DimensionPeriodRevenue::CATEGORY,
+                $orders,
+                count($monthList),
+                function ($order) use ($monthList) {
+                    $index = array_search(date('d-M', strtotime((string) $order->order_date)), $monthList);
+
+                    return $index === false ? null : (int) $index;
+                }
+            );
+
+            $NetSalesofcategory = [];
+            $seriesIds = [];
+
             foreach ($selectedCategory as $categoryId) {
                 $category = Category::find($categoryId);
                 if (!$category) {
                     continue;
                 }
 
-                foreach ($orders as $order) {
-                    $orderDate = date('d-M', strtotime($order->order_date));
+                $seriesIds[] = (int) $categoryId;
+                $categoryNetSales[$category->name] = $revenue->series((int) $categoryId);
+                $NetSalesofcategory[$category->name] = $revenue->total((int) $categoryId);
+                $figureCaveats[$category->name] = $revenue->caveat((int) $categoryId);
 
-                    $products = json_decode($order->product_json, true);
-
-                    foreach ($products as $product) {
-                        $product_data = Product::find($product['product_id']);
-
-                        if ($product_data && $product_data->category_id == $categoryId) {
-                            $totalProductQuantity = intval(($product['qty'] ?? ($product['quantity'] ?? '1')));
-                            $monthIndex = array_search($orderDate, $monthList);
-
-                            if ($monthIndex !== false) {
-                                $categoryNetSales[$category->name][$monthIndex] += (float) ($product['final_price']);
-                            }
-                        }
-                    }
-                }
-            }
-
-            $allCategoriesTotal = array_fill(0, count($monthList), 0);
-            $NetSalesofcategory = [];
-            foreach ($categoryNetSales as $categoryName => $categoryArray) {
                 $NetSaleTotal[] = [
-                    'name' => $categoryName,
-                    'data' => $categoryArray,
+                    'name' => $category->name,
+                    'data' => $categoryNetSales[$category->name],
                 ];
-
-                $totalNetSale = array_sum($categoryArray);
-
-                $NetSalesofcategory[$categoryName] = $totalNetSale;
-                $allCategoriesTotal = array_map(
-                    function ($a, $b) {
-                        return $a + $b;
-                    },
-                    $allCategoriesTotal,
-                    $categoryArray
-                );
             }
+
+            $allCategoriesTotal = $revenue->aggregateSeries($seriesIds);
 
             if (!$request->selectedCategory) {
                 $NetSaleTotal[] = [
@@ -2687,6 +2717,9 @@ class ReportController extends Controller
                     'data' => $allCategoriesTotal,
                 ];
             }
+
+            $figureCurrency = $revenue->primaryCurrency();
+            $figureCurrencyIsConfigured = $revenue->primaryCurrencyIsConfigured();
         }
         $html = '';
         [$periodLabel] = $this->chartPeriodLabels($request);
@@ -2707,13 +2740,31 @@ class ReportController extends Controller
            see precisely what they saw before. */
         $netSeries = $allCategoriesTotal ?? ($totalNetSalesAllCategories ?? []);
 
+        /* ANA-TOP part 4. Defaults for the branches not yet converted, so a branch that still
+           runs the old arithmetic renders exactly as it did rather than erroring on a missing
+           variable. Each converted branch sets all three. */
         $html = view('reports.order_category_chart', compact('currency', 'NetSalesofcategory', 'periodLabel')
-            + ['labels' => $monthList ?? [], 'netSeries' => $netSeries])->render();
+            + [
+                'labels' => $monthList ?? [],
+                'netSeries' => $netSeries,
+                'figureCaveats' => $figureCaveats ?? [],
+                'figureCurrency' => $figureCurrency ?? '',
+                'figureCurrencyIsConfigured' => $figureCurrencyIsConfigured ?? true,
+            ])->render();
 
         $return['html'] = $html;
 
         $return['NetSaleTotal'] = $NetSaleTotal;
         $return['monthList'] = $monthList;
+
+        /* ANA-TOP part 4. THE EXPORT REPLAYS THE SESSION, so the currency disclosure has to be
+           IN it -- an export that drops a caveat the screen carries is a defect by Phase 05's
+           own rule, and before this the file said nothing about the second currency its own
+           figure excludes. */
+        $return['figureCaveats'] = $figureCaveats ?? [];
+        $return['figureCurrency'] = $figureCurrency ?? '';
+        $return['figureCurrencyIsConfigured'] = $figureCurrencyIsConfigured ?? true;
+
         Session::put('category_order_report', $return);
 
         return response()->json($return);
@@ -2739,6 +2790,18 @@ class ReportController extends Controller
          * caveat here and why no payment-status wording was invented.
          */
         $return['figureNote'] = ReportFigureNote::orderValueHint();
+
+        /* ANA-TOP part 4: and the per-row currency disclosure the screen showed, from the same
+           session payload. The review of this slice caught the first version of this comment
+           claiming the SPREADSHEET carried it -- it did not: `sale_by_category.blade.php` and
+           `sale_by_brand.blade.php` build the CSV from `data.figureNote` alone, so adding the
+           keys here reached the payload and stopped. Both blades now resolve the per-row caveat
+           for the money column the SAME way the chart's `:hint` does -- `figureCaveats[name]`
+           when present, else the shared note -- which is what makes the claim true. One column,
+           because the per-row caveat already opens with `orderValueHint()`. */
+        $return['figureCaveats'] = $requests_data['figureCaveats'] ?? [];
+        $return['figureCurrency'] = $requests_data['figureCurrency'] ?? '';
+
         return response()->json($return);
     }
 
@@ -2839,44 +2902,36 @@ class ReportController extends Controller
                 ->whereMonth('order_date', date('m', strtotime($firstDayOfPreviousMonth)))
                 ->get();
 
+            /* ANA-TOP part 4, the brand last-month arm. Same shape and same remedy as the
+               category arm; `DimensionPeriodRevenue` carries the reasoning once. */
+            $revenue = DimensionPeriodRevenue::forOrders(
+                (int) OperatorStoreSelection::reportStoreId(),
+                DimensionPeriodRevenue::BRAND,
+                $orders,
+                (int) $daysInPreviousMonth,
+                fn ($order) => (int) date('j', strtotime((string) $order->order_date)) - 1
+            );
+
+            $seriesIds = [];
+
             foreach ($selectedBrand as $brandId) {
                 $brand = ProductBrand::find($brandId);
                 if (!$brand) {
                     continue;
                 }
 
-                foreach ($orders as $order) {
-                    $orderDate = date('j', strtotime($order->order_date));
+                $seriesIds[] = (int) $brandId;
+                $brandNetSales[$brand->name] = $revenue->series((int) $brandId);
+                $NetSalesofbrand[$brand->name] = $revenue->total((int) $brandId);
+                $figureCaveats[$brand->name] = $revenue->caveat((int) $brandId);
 
-                    $products = json_decode($order->product_json, true);
-
-                    foreach ($products as $product) {
-                        $product_data = Product::find($product['product_id']);
-
-                        if ($product_data && $product_data->brand_id == $brandId) {
-                            $brandNetSales[$brand->name][$orderDate - 1] += (float) $product['final_price'];
-                        }
-                    }
-                }
-
-                $NetSalesofbrand[$brand->name] = array_sum($brandNetSales[$brand->name]);
-            }
-
-            $allBrandsTotal = array_fill(0, $daysInPreviousMonth, 0);
-            foreach ($brandNetSales as $brandName => $brandArray) {
                 $NetSaleTotal[] = [
-                    'name' => $brandName,
-                    'data' => $brandArray,
+                    'name' => $brand->name,
+                    'data' => $brandNetSales[$brand->name],
                 ];
-
-                $allBrandsTotal = array_map(
-                    function ($a, $b) {
-                        return $a + $b;
-                    },
-                    $allBrandsTotal,
-                    $brandArray
-                );
             }
+
+            $allBrandsTotal = $revenue->aggregateSeries($seriesIds);
 
             if (!$request->selectedBrand) {
                 $NetSaleTotal[] = [
@@ -2884,7 +2939,13 @@ class ReportController extends Controller
                     'data' => $allBrandsTotal,
                 ];
             }
-            $NetSalesofbrand['All Brands'] = array_sum($allBrandsTotal);
+
+            $allBrandsSum = round(array_sum($allBrandsTotal), 2);
+            $NetSalesofbrand['All Brands'] = $allBrandsSum > 0 ? $allBrandsSum : null;
+            $figureCaveats['All Brands'] = $revenue->aggregateCaveat($seriesIds);
+
+            $figureCurrency = $revenue->primaryCurrency();
+            $figureCurrencyIsConfigured = $revenue->primaryCurrencyIsConfigured();
             $monthList = $month = $this->getLastMonthDatesFormatted();
         } elseif ($request->chart_data == 'this-month') {
             $firstDayOfCurrentMonth = date('Y-m-01');
@@ -2930,52 +2991,62 @@ class ReportController extends Controller
                 ->whereMonth('order_date', date('m'))
                 ->get();
 
+            /*
+             * ANA-TOP part 4, the brand twin of the category branch above. Same three defects --
+             * a cross-currency `+=`, a `Product::find()` per order line through a model that
+             * registers no StoreScope, and an eighth copy of both -- and the same remedy.
+             * `DimensionPeriodRevenue`'s docblock carries the reasoning once.
+             *
+             * `$daysInPreviousMonth` IS THE CURRENT MONTH'S DAY COUNT IN THIS BRANCH: read its
+             * assignment, `date('j', strtotime($lastDayOfCurrentMonth))`. A misleading name, not
+             * a bug, and left alone -- renaming it would touch the branches that share it and is
+             * not what this slice is for.
+             */
+            $revenue = DimensionPeriodRevenue::forOrders(
+                (int) OperatorStoreSelection::reportStoreId(),
+                DimensionPeriodRevenue::BRAND,
+                $orders,
+                (int) $daysInPreviousMonth,
+                fn ($order) => (int) date('j', strtotime((string) $order->order_date)) - 1
+            );
+
+            $seriesIds = [];
+
             foreach ($selectedBrand as $brandId) {
                 $brand = ProductBrand::find($brandId);
                 if (!$brand) {
                     continue;
                 }
 
-                foreach ($orders as $order) {
-                    $orderDate = date('j', strtotime($order->order_date));
+                $seriesIds[] = (int) $brandId;
+                $brandNetSales[$brand->name] = $revenue->series((int) $brandId);
+                $NetSalesofbrand[$brand->name] = $revenue->total((int) $brandId);
+                $figureCaveats[$brand->name] = $revenue->caveat((int) $brandId);
 
-                    $products = json_decode($order->product_json, true);
-
-                    foreach ($products as $product) {
-                        $product_data = Product::find($product['product_id']);
-
-                        if ($product_data && $product_data->brand_id == $brandId) {
-                            $brandNetSales[$brand->name][$orderDate - 1] += (float) $product['final_price'];
-                        }
-                    }
-                }
-
-                $NetSalesofbrand[$brand->name] = array_sum($brandNetSales[$brand->name]);
-            }
-
-            $allBrandsTotal = array_fill(0, $daysInPreviousMonth, 0);
-
-            foreach ($brandNetSales as $brandName => $brandArray) {
                 $NetSaleTotal[] = [
-                    'name' => $brandName,
-                    'data' => $brandArray,
+                    'name' => $brand->name,
+                    'data' => $brandNetSales[$brand->name],
                 ];
-
-                $allBrandsTotal = array_map(
-                    function ($a, $b) {
-                        return $a + $b;
-                    },
-                    $allBrandsTotal,
-                    $brandArray
-                );
             }
+
+            $allBrandsTotal = $revenue->aggregateSeries($seriesIds);
+
             if (!$request->selectedBrand) {
                 $NetSaleTotal[] = [
                     'name' => 'All Brands',
                     'data' => $allBrandsTotal,
                 ];
             }
-            $NetSalesofbrand['All Brands'] = array_sum($allBrandsTotal);
+
+            /* `All Brands` is set whether or not the SERIES row is added, because the shipped
+               behaviour put the aggregate in the tile list either way. Null rather than 0.00 when
+               nothing was earned in the store's own currency: 0.00 reads as "no sales". */
+            $allBrandsSum = round(array_sum($allBrandsTotal), 2);
+            $NetSalesofbrand['All Brands'] = $allBrandsSum > 0 ? $allBrandsSum : null;
+            $figureCaveats['All Brands'] = $revenue->aggregateCaveat($seriesIds);
+
+            $figureCurrency = $revenue->primaryCurrency();
+            $figureCurrencyIsConfigured = $revenue->primaryCurrencyIsConfigured();
             $monthList = $month = $this->getCurrentMonthDates();
         } elseif ($request->chart_data == 'year') {
             $selectedBrand = $this->reportSelectionWithinCurrentStore(ProductBrand::class, $request->selectedBrand);
@@ -3004,96 +3075,57 @@ class ReportController extends Controller
                 ->whereYear('order_date', $year)
                 ->get();
 
-            foreach ($monthList as $index => $month) {
-                foreach ($selectedBrand as $brandId) {
-                    $brand = ProductBrand::find($brandId);
-                    if (!$brand) {
-                        continue;
-                    }
+            /*
+             * ANA-TOP part 4, the brand year arm -- the last of the eight, and the one with the
+             * most history in it. Two things it used to do are KEPT AS DECISIONS, not lost:
+             *
+             * 1. THE LOOPS WERE INVERTED: month outside, brand inside, re-walking every order of
+             *    the year once per month per brand with a `Product::find()` per line. The bucket
+             *    is just the order's month -- `$monthList` is indexed 0..11 against months 1..12,
+             *    which is what the shipped `date('Y-m', $year . '-' . ($index + 1))` comparison
+             *    expressed -- and the orders query already restricts to `$year`.
+             *
+             * 2. D-42.3: `$totalNetSalesAllBrands[$index] += $totalNetSales;` STOOD INSIDE THAT
+             *    LOOP AND MADE "All Brands" EXACTLY DOUBLE, because the loop after it already
+             *    array_mapped every brand's series onto the same accumulator. Measured on
+             *    /brand-order-reports?chart_data=year with ONE order worth 1234.56: the aggregate
+             *    read 2,469.12. This arm was the only one of the five with both adds. The
+             *    aggregate is now computed in exactly one place, `aggregateSeries()`, so the
+             *    double cannot come back by someone re-adding a line here.
+             *
+             * ALSO GONE WITH IT: `$NetSalesOfBrand` (capital O), a second variable one character
+             * different from `$NetSalesofbrand`, written here and read NOWHERE -- the view reads
+             * the lowercase one. It is removed rather than carried forward, because the whole
+             * reason it was harmless is that nothing consumed it.
+             */
+            $revenue = DimensionPeriodRevenue::forOrders(
+                (int) OperatorStoreSelection::reportStoreId(),
+                DimensionPeriodRevenue::BRAND,
+                $orders,
+                count($monthList),
+                fn ($order) => (int) date('n', strtotime((string) $order->order_date)) - 1
+            );
 
-                    $totalNetSales = 0;
+            $seriesIds = [];
 
-                    foreach ($orders as $order) {
-                        $orderDate = date('Y-m', strtotime($order->order_date));
-                        if ($orderDate == date('Y-m', strtotime($year . '-' . ($index + 1)))) {
-                            $products = json_decode($order->product_json, true);
-                            if (!is_array($products)) {
-                                continue;
-                            }
-                            foreach ($products as $product) {
-                                if (!is_array($product) || !isset($product['product_id'])) {
-                                    continue;
-                                }
-                                $product_data = Product::find($product['product_id']);
-
-                                if ($product_data && $product_data->brand_id == $brandId) {
-                                    $totalNetSales += (float) $product['final_price'];
-                                }
-                            }
-                        }
-                    }
-                    $brandNetSales[$brand->name][$index] = $totalNetSales;
-
-                    /*
-                     * P5-3d -- THIS LINE USED TO STAND BEFORE THE ASSIGNMENT ABOVE, so every
-                     * brand card summed the series as it was BEFORE the current month was written
-                     * into it. The loop is months-outer / brands-inner over `yearMonth()`'s twelve
-                     * entries, so on the final iteration the card summed indices 0..10 and
-                     * **December was missing from every brand card, every year.**
-                     *
-                     * Measured: with 40.00 in January and 70.00 in December the card read 40.00;
-                     * it now reads 110.00. The chart series below was always right -- it walks
-                     * `$brandNetSales` after the loop -- so the card and the chart beside it
-                     * disagreed, which is what made this visible without explaining it.
-                     *
-                     * `$NetSalesOfBrand` (capital O) just below accumulates the same figure
-                     * correctly and is read NOWHERE: the view reads `$NetSalesofbrand`. With this
-                     * ordering the two now agree by construction. Removing the dead one is a tidy
-                     * for its own change, not part of a figure fix.
-                     */
-                    $NetSalesofbrand[$brand->name] = array_sum($brandNetSales[$brand->name]);
-                    /* D-42.3. `$totalNetSalesAllBrands[$index] += $totalNetSales;` STOOD HERE AND
-                       MADE THE YEAR VIEW'S "All Brands" FIGURE EXACTLY DOUBLE. The loop below
-                       already walks `$brandNetSales` and array_maps every brand's series onto
-                       `$totalNetSalesAllBrands`, so this line added the same money a second time.
-                       MEASURED on /brand-order-reports?chart_data=year with ONE order worth
-                       1234.56: the aggregate read 2,469.12.
-
-                       THIS BRANCH WAS THE ONLY ONE WITH BOTH ADDS -- measured across all five:
-                       last-month, this-month, seven-day and the custom range each have only the
-                       post-loop array_map, and each reads correctly. Removing the line here is
-                       what makes `year` agree with its four siblings, which is why it is the one
-                       removed rather than the loop below.
-
-                       IT WAS ALREADY WRONG ON THE SCREEN, before anything in this change: the
-                       doubled array is what `$NetSaleTotal[]['All Brands']` carries to the
-                       browser's ApexCharts and what `$NetSalesofbrand['All Brands']` sums for the
-                       card. The accessible table printed `1` in every row, which is what hid it.
-                       So the visible year chart stops being double as well -- an existing figure
-                       becoming accurate, which is the whole of this authorisation. No stored
-                       amount, wallet, settlement, payment or conversion rate is touched. */
-
-                    if (!isset($NetSalesOfBrand[$brand->name])) {
-                        $NetSalesOfBrand[$brand->name] = 0;
-                    }
-                    $NetSalesOfBrand[$brand->name] += $totalNetSales;
+            foreach ($selectedBrand as $brandId) {
+                $brand = ProductBrand::find($brandId);
+                if (!$brand) {
+                    continue;
                 }
-            }
-            foreach ($brandNetSales as $brandName => $brandArray) {
+
+                $seriesIds[] = (int) $brandId;
+                $brandNetSales[$brand->name] = $revenue->series((int) $brandId);
+                $NetSalesofbrand[$brand->name] = $revenue->total((int) $brandId);
+                $figureCaveats[$brand->name] = $revenue->caveat((int) $brandId);
+
                 $NetSaleTotal[] = [
-                    'name' => $brandName,
-                    'data' => $brandArray,
+                    'name' => $brand->name,
+                    'data' => $brandNetSales[$brand->name],
                 ];
-
-                $totalNetSalesAllBrands = array_map(
-                    function ($a, $b) {
-                        return $a + $b;
-                    },
-                    $totalNetSalesAllBrands,
-                    $brandArray
-                );
             }
 
+            $totalNetSalesAllBrands = $revenue->aggregateSeries($seriesIds);
 
             if (!$request->selectedBrand) {
                 $NetSaleTotal[] = [
@@ -3102,7 +3134,12 @@ class ReportController extends Controller
                 ];
             }
 
-            $NetSalesofbrand['All Brands'] = array_sum($totalNetSalesAllBrands);
+            $allBrandsSum = round(array_sum($totalNetSalesAllBrands), 2);
+            $NetSalesofbrand['All Brands'] = $allBrandsSum > 0 ? $allBrandsSum : null;
+            $figureCaveats['All Brands'] = $revenue->aggregateCaveat($seriesIds);
+
+            $figureCurrency = $revenue->primaryCurrency();
+            $figureCurrencyIsConfigured = $revenue->primaryCurrencyIsConfigured();
         } elseif ($request->chart_data == 'seven-day') {
             $selectedBrand = $this->reportSelectionWithinCurrentStore(ProductBrand::class, $request->selectedBrand);
             $currentDate = date('Y-m-d');
@@ -3137,53 +3174,86 @@ class ReportController extends Controller
                 ->whereDate('order_date', '>=', $sevenDaysAgo)
                 ->get();
 
+            /*
+             * ANA-TOP part 4, the brand seven-day arm.
+             *
+             * `array_reverse` IS PRESERVED on both the per-brand series and the aggregate: the
+             * bucket index counts days BACKWARDS from today, and the chart's labels run forwards,
+             * so the shipped code reversed at the point of display. Dropping that would silently
+             * mirror every merchant's week.
+             *
+             * AND THE TWO HANDLERS DISAGREE ABOUT WHAT "DAYS AGO" MEANS, measured: the category
+             * arm uses `date_diff(...)->days`, an absolute whole number, while this one divided a
+             * timestamp difference by 86400 -- a SIGNED float. Past orders give the same answer
+             * both ways, so the surfaces agreed on ordinary data; a future-dated order gave the
+             * category report a bucket and this one a negative index. The subtraction is kept so
+             * this arm's behaviour does not move, with `round()` and the `int` cast made explicit
+             * because an array index built from a float is a silent coercion. Which of the two is
+             * right is a question about future-dated orders, not about currency: recorded, not
+             * resolved.
+             */
+            $revenue = DimensionPeriodRevenue::forOrders(
+                (int) OperatorStoreSelection::reportStoreId(),
+                DimensionPeriodRevenue::BRAND,
+                $orders,
+                7,
+                fn ($order) => (int) round(
+                    (strtotime($currentDate) - strtotime(date('Y-m-d', strtotime((string) $order->order_date))))
+                    / (60 * 60 * 24)
+                )
+            );
+
+            $seriesIds = [];
+
             foreach ($selectedBrand as $brandId) {
                 $brand = ProductBrand::find($brandId);
                 if (!$brand) {
                     continue;
                 }
 
-                foreach ($orders as $order) {
-                    $orderDate = date('Y-m-d', strtotime($order->order_date));
-                    $daysAgo = (strtotime($currentDate) - strtotime($orderDate)) / (60 * 60 * 24);
+                $seriesIds[] = (int) $brandId;
+                $brandNetSales[$brand->name] = $revenue->series((int) $brandId);
+                $NetSalesofbrand[$brand->name] = $revenue->total((int) $brandId);
+                $figureCaveats[$brand->name] = $revenue->caveat((int) $brandId);
 
-                    if ($daysAgo >= 0 && $daysAgo < 7) {
-                        $products = json_decode($order->product_json, true);
-
-                        foreach ($products as $product) {
-                            $product_data = Product::find($product['product_id']);
-                            if ($product_data && $product_data->brand_id == $brandId) {
-                                $brandNetSales[$brand->name][$daysAgo] += (float) $product['final_price'];
-                            }
-                        }
-                    }
-                }
-
-                $NetSalesofbrand[$brand->name] = array_sum($brandNetSales[$brand->name]);
-            }
-
-            foreach ($brandNetSales as $brandName => $brandArray) {
                 $NetSaleTotal[] = [
-                    'name' => $brandName,
-                    'data' => array_reverse($brandArray), // Reverse to match the last 7 days order
+                    'name' => $brand->name,
+                    'data' => array_reverse($brandNetSales[$brand->name]),
                 ];
-
-                $totalNetSalesAllBrands = array_map(
-                    function ($a, $b) {
-                        return $a + $b;
-                    },
-                    $totalNetSalesAllBrands,
-                    $brandArray
-                );
             }
+
+            $totalNetSalesAllBrands = $revenue->aggregateSeries($seriesIds);
 
             if (empty($request->selectedBrand)) {
                 $NetSaleTotal[] = [
                     'name' => 'All Brands',
-                    'data' => array_reverse($totalNetSalesAllBrands), // Reverse to match the last 7 days order
+                    'data' => array_reverse($totalNetSalesAllBrands),
                 ];
             }
-            $NetSalesofbrand['All Brands'] = array_sum($totalNetSalesAllBrands);
+
+            $allBrandsSum = round(array_sum($totalNetSalesAllBrands), 2);
+            $NetSalesofbrand['All Brands'] = $allBrandsSum > 0 ? $allBrandsSum : null;
+            $figureCaveats['All Brands'] = $revenue->aggregateCaveat($seriesIds);
+
+            /*
+             * ANA-TOP part 4, review finding 1 -- A LIVE, PRE-EXISTING MIRROR, FIXED HERE.
+             *
+             * `$dayList` is built `for ($i = 6; $i >= 0; $i--)`, so its index 0 is SIX DAYS AGO.
+             * The bucket index counts days backwards from today, so bucket 0 is TODAY. This arm
+             * reversed at display for the ApexCharts series (both rows above), but `$netSeries`
+             * resolves `$allBrandsTotal ?? $totalNetSalesAllBrands` and this arm never set
+             * `$allBrandsTotal` -- so the chart's ACCESSIBLE TABLE, which `x-ss.bar-chart`'s own
+             * docblock calls the accessible content rather than a fallback, paired today's money
+             * with the label for six days ago, and so on across the week.
+             *
+             * The category seven-day arm does not have this: it builds its labels DESCENDING, so
+             * its labels and buckets already agree. Setting the display-ordered aggregate here is
+             * the narrowest fix and leaves the four other brand arms untouched.
+             */
+            $allBrandsTotal = array_reverse($totalNetSalesAllBrands);
+
+            $figureCurrency = $revenue->primaryCurrency();
+            $figureCurrencyIsConfigured = $revenue->primaryCurrencyIsConfigured();
             $monthList = $dayList; // Use dayList to represent the last 7 days
         } else {
             if (str_contains($request->Date, ' to ')) {
@@ -3235,45 +3305,47 @@ class ReportController extends Controller
                 ->whereDate('order_date', '<=', $to_date)
                 ->get();
 
+            /*
+             * ANA-TOP part 4, the brand custom-range arm -- the last of the eight.
+             *
+             * The bucket index is a LABEL LOOKUP into `$dayList` (`d-M`), kept exactly: an order
+             * whose formatted date is not in the list has no bucket, which is what the shipped
+             * `!== false` guard did. The aggregate's `?: array_fill(...)` crutch goes with it --
+             * the accumulator always returns a full-width numeric series, so there is no longer
+             * an empty-array case for `array_map` to trip over.
+             */
+            $revenue = DimensionPeriodRevenue::forOrders(
+                (int) OperatorStoreSelection::reportStoreId(),
+                DimensionPeriodRevenue::BRAND,
+                $orders,
+                count($dayList),
+                function ($order) use ($dayList) {
+                    $index = array_search(date('d-M', strtotime((string) $order->order_date)), $dayList);
+
+                    return $index === false ? null : (int) $index;
+                }
+            );
+
+            $seriesIds = [];
+
             foreach ($selectedBrand as $brandId) {
                 $brand = ProductBrand::find($brandId);
                 if (!$brand) {
                     continue;
                 }
 
-                foreach ($orders as $order) {
-                    $orderDate = date('d-M', strtotime($order->order_date));
-                    $dayIndex = array_search($orderDate, $dayList);
+                $seriesIds[] = (int) $brandId;
+                $brandNetSales[$brand->name] = $revenue->series((int) $brandId);
+                $NetSalesofbrand[$brand->name] = $revenue->total((int) $brandId);
+                $figureCaveats[$brand->name] = $revenue->caveat((int) $brandId);
 
-                    if ($dayIndex !== false) {
-                        $products = json_decode($order->product_json, true);
-
-                        foreach ($products as $product) {
-                            $product_data = Product::find($product['product_id']);
-                            if ($product_data && $product_data->brand_id == $brandId) {
-                                $brandNetSales[$brand->name][$dayIndex] += (float) $product['final_price'];
-                            }
-                        }
-                    }
-                }
-
-                $NetSalesofbrand[$brand->name] = array_sum($brandNetSales[$brand->name]);
-            }
-
-            foreach ($brandNetSales as $brandName => $brandArray) {
                 $NetSaleTotal[] = [
-                    'name' => $brandName,
-                    'data' => $brandArray,
+                    'name' => $brand->name,
+                    'data' => $brandNetSales[$brand->name],
                 ];
-
-                $totalNetSalesAllBrands = array_map(
-                    function ($a, $b) {
-                        return $a + $b;
-                    },
-                    $totalNetSalesAllBrands ?: array_fill(0, count($brandArray), 0),
-                    $brandArray
-                );
             }
+
+            $totalNetSalesAllBrands = $revenue->aggregateSeries($seriesIds);
 
             if (empty($request->selectedBrand)) {
                 $NetSaleTotal[] = [
@@ -3281,7 +3353,13 @@ class ReportController extends Controller
                     'data' => $totalNetSalesAllBrands,
                 ];
             }
-            $NetSalesofbrand['All Brands'] = array_sum($totalNetSalesAllBrands);
+
+            $allBrandsSum = round(array_sum($totalNetSalesAllBrands), 2);
+            $NetSalesofbrand['All Brands'] = $allBrandsSum > 0 ? $allBrandsSum : null;
+            $figureCaveats['All Brands'] = $revenue->aggregateCaveat($seriesIds);
+
+            $figureCurrency = $revenue->primaryCurrency();
+            $figureCurrencyIsConfigured = $revenue->primaryCurrencyIsConfigured();
             $monthList = $dayList; // Use dayList to represent the selected date range
         }
         [$periodLabel] = $this->chartPeriodLabels($request);
@@ -3293,13 +3371,27 @@ class ReportController extends Controller
            passed. Nothing is calculated here; `$return['NetSaleTotal']` is unchanged. */
         $netSeries = $allBrandsTotal ?? ($totalNetSalesAllBrands ?? []);
 
+        /* ANA-TOP part 4: the same three variables the category chart takes, with the same
+           defaults for the branches not yet converted. */
         $html = view('reports.order_brand_chart', compact('currency', 'NetSalesofbrand', 'periodLabel')
-            + ['labels' => $monthList ?? [], 'netSeries' => $netSeries])->render();
+            + [
+                'labels' => $monthList ?? [],
+                'netSeries' => $netSeries,
+                'figureCaveats' => $figureCaveats ?? [],
+                'figureCurrency' => $figureCurrency ?? '',
+                'figureCurrencyIsConfigured' => $figureCurrencyIsConfigured ?? true,
+            ])->render();
 
         $return = [
             'html' => $html,
             'NetSaleTotal' => $NetSaleTotal,
-            'monthList' => $monthList
+            'monthList' => $monthList,
+
+            /* ANA-TOP part 4. The export replays this payload, so the currency disclosure has to
+               be in it -- see the category handler for why. */
+            'figureCaveats' => $figureCaveats ?? [],
+            'figureCurrency' => $figureCurrency ?? '',
+            'figureCurrencyIsConfigured' => $figureCurrencyIsConfigured ?? true,
         ];
 
         Session::put('brand_order_report', $return);
@@ -3329,6 +3421,17 @@ class ReportController extends Controller
          * caveat here and why no payment-status wording was invented.
          */
         $return['figureNote'] = ReportFigureNote::orderValueHint();
+
+        /* ANA-TOP part 4: and the per-row currency disclosure the screen showed, from the same
+           session payload. The review of this slice caught the first version of this comment
+           claiming the SPREADSHEET carried it -- it did not: `sale_by_category.blade.php` and
+           `sale_by_brand.blade.php` build the CSV from `data.figureNote` alone, so adding the
+           keys here reached the payload and stopped. Both blades now resolve the per-row caveat
+           for the money column the SAME way the chart's `:hint` does -- `figureCaveats[name]`
+           when present, else the shared note -- which is what makes the claim true. One column,
+           because the per-row caveat already opens with `orderValueHint()`. */
+        $return['figureCaveats'] = $requests_data['figureCaveats'] ?? [];
+        $return['figureCurrency'] = $requests_data['figureCurrency'] ?? '';
         return response()->json($return);
     }
 
