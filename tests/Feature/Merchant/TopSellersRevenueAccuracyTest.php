@@ -533,14 +533,124 @@ class TopSellersRevenueAccuracyTest extends SecurityTestCase
          */
         $this->storeCurrency($this->otherStore, 'EUR');
 
+        /*
+         * BOTH LINKS OF THE CHAIN, and the review of part 3 is why. The reader walks
+         * `defult_currancy` and THEN `currency`. With only the first key configured on the other
+         * store, dropping the predicate from the SECOND link leaked nothing -- there was no
+         * foreign `currency` row anywhere in the suite to find -- so that link was unpinned and
+         * an edit could delete it for free. Grep-verified at the time: this was the only
+         * `'name' => 'currency'` fixture in `tests/`.
+         */
+        DB::table('settings')->insert([
+            'store_id' => $this->otherStore->id, 'name' => 'currency', 'value' => 'GBP',
+            'created_by' => $this->otherStore->created_by,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
         $lamps = $this->category('Lamps');
         $this->order([[$this->product($lamps), 1, 55.0]], null, null, 'USD');
 
         $rows = TopSellersByRevenue::compute(TopSellersByRevenue::CATEGORY, $this->store->id);
 
         $this->assertSame('USD', $rows[0]->currency,
-            "another tenant's configured currency is naming this store's figures");
+            "another tenant's configured currency is naming this store's figures (EUR means the "
+            . 'first link of the chain lost its predicate, GBP means the second one did)');
         $this->assertSame(55.0, $this->totalFor($rows, 'Lamps'));
+    }
+
+    public function test_a_store_configured_under_the_fallback_setting_key_is_not_called_unconfigured(): void
+    {
+        /*
+         * WHICH CURRENCY A STORE TRADES IN IS ONE DECISION, AND IT ALREADY HAD AN OWNER.
+         *
+         * `OrderCurrencyStamp` exists because three writers read `defult_currancy` and two read
+         * something else, and a store trading in Syrian pounds had its storefront orders stamped
+         * `$`. Its chain is `defult_currancy` THEN `currency`, through
+         * `Utility::GetValueByName()`, which also applies the P1-SEC-80 sanitisation.
+         *
+         * ANA-TOP part 1 read only `defult_currancy`, from a raw query of its own -- a second
+         * reader of the same decision, which is the drift that class was created to stop. For a
+         * store configured under the fallback key the card called the store UNCONFIGURED and
+         * denominated the ranking in whichever currency happened to be busiest, while every one
+         * of that store's orders was being stamped with the configured one. Here that is EUR
+         * against a busier USD, so the two answers differ and the test can tell them apart.
+         */
+        DB::table('settings')->insert([
+            'store_id' => $this->store->id, 'name' => 'currency', 'value' => 'EUR',
+            'created_by' => $this->store->created_by,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        /* The premise: nothing is configured under the primary key, so this case really does
+           exercise the fallback rather than passing for the ordinary reason. */
+        $this->assertNull(
+            DB::table('settings')->where('store_id', $this->store->id)
+                ->where('name', 'defult_currancy')->value('value'),
+            'premise failed: the store has a defult_currancy row, so the fallback is untested'
+        );
+
+        $lamps = $this->category('Lamps');
+        $product = $this->product($lamps);
+
+        $this->order([[$product, 1, 25.0]], null, null, 'EUR');
+        $this->order([[$product, 1, 90.0]], null, null, 'USD');
+
+        $rows = TopSellersByRevenue::compute(TopSellersByRevenue::CATEGORY, $this->store->id);
+
+        $this->assertSame('EUR', $rows[0]->currency,
+            'the card denominated the ranking in the busiest currency, not the configured one');
+        $this->assertTrue($rows[0]->currency_is_configured,
+            'a store configured under the fallback key was reported as unconfigured, so the '
+            . 'figure would be printed with a symbol its own caveat contradicts');
+        $this->assertSame(25.0, $this->totalFor($rows, 'Lamps'));
+        $this->assertSame(['USD' => 90.0], $this->othersFor($rows, 'Lamps'));
+    }
+
+    public function test_a_store_carrying_duplicate_currency_rows_reads_the_one_every_other_screen_reads(): void
+    {
+        /*
+         * `settings` HAS NO UNIQUE INDEX AND REALLY DOES CARRY DUPLICATES. `Setting::putForStore()`
+         * documents the population P1-PLT-07 created and the split that comes with it: readers
+         * take the NEWEST row, because `pluck('value','name')` lets a later key overwrite an
+         * earlier one, while `updateOrCreate` addresses the OLDEST, because its lookup has no
+         * ORDER BY.
+         *
+         * ANA-TOP part 1's query was a bare `->value('value')`, which scans ascending and so took
+         * the OLDEST -- meaning that on exactly the stores this defect created, the dashboard's
+         * denomination could disagree with every other screen in the product. Found by the review
+         * of part 3, which also noted that nothing tested it: with one row per name, oldest and
+         * newest are the same row and no fixture could tell the two rules apart.
+         *
+         * Two rows, different values, so they can.
+         */
+        $rows = [
+            ['store_id' => $this->store->id, 'name' => 'defult_currancy', 'value' => 'GBP'],
+            ['store_id' => $this->store->id, 'name' => 'defult_currancy', 'value' => 'EUR'],
+        ];
+
+        foreach ($rows as $row) {
+            DB::table('settings')->insert($row + [
+                'created_by' => $this->store->created_by,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        /* The premise: there really are two, and the newest really is the second one. */
+        $stored = DB::table('settings')
+            ->where('store_id', $this->store->id)->where('name', 'defult_currancy')
+            ->orderBy('id')->pluck('value')->all();
+        $this->assertSame(['GBP', 'EUR'], $stored,
+            'premise failed: the duplicate rows this case needs were not stored in that order');
+
+        $lamps = $this->category('Lamps');
+        $this->order([[$this->product($lamps), 1, 40.0]], null, null, 'EUR');
+
+        $figures = TopSellersByRevenue::compute(TopSellersByRevenue::CATEGORY, $this->store->id);
+
+        $this->assertSame('EUR', $figures[0]->currency,
+            'the card read the OLDEST duplicate row (GBP) while every other reader in the product '
+            . 'reads the newest (EUR), so one store would see its money denominated two ways');
+        $this->assertSame(40.0, $this->totalFor($figures, 'Lamps'));
     }
 
     public function test_an_unconfigured_store_is_denominated_in_its_busiest_currency_rather_than_nothing(): void
@@ -786,8 +896,14 @@ class TopSellersRevenueAccuracyTest extends SecurityTestCase
          * one day, in three syntaxes; the sibling census in RawQueryTenancyInventoryTest strips
          * comments, which is why its numbers are trustworthy and this one's were not.
          *
-         * This file's own docblocks now DO quote that literal, several times, so stripping is no
-         * longer merely prudent -- without it the count would be wrong today.
+         * STRIPPING IS PRUDENT HERE, NOT LOAD-BEARING, and an earlier version of this comment
+         * claimed otherwise -- that the scanned file "now DOES quote that literal, several times,
+         * so without stripping the count would be wrong today". Measured: the literal occurs
+         * three times in `TopSellersByRevenue.php`, all three of them code, none in a comment, so
+         * the stripped and raw counts are equal. The guard stays, because the moment someone
+         * explains a predicate in a comment the two diverge silently and this file's numbers stop
+         * meaning anything -- but a census justification that states a false measurement is the
+         * same failure as a census satisfied by prose, so it is corrected rather than softened.
          */
         $source = $this->sourceWithoutComments('app/Support/TopSellersByRevenue.php');
 
@@ -795,19 +911,40 @@ class TopSellersRevenueAccuracyTest extends SecurityTestCase
            so it matches this needle too. Counted after measuring rather than predicted — the first
            version of this assertion said 2 and failed against a correct file.
 
-           FOUR SINCE ANA-TOP, and the direction matters: `primaryCurrency()` reads this store's
-           configured currency from `settings`, and that read is scoped like every other. This
-           ratchet counts tenant predicates, so a NEW scoped read raises it and a REMOVED one
-           lowers it. Raising it to record a new predicate is the honest edit; lowering it to make
-           a removal pass would be the defect this test exists to catch. */
-        $this->assertSame(4, substr_count($source, "->where('store_id', \$storeId)"),
-            'TopSellersByRevenue no longer carries all FOUR store predicates — one on `orders`, '
-            . 'one on the `products` lookup, one on the `categories`/`product_brands` lookup, '
-            . 'and one on the `settings` read that decides which currency the ranking is '
-            . 'denominated in. Removing any one alone '
+           IT WENT TO FOUR WITH ANA-TOP PART 1 AND BACK TO THREE WITH PART 3, AND THE REASON IS
+           THE ONLY THING THAT MAKES THAT HONEST. Part 1 added a fourth: `primaryCurrency()` read
+           this store's configured currency from `settings` with a raw, scoped query of its own.
+           Part 3 deleted that query -- not the predicate. The read now goes through
+           `OrderCurrencyStamp::configuredCodeFor($storeId)`, and `Utility::GetValueByName()`
+           applies `where('store_id', $store_id)` itself, so the scoping moved behind a helper
+           instead of vanishing.
+
+           This ratchet counts LITERALS in this file, so a predicate that moves out of the file
+           lowers it, and lowering it to let a genuine REMOVAL pass would be the defect this test
+           exists to catch. The next assertion is what tells those two apart: it requires the
+           delegation to be present AND to carry the store id. The behavioural guard is
+           `test_the_primary_currency_is_read_from_this_store_and_not_another`, which fails if
+           another store's configured currency ever denominates this one's ranking. */
+        $this->assertSame(3, substr_count($source, "->where('store_id', \$storeId)"),
+            'TopSellersByRevenue no longer carries all THREE store predicates — one on `orders`, '
+            . 'one on the `products` lookup, and one on the `categories`/`product_brands` lookup. '
+            . 'Removing any one alone '
             . 'breaks no test, because each covers the other; removing both leaks another tenant\'s '
             . 'revenue into this dashboard. Product registers no StoreScope and is absent from '
             . "config/tenancy.php's scoped_models, so neither predicate is inherited.");
+
+        /* THE FOURTH PREDICATE, AT ITS NEW ADDRESS. `configuredCodeFor()` scopes by whatever store
+           id it is handed and does NOT scope when handed an empty one, so passing `$storeId` is
+           the load-bearing half -- a call that dropped the argument would read whichever store the
+           request happened to resolve, which for the operator is not the store being reported on. */
+        $this->assertStringContainsString(
+            'OrderCurrencyStamp::configuredCodeFor($storeId)',
+            $source,
+            'the currency decision is no longer read through OrderCurrencyStamp with this '
+            . "store's id: either it went back to a private query of its own (the drift that "
+            . 'class exists to stop) or it lost the store id and now answers for whichever store '
+            . 'the request resolved.'
+        );
 
         /* And the orders query carries its own, which IS individually load-bearing — the isolation
            case above fails without it. */

@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Support\Money\CurrencySymbol;
+use App\Support\Money\OrderCurrencyStamp;
 use App\Support\Metrics\MoneyText;
 use App\Support\Reports\ReportFigureNote;
 use Illuminate\Support\Facades\DB;
@@ -269,11 +270,19 @@ class TopSellersByRevenue
      */
     private static function primaryCurrency(int $storeId, array $revenueByDimension): array
     {
+        /*
+         * READ THROUGH `OrderCurrencyStamp`, NOT FROM A QUERY OF OUR OWN.
+         *
+         * The first draft of this method read `settings.defult_currancy` directly. That made it a
+         * SECOND reader of a decision that already had an owner -- and it read one key where the
+         * owner reads two. A store configured under the fallback `currency` key was therefore
+         * called unconfigured here and the ranking was denominated in whichever currency happened
+         * to be busiest, while every order that store placed was being stamped with the configured
+         * one. Reading through the stamp also picks up the P1-SEC-80 sanitisation that
+         * `Utility::GetValueByName()` applies at the point of read.
+         */
         $configured = CurrencySymbol::code(
-            (string) (DB::table('settings')
-                ->where('store_id', $storeId)
-                ->where('name', 'defult_currancy')
-                ->value('value') ?? '')
+            (string) (OrderCurrencyStamp::configuredCodeFor($storeId) ?? '')
         );
 
         if ($configured !== '') {
