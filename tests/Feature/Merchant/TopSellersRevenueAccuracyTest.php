@@ -162,6 +162,228 @@ class TopSellersRevenueAccuracyTest extends SecurityTestCase
         return ['MISSING' => -1.0];
     }
 
+    // ------------------------------------------------------- ANA-TOP: ranking semantics
+
+    public function test_every_row_states_that_this_is_order_value_and_not_money_received(): void
+    {
+        /*
+         * THE RANKING-SEMANTICS HALF. The cards were labelled "By Sales" while counting every order
+         * line in the window -- unpaid, cancelled and refunded at full value. Owner Option A makes
+         * that permanent rather than fixable: `orders.payment_status` is the customer's settlement
+         * record and a cancellation deliberately does not rewrite it, so no predicate on `orders`
+         * could turn this into collected money. It is an order-DEMAND ranking; it must say so.
+         *
+         * ASSERTED AGAINST `ReportFigureNote::orderValue()` RATHER THAN A LITERAL, because §11
+         * makes that method the single source a screen hint and an export cell both read "so the
+         * two cannot drift". A literal here would be a fifth copy of the sentence and would pass
+         * while the shared source changed underneath it.
+         */
+        $lamps = $this->category('Lamps');
+        $this->order([[$this->product($lamps), 2, 50.0]]);
+
+        $rows = TopSellersByRevenue::compute(TopSellersByRevenue::CATEGORY, $this->store->id);
+
+        $this->assertNotEmpty($rows, 'PREMISE: the fixture produced no ranked row.');
+        $this->assertStringContainsString(
+            \App\Support\Reports\ReportFigureNote::orderValue(),
+            $rows[0]->caveat,
+            'the ranking does not state that it is order value rather than payments received'
+        );
+    }
+
+    public function test_an_unpaid_cancelled_order_still_counts_which_is_why_the_disclosure_matters(): void
+    {
+        /* Not a defect to fix here -- it is what the figure IS, and the point of the disclosure.
+           Pinned so nobody "fixes" it into a payment figure without the owner, and so the
+           disclosure cannot be dropped while the inclusion stays. */
+        $lamps = $this->category('Lamps');
+        $order = $this->order([[$this->product($lamps), 1, 400.0]]);
+
+        /* `delivered_status = 2` IS CANCELLATION, not an `order_status` column -- there is no such
+           column on `orders`. The migration's own comment is the authority:
+           "0=>pending/1=>diliver/2=>cancel/3=>return". The first draft of this case invented the
+           column name and died on a QueryException rather than asserting anything. */
+        \Illuminate\Support\Facades\DB::table('orders')->where('id', $order->id)
+            ->update(['delivered_status' => 2, 'payment_status' => 'Unpaid']);
+        (new \App\Models\Order)->flushCache();
+
+        $rows = TopSellersByRevenue::compute(TopSellersByRevenue::CATEGORY, $this->store->id);
+
+        $this->assertSame(400.0, $this->totalFor($rows, 'Lamps'),
+            'a cancelled, unpaid order is still order value; excluding it here would invent a '
+            . 'payment predicate the owner has not approved');
+        $this->assertStringContainsString(
+            \App\Support\Reports\ReportFigureNote::orderValue(),
+            $rows[0]->caveat,
+            'it counts a cancelled unpaid order and does not say what the figure is'
+        );
+    }
+
+    public function test_the_two_cards_are_labelled_order_value_and_not_sales(): void
+    {
+        /*
+         * THE LABEL IS HALF OF THE CORRECTION. A caveat under a figure headed "By Sales" still
+         * leaves the heading claiming money received, and the heading is what a merchant reads
+         * first. `MetricThreshold` already labels `GrossMerchandiseValue` "Order value", so this
+         * is the approved D2 vocabulary rather than a phrase invented here.
+         *
+         * COMMENTS ARE STRIPPED BECAUSE THIS FILE WOULD OTHERWISE SATISFY ITSELF: the dashboard
+         * view carries the literal `"By Sales"` in a comment recording what the cards used to be
+         * called, so a naive search for it over the raw source reports the defect as still
+         * present, and a naive search for its absence can never pass. That is the census trap
+         * CLAUDE.md names, hit four times on 2026-11-21 alone.
+         */
+        $view = $this->sourceWithoutComments('resources/views/dashboard.blade.php');
+
+        $this->assertSame(
+            2,
+            substr_count($view, "__('By order value')"),
+            'both ranked cards must state that they rank by order value'
+        );
+        $this->assertStringNotContainsString(
+            "__('By Sales')",
+            $view,
+            'a card headed "By Sales" claims money received; this figure counts unpaid, '
+            . 'cancelled and refunded order lines'
+        );
+
+        /* Both languages, because a merchant reading Arabic gets the first screen in Arabic. */
+        foreach (['ar', 'en'] as $locale) {
+            $json = json_decode(
+                (string) file_get_contents(base_path('resources/lang/' . $locale . '.json')),
+                true,
+                512,
+                JSON_THROW_ON_ERROR
+            );
+            $this->assertArrayHasKey('By order value', $json, $locale . '.json is missing the label');
+            $this->assertNotSame('', trim((string) $json['By order value']));
+        }
+    }
+
+    public function test_a_row_with_no_order_date_is_still_counted_by_this_card(): void
+    {
+        /*
+         * THE HALF OF THE WINDOW DECISION THAT A COLUMN SWAP WOULD BREAK.
+         *
+         * `orders.order_date` is `dateTime()->nullable()`; `created_at` is not. Every other panel
+         * on this dashboard windows on `order_date`, so a row with a null one is silently absent
+         * from all of them. This card windows on `created_at` and therefore counts it. That is
+         * the behaviour to keep: aligning the card by dropping the row would buy agreement by
+         * losing data. `TopSellersByRevenue::revenueByProduct()` carries the measurement.
+         */
+        $c = $this->category('Lamps');
+        $p = $this->product($c);
+
+        $start = now()->startOfDay();
+        $order = $this->order([[$p, 2, 30.0]], null, $start->copy()->addHours(3)->toDateTimeString());
+
+        /* RAW, because `order_date` must become null without Eloquent re-stamping it, then
+           flushed because `Order` is `Cachable` and under `CACHE_STORE=array` a stale read
+           would make this test pass against the pre-write row. */
+        DB::table('orders')->where('id', $order->id)->update(['order_date' => null]);
+        (new Order)->flushCache();
+
+        /* The premise. Without it a writer that quietly kept a date would make the case vacuous. */
+        $this->assertNull(
+            DB::table('orders')->where('id', $order->id)->value('order_date'),
+            'premise failed: the row still has an order_date, so this case proves nothing'
+        );
+
+        $rows = TopSellersByRevenue::compute(
+            TopSellersByRevenue::CATEGORY,
+            $this->store->id,
+            $start->toDateTimeString(),
+            $start->copy()->addDay()->toDateTimeString()
+        );
+
+        $this->assertSame(60.0, $this->totalFor($rows, 'Lamps'),
+            'a row with no order_date vanished from the card; this card windows on created_at '
+            . 'precisely so that it does not');
+    }
+
+    public function test_every_order_writer_records_an_order_date(): void
+    {
+        /*
+         * WHY THE DIVERGENCE IS HARMLESS, AS A RATCHET RATHER THAN AS PROSE.
+         *
+         * The comment in `revenueByProduct()` rests on a census: every site in `app/` that makes
+         * an `orders` row sets `order_date` in the same block, to the instant Eloquent stamps
+         * into `created_at`. That is what makes the two windows select the same orders for every
+         * row the application has written -- and it is a claim about the source, so it decays
+         * silently unless something counts it. A new creation path that forgets the column would
+         * start producing rows this card counts and every other panel drops.
+         *
+         * COMMENTS ARE STRIPPED. Four of this repository's censuses have been satisfied by prose
+         * about the thing they measure, and `Order::$fillable` carries the literal
+         * `Order::create([` inside a docblock, which an unstripped scan reads as a creation site.
+         */
+        $sites = [];
+        $missing = [];
+
+        $dir = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(base_path('app')));
+
+        foreach ($dir as $file) {
+            if (! $file->isFile() || $file->getExtension() !== 'php') {
+                continue;
+            }
+
+            $relative = 'app/' . ltrim(str_replace(base_path('app'), '', $file->getPathname()), '/');
+            $code = $this->sourceWithoutComments($relative);
+
+            /*
+             * A SECOND, NARROWER PASS, and the shared trait is deliberately not changed to do it.
+             * `StripsSourceComments` strips only whole-line `//` comments, because stripping
+             * trailing ones would eat the `//` in every `https://` URL in the codebase. But
+             * `Order::$fillable` carries `// ... Order::create([...])` as a TRAILING comment on a
+             * code line, and that one line was read as a creation site -- the census trap again,
+             * one syntax further on. Here the risk is absent: this census only needs to know
+             * whether a line opens a creation statement, and a `//` preceded by a colon (a URL)
+             * is left alone.
+             */
+            $code = (string) preg_replace('#(?<![:\'\"])//.*$#m', '', $code);
+            $lines = explode("\n", $code);
+
+            foreach ($lines as $i => $line) {
+                $creates = preg_match('/\bOrder::create\s*\(/', $line)
+                    || preg_match('/=\s*new\s+(?:\\\\App\\\\Models\\\\)?Order\s*\(\s*\)/', $line);
+
+                if (! $creates) {
+                    continue;
+                }
+
+                $site = $relative . ':' . ($i + 1);
+                $sites[] = $site;
+
+                /* The write is never far from the constructor in this codebase -- the furthest
+                   measured is 4 lines. 70 is generous and still inside one statement block. */
+                $block = implode("\n", array_slice($lines, $i, 70));
+
+                if (! str_contains($block, 'order_date')) {
+                    $missing[] = $site;
+                }
+            }
+        }
+
+        $this->assertSame([], $missing, sprintf(
+            "%d order-creating site(s) in app/ do not record an order_date:\n  %s\n\n"
+            . "A row written without one is counted by the dashboard's Top Category / Top Brand "
+            . "card (it windows on created_at) and silently dropped by every other panel and "
+            . "report (they window on order_date). Either set the column, or read "
+            . "TopSellersByRevenue::revenueByProduct() and widen the decision deliberately.",
+            count($missing),
+            implode("\n  ", $missing)
+        ));
+
+        /* The census must actually have found the sites -- a stripper or a pattern that matched
+           nothing would make the assertion above a free pass. Measured 2026-11-23. */
+        $this->assertSame(16, count($sites), sprintf(
+            "the order-creation census now finds %d site(s) in app/, not the 16 measured when this "
+            . "ratchet was written: %s\n\nA new one is fine; classify it and move the number.",
+            count($sites),
+            implode(', ', $sites)
+        ));
+    }
+
     // ------------------------------------------------------- ANA-TOP: currency integrity
 
     public function test_two_currencies_are_never_added_together(): void

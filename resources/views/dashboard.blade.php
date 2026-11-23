@@ -128,7 +128,7 @@
                             <div class="dashboard-card">
                                 <div class="d-flex align-items-center justify-content-between gap-3 mb-4">
                                     <h2 class="ss-card__title">{{ __('Top Category') }}</h2>
-                                    <p class="ss-card__meta">{{ __('By Sales') }}</p>
+                                    <p class="ss-card__meta">{{ __('By order value') }}</p>
                                 </div>
                                 <div class="dash-category-tab" id="useradd-sidenav">
                                     <ul class="nav nav-pills w-100 pro-cat row store-setting-tab" id="pills-cat-tab"
@@ -190,7 +190,7 @@
                             <div class="dashboard-card">
                                 <div class="d-flex align-items-center justify-content-between gap-3 mb-4">
                                     <h2 class="ss-card__title">{{ __('Top Brand') }}</h2>
-                                    <p class="ss-card__meta">{{ __('By Sales') }}</p>
+                                    <p class="ss-card__meta">{{ __('By order value') }}</p>
                                 </div>
                                 <div class="dash-brand-tab" id="brand-sidenav">
                                     <ul class="nav nav-pills w-100 pro-cat row store-setting-tab" id="pills-brand-tab"

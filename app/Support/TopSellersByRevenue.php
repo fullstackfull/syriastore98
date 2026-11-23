@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Support\Money\CurrencySymbol;
 use App\Support\Metrics\MoneyText;
+use App\Support\Reports\ReportFigureNote;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -323,7 +324,24 @@ class TopSellersByRevenue
      */
     public static function rowCaveat($row): string
     {
-        $notes = [];
+        /*
+         * WHAT THE FIGURE IS, FIRST, AND FROM THE SHARED SOURCE -- this is the ranking-semantics
+         * half of ANA-TOP.
+         *
+         * The cards were labelled "By Sales" while counting every order line in the window: unpaid,
+         * cancelled and refunded at full value, with no payment predicate anywhere
+         * (`revenueByProduct()` has none, by design -- owner Option A means
+         * `orders.payment_status` is the customer's settlement record and a cancellation does not
+         * rewrite it, so no predicate on `orders` could turn this into collected money). It is an
+         * ORDER-DEMAND ranking and it now says so.
+         *
+         * `ReportFigureNote::orderValue()` IS THE APPROVED SENTENCE and §11 makes it the single
+         * source both a screen's hint and an export cell read, "so the two cannot drift". Writing a
+         * fourth sentence here would be the drift that rule exists to prevent -- and the figure's
+         * own definition is exactly what this card never stated: "The total value of items ordered.
+         * This is not payments received, and not profit."
+         */
+        $notes = [ReportFigureNote::orderValue()];
 
         if (($row->total_sale ?? null) === null) {
             $notes[] = __('Nothing was earned in your store currency here, so this row has no comparable total.');
@@ -361,6 +379,38 @@ class TopSellersByRevenue
 
         /* HALF-OPEN `[from, to)`. A closed upper bound counts a midnight order in two periods, and
            `whereDate` would additionally force a per-row function call that no index can serve. */
+
+        /*
+         * `created_at`, AND THAT IS DELIBERATE RATHER THAN AN OVERSIGHT -- IT WAS MEASURED.
+         * ------------------------------------------------------------------------------------
+         * Every other panel on this dashboard, and every report, windows on `orders.order_date`
+         * (HomeController has 20-odd such predicates). This one object is the outlier, which
+         * looked like a defect worth a slice: two cards on one screen, one "This Month" tab,
+         * different sets of orders.
+         *
+         * THE CENSUS REFUTED THE SWAP. All 19 sites in this repository that create an `orders`
+         * row set `order_date` in the same statement block, every one of them to
+         * `date('Y-m-d H:i:s')` or `now()` -- the same instant Eloquent stamps into `created_at`.
+         * Nothing anywhere updates the column afterwards: there is no merchant-facing order-date
+         * editor, so the value is write-once. For every row the application has ever written the
+         * two columns therefore agree to the second, and the two windows select the same orders.
+         *
+         * What the swap WOULD change is the one case where they differ. `order_date` is
+         * `dateTime()->nullable()` and `created_at` is not, so a row imported or back-filled
+         * outside the application can hold a null `order_date`. Today this card counts such a row
+         * and every other panel silently drops it. Swapping would align the card by making it
+         * drop the row too -- agreement bought by losing data, which is the wrong direction.
+         *
+         * So the card keeps `created_at` and the divergence is recorded instead of "fixed".
+         * `TopSellersRevenueAccuracyTest` pins both halves: that an order written the way the
+         * application writes one lands in the same window under either column, and that a row
+         * with a null `order_date` is still counted here.
+         *
+         * STILL OPEN, and NOT fixed by this slice: the HomeController panels' null-dropping.
+         * Correcting those means a fallback on ~20 predicates, several inside the `MONTH(`/
+         * `YEAR(` selectRaw handlers that cannot run under this suite at all, so it needs the
+         * MySQL harness and a slice of its own.
+         */
         if ($from !== null) {
             $query->where('created_at', '>=', $from);
         }

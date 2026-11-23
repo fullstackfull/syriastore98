@@ -4511,5 +4511,6 @@
     "Orders of this customer with no financial record: :count. The financial record is not backfilled, so orders placed before it began cannot be read and no figure can be given.": "طلبات هذا الزبون التي لا سجل مالي لها: :count. السجل المالي لا يُملأ بأثر رجعي، لذلك لا يمكن قراءة الطلبات السابقة لبدئه ولا يمكن إعطاء رقم.",
     "Nothing was earned in your store currency here, so this row has no comparable total.": "لم يُكتسب شيء بعملة متجرك هنا، لذلك لا يوجد إجمالي قابل للمقارنة لهذا السطر.",
     "Also earned in another currency, which is not added in and not converted: :amounts.": "هناك أيضاً مبالغ بعملة أخرى، غير مُضافة إلى الإجمالي وغير مُحوَّلة: :amounts.",
-    "Includes :amount from orders that carry no currency, counted in your store currency.": "يشمل :amount من طلبات لا تحمل أي عملة، محسوبة بعملة متجرك."
+    "Includes :amount from orders that carry no currency, counted in your store currency.": "يشمل :amount من طلبات لا تحمل أي عملة، محسوبة بعملة متجرك.",
+    "By order value": "حسب قيمة الطلبات"
 }
