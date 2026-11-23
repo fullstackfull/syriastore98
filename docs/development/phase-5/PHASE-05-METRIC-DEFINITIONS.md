@@ -495,3 +495,83 @@ not a class of the `Metric` family, for the reason given in §13.
 **Not built, and not inferred:** revenue, orders or conversion per campaign; a people- or
 session-based count; multi-touch or last-touch attribution; spend, cost per arrival or return on
 ad spend — no campaign cost is recorded anywhere in this product.
+
+## 15. What one customer is worth: collected, and retained
+
+**Why this section exists.** `GAP-156` states the defect in one line: *every money-bearing customer
+figure counts cancelled, unpaid and refunded orders, and no customer metric is defined in this
+document*. Both halves were true. The customer timeline, the merchant customer list and its
+financial filter, and the admin API all read `SUM(orders.final_price)` with no payment predicate at
+all, so a shopper whose only order was cancelled before delivery read as a paying customer, and a
+merchant could build a segment out of money nobody ever handed over.
+
+**The predicate cannot live on `orders`, and that is a decision, not a preference.** Owner decision
+**Option A**, quoted verbatim in `Order::order_status_change()`: *"`orders.payment_status`
+represents the customer's actual payment settlement. Cancellation must not rewrite a captured
+payment as Unpaid merely to trigger wallet reversal. Represent cancellation and financial reversal
+reasons in the existing financial ledger structures."* So the cancel branch leaves
+`orders.payment_status` alone and `OrderEntitlementReversal` records the reversal in the ledger
+instead. **No filter on `orders.payment_status` can exclude a cancelled order.** The money has to
+come from the ledger, which is also where §2 and §6 already read it.
+
+**Two figures, and the whole point is that they differ.**
+
+| figure | section it applies | includes money later reversed? | answers |
+|---|---|---|---|
+| **Collected from this customer** | §2, per customer | **yes** | *has this person ever paid us?* |
+| **Retained from this customer** | §6, per customer | **no** | *what is this person worth to the business?* |
+
+A paid-then-cancelled order makes them disagree by exactly the captured amount. That disagreement
+is information, not an error: the shopper really did pay, and the merchant really did not keep it.
+
+**NEITHER IS EVER PRINTED UNDER THE OTHER'S NAME.** They carry different machine keys
+(`customer_collected_payments`, `customer_net_retained_receipts`), and a surface that shows one
+labels it for what it is. This is the rule §11 states generally, written out here because the two
+quantities are close enough to be confused and far enough apart to matter.
+
+**Source.** `collected` reads `store_order_financials.paid_amount`, dated by `paid_at`, under §2's
+own inclusion rule — `paid`, plus the reversed-but-captured states where `paid_amount` is still
+above zero because P4-F124 deliberately preserves it through a reversal. `partially_paid` is
+**included**, stated here as §11 requires rather than chosen silently: such a row holds real money
+the shopper handed over, and excluding it would commit the exact under-count §2 exists to prevent.
+`retained` reads the signed sum of order-referenced `store_wallet_transactions`, dated by
+`created_at`, which is §6's preferred computation for §6's own reason — every movement is typed,
+reasoned and written once, so a reversal subtracts itself without this layer restating the rule.
+
+**Which orders are this customer's** is not decided here. `Customer::ownStoreOrders()` already
+answers it for the product — directly by `orders.customer_id`, and for a customer with no such
+orders by matching unattributed orders on the billing e-mail — and the figures follow that answer
+rather than inventing a second one. A figure that covered a different order set from the
+`Total Spend` beside it would read as a payment difference when it was really an attribution one.
+
+**`customer_id <= 0` is refused, not aggregated.** `orders.customer_id` is `INTEGER DEFAULT 0`, so
+"nobody attached" and "customer zero" are one value. §12 excludes such orders from a store-wide
+rate and reports the count; for a figure *about one person* it is worse than a caveat, because id 0
+would return every unattributed order the store ever took, presented as one shopper's history.
+
+**Two coverage boundaries, reported by count rather than assumed away** — the §9 rule:
+
+- `orders_without_ledger_row` — an order the ledger cannot see. `store_order_financials` is written
+  only by `OrderObserver::created()` and was never backfilled, so orders predating it have no row
+  and contribute nothing. Without this count the new figure would silently under-report to 0.00
+  where the old one over-reported, and `MetricCaveat::ENTITLEMENT_RECORD_INCOMPLETE` would not fire.
+- `movements_without_resolvable_order` — `store_wallet_transactions.reference_id` carries **no
+  foreign key**, so an order-referenced movement whose order row is gone resolves to nothing. It is
+  excluded from the per-customer figure, which is why the sum of every customer's `retained` need
+  not equal §6 for the same store and window.
+
+**Verification test.** `CustomerLedgerMoneyTest` — a paid order in both figures; a paid-then-
+cancelled and a refunded order in `collected` but not in `retained`; an unpaid order in neither; a
+never-paid cancellation contributing no row; another tenant's orders for the same customer id
+absent; a ledger row whose order belongs to another store absent; two currencies kept apart and
+refused a total; an order with no ledger row contributing nothing rather than a guess; repeated
+movements on one order counted once; a movement of another reference type not attributed; a
+voided movement excluded; bounded windows on both figures, including the case that tells
+*dated by the movement* apart from *dated by the order*; the bulk read agreeing with the single
+read and not leaking between customers; and `customer_id <= 0` refused.
+
+**Computed by** `CustomerLedgerMoney`.
+
+**Not built, and not inferred:** customer lifetime value, VIP or segment eligibility, churn, and
+any refund policy. Each is a business choice this document does not hold, and §11's rule applies —
+the quantities are supplied and the choice is left to whoever is entitled to make it.
