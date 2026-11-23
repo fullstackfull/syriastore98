@@ -87,3 +87,51 @@ under the **same coverage rules** that sibling figure already uses rather than `
 | 4 | Top-5 collected counterpart | **owner decision** — allocation rule; not engineering's |
 | 5 | Top Category/Brand collected counterpart | **larger than a tile** — no MetricResult shape |
 | 6 | Operator Top Selling Store | **likely already covered** by `/analytics`; verify before building |
+
+---
+
+## Outcome — what was built, 2026-11-23
+
+Recorded here rather than in a new file, so the disposition and its result stay together.
+
+| # | Item | Outcome | Commit |
+|---|---|---|---|
+| 1 | Store-totals tile adds currencies together | **DONE** — `GrossMerchandiseValue` + per-currency disclosure | `4d9c396d` |
+| 2 | Operator "Total Orders" mislabelled | **DONE** — relabelled "Total Plan Orders" | `9b54687e` |
+| 3 | Top-5 notes lack a cancelled/returned disclosure | **DONE** — one translated sentence on all four | `9b54687e` |
+| 4 | Top-5 collected counterpart | **OWNER DECISION** — unchanged; needs an allocation rule |  |
+| 5 | Top Category/Brand collected counterpart | **NOT BUILT** — no `MetricResult` shape; unchanged |  |
+| 6 | Operator Top Selling Store | **VERIFIED — NEEDS NOTHING** | — |
+
+### Item 6, measured rather than assumed
+
+Two things had to be true for this to need work, and neither is.
+
+1. **The operator already has the collected figure.** `PlatformAnalyticsFigures::payments()`
+   (`:654-686`) renders `CollectedCustomerPayments` over `MetricScope::stores($coverage['included'])`,
+   **one line per currency, explicitly not added together**, under a coverage window that is
+   `MetricWindow::since($verifiedFrom)` rather than `allTime()` whenever the ledger can name a start.
+   It also states how many stores were left out. That is the collected counterpart, on `/analytics`.
+
+2. **The dashboard panel already discloses that it is demand.** Its note reads, verbatim:
+   *"Order value: every order placed, including unpaid and cancelled orders. Stores are ranked only
+   against stores in the same currency."* Both halves of the P5-R7 question — demand-vs-collected,
+   and cross-currency ranking — are already answered on the screen, by P05-14 / P05-19.
+
+So the remaining idea was "annotate, never re-rank", and **the annotation is already there**. Adding
+a second one would restate it; re-ranking by collected money would change what the panel claims,
+which the disposition above already rules out. Nothing is built, and that is the finding.
+
+### Two corrections this work produced, worth keeping
+
+- **Item 1's first draft would have shipped two live defects**, both found by the independent review
+  and neither visible to any existing test: reading one currency bucket silently dropped every order
+  placed before `orders.currency_code` was stamped (worst on the oldest, largest stores), and an
+  un-normalised `defult_currancy` naming an empty bucket showed `0.00` to a store that had taken
+  money. `DashboardOrderValueTest` could not catch either — it writes no currency setting, so every
+  order lands in one bucket and the test passes whatever the code does.
+- **A filter that looks like a guard can be the defect.** Item 1's draft filtered the unattributed
+  bucket out of the hint, which drops that money silently — the thing the tile exists to stop.
+  `MoneyText::currencyLabel()` already renders it honestly as "Currency not recorded". A mutation
+  removing the view filter **survived every case**, which is how the redundancy was found.
+
