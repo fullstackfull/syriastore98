@@ -1251,11 +1251,25 @@ class ReportController extends Controller
 
         /* The series go into the view too, so the charts can ship their numbers as tables. They
            were already being returned to the browser below; the view simply never saw them. */
+        /*
+         * P5-R7-B. THE LEDGER TILE IS COMPUTED ONCE AND GOES TO BOTH PLACES.
+         *
+         * It used to be computed INSIDE the `view(...)` argument list, so it reached the browser's
+         * HTML and nothing else. The export replays the SESSION, so "Payments received" -- the
+         * ledger figure ANA-005 put on this screen, and the largest thing these reports have to
+         * say about money -- could not reach the downloaded file at all. A merchant reading the
+         * page saw what customers paid; the spreadsheet had only what they were asked to pay.
+         *
+         * Hoisting it also stops the tile being computed twice if a later edit adds a second
+         * reader: `salesCollectionTile()` runs the ledger query through `FinanceLedgerFigures`.
+         */
+        $collection = $this->salesCollectionTile($request, $periodLabel);
+
         $html = view('reports.order_chart_data', compact(
             'TotalOrder', 'PurchasedProductItemTotal', 'TotalgrossSale', 'currency',
             'TotalNetSale', 'TotalCouponAmount', 'TotalShippingCharge', 'periodLabel'
         ) + [
-            'collection' => $this->salesCollectionTile($request, $periodLabel),
+            'collection' => $collection,
             'labels' => $monthList ?? [],
             'grossSeries' => $GrossSaleTotal ?? [],
             'netSeries' => $NetSaleTotal ?? [],
@@ -1273,6 +1287,11 @@ class ReportController extends Controller
         $return['ShippingTotal'] = $ShippingTotal;
         $return['CouponTotal'] = $CouponTotal;
         $return['monthList'] = $monthList;
+        /* The export replays this, so the ledger figure has to be IN it. Null stays null:
+           `salesCollectionTile()` answers null for "the question cannot be asked" -- no
+           store chosen, or a window the report cannot express -- and that is not zero. */
+        $return['collection'] = $collection;
+
         Session::put('order_line_chart_report', $return);
 
         return response()->json($return);
@@ -1305,7 +1324,21 @@ class ReportController extends Controller
          * an Arabic session exports Arabic. Read its docblock for why FLOAT_PRECISION is the only
          * caveat here and why no payment-status wording was invented.
          */
-        $return['figureNote'] = ReportFigureNote::moneyRowHint();
+        $return['figureNote'] = ReportFigureNote::salesRowHint($requests_data['collection'] ?? null);
+        /*
+         * P5-R7-B. THE SCREEN'S LEDGER FIGURE, REPLAYED VERBATIM.
+         *
+         * `figureNote` above is the precision caveat, and the column headers carry each figure's
+         * settled D1/D2 label -- so what this file was missing was not a definition, it was the
+         * "Payments received" figure itself. The screen has shown it since ANA-005 and the export
+         * could not, because the chart handlers passed it only to the view.
+         *
+         * `?? null` AND NOT `?? []`: null is this figure's own "the question cannot be asked",
+         * which `salesCollectionTile()` returns for an operator with no store and for a window the
+         * report cannot express. An empty array would let the CSV builder print something.
+         */
+        $return['collection'] = $requests_data['collection'] ?? null;
+
         return response()->json($return);
     }
 
@@ -1340,7 +1373,21 @@ class ReportController extends Controller
          * an Arabic session exports Arabic. Read its docblock for why FLOAT_PRECISION is the only
          * caveat here and why no payment-status wording was invented.
          */
-        $return['figureNote'] = ReportFigureNote::moneyRowHint();
+        $return['figureNote'] = ReportFigureNote::salesRowHint($requests_data['collection'] ?? null);
+        /*
+         * P5-R7-B. THE SCREEN'S LEDGER FIGURE, REPLAYED VERBATIM.
+         *
+         * `figureNote` above is the precision caveat, and the column headers carry each figure's
+         * settled D1/D2 label -- so what this file was missing was not a definition, it was the
+         * "Payments received" figure itself. The screen has shown it since ANA-005 and the export
+         * could not, because the chart handlers passed it only to the view.
+         *
+         * `?? null` AND NOT `?? []`: null is this figure's own "the question cannot be asked",
+         * which `salesCollectionTile()` returns for an operator with no store and for a window the
+         * report cannot express. An empty array would let the CSV builder print something.
+         */
+        $return['collection'] = $requests_data['collection'] ?? null;
+
         return response()->json($return);
     }
 
@@ -1794,11 +1841,25 @@ class ReportController extends Controller
         $html = '';
         [$periodLabel] = $this->chartPeriodLabels($request);
 
+        /*
+         * P5-R7-B. THE LEDGER TILE IS COMPUTED ONCE AND GOES TO BOTH PLACES.
+         *
+         * It used to be computed INSIDE the `view(...)` argument list, so it reached the browser's
+         * HTML and nothing else. The export replays the SESSION, so "Payments received" -- the
+         * ledger figure ANA-005 put on this screen, and the largest thing these reports have to
+         * say about money -- could not reach the downloaded file at all. A merchant reading the
+         * page saw what customers paid; the spreadsheet had only what they were asked to pay.
+         *
+         * Hoisting it also stops the tile being computed twice if a later edit adds a second
+         * reader: `salesCollectionTile()` runs the ledger query through `FinanceLedgerFigures`.
+         */
+        $collection = $this->salesCollectionTile($request, $periodLabel);
+
         $html = view('reports.order_bar_chart_data', compact(
             'TotalOrder', 'PurchasedProductItemTotal', 'TotalgrossSale', 'currency',
             'TotalNetSale', 'TotalCouponAmount', 'TotalShippingCharge', 'periodLabel'
         ) + [
-            'collection' => $this->salesCollectionTile($request, $periodLabel),
+            'collection' => $collection,
             'labels' => $monthList ?? [],
             'grossSeries' => $GrossSaleTotal ?? [],
             'netSeries' => $NetSaleTotal ?? [],
@@ -1817,6 +1878,11 @@ class ReportController extends Controller
         $return['ShippingTotal'] = $ShippingTotal;
         $return['CouponTotal'] = $CouponTotal;
         $return['monthList'] = $monthList;
+        /* The export replays this, so the ledger figure has to be IN it. Null stays null:
+           `salesCollectionTile()` answers null for "the question cannot be asked" -- no
+           store chosen, or a window the report cannot express -- and that is not zero. */
+        $return['collection'] = $collection;
+
         Session::put('order_bar_chart_report', $return);
 
         return response()->json($return);

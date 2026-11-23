@@ -128,4 +128,43 @@ final class ReportFigureNote
     {
         return MetricCaveat::message(MetricCaveat::MONEY_FLOAT_PRECISION);
     }
+
+    /**
+     * The export cell for the two sales reports: the precision caveat PLUS the screen's own
+     * ledger-sourced collected-payments figure.
+     *
+     * P5-R7-B. `_sales_stats.blade.php` has shown a "Payments received" tile since ANA-005, and
+     * the file those screens download carried nothing about it -- the chart handlers passed the
+     * tile to the view and never into the session the export replays. So the page said what
+     * customers paid and the spreadsheet said only what they were asked to pay, which is the
+     * largest caveat an export of these reports can drop.
+     *
+     * IT GOES IN THE DISCLOSURE COLUMN, NOT A NEW ONE, and that is a correctness decision rather
+     * than a convenience. Every other column in these files is PER PERIOD; the collected figure
+     * is ONE total for the whole window. An eleventh column would repeat that window total on
+     * every period row, and a reader sorting or filtering the file would take it for that row's
+     * collected amount -- inviting exactly the misreading this work exists to prevent. A sentence
+     * can say "over this report's period" and a column header cannot.
+     *
+     * COMPOSED SERVER-SIDE from the tile the screen rendered, so the file is in the request's
+     * locale and cannot drift from the page. `$tile['value']` is already a formatted money string
+     * carrying its own currency; it is not re-formatted here and no arithmetic is done on it.
+     *
+     * @param array{value: ?string, period?: string, hint?: string}|null $tile
+     */
+    public static function salesRowHint(?array $tile): string
+    {
+        $note = self::moneyRowHint();
+
+        /* NULL IS "the question cannot be asked" -- no store chosen, or a window the report
+           cannot express -- and a null `value` is the same thing one level in. Neither is zero,
+           so neither gets a figure: the file simply says what it said before. */
+        if ($tile === null || ($tile['value'] ?? null) === null) {
+            return $note;
+        }
+
+        return $note . ' ' . __('Payments received over this report\'s period, from the payment ledger: :value. This is one total for the whole period, not a figure for each row.', [
+            'value' => (string) $tile['value'],
+        ]);
+    }
 }

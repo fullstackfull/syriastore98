@@ -41,6 +41,18 @@ use Tests\TestCase;
  */
 final class ReportFigureNoteIsTheOnlySourceTest extends TestCase
 {
+    /**
+     * The hints that carry `MONEY_FLOAT_PRECISION` ("these figures") rather than `FLOAT_PRECISION`
+     * ("this figure"), because they serve rows with six money columns.
+     *
+     * DEFINED ONCE AND USED BY BOTH CASES. A mutation removing `moneyRowHint` from the plural
+     * case's own hint list SURVIVED while this was two hand-kept lists: the singular census
+     * excluded it and the plural case simply stopped checking it, so a hint could fall between
+     * them and be asserted nowhere -- which is how `moneyRowHint` came to be unchecked in the
+     * first place. The plural case now asserts it covers this list exactly.
+     */
+    private const PLURAL_FAMILY = ['moneyRowHint', 'salesRowHint'];
+
     /** The sentences that must have exactly one home, and the file that is allowed to be it. */
     private const HOME = 'app/Support/Reports/ReportFigureNote.php';
 
@@ -173,9 +185,25 @@ final class ReportFigureNoteIsTheOnlySourceTest extends TestCase
             'couponValueAppliedHint' => ReportFigureNote::couponValueAppliedHint(),
         ];
 
+        /*
+         * THE PLURAL FAMILY IS EXCLUDED HERE AND ASSERTED SEPARATELY BELOW.
+         *
+         * `moneyRowHint` and `salesRowHint` serve the two sales reports, whose rows carry NINE
+         * columns, six of them money -- so they carry `MONEY_FLOAT_PRECISION` ("these figures")
+         * rather than `FLOAT_PRECISION` ("this figure"), and the singular sentence is not in them
+         * by design. `moneyRowHint` was already excluded; P5-R7-B added `salesRowHint` and this
+         * census caught it, which is the census working.
+         *
+         * EXCLUDING A HINT FROM THIS CASE NO LONGER MEANS IT GOES UNCHECKED, which it did before:
+         * `moneyRowHint` was named here and asserted nowhere. Both are now held to the plural
+         * caveat by `test_every_plural_money_hint_carries_the_plural_precision_caveat()`, so the
+         * exclusion classifies a hint rather than exempting it.
+         */
+        $plural = self::PLURAL_FAMILY;
+
         $declared = array_filter(
             get_class_methods(ReportFigureNote::class),
-            static fn (string $m): bool => str_ends_with($m, 'Hint') && $m !== 'moneyRowHint'
+            static fn (string $m): bool => str_ends_with($m, 'Hint') && ! in_array($m, $plural, true)
         );
 
         sort($declared);
@@ -197,6 +225,66 @@ final class ReportFigureNoteIsTheOnlySourceTest extends TestCase
                 $name
             ));
         }
+    }
+
+    public function test_every_plural_money_hint_carries_the_plural_precision_caveat(): void
+    {
+        /*
+         * P5-R7-B. The two sales exports write nine columns per period, six of them money, so
+         * "this figure" cannot say which one it means -- which is the whole reason
+         * `MONEY_FLOAT_PRECISION` exists beside `FLOAT_PRECISION`. These hints are excluded from
+         * the singular census above; they are NOT excluded from having to carry a caveat, and
+         * before this case they were: `moneyRowHint` was named in that exclusion and asserted
+         * nowhere at all.
+         *
+         * `salesRowHint(null)` is the unavailable branch -- no ledger figure to state -- and it
+         * must still carry the caveat, because the money columns are still floats whatever the
+         * ledger could answer.
+         */
+        $caveat = MetricCaveat::message(MetricCaveat::MONEY_FLOAT_PRECISION);
+
+        $hints = [
+            'moneyRowHint' => ReportFigureNote::moneyRowHint(),
+            'salesRowHint (no ledger figure)' => ReportFigureNote::salesRowHint(null),
+            'salesRowHint (valueless tile)' => ReportFigureNote::salesRowHint(['value' => null]),
+            'salesRowHint (with a figure)' => ReportFigureNote::salesRowHint(['value' => '40.00 EUR']),
+        ];
+
+        /*
+         * THIS CASE CENSUSES ITSELF, the way the singular one does. A mutation that removed
+         * `moneyRowHint` from the array above survived without this: the loop only checks what the
+         * array holds, so dropping a hint from the array silently dropped it from the gate. Every
+         * member of PLURAL_FAMILY must appear in a key here.
+         */
+        foreach (self::PLURAL_FAMILY as $method) {
+            $covered = array_filter(
+                array_keys($hints),
+                static fn (string $k): bool => str_starts_with($k, $method)
+            );
+
+            $this->assertNotEmpty($covered, sprintf(
+                'ReportFigureNote::%s() is excluded from the singular caveat census and is not '
+                . 'exercised here either, so it is held to no caveat rule at all.',
+                $method
+            ));
+        }
+
+        foreach ($hints as $name => $sentence) {
+            $this->assertStringContainsString($caveat, $sentence, sprintf(
+                'ReportFigureNote::%s no longer carries the plural precision caveat. These rows are '
+                . 'six money columns accumulated as += (float) off FLOAT columns, so it is true of '
+                . 'every one of them and dropping it is the export defect in reverse.',
+                $name
+            ));
+        }
+
+        /* And the figure only appears when there IS one. */
+        $this->assertStringNotContainsString('Payments received over', $hints['salesRowHint (no ledger figure)'],
+            'the unavailable branch promises a collected figure it does not have');
+        $this->assertStringNotContainsString('Payments received over', $hints['salesRowHint (valueless tile)'],
+            'a tile whose value is null promised a collected figure it does not have');
+        $this->assertStringContainsString('40.00 EUR', $hints['salesRowHint (with a figure)'],
+            'the available branch dropped the figure it exists to carry');
     }
 
     /**
