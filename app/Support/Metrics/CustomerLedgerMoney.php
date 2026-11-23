@@ -157,21 +157,7 @@ final class CustomerLedgerMoney extends Metric
     {
         $ids = $this->identifiableIds($customerIds);
 
-        $query = $this->customerFinancials($scope, $ids)
-            ->where(function ($captured) {
-                $captured
-                    ->where('store_order_financials.payment_status', 'paid')
-                    ->orWhere(function ($reversedButCaptured) {
-                        // The F124 limb, section 2's own: an order the shopper paid for and then
-                        // cancelled still records the payment. Dropping it would under-count the
-                        // exact thing section 2 exists to count.
-                        $reversedButCaptured
-                            ->whereIn('store_order_financials.payment_status', [
-                                'cancelled', 'refunded', 'partially_paid',
-                            ])
-                            ->where('store_order_financials.paid_amount', '>', 0);
-                    });
-            });
+        $query = $this->applyCapturedInclusion($this->customerFinancials($scope, $ids));
 
         /*
          * Dated by `paid_at`, not by the order date: money that arrived in March for a February
@@ -247,6 +233,268 @@ final class CustomerLedgerMoney extends Metric
                     $this->movementsWithoutResolvableOrder($scope, $window),
             ]
         );
+    }
+
+    /**
+     * SECTION 2'S INCLUSION RULE, IN ONE PLACE, applied by both the customer-id and the order-set
+     * path.
+     *
+     * It was written out twice and review flagged the copy. `Customer::ownStoreOrders()`'s own
+     * docblock records where that road goes -- "the same five lines twice and BOTH were missing
+     * the same predicate" -- and a money predicate is the worst kind to keep two of, because a
+     * drift between them does not error, it just reports two different answers to the same
+     * question.
+     */
+    private function applyCapturedInclusion(Builder $query): Builder
+    {
+        return $query->where(function ($captured) {
+            $captured
+                ->where('store_order_financials.payment_status', 'paid')
+                ->orWhere(function ($reversedButCaptured) {
+                    // The F124 limb: an order the shopper paid for and then cancelled still
+                    // records the payment. Dropping it would under-count the exact thing §2
+                    // exists to count. `partially_paid` is included and §15 declares it.
+                    $reversedButCaptured
+                        ->whereIn('store_order_financials.payment_status', [
+                            'cancelled', 'refunded', 'partially_paid',
+                        ])
+                        ->where('store_order_financials.paid_amount', '>', 0);
+                });
+        });
+    }
+
+    /**
+     * THE SAME TWO FIGURES OVER AN EXPLICIT ORDER SET, for the attribution this product already
+     * has and this class must not re-answer.
+     *
+     * `Customer::ownStoreOrders()` decides which orders are a given shopper's, and it has TWO
+     * limbs: directly by `orders.customer_id`, and -- for a customer with no such orders -- by
+     * matching UNATTRIBUTED orders (`customer_id = 0`) on the billing e-mail. The customer-id
+     * methods above cannot express the second limb, because `customer_id <= 0` is exactly what
+     * they refuse, and refusing it is right: id 0 is every unattributed order the store ever took.
+     *
+     * WHY THAT MATTERS MORE THAN IT LOOKS. If these figures covered a different ORDER SET from the
+     * `Total Spend` printed beside them, the two numbers would differ for a reason that has
+     * nothing to do with payment -- and a merchant comparing them would read an ATTRIBUTION
+     * difference as a PAYMENT one. That is the precise mislabelling §15 forbids, arrived at from
+     * the other direction.
+     *
+     * So the surface resolves the order set the way the product already resolves it, and hands it
+     * here. The tenant predicate is unchanged and still structural: the builder is
+     * `financials($scope)` / `transactions($scope)`, the join still ties the two tables to each
+     * other by `store_id`, and the order ids only NARROW that -- they can never widen it, so a
+     * caller cannot reach another tenant's money by passing its order ids.
+     *
+     * @param  list<int>  $orderIds
+     */
+    public function collectedForOrders(MetricScope $scope, MetricWindow $window, array $orderIds): MetricResult
+    {
+        $ids = $this->usableOrderIds($orderIds);
+
+        if ($ids === []) {
+            return $this->emptyResult(
+                self::COLLECTED, MetricResult::RECORD_ENTITLEMENT,
+                'store_order_financials.paid_at', $scope, $window,
+                [
+                    'includes_reversed_but_captured' => true,
+                    'is_not_net_of_reversals' => true,
+                    'partially_paid' => 'included',
+                    'attribution' => 'order_ids',
+                    'orders_attributed' => 0,
+                    // Note parity: a surface reading this key must not get null from one limb and
+                    // a number from the other, or it will print "—" for every guest-attributed
+                    // shopper and a figure for everyone else.
+                    'orders_without_ledger_row' => 0,
+                ]
+            );
+        }
+
+        $query = $this->applyCapturedInclusion($this->orderScopedFinancials($scope, $ids));
+
+        $window->applyTo($query, 'store_order_financials.paid_at');
+
+        $aggregate = $this->sumByCurrency(
+            $query,
+            'store_order_financials.currency_code',
+            'store_order_financials.paid_amount'
+        );
+
+        // ONE count, not two. It was computed here and again inside the caveat helper -- review
+        // found it, and this path runs per customer on the list, so a doubled query is a doubled
+        // query per row.
+        $uncovered = $this->ordersWithoutLedgerRowForOrders($scope, $window, $ids);
+
+        return MetricResult::make(
+            self::COLLECTED,
+            MetricResult::RECORD_ENTITLEMENT,
+            'store_order_financials.paid_at',
+            $aggregate['byCurrency'],
+            $aggregate['rowCount'],
+            $scope,
+            $window,
+            $uncovered > 0 ? [MetricCaveat::ENTITLEMENT_RECORD_INCOMPLETE] : [],
+            [
+                'includes_reversed_but_captured' => true,
+                'is_not_net_of_reversals' => true,
+                'partially_paid' => 'included',
+                'attribution' => 'order_ids',
+                'orders_attributed' => count($ids),
+                'orders_without_ledger_row' => $uncovered,
+            ],
+        );
+    }
+
+    /** @param  list<int>  $orderIds */
+    public function netRetainedForOrders(MetricScope $scope, MetricWindow $window, array $orderIds): MetricResult
+    {
+        $ids = $this->usableOrderIds($orderIds);
+
+        if ($ids === []) {
+            return $this->emptyResult(
+                self::NET_RETAINED, MetricResult::RECORD_MOVEMENT,
+                'store_wallet_transactions.created_at', $scope, $window,
+                [
+                    'computation' => 'movement',
+                    'is_net_of_reversals' => true,
+                    'attribution' => 'order_ids',
+                    'orders_attributed' => 0,
+                    'movements_without_resolvable_order' => 0,
+                ]
+            );
+        }
+
+        $query = $this->transactions($scope)
+            ->join('orders', function ($join) {
+                $join->on('orders.id', '=', 'store_wallet_transactions.reference_id')
+                    ->on('orders.store_id', '=', 'store_wallet_transactions.store_id')
+                    ->where('store_wallet_transactions.reference_type', '=', 'order');
+            })
+            ->whereIn('orders.store_id', $scope->storeIds())
+            ->whereIn('orders.id', $ids)
+            ->where('store_wallet_transactions.status', '<>', 'cancelled');
+
+        $window->applyTo($query, 'store_wallet_transactions.created_at');
+
+        $aggregate = $this->sumByCurrency(
+            $query,
+            'store_wallet_transactions.currency_code',
+            "CASE WHEN store_wallet_transactions.direction = 'credit' "
+            . 'THEN store_wallet_transactions.amount '
+            . 'ELSE -store_wallet_transactions.amount END'
+        );
+
+        return MetricResult::make(
+            self::NET_RETAINED,
+            MetricResult::RECORD_MOVEMENT,
+            'store_wallet_transactions.created_at',
+            $aggregate['byCurrency'],
+            $aggregate['rowCount'],
+            $scope,
+            $window,
+            [],
+            [
+                'computation' => 'movement',
+                'is_net_of_reversals' => true,
+                'attribution' => 'order_ids',
+                'orders_attributed' => count($ids),
+                'movements_without_resolvable_order' =>
+                    $this->movementsWithoutResolvableOrder($scope, $window),
+            ],
+        );
+    }
+
+    /**
+     * AN EMPTY ORDER SET IS A REAL ANSWER HERE, unlike an empty CUSTOMER list.
+     *
+     * Asking "what did these orders collect" with no orders is a legitimate question with the
+     * answer "nothing" -- a customer whose guest-order match found none. Asking "what did these
+     * customers collect" with no customers is a programming error, because `whereIn('…', [])`
+     * compiles to `0 = 1` and would report zero for a question nobody asked. The two cases differ
+     * and this class answers them differently rather than applying one rule to both.
+     */
+    private function emptyResult(
+        string $key,
+        string $record,
+        string $datedBy,
+        MetricScope $scope,
+        MetricWindow $window,
+        array $notes,
+    ): MetricResult {
+        return MetricResult::make($key, $record, $datedBy, [], 0, $scope, $window, [], $notes);
+    }
+
+    /**
+     * THREE PREDICATES, AND THE THIRD IS DELIBERATELY REDUNDANT.
+     *
+     *   financials($scope)                               the LEDGER row is inside the scope
+     *   ->on('orders.store_id', '=', '…store_id')        the ORDER agrees with its ledger row
+     *   ->whereIn('orders.store_id', …)                  the ORDER is inside the scope
+     *
+     * The first two entail the third, so removing it changes no row -- a mutation confirmed that
+     * and it SURVIVES CORRECTLY, which is recorded here so nobody reads the survivor as a test
+     * gap and goes looking for the fixture that would catch it. There is none, by construction.
+     *
+     * It stays because the entailment is a property of the OTHER two lines, not of this one: if
+     * the join condition were ever weakened to `on('orders.id', …)` alone -- which is how the
+     * first draft of this class was written -- the third predicate becomes the only thing holding
+     * the order inside the tenant. Keeping it costs nothing and removes a way for a later edit to
+     * be quietly wrong.
+     *
+     * @param  list<int>  $ids
+     */
+    private function orderScopedFinancials(MetricScope $scope, array $ids): Builder
+    {
+        return $this->financials($scope)
+            ->join('orders', function ($join) {
+                $join->on('orders.id', '=', 'store_order_financials.order_id')
+                    ->on('orders.store_id', '=', 'store_order_financials.store_id');
+            })
+            ->whereIn('orders.store_id', $scope->storeIds())
+            ->whereIn('orders.id', $ids);
+    }
+
+    /** @param  list<int>  $ids */
+    private function ordersWithoutLedgerRowForOrders(MetricScope $scope, MetricWindow $window, array $ids): int
+    {
+        $query = $this->orders($scope)
+            ->leftJoin('store_order_financials', function ($join) {
+                $join->on('store_order_financials.order_id', '=', 'orders.id')
+                    ->on('store_order_financials.store_id', '=', 'orders.store_id');
+            })
+            ->whereNull('store_order_financials.id')
+            ->whereIn('orders.id', $ids);
+
+        $window->applyTo($query, 'orders.order_date');
+
+        return $query->count();
+    }
+
+    /**
+     * Order ids, normalised. Unlike a customer id, zero and negatives are simply not ids -- they
+     * are dropped rather than refused, because an empty set is a real answer for this question.
+     *
+     * @param  list<int>  $orderIds
+     * @return list<int>
+     */
+    private function usableOrderIds(array $orderIds): array
+    {
+        $ids = [];
+
+        foreach ($orderIds as $orderId) {
+            if (! is_numeric($orderId)) {
+                continue;
+            }
+
+            $id = (int) $orderId;
+
+            if ($id > 0) {
+                $ids[$id] = $id;
+            }
+        }
+
+        sort($ids);
+
+        return array_values($ids);
     }
 
     /**

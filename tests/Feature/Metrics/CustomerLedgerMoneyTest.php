@@ -750,6 +750,141 @@ final class CustomerLedgerMoneyTest extends TestCase
         );
     }
 
+    // ------------------------------------------------------------------ the order-set path
+
+    /**
+     * THE ORDER-SET PATH HAD NO TEST OF ITS OWN. It was exercised only through the resolver, and
+     * only with id sets the resolver itself produced -- all single-store, all `customer_id = 0`.
+     * So its tenant conditions, its reference-type guard, its voided-movement rule and its whole
+     * coverage half were unasserted. Review enumerated the mutations that survived; these are
+     * those cases.
+     */
+    public function test_the_order_set_path_cannot_reach_another_tenants_money(): void
+    {
+        $foreign = $this->order(self::ALICE, ['store_id' => self::STORE_B]);
+        $this->ledger($foreign, [
+            'store_id' => self::STORE_B, 'payment_status' => 'paid',
+            'paid_amount' => 500.0, 'paid_at' => now(),
+        ]);
+
+        $result = $this->figures()->collectedForOrders($this->scopeA(), $this->allTime(), [$foreign]);
+
+        $this->assertSame([], $result->byCurrency(),
+            'A caller handed another store\'s order id and got its money. The ids must only ever '
+            . 'NARROW the scope the builder already carries.');
+
+        $this->assertSame(0, $result->rowCount());
+
+        /*
+         * WHICH PREDICATE DID THE WORK, stated because a mutation run will otherwise look like it
+         * found a hole here. Three conditions hold this row out, and the first two ENTAIL the
+         * third: the ledger side is scoped structurally by `financials($scope)`, and the join
+         * ties `orders.store_id` to `store_order_financials.store_id`. So removing the explicit
+         * `whereIn('orders.store_id', ...)` leaves this case green -- correctly, and no fixture
+         * can catch it. That predicate is kept as defence against a future weakening of the join
+         * rather than as a live guard, and `orderScopedFinancials`' docblock records the same.
+         */
+    }
+
+    /**
+     * AND THE COUNT IS THE PART THE SCOPE DOES NOT PROTECT, which is why it is asserted
+     * separately. `orders_attributed` is `count($ids)` -- computed before any scope touches them --
+     * so a foreign id yields "1 order, 0.00". The money is safe; the claim about it is not.
+     */
+    public function test_a_foreign_order_id_is_still_counted_as_attributed(): void
+    {
+        $foreign = $this->order(self::ALICE, ['store_id' => self::STORE_B]);
+
+        $result = $this->figures()->collectedForOrders($this->scopeA(), $this->allTime(), [$foreign]);
+
+        $this->assertSame(1, $result->notes()['orders_attributed'] ?? null,
+            'Recorded deliberately: the metric reports what it was ASKED about, and the caller is '
+            . 'responsible for handing it its own orders. `CustomerMoneyFigures` is that caller '
+            . 'and its own test pins the store predicate that keeps this from arising.');
+    }
+
+    public function test_the_order_set_path_applies_the_same_inclusion_rule(): void
+    {
+        $paid = $this->order(self::ALICE);
+        $this->ledger($paid, ['payment_status' => 'paid', 'paid_amount' => 10.0, 'paid_at' => now()]);
+
+        $partially = $this->order(self::ALICE);
+        $this->ledger($partially, [
+            'payment_status' => 'partially_paid', 'paid_amount' => 4.0, 'paid_at' => now(),
+        ]);
+
+        $neverPaid = $this->order(self::ALICE);
+        $this->ledger($neverPaid, ['payment_status' => 'cancelled', 'paid_amount' => 0.0]);
+
+        $this->assertSame(['USD' => 14.0], $this->figures()->collectedForOrders(
+            $this->scopeA(), $this->allTime(), [$paid, $partially, $neverPaid]
+        )->byCurrency());
+    }
+
+    /** The two paths must agree on the same order, or the shared predicate has drifted. */
+    public function test_both_paths_agree_on_the_same_order(): void
+    {
+        $order = $this->order(self::ALICE);
+        $this->ledger($order, [
+            'payment_status' => 'refunded', 'paid_amount' => 33.0, 'paid_at' => now(),
+        ]);
+
+        $this->assertSame(
+            $this->figures()->collected($this->scopeA(), $this->allTime(), self::ALICE)->byCurrency(),
+            $this->figures()->collectedForOrders($this->scopeA(), $this->allTime(), [$order])->byCurrency(),
+            'The customer-id path and the order-set path disagree about the same order, so the '
+            . 'inclusion rule is no longer shared between them.'
+        );
+    }
+
+    public function test_the_order_set_path_discloses_an_order_the_ledger_cannot_see(): void
+    {
+        $uncovered = $this->order(self::ALICE, ['final_price' => 900.0]);
+
+        $result = $this->figures()->collectedForOrders($this->scopeA(), $this->allTime(), [$uncovered]);
+
+        $this->assertSame(1, $result->notes()['orders_without_ledger_row'] ?? null);
+        $this->assertTrue($result->hasCaveat(\App\Support\Metrics\MetricCaveat::ENTITLEMENT_RECORD_INCOMPLETE),
+            'The order-set path reported itself authoritative while blind to the only order it '
+            . 'was asked about.');
+    }
+
+    public function test_the_order_set_retained_figure_ignores_voided_and_foreign_movements(): void
+    {
+        $order = $this->order(self::ALICE);
+        $this->movement($order, ['amount' => 100.0]);
+        $this->movement($order, ['amount' => 70.0, 'status' => 'cancelled']);
+        $this->movement($order, [
+            'reference_type' => 'withdrawal', 'direction' => 'debit', 'amount' => 5000.0,
+        ]);
+
+        $this->assertSame(['USD' => 100.0], $this->figures()->netRetainedForOrders(
+            $this->scopeA(), $this->allTime(), [$order]
+        )->byCurrency());
+    }
+
+    /** An empty order set is a real answer here, unlike an empty customer list. */
+    public function test_an_empty_order_set_answers_nothing_rather_than_throwing(): void
+    {
+        $result = $this->figures()->collectedForOrders($this->scopeA(), $this->allTime(), []);
+
+        $this->assertSame([], $result->byCurrency());
+        $this->assertSame(0, $result->notes()['orders_attributed'] ?? null);
+        $this->assertArrayHasKey('orders_without_ledger_row', $result->notes(),
+            'The empty result carries a different note shape from the populated one, so a surface '
+            . 'reading that key gets null for some customers and a number for others.');
+    }
+
+    public function test_unusable_order_ids_are_dropped_rather_than_queried(): void
+    {
+        $order = $this->order(self::ALICE);
+        $this->ledger($order, ['payment_status' => 'paid', 'paid_amount' => 7.0, 'paid_at' => now()]);
+
+        $this->assertSame(['USD' => 7.0], $this->figures()->collectedForOrders(
+            $this->scopeA(), $this->allTime(), [$order, 0, -5, 'not-an-id']
+        )->byCurrency());
+    }
+
     // ------------------------------------------------------------------ unidentifiable customer
 
     /** @dataProvider unidentifiableIds */

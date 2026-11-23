@@ -210,11 +210,41 @@ class Customer extends Authenticatable implements CanResetPasswordContract
             return $direct;
         }
 
-        // The guest fallback, scoped through the order rather than the billing row, because the
-        // billing table cannot be scoped on its own.
+        /*
+         * GAP-156: A BLANK E-MAIL MATCHES NOTHING, NOT EVERYTHING.
+         *
+         * `where('email', '')` matches every billing row whose e-mail is the empty string, and
+         * those rows are produced routinely: `AuthorizeNetPaymnetController:1277`,
+         * `CinetPayController:1137`, `EasebuzzController:1073` and `Api\ApiController` all write
+         * `!empty($billing['email']) ? $billing['email'] : ''`. A NULL e-mail is worse -- Laravel
+         * rewrites a two-argument `where` with a null value to `whereNull`, and
+         * `order_billing_details.email` is nullable -- so it matched every billing row that has
+         * no address at all.
+         *
+         * Either way ONE customer with a blank e-mail absorbed EVERY anonymous order in the
+         * store, and their `total_spend()` and `Ordercount()` reported the store's whole guest
+         * book as one person's history. That is not a rule anybody chose; it is what
+         * `where <column> = ''` does, and it is the same shape as the `customer_id = 0` trap
+         * `MetricCaveat::UNIDENTIFIED_CUSTOMERS_EXCLUDED` records -- an "identifier" that is
+         * really the absence of one.
+         *
+         * Found while making the ledger figures follow this method's attribution (GAP-156): the
+         * new resolver guarded the blank e-mail and this one did not, so the two covered
+         * different order sets. One of them had to move, and a guard is the half that can be
+         * justified -- it can only ever REMOVE an over-attribution, never hide a real order.
+         *
+         * The fallback is scoped through the order rather than the billing row, because that
+         * table cannot be scoped on its own.
+         */
+        $email = trim((string) $this->email);
+
+        if ($email === '') {
+            return Order::whereRaw('1 = 0');
+        }
+
         return Order::where('store_id', $storeId)
             ->where('customer_id', 0)
-            ->whereIn('id', OrderBillingDetail::where('email', $this->email)->pluck('order_id'));
+            ->whereIn('id', OrderBillingDetail::where('email', $email)->pluck('order_id'));
     }
 
     public function Ordercount()
