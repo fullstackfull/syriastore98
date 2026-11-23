@@ -2220,11 +2220,32 @@ public function store(Request $request)
         //      action, not a public one;
         //   3. the order must belong to BOTH that store and that customer.
         //
-        // DISCLOSED BEHAVIOUR CHANGE: `orders.customer_id` defaults to 0, so a GUEST order
-        // can no longer be cancelled through this endpoint. That is deliberate. Self-service
-        // cancellation of a guest order over an unauthenticated endpoint keyed on a
-        // guessable integer is the vulnerability itself, not a feature; a guest cancellation
-        // has to go through the merchant.
+        // DISCLOSED BEHAVIOUR: a GUEST order cannot be cancelled through this endpoint. That is
+        // deliberate. Self-service cancellation of a guest order over an endpoint keyed on a
+        // guessable integer is the vulnerability itself, not a feature; a guest cancellation has
+        // to go through the merchant.
+        //
+        // SEC-INTAKE #188 CORRECTION. This used to be expressed as "`orders.customer_id` defaults
+        // to 0, so a guest order can no longer be cancelled" -- and THAT ASSUMPTION IS FALSE for a
+        // whole class of guest orders, which is how the rule leaked. Measured in
+        // `app/Services/PaymentService.php:3019-3033`: a guest checkout whose billing e-mail
+        // matches an existing customer of this store is written with that customer's REAL id and
+        // `is_guest = 1`, because nobody is signed in. `customer_id` answers "whose record is this
+        // attached to"; `is_guest` answers "was anybody signed in when it was placed". The rule
+        // wants the second, so it now TESTS the second -- the same column
+        // `App\Support\Marketing\RecoveryCandidates` already filters on.
+        //
+        // The e-mail match itself is NOT changed here and must not be: it is the returning-guest
+        // flow, it follows from per-store e-mail uniqueness (an owner decision), and
+        // `UnscopedCustomerEmailLookupTest::test_a_guest_checkout_still_finds_its_own_stores_customer`
+        // pins it. What changes is only what THIS endpoint will act on.
+        //
+        // NOT A DISCLOSURE. The measured read paths hand the guest nothing of the matched
+        // customer's: `Order::order_detail()` reads the `Customer` row and its `DeliveryAddress`
+        // only inside the `else` of `if ($order->payment_type != 'POS')`, and `'POS'` is absent
+        // from `getValidPaymentTypes()`, so a storefront order's billing and delivery fields come
+        // from `order_billing_details` -- what the guest typed. This is an account-integrity
+        // defect: the matched customer could cancel, and RESTOCK, an order they never placed.
         $store = getStore($slug);
 
         if (! $store) {
@@ -2240,6 +2261,9 @@ public function store(Request $request)
         $order = Order::where('id', $request->order_id)
             ->where('store_id', $store->id)
             ->where('customer_id', $customer->id)
+            // SEC-INTAKE #188: the fact the rule above actually depends on. A guest order carries
+            // `is_guest = 1` whatever its `customer_id` happens to be.
+            ->where('is_guest', 0)
             ->first();
 
         if (! $order) {

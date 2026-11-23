@@ -1167,6 +1167,10 @@ class OrderCancelRestockTest extends TestCase
             $table->string('product_order_id')->nullable();
             $table->dateTime('order_date')->nullable();
             $table->integer('customer_id')->default(0);
+            // SEC-INTAKE #188: `status_cancel` now filters on `is_guest`, so this hand-built
+            // table needs the column or every cancel here errors with "no such column".
+            // Default 0 = a signed-in customer's order, which is what these fixtures model.
+            $table->integer('is_guest')->default(0);
             $table->text('product_json')->nullable();
             $table->string('product_id')->default(0);
             $table->float('product_price')->nullable()->default(0);
