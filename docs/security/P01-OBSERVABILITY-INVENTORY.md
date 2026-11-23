@@ -222,8 +222,8 @@ diagnostics; none of them is a security signal and enumerating them would bury t
 | `app/Http/Controllers/Concerns/RestoresCancelledOrderStock.php:151` | Order cancellation skipped a line whose product is not in the order |
 | `app/Http/Controllers/Concerns/RestoresCancelledOrderStock.php:208` | Order cancellation skipped a line the stock record says never took stock out |
 | `app/Http/Controllers/Concerns/RestoresCancelledOrderStock.php:252` | Order cancellation skipped a line whose variant does not belong to its product |
-| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:778` | customer login: refused a social row still holding its module-assigned password |
-| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:1016` | Newsletter subscription failed during customer registration |
+| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:851` | customer login: refused a social row still holding its module-assigned password |
+| `app/Http/Controllers/Customer/Auth/CustomerLoginController.php:1113` | Newsletter subscription failed during customer registration |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:95` | Delivery Syria status webhook: invalid credentials. |
 | `app/Http/Controllers/DeliverySyriaStatusController.php:179` | Zid store not found for order status sync. |
 | `app/Http/Controllers/ESewaPaymentController.php:196` | Plan payment return rejected: claimed amount does not match the plan price. |
