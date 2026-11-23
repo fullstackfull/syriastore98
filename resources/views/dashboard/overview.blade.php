@@ -370,10 +370,83 @@
                  "excluding cancelled" is in the PERIOD line, not only the hint, because a hint is
                  hover-only: on a phone there is no hover, and an exclusion a merchant cannot see
                  is an exclusion they will not know about. --}}
+            {{-- P5-R7-C. THE FIGURE IS NO LONGER A SUM ACROSS CURRENCIES, AND THE HINT NO LONGER
+                 CLAIMS IT IS ONE.
+
+                 `$total_revenues` was `SUM(final_price)` over every uncancelled order whatever
+                 its `currency_code`, printed through `currency_format_with_sym()`, which stamps
+                 THIS store's symbol over it. A store that had taken 100 EUR and 50 USD saw 150
+                 behind the euro sign -- and the hint asserted the figure was "in this store's
+                 currency", which for that store is false.
+
+                 THE OWNER TEXT IS KEPT WORD FOR WORD. The cancellation exclusion and the F257
+                 returns clause are not a copy of any single-sourced sentence -- they state two
+                 things no designated sentence states -- so they are preserved and the currency
+                 sentences are APPENDED. The one clause that changed is "in this store's
+                 currency", which moves to naming the currency when there is one and saying so
+                 when there is not. Replacing the literal wholesale would have dropped the F257
+                 disclosure with the Feature gate green; `DashboardOrderValueCurrencyTest` now
+                 pins it, because nothing did before. --}}
+            @php
+                /* `unknown` is a BUCKET KEY, not a currency -- `orders.currency_code` is not
+                   backfilled, so it holds every order placed before the stamp landed. The
+                   controller folds it into the store's currency when there is one; when there
+                   is not, nothing can be assumed, and naming it here would print "1,250.00
+                   unknown" to the merchant as though it were a currency they trade in. */
+                $ssRevenueCurrencies = $totalRevenueResult?->currencies() ?? [];
+
+                /* WHICH CURRENCY THE HEADLINE IS IN -- null when there is no headline. The
+                   "others" list is then exactly the money the headline LEAVES OUT, which is the
+                   only list a merchant can act on. Deriving it from `$storeCurrencyCode` alone
+                   was wrong in both directions: a store whose `defult_currancy` is a symbol
+                   normalises to '' and would have seen its own single currency listed back as
+                   "another currency", and a mixed store with no configured currency shows no
+                   headline at all, where the word "Also" claims one. */
+                $ssIncludedCurrency = $storeCurrencyCode !== ''
+                    ? $storeCurrencyCode
+                    : (count($ssRevenueCurrencies) === 1 ? ($ssRevenueCurrencies[0] ?? null) : null);
+
+                /* THE `unknown` BUCKET STAYS IN THIS LIST, and that is deliberate.
+                   `orders.currency_code` is not backfilled, so it holds every order placed
+                   before the stamp landed. The controller folds it into the store's currency
+                   when there is one; when there is NOT, nothing can be assumed and the money
+                   reaches here unattributed. Filtering it out would drop it from the merchant's
+                   view silently -- the defect this tile exists to fix, arriving by the other
+                   door. `MoneyText::currencyLabel()` already renders the bucket as "Currency
+                   not recorded" rather than offering the internal token as a currency, so it is
+                   disclosed honestly instead. That method is the single definition; a second
+                   guard here would only hide which one is load-bearing. */
+                $ssRevenueOthers = array_values(array_filter(
+                    $ssRevenueCurrencies,
+                    fn ($c) => $c !== '' && $c !== $ssIncludedCurrency
+                ));
+
+                $ssRevenueHint = $storeCurrencyCode === ''
+                    ? __('The total value of orders placed, excluding orders that were cancelled. Returned orders are still included. This is not payments received, and not profit.')
+                    : __('The total value of orders placed, counted in :code, excluding orders that were cancelled. Returned orders are still included. This is not payments received, and not profit.', ['code' => $storeCurrencyCode]);
+
+                if ($ssRevenueOthers !== []) {
+                    $ssRevenueAmounts = implode(', ', array_map(
+                        fn ($c) => \App\Support\Metrics\MoneyText::amount($totalRevenueResult->totalIn($c), $c),
+                        $ssRevenueOthers
+                    ));
+
+                    /* "Also" presupposes a headline. When there is none -- more than one
+                       currency and no configured store currency to pick between them -- the
+                       honest sentence is the one the rest of the codebase already uses for
+                       exactly this state, so no new string is introduced. */
+                    $ssRevenueHint .= ' ' . ($total_revenues === null
+                        ? __('These amounts are in more than one currency and are not combined: :amounts.', ['amounts' => $ssRevenueAmounts])
+                        : __('Also ordered in another currency, which is not added in and not converted: :amounts.', ['amounts' => $ssRevenueAmounts]));
+                }
+            @endphp
+
             <x-ss.stat :label="__('Order value')"
-                       :value="currency_format_with_sym($total_revenues ?? 0, getCurrentStore())"
+                       :value="$total_revenues === null
+                           ? null
+                           : currency_format_with_sym($total_revenues, getCurrentStore())"
                        :period="__('all time, gross, excluding cancelled')"
-                       :hint="__('The total value of orders placed, in this store\'s currency, excluding orders that were cancelled. Returned orders are still included. This is not payments received, and not profit.')" />
+                       :hint="$ssRevenueHint" />
         @endif
 
         <x-ss.stat :label="__('Customers')"

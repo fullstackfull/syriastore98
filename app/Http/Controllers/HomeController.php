@@ -25,6 +25,9 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Artisan;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
+use App\Support\Metrics\GrossMerchandiseValue;
+use App\Support\Metrics\MetricScope;
+use App\Support\Metrics\MetricWindow;
 
 class HomeController extends Controller
 {
@@ -361,9 +364,76 @@ class HomeController extends Controller
          * question with a different right answer, and the owner's instruction is to preserve such a
          * report with an accurate label rather than silently change its meaning.
          */
-        $total_revenues = (clone $orderQuery)
-            ->where('delivered_status', '!=', self::ORDER_STATUS_CANCEL)
-            ->sum('final_price');
+        /*
+         * P5-R7-C. THE SAME PREDICATE, BUT NO LONGER ADDING CURRENCIES TOGETHER.
+         *
+         * This was `->sum('final_price')` -- one ungrouped aggregate with no reference to
+         * `orders.currency_code` -- and `overview.blade.php` printed it through
+         * `currency_format_with_sym(..., getCurrentStore())`, which stamps the STORE's own
+         * `defult_currancy_symbol` over whatever came back. A store that had taken 100 EUR and
+         * 50 USD was shown 150 behind the euro sign, and the hint said the figure was "in this
+         * store's currency" -- which for that store is false. Worse than the category and brand
+         * cards ANA-TOP fixed: those were silent, this one asserted the untrue thing.
+         *
+         * `GrossMerchandiseValue(includeCancelled: false)` applies
+         * `(delivered_status IS NULL OR delivered_status != 2)`, and `ORDER_STATUS_CANCEL` is 2 --
+         * so the F257 exclusion is preserved exactly, and the NULL limb makes it strictly more
+         * inclusive than the bare `!=` was. `MetricWindow::allTime()` adds no date predicate, so
+         * the tile keeps its all-time meaning and drops no order for a null `order_date`.
+         *
+         * THE RESULT IS NOT TOTALLED HERE. `MetricResult::total()` throws
+         * `MixedCurrencyException` when the rows are not single-currency, which would make this
+         * dashboard a 500 on exactly the stores that have the defect. The view is handed the
+         * result and asks it what it can honestly say.
+         */
+        $ssStoreId = (int) getCurrentStore();
+
+        /* The store's OWN currency, NORMALISED. `defult_currancy` is merchant-written and owner
+           decision D-N34 leaves existing rows alone, so the stored value can be a symbol or
+           lower case rather than a code (FIN-SYM). Reading an unnormalised value would name a
+           bucket that holds nothing -- printing 0.00 -- and then list the store's own currency
+           back to the merchant as "another currency". */
+        $storeCurrencyCode = \App\Support\Money\CurrencySymbol::code(
+            \App\Support\Money\OrderCurrencyStamp::configuredCodeFor($ssStoreId)
+        );
+
+        /*
+         * A MERCHANT WITH NO STORE REACHES THIS LINE. `getCurrentStore()` is null for that
+         * principal, and `MetricScope::store()` REFUSES a non-positive id rather than widening
+         * to every tenant -- so an unguarded call throws here, ABOVE `getOrderChart()`, whose
+         * own defensive `auth()->logout()` is this codebase's documented answer for them
+         * (`OperatorDashboardWithoutAStoreTest`). Guard the call; the view already has a branch
+         * for a figure it cannot have.
+         */
+        $totalRevenueResult = $ssStoreId > 0
+            ? (new GrossMerchandiseValue(false))->for(
+                MetricScope::store($ssStoreId),
+                MetricWindow::allTime()
+            )
+            : null;
+
+        /*
+         * FOLD THE UNRECORDED ROWS IN BEFORE READING ONE BUCKET. `orders.currency_code` is NOT
+         * backfilled by its migration, so every order placed before the stamp landed sits in the
+         * `unknown` bucket. `totalIn()` reads ONE bucket and never throws, so an unfolded read
+         * would silently drop that history out of the headline -- and the view's appended
+         * sentence would then name it to the merchant as "another currency: 1,250.00 unknown".
+         * `FinanceLedgerFigures`, `MerchantAnalyticsFigures`, `MetricThreshold` and
+         * `CustomerMoneyTiles` all fold first, for this reason. Folding also keeps `total()`
+         * unreachable: the view reads the folded result, so its "other currencies" list is the
+         * genuinely-other ones.
+         */
+        $total_revenues = null;
+
+        if ($totalRevenueResult !== null) {
+            // Returns `$this` unchanged when the code is empty or there is nothing unrecorded,
+            // so "an assumption was made" stays distinguishable from "none was".
+            $totalRevenueResult = $totalRevenueResult->assumingUnknownCurrencyIs($storeCurrencyCode);
+
+            $total_revenues = $storeCurrencyCode === ''
+                ? ($totalRevenueResult->isSingleCurrency() ? $totalRevenueResult->total() : null)
+                : $totalRevenueResult->totalIn($storeCurrencyCode);
+        }
 
         $topSellingProductIds = (clone $orderQuery)->pluck('product_id')
             ->flatMap(function ($productIds) {
@@ -526,6 +596,10 @@ class HomeController extends Controller
             'plan',
             'topSellingProducts',
             'total_revenues',
+            /* P5-R7-C: the view needs the result, not only the one-currency total, so it can say
+               what it cannot state and list what it did not add. */
+            'totalRevenueResult',
+            'storeCurrencyCode',
             'totle_cancel_order',
             'out_of_stock_threshold',
             'out_of_stock_products',
