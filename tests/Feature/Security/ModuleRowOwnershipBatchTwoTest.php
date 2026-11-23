@@ -15,8 +15,11 @@ use Illuminate\Support\Facades\Schema;
  * =============================================================================================
  *
  * `RouteCensusGateTest` and `ModuleAdministrativeRouteGuardTest` are provider-driven over
- * `ModuleRouteManifest`, so the 49 new keys are exercised by their anonymous-caller and
- * rule-shape cases the moment they exist — 833 tests became 980. That proves the rules are
+ * `ModuleRouteManifest`, so the new keys are exercised by their anonymous-caller and
+ * rule-shape cases the moment they exist — 833 tests became 1,034 across the two rounds of this
+ * batch. (This sentence said "49 new keys" when the block held 52, and an independent review
+ * caught it; round 2 then made it 57. A count written into a comment is a claim the file has to
+ * keep in step BY HAND, so this one no longer names the key count at all.) That proves the rules are
  * WELL FORMED. It does not prove the doors were OPEN, and those are different claims.
  *
  * This file drives the four that matter most with a real cross-tenant principal:
@@ -396,6 +399,78 @@ final class ModuleRowOwnershipBatchTwoTest extends SecurityTestCase
             . 'denial of service dressed as a control -- the exact failure a merchant-only test '
             . 'cannot see.'
         );
+    }
+
+    /**
+     * ROUND 2 -- THE RESOURCE'S OWN ROW VERBS, on the controller round 1 guarded ONE route of.
+     *
+     * `destroy($id)` checks `isAbleTo('Delete Pre Order Setting')` and then resolves
+     * `PreOrderSetting::find($id)` with no store predicate, so the permission answers "may this
+     * merchant delete pre-order settings" and nothing answers "whose". `update()` is worse still:
+     * it assigns `store_id = getCurrentStore()` before saving, which does not merely write another
+     * tenant's row but moves it into the caller's store.
+     *
+     * THE PERMISSION IS GRANTED HERE ON PURPOSE. Without it the handler refuses on the permission
+     * and the case passes whatever the manifest says -- the commonest way an authorization test
+     * passes for the wrong reason in this codebase.
+     */
+    public function test_a_merchant_cannot_delete_another_tenants_preorder_setting(): void
+    {
+        [$merchant, $storeA, $storeB] = $this->arrange(['PreOrder']);
+
+        $this->assertTrue(Schema::hasTable('pre_order_settings'),
+            'PREMISE: the module table is absent, so every assertion below would pass for the '
+            . 'wrong reason.');
+
+        $this->grant($merchant, ['Delete Pre Order Setting']);
+
+        $setting = static fn (Store $s, int $qty): int => (int) DB::table('pre_order_settings')->insertGetId([
+            'product_id' => '1', 'variant_id' => '0', 'available_date' => '2027-01-01',
+            'qty' => $qty, 'status' => 1,
+            'store_id' => $s->id, 'created_by' => (int) $s->created_by,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $mine = $setting($storeA, 11);
+        $theirs = $setting($storeB, 99);
+
+        $this->actingAs($merchant)->delete('/preordersetting/' . $theirs);
+
+        $this->assertTrue($this->rowExists('pre_order_settings', $theirs),
+            'Another tenant\'s pre-order setting was deleted by id. The handler checks the '
+            . 'permission and then resolves the row with no store predicate, so the permission '
+            . 'decides WHETHER and nothing decides WHOSE.');
+
+        // POSITIVE CONTROL: the rule must not be a denial of service for the row's owner.
+        $this->actingAs($merchant)->delete('/preordersetting/' . $mine);
+
+        $this->assertFalse($this->rowExists('pre_order_settings', $mine),
+            'The rule refuses the row\'s RIGHTFUL OWNER, so the refusal above says nothing about '
+            . 'ownership -- it is the fail-closed-for-everybody shape this file exists to catch.');
+    }
+
+    /** Grant real Laratrust permissions, because `isAbleTo()` refuses a user with no role. */
+    private function grant(User $merchant, array $permissions): void
+    {
+        $role = \App\Models\Role::create([
+            'name' => 'batch-two-' . $merchant->id, 'display_name' => 'Batch two',
+            'created_by' => $merchant->id, 'store_id' => $merchant->current_store,
+        ]);
+
+        foreach ($permissions as $name) {
+            $role->givePermission(\App\Models\Permission::firstOrCreate(
+                ['name' => $name], ['display_name' => $name],
+            ));
+        }
+
+        $merchant->addRole($role);
+        $merchant->flushCache();
+
+        foreach ($permissions as $name) {
+            $this->assertTrue(User::find($merchant->id)->isAbleTo($name),
+                "PREMISE: the principal does not hold '{$name}', so the handler refuses on the "
+                . 'permission and the manifest rule is never reached.');
+        }
     }
 
     /** `join_us` carries neither `store_id` nor `created_by`: these rows are the platform's. */

@@ -573,6 +573,65 @@ class FinanceAdjustmentAccountabilityTest extends TestCase
     }
 
     /**
+     * P5-R4 ROUND 2 -- A REFUSED STATE MUST BE VISIBLE, found by the independent review.
+     *
+     * A `<option ... selected disabled>` submits NO value. So on any engine-written row a merchant
+     * who presses Update without first choosing paid or unpaid sends no `payment_status`,
+     * `required|in:paid,unpaid` refuses it, and the handler redirects back. The cell had an error
+     * surface for `reason` ONLY, so that refusal rendered NOTHING: the page reloaded, the row was
+     * unchanged, and the merchant was given no reason.
+     *
+     * The shape predates this slice -- P5-1 introduced the selected+disabled option for the two
+     * reversals -- but widening the control to `pending` made it reachable on an ordinary
+     * uncollected-COD row, which turns a rare dead end into a routine one.
+     *
+     * TWO ASSERTIONS, BECAUSE THE FIRST ONE ALONE WAS ALREADY TRUE BEFORE THE FIX. The session
+     * error bag was always populated; what was missing is anything that PRINTS it.
+     */
+    public function test_a_refused_payment_status_is_visible_to_the_merchant(): void
+    {
+        $f = $this->seedFixture();
+        DB::table('store_order_financials')->where('id', $f['financialId'])->update(['payment_status' => 'pending']);
+
+        $merchant = $this->merchantWhoMayEditTheStatus();
+
+        $this->actingAs($merchant)
+            ->from(route('finance.index'))
+            ->post(route('finance.order-financial.status', $f['financialId']), [
+                'reason' => 'pressed Update without choosing a state',
+            ])
+            ->assertSessionHasErrors('payment_status');
+
+        /*
+         * FOLLOWING THE REDIRECT, not issuing a second request. A flashed error bag does not
+         * survive a fresh `get()` in a Feature test -- measured: `session('errors')` came back
+         * null and the first version of this case failed on its own premise. `followingRedirects()`
+         * renders the page WITH the bag, which is what the merchant actually sees.
+         *
+         * The expected text is COMPUTED the way the framework computes it, not pasted, so this
+         * case does not break when the suite locale changes.
+         */
+        $expected = __('validation.required', ['attribute' => 'payment status']);
+
+        $this->assertNotSame('validation.required', $expected,
+            'PREMISE: the validation language file did not resolve, so the string below would be a '
+            . 'translation key and the assertion would pass or fail for the wrong reason.');
+
+        $html = (string) $this->actingAs($merchant)
+            ->from(route('finance.index'))
+            ->followingRedirects()
+            ->post(route('finance.order-financial.status', $f['financialId']), [
+                'reason' => 'pressed Update without choosing a state',
+            ])
+            ->getContent();
+
+        $this->assertStringContainsString($expected, $html,
+            'The refusal is invisible: the merchant pressed Update, the page came back unchanged, '
+            . 'and nothing on it says why. The cell needs an @error(\'payment_status\') surface '
+            . 'beside the one it already had for `reason`.');
+    }
+
+    /**
      * WHY THERE IS NO CASE HERE FOR AN UNRECOGNISED STATE, and this is a finding rather than a gap.
      *
      * `EntitlementStateLabel` has an unknown-value branch and the view guards the disabled option

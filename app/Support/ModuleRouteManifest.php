@@ -465,6 +465,16 @@ final class ModuleRouteManifest
          * Found by the independent review this change should have had BEFORE it was committed, not
          * after. Classified above; `ModuleRowOwnershipBatchTwoTest` drives it.
          *
+         * A LIMIT OF THIS VOCABULARY, SO THAT A READER DOES NOT ASSUME MORE COVERAGE THAN EXISTS.
+         * `store-row:` reads the ROUTE only -- deliberately, and its own docblock above says why --
+         * and `tenant-store:` judges a store id in the body, not a row id. So neither form can
+         * express "the row named by THIS BODY KEY must belong to my store". Three authenticated
+         * module write paths in this batch's modules need exactly that form and are therefore NOT
+         * closed by any key here, including resources whose URL-addressed verbs ARE classified
+         * above. They are read, counted and tracked off-repository per the project's rule that an
+         * unpatched finding is not described in a public repository; closing them needs a new rule
+         * form or a first-party guard, which is its own change with its own review.
+         *
          * `preordersetting/get-product-variants/{id}` TAKES A PRODUCT ID, NOT A SETTING ID. The URI
          * reads like the latter and the handler is `Product::find($id)`, so the rule names
          * `products`. CLAUDE.md records `Product` as scoped for nobody -- not a merchant, not the
@@ -530,6 +540,20 @@ final class ModuleRouteManifest
         'GET submenus-edit/{id}/{parentid}' => 'store-row:side_menus_option:id',
 
         'GET preordersetting/get-product-variants/{id}' => 'store-row:products:id',
+
+        /*
+         * P1-SEC-90 ROUND 2 -- THE RESOURCE'S OWN ROW VERBS, ON THE VERY CONTROLLER ROUND 1
+         * GUARDED ONE ROUTE OF. Each carries a real `isAbleTo` permission and no store predicate:
+         * `edit()` and `destroy()` resolve `PreOrderSetting::find($id)`, and `update()` also
+         * assigns `store_id = getCurrentStore()` before saving -- the shape P1-SEC-86 recorded
+         * once for `created_by`. `pre_order_settings` carries `store_id`, so `store-row:` closes
+         * it. Found by the independent review, which round 1 should have had before it landed.
+         */
+        'DELETE preordersetting/{preordersetting}' => 'store-row:pre_order_settings:preordersetting',
+        'GET preordersetting/{preordersetting}' => 'store-row:pre_order_settings:preordersetting',
+        'PATCH preordersetting/{preordersetting}' => 'store-row:pre_order_settings:preordersetting',
+        'PUT preordersetting/{preordersetting}' => 'store-row:pre_order_settings:preordersetting',
+        'GET preordersetting/{preordersetting}/edit' => 'store-row:pre_order_settings:preordersetting',
 
         'GET notification-template/{id}/{lang?}' => 'operator',
         'GET notification-template/{notification_template}' => 'operator',

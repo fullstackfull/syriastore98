@@ -642,6 +642,24 @@
                                                         @error('reason')
                                                             <div class="text-danger small mt-1" role="alert">{{ $message }}</div>
                                                         @enderror
+                                                        {{-- P5-R4 ROUND 2 -- A REFUSED STATE MUST SAY SO, found by the
+                                                             independent review of the commit that widened the control.
+
+                                                             A `<option ... selected disabled>` submits NO value, so on any
+                                                             engine-written row a merchant who presses Update without first
+                                                             choosing paid or unpaid sends nothing, `required|in:paid,unpaid`
+                                                             refuses it, and the handler redirects back. This cell had an
+                                                             error surface for `reason` ONLY, so that refusal was INVISIBLE:
+                                                             the page reloaded, the row was unchanged, and nothing said why.
+
+                                                             The shape predates this slice -- P5-1 introduced the
+                                                             selected+disabled option for `cancelled` and `refunded` -- but
+                                                             widening it to `pending` and `partially_paid` made it reachable
+                                                             on an ordinary uncollected-COD row, which is what turns a rare
+                                                             dead end into a routine one. Surfacing it serves all four. --}}
+                                                        @error('payment_status')
+                                                            <div class="text-danger small mt-1" role="alert">{{ $message }}</div>
+                                                        @enderror
                                                     </form>
                                                 @else
                                                     {{-- P5-1 -- FOUR STATES, NOT TWO. The @else arm used to label every
