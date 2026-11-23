@@ -58,21 +58,30 @@ class OperatorUnchosenStoreReportsTest extends SecurityTestCase
      * MEASURED, by driving all five candidates as a storeless operator:
      *   /category-order-reports   200  clean
      *   /brand-order-reports      200  clean
+     *   /product-order-reports    200  clean   <- see the correction below
      *   /order-reports-chart      500  `no such function: MONTH`
-     *   /product-order-reports    500  `no such function: MONTH`
      *   /order-report             404  (not a route; it was a guess)
      *
-     * The two 500s are the standing SQLite limitation -- those handlers use `MONTH(` in `selectRaw`
-     * and SQLite has no such function -- and their DEBUG ERROR PAGE dumps the failing query's rows,
-     * so the decoy amount appears in 672 KB of stack trace. That is a test artifact, NOT a leak: in
-     * production `APP_DEBUG` is false and the same request is a plain 500. Asserting over that page
-     * would be asserting about Laravel's error renderer, so those two handlers are covered by the
-     * SOURCE CENSUS and the resolver assertions in this file instead -- which is the same split
-     * `LastMonthWindowOverflowTest` uses, for the same reason.
+     * CORRECTED 2026-11-23 (P5-R7-A). This list said `/product-order-reports 500 no such
+     * function: MONTH` and that is NO LONGER TRUE. `order_product_reports` carried
+     * `MONTH(order_date)` in two `selectRaw` calls; P5-R7-A removed both -- nothing read the
+     * column -- so the handler executes under SQLite and the route is now driven here with the
+     * other two rather than left to the source census. The stale line is replaced rather than
+     * annotated, because a measured claim that has stopped being true is the kind of comment
+     * this project treats as a defect in its own right.
+     *
+     * The ONE remaining 500 is the standing SQLite limitation -- that handler uses `MONTH(` in
+     * `selectRaw` and SQLite has no such function -- and its DEBUG ERROR PAGE dumps the failing
+     * query's rows, so the decoy amount appears in 672 KB of stack trace. That is a test
+     * artifact, NOT a leak: in production `APP_DEBUG` is false and the same request is a plain
+     * 500. Asserting over that page would be asserting about Laravel's error renderer, so that
+     * handler stays covered by the SOURCE CENSUS and the resolver assertions in this file --
+     * the same split `LastMonthWindowOverflowTest` uses, for the same reason.
      */
     private const REPORT_URIS = [
         '/category-order-reports',
         '/brand-order-reports',
+        '/product-order-reports',
     ];
 
     /** Store 1 as a DECOY tenant with recognisable money, plus a second real tenant. */
@@ -167,14 +176,20 @@ class OperatorUnchosenStoreReportsTest extends SecurityTestCase
         return array_map(static fn (string $uri): array => [$uri], self::REPORT_URIS);
     }
 
-    public function test_the_two_suite_unreachable_handlers_are_narrowed_in_source(): void
+    public function test_the_source_narrowing_of_both_handlers_is_named_individually(): void
     {
         /*
-         * `order_reports_chart` and `order_product_reports` answer 500 under SQLite (`no such
-         * function: MONTH`), so no HTTP assertion can reach them. Their narrowing is therefore
-         * asserted where it IS visible: in the source of the two methods, read comment-stripped.
-         * Named individually rather than relying on the whole-file census, so that deleting one
-         * handler's narrowing cannot hide behind the other 13 still being correct.
+         * `order_reports_chart` answers 500 under SQLite (`no such function: MONTH`), so no HTTP
+         * assertion can reach it; its narrowing is asserted where it IS visible, in the source of
+         * the method, read comment-stripped. Named individually rather than relying on the
+         * whole-file census, so that deleting one handler's narrowing cannot hide behind the
+         * other 13 still being correct.
+         *
+         * RENAMED 2026-11-23 (P5-R7-A). This was `test_the_two_suite_unreachable_handlers_...`
+         * and only ONE of the two is unreachable now: `order_product_reports` lost both of its
+         * MySQL-only `selectRaw` calls and is driven over HTTP by `REPORT_URIS` above. It stays
+         * in this loop because the source assertion is still worth having -- a handler that is
+         * reachable today can stop being so -- but the name no longer claims it cannot run.
          */
         $source = $this->sourceWithoutComments('app/Http/Controllers/ReportController.php');
 

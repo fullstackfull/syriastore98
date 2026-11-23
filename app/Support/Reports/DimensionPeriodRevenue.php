@@ -50,8 +50,50 @@ final class DimensionPeriodRevenue
 
     public const BRAND = 'brand';
 
+    /**
+     * P5-R7-A. THE PRODUCT ITSELF AS A DIMENSION, for `order_product_reports` -- the third copy
+     * of this figure, which ANA-TOP did not cover and which still added currencies together.
+     *
+     * The mapping is the identity: for a category the accumulator asks the catalogue which
+     * `category_id` a line's product carries, and for a product it asks which `id` it carries,
+     * which is the product id it already has. That sounds like a no-op and is NOT one -- the
+     * lookup is `where('store_id', ...)->whereIn('id', ...)`, so it is what drops a line naming
+     * ANOTHER TENANT'S product. `Product` registers no `StoreScope` and is absent from
+     * `config/tenancy.php`'s `scoped_models`, so without that query a product id is a global
+     * identifier and the report counts whatever the line names.
+     */
+    public const PRODUCT = 'product';
+
     /** @var array<int, array<int, array<string, float>>> dimension id => bucket => currency => amount */
     private array $buckets = [];
+
+    /**
+     * @var array<int, array<int, int>> dimension id => bucket => units
+     *
+     * UNITS ARE CURRENCY-FREE, so they are not bucketed by currency and are never withheld: a
+     * count of things ordered means the same whatever was paid for them. `order_product_reports`
+     * shows a money series and a units series on one chart, and only the money one has a
+     * currency problem. Keeping them in one accumulator is what stops the two series being built
+     * from two different passes over the orders and disagreeing about which rows are in window.
+     */
+    private array $quantities = [];
+
+    /**
+     * How many order LINES were inside the window but left out of every figure.
+     *
+     * F3 (independent review). A line is dropped when its `product_id` is not in this store's
+     * `products` -- the product was hard-deleted (`Product` has no SoftDeletes), its `store_id`
+     * is NULL (the column is nullable), or it belongs to another tenant. The exclusion is right
+     * for a per-product report, and it was SILENT: for the seven-day and date-range arms it is
+     * also NEW, because those two previously summed every line of every order with no product
+     * filter at all. So the tile could be strictly less than the window's order value with
+     * nothing on the screen accounting for the difference -- the GAP-223(a) class.
+     *
+     * A COUNT AND NOT A SUM, deliberately. The dropped lines can be in any mix of currencies, so
+     * a total of them is the very figure this class exists to refuse to state. Saying how many
+     * lines were left out discloses the gap without inventing a denomination for it.
+     */
+    private int $droppedLines = 0;
 
     private string $primary;
 
@@ -59,12 +101,20 @@ final class DimensionPeriodRevenue
 
     private int $bucketCount;
 
-    private function __construct(array $buckets, string $primary, bool $primaryIsConfigured, int $bucketCount)
-    {
+    private function __construct(
+        array $buckets,
+        string $primary,
+        bool $primaryIsConfigured,
+        int $bucketCount,
+        array $quantities = [],
+        int $droppedLines = 0
+    ) {
         $this->buckets = $buckets;
         $this->primary = $primary;
         $this->primaryIsConfigured = $primaryIsConfigured;
         $this->bucketCount = $bucketCount;
+        $this->quantities = $quantities;
+        $this->droppedLines = $droppedLines;
     }
 
     /**
@@ -78,7 +128,11 @@ final class DimensionPeriodRevenue
         int $bucketCount,
         callable $bucketFor
     ): self {
-        $column = $dimension === self::BRAND ? 'brand_id' : 'category_id';
+        $column = match ($dimension) {
+            self::BRAND => 'brand_id',
+            self::PRODUCT => 'id',
+            default => 'category_id',
+        };
 
         /* Decoded once. The orders are re-walked below and `json_decode` of every order's line
            list, once per selected category, is a measurable share of the old handler's time. */
@@ -125,6 +179,8 @@ final class DimensionPeriodRevenue
                 ->all();
 
         $buckets = [];
+        $quantities = [];
+        $droppedLines = 0;
 
         foreach ($decoded as [$bucket, $currency, $lines]) {
             foreach ($lines as $line) {
@@ -135,6 +191,9 @@ final class DimensionPeriodRevenue
                 $productId = (int) $line['product_id'];
 
                 if (! array_key_exists($productId, $owned)) {
+                    /* Counted, not summed -- see `$droppedLines`. */
+                    $droppedLines++;
+
                     continue;
                 }
 
@@ -143,12 +202,21 @@ final class DimensionPeriodRevenue
 
                 $buckets[$dimensionId][$bucket][$currency]
                     = ($buckets[$dimensionId][$bucket][$currency] ?? 0.0) + $amount;
+
+                /* `qty` OR `quantity`, because the order JSON carries both spellings -- the
+                   handlers this replaces each normalised one to the other before reading it, and
+                   a line written by the older of the two writers has only `quantity`. Defaulting
+                   to 1 is those handlers' own behaviour, preserved rather than tightened. */
+                $units = $line['qty'] ?? $line['quantity'] ?? 1;
+
+                $quantities[$dimensionId][$bucket]
+                    = ($quantities[$dimensionId][$bucket] ?? 0) + (int) $units;
             }
         }
 
         [$primary, $configured] = self::primaryCurrencyFor($storeId, $buckets);
 
-        return new self($buckets, $primary, $configured, $bucketCount);
+        return new self($buckets, $primary, $configured, $bucketCount, $quantities, $droppedLines);
     }
 
     /**
@@ -178,6 +246,22 @@ final class DimensionPeriodRevenue
     {
         $total = round(array_sum($this->series($dimensionId)), 2);
 
+        /*
+         * F4 (independent review), AND THE NUMERIC RULE IS DELIBERATELY UNCHANGED.
+         *
+         * The review is right that zero is a legitimate answer -- a quiet week, a new store --
+         * and that `null` makes the tile read "Not available" for it. I tried returning 0.0 in
+         * that case and TWO EXISTING ASSERTIONS went red: `DimensionPeriodRevenueTest`'s "a
+         * dimension with no money still answers a zero series" and "another tenant's product in
+         * our order is dropped, not attributed" both encode `null` on purpose, and the category
+         * and brand screens have shipped it. Changing the number here is exactly the drift the
+         * review warned about, so it is not changed.
+         *
+         * What WAS false is the sentence, and that is fixed in `caveat()`: the claim "nothing was
+         * earned in your store currency here" may only be made when money in another currency
+         * actually exists. For a store that simply had no orders it implied foreign trade that
+         * does not exist.
+         */
         return $total > 0 ? $total : null;
     }
 
@@ -236,8 +320,27 @@ final class DimensionPeriodRevenue
            addition, the same arithmetic the removed handler loops did. */
         $notes = [ReportFigureNote::orderValueHint()];
 
-        if ($this->total($dimensionId) === null) {
+        if ($this->primaryIsConfigured && $this->primary !== '') {
+            $notes[] = $this->denominationNote();
+        }
+
+        /*
+         * F4: THE CLAIM IS ABOUT MONEY IN ANOTHER CURRENCY, so it may only be made when some
+         * exists. This fired whenever the total was unstateable, which includes the commonest
+         * case on these screens by far -- no orders in the window at all. A merchant whose quiet
+         * week showed "Not available" was then told "nothing was earned in your store currency
+         * here", which implies trade in some other currency that never happened.
+         *
+         * `$others` and not `total() === null` is the condition, because `$others` IS the money
+         * the sentence is about. With no orders it is empty and the tile says only what the
+         * shared note says.
+         */
+        if ($this->total($dimensionId) === null && $this->others($dimensionId) !== []) {
             $notes[] = __('Nothing was earned in your store currency here, so this row has no comparable total.');
+        }
+
+        if ($this->droppedLines > 0) {
+            $notes[] = $this->droppedLinesNote();
         }
 
         $others = $this->others($dimensionId);
@@ -303,6 +406,103 @@ final class DimensionPeriodRevenue
      *                                   the SELECTION rather than the catalogue
      * @return array<int, float>
      */
+    /**
+     * The per-bucket UNITS series for one dimension.
+     *
+     * NO CURRENCY BRANCHING, because a count of units ordered is not denominated in anything. So
+     * unlike `series()` this folds nothing and withholds nothing -- every bucket's units are the
+     * units, whatever currencies the orders behind them were placed in. `order_product_reports`
+     * draws this beside the money series on one chart.
+     *
+     * @return array<int, int>
+     */
+    public function quantitySeries(int $dimensionId): array
+    {
+        $series = array_fill(0, $this->bucketCount, 0);
+
+        foreach ($this->quantities[$dimensionId] ?? [] as $bucket => $units) {
+            $series[$bucket] = (int) $units;
+        }
+
+        return $series;
+    }
+
+    /**
+     * The units series summed across several dimensions, bucket by bucket.
+     *
+     * ADDS THE PER-DIMENSION SERIES, not the raw buckets -- the same decision `aggregateSeries()`
+     * records, and for the same reason: a dimension that appears twice in `$dimensionIds` must be
+     * counted twice here exactly as it is there, so the two series a chart draws agree about
+     * which dimensions they cover.
+     *
+     * @return array<int, int>
+     */
+    public function aggregateQuantitySeries(array $dimensionIds): array
+    {
+        $total = array_fill(0, $this->bucketCount, 0);
+
+        foreach ($dimensionIds as $id) {
+            foreach ($this->quantitySeries((int) $id) as $bucket => $units) {
+                $total[$bucket] += $units;
+            }
+        }
+
+        return $total;
+    }
+
+    /**
+     * Which currency the figure is counted in, as one sentence.
+     *
+     * P5-R7-A, review area 6. The CSV's money column did not say what it was denominated in, and
+     * the review's suggestion -- a term in the Blade header array -- CANNOT WORK: that array is
+     * rendered as Blade and asserted to parse as JSON by `ReportCsvHeaderLocalisationTest`, which
+     * also pins its column count, so a runtime value cannot live in it. I tried and took four of
+     * its cases red.
+     *
+     * The disclosure belongs in the caveat instead, which both the screen's `:hint` and the
+     * export's caveat column already carry, and which is built HERE -- so one sentence covers the
+     * product, category and brand screens and all three of their files at once, rather than three
+     * header hacks. Only when the store HAS configured a currency: an unconfigured store's code is
+     * a default, and naming a default as if the merchant had chosen it is worse than silence.
+     */
+    private function denominationNote(): string
+    {
+        return __('Amounts are counted in :code.', ['code' => $this->primary]);
+    }
+
+    /** How many in-window order lines were left out, as one sentence. See `$droppedLines`. */
+    private function droppedLinesNote(): string
+    {
+        return __(':count order line(s) in this period are left out because this store does not own the product they name.', [
+            'count' => $this->droppedLines,
+        ]);
+    }
+
+    /** Total units across every bucket of several dimensions. */
+    public function aggregateQuantityTotal(array $dimensionIds): int
+    {
+        return (int) array_sum($this->aggregateQuantitySeries($dimensionIds));
+    }
+
+    /**
+     * Total money across every bucket of several dimensions, or null when none can be stated.
+     *
+     * `> 0 ? : null` IS `total()`'s RULE, COPIED RATHER THAN RE-DERIVED. The first version asked
+     * instead whether the dimensions had ANY buckets, which is a different question and the wrong
+     * one: a store whose every order is in a foreign currency HAS buckets -- they are just all in
+     * currencies this figure may not add -- so it answered `0.00`, a claim that nothing was
+     * ordered, for a store that had traded 90 USD. Found by a test, and fixed by using the
+     * sibling's definition, because ten report arms already depend on that one and a second
+     * rule for the same question is how the arms drifted apart in the first place.
+     */
+    public function aggregateTotal(array $dimensionIds): ?float
+    {
+        $total = round((float) array_sum($this->aggregateSeries($dimensionIds)), 2);
+
+        /* `> 0 ? : null` is `total()`'s rule, and `total()` records why F4 did not change it. */
+        return $total > 0 ? $total : null;
+    }
+
     public function aggregateSeries(array $dimensionIds): array
     {
         $total = array_fill(0, $this->bucketCount, 0.0);
@@ -353,8 +553,20 @@ final class DimensionPeriodRevenue
            addition, the same arithmetic the removed handler loops did. */
         $notes = [ReportFigureNote::orderValueHint()];
 
-        if (round(array_sum($this->aggregateSeries($dimensionIds)), 2) <= 0) {
+        if ($this->primaryIsConfigured && $this->primary !== '') {
+            $notes[] = $this->denominationNote();
+        }
+
+        /* F4: see `caveat()` -- the sentence is about money in another currency and may only be
+           made when some exists. `aggregateOthers()` is computed just below; it is asked here
+           rather than re-deriving "<= 0", which could not tell a quiet period from an
+           unstateable one. */
+        if ($this->aggregateTotal($dimensionIds) === null && $this->aggregateOthers($dimensionIds) !== []) {
             $notes[] = __('Nothing was earned in your store currency here, so this row has no comparable total.');
+        }
+
+        if ($this->droppedLines > 0) {
+            $notes[] = $this->droppedLinesNote();
         }
 
         $others = $this->aggregateOthers($dimensionIds);

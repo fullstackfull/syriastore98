@@ -269,9 +269,28 @@
                                  a session stored before this change still downloads a well-formed
                                  file instead of the word "undefined". --}}
                             var note = (typeof data.figureNote === 'string') ? data.figureNote : '';
+
+                            {{-- P5-R7-A. THE CURRENCY CAVEAT, PREFERRED OVER THE SHARED NOTE, and
+                                 this is the SCREEN'S resolution character for character: the chart
+                                 blade's `:hint` is
+                                 `($figureCaveat ?? '') !== '' ? $figureCaveat : orderValueHint()`,
+                                 and this is that same choice in JavaScript.
+
+                                 ONE COLUMN AND NOT TWO, because the caveat already OPENS with
+                                 `orderValueHint()` -- `DimensionPeriodRevenue::aggregateCaveat()`
+                                 composes it that way, so a second column would print that
+                                 sentence twice in every row. The same decision, for the same
+                                 reason, as the category and brand builders.
+
+                                 A session stored before this change has no `figureCaveat` and
+                                 falls back to the shared note exactly as before, so an open tab
+                                 still downloads a well-formed file rather than "undefined". --}}
+                            var caveat = (typeof data.figureCaveat === 'string') ? data.figureCaveat : '';
+                            var rowNote = caveat !== '' ? caveat : note;
+
                             for (var i = 0; i < data.monthList.length; i++) {
                                 csvContent +=
-                                    `${data.monthList[i]},${data.NetSaleTotal[i]},${data.PurchasedItemTotal[i]},${csvField(note)}\n`;
+                                    `${data.monthList[i]},${data.NetSaleTotal[i]},${data.PurchasedItemTotal[i]},${csvField(rowNote)}\n`;
                             }
 
                             var encodedUri = encodeURI(csvContent);

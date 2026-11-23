@@ -94,6 +94,13 @@
     'valueLabel2' => null,
     'valueDecimals' => 0,
     'valueDecimals2' => 0,
+    /* P5-R7-A. The currency CODE series A is counted in, printed after each of its values and
+       in that column's header. Empty means "say nothing", which is what every caller whose
+       series A is a count of things rather than money passes -- and what a money caller passes
+       when it could not establish a currency at all, because a wrong code is worse than none.
+       Series B deliberately has no equivalent: no caller has two money series, and the one
+       screen with two series pairs money with a unit count. */
+    'valueCurrency' => '',
 ])
 
 @php
@@ -215,6 +222,21 @@
     $ssDecimalsB = max(0, (int) $valueDecimals2);
     $ssFormat = static fn ($v, int $places) => number_format((float) $v, $places);
 
+    /*
+     * P5-R7-A. THE CURRENCY GOES IN SERIES A's COLUMN HEADER, not on each of its cells.
+     *
+     * A money column printed `number_format($v, 2)` and nothing else, so a merchant whose store
+     * has taken more than one currency was handed bare numbers -- with the tile directly above
+     * carrying a symbol, for the same figure, on the same screen.
+     *
+     * The header and not the cells because `<th scope="col">` is announced WITH each cell by
+     * screen readers, so an assistive-technology user hears the unit on every value while a
+     * sighted reader sees it once instead of thirty-one times. Repeating it per cell would be
+     * the noisier half of that trade with no accessibility gain.
+     */
+    $ssCurrency = trim((string) $valueCurrency);
+    $ssValueUnit = $ssCurrency === '' ? '' : ' (' . $ssCurrency . ')';
+
     /* `=== 0` was right while every value was an int and is wrong now: a
        float 0.0 is not identical to int 0, so an exactly-zero money figure
        would have silently lost its baseline marker. */
@@ -288,7 +310,7 @@
                     <thead>
                         <tr>
                             <th scope="col">{{ $ssColumnLabel }}</th>
-                            <th scope="col" class="ss-table__num">{{ $ssValueLabel }}</th>
+                            <th scope="col" class="ss-table__num">{{ $ssValueLabel }}{{ $ssValueUnit }}</th>
                             @if ($ssHasB)
                                 <th scope="col" class="ss-table__num">{{ $ssValueLabelB }}</th>
                             @endif

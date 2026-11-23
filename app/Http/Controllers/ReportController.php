@@ -463,7 +463,20 @@ class ReportController extends Controller
                 return [__('This year') . ' (' . date('Y') . ')', __('Month')];
         }
 
-        $raw = (string) $request->Date;
+        /*
+         * F2 (independent review), THE SECOND HALF. The date-range ARM was guarded first and the
+         * route still answered 500 to `Date[]=x` -- a test proved it -- because this helper is
+         * reached by every report chart handler and did the same bare cast. `(string) $array` is
+         * a PHP 8 warning, which `HandleExceptions` promotes to an `ErrorException`.
+         *
+         * `input()` with a string check, and an array now takes the SAME path as an absent
+         * `Date`: the "Today" label. That is the honest degradation -- a caller who sent no
+         * parseable date gets the default window's label, which is what the arm computes too --
+         * and it is behaviour-preserving for every caller that sends a string, which is every
+         * legitimate one. Shared by six handlers, so all six stop answering 500 to this.
+         */
+        $rawInput = $request->input('Date');
+        $raw = is_string($rawInput) ? $rawInput : '';
 
         if ($raw === '') {
             return [__('Today') . ' (' . date('d M Y') . ')', __('Day')];
@@ -1829,392 +1842,280 @@ class ReportController extends Controller
     }
 
 
+    /**
+     * SALES BY PRODUCT — order value and units per period.
+     *
+     * P5-R7-A REWROTE THE ARITHMETIC OF ALL FIVE PERIOD ARMS. What they did before:
+     *
+     *   - `$totalNetSales += (float) ($product['final_price']);` with no reference to
+     *     `orders.currency_code` anywhere in the handler, so a store that had taken 25 EUR and
+     *     90 USD was shown `115.00` behind one symbol -- not a quantity of either currency.
+     *     `DimensionPeriodRevenue` carries the rule and ANA-TOP's reasoning for it: the store's
+     *     own currency is totalled, unrecorded-currency orders are folded in and disclosed,
+     *     other currencies are LISTED and never added.
+     *   - Looped `Order::where(...)->get()` ONCE PER SELECTED PRODUCT PER DAY. A store with 80
+     *     products over a 31-day month issued 2,480 queries to draw one chart; it is now one
+     *     query per arm plus one scoped product lookup.
+     *   - Read `$request->selectedProducts` straight into the loop. GAP-223(b) put every
+     *     category and brand selection through `reportSelectionWithinCurrentStore()` and this
+     *     handler was not in that change, so naming another tenant's product id in the query
+     *     string counted that product's money into this report. CLAUDE.md's standing rule is
+     *     that a predicate built from caller-supplied input is not a tenant check.
+     *   - Diverged between arms over an EMPTY selection: `this-month`, `last-month` and `year`
+     *     defaulted to the store's own products, while `seven-day` and the date range summed
+     *     EVERY line of every order with no product filter at all -- so the same screen gave
+     *     different totals for overlapping windows depending on which button was pressed. All
+     *     five now resolve the selection once, before the branch.
+     *
+     * THE TWO `selectRaw` CONSTRUCTS ARE GONE, AND THAT IS WHY THIS HANDLER IS NOW TESTABLE.
+     * `last-month` and the date-range arm each carried `DATE(order_date), MONTH(order_date)` in a
+     * `selectRaw`; SQLite implements neither, so under the suite both answered HTTP 500 before any
+     * arithmetic ran -- CLAUDE.md's standing warning about this controller, and the reason two of
+     * its five arms had never been driven by a test. Nothing read `month`, and `DATE` is replaced
+     * by reading `order_date` in PHP, so all five arms are now reachable and all five are driven.
+     */
     public function order_product_reports(Request $request)
     {
         $store_id = getStoreById(OperatorStoreSelection::reportStoreId());
+        $reportStoreId = (int) OperatorStoreSelection::reportStoreId();
+        /*
+         * F6 (independent review). NO SYMBOL AT ALL WHEN NO STORE IS SELECTED.
+         *
+         * `GetValueByName('CURRENCY')` with no store id resolves `getCurrentStore() ?: getRouteStoreId()`,
+         * and `helper.php:873-874` hard-codes the literal 1 for `type == 'super admin'` with an empty
+         * `current_store`. So for a storeless operator `$reportStoreId` is 0 while the symbol would be
+         * STORE 1's -- another merchant's setting, against a figure that is not theirs.
+         *
+         * It is not printed today: `configuredCodeFor(0)` refuses by its own guard, so
+         * `$figureCurrencyIsConfigured` is false and the view takes the `MoneyText::amount()` branch.
+         * But that control is a ternary in a Blade two files away from this value, and anyone
+         * simplifying it back to `$currency . number_format(...)` re-opens the leak. Passing 0 to the
+         * helper does NOT help -- `!empty(0)` is false, so it falls back to `getCurrentStore()` again.
+         */
+        $currency = $reportStoreId === 0 ? '' : Utility::GetValueByName('CURRENCY');
 
-        $currency = Utility::GetValueByName('CURRENCY');
+        /*
+         * ONE SELECTION FOR ALL FIVE ARMS, narrowed to this store before any of them runs.
+         *
+         * `empty()` AND NOT `??`, for the reason P5-3h recorded on the brand handler:
+         * `reportSelectionWithinCurrentStore()` returns its argument UNCHANGED when that argument
+         * is empty, so `''` and `[]` both have to reach the default. When the caller DID name ids
+         * and none of them is ours the guard returns an empty COLLECTION, which `empty()` is
+         * false for -- so the report stays empty rather than silently widening to every product
+         * the store owns. That is the fail-closed direction and it is deliberate.
+         */
+        $selectedProducts = $this->reportSelectionWithinCurrentStore(Product::class, $request->selectedProducts);
+
+        if (empty($selectedProducts)) {
+            $selectedProducts = Product::where('store_id', $reportStoreId)->pluck('id');
+        }
+
+        /* `flatten()` FIRST -- F5 (independent review). A query string can nest arrays
+           (`selectedProducts[][]=5`), and `(int) ['5']` is 1 with NO warning in PHP 8, so a nested
+           value silently became "product id 1". Only the operator can still reach this, because
+           `reportSelectionWithinCurrentStore()` already flattens for every other principal -- and
+           it documents this exact hazard eight lines from where it does so. */
+        $productIds = collect($selectedProducts)
+            ->flatten()
+            ->map(static fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
         if ($request->chart_data == 'last-month') {
-            $selectedProducts = $request->selectedProducts;
+            /* `CalendarPeriod::lastMonth()` and not `Carbon::now()->subMonth()`: GAP-223(a)
+               measured the latter producing 31 labels headed "February" on 31 March. */
+            $period = CalendarPeriod::lastMonth();
+            $bucketCount = (int) $period['days'];
 
-            $NetSaleTotal = array_fill(0, 31, 0);
-            $PurchasedItemTotal = array_fill(0, 31, 0);
-            if (empty($selectedProducts)) {
-                /* `Product::all()->where(...)` loaded EVERY tenant's catalogue into memory and
-                   filtered it in PHP. `Product` is not in `config/tenancy.php`'s `scoped_models`,
-                   so `all()` really is every row in the table; the PHP filter then kept the right
-                   ones, so nothing leaked — but a report on a store with ten products read the
-                   whole platform's product table to find them. The predicate belongs in SQL. */
-                $selectedProducts = Product::where('store_id', OperatorStoreSelection::reportStoreId())->pluck('id');
-            }
-            $PurchasedItem = 0;
-            $Totalsale = 0;
+            $orders = Order::where('store_id', $reportStoreId)
+                ->whereYear('order_date', date('Y', strtotime($period['from'])))
+                ->whereMonth('order_date', date('m', strtotime($period['from'])))
+                ->get();
 
-            if ($selectedProducts) {
-                foreach ($selectedProducts as $productId) {
-                    $totalNetSalesArray = [];
-                    $totalPurchasedItemsArray = [];
+            $revenue = DimensionPeriodRevenue::forOrders(
+                $reportStoreId,
+                DimensionPeriodRevenue::PRODUCT,
+                $orders,
+                $bucketCount,
+                fn ($order) => (int) date('j', strtotime((string) $order->order_date)) - 1
+            );
 
-                    $currentYear = date('Y');
-                    $previousMonth = date('n') - 1;
-                    if ($previousMonth == 0) {
-                        $currentYear -= 1;
-                        $previousMonth = 12;
-                    }
-
-                    $daysInPreviousMonth = cal_days_in_month(CAL_GREGORIAN, $previousMonth, $currentYear);
-
-                    for ($day = 1; $day <= $daysInPreviousMonth; $day++) {
-
-                        $date = "$currentYear-$previousMonth-$day";
-
-                        $startOfDay = date('Y-m-d 00:00:00', strtotime($date));
-                        $endOfDay = date('Y-m-d 23:59:59', strtotime($date));
-
-                        $orders = Order::selectRaw('orders.*, DATE(order_date) as DATE, MONTH(order_date) as month')
-                            
-                            ->where('store_id', OperatorStoreSelection::reportStoreId())
-                            ->where('order_date', '>=', $startOfDay)
-                            ->where('order_date', '<=', $endOfDay)
-                            ->get();
-
-                        $totalPurchasedItems = 0;
-                        $totalNetSales = 0;
-
-                        foreach ($orders as $order) {
-                            $products = json_decode($order->product_json, true);
-                            foreach ($products as $product) {
-                                if ($product['product_id'] == $productId) {
-                                    if (!isset($product['qty']) && isset($product['quantity'])) {
-                                        $product['qty'] = $product['quantity'];
-                                    }
-                                    $totalPurchasedItems += intval($product['qty'] ?? 1);
-                                    $PurchasedItem += intval($product['qty'] ?? 1);
-                                    $totalNetSales += (float) ($product['final_price']);
-                                    $Totalsale += (float) ($product['final_price']);
-                                }
-                            }
-                        }
-
-                        $totalPurchasedItemsArray[] = $totalPurchasedItems;
-                        $totalNetSalesArray[] = $totalNetSales;
-                    }
-
-                    $PurchasedItemTotal = array_map(
-                        function ($a, $b) {
-                            return $a + $b;
-                        },
-                        $PurchasedItemTotal,
-                        $totalPurchasedItemsArray
-                    );
-
-                    $NetSaleTotal = array_map(
-                        function ($a, $b) {
-                            return $a + $b;
-                        },
-                        $NetSaleTotal,
-                        $totalNetSalesArray
-                    );
-                }
-            }
             $monthList = $month = $this->getLastMonthDatesFormatted();
         } elseif ($request->chart_data == 'this-month') {
-            $selectedProducts = $request->input('selectedProducts', []);
+            /* `date('t')` AND NOT `cal_days_in_month()` -- F1 (independent review). The latter
+               needs PHP's `calendar` extension, which `composer.json` does not require and CI's
+               explicit extension list does not install; the official `php:8.3-*` images do not
+               enable it. It was pre-existing and appeared TWICE in this handler (the review called
+               it new, which is wrong -- `git show HEAD` has two), so this removes the dependency
+               from the file rather than introducing one. `date('t')` is the idiom this controller
+               already uses at :638. */
+            $bucketCount = (int) date('t');
 
-            $NetSaleTotal = array_fill(0, 31, 0);
-            $PurchasedItemTotal = array_fill(0, 31, 0);
-            $Totalsale = 0;
-            $PurchasedItem = 0;
-            if (empty($selectedProducts)) {
-                /* Scoped in SQL, not in PHP — see the note at the first of these. */
-                $selectedProducts = Product::where('store_id', OperatorStoreSelection::reportStoreId())->pluck('id');
-            }
-            if (!empty($selectedProducts)) {
-                foreach ($selectedProducts as $productId) {
-                    $currentYear = date('Y');
-                    $currentMonth = date('n');
-                    $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $currentMonth, $currentYear);
+            $orders = Order::where('store_id', $reportStoreId)
+                ->whereYear('order_date', (int) date('Y'))
+                ->whereMonth('order_date', (int) date('n'))
+                ->get();
 
-                    for ($day = 1; $day <= $daysInMonth; $day++) {
-                        $startOfDay = "$currentYear-$currentMonth-" . sprintf('%02d', $day);
-                        $endOfDay = "$currentYear-$currentMonth-" . sprintf('%02d', $day) . ' 23:59:59';
-
-                        $orders = Order::where('store_id', OperatorStoreSelection::reportStoreId())
-                            ->whereBetween('order_date', [$startOfDay, $endOfDay])
-                            ->get();
-
-                        $totalPurchasedItems = 0;
-                        $totalNetSales = 0;
-
-                        foreach ($orders as $order) {
-                            $products = json_decode($order->product_json, true);
-                            foreach ($products as $product) {
-                                if ($product['product_id'] == $productId) {
-                                    if (!isset($product['qty']) && isset($product['quantity'])) {
-                                        $product['qty'] = $product['quantity'];
-                                    }
-                                    $totalPurchasedItems += intval($product['qty'] ?? 1);
-                                    $PurchasedItem += intval($product['qty'] ?? 1);
-                                    $totalNetSales += (float) ($product['final_price']);
-                                    $Totalsale += (float) ($product['final_price']);
-                                }
-                            }
-                        }
-
-                        $PurchasedItemTotal[$day - 1] += $totalPurchasedItems;
-                        $NetSaleTotal[$day - 1] += $totalNetSales;
-                    }
-                }
-            }
+            $revenue = DimensionPeriodRevenue::forOrders(
+                $reportStoreId,
+                DimensionPeriodRevenue::PRODUCT,
+                $orders,
+                $bucketCount,
+                fn ($order) => (int) date('j', strtotime((string) $order->order_date)) - 1
+            );
 
             $monthList = $month = $this->getCurrentMonthDates();
         } elseif ($request->chart_data == 'seven-day') {
-            $selectedProducts = $request->selectedProducts;
-
-            $NetSaleTotal = [];
-            $PurchasedItemTotal = [];
+            $bucketCount = 7;
             $monthList = [];
-            $Totalsale = 0;
-            $PurchasedItem = 0;
-            if ($selectedProducts) {
-                for ($i = 6; $i >= 0; $i--) {
-                    $totalPurchasedItems = 0;
-                    $totalNetSales = 0;
+            $dayKeys = [];
 
-                    $currentDate = date('Y-m-d', strtotime("-$i days"));
-                    $startOfDay = $currentDate . ' 00:00:00';
-                    $endOfDay = $currentDate . ' 23:59:59';
-
-                    $monthList[] = date('d-M', strtotime($currentDate));
-
-                    $orders = Order::whereBetween('order_date', [$startOfDay, $endOfDay])
-                        
-                        ->where('store_id', OperatorStoreSelection::reportStoreId())
-                        ->get();
-
-                    foreach ($orders as $order) {
-                        $products = json_decode($order->product_json, true);
-                        foreach ($products as $product) {
-
-                            if (in_array($product['product_id'], $selectedProducts)) {
-                                if (!isset($product['qty']) && isset($product['quantity'])) {
-                                    $product['qty'] = $product['quantity'];
-                                }
-                                $totalPurchasedItems += intval($product['qty'] ?? 1);
-                                $PurchasedItem += intval($product['qty'] ?? 1);
-                                $totalNetSales += (float) ($product['final_price']);
-                                $Totalsale += (float) ($product['final_price']);
-                            }
-                        }
-                    }
-                    $PurchasedItemTotal[] = $totalPurchasedItems;
-                    $NetSaleTotal[] = $totalNetSales;
-                }
-            } else {
-                $Totalsale = 0;
-                $PurchasedItem = 0;
-                for ($i = 6; $i >= 0; $i--) {
-                    $totalPurchasedItems = 0;
-                    $totalNetSales = 0;
-
-                    $currentDate = date('Y-m-d', strtotime("-$i days"));
-                    $startOfDay = $currentDate . ' 00:00:00';
-                    $endOfDay = $currentDate . ' 23:59:59';
-
-                    $monthList[] = date('d-M', strtotime($currentDate));
-
-                    $orders = Order::whereBetween('order_date', [$startOfDay, $endOfDay])
-                        
-                        ->where('store_id', OperatorStoreSelection::reportStoreId())
-                        ->get();
-
-                    foreach ($orders as $order) {
-                        $products = json_decode($order->product_json, true);
-                        foreach ($products as $product) {
-                            if (!isset($product['qty']) && isset($product['quantity'])) {
-                                $product['qty'] = $product['quantity'];
-                            }
-                            $totalPurchasedItems += intval($product['qty'] ?? 1);
-                            $PurchasedItem += intval($product['qty'] ?? 1);
-                            $totalNetSales += (float) ($product['final_price']);
-                            $Totalsale += (float) ($product['final_price']);
-                        }
-                    }
-                    $PurchasedItemTotal[] = $totalPurchasedItems;
-                    $NetSaleTotal[] = $totalNetSales;
-                }
-            }
-        } elseif ($request->chart_data == 'year') {
-            $selectedProducts = $request->selectedProducts;
-
-            $NetSaleTotal = [];
-            $PurchasedItemTotal = [];
-            if (empty($selectedProducts)) {
-                /* Scoped in SQL, not in PHP — see the note at the first of these. */
-                $selectedProducts = Product::where('store_id', OperatorStoreSelection::reportStoreId())->pluck('id');
-            }
-            $Totalsale = 0;
-            $PurchasedItem = 0;
-            if ($selectedProducts) {
-                foreach ($selectedProducts as $productId) {
-                    $totalNetSalesArray = [];
-                    $totalPurchasedItemsArray = [];
-
-                    for ($i = 1; $i <= 12; $i++) {
-                        $totalPurchasedItems = 0;
-                        $totalNetSales = 0;
-
-                        $startOfMonth = date('Y-m-01', strtotime(date('Y') . '-' . $i . '-01'));
-                        $endOfMonth = date('Y-m-t', strtotime(date('Y') . '-' . $i . '-01'));
-
-                        $orders = Order::where('store_id', OperatorStoreSelection::reportStoreId())
-                            ->where('order_date', '>=', $startOfMonth)
-                            ->where('order_date', '<=', $endOfMonth)
-                            ->get();
-
-                        foreach ($orders as $order) {
-                            $products = json_decode($order->product_json, true);
-                            if (!is_array($products)) {
-                                continue;
-                            }
-                            foreach ($products as $product) {
-                                if (!is_array($product) || !isset($product['product_id'])) {
-                                    continue;
-                                }
-                                if ($product['product_id'] == $productId) {
-                                    if (!isset($product['qty']) && isset($product['quantity'])) {
-                                        $product['qty'] = $product['quantity'];
-                                    }
-                                    $totalPurchasedItems += intval($product['qty'] ?? 1);
-                                    $PurchasedItem += intval($product['qty'] ?? 1);
-                                    $totalNetSales += (float) ($product['final_price']);
-                                    $Totalsale += (float) ($product['final_price']);
-                                }
-                            }
-                        }
-
-                        $totalPurchasedItemsArray[] = $totalPurchasedItems;
-                        $totalNetSalesArray[] = $totalNetSales;
-                    }
-
-                    $PurchasedItemTotal = array_map(
-                        function ($a, $b) {
-                            return $a + $b;
-                        },
-                        $PurchasedItemTotal,
-                        $totalPurchasedItemsArray
-                    );
-
-                    $NetSaleTotal = array_map(
-                        function ($a, $b) {
-                            return $a + $b;
-                        },
-                        $NetSaleTotal,
-                        $totalNetSalesArray
-                    );
-                }
-            }
-            $monthList = $month = $this->yearMonth();
-        } else {
-            $selectedProducts = $request->selectedProducts;
-
-            // Parse date range from request
-            if (str_contains($request->Date, ' to ')) {
-                $date_range = explode(' to ', $request->Date);
-                if (count($date_range) === 2) {
-                    $from_date = date('Y-m-d', strtotime($date_range[0]));
-                    $to_date = date('Y-m-d', strtotime($date_range[1]));
-                } else {
-                    $from_date = date('Y-m-d', strtotime($date_range[0]));
-                    $to_date = date('Y-m-d', strtotime($date_range[0]));
-                }
-            } else {
-                $from_date = date('Y-m-d', strtotime($request->Date));
-                $to_date = date('Y-m-d', strtotime($request->Date));
+            /* Labels run OLDEST FIRST -- index 0 is six days ago -- and the bucket index must run
+               the same way. The brand seven-day arm shipped a chart whose money was one week out
+               of step with its own labels because the two ran in opposite directions; the day key
+               list is what keeps them aligned here rather than arithmetic that can be inverted. */
+            for ($i = 6; $i >= 0; $i--) {
+                $day = date('Y-m-d', strtotime("-$i days"));
+                $dayKeys[$day] = count($dayKeys);
+                $monthList[] = date('d-M', strtotime($day));
             }
 
-            $Totalsale = 0;
-            $PurchasedItem = 0;
-
-            // Fetch orders within the selected date range
-            $orders = Order::selectRaw('orders.*, DATE(order_date) as DATE, MONTH(order_date) as month')
-                ->whereDate('order_date', '>=', $from_date)
-                ->whereDate('order_date', '<=', $to_date)
-                
-                ->where('store_id', OperatorStoreSelection::reportStoreId())
+            $orders = Order::where('store_id', $reportStoreId)
+                ->whereBetween('order_date', [
+                    date('Y-m-d 00:00:00', strtotime('-6 days')),
+                    date('Y-m-d 23:59:59'),
+                ])
                 ->get();
 
-            $netSaleTotalArray = [];
-            $PurchasedItemArray = [];
-            $PurchasedProductItemTotal = 0;
-            $TotalNetSale = 0;
-            $monthList = [];
+            $revenue = DimensionPeriodRevenue::forOrders(
+                $reportStoreId,
+                DimensionPeriodRevenue::PRODUCT,
+                $orders,
+                $bucketCount,
+                fn ($order) => $dayKeys[date('Y-m-d', strtotime((string) $order->order_date))] ?? null
+            );
 
-            // Fill $monthList with all days between $from_date and $to_date
+            $month = $monthList;
+        } elseif ($request->chart_data == 'year') {
+            $bucketCount = 12;
+
+            /* `whereYear` replaces the old pair of string bounds per month. Those were
+               `date('Y-m-01')` and `date('Y-m-t')` -- DATE strings compared against a `dateTime`
+               column with `<=`, so an order placed after 00:00:00 on the last day of any month
+               fell outside its own month. That is the GAP-223(a) boundary shape, and it was live
+               on twelve bounds here. */
+            $orders = Order::where('store_id', $reportStoreId)
+                ->whereYear('order_date', (int) date('Y'))
+                ->get();
+
+            $revenue = DimensionPeriodRevenue::forOrders(
+                $reportStoreId,
+                DimensionPeriodRevenue::PRODUCT,
+                $orders,
+                $bucketCount,
+                fn ($order) => (int) date('n', strtotime((string) $order->order_date)) - 1
+            );
+
+            $monthList = $month = $this->yearMonth();
+        } else {
+            /*
+             * F2 (independent review). THE CAST LOOKED LIKE A GUARD AND WAS NOT ONE.
+             *
+             * `Date[]=x` makes `$request->Date` an ARRAY. `(string) $array` is a PHP 8 warning,
+             * which Laravel's `HandleExceptions` promotes to an `ErrorException` -- so the route
+             * answered 500, authenticated, by a different exception class than the siblings'
+             * `TypeError` but with the same outcome. Reading through `input()` and accepting only
+             * a string is the guard the cast was mistaken for. Deliberately scoped to this arm:
+             * the category and brand arms have the same shape and are not this slice's to change.
+             */
+            $rawDate = $request->input('Date');
+            $rawDate = is_string($rawDate) ? $rawDate : '';
+
+            if (str_contains($rawDate, ' to ')) {
+                $date_range = explode(' to ', $rawDate);
+                $from_date = date('Y-m-d', strtotime($date_range[0]));
+                $to_date = date('Y-m-d', strtotime($date_range[count($date_range) === 2 ? 1 : 0]));
+            } else {
+                $from_date = date('Y-m-d', strtotime($rawDate));
+                $to_date = $from_date;
+            }
+
+            $monthList = [];
+            $dayKeys = [];
+
             $interval = new \DateInterval('P1D');
             $startDate = new \DateTime($from_date);
             $endDate = new \DateTime($to_date);
-            $period = new \DatePeriod($startDate, $interval, $endDate->modify('+1 day')); // Include end date
+            $periodDays = new \DatePeriod($startDate, $interval, $endDate->modify('+1 day'));
 
-            // Initialize monthList with proper day-month format
-            foreach ($period as $date) {
-                $dayInMD = $date->format('j-M'); // Format as '1-Sep', '2-Sep', etc.
-                $dayInYMD = $date->format('Y-m-d'); // Keep 'Y-m-d' for data access
-                $monthList[$dayInYMD] = $dayInMD; // Store both formats
-                $netSaleTotalArray[$dayInYMD] = 0; // Initialize net sale total for each date
-                $PurchasedItemArray[$dayInYMD] = 0; // Initialize purchased item count for each date
+            foreach ($periodDays as $date) {
+                $dayKeys[$date->format('Y-m-d')] = count($dayKeys);
+                $monthList[] = strtolower($date->format('j-M'));
             }
 
-            foreach ($orders as $order) {
-                $dayInYMD = date('Y-m-d', strtotime($order->DATE)); // Get the order date in Y-m-d format
+            $bucketCount = max(1, count($dayKeys));
 
-                $products = json_decode($order->product_json, true);
-                foreach ($products as $product) {
-                    if (!$selectedProducts || in_array($product['product_id'], $selectedProducts)) {
-                        if (!isset($product['qty']) && isset($product['quantity'])) {
-                            $product['qty'] = $product['quantity'];
-                        }
-                        $totalProductQuantity = intval($product['qty'] ?? 1);
-                        $PurchasedItemArray[$dayInYMD] += $totalProductQuantity; // Update purchased item count
-                        $PurchasedProductItemTotal += $totalProductQuantity; // Update total purchased item count
-                        $TotalNetSale += (float) $product['final_price']; // Update total net sale
-                        $netSaleTotalArray[$dayInYMD] += (float) $product['final_price']; // Update net sale for the date
-                        $Totalsale += (float) $product['final_price']; // Update grand total sale
-                    }
-                }
-            }
+            /* `whereDate` on both ends, so the last day of the range includes its own afternoon --
+               the same boundary the year arm above was losing. */
+            $orders = Order::where('store_id', $reportStoreId)
+                ->whereDate('order_date', '>=', $from_date)
+                ->whereDate('order_date', '<=', $to_date)
+                ->get();
 
-            // Prepare data for charts
-            $NetSaleTotal = [];
-            $PurchasedItemTotal = [];
+            $revenue = DimensionPeriodRevenue::forOrders(
+                $reportStoreId,
+                DimensionPeriodRevenue::PRODUCT,
+                $orders,
+                $bucketCount,
+                fn ($order) => $dayKeys[date('Y-m-d', strtotime((string) $order->order_date))] ?? null
+            );
 
-            // Use monthList for x-axis labels
-            foreach ($monthList as $dayInYMD => $dayInMD) {
-                $NetSaleTotal[] = $netSaleTotalArray[$dayInYMD] ?? 0; // Use Y-m-d for data access
-                $PurchasedItemTotal[] = $PurchasedItemArray[$dayInYMD] ?? 0; // Use Y-m-d for data access
-            }
-            $monthListConvert = [];
-            foreach ($period as $date) {
-                // Format the date as "d-M"
-                $formattedDate = $date->format('j-M'); // 'j' for day without leading zeros, 'M' for short month name
-                $monthListConvert[] = strtolower($formattedDate); // Convert to lowercase
-            }
-            $monthList=$monthListConvert;
-
+            $month = $monthList;
         }
-        $html = '';
+
+        /*
+         * THE FIGURES ARE DERIVED IN EXACTLY ONE PLACE, which is what stops the five arms drifting
+         * apart again -- every defect above existed in some arms and not others.
+         */
+        $NetSaleTotal = $revenue->aggregateSeries($productIds);
+        $PurchasedItemTotal = $revenue->aggregateQuantitySeries($productIds);
+        $Totalsale = $revenue->aggregateTotal($productIds);
+        $PurchasedItem = $revenue->aggregateQuantityTotal($productIds);
+
+        $figureCaveat = $revenue->aggregateCaveat($productIds);
+        $figureCurrency = $revenue->primaryCurrency();
+        $figureCurrencyIsConfigured = $revenue->primaryCurrencyIsConfigured();
+
         [$periodLabel] = $this->chartPeriodLabels($request);
-        /* The SERIES go into the view as well, so the chart can ship a real table instead of
-           an ApexCharts container with nothing behind it. They were already being returned to
-           the browser in the JSON below; the view simply never saw them. */
-        $html = view('reports.order_product_chart', compact('currency', 'Totalsale', 'PurchasedItem', 'periodLabel')
-            + ['labels' => $monthList ?? [], 'netSeries' => $NetSaleTotal ?? [], 'itemSeries' => $PurchasedItemTotal ?? []])->render();
+
+        $html = view('reports.order_product_chart', compact(
+            'currency',
+            'Totalsale',
+            'PurchasedItem',
+            'periodLabel',
+            'figureCaveat',
+            'figureCurrency',
+            'figureCurrencyIsConfigured'
+        ) + [
+            'labels' => $monthList ?? [],
+            'netSeries' => $NetSaleTotal ?? [],
+            'itemSeries' => $PurchasedItemTotal ?? [],
+        ])->render();
 
         $return['html'] = $html;
 
         $return['NetSaleTotal'] = $NetSaleTotal;
         $return['PurchasedItemTotal'] = $PurchasedItemTotal;
         $return['monthList'] = $monthList;
+
+        /* The export replays the session, so the disclosure has to be IN the session -- otherwise
+           the spreadsheet a merchant downloads is less honest than the page it came from. */
+        $return['figureCaveat'] = $figureCaveat;
+        $return['figureCurrency'] = $figureCurrency;
+        $return['figureCurrencyIsConfigured'] = $figureCurrencyIsConfigured;
+
         Session::put('product_order_report', $return);
 
         return response()->json($return);
@@ -2242,6 +2143,24 @@ class ReportController extends Controller
          * caveat here and why no payment-status wording was invented.
          */
         $return['figureNote'] = ReportFigureNote::orderValueHint();
+
+        /*
+         * P5-R7-A. THE CURRENCY DISCLOSURE TOO, and it is a different caveat from the note above.
+         *
+         * `figureNote` says what KIND of figure this is (order value, not payments received, held
+         * at limited precision). It says nothing about WHICH CURRENCY the column is counted in,
+         * or that money in other currencies exists and was deliberately left out of it -- and
+         * this screen's series now excludes foreign-currency orders rather than adding them, so
+         * a file without that sentence understates the store's trade without saying so.
+         *
+         * Replayed from the session the screen wrote, like every other value here, so the file
+         * and the page cannot disagree: `figureCaveat` is the string the screen's own `:hint`
+         * rendered.
+         */
+        $return['figureCaveat'] = $requests_data['figureCaveat'] ?? '';
+        $return['figureCurrency'] = $requests_data['figureCurrency'] ?? '';
+        $return['figureCurrencyIsConfigured'] = $requests_data['figureCurrencyIsConfigured'] ?? true;
+
         return response()->json($return);
     }
 
