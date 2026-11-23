@@ -574,7 +574,20 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            [1, 1] is below: its UNSCOPED half is 1 and that is the honest reading, because the
            table HAS NO `store_id` to carry a predicate on -- `created_by` is its discriminator.
            `packages` does not move: no vendored file is edited. */
-        $this->assertSame(['app' => 198, 'packages' => 45], $perDir,
+        /* 198 -> 200 [2026-11-23, GAP-156]: TWO new sites in one new first-party file,
+           `App\Support\Customers\CustomerMoneyFigures`, and BOTH carry a `store_id` predicate --
+           the per-table `orders` row below moves 8 -> 10 with its UNSCOPED half unchanged at 1,
+           which is the reading that matters. `hasDirectOrders()` is an `exists()` on
+           `orders.store_id` + `orders.customer_id`; `guestOrderIds()` plucks ids with
+           `orders.store_id` + `orders.customer_id = 0` and an `order_billing_details` e-mail match
+           as a narrowing `whereIn`.
+           They are raw rather than Eloquent on purpose. `Order` is absent from `scoped_models`, so
+           an Eloquent read would add NO predicate and would merely look safer; and these two choose
+           WHICH attribution limb applies, so they run per customer on a list -- a model hydration
+           per row to answer a boolean is cost for nothing. The predicate is written at the call
+           site, which the docblock above states is the only remedy at such a site.
+           `packages` does not move: no vendored file is edited. */
+        $this->assertSame(['app' => 200, 'packages' => 45], $perDir,
             'The raw query-builder entry-point count moved. Every one of these is invisible to '
             . 'every Eloquent global scope, so a NEW site needs an explicit `store_id` predicate '
             . 'written at the call site -- there is no other remedy. A REMOVED one probably means '
@@ -690,7 +703,9 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
         /* 239 -> 243 [P1-SEC-69 b and c]: the four sites recorded in the per-directory note above. */
         /* 243 -> 242 [P1-SEC-69 c after review]: the one site removed in the note above. */
         /* 242 -> 243 [2026-11-22, P1-SEC-86]: CampaignsCostOwnershipGuard, per the note above. */
-        $this->assertSame(243, array_sum($perDir));
+        /* 243 -> 245 [2026-11-23, GAP-156]: the two `CustomerMoneyFigures` sites, per the note
+           above the per-directory assertion. Both carry a `store_id` predicate. */
+        $this->assertSame(245, array_sum($perDir));
     }
 
     /**
@@ -847,7 +862,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
             // `order_coupon_details`, which HAS NO `store_id` column (measured; `CouponRedemption` records
             // it), so that side cannot carry a predicate and the rows are reachable only through the
             // scoped order -- stated here because this inventory exists to make exactly that visible.
-            'orders' => [8, 1],
+            // 8 -> 10 [GAP-156]: `CustomerMoneyFigures::hasDirectOrders()` and `::guestOrderIds()`.
+            // The UNSCOPED half does not move -- both write `orders.store_id` at the call site --
+            // and that is the column this row exists to ratchet.
+            'orders' => [10, 1],
             'owner_menu_items' => [1, 1],
             'owner_menu_settings' => [1, 1],
             'owner_menus' => [1, 1],
@@ -1107,7 +1125,10 @@ class RawQueryTenancyInventoryTest extends SecurityTestCase
            that is the honest reading rather than an escape: the table has no `store_id` column for
            a statement to carry. See its row above for why the control is the comparison that
            follows the count. */
-        $this->assertSame(191, array_sum(array_map(fn ($r) => $r[0], $actual)),
+        // 191 -> 193 [GAP-156]: the same two `orders` sites as the row above. This total counts
+        // sites reached by a LITERAL table name, so it moves with them; the unscoped total below
+        // does not, which is the pair of numbers worth reading together.
+        $this->assertSame(193, array_sum(array_map(fn ($r) => $r[0], $actual)),
             'THE FIGURES INSIDE THIS MESSAGE ARE THE 2026-11-02 MEASUREMENT AND ARE NOT RATCHETED; '
             . 'the current totals are the ones ASSERTED above and in the dated notes beside them. '
             . 'That split is itself one of this file\'s findings, recorded rather than tidied away '

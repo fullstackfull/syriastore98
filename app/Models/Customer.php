@@ -345,6 +345,24 @@ class Customer extends Authenticatable implements CanResetPasswordContract
             'AOV' => 'AOV',
             'No. of Orders' => 'No. of Orders',
             'Total Spend' => 'Total Spend',
+            /*
+             * GAP-156. THE TWO LEDGER FIELDS, offered BESIDE `Total Spend` and never instead of
+             * it. `Total Spend` sums `orders.final_price` with no payment predicate; these two
+             * come from the financial record and are defined in
+             * PHASE-05-METRIC-DEFINITIONS.md §15. Three fields rather than one repointed field is
+             * the deliberate choice: repointing would have changed which customers an existing
+             * saved segment returns without anyone being able to see that it had.
+             *
+             * The keys match `CustomerListFilter::LEDGER_FIELDS` EXACTLY. They are compared with
+             * `in_array(..., true)`, so a difference of one character would send the field down
+             * the text branch and silently match nothing -- which is how the `Last active` /
+             * `Last Active` mismatch (P2.5-R-03) went unnoticed.
+             * `CustomerMoneySurfacesTest::test_the_dropdown_offers_exactly_the_field_names_the_filter_compares`
+             * pins the two lists together, and its sibling pins that the screen can actually
+             * produce an operator for each -- which the first version of this change could not.
+             */
+            'Payments Collected' => 'Payments Collected',
+            'Net Retained' => 'Net Retained',
         ];
         return $fields;
     }

@@ -575,3 +575,65 @@ read and not leaking between customers; and `customer_id <= 0` refused.
 **Not built, and not inferred:** customer lifetime value, VIP or segment eligibility, churn, and
 any refund policy. Each is a business choice this document does not hold, and §11's rule applies —
 the quantities are supplied and the choice is left to whoever is entitled to make it.
+
+### 15.1 A third boundary, found by a test that failed for the right reason
+
+The two figures read two different tables, so there are **two** ways the record can fail to answer
+and only one of them is `orders_without_ledger_row`:
+
+- **The financial record cannot see the order.** Counted per customer; fires
+  `ENTITLEMENT_RECORD_INCOMPLETE`; applies to BOTH figures, because both cover the same order set.
+- **The financial record says money was collected and the wallet holds no movement against it.**
+  `syncFromOrder()`'s early return blocks a late-collection wallet credit (AUD-3), so this is a
+  live divergence rather than a theoretical one. Left alone it renders as *collected 125.00,
+  retained 0.00* — which reads as "every penny was refunded", a claim about that shopper that
+  nothing in the data supports. The retained figure is therefore **withheld**, not zeroed.
+
+**Counted by ROWS, never by the amount, and the two cases are opposite.** A retained figure of 0.00
+reached by one credit and one equal debit is a real, fully-refunded zero and must be shown; a 0.00
+reached by there being no movement to read is an absence. Only `rowCount()` separates them.
+
+### 15.2 What a merchant may filter on, and what an absence means there
+
+Both figures are offered as customer-list filter fields (`Payments Collected`, `Net Retained`)
+**beside** `Total Spend`, never instead of it. Repointing `Total Spend` would have changed which
+customers an existing saved segment returns with nothing on screen to say so, and an absence from a
+list is the hardest thing in a product to notice.
+
+A filter needs a scalar where a tile can refuse, so the comparison distinguishes three states —
+`CustomerMoneyFigures::filterValue()`:
+
+| state | value | why |
+|---|---|---|
+| no orders attributed at all | `0.0` | nothing to collect and nothing unknown; belongs in "less than" |
+| orders, all covered | the sum (may be `0.0`) | a customer who has genuinely paid nothing is a real zero |
+| orders the record cannot see, or the wallet divergence above | `null` | unknown; excluded from **both** directions, since including it either way asserts a figure nobody has |
+
+`applyNumeric` skips a null for every operator, so the naive implementation — `comparable()`, which
+answers null for any empty ledger — would have dropped exactly the customers a re-engagement
+segment is looking for. **The filter refuses precisely what the tile refuses**, so the list can
+never select on a number it declines to print.
+
+**Surfaces.** Customer timeline, merchant customer list and its filter, and the admin API's
+`ledger` block on `customerlist` and `/customer/orders`. All four go through
+`CustomerMoneyFigures`, so display and selection cannot drift. `Total Spend` / the API's
+`total_spend` keep their shipped values and now carry a caveat saying they are order value and not
+money received.
+
+**One attribution question is left open, deliberately.** The two admin API endpoints attribute
+`orders`/`total_spend`/`aov` by `customer_id` alone, while `Customer::ownStoreOrders()` — which
+these ledger figures follow, so that a figure and the `Total Spend` beside it cover one order set —
+falls back to matching unattributed orders on the billing e-mail for a customer who has none of
+their own. So those endpoints can report `orders: 0` beside a non-zero collected figure. Which rule
+is right is a product question, not a correctness one; the payload states `attribution` rather than
+a guess being made.
+
+**Verification test.** `CustomerMoneySurfacesTest` — the tiles in the customer's own currency and
+not the viewer's; the two figures differing on a refund; an unpaid order as a real zero; an
+uncovered order withheld with its count; two currencies listed and never added; a storeless
+customer refused; the wallet divergence withheld and its fully-refunded opposite shown; the filter
+selecting on the printed figure, keeping a never-paid customer in "less than", excluding an unknown
+one both ways, refusing the divergence case, never crossing tenants, and leaving `Total Spend`'s
+selection unchanged; the dropdown's field names matching the filter's exactly; and the API carrying
+both figures with their notes, keeping `total_spend` unchanged, sending `null` rather than 0.00 for
+an unreadable figure, listing no other tenant's customer, and refusing another tenant's store.

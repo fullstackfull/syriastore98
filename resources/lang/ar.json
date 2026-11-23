@@ -4495,5 +4495,18 @@
     "The last attempt failed: the file could not be built or sent.": "فشلت المحاولة الأخيرة: تعذّر إنشاء الملف أو إرساله.",
     "Skipped: the store this was scheduled for no longer exists.": "تم التخطي: المتجر الذي جُدول له هذا التقرير لم يعد موجودًا.",
     "Skipped: the person who scheduled it can no longer receive it. Their account is gone, has no e-mail address, or may no longer read reports.": "تم التخطي: الشخص الذي جدول التقرير لم يعد قادرًا على استلامه. إما أن حسابه لم يعد موجودًا، أو لا يملك بريدًا إلكترونيًا، أو لم يعد مسموحًا له بقراءة التقارير.",
-    "The start of the period was moved to today, because there is nothing recorded after today.": "تم نقل بداية الفترة إلى اليوم، لأنه لا يوجد أي شيء مُسجَّل بعد اليوم."
+    "The start of the period was moved to today, because there is nothing recorded after today.": "تم نقل بداية الفترة إلى اليوم، لأنه لا يوجد أي شيء مُسجَّل بعد اليوم.",
+    "From the financial record": "من السجل المالي",
+    "Net retained after refunds": "الصافي المحتفظ به بعد المبالغ المعادة",
+    "Order Value": "قيمة الطلبات",
+    "Payments Collected": "المدفوعات المحصّلة",
+    "Net Retained": "الصافي المحتفظ به",
+    "This figure could not be read.": "تعذّرت قراءة هذا الرقم.",
+    "This customer is not attached to a store, so no financial record can be read for them.": "هذا الزبون غير مرتبط بأي متجر، لذلك لا يمكن قراءة أي سجل مالي له.",
+    "Money this customer actually handed over, from the financial record. Includes payments that were later cancelled or refunded, so it is a history of collection and not a balance.": "المبالغ التي دفعها هذا الزبون فعلياً، بحسب السجل المالي. تشمل مدفوعات أُلغيت أو أُعيدت لاحقاً، فهي سجل تحصيل وليست رصيداً.",
+    "What is left after completed refunds and reversals are taken off. This is the smaller of the two figures whenever anything was given back.": "ما تبقّى بعد خصم المبالغ المعادة وعمليات العكس المكتملة. وهو الأصغر بين الرقمين كلما أُعيد شيء.",
+    "The value of this customer's orders, before any payment is considered. Cancelled, refunded and unpaid orders are all counted in full, so this is not money received.": "قيمة طلبات هذا الزبون، قبل أخذ أي دفعة بالحسبان. الطلبات الملغاة والمعادة وغير المدفوعة محسوبة بالكامل، فهذا ليس مالاً مقبوضاً.",
+    "This customer has no orders recorded against their account. The figure comes from guest orders billed to their email address.": "لا توجد طلبات مسجّلة على حساب هذا الزبون. الرقم مأخوذ من طلبات زوّار صادرة فواتيرها على بريده الإلكتروني.",
+    "Payments are recorded for this customer but the wallet holds no matching movement, so what was kept after refunds cannot be worked out. The two records disagree and neither is silently preferred here.": "توجد مدفوعات مسجّلة لهذا الزبون لكن المحفظة لا تحتوي أي حركة مقابلة، لذلك لا يمكن حساب ما تبقّى بعد المبالغ المعادة. السجلّان غير متطابقين ولا يُفضَّل أحدهما ضمنياً هنا.",
+    "Orders of this customer with no financial record: :count. The financial record is not backfilled, so orders placed before it began cannot be read and no figure can be given.": "طلبات هذا الزبون التي لا سجل مالي لها: :count. السجل المالي لا يُملأ بأثر رجعي، لذلك لا يمكن قراءة الطلبات السابقة لبدئه ولا يمكن إعطاء رقم."
 }

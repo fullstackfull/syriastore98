@@ -203,6 +203,65 @@ class CustomerTimelinePresentationTest extends TestCase
         }
     }
 
+    /**
+     * The view with its `{{-- --}}` comments removed.
+     *
+     * CLAUDE.md's rule, and it is load-bearing for the two tests below rather than ceremony: the
+     * comment explaining WHY `getCurrentStore()` is wrong here contains the literal
+     * `getCurrentStore()`, so a bare search of the source would find the prose and pass against a
+     * view that still called it. The same trap has been hit four times in this repository in one
+     * day, in three syntaxes.
+     */
+    private function viewWithoutComments(): string
+    {
+        return preg_replace('/\{\{--.*?--\}\}/s', '', $this->viewSource());
+    }
+
+    public function test_the_spend_figure_is_formatted_for_the_customers_own_store(): void
+    {
+        /*
+         * GAP-156. The controller derives `$timelineStoreId` from `$customer->store_id` and
+         * documents at length why `getCurrentStore()` is the wrong tenant here -- this route
+         * admits the platform operator to ANY store's customer, and `getCurrentStore()` answers
+         * the literal 1 for an operator with no current store. The SUM obeyed that; the
+         * FORMATTING did not, so a store-7 shopper's spend was printed with store 1's currency
+         * symbol and separators. A right number in the wrong currency does not invite doubt,
+         * which is what makes it the worse of the two failures.
+         */
+        $source = $this->viewWithoutComments();
+
+        $this->assertStringContainsString(
+            "currency_format_with_sym((\$totalSpend['total_spend'] ?? 0), \$timelineStoreId > 0 ? \$timelineStoreId : null)",
+            $source,
+            'The spend figure must be formatted for the store the figure was summed from.');
+
+        $this->assertStringNotContainsString('getCurrentStore()', $source,
+            'No value on this screen may be resolved against the VIEWER store: the operator is '
+            . "deliberately admitted to any store's customer here.");
+    }
+
+    public function test_the_screen_carries_the_two_ledger_figures_and_caveats_the_order_value(): void
+    {
+        $source = $this->viewWithoutComments();
+
+        foreach ([
+            "\$customerMoney['collected']['value']",
+            "\$customerMoney['retained']['value']",
+            "\$customerMoney['collected']['hint']",
+            "\$customerMoney['retained']['hint']",
+            "\$customerMoney['spend_hint']",
+        ] as $expression) {
+            $this->assertStringContainsString($expression, $source,
+                "The timeline must render {$expression}.");
+        }
+
+        /* SEPARATE GROUPS, not four cards in one. `Total Spend` is order value and these two are
+           money; a single group reads as four views of one quantity, which is the blurring the
+           owner's instruction forbids by name. */
+        $this->assertSame(2, substr_count($source, '<x-ss.stats'),
+            'The order-value figures and the ledger figures must stay in separate groups.');
+    }
+
     private function viewSource(): string
     {
         return $this->read(self::VIEW);

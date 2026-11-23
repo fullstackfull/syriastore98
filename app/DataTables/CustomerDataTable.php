@@ -89,8 +89,39 @@ class CustomerDataTable extends DataTable
                 }
                 return null;
             })
+            /*
+             * GAP-156. UNCHANGED IN VALUE, and that is deliberate. This sums `orders.final_price`
+             * with no payment predicate -- cancelled, refunded and never-paid orders all count in
+             * full -- and owner Option A makes that permanent rather than fixable here, because
+             * `orders.payment_status` is the customer's settlement record and a cancellation does
+             * not rewrite it. It is an ORDER-VALUE figure. The column title now says so, and the
+             * two money columns beside it answer the question this one was being read as.
+             */
             ->editColumn('total_spend', function (Customer $customer) {
                 return $customer ? ($customer->total_spend() ?? 0) : 0; // Ensure $customer is not null
+            })
+            /*
+             * GAP-156. THE TWO LEDGER FIGURES, from PHASE-05-METRIC-DEFINITIONS.md §15.
+             *
+             * RESOLVED PER ROW AND MEMOISED, which is a compromise this file cannot avoid: a
+             * yajra row callback is handed one model and never sees the page it belongs to, so
+             * the bulk path `CustomerMoneyFigures::forCustomers()` -- which the FILTER does use,
+             * because it holds the whole collection -- is unreachable here. The memo is what keeps
+             * it to ONE resolve per row rather than one per column: without it these two columns
+             * would each resolve the same customer AND rebuild the same tiles, the way the
+             * shipped `aov` column already calls `total_spend()` and `Ordercount()` a second and
+             * third time.
+             *
+             * `null` RENDERS AS "Not available", NEVER AS 0.00. `store_order_financials` is not
+             * backfilled, so a long-standing shopper whose orders predate it has no record to
+             * read; printing 0.00 for that customer would state, in a column a merchant sorts and
+             * segments on, that they have never paid.
+             */
+            ->addColumn('collected', function (Customer $customer) {
+                return $this->moneyCell($customer, 'collected');
+            })
+            ->addColumn('retained', function (Customer $customer) {
+                return $this->moneyCell($customer, 'retained');
             })
             ->editColumn('aov', function (Customer $customer) {
                 if ($customer && $customer->total_spend() && $customer->Ordercount()) {
@@ -176,6 +207,70 @@ class CustomerDataTable extends DataTable
     }
 
     /**
+     * One customer's resolved ledger figures, computed at most once per request per customer.
+     *
+     * KEYED BY STORE AND CUSTOMER, because the operator's list can span stores and a bare
+     * customer id is not unique across them. `CustomerMoneyFigures` scopes every query to the
+     * customer's OWN store, so two customers that happened to share an id would otherwise be
+     * served each other's money out of this memo.
+     *
+     * PER INSTANCE, NOT static. A DataTable object is built once per request, so an instance
+     * property is scoped to exactly the page being rendered. A `static` would outlive the request
+     * under a resident worker and outlive the TEST under PHPUnit -- and this codebase has already
+     * paid for cross-request figure staleness: 79 of 95 models are `Cachable`, and CLAUDE.md
+     * records three measured false readings from a value that survived the write that should have
+     * invalidated it. A money column serving a previous page's customer is the same failure with
+     * a worse blast radius.
+     *
+     * @var array<string, array{collected: array{value: ?string, period: string, hint: string}, retained: array{value: ?string, period: string, hint: string}, spend_hint: string, attribution: string}>
+     */
+    private array $moneyMemo = [];
+
+    /**
+     * One money cell, formatted in the CUSTOMER's own store currency.
+     *
+     * NOT `getCurrentStore()`. The same fabrication the customer timeline was committing until
+     * GAP-156: the amount comes from the customer's store and formatting it with the viewer's
+     * would print a correct number against the wrong currency, which reads as true and is not.
+     */
+    private function moneyCell(?Customer $customer, string $which): string
+    {
+        if (! $customer) {
+            return '';
+        }
+
+        $storeId = (int) ($customer->store_id ?? 0);
+        $memoKey = $storeId . ':' . (int) $customer->id;
+
+        /* THE TILES, NOT THE FIGURES. The first version memoised only the resolved figures and
+           rebuilt the tiles per cell, so `CustomerMoneyTiles::storeCurrency()` issued its
+           `Setting` query TWICE per row -- the review measured it. Both columns of a row now cost
+           one resolve and one build between them. */
+        if (! array_key_exists($memoKey, $this->moneyMemo)) {
+            $this->moneyMemo[$memoKey] = \App\Support\Customers\CustomerMoneyTiles::fromFigures(
+                \App\Support\Customers\CustomerMoneyFigures::forCustomer($customer),
+                $storeId,
+            );
+        }
+
+        $tiles = $this->moneyMemo[$memoKey];
+
+        /*
+         * NOT `e()`, AND THAT IS THE CORRECTION rather than the omission. The first version
+         * escaped here as well, which the review measured as a DOUBLE escape: yajra ships
+         * `'escape' => '*'` (vendor config; this app publishes no override) and
+         * `DataProcessor::escapeColumns()` escapes every column not named in `rawColumns()` --
+         * these two deliberately are not. A merchant whose currency symbol contains `&` would
+         * have seen `&amp;amp;`.
+         *
+         * Leaving them OUT of `rawColumns()` is the safer half of the choice: escaping is then on
+         * by default and cannot be lost by someone forgetting an `e()` in a later edit of this
+         * method. `first_name` above needs its own `e()` precisely because it IS in that list.
+         */
+        return $tiles[$which]['value'] ?? __('Not available');
+    }
+
+    /**
      * Optional method if you want to use the html builder.
      */
         public function html(): HtmlBuilder
@@ -194,7 +289,12 @@ class CustomerDataTable extends DataTable
             'last_active' => ['title' => __('Last Active')],
             'regiester_date' => ['title' => __('Date Registered')],
             'orders' => ['title' => __('Orders'), 'orderable' => false, 'searchable' => false],
-            'total_spend' => ['title' => __('Total Spend'), 'orderable' => false, 'searchable' => false, 'addClass' => 'ss-dt-num'],
+            /* GAP-156. RETITLED, not re-valued: the number is the same one this column has always
+               shown, and the title now says which question it answers. "Total Spend" read as money
+               received; it is the value of the orders placed, before payment is considered. */
+            'total_spend' => ['title' => __('Order Value'), 'orderable' => false, 'searchable' => false, 'addClass' => 'ss-dt-num'],
+            'collected' => ['title' => __('Payments Collected'), 'orderable' => false, 'searchable' => false, 'addClass' => 'ss-dt-num'],
+            'retained' => ['title' => __('Net Retained'), 'orderable' => false, 'searchable' => false, 'addClass' => 'ss-dt-num'],
             'aov' => ['title' => __('AOV'), 'orderable' => false, 'searchable' => false, 'addClass' => 'ss-dt-num'],
             'status' => ['title' => __('Status'), 'exportable' => false, 'printable' => false, 'width' => 60],
         ]);

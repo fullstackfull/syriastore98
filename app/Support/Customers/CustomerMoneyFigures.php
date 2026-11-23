@@ -206,6 +206,123 @@ final class CustomerMoneyFigures
     }
 
     /**
+     * Money was collected, and the wallet recorded no movement at all against it.
+     *
+     * `rowCount()`, NOT the amount. A retained figure of 0.00 reached by one credit and one equal
+     * debit is a real, fully-refunded zero and must be shown; a 0.00 reached by there being no
+     * movement to read is an absence. Only the row count tells those apart, and they are opposite
+     * facts about the same customer.
+     *
+     * @param  array{collected: MetricResult, retained: MetricResult, attribution: string}  $figures
+     */
+    public static function walletSawNothing(array $figures): bool
+    {
+        return $figures['collected']->rowCount() > 0
+            && $figures['retained']->rowCount() === 0;
+    }
+
+    /**
+     * Orders of this customer the financial record cannot see, or null when the figure was not
+     * built in a way that could tell.
+     *
+     * READ OFF THE COLLECTED RESULT AND TRUE OF BOTH. Only `collected` carries this count --
+     * `netRetained` aggregates a different table whose own gap answers a different question. But
+     * the two figures cover the SAME ORDER SET, so an order with no financial record is equally
+     * unreadable to both, and a retained figure that printed a confident 0.00 beside a collected
+     * one that had just refused would be the worse half of the same mistake.
+     *
+     * @param  array{collected: MetricResult, retained: MetricResult, attribution: string}  $figures
+     */
+    public static function uncoveredOrders(array $figures): ?int
+    {
+        $notes = $figures['collected']->notes();
+
+        return array_key_exists('orders_without_ledger_row', $notes)
+            ? (int) $notes['orders_without_ledger_row']
+            : null;
+    }
+
+    /**
+     * THE SCALAR A NUMERIC FILTER COMPARES, which is a different question from the one
+     * `comparable()` answers and the difference decides which customers a merchant sees.
+     *
+     * `comparable()` returns null for an empty ledger, full stop. For DISPLAY that is right: a
+     * tile with nothing behind it should say so. For a FILTER it is not, because
+     * `CustomerListFilter::applyNumeric` skips a null for EVERY operator -- so "less than 100"
+     * would silently drop every customer who has paid nothing, and a merchant building a
+     * re-engagement segment would get a list with the people they were looking for missing from
+     * it. An absence is the easiest thing in a list to not notice.
+     *
+     * BUT ZERO IS NOT ALWAYS THE ANSWER EITHER, and conflating the two is the under-report §15
+     * exists to prevent. Three states, not two:
+     *
+     *   NO ORDERS AT ALL              -> 0.0. There is nothing to collect and nothing unknown
+     *                                   about it. This customer genuinely belongs in "less than
+     *                                   100".
+     *   ORDERS, ALL OF THEM COVERED   -> the sum, which may legitimately be 0.0 when every order
+     *                                   is unpaid. Also a real zero.
+     *   ORDERS THE RECORD CANNOT SEE  -> null. Not zero: unknown. Excluded from every comparison,
+     *                                   in both directions, because including them in either would
+     *                                   be asserting a figure nobody has.
+     *
+     * Mixed currency is null for the reason `comparable()` gives: there is no single number to
+     * compare, and inventing one by addition would invent a rate.
+     *
+     * @param  array{collected: MetricResult, retained: MetricResult, attribution: string}  $figures
+     * @param  'collected'|'retained'  $which
+     */
+    public static function filterValue(array $figures, string $which): ?float
+    {
+        $attribution = (string) ($figures['attribution'] ?? 'none');
+
+        if ($attribution === 'unresolvable') {
+            return null;
+        }
+
+        if ($attribution === 'none') {
+            /*
+             * EQUIVALENT TODAY, AND KEPT DELIBERATELY. No order is attributed to this customer by
+             * either limb, so both figures are a genuine nothing rather than an unread one -- and
+             * the fall-through below reaches the same 0.0, because `emptyResult()` sets
+             * `orders_without_ledger_row` to 0 and the currency map is empty. A mutation deleting
+             * this branch therefore survives, and it is recorded here rather than chased with a
+             * fixture that cannot exist.
+             *
+             * It stays because it is the branch that makes the answer true BY STATEMENT rather
+             * than by three coincidences holding at once. If `emptyResult()` ever stopped setting
+             * that note, the fall-through would return null and every customer who has never
+             * ordered would silently vanish from "less than" -- an absence, in a list, which is
+             * the hardest kind of defect to see.
+             */
+            return 0.0;
+        }
+
+        $uncovered = self::uncoveredOrders($figures);
+
+        if ($uncovered === null || $uncovered > 0) {
+            return null;
+        }
+
+        /*
+         * THE SAME REFUSAL THE TILE MAKES, FOR THE SAME REASON, and it has to be here too or the
+         * list would SELECT on a number it refuses to PRINT. That is the precise failure this
+         * whole resolver exists to prevent -- a segment built from a rule the screen does not
+         * state -- and it would have been introduced by the fix for it.
+         */
+        if ($which === 'retained' && self::walletSawNothing($figures)) {
+            return null;
+        }
+
+        $byCurrency = $figures[$which]->byCurrency();
+
+        if (count($byCurrency) > 1) {
+            return null;
+        }
+
+        return $byCurrency === [] ? 0.0 : (float) reset($byCurrency);
+    }
+
+    /**
      * DELIBERATELY WINDOW-INDEPENDENT. Which limb attributes a customer must not change as a
      * merchant drags the date range: a shopper with one direct order last year would otherwise
      * flip to the e-mail limb for a "last 7 days" view and be credited with somebody else's guest

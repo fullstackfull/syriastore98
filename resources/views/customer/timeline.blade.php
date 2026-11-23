@@ -51,10 +51,28 @@
              supported route; notification/index.blade.php is the shipped precedent. --}}
         <div class="col-xl-12">
             <x-ss.stats :label="__('Customer totals')">
+                {{-- GAP-156. `getCurrentStore()` WAS THE WRONG STORE AND THE CONTROLLER SAYS SO
+                     TEN LINES ABOVE WHERE THIS VALUE IS BUILT. `customerTimeline()` admits the
+                     platform operator to ANY store's customer and derives `$timelineStoreId` from
+                     `$customer->store_id` precisely because `getCurrentStore()` answers the
+                     literal 1 for an operator with no current store. The SUM obeyed that; the
+                     FORMATTING did not -- so a store-7 shopper's spend was printed with store 1's
+                     currency symbol and separators. The amount was right and the currency was a
+                     fabrication, which is the worse of the two failures: a wrong number invites
+                     doubt, a right number in the wrong currency does not.
+
+                     AND THE HINT IS NOT DECORATION. This figure sums `orders.final_price` with no
+                     payment predicate -- cancelled, refunded and never-paid orders all count in
+                     full. Owner Option A makes that permanent rather than fixable here:
+                     `orders.payment_status` is the customer's settlement record and a cancellation
+                     deliberately does not rewrite it, so no predicate on `orders` could turn this
+                     into money. The two tiles beside it are the money question; this one is the
+                     order-value question, and it now says which it is. --}}
                 <x-ss.stat
                     :label="__('Total Spend')"
-                    :value="currency_format_with_sym(($totalSpend['total_spend'] ?? 0), getCurrentStore())"
-                    :period="__('all time')" />
+                    :value="currency_format_with_sym(($totalSpend['total_spend'] ?? 0), $timelineStoreId > 0 ? $timelineStoreId : null)"
+                    :period="__('all time')"
+                    :hint="$customerMoney['spend_hint']" />
                 <x-ss.stat
                     :label="__('Total Orders')"
                     :value="$totalSpend['total_orders'] ?? 0"
@@ -71,6 +89,36 @@
                          Caught by grepping the route files before testing, not by the renderer. --}}
                     :href="route('customer.show', $customer_data->id)"
                     :hint="__('Opens this customer\'s orders')" />
+            </x-ss.stats>
+        </div>
+
+        {{-- GAP-156 / PHASE-05-METRIC-DEFINITIONS.md §15. THE TWO FIGURES THAT ARE NOT ONE FIGURE.
+
+             A SEPARATE GROUP, not two more cards in "Customer totals", because these answer a
+             different question from the two above and the owner's instruction is explicit that the
+             difference must never be blurred: "Historical collected payments include amounts
+             collected before a later cancellation/refund. Net retained receipts exclude the
+             relevant completed reversals. These are different metrics. Never silently label either
+             one as the other." Two cards in one group reads as two views of one quantity.
+
+             BOTH COME FROM THE FINANCIAL LEDGER, never from `orders.final_price`, and both are
+             scoped to the customer's OWN store by `CustomerMoneyFigures`. A `value` of null renders
+             as "Not available" and never as 0.00 -- which is the failure mode worth guarding here,
+             because `store_order_financials` is not backfilled, so a long-standing shopper whose
+             orders predate it would otherwise read as having paid nothing. The hint says how many
+             of their orders the record cannot see. --}}
+        <div class="col-xl-12">
+            <x-ss.stats :label="__('From the financial record')">
+                <x-ss.stat
+                    :label="__('Payments collected')"
+                    :value="$customerMoney['collected']['value']"
+                    :period="$customerMoney['collected']['period']"
+                    :hint="$customerMoney['collected']['hint']" />
+                <x-ss.stat
+                    :label="__('Net retained after refunds')"
+                    :value="$customerMoney['retained']['value']"
+                    :period="$customerMoney['retained']['period']"
+                    :hint="$customerMoney['retained']['hint']" />
             </x-ss.stats>
         </div>
 

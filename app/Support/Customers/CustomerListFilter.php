@@ -104,10 +104,21 @@ use Illuminate\Database\Eloquent\Builder;
 final class CustomerListFilter
 {
     /**
-     * The three fields whose operators are numeric, and which therefore have to be evaluated in
+     * GAP-156. THE TWO LEDGER FIELDS, which a merchant can now segment on.
+     *
+     * `Total Spend` stays exactly as it is and keeps selecting exactly the customers it always
+     * did. THAT IS DELIBERATE AND IT IS THE WHOLE REASON THESE ARE SEPARATE FIELDS. Repointing
+     * `Total Spend` at the ledger would have changed, silently, which customers a live saved
+     * segment returns -- and a merchant cannot see an absence. Adding fields changes nothing that
+     * exists and lets the two questions be asked apart, which is what they are.
+     */
+    public const LEDGER_FIELDS = ['Payments Collected', 'Net Retained'];
+
+    /**
+     * The fields whose operators are numeric, and which therefore have to be evaluated in
      * PHP because their figures come from methods rather than columns.
      */
-    public const NUMERIC_FIELDS = ['AOV', 'No. of Orders', 'Total Spend'];
+    public const NUMERIC_FIELDS = ['AOV', 'No. of Orders', 'Total Spend', ...self::LEDGER_FIELDS];
 
     /**
      * Both spellings of the last-active field. `Customer::customer_field()` offers the option value
@@ -263,12 +274,39 @@ final class CustomerListFilter
         $threshold = $field === 'No. of Orders' ? (int) $value : (float) $value;
 
         $matched = [];
+        $customers = $query->get();
 
-        foreach ($query->get() as $customer) {
-            $figure = self::figureFor($customer, $field);
+        /*
+         * GAP-156. THE LEDGER FIELDS RESOLVE IN BULK, and this is the one place in the product
+         * where that is both possible and necessary.
+         *
+         * Possible, because this method already holds the WHOLE filtered collection -- it has to,
+         * since these figures come from methods rather than columns and cannot be expressed as
+         * SQL. Necessary, because the alternative is `forCustomer()` per row over an unbounded
+         * set: a store with 5,000 customers would issue four queries each. `forCustomers()` still
+         * costs one `exists()` per customer to choose the attribution limb -- so it is N + a
+         * handful, NOT a flat constant, and the first version of this comment overstated it. What
+         * it does remove is the per-customer AGGREGATION: the two money reads and the coverage
+         * count become one grouped query each per store, which is where the cost actually was.
+         *
+         * The display column cannot do this -- a DataTable row callback never sees its own page --
+         * and that asymmetry is exactly why both go through `CustomerMoneyFigures`. Two code paths
+         * for performance reasons, ONE definition of the figure, so the list cannot select on a
+         * number different from the one it prints.
+         */
+        $ledger = in_array($field, self::LEDGER_FIELDS, true)
+            ? CustomerMoneyFigures::forCustomers($customers)
+            : [];
+
+        foreach ($customers as $customer) {
+            $figure = self::figureFor($customer, $field, $ledger);
 
             // AOV returns null for a customer with no orders: no orders means no average, not an
-            // average of zero. Preserved from the original, pinned by test.
+            // average of zero. Preserved from the original, pinned by test. A LEDGER field returns
+            // null for a different reason -- orders the financial record cannot see -- and the
+            // same skip is right for it: an unknown figure must not be compared in EITHER
+            // direction. `CustomerMoneyFigures::filterValue()` carries that distinction and the
+            // reason it is not simply zero.
             if ($figure === null) {
                 continue;
             }
@@ -289,8 +327,16 @@ final class CustomerListFilter
      * decimals, which is what makes an `Equal` comparison meaningful at all, so it is load-bearing
      * rather than incidental formatting.
      */
-    private static function figureFor($customer, string $field): int|float|null
+    private static function figureFor($customer, string $field, array $ledger = []): int|float|null
     {
+        if ($field === 'Payments Collected') {
+            return self::ledgerFigure($ledger, (int) $customer->id, 'collected');
+        }
+
+        if ($field === 'Net Retained') {
+            return self::ledgerFigure($ledger, (int) $customer->id, 'retained');
+        }
+
         if ($field === 'No. of Orders') {
             return $customer->Ordercount();
         }
@@ -308,6 +354,23 @@ final class CustomerListFilter
         }
 
         return (float) str_replace(',', '', number_format($spend / $orders, 2));
+    }
+
+    /**
+     * One customer's ledger figure out of the bulk-resolved set, or null when it has none.
+     *
+     * A MISSING ENTRY IS null, NOT ZERO, and the distinction is not theoretical: if the resolver
+     * ever returns a shorter map than the collection it was handed, treating the gap as 0.0 would
+     * quietly select every absent customer into "less than" and quietly drop them from "more
+     * than". A figure nobody computed is not a figure of zero.
+     */
+    private static function ledgerFigure(array $ledger, int $customerId, string $which): ?float
+    {
+        $figures = $ledger[$customerId] ?? null;
+
+        return $figures === null
+            ? null
+            : CustomerMoneyFigures::filterValue($figures, $which);
     }
 
     /**

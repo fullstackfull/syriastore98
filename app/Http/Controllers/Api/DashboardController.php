@@ -6540,6 +6540,74 @@ public function changeProfile(Request $request)
     }
 
 
+/**
+ * GAP-156. THE TWO CUSTOMER LEDGER FIGURES AS THE ADMIN APP RECEIVES THEM.
+ *
+ * PHASE-05-METRIC-DEFINITIONS.md §15 defines both. They are deliberately NOT one number and
+ * never collapsed into one here: collected is the history of money handed over, including
+ * amounts later cancelled or refunded; retained is what is left after completed reversals.
+ *
+ * A NEW KEY RATHER THAN A REPOINTED ONE. `total_spend` and `orders` keep their shipped meaning
+ * and their shipped values. The alternative -- quietly changing what `total_spend` returns --
+ * would have altered a figure already on merchants' phones with nothing in the payload to say
+ * it had changed, which is the mislabelling this whole slice exists to stop.
+ *
+ * ONE DIVERGENCE IS LEFT OPEN AND IS FLAGGED IN THE PAYLOAD RATHER THAN DECIDED HERE. This
+ * endpoint's `orders`/`total_spend`/`aov` attribute orders by `customer_id` ALONE, while the
+ * web's `Customer::ownStoreOrders()` -- which these ledger figures follow, so that the figure
+ * and the `Total Spend` beside it cover one order set -- falls back to matching unattributed
+ * orders on the billing e-mail for a customer who has none of their own. So for such a customer
+ * this endpoint can report `orders: 0` beside a non-zero collected figure. That is a real
+ * product question (which rule is right), not a correctness one, so `attribution` states which
+ * rule produced the figure instead of a guess being made on the owner's behalf.
+ *
+ * NOT AN AUTHORIZATION BOUNDARY. The caller's right to see this customer is established before
+ * this is reached -- `resolveOwnedStore()` on the named store, and a customer query scoped to
+ * it. This formats figures for a customer already cleared; it clears nobody.
+ *
+ * @param  null|array{collected: \App\Support\Metrics\MetricResult, retained: \App\Support\Metrics\MetricResult, attribution: string}  $figures
+ * @return array<string, mixed>
+ */
+private static function customerLedgerPayload(?array $figures, int $storeId): array
+{
+    if ($figures === null) {
+        /* The resolver returned no entry for this customer. Not zero -- unknown. Saying
+           "available: false" is the only honest answer, and the app must not print 0.00. */
+        return [
+            'available' => false,
+            'payments_collected' => null,
+            'net_retained' => null,
+            // THE SAME KEY SET AS THE POPULATED BRANCH. The first version omitted `period`, so a
+            // client written against one shape met the other. The branch is unreachable from
+            // either call site today -- `forCustomers()` writes an entry for every id it is given
+            // and `forCustomer()` never returns null -- which is exactly why a divergence in it
+            // would go unnoticed until the day it stops being unreachable.
+            'period' => __('all time'),
+            'attribution' => 'unresolvable',
+            'payments_collected_note' => __('This figure could not be read.'),
+            'net_retained_note' => __('This figure could not be read.'),
+            'order_value_note' => \App\Support\Customers\CustomerMoneyTiles::spendHint(),
+        ];
+    }
+
+    $tiles = \App\Support\Customers\CustomerMoneyTiles::fromFigures($figures, $storeId);
+
+    return [
+        // `false` whenever EITHER figure had to be withheld -- a client showing one and hiding
+        // the other would invite the two to be read as a pair when only half is known.
+        'available' => $tiles['collected']['value'] !== null && $tiles['retained']['value'] !== null,
+        'payments_collected' => $tiles['collected']['value'],
+        'net_retained' => $tiles['retained']['value'],
+        'period' => $tiles['collected']['period'],
+        'attribution' => $tiles['attribution'],
+        'payments_collected_note' => $tiles['collected']['hint'],
+        'net_retained_note' => $tiles['retained']['hint'],
+        // So the app can caveat the `total_spend` key it already shows, without having to know
+        // why that figure is not money.
+        'order_value_note' => $tiles['spend_hint'],
+    ];
+}
+
 public function CustomerList(Request $request)
 {
     try {
@@ -6584,7 +6652,22 @@ public function CustomerList(Request $request)
         $customers = $query->orderBy('created_at', 'desc')
             ->paginate($request->per_page ?? 10);
 
-        $customersData = $customers->map(function ($customer) use ($storeId) {
+        /*
+         * GAP-156. THE TWO LEDGER FIGURES FOR THE WHOLE PAGE IN ONE GROUPED QUERY, resolved
+         * before the map rather than inside it. `CustomerMoneyFigures::forCustomers()` exists for
+         * exactly this shape; the merchant customer LIST cannot use it, because a DataTable row
+         * callback never sees its own page, and that is the only reason these two surfaces
+         * resolve differently. The DEFINITION is the same object in both, so the figures cannot
+         * drift.
+         *
+         * `$customers` is already scoped to `$storeId`, which `resolveOwnedStore()` above has
+         * authorised. `CustomerMoneyFigures` scopes again, to each customer's OWN `store_id`;
+         * that is not redundant belt-and-braces but the rule the class states -- the viewer's
+         * store is never the tenant it reads.
+         */
+        $ledgerFigures = \App\Support\Customers\CustomerMoneyFigures::forCustomers($customers);
+
+        $customersData = $customers->map(function ($customer) use ($storeId, $ledgerFigures) {
             $ordersCount = \App\Models\Order::where('customer_id', $customer->id)
                 ->where('store_id', $storeId)
                 ->count();
@@ -6640,8 +6723,36 @@ public function CustomerList(Request $request)
                     ? \Carbon\Carbon::parse($customer->regiester_date)->format('F d, Y')
                     : null,
                 'orders' => $ordersCount,
+                /*
+                 * GAP-156. `total_spend` IS UNCHANGED, DELIBERATELY, AND IT IS NOT A MONEY
+                 * FIGURE. It sums `orders.final_price` with no payment predicate: cancelled,
+                 * refunded and never-paid orders all count in full. The shipped Flutter app reads
+                 * this key and labels it as spend, so repointing it at the ledger would change,
+                 * silently, a number already on merchants' screens -- the exact mislabelling the
+                 * owner's instruction forbids, committed from the other direction. The two keys
+                 * below are the money question, each named for what it is.
+                 */
                 'total_spend' => number_format($totalSpend, 2),
                 'aov' => number_format($aov, 2),
+                /*
+                 * `$customer->store_id`, NOT `$storeId`, AND THE DIFFERENCE IS UNOBSERVABLE HERE
+                 * -- recorded as such rather than chased. The query above is
+                 * `Customer::where('store_id', $storeId)`, so every row's own store IS the named
+                 * one and a mutation swapping them survives. No fixture can separate the two
+                 * without breaking the scoping that
+                 * `test_the_list_never_carries_another_tenants_customer` pins, so the two
+                 * properties are entailed rather than independently testable.
+                 *
+                 * It reads the customer's own store anyway, because that is the rule
+                 * `CustomerMoneyFigures` states and this value labels a CURRENCY: if the list
+                 * query is ever widened, the figures would still be read per customer while the
+                 * label silently followed the request. A correct amount under the wrong currency
+                 * is the failure this slice exists to fix.
+                 */
+                'ledger' => self::customerLedgerPayload(
+                    $ledgerFigures[(int) $customer->id] ?? null,
+                    (int) ($customer->store_id ?? $storeId),
+                ),
                 'status' => (int) ($customer->status ?? 1),
                 'status_text' => ($customer->status ?? 1) == 1 ? 'Active' : 'Inactive',
                 'address' => $address,
@@ -9064,8 +9175,14 @@ public function getCustomerOrdersApi(Request $request)
                     'default_address' => $addressData,
 
                     'orders' => (int) $ordersCount,
+                    /* GAP-156. Unchanged and still an ORDER-VALUE figure -- see CustomerList()
+                       for why this key is not repointed at the financial record. */
                     'total_spend' => currency_format_with_sym((float) $totalSpend, $storeId) ?? SetNumberFormat((float) $totalSpend),
                     'aov' => currency_format_with_sym((float) $aov, $storeId) ?? SetNumberFormat((float) $aov),
+                    'ledger' => self::customerLedgerPayload(
+                        \App\Support\Customers\CustomerMoneyFigures::forCustomer($customer),
+                        (int) ($customer->store_id ?? $storeId),
+                    ),
                 ],
                 'orders' => $ordersData->toArray(),
                 'pagination' => [

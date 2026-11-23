@@ -390,7 +390,23 @@ class StatHintIsVisibleTest extends TestCase
         // included stores. Its PERIOD differs from the two tiles beside it on purpose: Orders and
         // Buyers use the recent window, this one uses the ledger's intersection.
         // The file count stays at ten because this file already carried three hints.
-        $this->assertCount(30, $hits,
+        // 30 -> 33 [GAP-156]: `customer/timeline.blade.php` gains THREE, and it is the first file
+        // on this list where a hint had to be added to a figure that was ALREADY THERE. `Total
+        // Spend` sums `orders.final_price` with no payment predicate -- cancelled, refunded and
+        // never-paid orders each in full -- and owner Option A makes that permanent rather than
+        // fixable, because `orders.payment_status` is the customer's settlement record and a
+        // cancellation must not rewrite it. So the figure stays and the hint says what it is: order
+        // value, not money received. The other two are the new ledger tiles beside it, `Payments
+        // collected` and `Net retained after refunds`, whose hints carry §15's two coverage
+        // boundaries -- orders the financial record cannot see, and payments the wallet recorded no
+        // movement against.
+        //
+        // THE FILE COUNT STAYS AT TEN, and the first draft of this note said it moved to eleven --
+        // the assertion below refused it, which is the ratchet doing its job on the person
+        // updating it. `customer/timeline.blade.php` was ALREADY on the list: its Total Orders
+        // tile has carried `Opens this customer's orders` since P2.5. Three hints were added to a
+        // file that had one, not to a file that had none.
+        $this->assertCount(33, $hits,
             "x-ss.stat hint count moved. Found:\n  " . implode("\n  ", $hits));
 
         $this->assertCount(10, array_unique($hits),
