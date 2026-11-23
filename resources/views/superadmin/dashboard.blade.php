@@ -28,7 +28,13 @@
             <div class="row g-4 mb-4">
                 <x-dashboard-card :count="$platformTotals['stores']" :label="__('Total Store')" :icon="$total_user_icon"
                     :url="route('stores.index')" columnClass="col-xl-4 col-md-6 col-12" />
-                <x-dashboard-card :count="$platformTotals['orders']" :label="__('Total Orders')" :icon="$total_order_icon"
+                {{-- `PlanOrder::total_orders()` is a bare row count of the SaaS SUBSCRIPTION table, and this
+                     card links to `plan.index`, not to any customer order screen. On an operator
+                     dashboard "Total Orders" reads as the customer orders placed across the platform,
+                     which this is not -- and no money counterpart can ever be built for it, because
+                     `store_order_financials.order_id` is a foreign key to the CUSTOMER `orders` table,
+                     so a `plan_orders` row can never have a ledger row. --}}
+                <x-dashboard-card :count="$platformTotals['orders']" :label="__('Total Plan Orders')" :icon="$total_order_icon"
                     :url="route('plan.index')" columnClass="col-xl-4 col-md-6 col-12" />
                 <x-dashboard-card :count="$platformTotals['plans']" :label="__('Total Plans')" :icon="$total_plan_icon"
                     :url="route('plan.index')" columnClass="col-xl-4 col-md-6 col-12" />

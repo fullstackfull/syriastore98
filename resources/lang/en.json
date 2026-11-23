@@ -4520,5 +4520,7 @@
     "Nothing was earned in your store currency here, so this row has no comparable total.": "Nothing was earned in your store currency here, so this row has no comparable total.",
     "Also earned in another currency, which is not added in and not converted: :amounts.": "Also earned in another currency, which is not added in and not converted: :amounts.",
     "Includes :amount from orders that carry no currency, counted in your store currency.": "Includes :amount from orders that carry no currency, counted in your store currency.",
-    "By order value": "By order value"
+    "By order value": "By order value",
+    "Total Plan Orders": "Total Plan Orders",
+    "Orders that were later cancelled or returned are counted here.": "Orders that were later cancelled or returned are counted here."
 }

@@ -4516,5 +4516,7 @@
     "Nothing was earned in your store currency here, so this row has no comparable total.": "لم يُكتسب شيء بعملة متجرك هنا، لذلك لا يوجد إجمالي قابل للمقارنة لهذا السطر.",
     "Also earned in another currency, which is not added in and not converted: :amounts.": "هناك أيضاً مبالغ بعملة أخرى، غير مُضافة إلى الإجمالي وغير مُحوَّلة: :amounts.",
     "Includes :amount from orders that carry no currency, counted in your store currency.": "يشمل :amount من طلبات لا تحمل أي عملة، محسوبة بعملة متجرك.",
-    "By order value": "حسب قيمة الطلبات"
+    "By order value": "حسب قيمة الطلبات",
+    "Total Plan Orders": "إجمالي طلبات الاشتراك",
+    "Orders that were later cancelled or returned are counted here.": "الطلبات التي أُلغيت أو أُرجعت لاحقاً محتسبة هنا."
 }

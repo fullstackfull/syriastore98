@@ -129,7 +129,7 @@ class OperatorDashboardWithoutAStoreTest extends SecurityTestCase
 
         $body = (string) $response->getContent();
 
-        foreach ([__('Total Store') => $expected['stores'], __('Total Orders') => $expected['orders'], __('Total Plans') => $expected['plans']] as $label => $count) {
+        foreach ([__('Total Store') => $expected['stores'], __('Total Plan Orders') => $expected['orders'], __('Total Plans') => $expected['plans']] as $label => $count) {
             $this->assertMatchesRegularExpression(
                 '/' . preg_quote($label, '/') . '<\/h2>\s*<h3[^>]*>\s*' . $count . '\s*<\/h3>/u',
                 $body,
@@ -230,5 +230,37 @@ class OperatorDashboardWithoutAStoreTest extends SecurityTestCase
 
         $this->assertSame('stylique', APP_THEME());
         $this->assertAuthenticated('web');
+    }
+
+    /**
+     * P5-R7 ITEM 2 -- THE CARD COUNTS SAAS SUBSCRIPTION ORDERS, NOT CUSTOMER ORDERS.
+     *
+     * `PlanOrder::total_orders()` is `PlanOrder::count()` over `plan_orders`, and the card links to
+     * `plan.index`. On an operator dashboard, beside "Total Store", a card reading "Total Orders"
+     * is read as the customer orders placed across the platform. It is not that figure and cannot
+     * be made into one: `store_order_financials.order_id` is a foreign key to the CUSTOMER `orders`
+     * table, so a `plan_orders` row can never have a ledger row and no money counterpart can be
+     * built for this card at all.
+     *
+     * The bare label is asserted ABSENT as well, because relabelling only works if the old wording
+     * is gone -- the sibling cards are "Total Store", "Total Plans", "Total Plan Request", and a
+     * stray "Total Orders" anywhere on this screen re-creates the confusion.
+     */
+    public function test_the_operator_plan_order_card_does_not_claim_to_count_customer_orders(): void
+    {
+        $operator = $this->makePlatformAdmin(['current_store' => null]);
+
+        $body = (string) $this->actingAs($operator->fresh())->get('/dashboard')->getContent();
+
+        $this->assertStringContainsString(__('Total Plan Orders'), $body,
+            'the operator dashboard does not name the plan-order card, so a count of SaaS '
+            . 'subscription rows is presented under some other meaning');
+
+        $this->assertDoesNotMatchRegularExpression(
+            '/>\s*' . preg_quote(__('Total Orders'), '/') . '\s*</u',
+            $body,
+            'a card on the operator dashboard still reads "Total Orders", which an operator reads '
+            . 'as customer orders across the platform -- a figure this screen does not show'
+        );
     }
 }
