@@ -849,4 +849,316 @@ class SessionHygieneTest extends SecurityTestCase
                 "An MFA dispatch ({$needle}) appears before the session regeneration.");
         }
     }
+
+    /**
+     * SEC-SESS PART A -- THE SECOND ARMING PATH FOR THE SAME STANDING AUTHORISATION.
+     *
+     * `test_invoking_the_otp_verify_rotates_the_session_before_writing_the_flags` closed the
+     * FIXATION path: an attacker who planted the pre-OTP id cannot replay it, because the id
+     * rotates before the flags are written. Its own message states the underlying problem --
+     * "the three flags are, on their own, a standing authorisation to change this customer's
+     * password; the reset handler reads nothing else, not even `password_otp`."
+     *
+     * THAT STATEMENT IS STILL TRUE AFTER THE ROTATION, and this is the path it leaves open. The
+     * flags carry no binding to the session they were earned in, so they survive a CHANGE OF
+     * PRINCIPAL on the same cookie and remain spendable by whoever holds it next. Measured in
+     * vendor source, and it is the opposite of what the obvious reading suggests:
+     * `Store::migrate()` (`vendor/.../Session/Store.php:606-617`) destroys the old storage record
+     * and takes a new id but NEVER touches `$this->attributes`, and `flush()` (`:570-573`) is the
+     * only thing in the class that clears data. So `regenerate()` AND `regenerate(true)` both
+     * CARRY THE FLAGS ACROSS -- only `invalidate()` would drop them, and
+     * `test_the_logout_rotates_the_session_and_is_gated_on_having_had_one` forbids that here --
+     * a repo-wide grep for the name a first draft cited found exactly ONE hit: the citation
+     * itself. The real constraint is that one cookie holds `login_web_*` and `login_customers_*`
+     * at once.
+     *
+     * STILL LATENT IN PRODUCTION, and the fix is pre-emptive on purpose. The only writer of the
+     * flags is gated on `Hash::check` against the INTEGER `customers.password_otp`, which is
+     * P01-SEC-13; the prepared migration in `database/migrations/_sec13_pending/` widens it. So
+     * applying SEC-13 arms THIS path as well as the one already closed, and the dependency is
+     * recorded in that directory's README. This test drives it today for the same reason its
+     * sibling can: SQLite's type affinity, stated out loud there and relied on here.
+     *
+     * THE ASSERTION IS THE VICTIM'S PASSWORD HASH, not a redirect. A refusal that redirected but
+     * still wrote would pass a status assertion, and the hash is the only thing an attacker wants.
+     * Read through `withoutGlobalScopes()` because `Customer` is tenant-scoped and a plain
+     * `find()` answers against whichever tenant happens to be resolved (CLAUDE.md).
+     */
+    public function test_the_otp_flags_do_not_survive_a_change_of_principal_on_the_same_cookie(): void
+    {
+        [$store, $customer] = $this->shopper();
+
+        $hashBefore = Customer::withoutGlobalScopes()->find($customer->id)->password;
+        $this->assertNotEmpty($hashBefore, 'PREMISE: the victim has no password hash to protect.');
+
+        $session = $this->bindRequest(
+            '/' . $store->slug . '/reset-password/otp',
+            'POST',
+            ['password' => 'Str0ng-New-Pass-9', 'password_confirmation' => 'Str0ng-New-Pass-9']
+        );
+
+        // The state a completed OTP verification leaves behind, written exactly as
+        // `verifyPasswordOtp` writes it -- INCLUDING THE BINDING, which is the point. A first
+        // draft planted only the three flags, so the refusal came from the binding being ABSENT
+        // and `hash_equals` was never reached: a mutation that deleted the comparison survived.
+        // Planting a binding that is VALID NOW makes the rotation below the only thing that can
+        // invalidate it, so the comparison is the mechanism under test.
+        $session->put([
+            'password_otp_verified' => true,
+            'password_otp_verified_customer_id' => $customer->id,
+            'password_otp_verified_store_id' => $store->id,
+            'password_otp_verified_session_id' => $session->getId(),
+        ]);
+
+        /*
+         * THE CHANGE OF PRINCIPAL, in the one form every door shares. A customer login reaches
+         * `SessionGuard::updateSession()` -> `migrate(true)`; the customer logout calls
+         * `regenerate(true)` (CustomerLoginController.php:901); a merchant login calls
+         * `regenerate()` (AuthenticatedSessionController.php:77). All three rotate the id and all
+         * three keep the attributes, so rotating here is the shared essence of the transition
+         * rather than a stand-in for one of them.
+         */
+        $session->regenerate(true);
+
+        $this->assertTrue($session->get('password_otp_verified') === true,
+            'PREMISE: the flags did not survive the rotation, so there is nothing to spend and '
+            . 'this test would pass vacuously. If this fires, the vendor behaviour measured in '
+            . 'the docblock has changed and the whole finding needs re-measuring.');
+
+        $response = (new \App\Http\Controllers\Customer\Auth\CustomerLoginController)
+            ->resetPasswordWithOtp($this->app['request'], $store->slug);
+
+        $this->assertSame(
+            $hashBefore,
+            Customer::withoutGlobalScopes()->find($customer->id)->password,
+            "The victim's password was rewritten by a request whose session had changed principal "
+            . 'since the OTP was verified. The three flags are an authorisation with no binding '
+            . 'to the session that earned them, so whoever holds the cookie next can spend them.'
+        );
+
+        /* AND THAT THE REFUSAL IS THE OTP GATE'S, not some other early return. "The hash did not
+           change" is also satisfied by `Customer not found` or a store mismatch, so on its own it
+           would pass for the wrong reason -- review found this. The gate redirects to
+           `customer.password.request`; nothing else on this path does. */
+        $this->assertStringContainsString(
+            'password',
+            (string) $response->getTargetUrl(),
+            'The handler did not redirect to the password-request route, so the principal change case was '
+            . 'refused by a DIFFERENT early return and this test is not measuring the binding.'
+        );
+    }
+
+    /**
+     * THE ORACLE, AND IT IS THE MOST IMPORTANT CASE IN THIS SLICE. A binding that refuses a
+     * changed principal is worthless if it also refuses the real customer: that would break
+     * password recovery for everyone, which is worse than the latent defect it closes.
+     *
+     * So the legitimate sequence is driven END TO END through the two handlers -- verify, then
+     * reset -- with NO rotation in between, and the password must actually change. The claim
+     * "the legitimate flow rotates nothing between verify and the reset POST" is the premise the
+     * whole fix rests on, and it is asserted here rather than read off the source.
+     */
+    public function test_the_legitimate_otp_reset_still_changes_the_password(): void
+    {
+        [$store, $customer] = $this->shopper();
+
+        $customer->password_otp = Hash::make('123456');
+        $customer->password_otp_datetime = now();
+        $customer->save();
+
+        $this->assertTrue(Hash::check('123456', $customer->fresh()->password_otp),
+            'PREMISE: the OTP hash did not round-trip, so the verify path is unreachable and this '
+            . 'oracle proves nothing. Expected on MySQL (P01-SEC-13); under SQLite it means the '
+            . 'column changed.');
+
+        $hashBefore = Customer::withoutGlobalScopes()->find($customer->id)->password;
+
+        // STEP 1 -- verify.
+        $session = $this->bindRequest(
+            '/' . $store->slug . '/forgot-password/otp/verify', 'POST', ['otp' => '123456']
+        );
+        $session->put([
+            'password_otp_customer_id' => $customer->id,
+            'password_otp_store_id' => $store->id,
+            'password_otp_store_slug' => $store->slug,
+        ]);
+
+        (new \App\Http\Controllers\Customer\Auth\CustomerLoginController)
+            ->verifyPasswordOtp($this->app['request'], $store->slug);
+
+        $this->assertTrue($session->get('password_otp_verified') === true,
+            'PREMISE: verification did not succeed, so the reset below is not the legitimate flow.');
+
+        $boundId = $session->get('password_otp_verified_session_id');
+        $this->assertSame($session->getId(), $boundId,
+            'The binding does not match the session it was written in, so the legitimate flow '
+            . 'could never spend it. The binding must be taken AFTER the rotation.');
+
+        // STEP 2 -- the reset POST, on the same session, with no rotation in between, exactly as
+        // a browser would do it after following the redirect.
+        $request = \Illuminate\Http\Request::create(
+            '/' . $store->slug . '/reset-password/otp', 'POST',
+            ['password' => 'Str0ng-New-Pass-9', 'password_confirmation' => 'Str0ng-New-Pass-9']
+        );
+        $request->setLaravelSession($session);
+        $this->app->instance('request', $request);
+
+        (new \App\Http\Controllers\Customer\Auth\CustomerLoginController)
+            ->resetPasswordWithOtp($request, $store->slug);
+
+        $after = Customer::withoutGlobalScopes()->find($customer->id)->password;
+
+        $this->assertNotSame($hashBefore, $after,
+            'THE FIX BROKE PASSWORD RECOVERY. The legitimate flow -- verify, then POST the new '
+            . 'password on the same session -- no longer changes it, so the binding is refusing '
+            . 'the real customer. This is a worse outcome than the latent defect it closes.');
+
+        $this->assertTrue(Hash::check('Str0ng-New-Pass-9', $after),
+            'The password changed but not to the submitted value.');
+
+        /* AND NOTHING SURVIVES THE SUCCESS. This is the contract that makes the fourth key
+           load-bearing: leaving the binding behind is not exploitable on its own -- the gate also
+           needs `password_otp_verified` -- so a mutation deleting it from the success `forget()`
+           survived every behavioural test. Rather than invent a case that pretends it matters,
+           the real rule is asserted: a spent authorisation leaves no part of itself in the
+           session. */
+        foreach ([
+            'password_otp_verified',
+            'password_otp_verified_customer_id',
+            'password_otp_verified_store_id',
+            'password_otp_verified_session_id',
+        ] as $spent) {
+            $this->assertNull($session->get($spent),
+                "`{$spent}` survived a COMPLETED password reset. The authorisation has been "
+                . 'spent; no part of it should remain in the session.');
+        }
+    }
+
+    /**
+     * PART A'S SECOND MECHANISM, ISOLATED. The binding and the logout `forget()` must each be
+     * driven alone: this file already records a case where two sign-out mechanisms masked each
+     * other so that disabling either one still passed. Here the session is NOT rotated, so the
+     * binding would still match and only the `forget()` can produce the refusal.
+     */
+    public function test_the_customer_logout_drops_a_standing_otp_authorisation(): void
+    {
+        [$store, $customer] = $this->shopper();
+
+        // The real route, which is a POST to `{storeSlug?}/customer-logout` (`routes/customer.php`).
+        // Cosmetic under direct invocation, but a reader should not be told the wrong door.
+        $session = $this->bindRequest('/' . $store->slug . '/customer-logout', 'POST');
+        $session->put([
+            'password_otp_verified' => true,
+            'password_otp_verified_customer_id' => $customer->id,
+            'password_otp_verified_store_id' => $store->id,
+            'password_otp_verified_session_id' => $session->getId(),
+        ]);
+
+        // A VISITOR WHO NEVER SIGNED IN, which is the case the `$hadCustomerSession` gate misses:
+        // someone who verified an OTP holds the authorisation without ever holding a shopper
+        // session, so a forget() placed inside that gate would never run for them.
+        $this->assertFalse($session->has(\Illuminate\Support\Facades\Auth::guard('customers')->getName()),
+            'PREMISE: this holder has a shopper session, so the case being isolated is the other one.');
+
+        (new \App\Http\Controllers\Customer\Auth\CustomerLoginController)->logout($store->slug);
+
+        foreach ([
+            'password_otp_verified',
+            'password_otp_verified_customer_id',
+            'password_otp_verified_store_id',
+            'password_otp_verified_session_id',
+        ] as $key) {
+            $this->assertNull($session->get($key),
+                "`{$key}` survived the customer logout, so a standing authorisation to change a "
+                . "customer's password is still spendable by whoever holds this cookie next.");
+        }
+    }
+
+    /**
+     * THE OTHER SHAPE, AND IT MUST FAIL CLOSED. A session that was written before this binding
+     * existed carries the three flags and no binding. The tempting reading is to treat a missing
+     * binding as "legacy, allow it" -- which would leave the defect open for exactly as long as
+     * any such session survives. It is refused.
+     */
+    public function test_an_otp_authorisation_with_no_binding_at_all_is_refused(): void
+    {
+        [$store, $customer] = $this->shopper();
+
+        $hashBefore = Customer::withoutGlobalScopes()->find($customer->id)->password;
+
+        $session = $this->bindRequest(
+            '/' . $store->slug . '/reset-password/otp',
+            'POST',
+            ['password' => 'Str0ng-New-Pass-9', 'password_confirmation' => 'Str0ng-New-Pass-9']
+        );
+
+        $session->put([
+            'password_otp_verified' => true,
+            'password_otp_verified_customer_id' => $customer->id,
+            'password_otp_verified_store_id' => $store->id,
+        ]);
+
+        $response = (new \App\Http\Controllers\Customer\Auth\CustomerLoginController)
+            ->resetPasswordWithOtp($this->app['request'], $store->slug);
+
+        $this->assertSame(
+            $hashBefore,
+            Customer::withoutGlobalScopes()->find($customer->id)->password,
+            'An unbound OTP authorisation was honoured. A missing binding must fail closed, not '
+            . 'be waved through as a pre-fix session.'
+        );
+
+        /* AND THAT THE REFUSAL IS THE OTP GATE'S, not some other early return. "The hash did not
+           change" is also satisfied by `Customer not found` or a store mismatch, so on its own it
+           would pass for the wrong reason -- review found this. The gate redirects to
+           `customer.password.request`; nothing else on this path does. */
+        $this->assertStringContainsString(
+            'password',
+            (string) $response->getTargetUrl(),
+            'The handler did not redirect to the password-request route, so the missing binding case was '
+            . 'refused by a DIFFERENT early return and this test is not measuring the binding.'
+        );
+    }
+
+    /**
+     * THE OTHER READ SITE. The binding is checked in TWO handlers -- the GET that renders the new
+     * password form and the POST that applies it -- and review established that only the POST was
+     * exercised: reverting the GET half left every test green. Half a security change with no
+     * coverage is how the next refactor removes it.
+     *
+     * Both directions, because "it redirected" is also what a correct binding does to a stale one
+     * and a broken guard would do to a valid one.
+     */
+    public function test_the_otp_reset_form_also_requires_the_binding(): void
+    {
+        [$store, $customer] = $this->shopper();
+
+        $controller = new \App\Http\Controllers\Customer\Auth\CustomerLoginController;
+
+        // VALID: the form must render, not redirect.
+        $session = $this->bindRequest('/' . $store->slug . '/reset-password/otp', 'GET');
+        $session->put([
+            'password_otp_verified' => true,
+            'password_otp_verified_customer_id' => $customer->id,
+            'password_otp_verified_store_id' => $store->id,
+            'password_otp_verified_session_id' => $session->getId(),
+        ]);
+
+        $this->assertNotInstanceOf(
+            \Illuminate\Http\RedirectResponse::class,
+            $controller->resetPasswordOtpForm($store->slug),
+            'The form refused a holder whose binding is valid, so the GET guard is rejecting the '
+            . 'real customer and password recovery is broken at the form step.'
+        );
+
+        // STALE: the same flags after a rotation must be refused.
+        $session->regenerate(true);
+
+        $this->assertInstanceOf(
+            \Illuminate\Http\RedirectResponse::class,
+            $controller->resetPasswordOtpForm($store->slug),
+            'The form was rendered for an authorisation earned in a session that has since '
+            . 'changed principal, so the GET read site trusts the flags.'
+        );
+    }
 }

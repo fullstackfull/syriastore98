@@ -550,6 +550,61 @@ public function verifyPasswordOtp(Request $request, $storeSlug)
         'password_otp_verified' => true,
         'password_otp_verified_customer_id' => $customer->id,
         'password_otp_verified_store_id' => $store->id,
+
+        /*
+         * SEC-SESS PART A -- THE AUTHORISATION IS BOUND TO THE SESSION THAT EARNED IT.
+         *
+         * The rotation above closes FIXATION: a planted pre-OTP id cannot be replayed. It does
+         * NOT stop the flags travelling forward. Measured in vendor source: `Store::migrate()`
+         * (`Store.php:606-617`) destroys the old storage record and takes a new id but NEVER
+         * touches `$this->attributes`, and nothing in `migrate()` or `regenerate()` clears them --
+         * only `flush()` (`:570-573`) clears the bag wholesale, and `invalidate()` is `flush()`
+         * plus `migrate(true)`. (`forget()`, `remove()` and `pull()` clear INDIVIDUAL keys, which
+         * is what this fix uses in `logout()` one method away.) So `regenerate()` AND
+         * `regenerate(true)` both CARRY these flags across. Unbound, they stay spendable by
+         * whoever holds the cookie after a change of principal, and the reset handler reads
+         * nothing else, not even `password_otp`.
+         *
+         * THE SESSION ID IS THE ONLY IDENTITY AVAILABLE HERE, which is why this is not
+         * `auth()->id()` as `RecentPages::key()` uses: at verify time and at reset time the
+         * holder is a GUEST.
+         *
+         * WHAT IT COVERS: every principal change that rotates the id. Measured -- customer login,
+         * registration and the social modules through `SessionGuard::updateSession()` ->
+         * `migrate(true)`; impersonation take AND leave, through lab404's `quietLogin()`, which
+         * calls the same; merchant login at `AuthenticatedSessionController.php:77`; merchant
+         * logout and self-deletion, which `invalidate()` outright; and the customer logout's
+         * `regenerate(true)`, though that one is GATED on having held a shopper session.
+         *
+         * WHAT IT DOES NOT COVER, and an earlier draft of this comment wrongly claimed it did.
+         * `SessionGuard::logout()` removes the guard key and rotates NOTHING -- this file's own
+         * `test_the_logout_rotates_the_session_and_is_gated_on_having_had_one` asserts that. So
+         * the two FORCED merchant sign-outs, `APP_THEME()` in `app/Helper/helper.php` and the
+         * chart helper in `HomeController`, change principal without rotating, and a binding
+         * taken here still matches afterwards. `app/Services/RecentPages.php:29-36` had already
+         * measured and recorded exactly that, and this comment must not contradict it. Nor does
+         * the binding touch the commonest shared-browser case, which is NO door at all -- a
+         * walk-away with neither logout nor login, where the authorisation stands for the idle
+         * session lifetime -- or cookie theft, where the thief holds the id too.
+         *
+         * So this is a NARROWING, not a closure. What would bound the residual is a predicate on
+         * the code itself or an expiry on the authorisation; both are recorded as follow-up rather
+         * than smuggled into this slice, and neither replaces the binding, which is the only thing
+         * that answers the rotating transitions.
+         *
+         * THE LEGITIMATE FLOW rotates nothing between the verify redirect and the reset POST --
+         * asserted, not read -- so it is unaffected. ONE NEW COST, stated here rather than
+         * discovered later: a CONCURRENT `customers`-guard login in the same cookie (a second tab,
+         * a social-login button, registration) now rotates mid-flight and the reset POST is
+         * refused where it previously succeeded. It fails closed and costs "request a new code".
+         *
+         * `invalidate()` would also drop them and must NOT be used: one cookie holds
+         * `login_web_*` and `login_customers_*` at once (`config/session.php:130`, `:146`), so
+         * invalidating here destroys a merchant's admin session --
+         * `SessionHygieneTest::test_the_logout_rotates_the_session_and_is_gated_on_having_had_one`
+         * forbids the method text in `logout()`.
+         */
+        'password_otp_verified_session_id' => session()->getId(),
     ]);
 
     return redirect()->route(
@@ -570,11 +625,17 @@ public function resetPasswordOtpForm($storeSlug)
     $customerId = session('password_otp_verified_customer_id');
     $storeId = session('password_otp_verified_store_id');
 
+    // SEC-SESS PART A: the binding written at the verify step. A flag earned in another session
+    // -- one that has since changed principal -- is not an authorisation in this one.
+    $boundSessionId = session('password_otp_verified_session_id');
+
     if (
         !$verified ||
         !$customerId ||
         !$storeId ||
-        (int) $storeId !== (int) $store->id
+        (int) $storeId !== (int) $store->id ||
+        !is_string($boundSessionId) ||
+        !hash_equals($boundSessionId, (string) session()->getId())
     ) {
         return redirect()->route('customer.password.request', $storeSlug)
             ->with('error', __('OTP verification is required.'));
@@ -607,11 +668,17 @@ public function resetPasswordWithOtp(Request $request, $storeSlug)
     $customerId = session('password_otp_verified_customer_id');
     $storeId = session('password_otp_verified_store_id');
 
+    // SEC-SESS PART A: the binding written at the verify step. A flag earned in another session
+    // -- one that has since changed principal -- is not an authorisation in this one.
+    $boundSessionId = session('password_otp_verified_session_id');
+
     if (
         !$verified ||
         !$customerId ||
         !$storeId ||
-        (int) $storeId !== (int) $store->id
+        (int) $storeId !== (int) $store->id ||
+        !is_string($boundSessionId) ||
+        !hash_equals($boundSessionId, (string) session()->getId())
     ) {
         return redirect()->route('customer.password.request', $storeSlug)
             ->with('error', __('OTP verification is required.'));
@@ -653,6 +720,12 @@ public function resetPasswordWithOtp(Request $request, $storeSlug)
         'password_otp_verified',
         'password_otp_verified_customer_id',
         'password_otp_verified_store_id',
+
+        // The binding goes with them. Not exploitable on its own -- the gate also needs
+        // `password_otp_verified`, which is dropped here -- but leaving one of the four behind
+        // makes a reader comparing this list with `logout()`'s assume the omission means
+        // something.
+        'password_otp_verified_session_id',
     ]);
 
     return redirect()
@@ -896,6 +969,30 @@ private function normalizePhone($phone)
         $hadCustomerSession = $session->has(Auth::guard('customers')->getName());
 
         Auth::guard('customers')->logout();
+
+        /*
+         * SEC-SESS PART A, SECOND MECHANISM -- DEFENCE IN DEPTH, AND HONESTLY LABELLED.
+         *
+         * It sits outside the `$hadCustomerSession` gate so that a holder who verified an OTP
+         * without ever signing in also loses the authorisation. An earlier draft called that the
+         * point of it; review established the sharper truth: the logout FORM is inside an
+         * `auth('customers')` check (`front_end/common/account-tab.blade.php`), so where this
+         * route is actually clickable the holder DID have a shopper session -- and the gated
+         * `regenerate(true)` below already breaks the binding there. This mechanism is therefore
+         * redundant exactly where it is reachable and reachable only by direct POST where it is
+         * not redundant. Kept because it is one cheap line and correct, not because it covers the
+         * OTP visitor.
+         *
+         * `forget()` rather than `invalidate()`/`flush()`: this one cookie also carries a
+         * merchant's `web` session and lab404's impersonation keys, and clearing it wholesale is
+         * a measured regression this file's own test forbids by method text.
+         */
+        $session->forget([
+            'password_otp_verified',
+            'password_otp_verified_customer_id',
+            'password_otp_verified_store_id',
+            'password_otp_verified_session_id',
+        ]);
 
         if ($hadCustomerSession) {
             $session->regenerate(true);

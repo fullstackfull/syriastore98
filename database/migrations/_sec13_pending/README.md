@@ -132,10 +132,11 @@ run.
 Applying this migration **arms an account takeover** that is currently held shut only by the broken
 column this migration fixes.
 
-`CustomerLoginController::verifyPasswordOtp()` writes three session flags —
-`password_otp_verified`, `password_otp_verified_customer_id`, `password_otp_verified_store_id` —
-which are, on their own, a standing authorisation to change that customer's password: the reset
-handler reads nothing else, not even `password_otp`. Nothing rotated the session id at that
+`CustomerLoginController::verifyPasswordOtp()` writes **four** session values —
+`password_otp_verified`, `password_otp_verified_customer_id`, `password_otp_verified_store_id` and,
+since SEC-SESS part A, `password_otp_verified_session_id` — the first three of which are, on their
+own, a standing authorisation to change that customer's password: the reset handler reads nothing
+else, not even `password_otp`. Nothing rotated the session id at that
 boundary, so an attacker who could plant the pre-OTP session id could replay it after the victim
 verified and take the account over. Unlike the login boundary, which gets `migrate(true)` free from
 `SessionGuard::updateSession()`, that one rotated nothing.
@@ -146,6 +147,20 @@ state, plus a CSRF-token rotation matching the house pattern at
 `AuthenticatedSessionController.php:77`). Measured closed, with the legitimate reset preserved as an
 explicit oracle.
 
-So: the rotation landed first, deliberately, and it is what makes applying this migration safe.
+**SEC-SESS PART A THEN CLOSED THE SECOND ARMING PATH, and this migration arms that one too.** The
+rotation stops a planted id being replayed; it does not stop the flags travelling FORWARD, because
+`Store::migrate()` takes a new id without clearing the attributes — so `regenerate()` and
+`regenerate(true)` both carry them. Part A binds the authorisation to the session that earned it
+(`password_otp_verified_session_id`, compared at both read sites) and drops all four on customer
+logout. **It is a narrowing, not a closure:** `SessionGuard::logout()` rotates nothing, so the two
+forced merchant sign-outs (`APP_THEME()`, the `HomeController` chart helper) still change principal
+without rotating, and a walk-away with no logout and no login rotates nothing at all. Two further
+predicates would bound that residual and are recorded as follow-up, NOT applied: refusing when
+`customers.password_otp` is already null (which would also make the claim in
+`Api/AuthController.php` about re-checking true), and an expiry on the authorisation so it ends
+with the flow rather than with the 120-minute idle session.
+
+So: the rotation landed first and the binding second, both deliberately, and together they are what
+make applying this migration safe.
 `tests/Feature/Security/SessionHygieneTest.php` pins both halves and will tell you if either is
 removed. Do not apply this migration on a tree where that rotation is absent.
