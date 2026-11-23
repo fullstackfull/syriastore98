@@ -15,11 +15,17 @@ decision quoted as such.
 > records, and the priority from here is finishing the code, not producing another measurement
 > report. Long multi-agent investigations are reserved for the final integration candidate.
 >
-> **LAST CI-VERIFIED HEAD: `d60fed3a`** — **ci.yml #589, SUCCESS** (2026-11-22 13:20Z). Earlier heads
-> each have their own run (`62427391` #584, `306d6a93` #583, `704f1eec` #582). **Commits after
-> `d60fed3a` are verified by the LOCAL gate only until their own required run concludes** — read the
-> run for the head you are on rather than trusting this line, which is written before the push it
-> describes.
+> **LAST CI-VERIFIED HEAD: `b4687e0e`** — **ci.yml #618, SUCCESS** (2026-11-23 21:11Z), all seven
+> jobs, including both REQUIRED Tests jobs and the merge-base regression gate. Earlier heads each
+> have their own run (`d60fed3a` #589, `62427391` #584, `306d6a93` #583, `704f1eec` #582).
+>
+> `6c41ebd6` #617 is NOT a verification of anything: it was **cancelled** by the push that
+> superseded it. A cancelled run is not a green one, and this line names the last run that actually
+> concluded successfully — which is the whole reason the line exists.
+>
+> **Commits after `b4687e0e` are verified by the LOCAL gate only until their own required run
+> concludes** — read the run for the head you are on rather than trusting this line, which is
+> written before the push it describes.
 >
 > #### Executed since `62427391` (all 2026-11-22, in the owner's priority order)
 >
