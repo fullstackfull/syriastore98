@@ -4499,5 +4499,18 @@
     "The last attempt failed: the file could not be built or sent.": "The last attempt failed: the file could not be built or sent.",
     "Skipped: the store this was scheduled for no longer exists.": "Skipped: the store this was scheduled for no longer exists.",
     "Skipped: the person who scheduled it can no longer receive it. Their account is gone, has no e-mail address, or may no longer read reports.": "Skipped: the person who scheduled it can no longer receive it. Their account is gone, has no e-mail address, or may no longer read reports.",
-    "The start of the period was moved to today, because there is nothing recorded after today.": "The start of the period was moved to today, because there is nothing recorded after today."
+    "The start of the period was moved to today, because there is nothing recorded after today.": "The start of the period was moved to today, because there is nothing recorded after today.",
+    "From the financial record": "From the financial record",
+    "Net retained after refunds": "Net retained after refunds",
+    "Order Value": "Order Value",
+    "Payments Collected": "Payments Collected",
+    "Net Retained": "Net Retained",
+    "This figure could not be read.": "This figure could not be read.",
+    "This customer is not attached to a store, so no financial record can be read for them.": "This customer is not attached to a store, so no financial record can be read for them.",
+    "Money this customer actually handed over, from the financial record. Includes payments that were later cancelled or refunded, so it is a history of collection and not a balance.": "Money this customer actually handed over, from the financial record. Includes payments that were later cancelled or refunded, so it is a history of collection and not a balance.",
+    "What is left after completed refunds and reversals are taken off. This is the smaller of the two figures whenever anything was given back.": "What is left after completed refunds and reversals are taken off. This is the smaller of the two figures whenever anything was given back.",
+    "The value of this customer's orders, before any payment is considered. Cancelled, refunded and unpaid orders are all counted in full, so this is not money received.": "The value of this customer's orders, before any payment is considered. Cancelled, refunded and unpaid orders are all counted in full, so this is not money received.",
+    "This customer has no orders recorded against their account. The figure comes from guest orders billed to their email address.": "This customer has no orders recorded against their account. The figure comes from guest orders billed to their email address.",
+    "Payments are recorded for this customer but the wallet holds no matching movement, so what was kept after refunds cannot be worked out. The two records disagree and neither is silently preferred here.": "Payments are recorded for this customer but the wallet holds no matching movement, so what was kept after refunds cannot be worked out. The two records disagree and neither is silently preferred here.",
+    "Orders of this customer with no financial record: :count. The financial record is not backfilled, so orders placed before it began cannot be read and no figure can be given.": "Orders of this customer with no financial record: :count. The financial record is not backfilled, so orders placed before it began cannot be read and no figure can be given."
 }
