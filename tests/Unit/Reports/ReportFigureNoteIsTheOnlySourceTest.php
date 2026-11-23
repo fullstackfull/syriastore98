@@ -70,6 +70,20 @@ final class ReportFigureNoteIsTheOnlySourceTest extends TestCase
                 . 'including shipping and tax.',
             'the Coupon value applied definition' =>
                 'The amount discounted by coupons, already deducted from order value.',
+
+            /*
+             * P5-R7-B, added on the independent review's note that the new sentence was outside
+             * this census -- a verbatim copy of it into a controller or blade would have passed.
+             *
+             * THE FRAGMENT STOPS SHORT OF THE APOSTROPHE DELIBERATELY. The source literal is
+             * `report\'s` (an escaped apostrophe inside a single-quoted PHP string), so a census
+             * string containing a plain `report's` does not match the file's bytes and the census
+             * would fail for the wrong reason -- the review flagged exactly this trap. Matching
+             * from `from the payment ledger` onward is unambiguous and apostrophe-free.
+             */
+            'the collected-payments export sentence' =>
+                'from the payment ledger: :value. This is one total for the whole period, not a '
+                . 'figure for each row.',
         ];
     }
 

@@ -70,7 +70,7 @@ class SalesExportCarriesTheCollectedFigureTest extends SecurityTestCase
     #[\PHPUnit\Framework\Attributes\DataProvider('exports')]
     public function test_the_export_replays_the_collected_payments_figure(string $sessionKey, string $uri): void
     {
-        [$merchant] = $this->makeTenant();
+        [$merchant, $store] = $this->makeTenant();
 
         /* The session as the SCREEN leaves it, including the tile the screen rendered. Seeded
            rather than driven because the chart handlers are not suite-reachable -- see the
@@ -90,6 +90,10 @@ class SalesExportCarriesTheCollectedFigureTest extends SecurityTestCase
                 'period' => 'This month',
                 'hint' => 'Money customers actually paid, counted on the day it was paid.',
             ],
+            /* The store the screen computed it for. Review finding 1 made the export refuse a
+               tile seeded for a store that is no longer current, so every fixture that expects
+               the figure to come back must say which store it belongs to. */
+            'collection_store_id' => $store->id,
         ]);
 
         $response = $this->actingAs($merchant->fresh())->get($uri);
@@ -130,6 +134,128 @@ class SalesExportCarriesTheCollectedFigureTest extends SecurityTestCase
         $this->assertNull($payload['collection'],
             $uri . ': an unavailable ledger figure was replayed as something other than null, so '
             . 'the file can print a number the screen refused to state');
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('exports')]
+    public function test_a_tile_seeded_for_another_store_is_not_replayed_after_a_store_switch(string $sessionKey, string $uri): void
+    {
+        /*
+         * FINDING 1 OF THE INDEPENDENT REVIEW, and it corrected my premise on the way.
+         *
+         * I asked whether putting a LEDGER figure in the session created a new exposure. The
+         * review established that the ledger figure has been in that session since ANA-005 --
+         * inside the rendered `html`, which `$return['html']` stores and `Session::put` saves.
+         * So this change adds a new EGRESS CHANNEL (the export's JSON), not new storage. My
+         * framing was wrong and the correction is worth keeping.
+         *
+         * THE REPLAY ITSELF IS REAL. A merchant who owns two stores can load the report for
+         * store A, switch `current_store` to store B (`StoreController::changeStore()`, which
+         * writes `users.current_store` and clears NO session key), and export -- and the handler
+         * trusts the session completely: neither export handler contains a `store_id` reference.
+         *
+         * IT IS SAME-TENANT, NOT A CONFIDENTIALITY HOLE, and saying so matters. `changeStore()`
+         * constrains a non-operator's target to their own tenant root, so both stores are the
+         * merchant's own. This is money MISATTRIBUTION -- a file the merchant believes is store
+         * B's and is store A's. The shape is pre-existing: all nine order-derived series have it.
+         * What this slice added was a ledger figure plus a sentence asserting it, so the guard
+         * below covers the value this slice introduced and deliberately does NOT widen to the
+         * nine, which is a separate and larger disposition.
+         */
+        [$merchant, $storeA] = $this->makeTenant();
+        $storeB = $this->makeStore($merchant);
+
+        /* The session as the screen left it while store A was current. */
+        Session::put($sessionKey, [
+            'monthList' => ['01-Jan'],
+            'NetSaleTotal' => [100.0],
+            'collection' => ['value' => '999.00 EUR', 'period' => 'This month', 'hint' => 'x'],
+            'collection_store_id' => $storeA->id,
+        ]);
+
+        /* The merchant switches to store B and exports without reloading the report. */
+        $merchant->current_store = $storeB->id;
+        $merchant->save();
+        (new \App\Models\User)->flushCache();
+
+        $payload = $this->actingAs($merchant->fresh())->get($uri)->json();
+
+        /* `assertArrayHasKey` THEN `assertNull`, not `$payload['collection'] ?? 'missing'`.
+           `??` fires on NULL as well as on absence, so the first draft of this assertion read
+           'missing' in exactly the case the guard is supposed to produce and failed against the
+           correct fix -- the same trap this controller's own P5-3h comment records. */
+        $this->assertArrayHasKey('collection', $payload, $uri . ': the key vanished entirely');
+        $this->assertNull($payload['collection'],
+            $uri . ": store A's collected figure was replayed while store B is current, so the "
+            . "merchant downloads a file they believe is store B's carrying store A's money");
+
+        $this->assertStringNotContainsString('999.00 EUR', (string) ($payload['figureNote'] ?? ''),
+            $uri . ': the disclosure sentence still names the other store\'s collected figure');
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('exports')]
+    public function test_a_tile_seeded_for_the_current_store_is_still_replayed(string $sessionKey, string $uri): void
+    {
+        /* The guard must not refuse the ordinary case: seed and export without switching. A
+           guard that refused everything would pass the case above for the wrong reason. */
+        [$merchant, $store] = $this->makeTenant();
+
+        Session::put($sessionKey, [
+            'monthList' => ['01-Jan'],
+            'collection' => ['value' => '40.00 EUR', 'period' => 'This month', 'hint' => 'x'],
+            'collection_store_id' => $store->id,
+        ]);
+
+        $payload = $this->actingAs($merchant->fresh())->get($uri)->json();
+
+        $this->assertSame('40.00 EUR', $payload['collection']['value'] ?? null,
+            $uri . ': the guard refused a figure seeded for the store that is still current');
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('exports')]
+    public function test_an_arabic_merchant_downloads_the_collected_sentence_in_arabic(string $sessionKey, string $uri): void
+    {
+        /*
+         * FINDING 8 OF THE REVIEW, and it was a LIVE REGRESSION I INTRODUCED. The new sentence
+         * had no entry in `resources/lang/en.json` or `ar.json` -- a repo-wide grep matched only
+         * the PHP source -- while every sibling sentence has both. So an Arabic merchant's export
+         * cell read: Arabic precision caveat, then an English sentence carrying the money figure.
+         *
+         * NOTHING CAUGHT IT IN EITHER DIRECTION, which is why this case exists.
+         * `ReportExportsCarryTheScreensCaveatTest`'s Arabic case drives the exports with an EMPTY
+         * session, so the new sentence never appeared in what it inspected; and
+         * `ArabicUiCoverageTest` globs `resources/views/**` only, so a `__()` added under `app/`
+         * is outside its census entirely. CI stayed green over a user-visible bilingual defect on
+         * a money string.
+         */
+        [$merchant, $store] = $this->makeTenant();
+
+        Session::put($sessionKey, [
+            'monthList' => ['01-Jan'],
+            'collection' => ['value' => '40.00 EUR', 'period' => 'This month', 'hint' => 'x'],
+            'collection_store_id' => $store->id,
+        ]);
+
+        /* THE LOCALE COMES FROM `users.language`, NOT FROM `app()->setLocale()`. `SetLocate`
+           re-resolves it per request, so a test-side setLocale does not survive one -- my first
+           draft used it and the whole cell came back English, including the caveat that HAS an
+           Arabic entry. `ReportExportsCarryTheScreensCaveatTest:209-210` records the same fact. */
+        $merchant->language = 'ar';
+        $merchant->save();
+        (new \App\Models\User)->flushCache();
+
+        $note = (string) $this->actingAs($merchant->fresh())->get($uri)->json('figureNote');
+
+        $this->assertStringContainsString('40.00 EUR', $note,
+            $uri . ': the figure itself is missing from the Arabic cell');
+
+        /* The Arabic sentence, not the English key. `المبالغ المحصّلة` is "the collected amounts",
+           the same wording ar.json already uses for the sibling ledger sentences. */
+        $this->assertStringContainsString('المبالغ المحصّلة', $note,
+            $uri . ': an Arabic merchant was handed the English sentence beside an Arabic caveat');
+
+        $this->assertStringNotContainsString('from the payment ledger', $note,
+            $uri . ': the English source literal leaked into the Arabic cell, so the key has no '
+            . 'ar.json entry');
     }
 
     public function test_both_chart_handlers_put_the_tile_in_the_session_not_only_in_the_view(): void
@@ -178,12 +304,13 @@ class SalesExportCarriesTheCollectedFigureTest extends SecurityTestCase
          * column here is per period and this is one total for the whole window, so a column would
          * repeat it on every row and read as that row's collected amount.
          */
-        [$merchant] = $this->makeTenant();
+        [$merchant, $store] = $this->makeTenant();
 
         Session::put($sessionKey, [
             'monthList' => ['01-Jan'],
             'NetSaleTotal' => [100.0],
             'collection' => ['value' => '40.00 EUR', 'period' => 'This month', 'hint' => 'x'],
+            'collection_store_id' => $store->id,
         ]);
 
         $note = (string) $this->actingAs($merchant->fresh())->get($uri)->json('figureNote');
@@ -225,11 +352,12 @@ class SalesExportCarriesTheCollectedFigureTest extends SecurityTestCase
         /* `FinanceLedgerFigures::tile()` returns an ARRAY with a null `value` for several
            unavailable cases -- a window the ledger does not cover, a store with no rows -- so the
            guard has to look one level in, not merely at the tile being present. */
-        [$merchant] = $this->makeTenant();
+        [$merchant, $store] = $this->makeTenant();
 
         Session::put('order_line_chart_report', [
             'monthList' => ['01-Jan'],
             'collection' => ['value' => null, 'period' => 'This month', 'hint' => 'not covered yet'],
+            'collection_store_id' => $store->id,
         ]);
 
         $note = (string) $this->actingAs($merchant->fresh())->get('/order-report-export')->json('figureNote');

@@ -3150,6 +3150,7 @@
     "Order value by brand": "Order value by brand",
     "Order value by category": "Order value by category",
     "The total value of items ordered. This is not payments received, and not profit.": "The total value of items ordered. This is not payments received, and not profit.",
+    "Payments received over this report's period, from the payment ledger: :value. This is one total for the whole period, not a figure for each row.": "Payments received over this report's period, from the payment ledger: :value. This is one total for the whole period, not a figure for each row.",
     "Brand Sales Summary": "Brand Sales Summary",
     "Category Sales Summary": "Category Sales Summary",
     "Product Sales Summary": "Product Sales Summary",

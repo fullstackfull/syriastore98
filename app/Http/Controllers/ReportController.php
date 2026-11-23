@@ -1289,8 +1289,17 @@ class ReportController extends Controller
         $return['monthList'] = $monthList;
         /* The export replays this, so the ledger figure has to be IN it. Null stays null:
            `salesCollectionTile()` answers null for "the question cannot be asked" -- no
-           store chosen, or a window the report cannot express -- and that is not zero. */
+           store chosen, or a window the report cannot express -- and that is not zero.
+
+           THE STORE IS RECORDED BESIDE IT (review finding 1). `changeStore()` moves
+           `users.current_store` and clears no session key, so a merchant who owns two stores can
+           seed this for store A, switch to B and export -- and the export handler trusts the
+           session completely. Same-tenant, so misattribution rather than disclosure, but a file
+           the merchant believes is B's carrying A's money is still wrong. Scoped to the figure
+           this slice added; the nine order-derived series have the same shape and are a separate
+           disposition. */
         $return['collection'] = $collection;
+        $return['collection_store_id'] = OperatorStoreSelection::reportStoreId();
 
         Session::put('order_line_chart_report', $return);
 
@@ -1324,7 +1333,17 @@ class ReportController extends Controller
          * an Arabic session exports Arabic. Read its docblock for why FLOAT_PRECISION is the only
          * caveat here and why no payment-status wording was invented.
          */
-        $return['figureNote'] = ReportFigureNote::salesRowHint($requests_data['collection'] ?? null);
+        /* Review finding 1: replay the tile only when it was computed for the store that is
+           CURRENT NOW. A merchant who switched stores since seeding gets null -- which is the
+           same "cannot be stated" path an absent ledger figure takes, already pinned in both
+           directions, so the guard costs no new behaviour. */
+        $collection = ((int) ($requests_data['collection_store_id'] ?? 0)) === OperatorStoreSelection::reportStoreId()
+            ? ($requests_data['collection'] ?? null)
+            : null;
+
+        $return['collection'] = $collection;
+
+        $return['figureNote'] = ReportFigureNote::salesRowHint($collection);
         /*
          * P5-R7-B. THE SCREEN'S LEDGER FIGURE, REPLAYED VERBATIM.
          *
@@ -1337,8 +1356,6 @@ class ReportController extends Controller
          * which `salesCollectionTile()` returns for an operator with no store and for a window the
          * report cannot express. An empty array would let the CSV builder print something.
          */
-        $return['collection'] = $requests_data['collection'] ?? null;
-
         return response()->json($return);
     }
 
@@ -1373,7 +1390,17 @@ class ReportController extends Controller
          * an Arabic session exports Arabic. Read its docblock for why FLOAT_PRECISION is the only
          * caveat here and why no payment-status wording was invented.
          */
-        $return['figureNote'] = ReportFigureNote::salesRowHint($requests_data['collection'] ?? null);
+        /* Review finding 1: replay the tile only when it was computed for the store that is
+           CURRENT NOW. A merchant who switched stores since seeding gets null -- which is the
+           same "cannot be stated" path an absent ledger figure takes, already pinned in both
+           directions, so the guard costs no new behaviour. */
+        $collection = ((int) ($requests_data['collection_store_id'] ?? 0)) === OperatorStoreSelection::reportStoreId()
+            ? ($requests_data['collection'] ?? null)
+            : null;
+
+        $return['collection'] = $collection;
+
+        $return['figureNote'] = ReportFigureNote::salesRowHint($collection);
         /*
          * P5-R7-B. THE SCREEN'S LEDGER FIGURE, REPLAYED VERBATIM.
          *
@@ -1386,8 +1413,6 @@ class ReportController extends Controller
          * which `salesCollectionTile()` returns for an operator with no store and for a window the
          * report cannot express. An empty array would let the CSV builder print something.
          */
-        $return['collection'] = $requests_data['collection'] ?? null;
-
         return response()->json($return);
     }
 
@@ -1880,8 +1905,17 @@ class ReportController extends Controller
         $return['monthList'] = $monthList;
         /* The export replays this, so the ledger figure has to be IN it. Null stays null:
            `salesCollectionTile()` answers null for "the question cannot be asked" -- no
-           store chosen, or a window the report cannot express -- and that is not zero. */
+           store chosen, or a window the report cannot express -- and that is not zero.
+
+           THE STORE IS RECORDED BESIDE IT (review finding 1). `changeStore()` moves
+           `users.current_store` and clears no session key, so a merchant who owns two stores can
+           seed this for store A, switch to B and export -- and the export handler trusts the
+           session completely. Same-tenant, so misattribution rather than disclosure, but a file
+           the merchant believes is B's carrying A's money is still wrong. Scoped to the figure
+           this slice added; the nine order-derived series have the same shape and are a separate
+           disposition. */
         $return['collection'] = $collection;
+        $return['collection_store_id'] = OperatorStoreSelection::reportStoreId();
 
         Session::put('order_bar_chart_report', $return);
 

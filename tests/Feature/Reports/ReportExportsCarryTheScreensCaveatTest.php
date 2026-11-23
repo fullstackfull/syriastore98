@@ -122,6 +122,21 @@ final class ReportExportsCarryTheScreensCaveatTest extends SecurityTestCase
     {
         [$merchant] = $this->makeTenant();
 
+        /*
+         * P5-R7-B NOTE, from the independent review. THE `multi` EXPECTATION IS NOW COUPLED TO
+         * THIS FILE'S EMPTY-SESSION PREMISE, stated in its own docblock.
+         *
+         * `order_report_export` and `order_bar_report_export` build their cell with
+         * `ReportFigureNote::salesRowHint($collection)`, which returns `moneyRowHint()` VERBATIM
+         * only while the session carries no collected-payments tile for the current store. This
+         * file drives the exports with an empty session, so it does. Seed `collection` here, or
+         * let a request reach a sales chart handler before the export inside one test method, and
+         * this assertion goes red for a non-reason.
+         *
+         * The collected-figure behaviour is covered by
+         * `SalesExportCarriesTheCollectedFigureTest` instead, including the Arabic case, so there
+         * is nothing to add here -- only something not to be surprised by.
+         */
         $expected = [
             'single' => ReportFigureNote::orderValueHint(),
             'multi' => ReportFigureNote::moneyRowHint(),
