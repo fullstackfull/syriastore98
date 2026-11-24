@@ -77,6 +77,7 @@ class PlatformAnalyticsController extends Controller
     {
         return [
             'devices' => __('Devices'),
+            'sources' => __('Orders by channel'),
         ];
     }
 

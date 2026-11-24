@@ -169,6 +169,52 @@
 </div>
 
 {{--
+    ORDERS BY CHANNEL, ACROSS TENANTS -- GAP-162 / P05-14.
+
+    IT SITS AFTER THE VISIT BREAKDOWN DELIBERATELY, and its disclosure says why: there is no link
+    in this product between a page view and an order, so a reader must not divide this table by the
+    page-view figures above it. Same markup as the devices table below, so the page has one
+    rows-shaped pattern to keep accessible rather than two.
+--}}
+<div class="row mb-4">
+    <div class="col-12">
+        <h2 class="h5 mb-1">{{ __('Orders by channel') }}</h2>
+
+        <p class="ss-muted mb-3">
+            {{ __('Period') }}: {{ $figures['sources']['period'] }}
+        </p>
+
+        @if ($figures['sources']['rows'] === [])
+            <p>{{ __('Not available') }}</p>
+        @else
+            <div class="table-responsive">
+                <table class="table">
+                    <caption class="ss-visually-hidden">
+                        {{ __('Orders across all stores, one row per channel, busiest first.') }}
+                    </caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">{{ __('Channel') }}</th>
+                            <th scope="col">{{ __('Orders') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($figures['sources']['rows'] as $row)
+                            <tr>
+                                <th scope="row">{{ $row['label'] }}</th>
+                                <td>{{ $row['count'] }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @endif
+
+        <p class="ss-stat__hint">{{ $figures['sources']['hint'] }}</p>
+    </div>
+</div>
+
+{{--
     DEVICES, ACROSS TENANTS -- GAP-162 / P05-14.
 
     A BREAKDOWN, so it is a table rather than an <x-ss.stat> tile, and it is modelled on the

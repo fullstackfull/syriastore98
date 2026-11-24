@@ -96,8 +96,11 @@ decision quoted as such.
 >    profit** -- `StoreRevenueMargin(true)`, the same metric and settled-only flag `/finance`
 >    uses, one row per currency, `total()` never called -- and **page views**, a count and so not
 >    blocked by `D-N32`, carrying the attribution-start and never-recorded-store coverage
->    statements. So **five** figure groups remain open and the split is **1 / 3 / 1**: buildable
->    `sources`; owner-decision `conversion`, `channels`, `campaigns`; data-gated `redemptions`.
+>    statements -- and **orders by channel**, which needs no row cap because `order_source` is
+>    writer-authored from a closed vocabulary rather than visitor-authored. So ALL FOUR buildable
+>    counterparts are built and **four** remain, every one of them BLOCKED: `conversion` on
+>    `D-N32`, `channels` on `D-N39`, `campaigns` on `D-N40`, `redemptions` on its data gate.
+>    Nothing further on this row is engineering's.
 >    **The financial review of the profit slice refuted its own central claim** -- the
 >    `UNKNOWN_CURRENCY` row really does add different currencies, and for a margin that can reverse
 >    the sign -- so both money tables now disclose that row; the merchant tile's dropped tax clause

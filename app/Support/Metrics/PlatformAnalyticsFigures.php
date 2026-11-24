@@ -85,6 +85,7 @@ final class PlatformAnalyticsFigures
             'payments' => self::payments($coverage),
             'profit' => self::profit($coverage),
             'devices' => self::devices($storeIds, $now),
+            'sources' => self::sources($storeIds, $now),
             'coverage' => $coverage,
         ];
     }
@@ -727,6 +728,113 @@ final class PlatformAnalyticsFigures
                 ? __('all time')
                 : __('from :date', ['date' => $coverage['verifiedFrom']->isoFormat('D MMM YYYY')]),
             'hint' => implode(' ', $notes),
+        ];
+    }
+
+    /**
+     * ORDERS BY CHANNEL, ACROSS TENANTS -- `GAP-162` / `P05-14`, the fourth and last counterpart a
+     * mapping pass found buildable without an owner decision.
+     *
+     * NOT A VISIT BREAKDOWN, although it renders beside two of them. `orders.order_source` is
+     * written by the WRITER that created the order, from a closed three-value vocabulary
+     * (`Order::SOURCES`), and is never inferred afterwards -- which is exactly why this one needs
+     * no row cap while `channels` and `campaigns` do: their buckets are VISITOR-AUTHORED, and what
+     * a cap MEANS across tenants (one global top-N, or a bounded contribution per store) is the
+     * product question `D-N39` and `D-N40` hold. There is nothing to decide here.
+     *
+     * THE STORE PREDICATE IS EXPLICIT AND IT DOES WORK. `Order` registers NO `StoreScope` and is
+     * absent from `config/tenancy.php`'s `scoped_models` -- this file's own table of that records
+     * it -- so nothing adds a `store_id` predicate for any principal. As with `devices` and
+     * `visits` the `whereIn` earns its place for a row pointing at a store that no longer exists,
+     * which `StoreController::destroy()` leaves behind; pinned by its own orphan-row test.
+     *
+     * ONE ORDERER, IN PHP, AND DELIBERATELY NO `orderByDesc` IN THE SQL. The fold below merges NULL
+     * and the empty string AFTER any ordering the engine applied, and two absences can merge into a
+     * bucket larger than the named one -- so SQL cannot decide the ranking. The merchant twin
+     * records why there must be only one orderer rather than two: with both, reverting EITHER
+     * leaves the other producing the right answer, so neither mutation can be caught and the
+     * ordering reads as covered when only the pair is.
+     *
+     * AN UNRECOGNISED VALUE IS SHOWN, NOT DROPPED. `order_source` is a string column and
+     * `Order::orderSourceLabel()` returns null outside its closed match, so a writer added later --
+     * or a hand-edited row -- would otherwise vanish from a count whose label says "every order".
+     * It is rendered with its stored value and the hint says the version has no name for it.
+     *
+     * THESE ARE ORDERS AND NOT VISITS, and that sentence is more load-bearing here than on the
+     * merchant screen: this table sits directly beneath a cross-tenant page-view COUNT and a device
+     * breakdown, and there is no link in this product between a page view and an order. Dividing
+     * one by the other would invent a per-channel conversion rate -- which is also the figure
+     * `D-N32` is open about.
+     *
+     * @param  list<int>  $storeIds
+     * @return array{rows: list<array{label: string, count: string}>, period: string, hint: string}
+     */
+    private static function sources(array $storeIds, CarbonImmutable $now): array
+    {
+        if ($storeIds === []) {
+            return [
+                'rows' => [],
+                'period' => __('not yet available'),
+                'hint' => __('No store exists yet, so there is no channel breakdown. Nothing is estimated.'),
+            ];
+        }
+
+        [$from, $to] = self::recentBounds($now);
+
+        $rows = \App\Models\Order::query()
+            ->selectRaw('order_source as bucket, COUNT(*) as total')
+            ->whereIn('store_id', $storeIds)
+            ->whereBetween('order_date', [$from, $to])
+            ->groupBy('order_source')
+            ->toBase()
+            ->get();
+
+        $buckets = [];
+
+        foreach ($rows as $row) {
+            $value = trim((string) ($row->bucket ?? ''));
+
+            $buckets[$value] = ($buckets[$value] ?? 0) + (int) $row->total;
+        }
+
+        arsort($buckets);
+
+        $out = [];
+        $unrecognised = false;
+
+        foreach ($buckets as $value => $count) {
+            if ((string) $value === '') {
+                $label = __('Channel not recorded (placed before this was tracked)');
+            } else {
+                $named = \App\Models\Order::orderSourceLabel((string) $value);
+
+                if ($named === null) {
+                    $unrecognised = true;
+                    $label = __(':value (not a source this version knows)', ['value' => $value]);
+                } else {
+                    $label = $named;
+                }
+            }
+
+            $out[] = ['label' => $label, 'count' => self::ltr(number_format($count))];
+        }
+
+        $notes = [
+            __('Which path created each order across every store: the point of sale, a merchant entering it by hand, or the storefront. It is recorded by the writer when the order is created and is never inferred afterwards.'),
+            __('These are ORDERS, not visits. There is no link in this product between a page view and an order, so these counts cannot be divided by the page-view figures above them to produce a rate per channel.'),
+            __('It counts orders placed in this period whatever their payment status, and does not exclude orders later cancelled or refunded.'),
+        ];
+
+        if ($unrecognised) {
+            $notes[] = __('One or more orders carry a source this version does not have a name for. They are shown with the stored value rather than left out of the count.');
+        }
+
+        return [
+            'rows' => $out,
+            'period' => self::recentPeriod(),
+            'hint' => $out === []
+                ? __('No orders were placed in this period, so there is no channel breakdown. Nothing is estimated.')
+                : implode(' ', $notes),
         ];
     }
 

@@ -1818,4 +1818,292 @@ final class PlatformAnalyticsScreenTest extends SecurityTestCase
         $this->assertSame('17', $tiles['Page views'],
             'the Page views tile does not carry the counted figure');
     }
+
+    /*
+     * ---------------------------------------------------------------------------------------------
+     * ORDERS BY CHANNEL, ACROSS TENANTS -- GAP-162 / P05-14, the fourth and last counterpart a
+     * mapping pass found buildable without an owner decision.
+     *
+     * NOT A VISIT BREAKDOWN, although it sits beside two. `order_source` is written by the WRITER
+     * that created the order, from a closed three-value vocabulary, and is never inferred -- which
+     * is why it needs no row cap and `channels`/`campaigns` do: their buckets are VISITOR-authored,
+     * and what a cap MEANS across tenants is the question `D-N39` and `D-N40` hold.
+     * ---------------------------------------------------------------------------------------------
+     */
+
+    /** An order with an explicit channel and date. The ledger row the observer writes is left alone. */
+    private function orderFrom($store, ?string $source, CarbonImmutable $when): void
+    {
+        $order = $this->makeOrder($store, ['order_date' => $when]);
+
+        // Written raw, because the point of several cases is a value the model would not produce.
+        DB::table('orders')->where('id', $order->id)->update(['order_source' => $source]);
+        (new \App\Models\Order())->flushCache();
+    }
+
+    /** The label column of a breakdown, with the bidi isolates stripped. */
+    private function breakdownLabels(array $figure): array
+    {
+        return array_map(fn ($row) => $this->plain((string) $row['label']), $figure['rows']);
+    }
+
+    public function test_channels_counts_orders_from_every_store(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $storeA] = $this->makeTenant();
+        [, $storeB] = $this->makeTenant();
+
+        $this->orderFrom($storeA, \App\Models\Order::SOURCE_STOREFRONT, $now->subDays(2));
+        $this->orderFrom($storeB, \App\Models\Order::SOURCE_STOREFRONT, $now->subDays(3));
+        $this->orderFrom($storeB, \App\Models\Order::SOURCE_POS, $now->subDays(4));
+
+        $rows = collect(PlatformAnalyticsFigures::forPlatform($now)['sources']['rows']);
+
+        $storefront = $rows->first(fn ($row) => $this->plain((string) $row['label']) === 'Storefront');
+
+        $this->assertNotNull($storefront, 'the storefront bucket is missing');
+        $this->assertSame('2', $this->plain((string) $storefront['count']),
+            'a per-store read would answer 1 here and look entirely plausible');
+    }
+
+    public function test_channels_excludes_orders_outside_the_window(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $store] = $this->makeTenant();
+
+        $this->orderFrom($store, \App\Models\Order::SOURCE_POS, $now->subDays(2));
+        $this->orderFrom($store, \App\Models\Order::SOURCE_POS, $now->subDays(60));
+
+        $rows = PlatformAnalyticsFigures::forPlatform($now)['sources']['rows'];
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('1', $this->plain((string) $rows[0]['count']));
+    }
+
+    /**
+     * NULL AND THE EMPTY STRING ARE ONE ABSENCE, not two. SQL `GROUP BY` treats them as two groups,
+     * so a naive loop emits two rows both labelled as an absence with a count each, and a reader
+     * takes one absence for two channels and neither count for the real one. Measured on the
+     * merchant side and repeated here rather than rediscovered.
+     */
+    public function test_an_unrecorded_channel_is_one_row_and_not_two(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $store] = $this->makeTenant();
+
+        $this->orderFrom($store, null, $now->subDays(2));
+        $this->orderFrom($store, '', $now->subDays(3));
+
+        $figure = PlatformAnalyticsFigures::forPlatform($now)['sources'];
+        $labels = $this->breakdownLabels($figure);
+
+        $this->assertCount(1, $labels,
+            'NULL and the empty string were reported as two separate absences: '
+            . implode(' | ', $labels));
+        $this->assertSame('2', $this->plain((string) $figure['rows'][0]['count']));
+    }
+
+    /**
+     * THE FOLD HAPPENS AFTER ANY SQL ORDERING, so the ranking has to be decided in PHP. Two absences
+     * merging into a bucket larger than the named one is exactly the case a SQL `ORDER BY` gets
+     * wrong, and the merchant side records why there must be only ONE orderer: with two, reverting
+     * either leaves the other producing the right answer and neither mutation can be caught.
+     */
+    public function test_a_folded_channel_is_ranked_by_its_combined_count(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $store] = $this->makeTenant();
+
+        foreach (range(1, 5) as $i) {
+            $this->orderFrom($store, \App\Models\Order::SOURCE_POS, $now->subDays(2));
+        }
+
+        foreach (range(1, 3) as $i) {
+            $this->orderFrom($store, null, $now->subDays(2));
+        }
+
+        foreach (range(1, 3) as $i) {
+            $this->orderFrom($store, '', $now->subDays(2));
+        }
+
+        $labels = $this->breakdownLabels(PlatformAnalyticsFigures::forPlatform($now)['sources']);
+
+        $this->assertStringContainsString('not recorded', $labels[0],
+            'the folded absence is 6 against the point of sale\'s 5 and must rank first. Order: '
+            . implode(' | ', $labels));
+    }
+
+    /**
+     * AND THE OTHER DIRECTION, WHICH IS THE ONE A MUTATION CAN SEE.
+     *
+     * The case above documents the intent and CANNOT catch a deleted `arsort()` on this suite's
+     * engine: SQLite returns `GROUP BY` groups with NULL and the empty string FIRST, so the folded
+     * bucket is inserted first and already renders first whether or not anything sorted it. Found
+     * by a mutation run, not by reading -- it reported SURVIVED against the case above.
+     *
+     * Reverse the sizes and the accident stops helping: a folded absence of 3 against a point of
+     * sale of 5 must render SECOND, and insertion order puts it first. One fixture the sort has to
+     * fix, one it cannot.
+     */
+    public function test_a_folded_channel_does_not_outrank_a_bigger_one(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $store] = $this->makeTenant();
+
+        foreach (range(1, 5) as $i) {
+            $this->orderFrom($store, \App\Models\Order::SOURCE_POS, $now->subDays(2));
+        }
+
+        $this->orderFrom($store, null, $now->subDays(2));
+        $this->orderFrom($store, null, $now->subDays(2));
+        $this->orderFrom($store, '', $now->subDays(2));
+
+        $figure = PlatformAnalyticsFigures::forPlatform($now)['sources'];
+        $labels = $this->breakdownLabels($figure);
+
+        $this->assertCount(2, $labels,
+            'premise failed: the fold did not produce exactly two buckets, so the ranking this '
+            . 'case is about is not the one being measured: ' . implode(' | ', $labels));
+        $this->assertSame('Point of sale', $labels[0],
+            'the folded absence is 3 against the point of sale\'s 5 and must rank SECOND; this is '
+            . 'the direction the engine\'s own group order does not already satisfy. Order: '
+            . implode(' | ', $labels));
+        $this->assertSame('3', $this->plain((string) $figure['rows'][1]['count']));
+    }
+
+    /**
+     * AN ORDER POINTING AT A STORE THAT NO LONGER EXISTS must not be counted. `Order` registers NO
+     * global scope and is absent from `config/tenancy.php`'s `scoped_models`, so nothing adds a
+     * `store_id` predicate for anybody -- operator included. This is the mutation that survived the
+     * whole suite on the `devices` slice.
+     */
+    public function test_channels_ignores_an_order_belonging_to_no_existing_store(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $store] = $this->makeTenant();
+
+        $this->orderFrom($store, \App\Models\Order::SOURCE_POS, $now->subDays(2));
+
+        $orphan = ((int) \App\Models\Store::query()->max('id')) + 991;
+
+        $this->assertNull(\App\Models\Store::query()->withoutGlobalScopes()->find($orphan),
+            'premise failed: the orphan id exists, so this test is not measuring an orphan row.');
+
+        $this->orderFrom($store, \App\Models\Order::SOURCE_POS, $now->subDays(2));
+        DB::table('orders')->orderByDesc('id')->limit(1)->update(['store_id' => $orphan]);
+        (new \App\Models\Order())->flushCache();
+
+        $rows = PlatformAnalyticsFigures::forPlatform($now)['sources']['rows'];
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('1', $this->plain((string) $rows[0]['count']),
+            'an order attributed to no existing store was counted into a platform figure');
+    }
+
+    /**
+     * A VALUE THIS VERSION HAS NO NAME FOR IS SHOWN, NOT DROPPED. `order_source` is a string column
+     * and `Order::orderSourceLabel()` returns null for anything outside its closed match, so a
+     * writer added later -- or a hand-edited row -- would otherwise vanish from a count labelled
+     * "every order".
+     */
+    public function test_an_unrecognised_channel_is_shown_with_its_stored_value(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $store] = $this->makeTenant();
+
+        $this->orderFrom($store, 'marketplace', $now->subDays(2));
+
+        $figure = PlatformAnalyticsFigures::forPlatform($now)['sources'];
+
+        $this->assertNull(\App\Models\Order::orderSourceLabel('marketplace'),
+            'premise failed: this version now has a name for that value, so the test proves '
+            . 'nothing about the unnamed case.');
+
+        $labels = implode(' | ', $this->breakdownLabels($figure));
+
+        $this->assertStringContainsString('marketplace', $labels,
+            'the stored value was dropped from a count whose label says every order');
+        $this->assertStringContainsString('not a source this version knows', $labels,
+            'the row must say the value is unnamed rather than present it as a channel');
+        $this->assertStringContainsString('does not have a name for',
+            $this->plain($figure['hint']),
+            'the disclosure that an unnamed source is in the table must be on the screen');
+    }
+
+    public function test_channels_answers_in_the_breakdown_shape_when_no_store_exists(): void
+    {
+        $figure = PlatformAnalyticsFigures::forPlatform(CarbonImmutable::parse('2026-11-20 12:00:00'))['sources'];
+
+        $this->assertArrayHasKey('rows', $figure,
+            'a breakdown must answer with a rows key even when empty; nothingYet() has none and a '
+            . 'consumer looping $figure[\'rows\'] fatals on it');
+        $this->assertSame([], $figure['rows']);
+
+        /*
+         * THE MESSAGE, NOT MERELY A NON-EMPTY ONE. Found by a mutation run: deleting the zero-store
+         * branch outright SURVIVED an assertion that the hint is non-empty, because this figure
+         * does NOT go through `MetricScope` -- `whereIn('store_id', [])` compiles to `0 = 1` in
+         * Laravel rather than throwing, so the query simply returns nothing and the empty-result
+         * sentence takes over. That sentence says "No orders were placed in this period", which is
+         * a different and wrong claim when there is no store at all: it invites the reader to
+         * conclude the platform's stores had a quiet month.
+         *
+         * So unlike `profit`'s guard, this one is not standing between the screen and an exception.
+         * It is standing between the reader and a false statement, which is why the test names the
+         * statement.
+         */
+        $this->assertStringContainsString('No store exists yet', $this->plain((string) $figure['hint']),
+            'with no store on the platform the breakdown must say so, not report that no orders '
+            . 'were placed');
+    }
+
+    /**
+     * THESE ARE ORDERS AND NOT VISITS, and the sentence saying so is load-bearing on this screen in
+     * a way it is not on the merchant's: the channel table sits directly beneath a page-view count
+     * and a device breakdown, and there is no link in this product between a page view and an
+     * order, so dividing one by the other would invent a per-channel conversion rate.
+     */
+    public function test_channels_says_it_counts_orders_and_not_visits(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+
+        [, $store] = $this->makeTenant();
+        $this->orderFrom($store, \App\Models\Order::SOURCE_POS, $now->subDays(2));
+
+        $hint = $this->plain(PlatformAnalyticsFigures::forPlatform($now)['sources']['hint']);
+
+        $this->assertStringContainsString('ORDERS, not visits', $hint);
+    }
+
+    public function test_the_screen_shows_the_channel_breakdown(): void
+    {
+        $now = CarbonImmutable::parse('2026-11-20 12:00:00');
+        $operator = $this->makePlatformAdmin();
+
+        [, $store] = $this->makeTenant();
+        $this->orderFrom($store, \App\Models\Order::SOURCE_POS, $now->subDays(2));
+
+        CarbonImmutable::setTestNow($now);
+
+        try {
+            $html = $this->plain($this->actingAs($operator->fresh())->get(self::URI)->assertStatus(200)->getContent());
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+
+        $block = $this->section($html, 'Orders by channel');
+
+        $this->assertStringContainsString('<th scope="row">Point of sale</th>', $block,
+            'the breakdown row must carry its label as a row header, or a screen reader announces '
+            . 'the count with no indication of which channel it belongs to');
+        $this->assertStringContainsString('ORDERS, not visits', $block,
+            'the disclosure is computed and not rendered');
+    }
 }
