@@ -87,8 +87,11 @@ decision quoted as such.
 >    never been accepted and withdrawing the tile is a registered option), referring pages and
 >    campaign traffic (what a row cap means across tenants, and aggregated versus attributed,
 >    decide the SQL); **blocked by a data gate** — coupon redemptions. Two facts for the build:
->    the empty-scope guard is the one omission that would ship red, and `FigureCsv::rows()` is
->    breakdown-blind, so the four breakdown figures need that seam first.
+>    the empty-scope guard is the one omission that would ship red, and the PLATFORM EXPORT has
+>    no breakdown loop — `FigureCsv::breakdownRows()` already exists and the merchant file already
+>    uses it, so what is missing is a loop in `PlatformAnalyticsController::export()`, not new
+>    machinery. (Corrected: this line first said `FigureCsv::rows()` was breakdown-blind and the
+>    seam had to be built.)
 > 7. **`P5-R8`…`R12`** — four-combination evidence, the per-slice eight-point record, the Phase 05
 >    final report, the loyalty metric as a MySQL harness script; register the ANA-005 harness.
 > 8. Then Phase 06 on its own branch and Draft PR, without merging the existing phase PRs.
