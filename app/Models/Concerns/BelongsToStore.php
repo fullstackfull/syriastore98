@@ -84,7 +84,7 @@ use Illuminate\Database\Eloquent\Builder;
  * ============================================================================================
  *
  * `StoreScope::apply()` now filters on `{current_store} UNION {stores whose created_by =
- * creatorId()}`, because the admin API legitimately operates on a store that is not the caller's
+ * creatorId()}` (the second term only for a MERCHANT root, P1-SEC-67b), because the admin API legitimately operates on a store that is not the caller's
  * `current_store` (see StoreScope::admissibleStoreIds() for the full argument).
  *
  * The helpers below were NOT widened to match, and that is a decision rather than an oversight.

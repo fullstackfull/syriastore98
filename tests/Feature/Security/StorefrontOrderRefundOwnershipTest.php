@@ -307,6 +307,122 @@ class StorefrontOrderRefundOwnershipTest extends SecurityTestCase
     // =========================================================================================
 
     /** THE REPRODUCED DEFECT, exactly as P1-SEC-03 round 2 measured it. */
+    /*
+     * SEC-INTAKE #188 ON THIS DOOR. `ownedOrder()` asks id + store + `customer_id` and never
+     * `orders.is_guest`, and this handler WRITES: an `order_refunds` row inside a transaction,
+     * plus any attachment, and the row drives `OrderRefundController::RefundStock` and the
+     * settlement workflow once a merchant approves it.
+     *
+     * The two columns answer different questions. `orders.customer_id` records whose record the
+     * order is attached to; `orders.is_guest` records whether anybody was signed in when it was
+     * placed. A guest checkout whose billing e-mail matches an existing customer OF THIS STORE is
+     * written with that customer's REAL id and `is_guest = 1` -- so the matched customer
+     * satisfies this predicate on an order they may never have placed, and nobody ever asked them
+     * to prove they own that address.
+     *
+     * AND THE SECOND HARM IS THE QUIETER ONE: the eligibility rule below permits ONE refund
+     * request per order, ever. So the matched customer does not merely request a refund they are
+     * not entitled to -- they permanently consume the genuine payer's only refund path.
+     *
+     * ACCOUNT INTEGRITY, NOT DISCLOSURE. The storefront's billing and delivery fields come from
+     * `order_billing_details` (what the guest typed), and `Order::order_detail()` reads the
+     * Customer row only on its POS branch, which this checkout does not serve. The e-mail match
+     * itself is correct and is not what this refuses -- it is the returning-guest flow, it follows
+     * from per-store e-mail uniqueness, and `UnscopedCustomerEmailLookupTest` pins it.
+     */
+
+    public function test_an_adopted_guest_order_cannot_have_a_refund_requested_by_the_matched_customer(): void
+    {
+        [, $store] = $this->makeTenant();
+        $matched = $this->shopper($store);
+
+        // THE ADOPTED SHAPE. Everything else is the legitimate fixture -- this store, this
+        // customer's own id, delivered, one refundable line, the form's own payload -- so nothing
+        // but the missing `is_guest` rule can refuse it. `refundableOrder()` states `is_guest => 0`
+        // explicitly, which is why overriding it here is the whole difference.
+        $order = $this->refundableOrder($store, $matched, ['is_guest' => 1]);
+
+        $before = $this->money($order);
+
+        $response = $this->refundRequest($matched, $store, $order, $this->payload($order));
+
+        $this->assertSame(404, $response->getStatusCode(),
+            'The customer a guest checkout was matched to requested a refund on an order they '
+            . 'never placed. Every ownership refusal in this handler is a 404, uniformly.');
+
+        $this->assertSame(0, $this->refundRows(),
+            'A refund record was written for an order nobody was signed in to place. The row '
+            . 'drives RefundStock and the settlement workflow, and the one-refund-per-order rule '
+            . 'means it also consumes the real payer\'s only refund path.');
+
+        $after = $this->money($order);
+        $this->assertSame($before['final_price'], $after['final_price'],
+            'the refused request moved the order total');
+        $this->assertSame($before['product_price'], $after['product_price'],
+            'the refused request moved product_price');
+        $this->assertSame($before['product_json'], $after['product_json'],
+            'the refused request consumed line quantity, which is what bounds RefundStock');
+    }
+
+    /**
+     * THE TICKET PICKER MUST AGREE WITH THE TICKET WRITERS (review finding F4).
+     *
+     * `add_support_ticket` and `edit_support_ticket` build their order dropdown from a query of
+     * their own, not from `ownedOrder()`. Narrowing the writers without narrowing the picker
+     * leaves a UI that offers an order the server then answers "Order not found." for -- and the
+     * person it does that to is precisely the one the fix's disclosure is about: an account
+     * holder who checked out without signing in. Same rule, same change, so it is pinned here.
+     *
+     * One GET answers both directions, which is what makes this worth a test rather than a
+     * comment: the adopted order must be ABSENT and the signed-in buyer's own order PRESENT in
+     * the same rendered picker, so neither a blanket refusal nor a no-op can pass.
+     */
+    public function test_the_ticket_order_picker_offers_what_the_ticket_writers_will_accept(): void
+    {
+        [, $store] = $this->makeTenant();
+        $shopper = $this->shopper($store);
+
+        $signedIn = $this->refundableOrder($store, $shopper, ['is_guest' => 0]);
+        $adopted = $this->refundableOrder($store, $shopper, ['is_guest' => 1]);
+
+        $html = (string) $this->actingAs($shopper, 'customers')
+            ->get('/' . $store->slug . '/add-ticket')
+            ->assertStatus(200)
+            ->json('html');
+
+        $this->assertNotSame('', trim($html),
+            'Premise: the picker rendered nothing at all, so neither assertion below means '
+            . 'anything.');
+
+        $this->assertStringContainsString((string) $signedIn->product_order_id, $html,
+            'The picker no longer offers an order the ticket writers WILL accept, so the '
+            . 'narrowing over-reached.');
+        $this->assertStringNotContainsString((string) $adopted->product_order_id, $html,
+            'The picker still offers an order the ticket writers now refuse, so the UI '
+            . 'disagrees with its own handler.');
+    }
+
+    public function test_the_signed_in_buyer_can_still_request_a_refund_on_their_own_order(): void
+    {
+        /*
+         * THE ORACLE, and it is not redundant with the legitimate-journey test above: that one
+         * runs on `refundableOrder()`'s default and would keep passing if the new rule keyed on
+         * something incidental. This one states `is_guest => 0` at the fixture, so the pair
+         * differs in exactly one column.
+         */
+        [, $store] = $this->makeTenant();
+        $owner = $this->shopper($store);
+        $order = $this->refundableOrder($store, $owner, ['is_guest' => 0]);
+
+        $response = $this->refundRequest($owner, $store, $order, $this->payload($order));
+
+        $this->assertNotSame(404, $response->getStatusCode(),
+            'The signed-in buyer can no longer request a refund on their own order.');
+        $response->assertRedirect();
+        $this->assertSame(1, $this->refundRows(),
+            'The signed-in buyer\'s refund request was not recorded.');
+    }
+
     public function test_a_shopper_cannot_rewrite_another_tenants_order_by_naming_it_in_the_body(): void
     {
         [, $storeA] = $this->makeTenant();

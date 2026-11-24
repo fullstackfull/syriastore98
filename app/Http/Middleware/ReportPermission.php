@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\ReportAccess;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -33,9 +34,34 @@ class ReportPermission
     private const ORDERS = 'Manage Order Reports';
     private const STOCK = 'Manage Stock Reports';
 
+    /*
+     * ANA-001. THE FINANCE REPORT TAKES THE FINANCE PERMISSION, NOT `Manage Reports`, AND THAT IS THE
+     * WHOLE AUTHORIZATION DECISION OF THIS SLICE.
+     *
+     * The traceability row's complaint is that finance is absent from the Reports CENTRE -- it is a
+     * discoverability gap, not an access one. `/finance` already shows these figures behind
+     * `View Finance Dashboard`. Putting the same figures in the centre behind `Manage Reports` would
+     * show a tenant's money to every principal holding a reports permission, which is a strictly
+     * WIDER audience than the screen they come from. So the centre entry requires the SAME permission
+     * as `/finance`: the screen moves, the audience does not.
+     *
+     * `ACTIONS`'s fallback is `Manage Reports` and is fail-CLOSED for an unmapped action, which means
+     * an unmapped finance action would have been admitted by the wrong permission rather than
+     * refused. Mapping it explicitly is what prevents that, and `ReportAuthorizationTest` asserts
+     * every routed report action is mapped, so the omission could not have passed silently.
+     */
+    private const FINANCE = 'View Finance Dashboard';
+
     /** Controller action => the permission of the menu entry that links to it. */
     public const ACTIONS = [
         'index' => self::REPORTS, 'reports_chart' => self::REPORTS, 'export' => self::REPORTS, 'top_product' => self::REPORTS,
+
+        /* ANA-003's scheduled exports. `ACTIONS[$action] ?? self::REPORTS` would already gate these
+           on `Manage Reports` -- the fallback is fail-CLOSED -- but an implicit gate is one nobody
+           can find by reading this map, and a future action that SHOULD carry a different
+           permission would inherit this one silently. Named explicitly for that reason. */
+        'storeSchedule' => self::REPORTS, 'destroySchedule' => self::REPORTS,
+        'storeThresholds' => self::REPORTS,
 
         'OrderReport' => self::ORDERS, 'order_reports_chart' => self::ORDERS, 'order_report_export' => self::ORDERS,
         'order_bar_report_export' => self::ORDERS, 'BarChartOrderReport' => self::ORDERS, 'order_reports_chart_data' => self::ORDERS,
@@ -43,6 +69,8 @@ class ReportPermission
         'OrderSaleCategoryReport' => self::ORDERS, 'order_category_reports' => self::ORDERS, 'category_order_export' => self::ORDERS,
         'OrderDownlodableReport' => self::ORDERS, 'OrderSaleBrandReport' => self::ORDERS, 'order_brand_reports' => self::ORDERS,
         'brand_order_export' => self::ORDERS, 'showOrderStatusReport' => self::ORDERS, 'showCountryOrderReport' => self::ORDERS,
+
+        'financeReport' => self::FINANCE,
 
         'StockReport' => self::STOCK, 'getLowStockProducts' => self::STOCK, 'getOutOfStockProducts' => self::STOCK, 'getMostStockedProducts' => self::STOCK,
     ];
@@ -55,10 +83,14 @@ class ReportPermission
 
         $user = auth('web')->user();
 
-        if ($user !== null) {
-            if (strtolower(trim((string) $user->type)) === 'super admin' || (int) $user->creatorId() === (int) $user->id || $user->isAbleTo($permission)) {
-                return $next($request);
-            }
+        /*
+         * DELEGATED, NOT REIMPLEMENTED. The three checks and their order moved verbatim into
+         * `ReportAccess::permits()` so that a VIEW can ask the same question before offering a link
+         * to a report screen (MKT-001). A null user is refused inside it, which is what the old
+         * `if ($user !== null)` did by falling through to the refusal below.
+         */
+        if (ReportAccess::permits($user, $permission)) {
+            return $next($request);
         }
 
         if ($request->expectsJson() || $request->ajax()) {

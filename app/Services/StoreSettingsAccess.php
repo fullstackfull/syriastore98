@@ -73,7 +73,12 @@ final class StoreSettingsAccess
         'stripe_secret', 'publishable_key', 'stripe_unfo', 'is_stripe_enabled', 'stripe_image',
         'bank_transfer', 'is_bank_transfer_enabled', 'bank_transfer_image',
         'is_cod_enabled', 'cod_info', 'cod_image', 'benefit_mode',
-        'currency', 'currency_name', 'defult_currancy', 'defult_currancy_symbol', 'site_currency_symbol_position',
+        // `currency_symbol` was missing here until 2026-11-22. It is the SECOND link of the chain
+        // `App\Support\Money\OrderCurrencyStamp::symbolFor()` reads, and `defaultSetting()` does not
+        // seed `defult_currancy_symbol` -- so on every store created by registration or by the admin
+        // API this row is what decides the currency symbol stamped onto each order and printed on
+        // its documents. Found by a review of P5-R14, which moved two order writers onto that chain.
+        'currency', 'currency_name', 'currency_symbol', 'defult_currancy', 'defult_currancy_symbol', 'site_currency_symbol_position',
         'loyality_program_enabled', 'reward_point',
         'google_api_audiences', 'google_client_id', 'apple_client_ids', 'facebook_client_id',
         'domains', 'enable_domain', 'subdomain', 'enable_subdomain', 'enable_storelink',

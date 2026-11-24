@@ -99,7 +99,8 @@ class CategoryDataTable extends DataTable
                     $q->where('name', 'like', "%{$keyword}%");
                 });
             })
-            ->rawColumns(['action','image_path','trending','status','icon_path','parent_id']);
+            // P1-SEC-80. `trending` is a translated label (plain text): yajra escapes it.
+            ->rawColumns(['action','image_path','status','icon_path','parent_id']);
         return $dataTable;
     }
 

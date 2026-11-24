@@ -384,6 +384,10 @@ class FinanceNullStoreGuardTest extends SecurityTestCase
         $response = $this->actingAs($staff)
             ->post(route('finance.order-financial.status', $financialId), [
                 'payment_status' => 'paid',
+                // P4-F128 requires a reason on this surface. This case is about
+                // AUTHORIZATION, not the reason field, so it supplies one rather
+                // than having the rule relaxed for it.
+                'reason' => 'Fixture: cash received outside the gateway',
             ]);
 
         $this->assertRefusedForNoStore($response, 'storeless payment-status change');
@@ -437,6 +441,10 @@ class FinanceNullStoreGuardTest extends SecurityTestCase
             'finance.order-financial.status' => fn () => $this->actingAs($staff)
                 ->post(route('finance.order-financial.status', $financialId), [
                     'payment_status' => 'paid',
+                    // P4-F128 requires a reason on this surface. This case is about
+                    // AUTHORIZATION, not the reason field, so it supplies one rather
+                    // than having the rule relaxed for it.
+                    'reason' => 'Fixture: cash received outside the gateway',
                 ]),
         ];
 
@@ -542,6 +550,10 @@ class FinanceNullStoreGuardTest extends SecurityTestCase
         $response = $this->actingAs($this->merchant)
             ->post(route('finance.order-financial.status', $financialId), [
                 'payment_status' => 'paid',
+                // P4-F128 requires a reason on this surface. This case is about
+                // AUTHORIZATION, not the reason field, so it supplies one rather
+                // than having the rule relaxed for it.
+                'reason' => 'Fixture: cash received outside the gateway',
             ]);
 
         $this->assertNull($response->getSession()->get('error'),

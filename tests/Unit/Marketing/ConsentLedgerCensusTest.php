@@ -1,0 +1,483 @@
+<?php
+
+namespace Tests\Unit\Marketing;
+
+use PHPUnit\Framework\TestCase;
+
+/**
+ * WHO MAY WRITE CONSENT, AND WHO MAY NOT. D8 / MKT-008.
+ *
+ * Three structural facts that no behavioural test can establish, because each is about code that does
+ * NOT exist yet:
+ *
+ *   1. NOTHING GRANTS CONSENT FROM AN ORDER, A REGISTRATION OR AN IMPORT. The owner's direction is that
+ *      consent is never inferred from historical orders or existing contacts. `GRANT_CALLERS` is the
+ *      exhaustive list of files allowed to call a granting method. It was EMPTY until D8-3b, because no
+ *      opt-in surface had been built; that day has come, and the ONE entry is the preference centre, where
+ *      a signed-in person ticks a box about their own address. The list still answers the same question --
+ *      which file records permission, and from what form -- and a second entry is a finding until a
+ *      reviewer adds it on purpose.
+ *   2. ONLY THE LEDGER (AND THE TOKEN SERVICE) TOUCH THE CONSENT TABLES. A second writer could put a row in `granted`
+ *      that no event supports, or append an event the projection never hears about, and the send gate reads the
+ *      projection. The first version of this census matched a handful of write verbs -- `::create`, `::query()->update`,
+ *      `DB::table('...')` -- and an independent review showed it missed `::where()->update()`, `::forceCreate`,
+ *      `::updateOrInsert`, `::truncate`, `::destroy`, `app(Model::class)`, `DB::connection('x')->table(...)` and
+ *      `DELETE FROM`, and did not look at the evidence model's Eloquent INSERTs at all. A list of verbs cannot be
+ *      exhaustive, so this census inverts the question: it does not ask "does this file WRITE", it asks "does this file
+ *      NAME the model or the table", and the answer must be on an explicit list per class (MAY_NAME_THE_MODEL). A file
+ *      that only reads consent through `ConsentLedger::stateOf()` or `MarketingSendGate` never names a model and needs
+ *      nothing; a file that wants to must be added here, on purpose, where a reviewer sees it.
+ *   3. THE TABLE NAMES APPEAR ONLY IN THEIR OWN MODEL AND THEIR MIGRATIONS, which is what keeps raw SQL
+ *      (`DB::table`, `DB::connection()->table`, `DELETE FROM`, `TRUNCATE`) out. A table name assembled at run time cannot
+ *      be seen by any text census, and that limit is stated here instead of implied.
+ *
+ * Comments are stripped before searching, so prose that names these things cannot satisfy or trip a check.
+ */
+class ConsentLedgerCensusTest extends TestCase
+{
+    /**
+     * Repo-relative files allowed to call `grant()`/`liftSuppression()` on a ConsentLedger.
+     *
+     * IT WAS EMPTY UNTIL D8-3b, and the emptiness was the point: consent is never inferred from an order,
+     * a registration or an address book, so nothing in the product could write a `granted` event at all.
+     * The ONE entry is the preference centre -- a person ticking a box about themselves while signed in as
+     * themselves, with the store taken from their own customer row and each address normalised from it,
+     * never from the request. `CommunicationPreferencesTest` proves the two cases that would make it a
+     * hole: a request body naming another shopper's store and address, and the page opened under another
+     * store's slug. Anything else that wants to grant is a finding until a reviewer adds it here on
+     * purpose and can say where the person said yes.
+     *
+     * @var list<string>
+     */
+    private const GRANT_CALLERS = [
+        'app/Http/Controllers/Marketing/CommunicationPreferencesController.php',
+    ];
+
+    /**
+     * Who may call `withdrawByHash()`. The hash of (store, channel, address) is computable by anyone who knows a store id and can guess an
+     * address -- by design, the sender must be able to recompute it -- so a bare hash is NOT a credential. The only thing that turns one
+     * into permission to withdraw is a TOKEN, and `UnsubscribeTokens` is the one class that holds the token-to-hash binding. A route
+     * that forwarded a request-supplied hash here would be an unauthenticated "withdraw anyone" endpoint, so a new caller is added on purpose.
+     *
+     * @var list<string>
+     */
+    private const WITHDRAW_BY_HASH_CALLERS = ['app/Services/Marketing/UnsubscribeTokens.php'];
+
+    /**
+     * Who may NAME each consent model (import it, type-hint it, `::` it, `app()` it). Anything not listed is a finding.
+     *
+     * @var array<string, list<string>>
+     */
+    private const MAY_NAME_THE_MODEL = [
+        'MarketingConsentEvent' => [
+            'app/Models/MarketingConsentEvent.php',
+            'app/Services/Marketing/ConsentLedger.php',
+            'app/Services/Marketing/UnsubscribeTokens.php', // return type of redeem()
+        ],
+        'MarketingContactState' => [
+            'app/Models/MarketingContactState.php',
+            'app/Services/Marketing/ConsentLedger.php',
+        ],
+        'MarketingUnsubscribeToken' => [
+            'app/Models/MarketingUnsubscribeToken.php',
+            'app/Services/Marketing/UnsubscribeTokens.php',
+        ],
+    ];
+
+    /**
+     * The three migrations that create the consent tables, by EXACT name. An earlier version exempted every file whose name began with
+     * the date they were written, which would also have exempted a backfill migration written that day -- and D8 forbids a backfill.
+     *
+     * @var list<string>
+     */
+    private const MIGRATIONS = [
+        'database/migrations/2026_11_18_000100_create_marketing_consent_events_table.php',
+        'database/migrations/2026_11_18_000200_create_marketing_contact_states_table.php',
+        'database/migrations/2026_11_18_000300_create_marketing_unsubscribe_tokens_table.php',
+    ];
+
+    /** @var array<string, string> table => the one non-migration file that may name it */
+    private const TABLE_OWNER = [
+        'marketing_consent_events' => 'app/Models/MarketingConsentEvent.php',
+        'marketing_contact_states' => 'app/Models/MarketingContactState.php',
+        'marketing_unsubscribe_tokens' => 'app/Models/MarketingUnsubscribeToken.php',
+    ];
+
+    /** @return array<string, string> repo-relative path => comment-stripped source */
+    private function sources(): array
+    {
+        $root = dirname(__DIR__, 3);
+        $out = [];
+
+        foreach (['app', 'packages/workdo', 'routes', 'bootstrap', 'config', 'database', 'resources'] as $dir) {
+            $path = $root.'/'.$dir;
+
+            if (! is_dir($path)) {
+                continue;
+            }
+
+            $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS));
+
+            foreach ($iterator as $file) {
+                if (! $file->isFile() || $file->getExtension() !== 'php') {
+                    continue;
+                }
+
+                $relative = substr($file->getPathname(), strlen($root) + 1);
+                $code = '';
+
+                foreach (token_get_all((string) file_get_contents($file->getPathname())) as $token) {
+                    if (is_array($token)) {
+                        if (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                            continue;
+                        }
+                        $code .= $token[1];
+                    } else {
+                        $code .= $token;
+                    }
+                }
+
+                $out[$relative] = $code;
+            }
+        }
+
+        return $out;
+    }
+
+    public function test_the_premise_the_ledger_and_its_models_exist(): void
+    {
+        $sources = $this->sources();
+
+        foreach (['app/Services/Marketing/ConsentLedger.php', 'app/Models/MarketingContactState.php', 'app/Models/MarketingConsentEvent.php'] as $file) {
+            $this->assertArrayHasKey($file, $sources, $file.' has moved: this census is reading the wrong tree');
+        }
+    }
+
+    /**
+     * @param  array<string, string>  $sources
+     * @return list<string>
+     */
+    private function grantOffenders(array $sources): array
+    {
+        $offenders = [];
+
+        foreach ($sources as $file => $code) {
+            if ($file === 'app/Services/Marketing/ConsentLedger.php' || ! str_contains($code, 'ConsentLedger')) {
+                continue;
+            }
+
+            // A direct call, the verb as a string (`[$ledger, 'grant']`, `call_user_func`), or a dynamic method name (`$ledger->{$verb}(...)`).
+            // Only files that name the ledger are examined, so the dynamic-call test is not a ban on `->{` anywhere else.
+            $grants = preg_match('/->\s*(grant|liftSuppression)\s*\(/', $code)
+                || preg_match('/[\'"](grant|liftSuppression)[\'"]/', $code)
+                || preg_match('/->\s*\{/', $code);
+
+            if ($grants && ! in_array($file, self::GRANT_CALLERS, true)) {
+                $offenders[] = $file;
+            }
+        }
+
+        return $offenders;
+    }
+
+    public function test_only_the_listed_files_call_a_granting_method(): void
+    {
+        $this->assertSame([], $this->grantOffenders($this->sources()),
+            "These files call a granting method on the consent ledger and are not on the allow-list. Consent is never inferred "
+            ."from an order, a registration or an import; a new opt-in surface must be added to GRANT_CALLERS on purpose.");
+    }
+
+    /**
+     * @param  array<string, string>  $sources  repo-relative path => comment-stripped source
+     * @return list<string>
+     */
+    private function modelNameOffenders(array $sources): array
+    {
+        $offenders = [];
+
+        foreach ($sources as $file => $code) {
+            foreach (self::MAY_NAME_THE_MODEL as $model => $allowed) {
+                if (preg_match('/\b'.$model.'\b/', $code) && ! in_array($file, $allowed, true)) {
+                    $offenders[] = $file.' names '.$model;
+                }
+            }
+        }
+
+        return $offenders;
+    }
+
+    /**
+     * @param  array<string, string>  $sources
+     * @return list<string>
+     */
+    private function tableNameOffenders(array $sources): array
+    {
+        $offenders = [];
+
+        foreach ($sources as $file => $code) {
+            foreach (self::TABLE_OWNER as $table => $owner) {
+                if (! str_contains($code, $table)) {
+                    continue;
+                }
+
+                if ($file === $owner || in_array($file, self::MIGRATIONS, true)) {
+                    continue;
+                }
+
+                $offenders[] = $file.' names '.$table;
+            }
+        }
+
+        return $offenders;
+    }
+
+    /**
+     * @param  array<string, string>  $sources
+     * @return list<string>
+     */
+    private function bareHashWithdrawalOffenders(array $sources): array
+    {
+        $offenders = [];
+
+        foreach ($sources as $file => $code) {
+            if ($file === 'app/Services/Marketing/ConsentLedger.php' || in_array($file, self::WITHDRAW_BY_HASH_CALLERS, true)) {
+                continue;
+            }
+
+            if (preg_match('/\bwithdrawByHash\b/', $code)) {
+                $offenders[] = $file;
+            }
+        }
+
+        return $offenders;
+    }
+
+    public function test_only_the_token_service_withdraws_from_a_bare_hash(): void
+    {
+        $this->assertSame([], $this->bareHashWithdrawalOffenders($this->sources()),
+            'withdrawByHash() accepts a hash, and a hash is not a credential. Only UnsubscribeTokens may call it, because only a token proves the holder was sent the link.');
+    }
+
+    public function test_only_the_listed_files_name_a_consent_model(): void
+    {
+        $this->assertSame([], $this->modelNameOffenders($this->sources()),
+            "These files name a consent model and are not on its list. The projection is what the send gate reads, so a file that can write it "
+            ."can grant consent no event supports; a file that can write the evidence can append what the projection never hears about. "
+            ."Add a file to MAY_NAME_THE_MODEL on purpose, after reading what it does with the model.");
+    }
+
+    public function test_the_consent_table_names_appear_only_in_their_model_and_their_migration(): void
+    {
+        $this->assertSame([], $this->tableNameOffenders($this->sources()),
+            'A consent table name outside its own model and its migration is raw SQL or a second model, and either bypasses the append-only guards.');
+    }
+
+    public function test_the_census_catches_the_shapes_the_first_version_missed_and_spares_the_listed_files(): void
+    {
+        // A census that cannot fail is a trap. The rules are run here over SYNTHETIC sources, so each shape an independent review
+        // showed the verb list let through must be an offence, and a listed file must not be.
+        $shapes = [
+            'MarketingContactState::where("store_id", 1)->update(["status" => "granted"]);',
+            'MarketingContactState::forceCreate([]);',
+            'MarketingContactState::query()->where("a", 1)->update([]);',
+            'MarketingContactState::truncate();',
+            'MarketingContactState::destroy(1);',
+            'app(MarketingContactState::class)->newQuery();',
+            'MarketingConsentEvent::insert($rows);',
+            'MarketingUnsubscribeToken::query()->delete();',
+        ];
+
+        foreach ($shapes as $i => $code) {
+            $this->assertCount(1, $this->modelNameOffenders(['app/Http/Controllers/ImportController.php' => $code]), "not seen: {$code}");
+        }
+
+        foreach ([
+            'DB::connection("x")->table("marketing_consent_events")->delete();',
+            'DELETE FROM marketing_consent_events',
+            'TRUNCATE TABLE marketing_contact_states',
+            'DB::table($t = "marketing_unsubscribe_tokens")->delete();',
+        ] as $code) {
+            $this->assertCount(1, $this->tableNameOffenders(['app/Console/Commands/Purge.php' => $code]), "not seen: {$code}");
+        }
+
+        foreach ([
+            '$ledger = app(ConsentLedger::class); $ledger->grant(1, $c, $a, "x");',
+            '$ledger = app(ConsentLedger::class); $ledger->{$verb}(1, $c, $a, "x");',
+            'use App\\Services\\Marketing\\ConsentLedger; call_user_func([$ledger, "grant"], 1, $c, $a, "x");',
+            'ConsentLedger $l; [$l, \'liftSuppression\'](1, $c, $a, "x");',
+        ] as $code) {
+            $this->assertCount(1, $this->grantOffenders(['app/Http/Controllers/Import.php' => $code]), "not seen: {$code}");
+        }
+        $this->assertSame([], $this->grantOffenders(['app/Http/Controllers/Reader.php' => '$x->{$y}(); // no ledger here']), 'a dynamic call in a file that never names the ledger is not this census\'s business');
+
+        $this->assertCount(1, $this->bareHashWithdrawalOffenders(['app/Http/Controllers/QuickUnsub.php' => '$ledger->withdrawByHash($s, $c, $request->hash, null, "x");']));
+        $this->assertSame([], $this->bareHashWithdrawalOffenders(['app/Services/Marketing/UnsubscribeTokens.php' => '$this->ledger->withdrawByHash($a, $b, $c, $d, $e);']));
+
+        // The listed files are not offenders, and neither is a file that never names a model.
+        $this->assertSame([], $this->modelNameOffenders([
+            'app/Services/Marketing/ConsentLedger.php' => 'MarketingContactState::query(); MarketingConsentEvent::create([]);',
+            'app/Http/Controllers/Unrelated.php' => '$ledger->stateOf(1, $channel, $address);',
+        ]));
+        $this->assertSame([], $this->tableNameOffenders([
+            'app/Models/MarketingConsentEvent.php' => "protected \$table = 'marketing_consent_events';",
+            self::MIGRATIONS[0] => "Schema::create('marketing_consent_events');",
+        ]));
+
+        // And the census reads the real tree, so the same rules over it are not vacuous.
+        $this->assertGreaterThan(1000, count($this->sources()), 'the census read almost nothing, so passing proves nothing');
+    }
+
+    /**
+     * The files that may NAME and call `->decide()` on the gate. Each is a wired send-boundary SEAM, and each is added only
+     * together with its own classification of the senders behind it:
+     *   - the email seam (EnforceMarketingConsentOnMail) -- senders classified by the MailSenderRegistry;
+     *   - the WhatsApp abandoned-basket nudge (AbandonedMessageDispatch) -- the one first-party WhatsApp MARKETING sender,
+     *     classified in docs/development/phase-5/PHASE-05-MKT-008-SENDER-CENSUS-2026-11-17.md §5. It names the gate and calls
+     *     ->decide() inline (not an event listener), so it is listed here but NOT registered in EventServiceProvider.
+     * SMS and push carry no marketing sender (same §5 -- operational self-alerts and a user-requested back-in-stock), so they
+     * are deliberately NOT here.
+     *
+     * @var list<string>
+     */
+    private const GATE_CALLERS = [
+        'app/Services/Marketing/EnforceMarketingConsentOnMail.php',
+        'app/Services/AbandonedMessageDispatch.php',
+    ];
+
+    /**
+     * Files that may NAME the gate and read its MODE, but may never call `->decide()` and must reference no sender.
+     *
+     * WHY THIS LIST EXISTS, added with MKT-007 (2026-11-21). "Names the gate" and "sends through the gate" were one rule, because
+     * until now every file that named it was a seam. MKT-007 is the first case that separates them: the recovery sweep and its
+     * screen read `mode()` to decide what to RECORD and what to SAY -- "nothing was sent, and this is the gate that held it" --
+     * and neither can send, which a sender census in `RecoveryCandidateDetectionTest` asserts by name.
+     *
+     * PUTTING THEM IN `GATE_CALLERS` WOULD HAVE BEEN THE WRONG FIX and is worth recording as rejected: that list means "a wired
+     * send-boundary seam with its own sender census", and membership also exempts a file from the `->decide()` rule. These files
+     * must stay subject to it. So they get a list of their own, the `->decide()` rule still applies to them, and the assertion
+     * below holds them to naming no sender either -- which is strictly stronger than the exemption would have been.
+     *
+     * A file here is NOT protection: it reads whether enforcement is on, it does not enforce anything.
+     *
+     * @var list<string>
+     */
+    private const GATE_MODE_READERS = [
+        'app/Console/Commands/DetectRecoveryCandidates.php',
+        'app/Http/Controllers/RecoveryQueueController.php',
+        /*
+         * `resources/views/recovery_queue/index.blade.php` WAS HERE AND WAS REMOVED after review.
+         * It was listed because a Blade COMMENT named the gate, and `sources()` cannot strip a
+         * Blade comment -- `token_get_all` on a file with no `<?php` returns one `T_INLINE_HTML`
+         * token, which this census appends whole. So the exemption bought nothing but permission
+         * for prose, and worse, the sender assertion below would then have run against that
+         * unstripped prose: a future comment saying "this screen deliberately does not use
+         * `Mail::`" would FAIL the census. That is the comment trap CLAUDE.md records four times
+         * over, in the Blade syntax it names. The view's comment was reworded instead, so it
+         * names no class and needs no exemption.
+         */
+    ];
+
+    /**
+     * Senders a mode reader must not reference. A reader that could send is a seam pretending not to be one.
+     *
+     * ONE CONSTANT, READ BY THIS CENSUS AND BY `RecoveryCandidateDetectionTest`, because two lists
+     * of sender names drift and the drift is invisible: the one that is short stops catching things
+     * and still passes. Review found the first list already missing two, which is the argument.
+     *
+     * `sendEmailTemplate` AND `NudgeGate` ARE THE TWO THAT WERE MISSING, and they are the project's
+     * REAL first-party senders in the comparable feature: `CartController`'s own recovery click
+     * calls `Utility::sendEmailTemplate('Abandon Cart', ...)` and reserves through
+     * `NudgeGate::reserve()` before `AbandonedMessageDispatch::handOver()`. A reader calling either
+     * would have passed both censuses.
+     *
+     * @var list<string>
+     */
+    public const SENDER_MARKERS = [
+        'AbandonedMessageDispatch',
+        'SendMsgs',
+        'Mail::',
+        'Notification::',
+        'NudgeLedger',
+        'NudgeGate',
+        'sendEmailTemplate',
+        'handOver',
+    ];
+
+    /**
+     * @param  array<string, string>  $sources
+     * @return list<string>
+     */
+    private function gateCallerOffenders(array $sources): array
+    {
+        $offenders = [];
+
+        foreach ($sources as $file => $code) {
+            $insideTheStore = str_starts_with($file, 'app/Services/Marketing/');
+
+            // Outside the store's own directory, naming the gate at all is wiring it -- unless the file is a listed seam.
+            /*
+             * A MODE READER MAY NAME THE GATE. It may not call `->decide()` -- the rule below still applies to it -- and the
+             * separate assertion in `test_the_gate_is_called_only_from_the_listed_seams` holds it to naming no sender.
+             */
+            $isModeReader = in_array($file, self::GATE_MODE_READERS, true);
+
+            if (! $insideTheStore && ! $isModeReader && ! in_array($file, self::GATE_CALLERS, true) && str_contains($code, 'MarketingSendGate')) {
+                $offenders[] = $file.' names MarketingSendGate';
+            }
+
+            if (preg_match('/->\s*decide\s*\(/', $code) && ! in_array($file, self::GATE_CALLERS, true)) {
+                $offenders[] = $file.' calls ->decide()';
+            }
+        }
+
+        return $offenders;
+    }
+
+    public function test_the_gate_is_called_only_from_the_listed_seams(): void
+    {
+        // Enforcement is per channel and each seam needs its own classification of the senders behind it. Two are wired, each in one
+        // file: email (EnforceMarketingConsentOnMail) and the WhatsApp abandoned-basket nudge (AbandonedMessageDispatch). SMS and push
+        // carry no marketing sender and are deliberately unwired. Until a seam is wired on purpose, an unwired channel must read as
+        // unwired, not as protection -- so a THIRD ->decide() caller is a finding until it is added to GATE_CALLERS with its census.
+        $this->assertSame([], $this->gateCallerOffenders($this->sources()),
+            'MarketingSendGate gained a caller. A new seam needs its own sender census; add it to GATE_CALLERS together with that census, '
+            .'so "wired" is a statement about named files and not an assumption.');
+
+        $sources = $this->sources();
+
+        /*
+         * EVERY MODE READER IS HELD TO BEING ONLY THAT. The exemption above lets it name the gate; this is what stops the
+         * exemption becoming a hole. A reader that referenced a sender would be a seam pretending not to be one -- it would read
+         * whether enforcement is on and then send anyway, outside every census that classifies senders.
+         */
+        foreach (self::GATE_MODE_READERS as $reader) {
+            $this->assertArrayHasKey($reader, $sources,
+                'a file is listed as a gate mode reader but does not exist, so the assertion below is vacuous');
+
+            foreach (self::SENDER_MARKERS as $sender) {
+                $this->assertStringNotContainsString($sender, $sources[$reader],
+                    $reader.' is listed as a gate MODE READER but references the sender `'.$sender.'`. A reader reports '
+                    .'whether enforcement is on; it must not be able to send.');
+            }
+        }
+
+        $this->assertArrayHasKey('app/Services/Marketing/EnforceMarketingConsentOnMail.php', $sources);
+        $this->assertStringContainsString('EnforceMarketingConsentOnMail::class', $sources['app/Providers/EventServiceProvider.php'] ?? '',
+            'the email seam exists but is not registered, so it protects nothing');
+    }
+
+    public function test_the_gate_census_would_catch_a_second_seam(): void
+    {
+        // Outside the store's directory, naming the gate AND calling it are two findings.
+        $this->assertCount(2, $this->gateCallerOffenders(['app/Models/Utility.php' => '(new MarketingSendGate($l))->decide(1, $c, $k, $a);']));
+        $this->assertCount(1, $this->gateCallerOffenders(['app/Models/Utility.php' => 'use App\\Services\\Marketing\\MarketingSendGate;']));
+        $this->assertCount(1, $this->gateCallerOffenders(['app/Services/Marketing/SomethingElse.php' => '$this->gate->decide(1, $c, $k, $a);']));
+        $this->assertSame([], $this->gateCallerOffenders(['app/Services/Marketing/EnforceMarketingConsentOnMail.php' => '$this->gate->decide(1, $c, $k, $a);']));
+        $this->assertSame([], $this->gateCallerOffenders(['app/Services/Marketing/MarketingSendGate.php' => 'public function decide(int $s) {}']));
+
+        // A LISTED seam OUTSIDE the store directory (the WhatsApp nudge) is spared BOTH the name and the call offence...
+        $this->assertSame([], $this->gateCallerOffenders(['app/Services/AbandonedMessageDispatch.php' => 'use App\\Services\\Marketing\\MarketingSendGate; app(MarketingSendGate::class)->decide(1, $c, $k, $a);']));
+        // ...while a DIFFERENT, unlisted file outside the store directory still trips both, so the exemption is per-file, not a hole.
+        $this->assertCount(2, $this->gateCallerOffenders(['app/Services/SomethingNew.php' => 'use App\\Services\\Marketing\\MarketingSendGate; app(MarketingSendGate::class)->decide(1, $c, $k, $a);']));
+    }
+}

@@ -29,7 +29,7 @@ class RouteCensusGateTest extends TestCase
     private const MODULE_ROUTE_FLOOR = 1400;
     private const ANONYMOUS_MODULE_ROUTE_FLOOR = 400;
 
-    private const RULES = ['auth', 'operator', 'owner:campaign', 'owner:campaign-route', 'owner:helpdesk-ticket', 'owner:helpdesk-ticket-link', 'owner:email-template', 'owner:duo-setting', 'settings:store', 'settings:global'];
+    private const RULES = ['auth', 'operator', 'owner:campaign', 'owner:campaign-route', 'owner:helpdesk-ticket', 'owner:helpdesk-ticket-link', 'owner:helpdesk-ticket-row', 'owner:email-template', 'owner:duo-setting', 'settings:store', 'settings:global'];
 
     private static ?array $census = null;
 
@@ -111,6 +111,94 @@ class RouteCensusGateTest extends TestCase
             . "where ModuleAdministrativeRouteGuard will require a signed-in user, or to ANONYMOUS_BY_DESIGN with the reason):\n" . implode("\n", array_map(fn ($k, $m) => "  [{$m}] {$k}", array_keys($bad), $bad)));
     }
 
+    /**
+     * P1-SEC-64b. EVERY MODULE ROUTE THAT READS OR WRITES AN E-MAIL TEMPLATE IS OWNER-GUARDED.
+     *
+     * The first gate above judges only routes with NO authentication middleware, so a template writer behind `auth` was never looked at: the independent
+     * review of P1-SEC-64 found LotteryPrizes' `PUT lottery_email_lang/{id}` rewriting ANY template (the write-up said seven module copies were guarded;
+     * the manifest named six). This judges ALL module routes -- authenticated or not -- whose URI or handler names an e-mail template, and requires the
+     * `owner:email-template` rule, except the two below, each with its reason. Pure, so its bite can be shown on a synthetic table.
+     *
+     * @return array<string,string> `METHOD uri` => module
+     */
+    public static function unguardedEmailTemplateRoutes(array $rows, array $administrative, array $exceptions): array
+    {
+        $bad = [];
+
+        foreach ($rows as $row) {
+            if ($row['module'] === null || ! preg_match(self::EMAIL_TEMPLATE_ROUTE, $row['uri'] . ' ' . (string) $row['action'])) {
+                continue;
+            }
+
+            $key = $row['method'] . ' ' . $row['uri'];
+
+            if (isset($exceptions[$key])) {
+                continue;
+            }
+
+            if (($administrative[$key] ?? null) !== 'owner:email-template') {
+                $bad[$key] = $row['module'];
+            }
+        }
+
+        ksort($bad);
+
+        return $bad;
+    }
+
+    private const EMAIL_TEMPLATE_ROUTE = '/email_?(template|lang)|EmailLang|EmailSettings|EmailTemplate|email-template/i';
+
+    /** Routes the pattern matches that are NOT template-row readers or writers, each with the reason. */
+    private const EMAIL_TEMPLATE_EXCEPTIONS = [
+        'POST couponemail-settings' => 'a settings writer behind settings:global (StoreSettingsAccess); it stores a setting, not an email_templates row',
+        'GET lottery_email_template_lang/{lang?}' => "lists only the caller's own rows (created_by = Auth id) behind the 'Manage Lottery Mail Setting' permission",
+    ];
+
+    public function test_every_module_route_that_touches_an_email_template_is_owner_guarded(): void
+    {
+        $rows = $this->census()['routes'];
+        $matched = array_filter($rows, fn ($r) => $r['module'] !== null && preg_match(self::EMAIL_TEMPLATE_ROUTE, $r['uri'] . ' ' . (string) $r['action']));
+
+        // NON-VACUITY: 17 routes matched when this was written; a pattern that stops matching must not turn the gate into a pass
+        $this->assertGreaterThanOrEqual(14, count($matched), 'The e-mail-template pattern matched suspiciously few module routes.');
+
+        $bad = self::unguardedEmailTemplateRoutes($rows, ModuleRouteManifest::ADMINISTRATIVE, self::EMAIL_TEMPLATE_EXCEPTIONS);
+
+        $this->assertSame([], $bad, "Module routes that read or write an e-mail template and are not classified 'owner:email-template' in App\\Support\\ModuleRouteManifest:\n"
+            . implode("\n", array_map(fn ($k, $m) => "  [{$m}] {$k}", array_keys($bad), $bad)));
+    }
+
+    public function test_the_email_template_gate_fails_on_an_unguarded_template_writer(): void
+    {
+        $row = fn (string $method, string $uri, string $action) => ['method' => $method, 'uri' => $uri, 'action' => $action, 'module' => 'Fake', 'name' => null, 'authenticated' => true, 'middleware' => ['auth']];
+
+        $rows = [
+            $row('PUT', 'fake/update-mail/{id}', 'Workdo\\Fake\\Controller@updateFakeEmailSettings'),    // matched by the handler name, behind auth
+            $row('GET', 'fake/email_template_lang/{id}', 'Workdo\\Fake\\Controller@show'),               // matched by the uri
+            $row('GET', 'fake/unrelated', 'Workdo\\Fake\\Controller@index'),                             // not an e-mail template route
+        ];
+
+        $this->assertSame(
+            ['GET fake/email_template_lang/{id}' => 'Fake', 'PUT fake/update-mail/{id}' => 'Fake'],
+            self::unguardedEmailTemplateRoutes($rows, [], []),
+            'The gate did not name an authenticated, unguarded template writer.'
+        );
+
+        $this->assertSame([], self::unguardedEmailTemplateRoutes($rows, [
+            'PUT fake/update-mail/{id}' => 'owner:email-template',
+            'GET fake/email_template_lang/{id}' => 'owner:email-template',
+        ], []), 'A guarded route was reported.');
+
+        $this->assertSame(['PUT fake/update-mail/{id}' => 'Fake'], self::unguardedEmailTemplateRoutes($rows, ['GET fake/email_template_lang/{id}' => 'owner:email-template'], []), 'No entry must not satisfy the gate.');
+        // a route that IS in the table under a weaker rule is still unguarded for this purpose: `auth` admits every signed-in user, which is the defect
+        $this->assertSame(
+            ['GET fake/email_template_lang/{id}' => 'Fake', 'PUT fake/update-mail/{id}' => 'Fake'],
+            self::unguardedEmailTemplateRoutes($rows, ['PUT fake/update-mail/{id}' => 'auth', 'GET fake/email_template_lang/{id}' => 'settings:global'], []),
+            'A different rule must not satisfy the gate.'
+        );
+        $this->assertSame(['GET fake/email_template_lang/{id}' => 'Fake'], self::unguardedEmailTemplateRoutes($rows, [], ['PUT fake/update-mail/{id}' => 'excepted']), 'An exception must exempt exactly its own key.');
+    }
+
     public function test_the_gate_fails_on_a_deliberately_unclassified_administrative_route(): void
     {
         $rows = $this->census()['routes'];
@@ -133,7 +221,9 @@ class RouteCensusGateTest extends TestCase
         $this->assertSame([], array_keys(array_intersect_key(ModuleRouteManifest::ADMINISTRATIVE, ModuleRouteManifest::ANONYMOUS_BY_DESIGN)));
 
         foreach (ModuleRouteManifest::ADMINISTRATIVE as $key => $rule) {
-            $known = in_array($rule, self::RULES, true) || preg_match('/^store-row:[a-z_]+:\w+$/', $rule) === 1;
+            $known = in_array($rule, self::RULES, true)
+                || preg_match('/^store-row:[a-z_]+:\w+$/', $rule) === 1
+                || preg_match('/^tenant-store:\w+$/', $rule) === 1;
 
             $this->assertTrue($known, "{$key} has an unknown rule '{$rule}': the guard would fail it closed for everyone but the operator.");
         }
@@ -175,6 +265,7 @@ class RouteCensusGateTest extends TestCase
             \App\Http\Middleware\OrderDocumentAccessGuard::class => array_key_exists($row['uri'], $const('TARGETS')),
             \App\Http\Middleware\Duo2FALoginGuard::class => str_ends_with((string) $row['action'], $const('ACTION_SUFFIX')),
             \App\Http\Middleware\ModuleStorefrontInputGuard::class => in_array($row['name'], $const('ROUTE_NAMES'), true),
+            \App\Http\Middleware\CampaignIntentOwnershipGuard::class => in_array($row['uri'], $const('TARGETS'), true),
             default => false,
         };
     }

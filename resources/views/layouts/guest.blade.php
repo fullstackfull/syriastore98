@@ -246,7 +246,7 @@
 
     <style>
         :root {
-            --color-customColor: <?=$setting['color'] ?? 'linear-gradient(141.55deg, rgba(240, 244, 243, 0) 3.46%, #ffffff 99.86%)' ?>;
+            --color-customColor: {{ \App\Support\Branding\StoreColour::forCss($setting['color'] ?? null, 'linear-gradient(141.55deg, rgba(240, 244, 243, 0) 3.46%, #ffffff 99.86%)') }};
         }
     </style>
     <style>

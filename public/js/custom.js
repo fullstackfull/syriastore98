@@ -140,7 +140,7 @@ $(document).on('click', 'a[data-ajax-popup="true"], button[data-ajax-popup="true
     var title = $(this).data('title');
     var size = ($(this).attr('data-size') == '') ? 'md' : $(this).attr('data-size');
     var url = $(this).data('url');
-    $("#commanModel .modal-title").html(title);
+    $("#commanModel .modal-title").text(title); /* P1-SEC-80 round 4: a title is text, whatever a data-title attribute holds */
     $("#commanModel .modal-dialog").removeClass('modal-lg').removeClass('modal-md').removeClass('modal-sm');
     $("#commanModel .modal-dialog").addClass('modal-' + size);
 
@@ -176,7 +176,7 @@ $(document).on('click', 'a[data-ajax-popup-over="true"], button[data-ajax-popup-
     var title = $(this).data('title');
     var size = ($(this).attr('data-size') == '') ? 'md' : $(this).attr('data-size');
     var url = $(this).data('url');
-    $("#commanModelOver .modal-title").html(title);
+    $("#commanModelOver .modal-title").text(title); /* P1-SEC-80 round 4 */
     $("#commanModelOver .modal-dialog").removeClass('modal-lg').removeClass('modal-md').removeClass('modal-sm');
     $("#commanModelOver .modal-dialog").addClass('modal-' + size);
     $.ajax({
@@ -659,7 +659,7 @@ $(document).on('click', 'a[data-ajax-popup="true"], button[data-ajax-popup="true
     var title = $(this).data('title');
     var size = ($(this).data('size') == '') ? 'md' : $(this).data('size');
     var url = $(this).data('url');
-    $("#commonModal .modal-title").html(title);
+    $("#commonModal .modal-title").text(title); /* P1-SEC-80 round 4 */
     $("#commonModal .modal-dialog").addClass('modal-' + size);
     if ($('#vc_name_hidden').length > 0) {
         data['vc_name'] = $('#vc_name_hidden').val();

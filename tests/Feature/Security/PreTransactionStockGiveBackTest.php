@@ -55,10 +55,12 @@ class PreTransactionStockGiveBackTest extends SecurityTestCase
      *      closes the last in-suite route to a natural throw.
      *
      * SO WHAT IS THE WINDOW WORTH? More than "defence in depth", and the review of this change
-     * corrected me in that direction. The only entrance I had MEASURED is the reward-points
-     * division — `$rewardSetting['reward_points'] ?? 0` used as a divisor — which needs the
-     * `RewardClubPoint` module active. But three entrances in the region after a decrement are
-     * **not** module-gated:
+     * corrected me in that direction. The one entrance that had been MEASURED was the
+     * reward-points division — `$rewardSetting['reward_points'] ?? 0` used as a divisor, needing
+     * the `RewardClubPoint` module active — and AS OF THE P5-9 LOYALTY SLICE (2026-11-17) IT IS
+     * GONE: that division is now App\Support\Money\RewardPointDiscount, which returns no
+     * discount instead of throwing. The window's one measured entrance is therefore SPENT, and
+     * the three below are what it is now worth. They are **not** module-gated:
      *
      *   - any driver-level failure — a lost connection, a deadlock, a timeout — on the
      *     `User::find($store->created_by)` read, on the decrement's own stock re-read, or on

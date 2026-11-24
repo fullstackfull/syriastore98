@@ -2224,6 +2224,44 @@ $Product->cost_price = $request->cost_price;
                 // find before __get, and on PHP 8.3 that is a deprecation. The guard belongs on
                 // the line that writes the NOT NULL column, not three hundred lines away.
                 $product->sale_price = $request->sale_price ?? 0;
+                /*
+                 * GAP-228. THE EDIT FORM DEMANDED THIS VALUE, ACCEPTED IT AND THREW IT AWAY.
+                 *
+                 * `cost_price` is validated `required|numeric|min:0|lte:price` at :1869 with its
+                 * own bespoke messages -- and until now it was never assigned anywhere in
+                 * `update()`. The only write in this 5,000-line file was `store():837`. It is not
+                 * in `Product::$fillable` either, so mass assignment did not rescue it.
+                 *
+                 * So a merchant could not change a cost, and -- the half that matters for money --
+                 * a product carrying a cost of 0 could never be given a real one: the form refuses
+                 * to submit without the field, accepts what is typed, reports success and discards
+                 * it. (`cost_price` is NOT NULL, so "no cost on record" means 0, not NULL.)
+                 *
+                 * WHAT THIS FIX DOES AND DOES NOT DO, stated precisely because the first draft of
+                 * this comment over-claimed it. `store_order_financials.product_cost` is a
+                 * SNAPSHOT taken at order time, and the four surfaces that disclose "at least N
+                 * paid orders have no product cost on record" (/finance, /analytics,
+                 * /finance-reports, the analytics CSV) count rows where that snapshot is 0. So
+                 * this fix does NOT reduce N for orders already placed -- nor should it, because
+                 * those are historical records and rewriting them would be a financial
+                 * modification. What it does is stop the defect PROPAGATING: until now a product
+                 * created with a cost of 0 was stuck at 0 for ever, so every future order of it
+                 * snapshotted 0 and joined the uncosted count. Now a merchant can correct the
+                 * product, and orders placed after the correction carry the real cost.
+                 *
+                 * NO COALESCE, and that is deliberate rather than an oversight copied from the
+                 * neighbour above: `sale_price` is validated `nullable` and writes a NOT NULL
+                 * column, which is why IT needs `?? 0`. `cost_price` is validated `required` on
+                 * this branch, so an absent value cannot reach here -- and defaulting it to 0
+                 * would be worse than failing, because 0 is a MEANINGFUL cost ("this costs me
+                 * nothing") and must not be how "they sent nothing" is recorded.
+                 *
+                 * THE VARIANT BRANCH IS DELIBERATELY NOT TOUCHED. `cost_price` appears in neither
+                 * the variant rule set nor `store()`'s variant path; a variant product's parent
+                 * row carries `price = 0` because the money lives per variant. Giving the parent
+                 * a cost there would invent a figure. Recorded on `GAP-228`, not assumed.
+                 */
+                $product->cost_price = $request->cost_price;
 
 
                 if ($request->track_stock == 0) {
@@ -4689,13 +4727,13 @@ $Product->cost_price = $request->cost_price;
 
                         $productprice = currency_format_with_sym($productprice, $store_id->id);
                         $output .= ' <div class="col-xl-4 col-lg-6 col-sm-6 col-xs-6 col-12">
-                                    <div class="tab-pane fade show active toacart w-100" data-url="' . url('/addToCart/' . $product->id . '/' . $lastsegment) . '">
+                                    <div class="tab-pane fade show active toacart w-100" data-url="' . e(url('/addToCart/' . $product->id . '/' . $lastsegment)) . '">
                                         <div class="btn-primary position-relative card">
-                                            <img alt="Image placeholder" src="' . asset($image_url) . '" class="card-image avatar hover-shadow-lg" style=" height: 6rem; width: 100%;">
+                                            <img alt="Image placeholder" src="' . e(asset($image_url)) . '" class="card-image avatar hover-shadow-lg" style=" height: 6rem; width: 100%;">
                                             <div class="p-0 custom-card-body card-body d-flex ">
                                                 <div class="card-body my-2 p-2 text-center card-bottom-content">
-                                                <h6 class="mb-2 text-dark product-title-name">' . $product->name . '</h6>
-                                                <p class="mb-2 text-dark product-title-name small">' . $product->slug . '</p>
+                                                <h6 class="mb-2 text-dark product-title-name">' . e($product->name) . '</h6>
+                                                <p class="mb-2 text-dark product-title-name small">' . e($product->slug) . '</p>
                                                 <small class="text-primary">' . $productprice . '</small>
                                                 <small class="top-badge p-2 badge-danger mb-0">' . $quantity . '</small>
                                             </div>
@@ -4706,13 +4744,13 @@ $Product->cost_price = $request->cost_price;
                     } else {
 
                         $output .= ' <div class="col-xl-4 col-lg-6 col-sm-6 col-xs-6 col-12">
-                                <div class="tab-pane fade show active toacart w-100" data-url="' . url('/pos/product-variant/' . $product->id . '/' . $lastsegment) . '" data-ajax-popup="true" data-size="lg" data-align="centered" data-title="Product Variant">
+                                <div class="tab-pane fade show active toacart w-100" data-url="' . e(url('/pos/product-variant/' . $product->id . '/' . $lastsegment)) . '" data-ajax-popup="true" data-size="lg" data-align="centered" data-title="Product Variant">
                                     <div class="btn-primary position-relative card">
-                                        <img alt="Image placeholder" src="' . asset($image_url) . '" class="card-image avatar hover-shadow-lg" style=" height: 6rem; width: 100%;">
+                                        <img alt="Image placeholder" src="' . e(asset($image_url)) . '" class="card-image avatar hover-shadow-lg" style=" height: 6rem; width: 100%;">
                                         <div class="p-0 custom-card-body card-body d-flex ">
                                             <div class="card-body my-2 p-2 text-center card-bottom-content">
-                                                <h6 class="mb-2 text-dark product-title-name">' . $product->name . '</h6>
-                                                <p class="mb-2 text-dark product-title-name small">' . $product->slug . '</p>
+                                                <h6 class="mb-2 text-dark product-title-name">' . e($product->name) . '</h6>
+                                                <p class="mb-2 text-dark product-title-name small">' . e($product->slug) . '</p>
                                                 <small class="text-primary">In Variant</small>
                                             </div>
                                         </div>
@@ -4810,13 +4848,13 @@ $Product->cost_price = $request->cost_price;
 
                         $productprice = currency_format_with_sym($productprice, $store_id->id);
                         $output .= ' <div class="col-xl-4 col-lg-6 col-sm-6 col-xs-6 col-12">
-                                    <div class="tab-pane fade show active toacart w-100" data-url="' . url('/addToCart/' . $product->id . '/' . $lastsegment) . '">
+                                    <div class="tab-pane fade show active toacart w-100" data-url="' . e(url('/addToCart/' . $product->id . '/' . $lastsegment)) . '">
                                         <div class="btn-primary position-relative card">
-                                            <img alt="Image placeholder" src="' . asset($image_url) . '" class="card-image avatar hover-shadow-lg" style=" height: 6rem; width: 100%;">
+                                            <img alt="Image placeholder" src="' . e(asset($image_url)) . '" class="card-image avatar hover-shadow-lg" style=" height: 6rem; width: 100%;">
                                             <div class="p-0 custom-card-body card-body d-flex ">
                                                 <div class="card-body my-2 p-2 text-center card-bottom-content">
-                                                <h6 class="mb-2 text-dark product-title-name">' . $product->name . '</h6>
-                                                <p class="mb-2 text-dark product-title-name small">' . $product->slug . '</p>
+                                                <h6 class="mb-2 text-dark product-title-name">' . e($product->name) . '</h6>
+                                                <p class="mb-2 text-dark product-title-name small">' . e($product->slug) . '</p>
                                                 <small class="text-primary">' . $productprice . '</small>
                                                 <small class="top-badge badge p-2 badge-danger mb-0">' . $quantity . '</small>
                                             </div>
@@ -4827,13 +4865,13 @@ $Product->cost_price = $request->cost_price;
                     } else {
 
                         $output .= ' <div class="col-xl-4 col-lg-6 col-sm-6 col-xs-6 col-12">
-                                <div class="tab-pane fade show active toacart w-100" data-url="' . url('/pos/product-variant/' . $product->id . '/' . $lastsegment) . '" data-ajax-popup="true" data-size="lg" data-align="centered" data-title="Product Variant">
+                                <div class="tab-pane fade show active toacart w-100" data-url="' . e(url('/pos/product-variant/' . $product->id . '/' . $lastsegment)) . '" data-ajax-popup="true" data-size="lg" data-align="centered" data-title="Product Variant">
                                     <div class="btn-primary position-relative card">
-                                        <img alt="Image placeholder" src="' . asset($image_url) . '" class="card-image avatar hover-shadow-lg" style=" height: 6rem; width: 100%;">
+                                        <img alt="Image placeholder" src="' . e(asset($image_url)) . '" class="card-image avatar hover-shadow-lg" style=" height: 6rem; width: 100%;">
                                         <div class="p-0 custom-card-body card-body d-flex ">
                                             <div class="card-body my-2 p-2 text-center card-bottom-content">
-                                                <h6 class="mb-2 text-dark product-title-name">' . $product->name . '</h6>
-                                                <p class="mb-2 text-dark product-title-name small">' . $product->slug . '</p>
+                                                <h6 class="mb-2 text-dark product-title-name">' . e($product->name) . '</h6>
+                                                <p class="mb-2 text-dark product-title-name small">' . e($product->slug) . '</p>
                                                 <small class="text-primary">In Variant</small>
                                             </div>
                                         </div>
@@ -4968,7 +5006,7 @@ $Product->cost_price = $request->cost_price;
                     $cart_array['tax_info'][$mkey]["tax_name"] = $method->name;
                     $cart_array['tax_info'][$mkey]["tax_type"] = $method->tax_rate;
                     $cart_array['tax_info'][$mkey]["tax_amount"] = $amount;
-                    $product_tax .= !empty($method) ? "<span class='badge bg-primary'>" . $method->name . ' (' . $method->tax_rate . '%)' . "</span><br>" : '';
+                    $product_tax .= !empty($method) ? "<span class='badge bg-primary'>" . e($method->name) . ' (' . e($method->tax_rate) . '%)' . "</span><br>" : '';
                     $cart_array['tax_info'][$mkey]["id"] = $method->id;
                     $cart_array['tax_info'][$mkey]["tax_price"] = SetNumber($amount);
                 }
@@ -4996,21 +5034,21 @@ $Product->cost_price = $request->cost_price;
             }
         }
 
-        $model_delete_id = 'delete-form-' . $id;
+        $model_delete_id = 'delete-form-' . e($id);
 
         $carthtml = '';
 
-        $carthtml .= '<tr data-product-id="' . $id . '" id="product-id-' . $id . '">
+        $carthtml .= '<tr data-product-id="' . e($id) . '" id="product-id-' . e($id) . '">
                         <td class="cart-images">
-                            <img alt="Image placeholder" src="' . ($image_url) . '" class="card-image avatar shadow hover-shadow-lg">
+                            <img alt="Image placeholder" src="' . e($image_url) . '" class="card-image avatar shadow hover-shadow-lg">
                         </td>
 
-                        <td class="name">' . $productname . '</td>
+                        <td class="name">' . e($productname) . '</td>
 
                         <td class="">
                                 <span class="quantity buttons_added">
                                         <input type="button" value="-" class="minus bg-primary">
-                                        <input type="number" step="1" min="1" max="" name="quantity" title="' . __('Quantity') . '" class="input-number" size="4" data-url="' . url('update-cart/') . '" data-id="' . $id . '" style="width:50px;">
+                                        <input type="number" step="1" min="1" max="" name="quantity" title="' . __('Quantity') . '" class="input-number" size="4" data-url="' . url('update-cart/') . '" data-id="' . e($id) . '" style="width:50px;">
                                         <input type="button" value="+" class="plus bg-primary">
                                 </span>
                         </td>
@@ -5027,8 +5065,8 @@ $Product->cost_price = $request->cost_price;
                             </button>
                                 <input name="_method" type="hidden" value="DELETE">
                                 <input name="_token" type="hidden" value="' . csrf_token() . '">
-                                <input type="hidden" name="session_key" value="' . $session_key . '">
-                                <input type="hidden" name="id" value="' . $id . '">
+                                <input type="hidden" name="session_key" value="' . e($session_key) . '">
+                                <input type="hidden" name="id" value="' . e($id) . '">
                             </form>
                         </td>
                     </td>';
@@ -5083,7 +5121,7 @@ $Product->cost_price = $request->cost_price;
                 [
                     'code' => 200,
                     'status' => 'Success',
-                    'success' => $productname . __(' added to cart successfully!'),
+                    'success' => e($productname) . __(' added to cart successfully!'),
                     'product' => $cart[$id],
                     'carthtml' => $carthtml,
                 ]
@@ -5113,7 +5151,7 @@ $Product->cost_price = $request->cost_price;
                         $cart_array['tax_info'][$mkey]["tax_name"] = $method->name;
                         $cart_array['tax_info'][$mkey]["tax_type"] = $method->tax_rate;
                         $cart_array['tax_info'][$mkey]["tax_amount"] = $amount;
-                        $product_tax .= !empty($method) ? "<span class='badge bg-primary'>" . $method->name . ' (' . $method->tax_rate . '%)' . "</span><br>" : '';
+                        $product_tax .= !empty($method) ? "<span class='badge bg-primary'>" . e($method->name) . ' (' . e($method->tax_rate) . '%)' . "</span><br>" : '';
                         $cart_array['tax_info'][$mkey]["id"] = $method->id;
                         $cart_array['tax_info'][$mkey]["tax_price"] = SetNumber($amount);
                     }
@@ -5150,7 +5188,7 @@ $Product->cost_price = $request->cost_price;
                 [
                     'code' => 200,
                     'status' => 'Success',
-                    'success' => $productname . __(' added to cart successfully!'),
+                    'success' => e($productname) . __(' added to cart successfully!'),
                     'product' => $cart[$id],
                     'carttotal' => $cart,
                 ]
@@ -5191,7 +5229,7 @@ $Product->cost_price = $request->cost_price;
             [
                 'code' => 200,
                 'status' => 'Success',
-                'success' => $productname . __(' added to cart successfully!'),
+                'success' => e($productname) . __(' added to cart successfully!'),
                 'product' => $cart[$id],
                 'carthtml' => $carthtml,
                 'carttotal' => $cart,
@@ -5258,7 +5296,7 @@ $Product->cost_price = $request->cost_price;
                         if (count($Tax->tax_methods()) > 0) {
                             foreach ($Tax->tax_methods() as $mkey => $method) {
                                 $tax_price += $method->tax_rate * $price / 100;
-                                $product_tax .= !empty($Tax) ? "<span class='badge bg-primary'>" . $method->name . ' (' . $method->tax_rate . '%)' . "</span><br>" : '';
+                                $product_tax .= !empty($Tax) ? "<span class='badge bg-primary'>" . e($method->name) . ' (' . e($method->tax_rate) . '%)' . "</span><br>" : '';
                             }
                         }
                     }

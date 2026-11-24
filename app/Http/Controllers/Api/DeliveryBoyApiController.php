@@ -56,9 +56,14 @@ class DeliveryBoyApiController extends Controller
             return null;
         }
 
-        $ownsStore = \App\Models\Store::where('id', $storeId)
-            ->where('created_by', $operator->creatorId())
-            ->exists();
+        // P1-SEC-66: the tenant root must be a MERCHANT -- `creatorId()` alone is the operator's id for a user rooted at the platform (a demoted
+        // merchant, or staff the operator created), which made the operator's store "theirs". A null root owns no store: the same 404 as any other.
+        $root = \App\Policies\UserPolicy::merchantTenantRoot($operator);
+
+        $ownsStore = $root !== null
+            && \App\Models\Store::where('id', $storeId)
+                ->where('created_by', $root)
+                ->exists();
 
         if (! $ownsStore) {
             return response()->json([

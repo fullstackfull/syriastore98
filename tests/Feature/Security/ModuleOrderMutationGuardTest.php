@@ -657,7 +657,20 @@ class ModuleOrderMutationGuardTest extends SecurityTestCase
         $this->assertSame(2, (int) $after['delivered_status'],
             'The guard refused the order\'s own store. Status ' . $response->status()
             . ', body: ' . substr((string) $response->getContent(), 0, 300));
-        $this->assertSame('Unpaid', (string) $after['payment_status']);
+        /*
+         * 'Unpaid' -> 'Paid'. OWNER DECISION P4-F124 (Option A), 2026-11-16.
+         *
+         * AND THIS CASE IS WORTH READING TWICE, because it is the evidence that the decision
+         * reaches code this project may not edit. The lottery route is VENDORED
+         * (packages/workdo/LotteryPrizes), and it cancels a HOST `orders` row by calling
+         * App\Models\Order::order_status_change(). Putting the reversal in that engine arm rather
+         * than in the callers is what makes the vendored door inherit it: the merchant's wallet is
+         * still reversed, with a reason, and the customer's settlement is no longer overwritten --
+         * without a line changing under packages/.
+         */
+        $this->assertSame('Paid', (string) $after['payment_status'],
+            'the vendored lottery cancel rewrote the customer\'s payment history. It reaches the '
+            . 'host engine, so it must inherit P4-F124 Option A like every other door.');
         $this->assertNotSame(403, $response->status());
     }
 

@@ -7,6 +7,8 @@ use App\Models\OrderCouponDetail;
 use App\Models\Product;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\Attributes\DataProvider;
+use ReflectionMethod;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
@@ -245,6 +247,304 @@ class SecondReturnTotalTest extends TestCase
             'with a 10.00 coupon the residual is the 17.50 tax plus the 10.00 the shopper never '
             . 'paid for the goods'
         );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | THE RETURN REQUEST FLOW OVERWRITES THE COLUMN THE BASE ONCE TRUSTED
+    |--------------------------------------------------------------------------
+    |
+    | FOUND BY THE PR #140 DELETION AUDIT'S ADVERSARIAL PASS, and no test above reaches it because
+    | every fixture seeds `return_price = 0`.
+    |
+    | `OrderController::order_return_request` -- the whole-order return REQUEST, approve and reject
+    | alike -- runs
+    |
+    |     $order->return_price = $order->final_price;
+    |     $order->return_status = $status;
+    |
+    | and does NOT reduce `final_price`. The base this method rebuilt as `final_price +
+    | return_price` therefore became `2 x final_price`, and the next line return wrote a total
+    | HIGHER than the original: 205.00 on a 147.50 order returning a 90.00 line, where the code
+    | before F082 wrote 57.50. The customer owes MORE because goods came back.
+    |
+    | These cases set the state exactly as that controller sets it, rather than driving the
+    | controller, because the controller needs an authenticated merchant and a policy and the
+    | defect is in this method's arithmetic. The first test pins that the controller really does
+    | write it, so the simulation cannot drift from the thing it simulates.
+    */
+
+    /** Exactly what OrderController::order_return_request writes inside its transaction. */
+    private function applyReturnRequestFlow(int $orderId, int $status): void
+    {
+        $order = Order::find($orderId);
+        $order->return_price = $order->final_price;
+        $order->return_status = $status;
+        $order->save();
+    }
+
+    public function test_premise_the_return_request_flow_copies_the_whole_total_into_return_price(): void
+    {
+        $r = new ReflectionMethod(\App\Http\Controllers\OrderController::class, 'order_return_request');
+
+        $code = '';
+        foreach (token_get_all((string) file_get_contents($r->getFileName())) as $token) {
+            if (is_array($token)) {
+                if (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                    $code .= str_repeat("\n", substr_count($token[1], "\n"));
+
+                    continue;
+                }
+                $code .= $token[1];
+            } else {
+                $code .= $token;
+            }
+        }
+
+        $body = implode("\n", array_slice(explode("\n", $code), $r->getStartLine() - 1, $r->getEndLine() - $r->getStartLine() + 1));
+
+        $this->assertStringContainsString(
+            '$order->return_price = $order->final_price;',
+            $body,
+            'order_return_request no longer copies final_price into return_price. If that was fixed, '
+            .'the guard in Order::product_return that stops trusting the column is still correct but '
+            .'this premise -- and the three cases below that simulate it -- need re-reading.'
+        );
+    }
+
+    public function test_a_line_return_after_an_approved_return_request_does_not_double_the_base(): void
+    {
+        $order = $this->orderWithTwoLines();
+        $this->applyReturnRequestFlow($order->id, 2);
+
+        $result = Order::product_return(['order_id' => $order->id, 'product_id' => 101, 'variant_id' => 0]);
+
+        $this->assertSame('success', $result['status'] ?? null, 'premise: the return was accepted: '.($result['message'] ?? ''));
+        $this->assertSame(
+            self::ORDER_TOTAL - self::LINE_A_PRICE,
+            $this->totalOf($order->id),
+            'The amount owed went UP after a return. After an approved return request the stored '
+            .'return_price equals final_price, and a base rebuilt as their sum is twice the order. '
+            .'Expected '.(self::ORDER_TOTAL - self::LINE_A_PRICE).'.'
+        );
+    }
+
+    public function test_a_line_return_after_a_rejected_return_request_does_not_double_the_base(): void
+    {
+        // REJECT sets it too -- the assignment is not conditional on the status. So a customer
+        // whose whole-order request was REFUSED and who then returns one line pays more for it.
+        $order = $this->orderWithTwoLines();
+        $this->applyReturnRequestFlow($order->id, 3);
+
+        Order::product_return(['order_id' => $order->id, 'product_id' => 101, 'variant_id' => 0]);
+
+        $this->assertSame(self::ORDER_TOTAL - self::LINE_A_PRICE, $this->totalOf($order->id));
+    }
+
+    public function test_a_request_after_a_partial_return_cannot_drive_the_next_return_negative(): void
+    {
+        // THE ORDERING THAT DEFEATS "TREAT THE COLUMN AS ZERO UNTIL A LINE IS FLAGGED". Return A
+        // (return_price = 90.00, owed 57.50), THEN a request overwrites return_price with the
+        // 57.50 total. A guard that trusted the column once any line was flagged would read 57.50
+        // as "already taken off", rebuild a base of 115.00, subtract the 130.00 cumulative, and
+        // write -15.00: an instruction to hand cash to the customer at the door.
+        $order = $this->orderWithTwoLines();
+
+        Order::product_return(['order_id' => $order->id, 'product_id' => 101, 'variant_id' => 0]);
+        $this->assertSame(self::ORDER_TOTAL - self::LINE_A_PRICE, $this->totalOf($order->id), 'premise: first return');
+
+        $this->applyReturnRequestFlow($order->id, 2);
+        $this->assertSame($this->totalOf($order->id), $this->returnedOf($order->id), 'premise: the request flow overwrote return_price');
+
+        Order::product_return(['order_id' => $order->id, 'product_id' => 102, 'variant_id' => 0]);
+
+        $this->assertSame(
+            self::TAX,
+            $this->totalOf($order->id),
+            'Both lines are returned, so what is still owed is the 17.50 of tax. The base was '
+            .'rebuilt from the overwritten column instead of from the line flags.'
+        );
+        $this->assertGreaterThanOrEqual(0.0, $this->totalOf($order->id), 'the amount owed went negative');
+        $this->assertSame(
+            self::LINE_A_PRICE + self::LINE_B_PRICE,
+            $this->returnedOf($order->id),
+            'return_price must be rewritten as the cumulative figure by the return itself'
+        );
+    }
+
+    /** @return array<string, array{0: ?array}> no coupon, flat, percentage */
+    public static function couponShapes(): array
+    {
+        return [
+            'no coupon' => [null],
+            'flat coupon' => [['type' => 'flat', 'number' => 10.00]],
+            'percentage coupon' => [['type' => 'percentage', 'number' => 10.00]],
+        ];
+    }
+
+    /**
+     * THE TWO COPIES OF THE FORMULA STAY EQUAL.
+     *
+     * `returnedAmountOf()` is the summation in `product_return()` applied to an EARLIER set of
+     * lines, kept as a copy because that summation is deliberately left alone. After a first
+     * return the stored `return_price` IS the summation's answer for that one line, so the helper
+     * must reproduce it. If anyone edits one copy, this fails.
+     *
+     */
+    #[DataProvider('couponShapes')]
+    public function test_the_prior_amount_helper_agrees_with_the_summation_it_copies(?array $coupon): void
+    {
+        $order = $this->orderWithTwoLines();
+
+        $this->attachCoupon($order, $coupon);
+
+        Order::product_return(['order_id' => $order->id, 'product_id' => 101, 'variant_id' => 0]);
+        $stored = $this->returnedOf($order->id);
+
+        $helper = new ReflectionMethod(Order::class, 'returnedAmountOf');
+        $helper->setAccessible(true);
+        $oneLine = [['product_id' => 101, 'variant_id' => 0, 'qty' => 1, 'final_price' => self::LINE_A_PRICE, 'return' => 1]];
+
+        $this->assertEqualsWithDelta(
+            $stored,
+            $helper->invoke(null, $oneLine, $order->id),
+            0.005,
+            'The helper and the summation disagree for '.($coupon === null ? 'no coupon' : $coupon['type'].' coupon')
+            .'. After the first return, stored return_price is the summation\'s figure.'
+        );
+    }
+
+    /** @param ?array{type: string, number: float} $coupon null for no coupon */
+    private function attachCoupon(Order $order, ?array $coupon): void
+    {
+        if ($coupon === null) {
+            return;
+        }
+
+        (new OrderCouponDetail())->forceFill([
+            'order_id' => $order->id,
+            'product_order_id' => $order->product_order_id,
+            'coupon_id' => 1,
+            'coupon_name' => 'c',
+            'coupon_code' => 'C',
+            'coupon_discount_type' => $coupon['type'],
+            'coupon_discount_number' => $coupon['number'],
+            'coupon_discount_amount' => $coupon['number'],
+            'coupon_final_amount' => self::ORDER_TOTAL - $coupon['number'],
+        ])->save();
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | A CALL THAT NAMES NO LINE MUST CHANGE NOTHING
+    |--------------------------------------------------------------------------
+    |
+    | FOUND BY THE INDEPENDENT REVIEW OF THE AUD-2 FIX, not by any test and not by the audit.
+    |
+    | `product_id` and `variant_id` are REQUEST INPUT -- the owning customer, an assigned delivery boy,
+    | a merchant holding `Manage Order` and the operator can all send them -- and nothing refused a pair
+    | that matches no line of the order. With no line flagged, the summed `$return_price` is 0, a FLAT
+    | coupon then makes it `0 - c`, and the money write subtracts that: `final_price` goes UP by the
+    | coupon amount. The method before this fix had the same arithmetic ONCE (the next call's base read
+    | the column it had just written, so it settled at F + c). The AUD-2 base takes "what earlier
+    | returns took off" from the line FLAGS, a no-match call flags nothing, and so every repeat added
+    | `c` again: F + c, F + 2c, F + 3c.
+    |
+    | Reachable by the shopper whose order it is, on a delivered order carrying a flat coupon, by POSTing
+    | `product_id=0&variant_id=0` to `api/{slug}/product-return`. A percentage coupon and a no-coupon
+    | order were unaffected (a percentage of 0 is 0), which is why the cases below run all three.
+    */
+
+    #[DataProvider('couponShapes')]
+    public function test_a_call_that_names_no_line_changes_nothing_and_says_so(?array $coupon): void
+    {
+        $order = $this->orderWithTwoLines();
+        $this->attachCoupon($order, $coupon);
+
+        $before = [$this->totalOf($order->id), $this->returnedOf($order->id)];
+        $statuses = [];
+        $moneyAfterEach = [];
+
+        foreach ([[0, 0], [999, 0], [101, 7]] as [$productId, $variantId]) {
+            $result = Order::product_return(['order_id' => $order->id, 'product_id' => $productId, 'variant_id' => $variantId]);
+
+            $statuses[] = $result['status'] ?? null;
+            $moneyAfterEach[] = [$this->totalOf($order->id), $this->returnedOf($order->id)];
+        }
+
+        // MONEY FIRST, so a failure shows the inflation itself (F, F+c, F+2c) and not just a status.
+        $this->assertSame(array_fill(0, 3, $before), $moneyAfterEach,
+            'a call that names no line moved money. Before: '.json_encode($before));
+
+        $this->assertSame(['error', 'error', 'error'], $statuses, 'a call that names no line was reported as a success');
+
+        $lines = json_decode((string) DB::table('orders')->where('id', $order->id)->value('product_json'), true);
+        $this->assertSame([0, 0], array_map(fn ($line) => (int) $line['return'], $lines), 'a no-match call flagged a line');
+    }
+
+    public function test_no_match_calls_after_a_real_return_leave_that_return_exactly_as_it_was(): void
+    {
+        $order = $this->orderWithTwoLines();
+        $this->attachCoupon($order, ['type' => 'flat', 'number' => 10.00]);
+
+        Order::product_return(['order_id' => $order->id, 'product_id' => 101, 'variant_id' => 0]);
+        $afterFirst = [$this->totalOf($order->id), $this->returnedOf($order->id)];
+
+        for ($i = 0; $i < 3; $i++) {
+            Order::product_return(['order_id' => $order->id, 'product_id' => 555, 'variant_id' => 0]);
+        }
+
+        $this->assertSame($afterFirst, [$this->totalOf($order->id), $this->returnedOf($order->id)],
+            'repeated no-match calls kept inflating an order that already had a return');
+
+        // And the legitimate second return still lands on the right figure afterwards.
+        Order::product_return(['order_id' => $order->id, 'product_id' => 102, 'variant_id' => 0]);
+
+        $this->assertSame(self::TAX + 10.00, $this->totalOf($order->id),
+            'both lines returned: the tax is still owed, and the flat coupon is added back exactly once');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | THE RETURN IS ONE UNIT OF WORK
+    |--------------------------------------------------------------------------
+    |
+    | Also from that review. The line FLAG is saved first and the MONEY is written later, and the AUD-2
+    | base trusts the flags. A failure between the two left a line flagged whose value was never taken
+    | off: the replay guard then refuses a retry, and the next return's base counted that value as
+    | already gone. (The column-based base this replaced healed it by accident.) The whole call -- the
+    | restock, the flags and the money -- is now one transaction, the shape `order_return_request`
+    | already uses, so there is no window to heal.
+    */
+    public function test_a_failure_after_the_flag_is_saved_leaves_no_flag_and_no_money_change(): void
+    {
+        $order = $this->orderWithTwoLines();
+        $this->attachCoupon($order, ['type' => 'flat', 'number' => 10.00]);
+
+        $before = [$this->totalOf($order->id), $this->returnedOf($order->id)];
+        $linesBefore = DB::table('orders')->where('id', $order->id)->value('product_json');
+
+        // The first thing the money half reads after the flag is saved is the coupon row. ONE-SHOT: a listener
+        // cannot be unregistered, and this suite's own tearDown touches that table.
+        $armed = true;
+        DB::listen(function ($query) use (&$armed) {
+            if ($armed && str_contains($query->sql, 'order_coupon_details')) {
+                $armed = false;
+
+                throw new \RuntimeException('injected failure between the flag and the money');
+            }
+        });
+
+        try {
+            Order::product_return(['order_id' => $order->id, 'product_id' => 101, 'variant_id' => 0]);
+            $this->fail('the injected failure did not reach the method');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('injected failure between the flag and the money', $e->getMessage());
+        }
+
+        $this->assertSame($linesBefore, DB::table('orders')->where('id', $order->id)->value('product_json'),
+            'the line stayed flagged although its money was never taken off');
+        $this->assertSame($before, [$this->totalOf($order->id), $this->returnedOf($order->id)]);
     }
 
     private function totalOf(int $orderId): float

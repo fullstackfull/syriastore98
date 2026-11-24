@@ -107,7 +107,8 @@
 
                         data.NetSaleTotal.forEach(function(brand) {
                             var series = {
-                                name: brand.name,
+                                // P1-SEC-80 round 3 (C-2): ApexCharts writes a series name into the legend and the tooltip with innerHTML, and a brand's name is text somebody typed
+                                name: $('<div>').text(brand.name == null ? '' : String(brand.name)).html(),
                                 type: 'column',
                                 data: brand.data,
                             };
@@ -265,22 +266,68 @@
                                 @json(__('Duration')),
                                 @json(__('Brand')),
                                 @json(__('Order value')),
+                                @json(__('What this leaves out')),
                             ].map(function(h) {
                                 return '"' + String(h).replace(/"/g, '""') + '"';
                             }).join(',');
 
                             var csvContent = "data:text/csv;charset=utf-8,﻿" + header + "\n";
 
-                            // Assuming data.NetSaleTotal is an array of objects with "name" and "data" properties
-                            for (var i = 0; i < data.monthList.length; i++) {
-                                var brandName = data.NetSaleTotal[0]
-                                .name; // Assuming you want the "main-brand" name
-                                var netSale = data.NetSaleTotal[0].data[
-                                i]; // Assuming you want the data for "main-brand"
+                            // P5-3: data.NetSaleTotal is an array of {name, data[]} series -- one per brand -- and the
+                            // chart above walks every one (forEach at :108). The export read NetSaleTotal[0] on every row,
+                            // so the file carried ONLY the first brand, repeated and stamped with its name. Walk every
+                            // series, one row per (brand, period). The brand name is merchant-typed, so CSV-quote it;
+                            // the period is a month name and the value is numeric, so neither carries a comma. The row stays a
+                            // three-field template literal beginning `${data.monthList[i]}` -- ReportCsvHeaderLocalisationTest
+                            // counts those fields against the header's column count, so the shape is load-bearing.
+                            var csvField = function (v) {
+                                return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+                            };
 
-                                csvContent +=
-                                    `${data.monthList[i]},${brandName},${netSale}\n`;
-                            }
+                            {{-- P05-15. THE DISCLOSURE IS A COLUMN, repeated on every row, which is
+                                 the same choice App\Support\Metrics\FigureCsv made for /analytics and
+                                 for the same measured reason: a caveat in a header row or a trailing
+                                 comment line does not survive sorting, filtering, or copying a range
+                                 out of a spreadsheet -- and that is precisely what a merchant does to
+                                 a downloaded file. A column cannot be separated from its number.
+
+                                 The sentence comes from the server (`ReportFigureNote`, the same
+                                 method this screen's own `:hint` calls), so it is already in this
+                                 request's locale and cannot drift from the screen.
+
+                                 QUOTING IS LOAD-BEARING, for exactly the reason the header's is:
+                                 `encodeURI` does NOT escape a comma, and sentences in the
+                                 MetricCaveat vocabulary carry them. Empty when the key is absent, so
+                                 a session stored before this change still downloads a well-formed
+                                 file instead of the word "undefined". --}}
+                            var note = (typeof data.figureNote === 'string') ? data.figureNote : '';
+                            {{-- ANA-TOP part 4. THE ROW'S OWN CAVEAT, NOT JUST THE SHARED ONE, and the
+                                 review of that slice is why: the handler had started putting
+                                 `figureCaveats` in the payload and this builder still read only
+                                 `figureNote`, so the sentence about the second currency reached the
+                                 JSON and stopped there. The merchant's file said nothing about it.
+
+                                 The resolution is the SCREEN'S resolution, character for character:
+                                 the chart blade's `:hint` is
+                                 `($figureCaveats[$name] ?? '') !== '' ? $figureCaveats[$name] : orderValueHint()`,
+                                 and this is the same choice in JavaScript. One column, because the
+                                 per-row caveat already OPENS with `orderValueHint()` -- a second
+                                 column would print that sentence twice. A branch not yet converted,
+                                 or a session stored before this change, has no entry and falls back
+                                 to the shared note exactly as before. --}}
+                            var rowNote = function(name) {
+                                var perRow = (data.figureCaveats && typeof data.figureCaveats[name] === 'string')
+                                    ? data.figureCaveats[name]
+                                    : '';
+
+                                return perRow !== '' ? perRow : note;
+                            };
+                            data.NetSaleTotal.forEach(function(brand) {
+                                for (var i = 0; i < data.monthList.length; i++) {
+                                    var netSale = (brand.data && brand.data[i] != null) ? brand.data[i] : 0;
+                                    csvContent += `${data.monthList[i]},${csvField(brand.name)},${netSale},${csvField(rowNote(brand.name))}\n`;
+                                }
+                            });
 
                             var encodedUri = encodeURI(csvContent);
                             var link = document.createElement("a");

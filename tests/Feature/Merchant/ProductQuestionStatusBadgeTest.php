@@ -59,9 +59,12 @@ use Tests\Feature\Security\SecurityTestCase;
  * `__('Pending')` are translation strings, never user input. The REAL escaping defect in this same
  * method is `editColumn('customer_id')` at :29-31, which returns `$question->users->name` (a
  * customer-supplied name, `hasOne(Customer)`) unescaped into the merchant admin inside the same
- * `rawColumns` array. That is a separate stored-XSS finding with its own fix (`e(...)`); it is
- * asserted below as STILL PRESENT so this cosmetic change cannot be mistaken for having hardened
- * the cell, and so the day it is fixed this test says so instead of going quiet.
+ * `rawColumns` array. That was a separate stored-XSS finding; it was asserted here as STILL PRESENT
+ * so this cosmetic change could not be mistaken for having hardened the cell. IT HAS SINCE BEEN FIXED
+ * (P1-SEC-80): the column is plain text, so it left `rawColumns()` and yajra escapes it -- which also
+ * corrects the sentence above that says yajra escapes nothing by default: it escapes every column
+ * that is not named in `rawColumns()` (executed in PanelListStoredXssTest). The assertion below now
+ * says so.
  *
  * WHAT IS DELIBERATELY NOT CHANGED, and asserted below: the permission gate at
  * ProductQuestionController:20, the tenant predicate at ProductQuestionDataTable::query():49, the
@@ -716,31 +719,28 @@ class ProductQuestionStatusBadgeTest extends SecurityTestCase
     }
 
     /**
-     * THE ESCAPING CLAIM IS NOT MADE, AND THE REAL BUG IS RECORDED. `DsBadge::render()` escapes its
-     * label, but `escapeColumns()` is called nowhere in this application and the labels are
-     * translation strings, so nothing was hardened here. The genuine stored-XSS shape in the same
-     * method — `editColumn('customer_id')` returning `$question->users->name` unescaped inside
-     * `rawColumns` — is asserted as STILL PRESENT, so this change cannot be read as having fixed it
-     * and so the day it IS fixed this assertion says so rather than going quiet.
+     * THE BADGE CLAIMS NO ESCAPING BENEFIT, AND THE CUSTOMER NAME IS NO LONGER A RAW COLUMN. `DsBadge::render()` escapes its label,
+     * but the labels are translation strings, so nothing was hardened by the badge substitution and that comment block says nothing
+     * about escaping. The genuine stored-XSS shape that used to sit in the same method -- `editColumn('customer_id')` returning the
+     * SHOPPER's name inside `rawColumns` -- was fixed by P1-SEC-80 by taking the column out of `rawColumns()`, so yajra escapes it
+     * (PanelListStoredXssTest executes it through the real route). This test used to assert the defect was still present, with a note
+     * to delete it the day it was fixed; it now asserts the fix is still there.
      */
-    public function test_the_customer_name_column_is_still_unescaped_and_that_is_a_separate_finding(): void
+    public function test_the_customer_name_column_is_not_raw_and_the_badge_block_claims_no_escaping(): void
     {
         $source = (string) file_get_contents(base_path('app/DataTables/ProductQuestionDataTable.php'));
 
-        $this->assertStringContainsString("rawColumns(['action','customer_id','answers'])", $source,
-            'the rawColumns list has changed, so the note below needs rewriting');
+        $this->assertStringContainsString("->rawColumns(['action','answers'])", $source,
+            'the rawColumns list has changed: `customer_id` is a shopper\'s name and must not be in it');
+        $this->assertDoesNotMatchRegularExpression('/rawColumns\(\[[^\]]*customer_id/', $source,
+            '`customer_id` is raw again: it prints a shopper\'s name as markup in the merchant\'s admin');
 
-        $this->assertMatchesRegularExpression(
-            '/editColumn\(\'customer_id\'.*?\$question->users->name/s', $source,
-            'editColumn(customer_id) no longer returns $question->users->name raw. If it was fixed with '
-            . 'e(...), DELETE THIS ASSERTION and close the separate stored-XSS finding; if the column was '
-            . 'removed, the finding is moot. Either way this badge repair did not do it, and must not be '
-            . 'recorded as having done it.'
-        );
-
-        // And the badge repair itself claims nothing about escaping.
-        $this->assertStringNotContainsString('escap', strtolower($source),
-            'this file must not claim an escaping benefit for the badge substitution -- escapeColumns() '
-            . 'is called nowhere in this application and the labels are translation strings');
+        // The badge repair itself claims nothing about escaping: the comment block that explains it.
+        $start = strpos($source, 'P2.5 product-question-status-off-theme-badge');
+        $end = strpos($source, "->editColumn('answers'");
+        $this->assertNotFalse($start);
+        $this->assertNotFalse($end);
+        $this->assertStringNotContainsString('escap', strtolower(substr($source, $start, $end - $start)),
+            'the badge comment block must not claim an escaping benefit for the badge substitution -- DsBadge escapes a label that is a translation string');
     }
 }

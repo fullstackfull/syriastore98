@@ -69,8 +69,11 @@ final class HostClaims
         'webmaster', 'security', 'noc', 'test', 'staging', 'dev', 'localhost',
     ];
 
-    /** the length of `settings.name` (database/migrations/2023_12_11_100148_create_settings_table.php: a plain string() column) */
-    private const NAME_LENGTH = 255;
+    /**
+     * the length of `settings.name` in the migration (database/migrations/2023_12_11_100148_create_settings_table.php: a plain string() column). The migrations are not the schema:
+     * StoredPathPolicy reads the live width from information_schema and passes it to asStored(); this is what the host-claim rule, which does not, assumes.
+     */
+    public const NAME_LENGTH = 255;
 
     /**
      * The bare host a stored or posted value means. It reads a value the way the hosting-panel block of ThemeSettings does (trim `/`,
@@ -278,8 +281,12 @@ final class HostClaims
         }
     }
 
-    /** Plain printable ASCII, spaces aside: the only strings whose fold under the collation is a case fold and nothing more. */
-    private static function plain(string $text): bool
+    /**
+     * Plain printable ASCII, spaces aside: the only strings whose fold under the collation is a case fold and nothing more.
+     *
+     * Public since P1-SEC-78: StoredPathPolicy::setting() asks the same question of a setting NAME, and one definition is the point.
+     */
+    public static function plain(string $text): bool
     {
         // trim()'s default would also strip NUL, tab and newline -- exactly the bytes a collation may ignore
         return preg_match('/[^\x21-\x7E]/', trim($text, ' ')) !== 1;
@@ -312,18 +319,21 @@ final class HostClaims
      * The name as the column keeps it. Non-strict MySQL stores the first 255 characters, and ends the value at the first byte that is
      * not valid UTF-8 (EXECUTED on 8.0.46 through the native prepared statements Laravel uses: `domains\xFFx` is stored as `domains`,
      * while the hook's own SELECT on that string answered NULL -- verify-host-claims-on-mysql.php, which failed on it before this).
+     *
+     * Public since P1-SEC-78, for the same reason as plain(): StoredPathPolicy::setting() judges a setting name as it will be STORED, and passes the width the live column
+     * really has ($length; the migration's 255 when the caller does not know better).
      */
-    private static function asStored(string $name): string
+    public static function asStored(string $name, int $length = self::NAME_LENGTH): string
     {
-        // 255 characters are at most 1020 bytes; the rest can only matter if everything before it is valid
-        $name = substr($name, 0, 4 * self::NAME_LENGTH + 4);
+        // N characters are at most 4N bytes; the rest can only matter if everything before it is valid
+        $name = substr($name, 0, 4 * $length + 4);
 
         if (! mb_check_encoding($name, 'UTF-8')) {
             preg_match('/\A(?:[\x00-\x7F]|[\xC2-\xDF][\x80-\xBF]|\xE0[\xA0-\xBF][\x80-\xBF]|[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}|\xED[\x80-\x9F][\x80-\xBF]|\xF0[\x90-\xBF][\x80-\xBF]{2}|[\xF1-\xF3][\x80-\xBF]{3}|\xF4[\x80-\x8F][\x80-\xBF]{2})*/', $name, $valid);
             $name = $valid[0] ?? '';
         }
 
-        return mb_substr($name, 0, self::NAME_LENGTH, 'UTF-8');
+        return mb_substr($name, 0, $length, 'UTF-8');
     }
 
     /** Is this flag value 'on' to the lookups?  (`f.value = 'on'` in SQL.) */

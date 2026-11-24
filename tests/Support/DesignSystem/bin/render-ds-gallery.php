@@ -86,10 +86,21 @@ $specimens = [
                    :hint="__('Includes cancelled orders.')" />
     BLADE,
 
+    // P5-11. THE HINTS ARE REAL ONES, AND THAT IS THE POINT OF THIS SPECIMEN.
+    // `hint` became visible in P5-11, so the thing a capture must now show is what a LONG caveat
+    // does to a narrow grid cell -- `.ss-stats` is `minmax(10rem, 1fr)`, and the shipped sentences
+    // run to ~160 characters. The two below are copied verbatim from
+    // `resources/views/reports/_sales_stats.blade.php:17` and `:32`, so the picture is of the real
+    // worst case rather than of "Includes cancelled orders." A short placeholder here would have
+    // shown a tidy grid and proved nothing about the surface that actually ships.
+    // The third tile deliberately has NO hint: tiles of unequal height in one row is exactly the
+    // thing to look at, and a specimen where every tile has one cannot show it.
     'x-ss.stats' => <<<'BLADE'
         <x-ss.stats :label="__('This month')">
-            <x-ss.stat :label="__('Total Orders')" value="126" :period="__('all time')" />
-            <x-ss.stat :label="__('Total Products')" value="48" :period="__('in this store')" />
+            <x-ss.stat :label="__('Order value, including shipping and tax')" value="12,480.00" :period="__('last 7 days')"
+                       :hint="__('The full amount the orders came to: after coupons, and including shipping and tax. This is what customers were asked to pay, not what they paid, and not profit.')" />
+            <x-ss.stat :label="__('Items ordered')" value="318" :period="__('last 7 days')"
+                       :hint="__('How many units were ordered, not how many were delivered or paid for.')" />
             <x-ss.stat :label="__('Total Delivered')" value="37" :period="__('all time')" />
         </x-ss.stats>
     BLADE,

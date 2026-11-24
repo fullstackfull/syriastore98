@@ -379,8 +379,74 @@ class StoreFinanceController extends Controller
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 
+        /*
+         * P4-F128 -- A REASON IS REQUIRED, AND IT IS NOT COSMETIC.
+         *
+         * Owner decision: "finance-screen adjustment needs authz + reason + auditable event." This
+         * handler already had the authz (canFinance, operator-first through the `finance` gate). It
+         * had neither of the other two.
+         *
+         * WHY THE REASON IS REQUIRED RATHER THAN OPTIONAL. This is the surface that creates the
+         * divergence F128 is about: it moves store_order_financials AND the wallet, and it does not
+         * touch the order, so afterwards the customer's settlement and the merchant's entitlement
+         * disagree and no screen shows it. That is sometimes exactly right -- cash arrived outside
+         * the gateway -- and sometimes a mistake. Which one it was is a fact only the person
+         * clicking holds, and five minutes later nobody can recover it. An optional field would be
+         * left blank precisely when it matters.
+         *
+         * WHERE IT IS STORED: the AuditLog row below, NOT a new column. `store_order_financials`
+         * has no reason and no actor column, and adding one is a GATE F schema change -- a separate
+         * owner decision, and not one this fix needs, because AuditLog already carries actor, store,
+         * subject, before/after, IP and user agent.
+         */
+        /*
+         * THE ENCODING RULE IS NOT DECORATION -- IT CLOSES AN AUDIT-EVASION PATH.
+         *
+         * MEASURED, by driving it: a `reason` carrying a malformed UTF-8 byte sequence
+         * ("bad \xC3\x28 bytes") passes `string` (is_string) and `max` (mb_strlen), reaches the
+         * AuditLog write, and json_encode() returns false -- so Eloquent throws
+         * JsonEncodingException. By then markFinancialAsPaid has COMMITTED inside its own
+         * transaction, and this handler opens no outer one. Result: money moved, NO AUDIT ROW,
+         * HTTP 500. The principal who benefits is the one this slice exists to hold to account.
+         *
+         * This route carries no `xss` middleware, and Laravel's TrimStrings falls back to plain
+         * trim() when its /u preg_replace fails, so nothing upstream normalises the bytes.
+         *
+         * IT IS FIXED IN THE VALIDATOR, BEFORE ANY MONEY MOVES -- deliberately NOT by wrapping the
+         * audit write in a catch. A silently dropped audit row is the same evasion with no 500 to
+         * notice it by.
+         */
+        /*
+         * THE ACCEPTED SET IS READ FROM THE HELPER THE FORM READS -- `P05-01`.
+         *
+         * It was the literal `in:paid,unpaid`, which is what
+         * `EntitlementStateLabel::selectable()` returns today, so this changes no behaviour. What
+         * it removes is the SECOND COPY: the view offers exactly the options that helper admits
+         * (`resources/views/finance/index.blade.php`), and the two lists agreed only because
+         * nobody had changed either. Widening the form alone would have produced a 422 on an
+         * option the product itself rendered; narrowing it alone would have left this door
+         * accepting a value no form offers.
+         *
+         * THE RESTRICTION ITSELF IS DELIBERATE AND STAYS. `cancelled` and `refunded` are written
+         * by the engine (`P4-F124`, `P4-F127`), and `P5-FIN-3` settled that a refund REQUEST is
+         * not a completion -- so a dropdown declaring either by hand would be a business-rule
+         * change, which is the owner's. Both directions are pinned by
+         * `FinanceAdjustmentAccountabilityTest`.
+         */
         $request->validate([
-            'payment_status' => 'required|in:paid,unpaid',
+            'payment_status' => ['required', \Illuminate\Validation\Rule::in(
+                \App\Support\Finance\EntitlementStateLabel::selectable()
+            )],
+            'reason' => [
+                'required',
+                'string',
+                'max:255',
+                function ($attribute, $value, $fail) {
+                    if (! is_string($value) || ! mb_check_encoding($value, 'UTF-8')) {
+                        $fail(__('The reason must be valid text.'));
+                    }
+                },
+            ],
         ]);
 
         $storeId = getCurrentStore();
@@ -444,6 +510,74 @@ class StoreFinanceController extends Controller
                 $e->getMessage()
             );
         }
+
+        /*
+         * P4-F128 -- the auditable event, written only after the move succeeded.
+         *
+         * AFTER the try/catch on purpose: a failed adjustment moved no money, and recording one as
+         * though it had would make the audit trail lie in the direction that matters most.
+         *
+         * WHAT IT DELIBERATELY RECORDS. `settlement_unchanged` is the order's own payment_status,
+         * captured here and written into the audit row even though this handler does not touch it.
+         * That is the point: it makes the divergence this adjustment CREATES visible at the moment
+         * it is created, from the audit trail alone, without needing the reconciliation report to
+         * find it later. A reader of this row can see both sides and the stated reason together.
+         */
+        \App\Models\AuditLog::record(
+            'finance.financial_payment_status.updated',
+            null,
+            [
+                'financial_id' => (int) $financial->id,
+                'order_id' => (int) $financial->order_id,
+                'entitlement_state' => $financial->payment_status,
+                'paid_amount' => $financial->paid_amount,
+            ],
+            [
+                'financial_id' => (int) $financial->id,
+                'order_id' => (int) $financial->order_id,
+                /*
+                 * THE STATE THAT RESULTED, RE-READ -- not the state that was requested.
+                 *
+                 * Recording `$request->payment_status` here was wrong, and ordinary use reaches it:
+                 * markFinancialAsUnpaid writes NOTHING unless the row is exactly 'paid', so an
+                 * adjustment to 'unpaid' on a `cancelled`, `refunded`, `pending` or
+                 * `partially_paid` row is a complete no-op. And the screen's select offers only
+                 * unpaid/paid, so on a cancelled row NEITHER option carries `selected` and the
+                 * browser submits the first one -- 'unpaid'. A merchant clicking Update on a
+                 * cancelled row would have signed a reasoned audit entry describing a movement
+                 * that did not happen.
+                 *
+                 * Both values are kept: `requested_state` is what was asked for, and
+                 * `entitlement_state` is what is actually in the row afterwards. Where they differ,
+                 * the audit row shows the request was a no-op instead of hiding it.
+                 */
+                'requested_state' => $request->payment_status,
+                'entitlement_state' => DB::table('store_order_financials')
+                    ->where('id', $financial->id)
+                    ->where('store_id', $storeId)
+                    ->value('payment_status'),
+                'reason' => $request->input('reason'),
+                /*
+                 * SCOPED BY store_id, and the raw-query tenancy inventory is what insisted.
+                 *
+                 * The first draft read the order by id alone, reasoning that `$financial` was
+                 * already fetched `where('store_id', $storeId)` so its order_id must belong here.
+                 * That reasoning is exactly what leg 1 of the new reconciliation exists to DOUBT:
+                 * D4 reports financial rows whose order belongs to another store. If such a row
+                 * exists, the unscoped read would have copied another tenant's settlement into
+                 * this tenant's audit log.
+                 *
+                 * Scoped, that case yields null instead -- which reads correctly as "the order
+                 * this row names is not ours", and is the honest answer.
+                 */
+                'settlement_unchanged' => optional(
+                    DB::table('orders')
+                        ->where('id', $financial->order_id)
+                        ->where('store_id', $storeId)
+                        ->first()
+                )->payment_status,
+            ]
+        );
 
         return back()->with(
             'success',
@@ -854,6 +988,27 @@ class StoreFinanceController extends Controller
             ->withQueryString();
 
         /*
+         | P5-10 / ANA-006, the SECOND profit figure on this screen. The per-order table prints
+         | `gross_profit` raw, and `product_cost` is `decimal(15,2) NOT NULL DEFAULT '0.00'`, so
+         | a row whose cost was never captured reports the WHOLE order value as margin.
+         |
+         | Counted over the store's entire ledger rather than the visible page: the table
+         | paginates 15 at a time, and a caveat that changed as the merchant paged would be
+         | describing the page instead of the books.
+         |
+         | `store_order_financials` has NO model, so no global scope will add a tenant predicate
+         | here -- the explicit `store_id` below is the only one there is.
+         */
+        $orderFinancialsTotal = (int) DB::table('store_order_financials')
+            ->where('store_id', $storeId)
+            ->count();
+
+        $orderFinancialsWithoutCost = (int) DB::table('store_order_financials')
+            ->where('store_id', $storeId)
+            ->where('product_cost', '<=', 0)
+            ->count();
+
+        /*
          |--------------------------------------------------------------------------
          | Inventory
          |--------------------------------------------------------------------------
@@ -868,10 +1023,32 @@ class StoreFinanceController extends Controller
         $inventoryCost = 0;
         $inventoryRetailValue = 0;
 
+        /*
+         | P5-10 / ANA-006 -- "do NOT claim precise profitability when cost or fee data is
+         | missing". `products.cost_price` is `decimal(15,2) NOT NULL DEFAULT 0.00`, so a cost
+         | that was never entered reads 0.00 and is arithmetically indistinguishable from an
+         | item that genuinely cost nothing. Such a product contributes its WHOLE retail value
+         | to "Potential Profit" with nothing subtracted.
+         |
+         | The figure cannot be corrected without the missing data, so it is qualified instead,
+         | with a MEASURED count and the exact amount exposed -- not a fixed sentence. It
+         | self-adjusts as merchants fill cost in and falls silent on its own.
+         |
+         | Only products that are actually VALUED are counted: an out-of-stock product
+         | contributes nothing to the tiles, so it must not appear in the caveat that qualifies
+         | them.
+         */
+        $inventoryValuedProducts = 0;
+        $inventoryUncostedProducts = 0;
+        $inventoryUncostedRetail = 0;
+
         foreach ($products as $product) {
 
             $costPrice =
                 (float) ($product->cost_price ?? 0);
+
+            $productUnits = 0;
+            $productRetail = 0;
 
             if ($product->variant_product == 1) {
 
@@ -907,6 +1084,10 @@ class StoreFinanceController extends Controller
 
                     $inventoryRetailValue +=
                         ($sellingPrice * $stock);
+
+                    $productUnits += $stock;
+                    $productRetail +=
+                        ($sellingPrice * $stock);
                 }
 
             } else {
@@ -923,14 +1104,54 @@ class StoreFinanceController extends Controller
                 $inventoryCost +=
                     ($costPrice * $stock);
 
-                $sellingPrice = (float) (
-                    $product->sale_price
-                    ?? $product->price
-                    ?? 0
-                );
+                /*
+                 | P5-10. THIS WAS `$product->sale_price ?? $product->price ?? 0` AND THE SECOND
+                 | OPERAND COULD NEVER BE REACHED. `??` fires on NULL alone, and
+                 | `products.sale_price` is `float NOT NULL DEFAULT 0` (create_products_table:32),
+                 | so a product that is simply not on sale carried 0 here: it contributed NOTHING
+                 | to retail value while still contributing its full cost above, and the
+                 | "Potential Profit" tile rendered `0 - cost`, negative, in debit red.
+                 |
+                 | NOT the same defect as the variant branch ~20 lines up, which keeps `??`
+                 | because `product_variants.variation_price` IS nullable and its fallthrough
+                 | works. One spelling, two column definitions.
+                 |
+                 | The replacement is the product's own convention for "is there a sale price",
+                 | not a new judgement: Product.php:323 `!empty($product->sale_price)`,
+                 | product_price.blade.php:4 the same, preview.blade.php:59
+                 | `(float) ($product->sale_price ?? 0) > 0`, ApiController 499/781/804
+                 | `!empty(...) ? ... : 0`.
+                 |
+                 | Pinned by tests/Feature/Merchant/FinanceInventoryValuationTest.
+                 */
+                $salePrice = (float) ($product->sale_price ?? 0);
+
+                $sellingPrice = $salePrice > 0.0
+                    ? $salePrice
+                    : (float) ($product->price ?? 0);
 
                 $inventoryRetailValue +=
                     ($sellingPrice * $stock);
+
+                $productUnits += $stock;
+                $productRetail +=
+                    ($sellingPrice * $stock);
+            }
+
+            /*
+             | ANA-006 accounting, once per product. `$productUnits > 0` is what restricts this
+             | to products the tiles actually valued. (The simple branch's `continue` above
+             | skips this tail for an out-of-stock product; that is the same outcome, since
+             | `$productUnits` would be 0.)
+             */
+            if ($productUnits > 0) {
+
+                $inventoryValuedProducts++;
+
+                if ($costPrice <= 0.0) {
+                    $inventoryUncostedProducts++;
+                    $inventoryUncostedRetail += $productRetail;
+                }
             }
         }
 
@@ -945,16 +1166,44 @@ class StoreFinanceController extends Controller
             2
         );
 
+        $inventoryUncostedRetail = round(
+            $inventoryUncostedRetail,
+            2
+        );
+
+        /*
+         | P5-16 / owner decisions D1 and D2. `Payments received` and `Estimated gross profit`, read
+         | through the metric layer over the period the ledger can vouch for (LedgerCoverage), with the
+         | start stated. See App\Support\Metrics\FinanceLedgerFigures. Read-only.
+         */
+        $ledgerFigures = \App\Support\Metrics\FinanceLedgerFigures::forStore((int) $storeId, (string) $currencyCode);
+
+        /*
+         | GAP-222. `Available to withdraw` is the third of D2's four figures and was the only one
+         | printed as a bare decimal -- right number, no currency, on the tile whose currency is the
+         | likeliest on this page to differ, because `store_wallets.currency_code` is written once at
+         | provisioning and nothing rewrites it when `defult_currancy` changes. Read-only; converts
+         | nothing. See App\Support\Metrics\WalletEntitlementFigure.
+         */
+        $walletFigure = \App\Support\Metrics\WalletEntitlementFigure::forStore((int) $storeId, (string) $currencyCode);
+
         return view(
             'finance.index',
             compact(
+                'ledgerFigures',
+                'walletFigure',
                 'wallet',
                 'transactions',
                 'orderFinancials',
                 'inventoryUnits',
                 'inventoryCost',
                 'inventoryRetailValue',
-                'inventoryPotentialProfit'
+                'inventoryPotentialProfit',
+                'inventoryValuedProducts',
+                'inventoryUncostedProducts',
+                'inventoryUncostedRetail',
+                'orderFinancialsTotal',
+                'orderFinancialsWithoutCost'
             )
         );
     }
@@ -1478,7 +1727,17 @@ class StoreFinanceController extends Controller
 
         try {
 
-            DB::transaction(function () use (
+            /*
+             * P4-F128 -- THE TRANSACTION RETURNS WHAT THE AUDIT ROW NEEDS.
+             *
+             * `use (...)` captures BY VALUE, so nothing the closure computes -- the amount, the
+             * wallet it belongs to, the status it moved from -- is visible after the commit. The
+             * alternative, re-reading the row once the transaction has closed, would read a row
+             * another request may already have moved, and would record THAT instead of what this
+             * call did. Returning the facts out of the closure is the in-file precedent at
+             * `$result = DB::transaction(...)` further down this controller.
+             */
+            $audit = DB::transaction(function () use (
                 $id,
                 $storeId
             ) {
@@ -1530,6 +1789,12 @@ class StoreFinanceController extends Controller
                         'status' => 'completed',
                         'updated_at' => now(),
                     ]);
+
+                return [
+                    'withdrawal_id' => (int) $withdrawal->id,
+                    'wallet_id' => $withdrawal->wallet_id,
+                    'amount' => (float) $withdrawal->amount,
+                ];
             });
 
         } catch (\Exception $e) {
@@ -1539,6 +1804,41 @@ class StoreFinanceController extends Controller
                 $e->getMessage()
             );
         }
+
+        /*
+         * P4-F128 -- WHO APPROVED THIS PAYOUT, AND WHEN.
+         *
+         * Owner decision: a finance-screen action needs authz + reason + an auditable event. The
+         * authz was already here and operator-first. This is the auditable event.
+         *
+         * AFTER the catch, so only a transition that COMMITTED is recorded -- the same placement
+         * the F128 adjustment uses, and for the same reason: an audit trail that records attempts
+         * as movements lies in the direction that matters most.
+         *
+         * WHAT THIS HANDLER DOES AND DOES NOT DO, recorded here because the distinction is easy to
+         * get backwards: approval MOVES NO MONEY. It writes no `store_wallets` column and inserts
+         * no ledger row; it marks the existing `withdrawal_request` row completed, which makes the
+         * amount PAYABLE. The money leaves in payWithdrawal(). A new ledger row here would be a
+         * fabricated movement, not a missing one.
+         *
+         * NO REASON IS RECORDED, AND THAT IS AN OPEN OWNER QUESTION, not an oversight. Requiring
+         * one would change merchant-visible behaviour on the payout path, and the form here is a
+         * single button whose `onclick="return confirm(...)"` is pinned by two ratchets that exist
+         * because that guard is SYNCHRONOUS where the shared dialog handler is not. See
+         * docs/finance/P4-F128-SETTLEMENT-ENTITLEMENT-RECONCILIATION.md section 4.
+         */
+        \App\Models\AuditLog::record(
+            'finance.withdrawal.approved',
+            null,
+            ['withdrawal_id' => $audit['withdrawal_id'], 'status' => 'pending'],
+            [
+                'withdrawal_id' => $audit['withdrawal_id'],
+                'status' => 'approved',
+                'wallet_id' => $audit['wallet_id'],
+                'amount' => $audit['amount'],
+                'moved_money' => false,
+            ]
+        );
 
         return back()->with(
             'success',
@@ -1587,14 +1887,49 @@ class StoreFinanceController extends Controller
             );
         }
 
+        /*
+         * P4-F128 -- THE NOTE IS REQUIRED NOW, AND IT IS THE REASON.
+         *
+         * This handler RETURNS MONEY to the merchant's wallet: it draws down
+         * `withdrawal_pending_balance`, raises `available_balance` and writes a
+         * `withdrawal_refund` ledger row. `admin_note` was `nullable`, so a payout could be
+         * refused and the money moved back with nothing at all recorded about why. The owner's
+         * F128 decision -- authz + reason + auditable event -- is what this closes.
+         *
+         * IT IS CHEAP HERE AND ONLY HERE, which is why its two siblings are not changed in the
+         * same way: the textarea already exists in the reject modal, and three tests already post
+         * the field. Approve and pay have no field and no room for one; see the note on
+         * approveWithdrawal.
+         *
+         * THE ENCODING RULE IS NOT DECORATION -- the F128 adjustment proved it by execution. The
+         * note lands in an AuditLog `json`-cast column below; a malformed UTF-8 byte sequence
+         * passes `string` and `max`, then makes json_encode() return false AFTER the money has
+         * already moved, so the movement happens with no audit row at all.
+         *
+         * THE GUARD STILL RUNS FIRST, deliberately, and this is the one place the F128 precedent
+         * must NOT be copied: there the validator precedes the store guard. Three security tests
+         * assert `session('error') === __('No store is selected.')`, and a Laravel validation
+         * failure is ALSO a 302 carrying session errors -- so validating first would leave them
+         * green while measuring the wrong refusal.
+         */
         $request->validate([
-            'admin_note' =>
-                'nullable|string|max:500',
+            'admin_note' => [
+                'required',
+                'string',
+                'max:500',
+                function ($attribute, $value, $fail) {
+                    if (! is_string($value) || ! mb_check_encoding($value, 'UTF-8')) {
+                        $fail(__('The reason must be valid text.'));
+                    }
+                },
+            ],
         ]);
 
         try {
 
-            DB::transaction(function () use (
+            // P4-F128: the closure captures by value, so the amount and the balances it moved are
+            // invisible after the commit. Returned out, as approveWithdrawal does.
+            $audit = DB::transaction(function () use (
                 $request,
                 $id,
                 $storeId
@@ -1733,6 +2068,14 @@ class StoreFinanceController extends Controller
                         'status' => 'cancelled',
                         'updated_at' => now(),
                     ]);
+
+                return [
+                    'withdrawal_id' => (int) $withdrawal->id,
+                    'wallet_id' => $withdrawal->wallet_id,
+                    'amount' => (float) $withdrawal->amount,
+                    'available_before' => (float) $before,
+                    'available_after' => (float) $wallet->available_balance,
+                ];
             });
 
         } catch (\Exception $e) {
@@ -1742,6 +2085,31 @@ class StoreFinanceController extends Controller
                 $e->getMessage()
             );
         }
+
+        /*
+         * P4-F128 -- the auditable event for a REFUSAL THAT MOVED MONEY BACK.
+         *
+         * After the catch, so only a committed reversal is recorded. It carries both balances, so
+         * a reader can see the movement itself rather than infer it, and the now-required
+         * `admin_note` as the stated reason.
+         */
+        \App\Models\AuditLog::record(
+            'finance.withdrawal.rejected',
+            null,
+            [
+                'withdrawal_id' => $audit['withdrawal_id'],
+                'status' => 'pending',
+                'available_balance' => $audit['available_before'],
+            ],
+            [
+                'withdrawal_id' => $audit['withdrawal_id'],
+                'status' => 'rejected',
+                'wallet_id' => $audit['wallet_id'],
+                'amount_returned' => $audit['amount'],
+                'available_balance' => $audit['available_after'],
+                'reason' => $request->input('admin_note'),
+            ]
+        );
 
         return back()->with(
             'success',
@@ -1779,7 +2147,9 @@ class StoreFinanceController extends Controller
 
         try {
 
-            DB::transaction(function () use (
+            // P4-F128: returned out of the closure for the audit row below -- `use (...)` captures
+            // by value, and re-reading after the commit would read whatever the row is by then.
+            $audit = DB::transaction(function () use (
                 $id,
                 $storeId
             ) {
@@ -1888,6 +2258,14 @@ class StoreFinanceController extends Controller
 
                     'created_by' => auth()->id(),
                 ]);
+
+                return [
+                    'withdrawal_id' => (int) $withdrawal->id,
+                    'wallet_id' => $withdrawal->wallet_id,
+                    'amount' => (float) $withdrawal->amount,
+                    'total_withdrawn_after' => (float) $wallet->total_withdrawn,
+                    'pending_after' => (float) $wallet->withdrawal_pending_balance,
+                ];
             });
 
         } catch (\Exception $e) {
@@ -1897,6 +2275,35 @@ class StoreFinanceController extends Controller
                 $e->getMessage()
             );
         }
+
+        /*
+         * P4-F128 -- THE AUDIT ROW FOR THE HANDLER THAT ACTUALLY PAYS MONEY OUT.
+         *
+         * Of the three withdrawal surfaces this is the one where money leaves: it draws
+         * `withdrawal_pending_balance` down and raises `total_withdrawn`. Until now it recorded
+         * WHO only in the ledger row's `created_by`, and nothing at all about the action itself.
+         *
+         * `available_balance` is deliberately NOT in this row, because this handler does not touch
+         * it -- the amount was reserved out of it when the withdrawal was REQUESTED. That is also
+         * why the `withdrawal_paid` ledger row carries balance_before == balance_after, and why a
+         * reconciliation that sums it a second time reports phantom drift (see leg 4 of
+         * SettlementEntitlementReconciliation).
+         *
+         * NO REASON IS RECORDED HERE EITHER, for the same open owner question as approval.
+         */
+        \App\Models\AuditLog::record(
+            'finance.withdrawal.paid',
+            null,
+            ['withdrawal_id' => $audit['withdrawal_id'], 'status' => 'approved'],
+            [
+                'withdrawal_id' => $audit['withdrawal_id'],
+                'status' => 'paid',
+                'wallet_id' => $audit['wallet_id'],
+                'amount_paid_out' => $audit['amount'],
+                'total_withdrawn' => $audit['total_withdrawn_after'],
+                'withdrawal_pending_balance' => $audit['pending_after'],
+            ]
+        );
 
         return back()->with(
             'success',

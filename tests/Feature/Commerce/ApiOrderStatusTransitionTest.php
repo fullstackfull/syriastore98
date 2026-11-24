@@ -39,7 +39,7 @@ use Tests\Feature\Security\SecurityTestCase;
  * `payment_status = 'Unpaid'` (app/Models/Order.php:712) precisely so that
  * `OrderObserver::updated()` -- which returns early unless `wasChanged('payment_status')`
  * (app/Observers/OrderObserver.php:32-34) -- reverses the wallet credit. The API's cancel arm writes
- * `cancel_date` and nothing else (DashboardController.php:544-547), so a cancelled order keeps its
+ * `cancel_date` and nothing else (DashboardController.php:671-686), so a cancelled order keeps its
  * wallet credit for ever.
  *
  * That half is a payment-semantics change on a shipped endpoint, which CLAUDE.md §2 puts in the
@@ -50,7 +50,7 @@ use Tests\Feature\Security\SecurityTestCase;
  *
  * THE SECOND FINDING IS NOT A WRONG STATUS VALUE, IT IS LOST STOCK.
  * ----------------------------------------------------------------
- * The API's Return arm writes `return_status = 2` (DashboardController.php:549-560) with no
+ * The API's Return arm writes `return_status = 2` (DashboardController.php:688-724) with no
  * restock of any kind. `2` is the EXACT value `OrderController::order_return_request()` uses as
  * its durable restock idempotency marker:
  *
@@ -125,14 +125,14 @@ class ApiOrderStatusTransitionTest extends SecurityTestCase
      * transition guard is free to answer 422 or 200-with-`success: false`. That freedom is exactly
      * what made the sieve dangerous while it excluded only the two messages above:
      *
-     *   - VALIDATION_FAILED is the handler's own 422 (DashboardController.php:414-420), returned
+     *   - VALIDATION_FAILED is the handler's own 422 (DashboardController.php:455-461), returned
      *     BEFORE the lookup and before the write. An implementation that "fixed" the illegal
      *     transitions by narrowing the validator's `in:` list back down -- which is how that list
      *     read before P2-07-12 -- would refuse `delivered_status=2` as an unknown VALUE rather than
      *     as an illegal MOVE, leave the row unwritten, and green the cancel cases for a reason that
      *     is a regression: a merchant could no longer cancel a pending order through the app at all.
      *
-     *   - COULD_NOT_UPDATE is the `catch (\Throwable)` 500 (DashboardController.php:635-649). The
+     *   - COULD_NOT_UPDATE is the `catch (\Throwable)` 500 (DashboardController.php:800-815). The
      *     write lives inside `DB::transaction` (:520), so a throw rolls it back and leaves the row
      *     exactly as the "nothing was written" assertions below demand. An implementation that
      *     refuses an illegal transition by THROWING would therefore green those assertions while
@@ -418,7 +418,7 @@ class ApiOrderStatusTransitionTest extends SecurityTestCase
      *     comment calls it "the missing magic line") — asserted below on a sibling order, as an
      *     oracle, so this is a measured difference and not a recollection;
      *   - the API cancel arm writes `cancel_date` and leaves `payment_status` exactly as it was
-     *     (DashboardController.php:544-547) — asserted below on the order under test.
+     *     (DashboardController.php:671-686) — asserted below on the order under test.
      *
      * WHY THAT MATTERS. `OrderObserver::updated()` returns early unless
      * `wasChanged('payment_status')` (app/Observers/OrderObserver.php:32-34), so the `'Unpaid'`
@@ -476,9 +476,27 @@ class ApiOrderStatusTransitionTest extends SecurityTestCase
             Order::order_status_change(['order_id' => $sibling->id, 'order_status' => 'cancel'])['status'] ?? null,
             'the web refused a cancel from Pending, so the oracle is not measuring the web rule'
         );
-        $this->assertSame('Unpaid', (string) $this->rawOrder($sibling)->payment_status,
-            "the web's cancel did not write payment_status = 'Unpaid', so there is nothing for "
-            . 'the API arm to be missing');
+        /*
+         * THE ORACLE IS INVERTED. OWNER DECISION P4-F124 (Option A), 2026-11-16.
+         *
+         * It asserted `'Unpaid'`, and its own docblock said why that mattered: "if the web ever
+         * stops writing 'Unpaid', this oracle reds and the gap has to be re-described rather than
+         * quietly surviving as a note about behaviour nobody has." That is exactly what happened,
+         * and this is the re-description.
+         *
+         * THE TWO DOORS NO LONGER DISAGREE. The gap this file recorded was that the web wrote
+         * `'Unpaid'` and the API did not, so only the web reversed the wallet. The owner resolved
+         * it in the API's favour: NEITHER door rewrites the customer's settlement, and BOTH reverse
+         * the merchant's entitlement explicitly through `OrderEntitlementReversal`, on the ledger,
+         * with a reason and exactly once.
+         *
+         * So the web sibling now keeps `'Paid'` too, and the thing that used to be measured here —
+         * a difference between two doors — no longer exists to measure.
+         */
+        $this->assertSame('Paid', (string) $this->rawOrder($sibling)->payment_status,
+            "the web's cancel rewrote a captured payment as Unpaid. P4-F124 Option A removed that "
+            . 'write from app/Models/Order.php\'s cancel arm; the reversal now happens on the '
+            . 'financial ledger instead. If this reads Unpaid, the old magic line is back.');
 
         $response = $this->postStatus($merchant, $order, [
             'delivered_status' => HomeController::ORDER_STATUS_CANCEL,
@@ -510,7 +528,7 @@ class ApiOrderStatusTransitionTest extends SecurityTestCase
         $this->assertSame('Paid', (string) $row->payment_status,
             'P4-F124 is a RECORDED GAP and this is its pin, so a failure here is a CHANGE and not '
             . 'a bug report. The API cancel arm has always left payment_status untouched '
-            . '(DashboardController.php:544-547) while the web arm writes \'Unpaid\' '
+            . '(DashboardController.php:671-686) while the web arm writes \'Unpaid\' '
             . '(app/Models/Order.php:712) — and because OrderObserver::updated() returns early '
             . 'unless payment_status changed (OrderObserver.php:32-34), that write is the only '
             . 'thing that reverses a cancelled order\'s wallet credit. Making the API match is a '
@@ -802,13 +820,13 @@ class ApiOrderStatusTransitionTest extends SecurityTestCase
 
         $this->assertStringNotContainsString(self::VALIDATION_FAILED_MESSAGE, $body,
             'the request was refused by the VALIDATOR, before the lookup and before the write '
-            . '(DashboardController.php:414-420), so the row is unwritten for a reason that is not '
+            . '(DashboardController.php:455-461), so the row is unwritten for a reason that is not '
             . 'a transition guard. If this is the fix, the validator has been narrowed back to a '
             . 'hand-typed `in:` list and the app can no longer request a status the column holds -- '
             . 'a regression, not a repair. Body: ' . $body);
 
         $this->assertStringNotContainsString(self::COULD_NOT_UPDATE_MESSAGE, $body,
-            'the handler THREW and answered 500 (DashboardController.php:635-649). The write sits '
+            'the handler THREW and answered 500 (DashboardController.php:800-815). The write sits '
             . 'inside DB::transaction (:520), so the throw rolled it back and left the row exactly '
             . 'as the assertions here demand -- a crash standing in for a refusal. A transition '
             . 'guard must refuse in words the shipped Flutter app can render; a new 500 on a path '

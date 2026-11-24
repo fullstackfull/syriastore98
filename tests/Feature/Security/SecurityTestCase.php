@@ -149,10 +149,10 @@ abstract class SecurityTestCase extends TestCase
     protected function makeStore(User $owner, array $attributes = []): Store
     {
         $store = Store::create(array_merge([
-            'name' => 'Store ' . $owner->id . '-' . uniqid(),
-            'email' => 'store' . uniqid() . '@example.test',
+            'name' => 'Store ' . $owner->id . '-' . $this->uniqueFixtureRef(),
+            'email' => 'store' . $this->uniqueFixtureRef() . '@example.test',
             'theme_id' => 'stylique',
-            'slug' => 'store-' . $owner->id . '-' . uniqid(),
+            'slug' => 'store-' . $owner->id . '-' . $this->uniqueFixtureRef(),
             'created_by' => $owner->id,
             'is_active' => 1,
         ], $attributes));
@@ -176,6 +176,34 @@ abstract class SecurityTestCase extends TestCase
         return [$merchant->fresh(), $store];
     }
 
+    /**
+     * A UNIQUE FIXTURE REFERENCE THAT CANNOT SPELL THE EPOCH. `uniqid()` is eight hex digits of the clock followed by five of the microseconds,
+     * and about 1 value in 8,000 contains the four characters `1970` (simulated, 4,000,000 draws). Tests assert that a whole rendered PAGE
+     * contains no `1970` (the epoch printed for a missing date, F19: OrderGridCardRendersTheDateTest), and that page prints the order reference
+     * and the store name. One full-suite run failed that assertion. The failing page was not kept, so this is ONE SUFFICIENT CAUSE shown by
+     * mechanism, not the cause shown by capture: a reference shaped like `ORD-6a0c1970abcde` (an example, not the captured value) fails it
+     * every time. It was not the only way that page could say `1970` -- the layout prints `time()` in six stylesheet links, and a Unix time
+     * reads `...1970...` 3 seconds in 10,000 -- which is why OrderGridCardRendersTheDateTest now reads the card and not the page.
+     * A fixture must not be able to cause the defect the test hunts for.
+     *
+     * Every random-looking string that a fixture helper puts on a page goes through here: the order reference and the store's name, email and
+     * slug. The candidate source is a separate method so that a test can hand it a reference that spells the epoch and watch it be refused;
+     * `SecurityTestCaseFixtureTest` does, because a statistical test of `uniqid()` itself cannot fail on demand.
+     */
+    protected function uniqueFixtureRef(): string
+    {
+        do {
+            $ref = $this->nextFixtureRefCandidate();
+        } while (str_contains($ref, '1970'));
+
+        return $ref;
+    }
+
+    protected function nextFixtureRefCandidate(): string
+    {
+        return uniqid();
+    }
+
     protected function makeOrder(Store $store, array $attributes = []): Order
     {
         // CROSS-AGENT DEPENDENCY. App\Models\Order has a `creating` hook that
@@ -197,7 +225,7 @@ abstract class SecurityTestCase extends TestCase
         }
 
         return Order::create(array_merge([
-            'product_order_id' => 'ORD-' . uniqid(),
+            'product_order_id' => 'ORD-' . $this->uniqueFixtureRef(),
             'order_date' => now(),
             'customer_id' => 0,
             'is_guest' => 1,

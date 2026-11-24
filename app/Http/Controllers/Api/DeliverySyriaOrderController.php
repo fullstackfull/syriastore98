@@ -225,6 +225,25 @@ class DeliverySyriaOrderController extends Controller
                                 $order,
                                 is_array($cancelLines = json_decode((string) $order->product_json, true)) ? $cancelLines : []
                             );
+
+                            /*
+                             * P4-F124 -- THE MONEY, under the SAME `$oldStatus === 0` guard as the
+                             * goods, deliberately.
+                             *
+                             * Delivery Syria RETRIES deliveries, and this handler's only other
+                             * idempotency is `$oldStatus === $newStatus`, so a 2 -> 1 -> 2 sequence
+                             * re-enters this case. Keeping the reversal inside the same guard means
+                             * the money and the stock answer the same question about what a
+                             * legitimate cancellation is. The reversal is idempotent on the
+                             * financial row's own status as well, so a retry that did get through
+                             * still moves nothing twice -- two independent bounds, which is what a
+                             * retried webhook deserves.
+                             */
+                            app(\App\Services\OrderEntitlementReversal::class)->reverseOrLog(
+                                $order,
+                                \App\Services\OrderEntitlementReversal::REASON_CANCELLED,
+                                'delivery-syria webhook'
+                            );
                         }
                         break;
 

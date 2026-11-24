@@ -39,8 +39,21 @@
     --}}
     <div class="row" id="printableArea">
         <div class="col-xl-6 mb-4">
+            @php
+                /* MEASURED, NOT ASSUMED: `top_product()` filters on `store_id` ALONE -- there is no
+                   `delivered_status` and no `payment_status` predicate in the handler, in
+                   `topSellingProducts()`, or in either of the two category/brand join queries. So
+                   every one of these four panels counts an order that was cancelled, and one that
+                   was returned, exactly as it counts a completed one. The notes described the
+                   metric accurately and were silent about its inclusion rule, which is the half a
+                   merchant acts on when they read a ranking. Appended as its own translated
+                   sentence rather than concatenated text, because a hint assembled in PHP is the
+                   shape that silently ships English. */
+                $ssTopFiveInclusion = __('Orders that were later cancelled or returned are counted here.');
+            @endphp
+
             <x-ss.card :title="__('Top Selling Products')"
-                       :note="__('The five products appearing in the most orders. Counts orders, not quantity or value.')">
+                       :note="__('The five products appearing in the most orders. Counts orders, not quantity or value.') . ' ' . $ssTopFiveInclusion">
                 <x-ss.bar-chart
                     :labels="$productNames"
                     :values="$productCounts"
@@ -53,7 +66,7 @@
 
         <div class="col-xl-6 mb-4">
             <x-ss.card :title="__('Top Selling Category')"
-                       :note="__('Categories by the number of distinct orders containing one of their products.')">
+                       :note="__('Categories by the number of distinct orders containing one of their products.') . ' ' . $ssTopFiveInclusion">
                 <x-ss.bar-chart
                     :labels="$top_sales->pluck('sale_name')->all()"
                     :values="$top_sales->pluck('total_sale')->all()"
@@ -66,7 +79,7 @@
 
         <div class="col-xl-6 mb-4">
             <x-ss.card :title="__('Top Selling Brand')"
-                       :note="__('Brands by the number of distinct orders containing one of their products.')">
+                       :note="__('Brands by the number of distinct orders containing one of their products.') . ' ' . $ssTopFiveInclusion">
                 <x-ss.bar-chart
                     :labels="$top_brand_sales->pluck('sale_name')->all()"
                     :values="$top_brand_sales->pluck('total_sale')->all()"
@@ -79,11 +92,19 @@
 
         <div class="col-xl-6 mb-4">
             <x-ss.card :title="__('Top Payment Method')"
-                       :note="__('Orders grouped by the method they were paid with.')">
-                {{-- The keys are raw `orders.payment_type` values, which went to the chart
+                       :note="__('The five methods used on the most orders. Spellings of the same method are counted together.') . ' ' . $ssTopFiveInclusion">
+                {{-- The keys WERE raw `orders.payment_type` values, which went to the chart
                      untranslated — an Arabic merchant read English method names on an Arabic
                      page. A method with no translation falls back to its own name rather than
-                     to an empty label. --}}
+                     to an empty label.
+
+                     P5-3f: they are still real spellings, but one per method rather than one per
+                     variant. `top_product()` now groups case-insensitively on a trimmed key and
+                     labels each group with the spelling that occurs most often in it — so these
+                     `__()` lookups keep matching the catalogue entries they already have, which a
+                     lower-cased key would not. Before that, 'cod' and 'COD' were two separate
+                     bars competing for the same five slots, which makes a "top five" wrong rather
+                     than merely unordered. --}}
                 <x-ss.bar-chart
                     :labels="$paymentMethods->keys()->map(fn ($m) => __($m ?: 'Unknown'))->all()"
                     :values="$paymentMethods->values()->all()"

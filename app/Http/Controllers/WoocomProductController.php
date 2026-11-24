@@ -60,15 +60,18 @@ class WoocomProductController extends Controller
                     return DataTables::of($jsonData)
                         ->addColumn('cover_image', function ($data) {
                             $imgSrc = !empty($data->images) ? get_file($data->images['0']->src) : asset(Storage::url('uploads/woocommerce.png'));
-                            return '<img src="' . $imgSrc . '" alt="" width="100" class="cover_img">';
+                            return '<img src="' . e($imgSrc) . '" alt="" width="100" class="cover_img">';
                         })   
+                        // P1-SEC-80. WordPress returns names entity-encoded (`Hats &amp; Caps`): decode to text here, and yajra escapes once.
+                        ->editColumn('name', fn ($data) => html_entity_decode((string) ($data->name ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'))
                         ->editColumn('category_name', function ($data) {
-                            return $data->categories['0']->name ?? '-';
+                            return html_entity_decode((string) ($data->categories['0']->name ?? '-'), ENT_QUOTES | ENT_HTML5, 'UTF-8');
                         })      
                         ->addColumn('action', function ($customer) use ($upddata) {
                             return view('woocommerce.product_action', compact('customer','upddata'));
                         })
-                        ->rawColumns(['cover_image','name','category_name','price','action'])
+                        // P1-SEC-80. The name, the category name and the price come from the merchant's WooCommerce shop: plain text, escaped by yajra.
+                        ->rawColumns(['cover_image','action'])
                         ->make(true);
                 }
                 return view('woocommerce.product');

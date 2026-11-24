@@ -460,6 +460,80 @@ class DownloadableProductMailTest extends SecurityTestCase
         Mail::assertNothingSent();
     }
 
+    /*
+     * SEC-INTAKE #188 ON THIS ROUTE, and this one is a CAPABILITY MINT rather than a read.
+     *
+     * `ownedOrder()` admits on `orders.customer_id` and never asks `orders.is_guest`. A guest
+     * checkout whose billing e-mail matches an existing customer OF THIS STORE is written with
+     * that customer's REAL id and `is_guest = 1`, because nobody is signed in -- so the matched
+     * customer satisfies the predicate on an order they may never have placed.
+     *
+     * WHY THIS ROUTE IS THE SHARP ONE. `helper.php`'s link builder and
+     * `PaidDownloadController::entitled()` were both given the `is_guest` conjunct earlier. This
+     * is the OTHER `DownloadGrant` mint, and the grant it writes carries the matched customer's
+     * id -- so `entitled()`'s GRANT limb requires exactly that customer and admits them, around
+     * the conjunct on its customer limb. The mail goes to the order's billing e-mail, which IS
+     * that customer's registered address by construction of the match. The capability therefore
+     * reaches the principal the other two limbs refuse.
+     *
+     * The e-mail match itself is not in question: it is the returning-guest flow, it follows from
+     * per-store e-mail uniqueness, and UnscopedCustomerEmailLookupTest pins it. What is refused
+     * is treating the recorded id as proof that this shopper bought the file.
+     */
+
+    public function test_an_adopted_guest_order_does_not_mint_a_download_grant_for_the_matched_customer(): void
+    {
+        Mail::fake();
+        [, $store] = $this->makeTenant();
+        $this->mailSettings($store);
+        $matched = $this->shopper($store);
+
+        // THE ADOPTED SHAPE: the matched customer's real id together with is_guest = 1. Everything
+        // else is the legitimate fixture, so nothing but the missing is_guest rule can refuse it:
+        // the order is in this store, delivered, its product carries a file, the billing row holds
+        // this customer's own address, and mail is configured.
+        [$order, ] = $this->deliveredOrder($store, $matched, $matched->email);
+        DB::table('orders')->where('id', $order->id)->update(['is_guest' => 1]);
+        (new \App\Models\Order())->flushCache();
+
+        $response = $this->ask($matched, $store, $order->id);
+
+        /*
+         * THE REFUSAL IS ASSERTED BY ITS OWN MESSAGE, not by "not success" (review finding).
+         * `assertNotSame('success', ...)` is satisfied by four other non-success exits of this
+         * handler -- the "nothing to download" refusal, which shares this response shape and
+         * differs only in `message`; the SMTP-missing branch; and an undelivered order, for which
+         * the handler returns NOTHING at all, so `json('status')` is null and also satisfies it.
+         * `Order Not Found.` is the branch unique to the ownership refusal, which is the control
+         * under test.
+         */
+        $this->assertSame('Order Not Found.', $response->json('message'),
+            'A guest order minted a download grant for the customer its billing e-mail matched. '
+            . 'This is the money-adjacent limb of #188: purchased digital goods delivered to '
+            . 'somebody who never proved they own that address. Body: ' . $response->getContent());
+        $this->assertSame(__('error'), $response->json('status'));
+
+        Mail::assertNothingSent();
+    }
+
+    public function test_the_signed_in_buyers_own_order_still_mints_a_grant(): void
+    {
+        // THE ORACLE. Same fixture, `is_guest = 0` -- the shape a shopper who signed in before
+        // buying really has. If the refusal above over-reached, this fails.
+        Mail::fake();
+        [, $store] = $this->makeTenant();
+        $this->mailSettings($store);
+        $owner = $this->shopper($store);
+        [$order, ] = $this->deliveredOrder($store, $owner, $owner->email);
+
+        $response = $this->ask($owner, $store, $order->id);
+
+        $this->assertSame('success', $response->json('status'),
+            'The signed-in buyer can no longer have their own download link mailed: '
+            . $response->getContent());
+        Mail::assertSent(ProdcutMail::class, 1);
+    }
+
     public function test_a_merchant_session_cannot_use_the_shoppers_route(): void
     {
         Mail::fake();

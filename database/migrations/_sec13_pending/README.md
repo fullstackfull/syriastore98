@@ -132,10 +132,11 @@ run.
 Applying this migration **arms an account takeover** that is currently held shut only by the broken
 column this migration fixes.
 
-`CustomerLoginController::verifyPasswordOtp()` writes three session flags —
-`password_otp_verified`, `password_otp_verified_customer_id`, `password_otp_verified_store_id` —
-which are, on their own, a standing authorisation to change that customer's password: the reset
-handler reads nothing else, not even `password_otp`. Nothing rotated the session id at that
+`CustomerLoginController::verifyPasswordOtp()` writes **four** session values —
+`password_otp_verified`, `password_otp_verified_customer_id`, `password_otp_verified_store_id` and,
+since SEC-SESS part A, `password_otp_verified_session_id` — the first three of which are, on their
+own, a standing authorisation to change that customer's password: the reset handler reads nothing
+else, not even `password_otp`. Nothing rotated the session id at that
 boundary, so an attacker who could plant the pre-OTP session id could replay it after the victim
 verified and take the account over. Unlike the login boundary, which gets `migrate(true)` free from
 `SessionGuard::updateSession()`, that one rotated nothing.
@@ -146,6 +147,77 @@ state, plus a CSRF-token rotation matching the house pattern at
 `AuthenticatedSessionController.php:77`). Measured closed, with the legitimate reset preserved as an
 explicit oracle.
 
-So: the rotation landed first, deliberately, and it is what makes applying this migration safe.
+**SEC-SESS PART A THEN CLOSED THE SECOND ARMING PATH, and this migration arms that one too.** The
+rotation stops a planted id being replayed; it does not stop the flags travelling FORWARD, because
+`Store::migrate()` takes a new id without clearing the attributes — so `regenerate()` and
+`regenerate(true)` both carry them. Part A binds the authorisation to the session that earned it
+(`password_otp_verified_session_id`, compared at both read sites) and drops all four on customer
+logout. **It is a narrowing, not a closure:** `SessionGuard::logout()` rotates nothing, so the two
+forced merchant sign-outs (`APP_THEME()`, the `HomeController` chart helper) still change principal
+without rotating, and a walk-away with no logout and no login rotates nothing at all. Two further
+predicates would bound that residual and are recorded as follow-up, NOT applied: refusing when
+`customers.password_otp` is already null (which would also make the claim in
+`Api/AuthController.php` about re-checking true), and an expiry on the authorisation so it ends
+with the flow rather than with the 120-minute idle session.
+
+So: the rotation landed first and the binding second, both deliberately, and together they are what
+make applying this migration safe.
 `tests/Feature/Security/SessionHygieneTest.php` pins both halves and will tell you if either is
 removed. Do not apply this migration on a tree where that rotation is absent.
+
+### THE TWO FOLLOW-UP PREDICATES: REACHABILITY CANNOT BE ESTABLISHED IN THIS SUITE (2026-11-24)
+
+The owner asked for the two predicates above to have their **actual reachability verified** before
+either is implemented. The answer is that a Feature test cannot establish it, and the reason is
+specific enough to be worth recording rather than re-discovering.
+
+**Laravel's test client gives every request a NEW session id.** Measured five ways, all on this
+tree:
+
+| what was driven | result |
+|---|---|
+| two plain `GET`s of `/{slug}/forgot-password` | ids differ |
+| two requests seeded with `withSession([...])` | ids differ |
+| an unencrypted session cookie planted with `withUnencryptedCookie()` | ids differ, and neither matches the planted value |
+| the same, with `config(['session.driver' => 'file'])` | ids still differ |
+| the real pair: `POST .../otp/verify` then `POST .../reset-password/otp` | the reset is REFUSED, flashing `OTP verification is required.` |
+
+So it is not the `array` driver (`phpunit.xml:40`, against `database` in production at
+`config/session.php:21`) — the `file` driver behaves the same. The id rotates because the client
+does not carry the session cookie back into the next request.
+
+**And that interacts with SEC-SESS part A exactly as part A intends.** Part A binds the
+authorisation to the session that earned it and compares `password_otp_verified_session_id` against
+`session()->getId()` at both read sites. In the harness the second request's id never matches, so
+**every** follow-up request is refused — the legitimate reset included. Confirmed directly: after
+the verify, `password_otp_verified` is `true` and the bound id equals the live id; by the next
+request the live id has changed while the bound id has not.
+
+**WHAT THIS MEANS FOR THE PREDICATES.** A test for either one would assert that a reset is refused
+— and a reset is refused here no matter what, so the test passes without touching the predicate.
+That is not a hypothetical: the first version of this work had four such tests and **all four
+passed on the unmodified tree**. Only the mandatory oracle ("a prompt legitimate reset still
+completes") failed, and it is the single reason the vacuity was caught rather than committed as
+evidence. The test file was deleted rather than kept, because a test that passes for the wrong
+reason is worse than no test: the accepted-outcome gate would bless it.
+
+**DISPOSITION: NEITHER PREDICATE IS IMPLEMENTED.** The owner's instruction was to verify
+reachability and address *confirmed* defects. Nothing is confirmed:
+
+- Both predicates guard a flow that is **inert on production MySQL today** (the column cannot hold
+  the hash — see above), so neither is a live defect.
+- Their necessity after the widening is **argued, not measured**, and this suite cannot measure it.
+- Writing an authorisation guard whose effect no test can observe would add a control nobody could
+  prove works or could notice breaking.
+
+**WHAT WOULD ESTABLISH IT.** A harness that preserves one session id across requests — a real HTTP
+client against a served instance, in the shape of `tests/Support/Security/bin/`, which is where
+CLAUDE.md puts evidence that cannot live in the suite. That is the prerequisite for these two
+predicates, and it is also what would let anyone drive **any** multi-request customer session flow,
+including part A's binding and the forced-sign-out residual the paragraph above describes. Until it
+exists, part A's coverage in `SessionHygieneTest` is necessarily single-request and source-level —
+which is a limit on the EVIDENCE, not a defect in part A.
+
+**So the ordering stands, with one item added.** Before this migration is applied: the attempt
+limit and the two route throttles (already on the branch), and a decision on whether these two
+predicates are wanted — which now needs the harness above, not more reading.

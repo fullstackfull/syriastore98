@@ -35,7 +35,7 @@
             <span class="ss-visually-hidden">{{ __('Upload an image for :gateway', ['gateway' => __($gateway['name'])]) }}</span>
         </label>
         <input type="file" name="{{ $gateway['image_key'] }}" id="{{ $gateway['image_key'] }}"
-               class="ss-visually-hidden" accept="image/*">
+               class="ss-visually-hidden" accept="{{ \App\Services\ThemeImageUpload::acceptAttribute(false) }}">
         <img class="ss-gateway-image__img"
              alt="{{ __($gateway['name']) . ' ' . __('Image') }}"
              src="{{ get_file($setting[$gateway['image_key']] ?? Storage::url($gateway['image_default'])) ?? asset(Storage::url($gateway['image_default'])) }}">

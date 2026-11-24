@@ -30,6 +30,73 @@ final class ModuleRouteManifest
         'POST Wizzchat-form' => 'auth',
         'POST admin_email_template_lang/{id}' => 'owner:email-template',
         'GET admin_email_template_lang/{id}/{lang?}' => 'owner:email-template',
+        /*
+         * P1-SEC-87 -- THE APPOINTMENT ROWS, THE SAME SHAPE AS THE CONTACTS P1-SEC-84 CLOSED.
+         *
+         * Found by following P1-SEC-84's own "still unexamined" note rather than by a new census:
+         * these sit in the SAME Marketing route group and looked like the same pattern.
+         *
+         * `AppointmentController` (vendored, not edited) acts on a row by bare id in four
+         * handlers: `destroy()` checks only the 'Delete Appointment' PERMISSION, `note_store()`
+         * only 'Edit Appointment' before writing `status` and `note`, `add_note()` reads the row,
+         * and `getAppointmentDetails()` CHECKS NOTHING AT ALL -- `find($id)` and then renders the
+         * calendar modal, which shows a customer's name, contact details and appointment time.
+         * That last one is the worst of the four and the reason this is not merely tidy-up.
+         *
+         * The module itself knows these rows are tenant-scoped: `index()` and
+         * `getCalenderAllData()` both read
+         * `where('store_id', $id)->where('created_by', auth()->user()->creatorId())`. Nothing else
+         * supplied the predicate -- `appointment_deatails` (the typo is the vendored migration's)
+         * carries `store_id` and `created_by`, and `AppointmentDeatail` is absent from
+         * `config/tenancy.php` `scoped_models`.
+         *
+         * `appointments/delete/{id}` is `Route::any`, hence six verbs. The four
+         * `appointments/{appointment}` keys below take the bound parameter's name instead, and
+         * three of them are DEAD: `show()`, `update()` and `edit()` do not exist on the controller,
+         * so the resource routes pointing at them throw. They are listed anyway, for the reason
+         * P1-SEC-84 listed `contacts/update`: a rule must not depend on a method staying absent.
+         *
+         * `get_appointment_data` (six verbs) IS DELIBERATELY NOT LISTED, and it is worth saying why
+         * rather than leaving a gap that looks like an oversight. P1-SEC-87 first recorded it as a
+         * body-keyed door needing its own guard. MEASURED AFTERWARDS, THAT WAS WRONG on both
+         * counts:
+         *
+         *   - `$request->id` is used as a STORE id and not an appointment id, and in BOTH branches
+         *     it is ANDed with a predicate derived from the authenticated principal:
+         *     `where('store_id', $id)->where('created_by', auth()->user()->creatorId())`. A caller
+         *     naming another tenant's store gets `store_id = theirs AND created_by = mine`, which
+         *     is empty. The caller-supplied value never stands alone, which is the whole of the
+         *     objection to such predicates.
+         *   - `$objUser->current_business` is NOT a column on `users` -- `Schema::hasColumn()` is
+         *     false and the only column matching is `current_store`. So it resolves to null, the
+         *     handler takes its `else` branch, and that branch is `where('created_by', creatorId())`:
+         *     scoping still holds through `created_by`. What is lost is the per-STORE narrowing, so
+         *     a merchant with several stores sees their own appointments across all of them rather
+         *     than only the current one. A correctness and interface defect, not a tenant leak, and
+         *     not fixed here because changing a vendored handler's behaviour needs a first-party
+         *     vehicle and an owner who wants that behaviour changed.
+         *
+         * ONE LEAD REMAINS, stated as a lead: `creatorId()` answers with the OPERATOR's id for a
+         * principal the operator roots -- staff they created, or a merchant who changed their own
+         * `type`. Such a caller would read the operator's own appointments here. That is the same
+         * disposition `RolePolicy::tenantOwner()` records for operator-created staff and which
+         * P1-SEC-83 fixed only where the ceiling ROSE, so it needs its own measurement rather than
+         * a reflex.
+         */
+        'POST appointment-note-store/{id?}' => 'store-row:appointment_deatails:id',
+        'GET appointment-note/{id?}' => 'store-row:appointment_deatails:id',
+        'DELETE appointments/delete/{id}' => 'store-row:appointment_deatails:id',
+        'GET appointments/delete/{id}' => 'store-row:appointment_deatails:id',
+        'OPTIONS appointments/delete/{id}' => 'store-row:appointment_deatails:id',
+        'PATCH appointments/delete/{id}' => 'store-row:appointment_deatails:id',
+        'POST appointments/delete/{id}' => 'store-row:appointment_deatails:id',
+        'PUT appointments/delete/{id}' => 'store-row:appointment_deatails:id',
+        'DELETE appointments/{appointment}' => 'store-row:appointment_deatails:appointment',
+        'GET appointments/{appointment}' => 'store-row:appointment_deatails:appointment',
+        'PATCH appointments/{appointment}' => 'store-row:appointment_deatails:appointment',
+        'PUT appointments/{appointment}' => 'store-row:appointment_deatails:appointment',
+        'GET appointments/{appointment}/edit' => 'store-row:appointment_deatails:appointment',
+        'GET get-appointment-detail/{id}' => 'store-row:appointment_deatails:id',
         'POST auction-order-assign' => 'auth',
         'POST auction-order-return' => 'auth',
         'POST auction-order-status-change/{id}' => 'auth',
@@ -69,6 +136,38 @@ final class ModuleRouteManifest
         'PATCH campaigns/campaigns-braintree-payment' => 'auth',
         'POST campaigns/campaigns-braintree-payment' => 'auth',
         'PUT campaigns/campaigns-braintree-payment' => 'auth',
+        /*
+         * P1-SEC-86 -- `auth` IS THE RIGHT CLASSIFICATION HERE, AND IT IS NOT THE WHOLE STORY.
+         *
+         * `campaignsCost()` deletes `cost_setting` rows by `whereIn('id', $deletedIds)` and updates
+         * them by `find($costSetting['id'])`, both from BODY input and neither with an ownership
+         * predicate. The update is a TRANSFER rather than an edit: `created_by` is assigned from
+         * the caller BEFORE `update()`, so naming another principal's row hands it over.
+         *
+         * The ownership check is `App\Http\Middleware\CampaignsCostOwnershipGuard`, appended to
+         * the `web` group, which keys off its own `TARGETS` rather than a rule here. A `guarded:`
+         * rule would be WRONG IN THIS TABLE: `administrativeRule()` reads only `ADMINISTRATIVE`,
+         * and `ModuleAdministrativeRouteGuard`'s `match` has no `guarded:` arm, so such a rule
+         * falls to `default => false` and denies every non-operator -- measured, when a first
+         * version of this change did exactly that and broke a merchant's own create and delete.
+         * `guarded:` belongs in `ANONYMOUS_BY_DESIGN` below, where it records that a named guard
+         * protects a route carrying no authentication.
+         *
+         * AND THIS ROUTE CARRIES NO `Authenticate` MIDDLEWARE EITHER -- measured, the census
+         * reports `authenticated: false`, because the Campaigns group is `['web']` plus
+         * `PlanModuleCheck:Campaigns` and nothing else. The rule below is what authenticates it:
+         * `ModuleAdministrativeRouteGuard` refuses a null `auth('web')` user for an `auth` rule,
+         * and it runs at stack position 21, BEFORE `CampaignsCostOwnershipGuard` at 23. So the
+         * ownership guard's own anonymous limb is unreachable today and is defence in depth; a
+         * mutation removing it survives for that reason, which its test records rather than
+         * hides.
+         *
+         * NOT `store-row:`, which reads a ROUTE parameter and compares `store_id`: these ids are in
+         * the body and `cost_setting` has no `store_id`. NOT `operator` either, which the sibling
+         * `campaigns-system-setup` carries and which was the first thing that came to mind: these
+         * are per-principal pricing tiers keyed on `created_by` alone, so an operator-only rule
+         * would take every merchant's own tiers away from them.
+         */
         'DELETE campaigns/campaigns-cost' => 'auth',
         'GET campaigns/campaigns-cost' => 'auth',
         'OPTIONS campaigns/campaigns-cost' => 'auth',
@@ -92,7 +191,7 @@ final class ModuleRouteManifest
         'PATCH campaigns/campaigns-payu-payment/{pay}' => 'auth',
         'POST campaigns/campaigns-payu-payment/{pay}' => 'auth',
         'PUT campaigns/campaigns-payu-payment/{pay}' => 'auth',
-        'POST campaigns/campaigns-product' => 'auth',
+        'POST campaigns/campaigns-product' => 'tenant-store:store_id',
         'GET campaigns/campaigns-settings' => 'auth',
         'GET campaigns/campaigns-status/{id}/{response}' => 'operator',
         'GET campaigns/campaigns-system-setup' => 'operator',
@@ -111,7 +210,79 @@ final class ModuleRouteManifest
         'PUT campaigns/campaigns/{campaign}' => 'auth',
         'GET campaigns/campaigns/{campaign}/edit' => 'auth',
         'POST club-point-setting' => 'settings:store',
+        /*
+         * P1-SEC-84 -- THE MARKETING CONTACT ROWS, WHICH WERE REACHABLE BY ID FOR ANY TENANT.
+         *
+         * `ContactController` (vendored, not edited) acts on a row by bare id in four handlers and
+         * applies a tenant predicate in none of them: `destroy()` checks only the
+         * 'Delete Marketing Contact' PERMISSION, `edit()` checks NOTHING AT ALL and renders the
+         * row, `note_store()` checks only 'Edit Marketing Contact' and writes `status` and `note`,
+         * and `update()` overwrites the four text fields.
+         *
+         * Nothing else supplied the predicate. `MarketingContact` is ABSENT from
+         * `config/tenancy.php` `scoped_models` and declares only `HasFactory, Cachable` -- no
+         * `BelongsToStore`, no `StoreScope` -- so `find($id)` reaches every tenant's rows. And the
+         * only Marketing-contact keys in this file were the six STOREFRONT verbs of
+         * `marketing/contacts/store/{slug}`, the public submit form, so `administrativeRule()`
+         * returned null here and the guard passed through before it read the user.
+         *
+         * `store-row:marketing_contacts:id` IS THE MODULE'S OWN QUESTION, not a convenient one:
+         * it compares the row's `store_id` to the caller's `current_store`, which is exactly what
+         * `MarketingContact::cardContactData()` does (`where('store_id', getCurrentStore())`). The
+         * writer sets `store_id` (`ContactController::store()`, from a Store matched by slug AND
+         * id), so existing rows carry one and this does not fail-close legitimate access.
+         *
+         * The `{id?}` routes deny when the id is absent, which costs nothing real: with a null id
+         * `add_note()` resolves no row and `note_store()` would throw on it.
+         *
+         * `POST contacts/update/{id}` IS CURRENTLY INERT and is listed anyway. Its signature is
+         * `update(Request, Contacts $Contacts, $id)` where `Contacts` is `Melipayamak\Contacts`,
+         * whose constructor takes two required untyped arguments, so the container cannot build it
+         * and the route throws for EVERY caller including the row's owner -- measured, after a
+         * positive control refused to pass. The rule must not depend on a vendor constructor
+         * signature: if that stray import is ever removed, the door goes live with no warning.
+         *
+         * NOT given a rule, deliberately: `GET contacts/store/show{id}` routes to `index()`, which
+         * ignores the id entirely and renders the list, so it is not a row door.
+         *
+         * STILL UNEXAMINED, so not mistaken for covered: the `contacts/{contact}` resource family
+         * and `appointments/delete/{id}` / `appointment-note-store/{id?}` in this same route group
+         * are the same SHAPE and have had no measurement of their own.
+         */
+        'POST contact-note-store/{id?}' => 'store-row:marketing_contacts:id',
+        'GET contact-note/{id?}' => 'store-row:marketing_contacts:id',
+        'DELETE contacts/delete/{id}' => 'store-row:marketing_contacts:id',
+        'GET contacts/delete/{id}' => 'store-row:marketing_contacts:id',
+        'OPTIONS contacts/delete/{id}' => 'store-row:marketing_contacts:id',
+        'PATCH contacts/delete/{id}' => 'store-row:marketing_contacts:id',
+        'POST contacts/delete/{id}' => 'store-row:marketing_contacts:id',
+        'PUT contacts/delete/{id}' => 'store-row:marketing_contacts:id',
+        'GET contacts/edit/{id}' => 'store-row:marketing_contacts:id',
+        'POST contacts/update/{id}' => 'store-row:marketing_contacts:id',
         'POST count-down-setting' => 'settings:store',
+        /*
+         * P1-SEC-89 (a) -- A CUSTOMER'S LOYALTY HISTORY, KEYED ON THE CUSTOMER'S ID.
+         *
+         * `RewardClubPointController::clubPointHistory($customerId)` runs
+         * `RewardClubPoint::with('orderData')->where('customer_id', $customerId)->get()` with no
+         * permission check and no store predicate, and `RewardClubPoint` is NOT one of the eleven
+         * `config/tenancy.php` `scoped_models` and declares only `HasFactory, Cachable`. So the
+         * points, used_points, reward_price, order_id and product_id of SOMEBODY ELSE'S shopper
+         * were rendered.
+         *
+         * EASY TO MISS, AND WORTH SAYING WHY: `App\Models\Customer` IS scoped, so the
+         * `Customer::find($customerId)` beside that query returns null for another tenant's
+         * customer and the page renders with no customer at all -- it looks broken rather than
+         * leaky, while the figures beside it are real and foreign.
+         *
+         * THE RULE NAMES `customers`, NOT `reward_club_points`, and that is the whole point of
+         * classifying this door separately from the module's `show()` below: the parameter is a
+         * CUSTOMER id, so the row whose ownership decides the request is the customer's.
+         * `store-row:reward_club_points:customerId` would compare a customer id against
+         * reward-row ids and so admit or refuse the wrong rows -- a rule that is wrong in a way
+         * that still looks like a control.
+         */
+        'GET customer-club-point-history/{customerId}' => 'store-row:customers:customerId',
         'POST coupencode/Status/store' => 'auth',
         'POST couponemail-settings' => 'settings:global',
         'GET couponlist' => 'auth',
@@ -124,6 +295,10 @@ final class ModuleRouteManifest
         'GET couponlist/{couponlist}/edit' => 'auth',
         'GET customer-email/email_template_lang/{id}/{lang?}' => 'owner:email-template',
         'PUT customer-email/update/email_template/{id}' => 'owner:email-template',
+        // P1-SEC-68: the seven AUTHENTICATED Helpdesk ticket routes -- edit-ticket, update-ticket and ticket-reply by the encrypted ticket NUMBER;
+        // delete-ticket, ticket-conversion-store and ticket-note-store by the ROW id; get-user-data (name + e-mail of any user id) for the operator alone,
+        // because the only form that calls it renders its company select for the operator. The table is sorted by uri, so they are not together.
+        'DELETE delete-ticket/{ticketId}' => 'owner:helpdesk-ticket-row',
         'DELETE digital-products/{id}/delete' => 'auth',
         'GET duo2fa' => 'auth',
         'POST duo2fa' => 'auth',
@@ -134,6 +309,7 @@ final class ModuleRouteManifest
         'PATCH duo2fa/{duo2fa}' => 'auth',
         'PUT duo2fa/{duo2fa}' => 'auth',
         'GET duo2fa/{duo2fa}/edit' => 'auth',
+        'GET edit-ticket/{ticketId}' => 'owner:helpdesk-ticket-link',
         'GET enquiry-email/email_template_lang/{id}/{lang?}' => 'owner:email-template',
         'PUT enquiry-email/update/email_template/{id}' => 'owner:email-template',
         'POST facebooklogin-setting' => 'settings:global',
@@ -161,15 +337,235 @@ final class ModuleRouteManifest
         'PATCH frequentlyproduct/{frequentlyproduct}' => 'auth',
         'PUT frequentlyproduct/{frequentlyproduct}' => 'auth',
         'GET frequentlyproduct/{frequentlyproduct}/edit' => 'auth',
+        'POST get-user-data' => 'operator',
         'POST github-settings' => 'settings:global',
         'POST googlelogin-setting' => 'settings:global',
         'GET helpdesk-ticket-show/{ticketId}' => 'owner:helpdesk-ticket-link',
         'POST helpdesk-ticket/{ticketId}' => 'owner:helpdesk-ticket',
         'POST hubspot/setting/store' => 'settings:global',
+        /*
+         * P1-SEC-85 -- THE PLATFORM'S OWN HOME PAGE, WHICH ANY MERCHANT COULD REWRITE.
+         *
+         * `LandingPage\...\HomeController` states its own audience in `index()`:
+         * `if (\Auth::user()->type == 'super admin') { ...the screen... } else { 'Permission
+         * Denied.' }`. A grep for EVERY authorization reference in that file -- `isAbleTo`,
+         * `'super admin'`, `authorize`, `Gate::`, `__construct` -- returns exactly ONE line, that
+         * one, inside `index()`. So `store()`, `update()`, `destroy()`, `create()`, `edit()` and
+         * `show()` had none: the READ was gated and the WRITES were not.
+         *
+         * NOT a tenancy defect, and that distinction is why the rule is `operator` and not
+         * `store-row:`: `landing_page_settings` is `id`, `name` (unique), `value`, `timestamps` --
+         * no `store_id`, no `created_by` -- so it is a single GLOBAL key-value table by design and
+         * no tenant predicate is missing. The rows are the content of the platform's PUBLIC home
+         * page, which is the operator's to set.
+         *
+         * `store()` writes a HARD-CODED list of ten key names, so this is not an arbitrary-name
+         * settings writer either and `settings:global` would be the wrong rule as well as the
+         * wrong table.
+         *
+         * All eight verbs of `Route::resource('homesection', ...)` are listed, `GET homesection`
+         * included: the operator passes the guard and then the handler's own check, and a
+         * non-operator is now refused by the guard instead of by the handler -- the same outcome,
+         * earlier, and it stops the read and the write disagreeing again.
+         *
+         * The group is `['auth','web','xss','setlocate','verified']` with NO `PlanModuleCheck`, and
+         * `verified` is a pass-through unless the operator turns e-mail verification on, so `auth`
+         * was the only thing these routes asked for. The guard itself WAS already on the request
+         * (measured in the census middleware stack); it simply had no rule.
+         *
+         * LandingPage loads UNCONDITIONALLY -- `PackageServiceProvider::register()` carries
+         * `$staticAddons = ['LandingPage', 'LynomiaChat']` and the dynamic loader force-appends it
+         * again -- so these routes exist on every install, not only where an add_on_managers row
+         * does.
+         *
+         * STILL OPEN and recorded rather than implied: the same handler's two upload doors
+         * (`LandingPageSetting::upload_file()` / `::keyWiseUpload_file()`), which
+         * `PlatformUploadPolicy` explicitly disclaims, are a separate item.
+         */
+        'GET homesection' => 'operator',
+        'POST homesection' => 'operator',
+        'GET homesection/create' => 'operator',
+        'DELETE homesection/{homesection}' => 'operator',
+        'GET homesection/{homesection}' => 'operator',
+        'PATCH homesection/{homesection}' => 'operator',
+        'PUT homesection/{homesection}' => 'operator',
+        'GET homesection/{homesection}/edit' => 'operator',
+
+        /*
+         * P1-SEC-90 -- EIGHT MODULE RESOURCES WHOSE ROW ROUTES CARRIED NO TENANT CHECK AT ALL.
+         *
+         * Taken from the P1-SEC-76 lead list and executed rather than inferred: eight controller
+         * groups, one analyst each, then an independent refuter per claimed defect told to default
+         * to REFUTED unless it could confirm from the source. Fourteen survived at high confidence
+         * and NONE was refuted -- but three verdicts came back "needs nothing", which is what makes
+         * the fourteen worth acting on rather than a panel that agreed with itself.
+         *
+         * WHAT NEEDED NOTHING, so that no second control is bolted beside a working one:
+         *   - `DELETE auctionorder/{auctionorder}` and `DELETE auctionsetting/{auctionsetting}` are
+         *     already covered by `ModuleResourceOwnershipGuard`, which names both with their table,
+         *     parameter and permission and is registered on the `web` group (bootstrap/app.php:181).
+         *     Verified by reading that file, not by accepting the verdict.
+         *   - `POST super-admin/lynomia-integration/links/{link}/reauthenticate` -- first-party, and
+         *     its own controller already resolves the row through an owner-scoped predicate.
+         *
+         * THE TWO `operator` RULES ARE FORCED BY THE SCHEMA, not chosen. `join_us` declares
+         * `id`, `email`, `timestamps` and NOTHING else, and `notifications` declares `created_by`
+         * with no `store_id` -- so `store-row:` is not merely wrong for them, it is impossible:
+         * `ComparesRowOwnership::readRowStore()` has no column to read. These rows belong to the
+         * platform, so no merchant is denied anything they had a claim to. Every other table here
+         * was checked the same way and does carry `store_id`.
+         *
+         * THE SIBLING VERBS ARE LISTED EVEN WHERE THE HANDLER IS INERT, for the reason this file
+         * already records for `contacts/update` and the appointment resources: a rule must not
+         * depend on a method staying empty or absent. `donationhistory`'s `update()` is `//`, and
+         * its `show()`/`edit()` return views that do not exist and throw today.
+         *
+         * `product-enquiry` AND `productenquiry` ARE TWO LIVE RESOURCES ON ONE CONTROLLER, and
+         * their route PARAMETERS ARE SPELLED DIFFERENTLY -- `{product_enquiry}` against
+         * `{productenquiry}` -- because only the hyphenated resource name gives
+         * `ResourceRegistrar::getResourceWildcard()` something to convert. A rule string copied
+         * from one to the other would name a parameter the route does not have, `ownsStoreRow()`
+         * would read a null id, and the door would fail closed FOR THE RIGHTFUL OWNER while the
+         * manifest looked complete. Measured from the route census, both spellings.
+         *
+         * THREE OF THESE KEYS WERE IN NO LEAD, and were found by reading the route census against
+         * the module route files rather than the lead list -- so the honest scope of this change is
+         * wider than the batch that prompted it:
+         *   - `GET submenus/{id}` is `SubMenuController::create($id)`, whose `SideMenuOption::find()`
+         *     is unscoped and whose view prints that row's `name` into a hidden input. Its sibling
+         *     write verbs were already classified here; the READ was not.
+         *   - `GET submenus-edit/{id}/{parentid}` reads TWO rows unscoped, but only `{id}`
+         *     ($menu_builder) reaches the view, which renders its link, icon, menu_type,
+         *     window_type and is_enable. `$parent_data` is passed to the view and never used --
+         *     grepped, not assumed -- so one parameter is enough and `store-row:` need not learn to
+         *     name two.
+         *   - `POST notification-template/{pid}` writes a `notification_template_langs` row for the
+         *     template named in the URL. `operator`, for the same schema reason as its GET
+         *     siblings: `NotificationController::index()` is `Notification::get()` with no
+         *     predicate at all, and `notifications` has no `store_id`, so these templates are the
+         *     platform's.
+         * `POST join_us/store` was also never named, and needed nothing: it is already classified
+         * `storefront` in the ANONYMOUS_BY_DESIGN table below, which is correct -- it is the public
+         * newsletter form.
+         *
+         * AND THAT SENTENCE, AS FIRST WRITTEN, WAS THE WHOLE OF WHAT THIS FILE SAID ABOUT POSTING
+         * TO join_us -- WHICH CONFLATED TWO DIFFERENT ROUTES AND LEFT THE DANGEROUS ONE OPEN.
+         * `POST join_us/store` (three segments, `joinUsUserStore()`, the public form) is NOT
+         * `POST join_us` (two segments, the RESOURCE's `store()`), and only the first was looked
+         * at. `Route::resource('join_us', ...)` registers the second inside
+         * `['auth','web','xss','setlocate','verified']` with no `PlanModuleCheck`, and LandingPage
+         * is in `PackageServiceProvider::$staticAddons`, so it loads on every install. Its
+         * `store()` carries NO authorization of any kind while the sibling `index()` on the same
+         * controller checks `type == 'super admin'` -- the read gated and the write not, the shape
+         * P1-SEC-85 already recorded once. It writes `joinus_status`, `joinus_heading` and
+         * `joinus_description` through `LandingPageSetting::updateOrCreate(['name' => ...])`, and
+         * `landing_page_settings` is `id`, `name` (unique), `value`, `timestamps` -- so the rows
+         * are the PLATFORM'S and `operator` is compelled by the schema here too, not chosen.
+         *
+         * Found by the independent review this change should have had BEFORE it was committed, not
+         * after. Classified above; `ModuleRowOwnershipBatchTwoTest` drives it.
+         *
+         * A LIMIT OF THIS VOCABULARY, SO THAT A READER DOES NOT ASSUME MORE COVERAGE THAN EXISTS.
+         * `store-row:` reads the ROUTE only -- deliberately, and its own docblock above says why --
+         * and `tenant-store:` judges a store id in the body, not a row id. So neither form can
+         * express "the row named by THIS BODY KEY must belong to my store". Three authenticated
+         * module write paths in this batch's modules need exactly that form and are therefore NOT
+         * closed by any key here, including resources whose URL-addressed verbs ARE classified
+         * above. They are read, counted and tracked off-repository per the project's rule that an
+         * unpatched finding is not described in a public repository; closing them needs a new rule
+         * form or a first-party guard, which is its own change with its own review.
+         *
+         * `preordersetting/get-product-variants/{id}` TAKES A PRODUCT ID, NOT A SETTING ID. The URI
+         * reads like the latter and the handler is `Product::find($id)`, so the rule names
+         * `products`. CLAUDE.md records `Product` as scoped for nobody -- not a merchant, not the
+         * operator -- which is why this one returns another tenant's variant rows as JSON.
+         */
+        'DELETE donationhistory/{donationhistory}' => 'store-row:customer_donations:donationhistory',
+        'GET donationhistory/{donationhistory}' => 'store-row:customer_donations:donationhistory',
+        'PATCH donationhistory/{donationhistory}' => 'store-row:customer_donations:donationhistory',
+        'PUT donationhistory/{donationhistory}' => 'store-row:customer_donations:donationhistory',
+        'GET donationhistory/{donationhistory}/edit' => 'store-row:customer_donations:donationhistory',
+
+        'DELETE donation/{donation}' => 'store-row:donations:donation',
+        'GET donation/{donation}' => 'store-row:donations:donation',
+        'PATCH donation/{donation}' => 'store-row:donations:donation',
+        'PUT donation/{donation}' => 'store-row:donations:donation',
+        'GET donation/{donation}/edit' => 'store-row:donations:donation',
+
+        'DELETE join_us/{join_u}' => 'operator',
+        'GET join_us/{join_u}' => 'operator',
+        'PATCH join_us/{join_u}' => 'operator',
+        'PUT join_us/{join_u}' => 'operator',
+        'GET join_us/{join_u}/edit' => 'operator',
+        'POST join_us' => 'operator',
+
+        'DELETE product-enquiry/{product_enquiry}' => 'store-row:product_enquiries:product_enquiry',
+        'GET product-enquiry/{product_enquiry}' => 'store-row:product_enquiries:product_enquiry',
+        'PATCH product-enquiry/{product_enquiry}' => 'store-row:product_enquiries:product_enquiry',
+        'PUT product-enquiry/{product_enquiry}' => 'store-row:product_enquiries:product_enquiry',
+        'GET product-enquiry/{product_enquiry}/edit' => 'store-row:product_enquiries:product_enquiry',
+
+        'DELETE productenquiry/{productenquiry}' => 'store-row:product_enquiries:productenquiry',
+        'GET productenquiry/{productenquiry}' => 'store-row:product_enquiries:productenquiry',
+        'PATCH productenquiry/{productenquiry}' => 'store-row:product_enquiries:productenquiry',
+        'PUT productenquiry/{productenquiry}' => 'store-row:product_enquiries:productenquiry',
+        'GET productenquiry/{productenquiry}/edit' => 'store-row:product_enquiries:productenquiry',
+
+        'DELETE countdowntimer/{countdowntimer}' => 'store-row:count_down_timers:countdowntimer',
+        'GET countdowntimer/{countdowntimer}' => 'store-row:count_down_timers:countdowntimer',
+        'PATCH countdowntimer/{countdowntimer}' => 'store-row:count_down_timers:countdowntimer',
+        'PUT countdowntimer/{countdowntimer}' => 'store-row:count_down_timers:countdowntimer',
+        'GET countdowntimer/{countdowntimer}/edit' => 'store-row:count_down_timers:countdowntimer',
+
+        'DELETE additionalfieldincheckout/{additionalfieldincheckout}' => 'store-row:additional_fields:additionalfieldincheckout',
+        'GET additionalfieldincheckout/{additionalfieldincheckout}' => 'store-row:additional_fields:additionalfieldincheckout',
+        'PATCH additionalfieldincheckout/{additionalfieldincheckout}' => 'store-row:additional_fields:additionalfieldincheckout',
+        'PUT additionalfieldincheckout/{additionalfieldincheckout}' => 'store-row:additional_fields:additionalfieldincheckout',
+        'GET additionalfieldincheckout/{additionalfieldincheckout}/edit' => 'store-row:additional_fields:additionalfieldincheckout',
+
+        'DELETE spintowin-label/{spintowin_label}' => 'store-row:spin_to_win_labels:spintowin_label',
+        'GET spintowin-label/{spintowin_label}' => 'store-row:spin_to_win_labels:spintowin_label',
+        'PATCH spintowin-label/{spintowin_label}' => 'store-row:spin_to_win_labels:spintowin_label',
+        'PUT spintowin-label/{spintowin_label}' => 'store-row:spin_to_win_labels:spintowin_label',
+        'GET spintowin-label/{spintowin_label}/edit' => 'store-row:spin_to_win_labels:spintowin_label',
+
+        'DELETE additionalcustomfields/destroy/{id}' => 'store-row:additional_custom_fields:id',
+        'GET additionalcustomfields/edit/{id}' => 'store-row:additional_custom_fields:id',
+        'PUT additionalcustomfields/update/{id}' => 'store-row:additional_custom_fields:id',
+
+        'DELETE submenus/{submenu}' => 'store-row:side_menus_option:submenu',
+        'PATCH submenus/{submenu}' => 'store-row:side_menus_option:submenu',
+        'PUT submenus/{submenu}' => 'store-row:side_menus_option:submenu',
+        'GET submenus/{id}' => 'store-row:side_menus_option:id',
+        'GET submenus-edit/{id}/{parentid}' => 'store-row:side_menus_option:id',
+
+        'GET preordersetting/get-product-variants/{id}' => 'store-row:products:id',
+
+        /*
+         * P1-SEC-90 ROUND 2 -- THE RESOURCE'S OWN ROW VERBS, ON THE VERY CONTROLLER ROUND 1
+         * GUARDED ONE ROUTE OF. Each carries a real `isAbleTo` permission and no store predicate:
+         * `edit()` and `destroy()` resolve `PreOrderSetting::find($id)`, and `update()` also
+         * assigns `store_id = getCurrentStore()` before saving -- the shape P1-SEC-86 recorded
+         * once for `created_by`. `pre_order_settings` carries `store_id`, so `store-row:` closes
+         * it. Found by the independent review, which round 1 should have had before it landed.
+         */
+        'DELETE preordersetting/{preordersetting}' => 'store-row:pre_order_settings:preordersetting',
+        'GET preordersetting/{preordersetting}' => 'store-row:pre_order_settings:preordersetting',
+        'PATCH preordersetting/{preordersetting}' => 'store-row:pre_order_settings:preordersetting',
+        'PUT preordersetting/{preordersetting}' => 'store-row:pre_order_settings:preordersetting',
+        'GET preordersetting/{preordersetting}/edit' => 'store-row:pre_order_settings:preordersetting',
+
+        'GET notification-template/{id}/{lang?}' => 'operator',
+        'GET notification-template/{notification_template}' => 'operator',
+        'POST notification-template/{pid}' => 'operator',
         'GET invoices/preview/{template}/{color}' => 'auth',
         'POST linkedin-setting' => 'settings:global',
         'POST lottery-order-return' => 'auth',
         'POST lottery-order-status-change/{id}' => 'auth',
+        // P1-SEC-64b: the SEVENTH template door. LotteryPrizes' handlers read and rewrite EmailTemplate::where('id', $id) with no ownership check, behind only
+        // `auth` and its plan check -- the write-up said seven module copies were guarded; this table named six.
+        'GET lottery_email_lang/{id}/{lang?}' => 'owner:email-template',
+        'PUT lottery_email_lang/{id}' => 'owner:email-template',
         'POST mail-settings' => 'auth',
         'GET mail-settings/create' => 'auth',
         'DELETE marketing/store/domain-store/{id}' => 'settings:global',
@@ -224,6 +620,27 @@ final class ModuleRouteManifest
         'POST purchase-notification-setting' => 'settings:store',
         'POST recent-orders-settings' => 'settings:store',
         'POST recently-view-setting' => 'settings:store',
+        /*
+         * P1-SEC-89 (b) -- THE POINT TRANSACTION ITSELF.
+         *
+         * `show($id)` is `RewardClubPoint::find($id)` then `explode(',', $row->product_id)`, with
+         * no check of any kind, so another tenant's transaction rendered its product ids; and a
+         * null row made `->product_id` a 500 rather than a refusal.
+         *
+         * `reward_club_points` carries `store_id`, so the existing rule reaches it. Here the
+         * parameter IS the reward row's id, which is why this rule names a different table from
+         * the history route above.
+         *
+         * THE OTHER VERBS ARE INERT AND ARE CLASSIFIED ANYWAY: `destroy()` and `update()` have
+         * empty bodies (`//`) and `edit()` returns a static view and ignores its id. Listed for
+         * the reason P1-SEC-84 listed `contacts/update` and P1-SEC-87 the three dead resource
+         * verbs -- a rule must not depend on a method body staying empty.
+         */
+        'DELETE rewardclubpoint/{rewardclubpoint}' => 'store-row:reward_club_points:rewardclubpoint',
+        'GET rewardclubpoint/{rewardclubpoint}' => 'store-row:reward_club_points:rewardclubpoint',
+        'PATCH rewardclubpoint/{rewardclubpoint}' => 'store-row:reward_club_points:rewardclubpoint',
+        'PUT rewardclubpoint/{rewardclubpoint}' => 'store-row:reward_club_points:rewardclubpoint',
+        'GET rewardclubpoint/{rewardclubpoint}/edit' => 'store-row:reward_club_points:rewardclubpoint',
         'GET request-amount/{id}/{status}' => 'store-row:transaction_orders:id',
         'GET search-products-barcode' => 'auth',
         'POST skip-cart-settings' => 'settings:store',
@@ -242,8 +659,12 @@ final class ModuleRouteManifest
         'POST tawk-to-setting' => 'settings:global',
         'POST tawktomessenger-form' => 'auth',
         'POST theme-hours-settings' => 'auth',
+        'POST ticket-conversion-store/{ticketId}' => 'owner:helpdesk-ticket-row',
+        'POST ticket-note-store/{ticketId}' => 'owner:helpdesk-ticket-row',
+        'GET ticket-reply/{ticketId}' => 'owner:helpdesk-ticket-link',
         'POST twitter-settings' => 'settings:global',
         'POST update-auction-status' => 'auth',
+        'POST update-ticket/{ticketId}' => 'owner:helpdesk-ticket-link',
         'GET wholesaleproduct' => 'auth',
         'POST wholesaleproduct' => 'auth',
         'GET wholesaleproduct/create' => 'auth',
@@ -296,12 +717,12 @@ final class ModuleRouteManifest
         'POST campaigns/campaigns-Powertranz' => 'payment-callback',
         'PUT campaigns/campaigns-Powertranz' => 'payment-callback',
         'GET campaigns/campaigns-braintree-payment' => 'payment-callback',
-        'DELETE campaigns/campaigns-card-payment' => 'payment-callback',
-        'GET campaigns/campaigns-card-payment' => 'payment-callback',
-        'OPTIONS campaigns/campaigns-card-payment' => 'payment-callback',
-        'PATCH campaigns/campaigns-card-payment' => 'payment-callback',
-        'POST campaigns/campaigns-card-payment' => 'payment-callback',
-        'PUT campaigns/campaigns-card-payment' => 'payment-callback',
+        'DELETE campaigns/campaigns-card-payment' => 'guarded:CampaignIntentOwnershipGuard',
+        'GET campaigns/campaigns-card-payment' => 'guarded:CampaignIntentOwnershipGuard',
+        'OPTIONS campaigns/campaigns-card-payment' => 'guarded:CampaignIntentOwnershipGuard',
+        'PATCH campaigns/campaigns-card-payment' => 'guarded:CampaignIntentOwnershipGuard',
+        'POST campaigns/campaigns-card-payment' => 'guarded:CampaignIntentOwnershipGuard',
+        'PUT campaigns/campaigns-card-payment' => 'guarded:CampaignIntentOwnershipGuard',
         'DELETE campaigns/campaigns-get-DPO-status' => 'payment-callback',
         'GET campaigns/campaigns-get-DPO-status' => 'payment-callback',
         'OPTIONS campaigns/campaigns-get-DPO-status' => 'payment-callback',

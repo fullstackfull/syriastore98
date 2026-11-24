@@ -280,7 +280,7 @@ if (!function_exists('SetNumberFormat')) {
     function SetNumberFormat($number = 0)
     {
         $settings = getAdminAllSetting();
-        $currency = $settings['defult_currancy_symbol'] ?? ($settings['CURRENCY'] ?? '$');
+        $currency = \App\Support\Money\CurrencySymbol::clean($settings['defult_currancy_symbol'] ?? ($settings['CURRENCY'] ?? '$')); // P1-SEC-80 round 4: a stored symbol is printed raw in lists and at the till
         $number_output = number_format($number, 2);
         return $currency . str_replace(',', '', $number_output);
     }
@@ -404,11 +404,26 @@ if (!function_exists('paid_download_url')) {
              * It posts to `AccountProfileController::downloadable_prodcut()`, which resolves the
              * order through `ownedOrder()`'s `customer_id` predicate and MAILS the grant to the
              * address on the order — a stronger proof of entitlement than a page anyone can open.
+             *
+             * SEC-INTAKE #188 CORRECTION. That button is not reachable for an ORDINARY guest
+             * either, so "what a guest gets instead" overstates it. `ownedOrder()` requires a
+             * signed-in customer whose id matches, so a `customer_id = 0` order has no path to a
+             * grant at all -- which
+             * `PaidDownloadLinkInPagesTest::test_the_guest_limb_of_the_controller_is_now_recorded_as_unreachable`
+             * already measures. The button's behaviour for other order shapes is tracked in the
+             * intake record rather than here.
              */
             $signedInCustomerId = auth('customers')->id();
 
+            /*
+             * SEC-INTAKE #188: `is_guest`, not just `customer_id`. An adopted guest order carries
+             * a real customer id with `is_guest = 1` (`app/Services/PaymentService.php:3019-3033`),
+             * so the matched customer passed the id test and had a capability MINTED for them --
+             * `DownloadGrant::issue()` below is a cache WRITE, not a read.
+             */
             if (empty($signedInCustomerId)
-                || (int) $signedInCustomerId !== (int) ($orderModel->customer_id ?? 0)) {
+                || (int) $signedInCustomerId !== (int) ($orderModel->customer_id ?? 0)
+                || (int) ($orderModel->is_guest ?? 0) !== 0) {
                 return null;
             }
 
@@ -612,38 +627,114 @@ if (!function_exists('SetConfigEmail')) {
 }
 
 if (!function_exists('upload_theme_image')) {
-    function upload_theme_image($theme_image, $key = 0, $user_id = 0)
+    /**
+     * Store one uploaded IMAGE and report where it went: under `uploads/<store id>/` when a store is named or the caller is a
+     * panel user with a current store, and loose in `uploads/` when neither is true (a panel account with no store of its own --
+     * the store-less place `StoredUpload`'s tenant rule cannot judge; unchanged, and recorded in P01-SECURITY-WORK-QUEUE).
+     *
+     * P1-SEC-72. This used to store whatever it was handed, under the extension the CLIENT named, below the application root --
+     * and its first caller is reachable by anyone who registers on a storefront. What may be stored, and under which extension,
+     * is now decided by App\Services\ThemeImageUpload for all seven call sites (two are vendored and cannot be edited, which is
+     * why the rule is here and not at the callers). Read that class before changing anything below.
+     *
+     * THE ORDER IS THE SECOND HALF OF THE FIX: decide -> store -> charge.
+     *   - It used to charge the plan's storage FIRST, so a refused file would still have been billed -- and for the avatar the
+     *     bill goes to the merchant, on a stranger's request.
+     *   - It then reported success whatever `putFileAs()` answered (the `theme` disk does not throw), so a failed write handed the
+     *     caller `image_path => false`. A write that fails now charges nothing and reports failure.
+     *
+     * THE STORED NAME IS THE SERVER'S: a sanitised `$key`, the date, the time, twelve random hex characters and the extension
+     * ThemeImageUpload derived from the file's BYTES. The random part replaces `rand(0, 100)`, with which two uploads in the same
+     * second landed on the same name once in 101 and the second silently replaced the first.
+     *
+     * A FOLDER THIS CREATES IS MADE READABLE. The `theme` disk declares no visibility, so the framework creates a missing
+     * directory 0700 -- and since an avatar now goes to its store's folder, a customer's upload can be the first file a store
+     * ever has. On a host where the web server reads static files as another user that folder could not be served from until
+     * the platform's other uploader next forced it to 0777 (measured by the review: 0700). A folder created here is set to
+     * 0755; an existing folder's mode is never touched.
+     *
+     * @param  mixed  $theme_image  whatever the request carried: only a valid uploaded image is stored
+     * @param  int|string  $key  a caller-chosen prefix for the stored name
+     * @param  int  $user_id  whose plan storage is charged. 0 charges NOBODY, and six of the seven callers pass nothing: the
+     *                        `??` below never reaches its right-hand side, because 0 is not null. Recorded, not changed here --
+     *                        what a merchant's plan is charged for is the owner's (P01-SECURITY-WORK-QUEUE, storage counters)
+     * @param  int|null  $store_id  the folder to store under when the caller is not a panel user: `getCurrentStore()` reads the
+     *                              panel's guard and answers nothing for a storefront customer, whose avatar therefore used to
+     *                              land loose in `uploads/`, beside every other store's
+     * @param  bool  $for_customer  true for a storefront customer's upload: raster images only, and a fixed size ceiling
+     * @return array{status: bool, image_url: string, image_path: string, message: string, reason: string}  `reason` says why
+     *         nothing was stored -- `empty`, `invalid` (not an accepted image), `write` (the disk refused) or `plan` (the plan's
+     *         storage is full) -- so that a caller can choose what to tell whom; it is '' on success
+     */
+    function upload_theme_image($theme_image, $key = 0, $user_id = 0, $store_id = null, $for_customer = false)
     {
         $return['status'] = false;
         $return['image_url'] = '';
         $return['image_path'] = '';
         $return['message'] = __('Something went wrong.');
+        $return['reason'] = 'empty';
 
-        if (!empty($theme_image)) {
-            $theme_image = $theme_image;
-            $result = Utility::updateStorageLimit($user_id ?? \Auth::user()->creatorId(), $theme_image->getSize());
-            if ($result == 1) {
-                $filenameWithExt = $theme_image->getClientOriginalName();
-                $filename = pathinfo($filenameWithExt, PATHINFO_FILENAME);
-                $extension = $theme_image->getClientOriginalExtension();
-                $filedownloadable1 = $key . rand(0, 100) . date('Ymd') . '_' . time() . '.' . $extension;
-                $dir = 'uploads/' . getCurrentStore() ;
-                $save = Storage::disk('theme')->putFileAs(
-                    $dir,  // upload path
-                    $theme_image, // image name
-                    $filedownloadable1  // image new name
-                );
-                $return['status'] = true;
-                $return['image_url'] = url('uploads/' . $save);
-                $return['image_path'] = $save;
-                $return['message'] = __('Image upload succcessfully.');
-            } else {
-                $return['status'] = false;
-                $return['image_url'] = '';
-                $return['image_path'] = '';
-                $return['message'] = __('Plan storage limit is over so please upgrade the plan.');
-            }
+        if (empty($theme_image)) {
+            return $return;
         }
+
+        $folder = (int) $store_id > 0 ? (int) $store_id : getCurrentStore();
+        $refusal = \App\Services\ThemeImageUpload::refusal($theme_image, (bool) $for_customer);
+        $extension = $refusal === null ? \App\Services\ThemeImageUpload::storedExtension($theme_image, (bool) $for_customer) : null;
+
+        if ($refusal !== null || $extension === null) {
+            // Written for whoever asks, afterwards, whether anybody tried: what was refused, never the file's name or its bytes.
+            \Illuminate\Support\Facades\Log::warning('an image upload was refused', \App\Services\ThemeImageUpload::describe($theme_image) + [
+                'customer_upload' => (bool) $for_customer,
+                'store' => is_numeric($folder) ? (int) $folder : null,
+            ]);
+            $return['message'] = $refusal ?? $return['message'];
+            $return['reason'] = 'invalid';
+
+            return $return;
+        }
+
+        $dir = rtrim('uploads/' . $folder, '/');
+        $name = preg_replace('/[^A-Za-z0-9_-]/', '', (string) $key) . date('Ymd') . '_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $extension;
+        $disk = Storage::disk('theme');
+
+        if (! $disk->exists($dir)) {
+            $disk->makeDirectory($dir);
+            @chmod($disk->path($dir), 0755);
+        }
+
+        $save = $disk->putFileAs($dir, $theme_image, $name);
+
+        if (! is_string($save) || $save === '') {
+            $return['reason'] = 'write';
+
+            return $return;
+        }
+
+        try {
+            $result = Utility::updateStorageLimit($user_id ?? \Auth::user()->creatorId(), $theme_image->getSize());
+        } catch (\Throwable $e) {
+            // The file is on disk and nobody was charged for it: without this it would stay there, named by no row.
+            $disk->delete($save);
+
+            throw $e;
+        }
+
+        if ($result != 1) {
+            // Over the plan's storage: the file just written is this request's own, so removing it is not a tenancy question.
+            $disk->delete($save);
+            $return['message'] = __('Plan storage limit is over so please upgrade the plan.');
+            $return['reason'] = 'plan';
+
+            return $return;
+        }
+
+        $return['status'] = true;
+        $return['image_url'] = url('uploads/' . $save);
+        $return['image_path'] = $save;
+        $return['message'] = __('Image upload succcessfully.');
+        $return['reason'] = '';
+
         return $return;
     }
 }
@@ -726,7 +817,30 @@ if (!function_exists('getAdminAllSetting')) {
         }
         // Check if the user is not 'company' or 'super admin' and find the creator
         if (isset($user->type) && !in_array($user->type, ['admin', 'super admin'])) {
-            $user = User::find($user->created_by);
+            // P1-SEC-67c. "The merchant who employs this staff member" is only that when `created_by` names a MERCHANT. For a principal whose `created_by` is
+            // the platform operator -- a merchant who demoted their own `type`, or staff the operator created -- it is the OPERATOR, and the Settings tabs
+            // that call this helper printed the platform's own mail, storage and gateway fields (executed in OperatorRootedSettingsTest). Fail CLOSED with
+            // no settings, and NOT with "no user": a missing user falls through below to the guest branches, the last of which serves the lowest-id
+            // merchant's settings (P1-SEC-18 F4) -- a worse leak than the one being closed. Staff of a real merchant resolve exactly as before.
+            //
+            // ONLY FOR A `User`. A `Customer` on the default guard (a test's `actingAs($customer, 'customers')`, or any `Auth::shouldUse('customers')`) also reaches this
+            // branch, and its `created_by` is the owner of ITS store -- the operator, for a customer of the platform's own storefront -- so "the creator" is the intended
+            // answer there and the merchant-root rule is a rule about admin-panel principals. (The first draft passed any principal to `merchantTenantRoot(?User)`:
+            // a TypeError for a Customer, caught by the full Feature run in PaidDownloadLinkInPagesTest, not by the targeted tests.)
+            //
+            // ONE READ, as before: "the employer" is loaded once, and the merchant rule (`UserPolicy::isMerchantRow()`, the same definition `merchantTenantRoot()` uses)
+            // is asked of the row in hand. Asking `merchantTenantRoot($user)` and then `User::find($root)` read the employer twice on a path that runs per priced cell.
+            if ($user instanceof User) {
+                $creator = User::find($user->created_by);
+
+                if (! \App\Policies\UserPolicy::isMerchantRow($creator)) {
+                    return [];
+                }
+
+                $user = $creator;
+            } else {
+                $user = User::find($user->created_by);
+            }
         }
         // P1-SEC-18 F4: with no user and no store named, the last branch below serves the LOWEST-ID MERCHANT ON THE PLATFORM
         // to whoever asked. A shopper's request is addressed to a store -- use it; null keeps the old behaviour.
@@ -803,6 +917,48 @@ if (!function_exists('APP_THEME')) {
                 $store = Store::find($storeId);
 
                 if (!$store) {
+                    /*
+                     * THE OPERATOR IS NOT SIGNED OUT FOR A SELECTION THAT NO LONGER EXISTS.
+                     *
+                     * This helper runs from the LAYOUT, so the sign-out below happened in the
+                     * middle of rendering every page. For a merchant that is the designed answer
+                     * to losing their store. For the platform operator it was a trap with no exit:
+                     * `StoreController::destroy()` re-points only the DELETING user's
+                     * `current_store`, so when a merchant deleted a store the operator happened to
+                     * have selected, the operator's selection dangled -- and from then on each
+                     * sign-in rendered one page and signed them out again while drawing it. The
+                     * session ended while the page was being drawn.
+                     * Measured 2026-11-22: `OperatorDashboardWithoutAStoreTest`.
+                     *
+                     * WHAT THIS DOES AND DOES NOT REPAIR -- corrected after independent review,
+                     * because the first version of this comment claimed two things that are false.
+                     *
+                     * It removes the LOCKOUT: the operator gets the same theme the store-less
+                     * operator gets two branches below, and stays signed in.
+                     *
+                     * IT DOES NOT GIVE THEM A WAY TO CHOOSE ANOTHER STORE FROM THE SCREEN. Neither
+                     * switcher renders for this principal: the header's is `type == 'admin'` only
+                     * (`partision/header.blade.php`), and the workspace chip renders only when
+                     * `getStoreById($user->current_store)` resolves
+                     * (`partision/workspace-chip.blade.php`) -- which is exactly what does not.
+                     * The way out is still a hand-made `POST /change-store/{id}`, or repairing
+                     * the pointer at its source.
+                     *
+                     * AND THE OPERATOR'S SELECTION IS NOT IRRELEVANT TO THEIR OWN SCREENS.
+                     * Platform-level settings and file-storage settings are looked up by the
+                     * operator's `current_store` (`getSuperAdminAllSetting()` and the storage
+                     * resolver in this file), so while the pointer dangles those resolve to
+                     * nothing -- for everybody, signed in or not. That is older than this change
+                     * and independent of it; signing the operator out never repaired it.
+                     *
+                     * THE ROOT CAUSE IS UPSTREAM AND IS NOT FIXED HERE: deleting a store leaves
+                     * every OTHER user's `current_store` pointing at it. Recorded on the gap
+                     * register (`GAP-162`) rather than widened into this change.
+                     */
+                    if (\App\Policies\UserPolicy::isOperator($user)) {
+                        return 'stylique';
+                    }
+
                     if (auth()->check()) {
                         auth()->logout();
                     }
@@ -1239,31 +1395,28 @@ if (!function_exists('multi_upload_file')) {
                     $mimes =  !empty($storage_settings['local_storage_validation']) ? $storage_settings['local_storage_validation'] : 'jpeg,jpg,png,svg,zip,txt,gif,docx';
                 }
                 $file = $request;
-                $key_validation = $key_name . '*';
-                if (count($custom_validation) > 0) {
-                    $validation = $custom_validation;
-                } else {
-                    $validation = [
-                        'mimes:' . $mimes,
-                        'max:' . $max_size,
-                    ];
-                }
-                $validator = Validator::make(array($key_name => $request), [
-                    $key_validation => $validation
-                ]);
-                if ($validator->fails()) {
+                // P1-SEC-73 (multi_upload_file): ONE decision for every caller -- see App\Services\PlatformUploadPolicy. This was `mimes:<list>` and `max:` alone, built only
+                // `if (empty($image))`: the sixth argument skipped it, the CLIENT'S extension was never looked at (the stored name keeps it, and a
+                // server acts on the name), and an empty list parsed to `mimes:[null]` and passed everything.
+                $refusal = \App\Services\PlatformUploadPolicy::refusal($file, (string) $name, (string) $mimes, $max_size, $custom_validation);
+                if ($refusal !== null) {
                     $res = [
                         'flag' => 0,
-                        'msg' => $validator->messages()->first(),
+                        'msg' => $refusal,
                     ];
                     return $res;
                 } else {
-                    $name = $name;
+                    // P1-SEC-71 (multi_upload_file): a stranger's upload never replaces a file that is already there -- see PlatformUploadPolicy::nonReplacingName().
+                    $name = \App\Services\PlatformUploadPolicy::nonReplacingName((string) $storage_settings['storage_setting'], (string) $path, $name);
                     $save = Storage::disk($storage_settings['storage_setting'])->putFileAs(
                         $path,
                         $file,
                         $name
                     );
+                    // P1-SEC-73: a failed write is a failure, not a URL for a file that does not exist.
+                    if (! is_string($save) || $save === '') {
+                        return ['flag' => 0, 'msg' => __('The file could not be saved.')];
+                    }
                     if ($storage_settings['storage_setting'] == 'wasabi') {
                         $url = $save;
                     } elseif ($storage_settings['storage_setting'] == 's3') {
@@ -1553,7 +1706,7 @@ if (!function_exists('currency_format_with_sym')) {
             $defult_currancy_symbol = $company_settings['defult_currancy_symbol'];
             $currancy_symbol = $company_settings['site_currency_symbol_name'] == 'symbol' ? $defult_currancy_symbol : $defult_currancy;
         }
-        return (
+        $currancy_symbol = \App\Support\Money\CurrencySymbol::clean($currancy_symbol); return ( // P1-SEC-80 round 4: whichever branch chose it, the symbol is cleaned where it is printed
             ($symbol_position == "pre") ? $currancy_symbol : '') . ((isset($currency_space) && $currency_space) == 'withspace' ? ' ' : '')
             . number_format($price, $format, $decimal_separator, $thousand_separator) . ((isset($currency_space) && $currency_space) == 'withspace' ? ' ' : '') .
             (($symbol_position == "post") ? $currancy_symbol : '');
@@ -2248,7 +2401,7 @@ if (!function_exists('default_currency_format_with_sym')) {
             $currancy_symbol = $company_settings['site_currency_symbol_name'] == 'symbol' ? $defult_currancy_symbol : $defult_currancy;
         }
 
-        return (
+        $currancy_symbol = \App\Support\Money\CurrencySymbol::clean($currancy_symbol); return ( // P1-SEC-80 round 4: whichever branch chose it, the symbol is cleaned where it is printed
             ($symbol_position == "pre") ? $currancy_symbol : '') . ((isset($currency_space) && $currency_space) == 'withspace' ? ' ' : '')
             . number_format($price, $format, $decimal_separator, $thousand_separator) . ((isset($currency_space) && $currency_space) == 'withspace' ? ' ' : '') .
             (($symbol_position == "post") ? $currancy_symbol : '');
@@ -2336,7 +2489,7 @@ if (!function_exists('order_currency_format_with_sym')) {
             $currancy_symbol = $use_symbol_not_name ? $defult_currancy_symbol : $defult_currancy;
         }
 
-        return (
+        $currancy_symbol = \App\Support\Money\CurrencySymbol::clean($currancy_symbol); return ( // P1-SEC-80 round 4: the order's snapshot of the symbol is a stored value too
             ($symbol_position == "pre") ? $currancy_symbol : '') . (($currency_space === 'withspace') ? ' ' : '')
             . number_format((float) $price, (int) $format, $decimal_separator, $thousand_separator) . (($currency_space === 'withspace') ? ' ' : '') .
             (($symbol_position == "post") ? $currancy_symbol : '');

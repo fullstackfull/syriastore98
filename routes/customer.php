@@ -45,8 +45,40 @@ use App\Http\Controllers\CartController;
 use App\Http\Controllers\BlogController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SettingController;
+use App\Http\Controllers\Marketing\UnsubscribeController;
+use App\Http\Controllers\Marketing\CommunicationPreferencesController;
 
 Route::middleware([ActiveTheme::class, 'themelanguage'])->group(function () {
+
+    /*
+     * D8-3a — THE UNSUBSCRIBE LINK. GAP-200 / MKT-008.
+     *
+     * THE GET ONLY CONFIRMS; THE POST WITHDRAWS. A token is reusable by design -- an unsubscribe link
+     * that stops working is a failure to honour an unsubscribe -- so a mail scanner or link prefetcher
+     * following an OLD link's GET would otherwise withdraw an opt-in the person has since given again.
+     * UnsubscribeTokens' own docblock requires this split, and UnsubscribePageTest asserts it.
+     *
+     * `{storeSlug}` IS REQUIRED HERE, unlike its optional neighbours below: the token is scoped to one
+     * store and the service takes that store as a REQUIRED argument, so this page must be served under a
+     * named store rather than whichever one `getStore(null)` would happen to resolve.
+     *
+     * THROTTLED, because every recipient holds a working link and every redemption appends a row to a
+     * table nothing may prune. Declared first in this group so no later pattern can shadow them; both
+     * carry the literal `unsubscribe` segment, so they shadow nothing themselves.
+     *
+     * THE TWO HALVES USE DIFFERENT LIMITERS, and that is a fix rather than tidiness (review finding
+     * F5c). They shared one `throttle:30,1`, which keys on the IP -- so a mail scanner prefetching GETs
+     * from a provider's egress address could exhaust the budget and the recipient's own POST would come
+     * back 429, meaning the withdrawal WAS NEVER RECORDED. The GET is a cheap read and stays per-IP,
+     * which is what bounds enumeration; the POST is keyed on the token (`unsubscribe-redeem` in
+     * RouteServiceProvider), so nobody else's traffic can spend a recipient's budget.
+     */
+    Route::get('{storeSlug}/unsubscribe/{token}', [UnsubscribeController::class, 'show'])
+        ->middleware('throttle:30,1')
+        ->name('marketing.unsubscribe.show');
+    Route::post('{storeSlug}/unsubscribe/{token}', [UnsubscribeController::class, 'redeem'])
+        ->middleware('throttle:unsubscribe-redeem')
+        ->name('marketing.unsubscribe.redeem');
 
     Route::get('{storeSlug?}/product-list', [HomeController::class, 'product_page'])->name('page.product-list');
     Route::get('{storeSlug?}/product-filter', [HomeController::class, 'product_page_filter'])->name('product.page.filter');
@@ -328,6 +360,30 @@ Route::post(
     Route::get('{storeSlug?}/support-ticket', [AccountProfileController::class, 'support_ticket'])->name('support.ticket');
 
     Route::middleware([\App\Http\Middleware\EnsureCustomerAuthenticated::class])->group(function () {
+        /*
+         * D8-3b — THE OPT-IN. GAP-200 / MKT-008.
+         *
+         * BEHIND THE CUSTOMER SESSION, because this is the only surface allowed to record a GRANT and a
+         * grant needs the person to prove who they are. The unsubscribe token cannot be reused for it:
+         * that token can only WITHDRAW the one contact it was issued for, and cannot grant.
+         *
+         * The store and the addresses come from the signed-in customer's own row, never from the request
+         * or from the slug. The slug decides nothing server-side; it is on the URL so the shopper stays
+         * inside the store they were browsing.
+         *
+         * IT IS REQUIRED, NOT OPTIONAL, and that is a fix rather than a preference. With `{storeSlug?}`
+         * the bare `/communication-preferences` was a valid URL -- and the one `route()` generated with no
+         * arguments. For that shape `EnsureCustomerAuthenticated` has no slug to build a customer-login
+         * URL from, so it sent a signed-out shopper to `route('customer.login')` without a slug, i.e.
+         * `/login` -- which `routes/auth.php` claims first and is the MERCHANT login. That is precisely the
+         * mistake that middleware's docblock says it exists to prevent. Found by the D8-3 tenant-authz
+         * review (F3) and pinned by CommunicationPreferencesTest.
+         */
+        Route::get('{storeSlug}/communication-preferences', [CommunicationPreferencesController::class, 'show'])
+            ->name('marketing.preferences.show');
+        Route::post('{storeSlug}/communication-preferences', [CommunicationPreferencesController::class, 'update'])
+            ->name('marketing.preferences.update');
+
         Route::get('{storeSlug?}/adress-form/{id?}', [AccountProfileController::class, 'addressForm'])->name('address-form');
         Route::post('{storeSlug?}/save-address', [AccountProfileController::class, 'saveAddress'])->name('save-address');
         Route::post('{storeSlug?}/add-address', [AccountProfileController::class, 'add_address'])->name('add.address');

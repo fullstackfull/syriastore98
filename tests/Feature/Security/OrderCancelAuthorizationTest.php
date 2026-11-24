@@ -64,6 +64,24 @@ class OrderCancelAuthorizationTest extends SecurityTestCase
 
         $order = $this->makeOrder($store, [
             'customer_id' => $customer->id,
+            // SEC-INTAKE #188. `makeOrder` defaults to the coherent ORDINARY-GUEST pair
+            // (`customer_id = 0`, `is_guest = 1`). Overriding only the first half of that pair
+            // leaves the ADOPTED-guest shape -- a real customer id still marked `is_guest = 1` --
+            // which is the #188 defect itself. `status_cancel` now refuses that shape, so every
+            // fixture in this file must say `is_guest = 0` to model a legitimately cancellable
+            // order. Otherwise a test here is satisfied by the guest refusal instead of by the
+            // control it names. Both halves of that are MEASURED, not assumed:
+            //   - the two positive tests inherited the adopted shape and so asserted that the
+            //     #188 defect works; they failed the moment the endpoint was corrected.
+            //   - with the inherited `is_guest = 1`, deleting the `customer_id` predicate from
+            //     `status_cancel` left `test_a_customer_cannot_cancel_another_customers_order`
+            //     PASSING -- genuinely vacuous. With `is_guest = 0` it fails, as it should.
+            // Deleting the `abort(403)` does fail the anonymous test under either fixture (the
+            // handler then dereferences a null customer), so that one was never vacuous; an
+            // earlier draft of this comment claimed otherwise and was wrong.
+            // A signed-in customer's own order really is written `is_guest = 0`
+            // (`app/Services/PaymentService.php:3022`).
+            'is_guest' => 0,
             'delivered_status' => 0,
             'product_json' => json_encode([
                 ['product_id' => $product->id, 'variant_id' => 0, 'qty' => 3],
@@ -91,6 +109,9 @@ class OrderCancelAuthorizationTest extends SecurityTestCase
 
         $order = $this->makeOrder($store, [
             'customer_id' => $victim->id,
+            // SEC-INTAKE #188: legitimately cancellable, so the refusal below is this test's
+            // own control and not the guest-order predicate. See the first fixture in this file.
+            'is_guest' => 0,
             'delivered_status' => 0,
             'product_json' => json_encode([
                 ['product_id' => $product->id, 'variant_id' => 0, 'qty' => 3],
@@ -107,6 +128,54 @@ class OrderCancelAuthorizationTest extends SecurityTestCase
         $this->assertSame(5, (int) $product->fresh()->product_stock);
     }
 
+    /**
+     * The tenancy limb ON ITS OWN.
+     *
+     * `test_a_customer_cannot_cancel_an_order_in_another_store` below is the realistic shape --
+     * a different customer, in a different store -- but BOTH the `customer_id` and `store_id`
+     * predicates refuse it, so removing either one leaves it passing. Measured: deleting
+     * `->where('store_id', ...)` from `status_cancel` does not fail it. So it is not evidence
+     * for the tenancy predicate, and nothing else in this file was.
+     *
+     * Here the order carries the CALLER'S OWN customer id and sits in store B, which is a real
+     * shape rather than a contrived one: the `customers` guard session spans the host, so one
+     * person can legitimately shop in two stores. Cancelling it through store A's slug must
+     * still be refused, and now only `store_id` can do the refusing.
+     */
+    public function test_the_store_predicate_alone_refuses_an_order_held_in_another_store(): void
+    {
+        [$ownerA, $storeA] = $this->makeTenant();
+        [$ownerB, $storeB] = $this->makeTenant();
+
+        $customer = $this->makeCustomerIn($storeA);
+        $product = $this->makeProductIn($storeB, $ownerB, 5);
+
+        // Same customer id, other store, legitimately cancellable in its OWN store.
+        $order = $this->makeOrder($storeB, [
+            'customer_id' => $customer->id,
+            'is_guest' => 0,
+            'delivered_status' => 0,
+            'product_json' => json_encode([
+                ['product_id' => $product->id, 'variant_id' => 0, 'qty' => 3],
+            ]),
+        ]);
+
+        $this->assertSame((int) $customer->id, (int) $order->customer_id,
+            'premise failed: the order must carry the calling customer id, or the customer_id '
+            . 'predicate would be doing the refusing and this test would prove nothing.');
+
+        $this->actingAs($customer, 'customers')
+            ->post("/{$storeA->slug}/status-cancel", [
+                'order_id' => $order->id,
+                'order_status' => 'cancel',
+            ])->assertNotFound();
+
+        $this->assertSame(0, (int) \DB::table('orders')->where('id', $order->id)->value('delivered_status'),
+            'a store-B order was cancelled through store A\'s slug.');
+        $this->assertSame(5, (int) $product->fresh()->product_stock,
+            'store B stock moved on a refusal.');
+    }
+
     /** And must not reach across stores. */
     public function test_a_customer_cannot_cancel_an_order_in_another_store(): void
     {
@@ -119,6 +188,9 @@ class OrderCancelAuthorizationTest extends SecurityTestCase
 
         $order = $this->makeOrder($storeB, [
             'customer_id' => $victimCustomer->id,
+            // SEC-INTAKE #188: legitimately cancellable, so the refusal below is this test's
+            // own control and not the guest-order predicate. See the first fixture in this file.
+            'is_guest' => 0,
             'delivered_status' => 0,
             'product_json' => json_encode([
                 ['product_id' => $product->id, 'variant_id' => 0, 'qty' => 3],
@@ -147,6 +219,9 @@ class OrderCancelAuthorizationTest extends SecurityTestCase
 
         $order = $this->makeOrder($store, [
             'customer_id' => $customer->id,
+            // SEC-INTAKE #188: legitimately cancellable, so the refusal below is this test's
+            // own control and not the guest-order predicate. See the first fixture in this file.
+            'is_guest' => 0,
             'delivered_status' => 0,
             'product_json' => json_encode([
                 ['product_id' => $product->id, 'variant_id' => 0, 'qty' => 3],
@@ -178,6 +253,9 @@ class OrderCancelAuthorizationTest extends SecurityTestCase
 
         $order = $this->makeOrder($store, [
             'customer_id' => $customer->id,
+            // SEC-INTAKE #188: legitimately cancellable, so the refusal below is this test's
+            // own control and not the guest-order predicate. See the first fixture in this file.
+            'is_guest' => 0,
             'delivered_status' => 0,
             'product_json' => json_encode([
                 ['product_id' => $product->id, 'variant_id' => 0, 'qty' => 3],

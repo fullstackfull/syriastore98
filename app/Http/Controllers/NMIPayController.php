@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\Cache;
 use App\Traits\ApiResponser;
+use App\Support\Money\RewardPointDiscount;
 
 class NMIPayController extends Controller
 {
@@ -1107,7 +1108,7 @@ class NMIPayController extends Controller
                 if (module_is_active('RewardClubPoint') && isset($requests_data['club_point_is_active']) && $requests_data['club_point_is_active'] == 'on') {
                     $customerDetail = Customer::find($customer_id);
                     $rewardSetting = getAdminAllSetting($store->created_by,$store->id) ?? null;
-                    $saveRewardPrice = ($customerDetail->total_club_point * $rewardSetting['reward_point_price'] ?? 0) / ($rewardSetting['reward_points'] ?? 0);
+                    $saveRewardPrice = RewardPointDiscount::for((float) ($customerDetail->total_club_point ?? 0), $rewardSetting);
                     if ($planShippingMethod == "on") {
                         /*
                          * NOT `- $saveRewardPrice`. The reward discount is ALREADY inside this
@@ -1124,14 +1125,28 @@ class NMIPayController extends Controller
                          * order now records the amount the card was charged, as the
                          * non-reward branch below it does.
                          *
-                         * The shipping-OFF branches are deliberately untouched: they build from
-                         * `total_final_price`, which processRewardPoints() does not adjust, and
-                         * their dropping of `$coupon_price` is the pre-existing item S32
-                         * records for all six gateway handlers, gated on S24.
+                         * The shipping-OFF branches are deliberately untouched BY THAT REPAIR:
+                         * they build from `total_final_price`, which processRewardPoints() does
+                         * not adjust, and their dropping of `$coupon_price` is the pre-existing
+                         * item S32 records for all six gateway handlers, gated on S24.
+                         *
+                         * "UNTOUCHED" NAMES THAT REPAIR ONLY, AND NO LONGER THE LINE BELOW. D5
+                         * (2026-11-17) wrapped the shipping-OFF branch at :1135 in
+                         * `RewardPointDiscount::applyTo()` so a discount larger than the basket
+                         * can no longer write a negative total there. That is a separate change
+                         * with its own reason; this paragraph is about the double-subtraction.
+                         * Independent review flagged the bare word "untouched" as reading false
+                         * against the line directly beneath it.
+                         *
+                         * THIS ON-BRANCH IS NOW NON-NEGATIVE BY IMPORT, which is worth knowing
+                         * because nothing here enforces it: `$final_sub_total_price` carries the
+                         * reward discount already applied by processRewardPoints(), and THAT
+                         * subtraction is itself capped as of D5 (PaymentController:2665). So this
+                         * line's floor lives in another file.
                          */
                         $order->final_price = $final_sub_total_price;
                     } else {
-                        $order->final_price = $final_price + $tax_price - $saveRewardPrice;
+                        $order->final_price = RewardPointDiscount::applyTo($final_price + $tax_price, $saveRewardPrice);
                     }
                 } else {
                     if ($planShippingMethod == "on") {

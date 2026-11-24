@@ -20,11 +20,41 @@ class CouponController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index(CouponDataTable $dataTable)
+    public function index(Request $request, CouponDataTable $dataTable)
     {
         if ($refusal = $this->couponReadRefusal()) {
             return $refusal;
         }
+
+            /*
+             * MKT-002. The merchant's filter selection survives navigation and reload.
+             *
+             * INSIDE THE PERMISSION GATE, deliberately: a caller who may not see this list never
+             * reads or writes the memory, and never learns from a redirect that one exists.
+             *
+             * THE RESTORE IS A 302, NOT A CLIENT-SIDE FILL. yajra sets the table's `ajax.url` to
+             * `url()->full()` as evaluated when the page RENDERS, so filling the controls -- or
+             * rewriting the query with `history.replaceState` -- would leave the table's second leg
+             * requesting the UNFILTERED url: the page would look filtered and the rows would not be.
+             * A redirect makes a restored request byte-identical to a typed one. This is
+             * `ProductController::index`'s reasoning, which applies here for the same reason.
+             */
+            if ($request->has(\App\Services\TableFilterMemory::CLEAR)) {
+                \App\Services\TableFilterMemory::forget('coupon');
+
+                return redirect()->route('coupon.index');
+            }
+
+            if (\App\Services\TableFilterMemory::shouldRestore($request)) {
+                $remembered = \App\Services\TableFilterMemory::recall('coupon');
+
+                if ($remembered !== []) {
+                    return redirect()->route('coupon.index', $remembered)
+                        ->with('ss_filters_restored', true);
+                }
+            }
+
+            \App\Services\TableFilterMemory::remember($request, 'coupon');
 
         return $dataTable->render('coupon.index');
     }

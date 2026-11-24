@@ -363,7 +363,7 @@ class TestimonialController extends Controller
         $option = '<option value="">' . __('Select Product') . '</option>';
         foreach ($Product as $key => $Category) {
             $select = $value == $Category->id ? 'selected' : '';
-            $option .= '<option value="' . $Category->id . '" '.$select.'>' . $Category->name . '</option>';
+            $option .= '<option value="' . $Category->id . '" '.$select.'>' . e($Category->name) . '</option>';
         }
 
         $select =  '<select class="form-control" data-role="tagsinput" id="product_id" name="product_id">'.$option.'</select>';

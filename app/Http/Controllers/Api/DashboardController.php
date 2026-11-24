@@ -346,7 +346,21 @@ public function DeleteOrderNote(Request $request)
 
 
 
- public function updateStatus(Request $request): JsonResponse
+ /**
+     * The payment statuses a MERCHANT may set by hand on this endpoint.  P4-F145.
+     *
+     * Deliberately NOT the set of values `orders.payment_status` can hold. `Pending` is a third
+     * real value of that column, but the server DERIVES it from verification evidence
+     * (`PaymentVerificationService::STATUS_PENDING`) and a merchant may not assert it; admitting it
+     * here would let a merchant claim a settlement state nobody verified.
+     *
+     * This is the same pair the validator's `in:Paid,Unpaid` rule carried before P4-F145 moved the
+     * check to where the order's stored value is known, so no transition that was permitted became
+     * forbidden and none that was forbidden became permitted.
+     */
+    private const MERCHANT_SETTABLE_PAYMENT_STATUSES = ['Paid', 'Unpaid'];
+
+    public function updateStatus(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'product_order_id' => [
@@ -399,10 +413,35 @@ public function DeleteOrderNote(Request $request)
                 'required_without:payment_status',
             ],
 
+            /*
+             * P4-F145 -- FORMAT ONLY HERE. THE TRANSITION IS VALIDATED AFTER THE ORDER IS LOADED.
+             *
+             * This read `in:Paid,Unpaid`, and that refused a request the shipped app makes on every
+             * DELIVERY-status change: `order_repository.dart:81-94` declares `paymentStatus` as a
+             * `required String` and writes it into the body unconditionally, and the delivery-status
+             * sheet fills it with the order's OWN CURRENT VALUE
+             * (`payment_status_bottom_sheet.dart:686-693` -> `order_screen.dart:563-564`).
+             *
+             * So any order whose stored status is neither literal died here with HTTP 422 before the
+             * handler looked at it. The third value is `Pending`
+             * (`PaymentVerificationService::STATUS_PENDING`), which covers COD under owner decision
+             * D-06, a bank transfer awaiting settlement, and EVERY gateway return whose capture could
+             * not be verified. A merchant could not move any of those orders at all from the app.
+             *
+             * WIDENING THE LIST WOULD BE THE WRONG FIX: admitting `Pending` would let a merchant
+             * ASSERT a payment state the server is supposed to derive. Owner policy is that a
+             * merchant may not assert settlement without evidence. So the rule here is reduced to
+             * FORMAT, and the real question -- is this an actual TRANSITION, and is that transition
+             * permitted -- is asked below, where the stored value is known. An echo of the order's
+             * own value is not a transition and is ignored entirely.
+             *
+             * `required_without:delivered_status` is unchanged, so a request carrying neither field
+             * is still refused exactly as before.
+             */
             'payment_status' => [
                 'nullable',
                 'string',
-                'in:Paid,Unpaid',
+                'max:50',
                 'required_without:delivered_status',
             ],
 
@@ -504,6 +543,61 @@ $storeId = getCurrentStore();
             : $oldPaymentStatus;
 
         /*
+         * P4-F145, PART 1 -- AN ECHO IS NOT A TRANSITION.
+         * =========================================================================================
+         *
+         * The shipped app sends `payment_status` on every call to this endpoint, and on a
+         * DELIVERY-status change it sends back the order's own stored value. A request that asks
+         * for the state the order is already in is asking for NOTHING: there is no settlement
+         * event, no transition to authorise, and nothing to validate.
+         *
+         * Dropping it here rather than admitting the value to the validator is what keeps the two
+         * questions apart, which is the owner's requirement: "Validate delivery status
+         * independently from an actual payment-status transition."
+         *
+         * CASE-INSENSITIVE because the comparison is about IDENTITY of state, not spelling. A
+         * client echoing `paid` for a stored `Paid` is naming the same state, so treating it as a
+         * change would re-run a settlement write for no reason -- and `$order->save()` below would
+         * make `wasChanged('payment_status')` true, firing `OrderObserver::updated()` and moving
+         * money through `OrderFinancialService` on a request that asked for no such thing.
+         */
+        if ($hasPaymentStatus
+            && strcasecmp(trim($newPaymentStatus), trim($oldPaymentStatus)) === 0) {
+
+            $hasPaymentStatus = false;
+            $newPaymentStatus = $oldPaymentStatus;
+        }
+
+        /*
+         * P4-F145, PART 2 -- A REAL TRANSITION IS STILL CONSTRAINED, EXACTLY AS BEFORE.
+         *
+         * `in:Paid,Unpaid` used to live in the validator. It still applies, but only to a request
+         * that genuinely asks to MOVE the payment status, and it is asked here because only here is
+         * the stored value known.
+         *
+         * THE SET IS DELIBERATELY NOT WIDENED. `Pending` is a state the SERVER derives from
+         * verification evidence (`PaymentVerificationService::resolveOrderPaymentStatus()`); a
+         * merchant asserting it by hand would be claiming knowledge of a capture nobody checked.
+         * Owner policy: a merchant may not assert settlement without the required evidence.
+         *
+         * THE RESPONSE SHAPE IS THE VALIDATOR'S OWN, byte for byte -- same HTTP 422, same
+         * `success: false`, same `message`, same `errors.payment_status` key -- so a client cannot
+         * tell this refusal from the one it replaced. A new shape here would be a contract change
+         * on a path the shipped app calls.
+         */
+        if ($hasPaymentStatus
+            && ! in_array($newPaymentStatus, self::MERCHANT_SETTABLE_PAYMENT_STATUSES, true)) {
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed.',
+                'errors' => [
+                    'payment_status' => [__('The selected payment status is invalid.')],
+                ],
+            ], 422);
+        }
+
+        /*
          * إذا لم يتغير شيء، نعيد نجاح بدون تنفيذ حفظ غير ضروري.
          */
         if (
@@ -589,6 +683,24 @@ $storeId = getCurrentStore();
                             $this->restoreCancelledOrderStock(
                                 $order,
                                 is_array($cancelLines = json_decode((string) $order->product_json, true)) ? $cancelLines : []
+                            );
+
+                            /*
+                             * P4-F124 -- THE MONEY. This door writes `delivered_status = 2`
+                             * DIRECTLY rather than through `Order::order_status_change()`, so it
+                             * does not inherit the engine's reversal and a cancelled order kept its
+                             * wallet credit for ever. The owner's instruction is to test all the
+                             * cancellation doors, so every door that cancels must reverse.
+                             *
+                             * `reverseOrLog` and not `reverse`: a ledger fault must not fail the
+                             * merchant's cancellation. It is idempotent on the financial row's own
+                             * status, so a replay -- which this handler's guards already bound --
+                             * moves money at most once regardless.
+                             */
+                            app(\App\Services\OrderEntitlementReversal::class)->reverseOrLog(
+                                $order,
+                                \App\Services\OrderEntitlementReversal::REASON_CANCELLED,
+                                'flutter admin updateStatus'
                             );
                             break;
 
@@ -4300,10 +4412,14 @@ public function DeleteReview($id)
             $is_cod_enabled = !empty($request->is_cod_enabled) ? $request->is_cod_enabled : 'off';
 
             if ($request->is_cod_enabled == 'on' && !empty($request->cod_image)) {
+                // P1-SEC-72: stored in the folder of the store this handler resolved and authorised, not in whichever store
+                // the caller's account happens to point at -- the two differ for a merchant with a second store and for the
+                // operator, and the row written below belongs to `$store`. A refusal answers in the shape of every other
+                // refusal here (this branch could not be reached before the helper checked anything).
                 $theme_image = $request->cod_image;
-                $image = upload_theme_image($theme_image);
+                $image = upload_theme_image($theme_image, 0, 0, $store->id);
                 if ($image['status'] == false) {
-                    return $this->error($image['message']);
+                    return $this->error(['message' => $image['message']], $image['message']);
                 } else {
                     $where = ['name' => 'cod_image'];
                     // P1-SEC-18 F6: this store's row. Unscoped, ->first() was the LOWEST-ID row on the platform -- some other
@@ -4402,10 +4518,14 @@ public function DeleteReview($id)
             $is_bank_transfer_enabled = !empty($request->is_bank_transfer_enabled) ? $request->is_bank_transfer_enabled : 'off';
 
             if ($request->is_bank_transfer_enabled == 'on' && !empty($request->bank_transfer_image)) {
+                // P1-SEC-72: stored in the folder of the store this handler resolved and authorised, not in whichever store
+                // the caller's account happens to point at -- the two differ for a merchant with a second store and for the
+                // operator, and the row written below belongs to `$store`. A refusal answers in the shape of every other
+                // refusal here (this branch could not be reached before the helper checked anything).
                 $theme_image = $request->bank_transfer_image;
-                $image = upload_theme_image( $theme_image);
+                $image = upload_theme_image($theme_image, 0, 0, $store->id);
                 if ($image['status'] == false) {
-                    return $this->error($image['message']);
+                    return $this->error(['message' => $image['message']], $image['message']);
                 } else {
                     $where = ['name' => 'bank_transfer_image'];
                     // P1-SEC-18 F6: this store's row. Unscoped, ->first() was the LOWEST-ID row on the platform -- some other
@@ -4504,10 +4624,14 @@ public function DeleteReview($id)
             $is_stripe_enabled = !empty($request->is_stripe_enabled) ? $request->is_stripe_enabled : 'off';
 
             if ($request->is_stripe_enabled == 'on' && !empty($request->stripe_image)) {
+                // P1-SEC-72: stored in the folder of the store this handler resolved and authorised, not in whichever store
+                // the caller's account happens to point at -- the two differ for a merchant with a second store and for the
+                // operator, and the row written below belongs to `$store`. A refusal answers in the shape of every other
+                // refusal here (this branch could not be reached before the helper checked anything).
                 $theme_image = $request->stripe_image;
-                $image = upload_theme_image($theme_image);
+                $image = upload_theme_image($theme_image, 0, 0, $store->id);
                 if ($image['status'] == false) {
-                    return $this->error($image['message']);
+                    return $this->error(['message' => $image['message']], $image['message']);
                 } else {
                     $where = ['name' => 'stripe_image'];
                     // P1-SEC-18 F6: this store's row. Unscoped, ->first() was the LOWEST-ID row on the platform -- some other
@@ -4719,7 +4843,16 @@ public function DeleteReview($id)
         // 102 call sites in this file, so it is the last place that should be comparing an
         // unnormalised `type` string.
         if (strtolower(trim((string) $user->type)) !== 'super admin') {
-            $query->where('created_by', $user->creatorId());
+            // P1-SEC-66: the tenant root must be a MERCHANT. This helper carries the tenancy decision for 102 call sites, and `creatorId()` alone is
+            // the operator's id for a user rooted at the platform (a demoted merchant, or staff the operator created), which selected the
+            // operator's stores. A null root resolves no store; every caller already answers a null store with its 403 envelope, never a 401.
+            $root = \App\Policies\UserPolicy::merchantTenantRoot($user);
+
+            if ($root === null) {
+                return null;
+            }
+
+            $query->where('created_by', $root);
         }
 
         return $query->first();
@@ -4760,7 +4893,14 @@ public function DeleteReview($id)
         $query = Store::query();
 
         if ($user->type !== 'super admin') {
-            $query->where('created_by', $user->creatorId());
+            // P1-SEC-66: no merchant tenant root, no owned stores -- an empty set makes every whereIn() using it match nothing (fail closed).
+            $root = \App\Policies\UserPolicy::merchantTenantRoot($user);
+
+            if ($root === null) {
+                return [];
+            }
+
+            $query->where('created_by', $root);
         }
 
         return $query->pluck('id')->all();
@@ -5005,10 +5145,12 @@ public function DeleteReview($id)
      * nonexistent user_id raised "Attempt to read property on null" -- the
      * same null-guard class as get_file().
      *
-     * The predicate: yourself always; anyone in your tenant if you are an admin
-     * (created_by = creatorId(), the same predicate resolveOwnedStore and
-     * StoreController::changeStore:637 use, so staff keep working); anyone if
-     * you are the platform operator. Returns null otherwise, and callers answer
+     * The predicate: yourself always; anyone in your tenant if your tenant root is
+     * a MERCHANT (created_by = UserPolicy::merchantTenantRoot(), the root
+     * resolveOwnedStore and StoreController::changeStore use since P1-SEC-66/67,
+     * so staff keep working; for a root that is not a merchant it is null and
+     * nobody but yourself resolves); anyone if you are the platform operator.
+     * Returns null otherwise, and callers answer
      * null the way they already answered a missing user -- 'User not found.' --
      * which also avoids confirming that a user id exists.
      */
@@ -5034,9 +5176,15 @@ public function DeleteReview($id)
             return $target;
         }
 
-        $tenant = $actor->creatorId();
+        // P1-SEC-67b: `creatorId()` is NOT a tenant for a user whose root is not a merchant. A merchant who demoted
+        // their own `type` (PUT /users/{self} with a role they created), or staff the OPERATOR created, resolves to
+        // the operator's id -- and every merchant has `created_by` = the operator's id, so the comparison below
+        // returned ANY merchant to that principal. merchantTenantRoot() answers null for such a root and the
+        // refusal is the same null a foreign target already gets. The operator was admitted above, and the
+        // principal's own row above that, so nothing a legitimate caller reaches changes.
+        $tenant = \App\Policies\UserPolicy::merchantTenantRoot($actor);
 
-        if (empty($tenant) || empty($target->created_by)) {
+        if ($tenant === null || empty($target->created_by)) {
             return null;
         }
 
@@ -5974,11 +6122,37 @@ public function changeProfile(Request $request)
                     $order->delivered_status = 2;
                     $order->save();
                     $this->restoreCancelledOrderStock($order, is_array($cancelLines) ? $cancelLines : []);
+                    /*
+                     * P4-F124 -- THE MONEY, on both branches of this handler.
+                     *
+                     * `orderCancel` writes `delivered_status = 2` directly and, uniquely among the
+                     * doors, writes no `cancel_date` either. It is registered under TWO URIs
+                     * (api/{slug}/order-cancel and api/admin/order-cancel), so this call serves a
+                     * storefront-prefixed route and an admin-prefixed one.
+                     */
+                    app(\App\Services\OrderEntitlementReversal::class)->reverseOrLog(
+                        $order,
+                        \App\Services\OrderEntitlementReversal::REASON_CANCELLED,
+                        'orderCancel'
+                    );
                     return $this->success(['message' => __('Order cancel Successfully.')]);
                 } else {
                     $order->delivered_status = 2;
                     $order->save();
                     $this->restoreCancelledOrderStock($order, is_array($cancelLines) ? $cancelLines : []);
+                    /*
+                     * P4-F124 -- THE MONEY, on both branches of this handler.
+                     *
+                     * `orderCancel` writes `delivered_status = 2` directly and, uniquely among the
+                     * doors, writes no `cancel_date` either. It is registered under TWO URIs
+                     * (api/{slug}/order-cancel and api/admin/order-cancel), so this call serves a
+                     * storefront-prefixed route and an admin-prefixed one.
+                     */
+                    app(\App\Services\OrderEntitlementReversal::class)->reverseOrLog(
+                        $order,
+                        \App\Services\OrderEntitlementReversal::REASON_CANCELLED,
+                        'orderCancel'
+                    );
                     return $this->success(['message' => __('Order cancel Successfully.')]);
                 }
             } else {
@@ -6366,6 +6540,74 @@ public function changeProfile(Request $request)
     }
 
 
+/**
+ * GAP-156. THE TWO CUSTOMER LEDGER FIGURES AS THE ADMIN APP RECEIVES THEM.
+ *
+ * PHASE-05-METRIC-DEFINITIONS.md §15 defines both. They are deliberately NOT one number and
+ * never collapsed into one here: collected is the history of money handed over, including
+ * amounts later cancelled or refunded; retained is what is left after completed reversals.
+ *
+ * A NEW KEY RATHER THAN A REPOINTED ONE. `total_spend` and `orders` keep their shipped meaning
+ * and their shipped values. The alternative -- quietly changing what `total_spend` returns --
+ * would have altered a figure already on merchants' phones with nothing in the payload to say
+ * it had changed, which is the mislabelling this whole slice exists to stop.
+ *
+ * ONE DIVERGENCE IS LEFT OPEN AND IS FLAGGED IN THE PAYLOAD RATHER THAN DECIDED HERE. This
+ * endpoint's `orders`/`total_spend`/`aov` attribute orders by `customer_id` ALONE, while the
+ * web's `Customer::ownStoreOrders()` -- which these ledger figures follow, so that the figure
+ * and the `Total Spend` beside it cover one order set -- falls back to matching unattributed
+ * orders on the billing e-mail for a customer who has none of their own. So for such a customer
+ * this endpoint can report `orders: 0` beside a non-zero collected figure. That is a real
+ * product question (which rule is right), not a correctness one, so `attribution` states which
+ * rule produced the figure instead of a guess being made on the owner's behalf.
+ *
+ * NOT AN AUTHORIZATION BOUNDARY. The caller's right to see this customer is established before
+ * this is reached -- `resolveOwnedStore()` on the named store, and a customer query scoped to
+ * it. This formats figures for a customer already cleared; it clears nobody.
+ *
+ * @param  null|array{collected: \App\Support\Metrics\MetricResult, retained: \App\Support\Metrics\MetricResult, attribution: string}  $figures
+ * @return array<string, mixed>
+ */
+private static function customerLedgerPayload(?array $figures, int $storeId): array
+{
+    if ($figures === null) {
+        /* The resolver returned no entry for this customer. Not zero -- unknown. Saying
+           "available: false" is the only honest answer, and the app must not print 0.00. */
+        return [
+            'available' => false,
+            'payments_collected' => null,
+            'net_retained' => null,
+            // THE SAME KEY SET AS THE POPULATED BRANCH. The first version omitted `period`, so a
+            // client written against one shape met the other. The branch is unreachable from
+            // either call site today -- `forCustomers()` writes an entry for every id it is given
+            // and `forCustomer()` never returns null -- which is exactly why a divergence in it
+            // would go unnoticed until the day it stops being unreachable.
+            'period' => __('all time'),
+            'attribution' => 'unresolvable',
+            'payments_collected_note' => __('This figure could not be read.'),
+            'net_retained_note' => __('This figure could not be read.'),
+            'order_value_note' => \App\Support\Customers\CustomerMoneyTiles::spendHint(),
+        ];
+    }
+
+    $tiles = \App\Support\Customers\CustomerMoneyTiles::fromFigures($figures, $storeId);
+
+    return [
+        // `false` whenever EITHER figure had to be withheld -- a client showing one and hiding
+        // the other would invite the two to be read as a pair when only half is known.
+        'available' => $tiles['collected']['value'] !== null && $tiles['retained']['value'] !== null,
+        'payments_collected' => $tiles['collected']['value'],
+        'net_retained' => $tiles['retained']['value'],
+        'period' => $tiles['collected']['period'],
+        'attribution' => $tiles['attribution'],
+        'payments_collected_note' => $tiles['collected']['hint'],
+        'net_retained_note' => $tiles['retained']['hint'],
+        // So the app can caveat the `total_spend` key it already shows, without having to know
+        // why that figure is not money.
+        'order_value_note' => $tiles['spend_hint'],
+    ];
+}
+
 public function CustomerList(Request $request)
 {
     try {
@@ -6410,7 +6652,22 @@ public function CustomerList(Request $request)
         $customers = $query->orderBy('created_at', 'desc')
             ->paginate($request->per_page ?? 10);
 
-        $customersData = $customers->map(function ($customer) use ($storeId) {
+        /*
+         * GAP-156. THE TWO LEDGER FIGURES FOR THE WHOLE PAGE IN ONE GROUPED QUERY, resolved
+         * before the map rather than inside it. `CustomerMoneyFigures::forCustomers()` exists for
+         * exactly this shape; the merchant customer LIST cannot use it, because a DataTable row
+         * callback never sees its own page, and that is the only reason these two surfaces
+         * resolve differently. The DEFINITION is the same object in both, so the figures cannot
+         * drift.
+         *
+         * `$customers` is already scoped to `$storeId`, which `resolveOwnedStore()` above has
+         * authorised. `CustomerMoneyFigures` scopes again, to each customer's OWN `store_id`;
+         * that is not redundant belt-and-braces but the rule the class states -- the viewer's
+         * store is never the tenant it reads.
+         */
+        $ledgerFigures = \App\Support\Customers\CustomerMoneyFigures::forCustomers($customers);
+
+        $customersData = $customers->map(function ($customer) use ($storeId, $ledgerFigures) {
             $ordersCount = \App\Models\Order::where('customer_id', $customer->id)
                 ->where('store_id', $storeId)
                 ->count();
@@ -6466,8 +6723,36 @@ public function CustomerList(Request $request)
                     ? \Carbon\Carbon::parse($customer->regiester_date)->format('F d, Y')
                     : null,
                 'orders' => $ordersCount,
+                /*
+                 * GAP-156. `total_spend` IS UNCHANGED, DELIBERATELY, AND IT IS NOT A MONEY
+                 * FIGURE. It sums `orders.final_price` with no payment predicate: cancelled,
+                 * refunded and never-paid orders all count in full. The shipped Flutter app reads
+                 * this key and labels it as spend, so repointing it at the ledger would change,
+                 * silently, a number already on merchants' screens -- the exact mislabelling the
+                 * owner's instruction forbids, committed from the other direction. The two keys
+                 * below are the money question, each named for what it is.
+                 */
                 'total_spend' => number_format($totalSpend, 2),
                 'aov' => number_format($aov, 2),
+                /*
+                 * `$customer->store_id`, NOT `$storeId`, AND THE DIFFERENCE IS UNOBSERVABLE HERE
+                 * -- recorded as such rather than chased. The query above is
+                 * `Customer::where('store_id', $storeId)`, so every row's own store IS the named
+                 * one and a mutation swapping them survives. No fixture can separate the two
+                 * without breaking the scoping that
+                 * `test_the_list_never_carries_another_tenants_customer` pins, so the two
+                 * properties are entailed rather than independently testable.
+                 *
+                 * It reads the customer's own store anyway, because that is the rule
+                 * `CustomerMoneyFigures` states and this value labels a CURRENCY: if the list
+                 * query is ever widened, the figures would still be read per customer while the
+                 * label silently followed the request. A correct amount under the wrong currency
+                 * is the failure this slice exists to fix.
+                 */
+                'ledger' => self::customerLedgerPayload(
+                    $ledgerFigures[(int) $customer->id] ?? null,
+                    (int) ($customer->store_id ?? $storeId),
+                ),
                 'status' => (int) ($customer->status ?? 1),
                 'status_text' => ($customer->status ?? 1) == 1 ? 'Active' : 'Inactive',
                 'address' => $address,
@@ -6591,8 +6876,8 @@ public function createOrderViaApi(Request $request)
         'store_id' => 'required|integer|exists:stores,id'
     ])->validate();
 
-$currentCurrencyCode = \App\Models\Utility::GetValueByName('defult_currancy', $storeId) ?? 'USD';
-$currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_symbol', $storeId) ?? '$';
+$currentCurrencyCode = \App\Support\Money\OrderCurrencyStamp::codeFor($storeId);          // P5-R14: the one resolver, so the admin app's order
+$currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($storeId);      // and the storefront's record one store's currency alike
 
 
     $validated = $request->validate([
@@ -6617,6 +6902,53 @@ $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_sy
         'postcode' => 'nullable|string|max:20',
         'additional_note' => 'nullable|string',
     ]);
+
+    /*
+     * P4-F126 -- AN UNCOLLECTED COD PARCEL MAY NOT BE ASSERTED AS ALREADY PAID.
+     * =============================================================================================
+     *
+     * This door takes `payment_type` and `payment_status` from the caller and writes them verbatim,
+     * and it never consults `PaymentVerificationService`. So `cod` + `Paid` was accepted, and
+     * `OrderObserver::created()` then credited the merchant's wallet AT CREATION -- for a parcel
+     * that has not left the building and cash nobody has handled.
+     *
+     * That is the literal condition owner decision D-06 forbids, and the STOREFRONT already obeys
+     * it: `resolveOrderPaymentStatus()`'s first branch returns `Pending` unconditionally for COD.
+     * The gap was never the policy; it was that this door never asked.
+     *
+     * NO NEW VOCABULARY IS INVENTED, because the counter sale is already sayable. `POS` exists, is
+     * already written as a literal `Paid` by the POS door, and is already in
+     * `OFFLINE_PAYMENT_TYPES` -- the set whose own comment reads "settles off-platform by
+     * arrangement, so record Paid at once". A merchant who took cash across a counter records a POS
+     * sale; a merchant dispatching a parcel for collection records COD, and COD is Pending until
+     * somebody collects. That is the owner's "distinguish them using an explicit supported payment
+     * type", satisfied with zero schema change.
+     *
+     * AND THE EVIDENCE STORE ALREADY EXISTS AND CANNOT YET BE FILLED. `CodCollectionService`
+     * enforces exactly the four fields the owner named -- collector type, collector id, a strictly
+     * positive amount, a timestamp -- and refuses a partial collection. It stores nothing because
+     * `cod_collection_events` is declared by no migration, so `codMayBeSettled()` cannot return
+     * true in shipped code. Creating that table is a production migration and is not authorised
+     * here, so COD settles through no door at all today. Recorded, not worked around.
+     *
+     * CREATION-TIME ONLY. Existing `cod` + `Paid` rows are untouched: reclassifying them would move
+     * real money through the observer, which is what the withdrawn COD trigger's own note warned
+     * about.
+     *
+     * THE REFUSAL IS 422 AND NEVER 401 -- the shipped app force-clears its session on any 401.
+     */
+    if (app(\App\Services\PaymentVerificationService::class)
+            ->isCashOnDelivery($validated['payment_type'] ?? null)
+        && strcasecmp(trim((string) ($validated['payment_status'] ?? '')), 'Paid') === 0) {
+
+        return response()->json([
+            'success' => false,
+            'message' => __('A cash-on-delivery order cannot be created as already paid. Record it as Unpaid; it becomes Paid when collection is verified. For an over-the-counter cash sale, use the POS payment type.'),
+            'errors' => [
+                'payment_status' => [__('Cash on delivery cannot be marked Paid before collection is verified.')],
+            ],
+        ], 422);
+    }
 
     \DB::beginTransaction();
 
@@ -7366,6 +7698,25 @@ private function extractLinksAndGuessIcons($rawString)
     return $links;
 }
 
+/**
+ * P1-SEC-73. The stored name of the store owner's invoice logo and store image (`updateStoreOwnerInfo`, a call the shipped app makes).
+ *
+ * This handler never went through the platform uploader: it validated the BYTES (`image|mimes:jpeg,png,jpg,gif,svg`) and `move()`d the file
+ * under `time() . '_' . basename(<client name>)`, so PNG bytes named `page.html`, `a.pht` or `shell.php.png` were stored under exactly
+ * that name in `public/uploads/<store>/` -- the name is what a web server acts on. The base is now the client's name reduced to letters,
+ * digits, `_` and `-`, and the extension is the one the BYTES decide (`jpg`, `png`, `gif` or `svg`, which is all the rule above admits).
+ */
+private function ownerImageName(\Illuminate\Http\UploadedFile $file): string
+{
+    $base = trim((string) preg_replace('/[^A-Za-z0-9_-]+/', '_', pathinfo(basename($file->getClientOriginalName()), PATHINFO_FILENAME)), '_');
+    $extension = $file->guessExtension();
+
+    // the validation rule admits nothing else: a name is never built from anything the bytes did not decide
+    abort_unless(in_array($extension, ['jpg', 'png', 'gif', 'svg'], true), 422, 'The image type is not accepted.');
+
+    return time() . '_' . ($base !== '' ? $base : 'image') . '.' . $extension;
+}
+
 private function getDefaultIcon($platform)
 {
     $icons = [
@@ -7646,6 +7997,18 @@ public function Top_orders(Request $request)
                     'created_by'       => $user->id,
                 ]);
 
+                /*
+                 * P4-F032 -- THE WALLET. This is the second of the two doors that created a store
+                 * without one; `Auth\RegisteredUserController::store` was the other, and
+                 * `StoreController` has always provisioned here.
+                 *
+                 * Without it `OrderFinancialService::createForOrder()` throws into
+                 * `OrderObserver::created()`'s catch for every order this store ever takes: the
+                 * order commits, no `store_order_financials` row is written, and the merchant's
+                 * credit is lost permanently with nothing to revisit it.
+                 */
+                app(\App\Services\StoreWalletProvisioning::class)->ensure((int) $store->id);
+
                 if (function_exists('defaultSetting')) {
                     defaultSetting($store->id, 'admin', $user);
                 }
@@ -7749,24 +8112,36 @@ public function indexAllPlan(Request $request)
                 'duration_text' => Plan::getDurationsArr()[$currentPlan->duration] ?? 'Month',
                 'price_display' => ($settings['CURRENCY'] ?? '$') . $currentPlan->price . ' / ' . (Plan::getDurationsArr()[$currentPlan->duration] ?? 'Month'),
 
+                /*
+                 * `> 0` AND NOT `== -1`, because -1 was not the only limit without a denominator.
+                 * `plans.max_products`, `max_stores` and `max_users` are each `->default(0)`, so a
+                 * plan whose limit was never filled in divided by zero here -- and
+                 * `DivisionByZeroError` is an `Error`, which the `catch (\Exception)` around this
+                 * whole handler cannot see, so it was an HTTP 500 on the app's current-plan screen
+                 * rather than a handled failure. `0` is the answer this expression already gave for
+                 * an unlimited plan, where a percentage is equally meaningless; `max` and `used` sit
+                 * beside it and say the real state.
+                 * AdminApiCurrentPlanZeroLimitTest holds it, and records which half of the report
+                 * that found it was refuted.
+                 */
                 'limits' => [
                     'products' => [
                         'max' => $maxProducts == -1 ? 'Unlimited' : $maxProducts,
                         'used' => $usedProducts,
                         'remaining' => $remainingProducts == -1 ? 'Unlimited' : $remainingProducts,
-                        'percentage' => $maxProducts == -1 ? 0 : round(($usedProducts / $maxProducts) * 100, 2),
+                        'percentage' => $maxProducts > 0 ? round(($usedProducts / $maxProducts) * 100, 2) : 0,
                     ],
                     'stores' => [
                         'max' => $maxStores == -1 ? 'Unlimited' : $maxStores,
                         'used' => $usedStores,
                         'remaining' => $remainingStores == -1 ? 'Unlimited' : $remainingStores,
-                        'percentage' => $maxStores == -1 ? 0 : round(($usedStores / $maxStores) * 100, 2),
+                        'percentage' => $maxStores > 0 ? round(($usedStores / $maxStores) * 100, 2) : 0,
                     ],
                     'users' => [
                         'max' => $maxUsers == -1 ? 'Unlimited' : $maxUsers,
                         'used' => $usedUsers,
                         'remaining' => $remainingUsers == -1 ? 'Unlimited' : $remainingUsers,
-                        'percentage' => $maxUsers == -1 ? 0 : round(($usedUsers / $maxUsers) * 100, 2),
+                        'percentage' => $maxUsers > 0 ? round(($usedUsers / $maxUsers) * 100, 2) : 0,
                     ],
                 ],
 
@@ -8329,8 +8704,34 @@ public function updateCurrencyApi(Request $request)
             ]);
 
 
-            $currencyName = strtoupper(trim($validated['defult_currancy']));
-        $currencySymbol = trim($validated['defult_currancy_symbol']);
+        /*
+         * FIN-CUR -- THE SAME RULES THE WEB CURRENCY SCREEN HAS CARRIED ALL ALONG.
+         *
+         * This handler used to write five `settings` rows from the request and answer 200. It did
+         * not refuse the platform operator (F206), did not require an active `currency_rates` row,
+         * did not check the rate was usable (P1-SEC-80 round 4), took the SYMBOL from the caller
+         * instead of from that row (also P1-SEC-80 round 4), and -- the defect this was opened for
+         * -- did not CONVERT anything. A store that switched currency through the app kept every
+         * product price and every wallet balance at the old currency while every label said the
+         * new one, and the wallet's own `currency_code` still named the old one.
+         *
+         * `defult_currancy_symbol` stays REQUIRED in the validator above so the shipped app's
+         * request shape still validates, and is then IGNORED: the symbol that is stored is the
+         * one on the store's own rate row. The response returns that symbol, so a client that
+         * echoes the response shows the authoritative value.
+         */
+        $decision = \App\Services\StoreCurrencyChange::prepare($adminUser, (int) $storeId, $validated['defult_currancy']);
+
+        if (! $decision['ok']) {
+            return response()->json([
+                'status' => 0,
+                'message' => 'fail',
+                'data' => ['message' => $decision['message']],
+            ], $decision['reason'] === \App\Services\StoreCurrencyChange::REFUSED_OPERATOR ? 403 : 422);
+        }
+
+        $currencyName = $decision['currency'];
+        $currencySymbol = $decision['symbol'];
         $position = $validated['site_currency_symbol_position'] ?? 'pre';
 
         $settingsToUpdate = [
@@ -8341,22 +8742,31 @@ public function updateCurrencyApi(Request $request)
             'site_currency_symbol_position' => $position,
         ];
 
+        /*
+         * ONE TRANSACTION over the conversion AND the label, so a failure cannot leave converted
+         * prices under the old currency's name or the new name over unconverted amounts. The
+         * conversion runs first, as it does on the web screen, and only when the currency really
+         * changes.
+         */
+        \Illuminate\Support\Facades\DB::transaction(function () use ($decision, $storeId, $settingsToUpdate, $adminUser) {
+            \App\Services\StoreCurrencyChange::apply((int) $storeId, $decision['from'], $decision['currency']);
 
-        $settingQuery = \App\Models\Setting::query();
-        foreach ($settingsToUpdate as $key => $data) {
-            (clone $settingQuery)->updateOrCreate(
-                [
-                    'name' => $key,
-                    'store_id' => $storeId
-                ],
-                [
-                    'value' => $data,
-                    'name' => $key,
-                    'store_id' => $storeId,
-                    'created_by' => $adminUser->id,
-                ]
-            );
-        }
+            $settingQuery = \App\Models\Setting::query();
+            foreach ($settingsToUpdate as $key => $data) {
+                (clone $settingQuery)->updateOrCreate(
+                    [
+                        'name' => $key,
+                        'store_id' => $storeId
+                    ],
+                    [
+                        'value' => $data,
+                        'name' => $key,
+                        'store_id' => $storeId,
+                        'created_by' => $adminUser->id,
+                    ]
+                );
+            }
+        });
 
 
         return response()->json([
@@ -8777,8 +9187,14 @@ public function getCustomerOrdersApi(Request $request)
                     'default_address' => $addressData,
 
                     'orders' => (int) $ordersCount,
+                    /* GAP-156. Unchanged and still an ORDER-VALUE figure -- see CustomerList()
+                       for why this key is not repointed at the financial record. */
                     'total_spend' => currency_format_with_sym((float) $totalSpend, $storeId) ?? SetNumberFormat((float) $totalSpend),
                     'aov' => currency_format_with_sym((float) $aov, $storeId) ?? SetNumberFormat((float) $aov),
+                    'ledger' => self::customerLedgerPayload(
+                        \App\Support\Customers\CustomerMoneyFigures::forCustomer($customer),
+                        (int) ($customer->store_id ?? $storeId),
+                    ),
                 ],
                 'orders' => $ordersData->toArray(),
                 'pagination' => [
@@ -9283,7 +9699,8 @@ public function updateStoreOwnerInfo(Request $request)
 
             if ($request->hasFile('invoice_logo')) {
                 $file = $request->file('invoice_logo');
-                $fileName = time() . '_' . basename($file->getClientOriginalName()); 
+                // P1-SEC-73 (invoice_logo): the name is built by ownerImageName(), not the client's.
+                $fileName = $this->ownerImageName($file);
                 $file->move($uploadPath, $fileName);
                 
                 $relativePath = 'uploads/' . $storeId . '/' . $fileName;
@@ -9296,7 +9713,8 @@ public function updateStoreOwnerInfo(Request $request)
 
             if ($request->hasFile('store_image')) {
                 $file = $request->file('store_image');
-                $fileName = time() . '_' . basename($file->getClientOriginalName()); 
+                // P1-SEC-73 (store_image): the name is built by ownerImageName(), not the client's.
+                $fileName = $this->ownerImageName($file);
                 $file->move($uploadPath, $fileName);
 
                 $relativePath = 'uploads/' . $storeId . '/' . $fileName;
@@ -9344,9 +9762,15 @@ public function updateStoreOwnerInfo(Request $request)
                      * It now goes through the one controlled write path, which validates the value
                      * against the theme's declared taxonomy (`footer_repeater` is declared `slider`
                      * -- a repeater -- in all three shipped themes) and flushes the model cache
-                     * AFTER COMMIT. The HTTP contract is unchanged: same condition, same
-                     * `$updatedFields[] = 'social_media'`, same request and response shape. Only the
-                     * internal write path moved, so the shipped Flutter app is unaffected.
+                     * AFTER COMMIT. The request and response SHAPE are unchanged, so the shipped
+                     * Flutter app is unaffected -- but the CONDITION is not, and an earlier version
+                     * of this comment said it was. `social_media` is now appended only when the
+                     * service actually wrote something. A refusal (no permission, or a store with no
+                     * theme selected) returns null, the field is simply omitted from
+                     * `updated_fields`, and the status is the same 200: a new status code would
+                     * force a logout in that app. A store whose `theme_id` is empty therefore can
+                     * no longer save social links through this endpoint; that is Phase 03's rule
+                     * that a theme write needs a theme, recorded here rather than hidden.
                      */
                     $written = app(\App\Services\Theme\ThemeConfigurationService::class)
                         ->writeSettings(

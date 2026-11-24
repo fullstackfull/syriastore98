@@ -26,7 +26,7 @@ use Tests\TestCase;
  *    must stay.
  *
  * 3. QUOTING IS LOAD-BEARING, AND ONLY IN ENGLISH. `encodeURI(',')` is `,` — a comma is NOT
- *    escaped. The settled label for the gross figure is `Order value, before discounts`, which
+ *    escaped. The settled label for the gross figure is `Order value, including shipping and tax`, which
  *    `en.json` stores WITH an ASCII comma (and 14 of the 16 locale files lack the key, so they
  *    fall back to it); `ar.json` alone translates it comma-free. So an unquoted `.join(',')`
  *    yields 10 header columns against 9 data fields in `order_report`, and 8 against 7 in
@@ -51,12 +51,25 @@ class ReportCsvHeaderLocalisationTest extends TestCase
      * here so that a change to the data row cannot silently drag the expectation along with it.
      */
     private const SCREENS = [
-        'resources/views/reports/sale_by_brand.blade.php' => 3,
-        'resources/views/reports/sale_by_category.blade.php' => 3,
-        'resources/views/reports/sale_by_product.blade.php' => 3,
-        'resources/views/reports/order_report.blade.php' => 9,
-        'resources/views/reports/bar_chart_order_report.blade.php' => 7,
+        'resources/views/reports/sale_by_brand.blade.php' => 4,
+        'resources/views/reports/sale_by_category.blade.php' => 4,
+        'resources/views/reports/sale_by_product.blade.php' => 4,
+        'resources/views/reports/order_report.blade.php' => 10,
+        'resources/views/reports/bar_chart_order_report.blade.php' => 10,
     ];
+
+    /*
+     * 3 -> 4 and 9 -> 10, P05-15. Every one of these five exports gained ONE column, the
+     * disclosure column: "What this leaves out" where the row carries a single money figure, and
+     * "What these figures leave out" where it carries six. The cell comes from the server, from
+     * `App\Support\Reports\ReportFigureNote` -- the same method the screen's own `<x-ss.stat>`
+     * `:hint` calls -- so the file states what the screen states and the two cannot drift.
+     *
+     * THE COUNT HAD TO MOVE BY HAND, and that is the point of writing it out here: this gate
+     * compares the header's column count against the data row's field count, so it would have
+     * caught a column added to one side only. It did not catch the absent disclosure, because
+     * "the header matches the row" was true of a file that disclosed nothing at all.
+     */
 
     /** The reports hub, which was already correct and is the model, not a target. */
     private const EXEMPLAR = 'resources/views/reports/index.blade.php';
@@ -90,9 +103,9 @@ class ReportCsvHeaderLocalisationTest extends TestCase
         $en = json_decode((string) file_get_contents(base_path('resources/lang/en.json')), true);
 
         $this->assertIsArray($en);
-        $this->assertArrayHasKey('Order value, before discounts', $en);
-        $this->assertStringContainsString(',', (string) $en['Order value, before discounts'], sprintf(
-            'The English value for "Order value, before discounts" no longer contains a comma, '
+        $this->assertArrayHasKey('Order value, including shipping and tax', $en);
+        $this->assertStringContainsString(',', (string) $en['Order value, including shipping and tax'], sprintf(
+            'The English value for "Order value, including shipping and tax" no longer contains a comma, '
             . 'so the quoting this test insists on is no longer load-bearing and '
             . 'test_the_english_header_without_quoting_would_misalign has lost its premise.'
         ));
@@ -242,7 +255,7 @@ class ReportCsvHeaderLocalisationTest extends TestCase
                 $code,
                 sprintf(
                     '%s joins its header terms without CSV-quoting them. encodeURI does not '
-                    . 'escape a comma, and the English label "Order value, before discounts" '
+                    . 'escape a comma, and the English label "Order value, including shipping and tax" '
                     . 'contains one, so an unquoted join adds a column.',
                     $relative
                 )
@@ -365,8 +378,11 @@ class ReportCsvHeaderLocalisationTest extends TestCase
     public function test_the_english_header_without_quoting_would_misalign(): void
     {
         $expectedToBreak = [
-            'resources/views/reports/order_report.blade.php' => 9,
-            'resources/views/reports/bar_chart_order_report.blade.php' => 7,
+            // 9 -> 10, P05-15: both files gained the disclosure column. The control still holds --
+            // the new term is comma-free in en.json AND ar.json, so English is still over by the
+            // comma in "Order value, including shipping and tax" and Arabic is still exact.
+            'resources/views/reports/order_report.blade.php' => 10,
+            'resources/views/reports/bar_chart_order_report.blade.php' => 10,
         ];
 
         foreach ($expectedToBreak as $relative => $fields) {
@@ -421,17 +437,18 @@ class ReportCsvHeaderLocalisationTest extends TestCase
          * set must not move: a shipped client could be reading it.
          */
         $guards = [
-            'resources/views/reports/sale_by_brand.blade.php' => ['monthList', 'NetSaleTotal'],
-            'resources/views/reports/sale_by_category.blade.php' => ['monthList', 'NetSaleTotal'],
-            'resources/views/reports/sale_by_product.blade.php' => ['monthList', 'NetSaleTotal', 'PurchasedItemTotal'],
+            'resources/views/reports/sale_by_brand.blade.php' => ['monthList', 'NetSaleTotal', 'figureNote'],
+            'resources/views/reports/sale_by_category.blade.php' => ['monthList', 'NetSaleTotal', 'figureNote'],
+            'resources/views/reports/sale_by_product.blade.php' => ['monthList', 'NetSaleTotal', 'PurchasedItemTotal', 'figureNote'],
             'resources/views/reports/order_report.blade.php' => [
                 'monthList', 'TotalOrderCount', 'NetSaleTotal', 'AverageNetSales',
                 'GrossSaleTotal', 'AverageGrossSales', 'PurchasedItemTotal', 'ShippingTotal',
-                'CouponTotal',
+                'CouponTotal', 'figureNote',
             ],
             'resources/views/reports/bar_chart_order_report.blade.php' => [
                 'monthList', 'NetSaleTotal', 'AverageNetSales', 'GrossSaleTotal',
-                'AverageGrossSales', 'ShippingTotal', 'CouponTotal',
+                'AverageGrossSales', 'ShippingTotal', 'CouponTotal', 'TotalOrderCount',
+                'PurchasedItemTotal', 'figureNote',
             ],
         ];
 

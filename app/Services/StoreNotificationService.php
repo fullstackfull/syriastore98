@@ -406,6 +406,100 @@ class StoreNotificationService
     /**
      * رقم مالك المتجر.
      */
+    /**
+     * ANA-009 -- a metric has fallen below the floor THE MERCHANT SET.
+     *
+     * Written here rather than in a new notifier so there is one place that knows how a store
+     * notification is shaped and who owns a store. `$breach` is a row from
+     * `MetricThreshold::breachesFor()`, which is the only thing that decides whether this is called
+     * -- this method does no detection and holds no threshold of its own.
+     *
+     * NO PUSH, DELIBERATELY, and that is a scope statement rather than an oversight. The sibling
+     * methods here push through Firebase; this slice adds the in-app record only, so it introduces
+     * no new outbound traffic and nothing to configure before it is safe. Wiring push for these is
+     * available through the same `$this->firebase` the others use and is left as follow-up, named on
+     * the `ANA-009` row.
+     *
+     * DEDUPLICATED ON THE PERIOD, not on time. `reference_id` carries the breach's `period_key`
+     * (metric plus the window's end date), so an hourly schedule that re-detects the same breach all
+     * day writes ONE notice. Using a timestamp instead would have produced twenty-four.
+     */
+    public function metricThresholdBreached(int $storeId, array $breach): ?StoreNotification
+    {
+        try {
+            $ownerId = $this->getStoreOwnerId($storeId);
+
+            if ($ownerId === null) {
+                // No owner, no addressee. A notification row nobody can read is not a notification.
+                return null;
+            }
+
+            /*
+             * THE DEDUP KEY IS SHAPED BY THE COLUMNS, not by what reads nicely.
+             * `reference_type` is a `string(50)` and `reference_id` an `unsignedBigInteger`, with a
+             * composite index over the pair. An earlier version of this method put
+             * `payments_received:2026-06-15` into `reference_id`; that is green on SQLite, whose
+             * affinity stores it verbatim, and WRONG on every MySQL -- see
+             * `MetricThreshold::breachesFor()`, which carries the measurement. So the metric is the
+             * string and the window's end day is the integer.
+             */
+            $existing = StoreNotification::where('store_id', $storeId)
+                ->where('type', 'metric_threshold_breached')
+                ->where('reference_type', $breach['period_type'])
+                ->where('reference_id', $breach['period_day'])
+                ->first();
+
+            if ($existing !== null) {
+                return $existing;
+            }
+
+            return StoreNotification::create([
+                'store_id' => $storeId,
+                'user_id' => $ownerId,
+                'type' => 'metric_threshold_breached',
+                'reference_type' => $breach['period_type'],
+                'reference_id' => $breach['period_day'],
+                'title' => __(':metric is below the level you set', ['metric' => __($breach['label'])]),
+                'message' => __(
+                    ':metric over the last :days days is :actual, and the level you set is :floor.',
+                    [
+                        'metric' => __($breach['label']),
+                        'days' => $breach['days'],
+                        'actual' => number_format($breach['actual'], 2).' '.$breach['currency'],
+                        'floor' => number_format($breach['floor'], 2).' '.$breach['currency'],
+                    ]
+                ),
+                /*
+                 * The machine values as well as the sentence, so a later surface can group or chart
+                 * these without re-parsing prose -- and so the figures in the message can be checked
+                 * against what was actually measured.
+                 */
+                'data' => [
+                    'metric' => $breach['key'],
+                    // The identity in one readable piece. It lives HERE and not in `reference_id`,
+                    // which is an integer column -- the reason is in `MetricThreshold`.
+                    'period' => $breach['period_key'],
+                    'floor' => $breach['floor'],
+                    'actual' => $breach['actual'],
+                    'days' => $breach['days'],
+                    'currency' => $breach['currency'],
+                ],
+                'is_read' => false,
+                'push_sent' => false,
+            ]);
+        } catch (Throwable $e) {
+            // Consistent with the siblings: an alert that cannot be written must not break the tick
+            // that found it, or one bad store stops every other store's alerts.
+            Log::warning('Metric threshold alert could not be recorded', [
+                'store_id' => $storeId,
+                'metric' => $breach['key'] ?? null,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
     private function getStoreOwnerId(int $storeId): ?int
     {
         return Store::where('id', $storeId)

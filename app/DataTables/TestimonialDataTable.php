@@ -25,8 +25,8 @@ class TestimonialDataTable extends DataTable
             ->addIndexColumn()
             ->editColumn('avatar', function (Testimonial $testimonial) {
                 $avatar = '<div class="d-flex align-items-center">
-                        <a href="'.get_file($testimonial->avatar).'" class="table-image me-3" target="__blank">
-                            <img src="'.get_file($testimonial->avatar).'" class="rounded h-100 w-100" loading="lazy" alt="avatar avatar"></a>
+                        <a href="'.e(get_file($testimonial->avatar)).'" class="table-image me-3" target="__blank">
+                            <img src="'.e(get_file($testimonial->avatar)).'" class="rounded h-100 w-100" loading="lazy" alt="avatar avatar"></a>
                         </div>';
 
                 return $avatar;
@@ -68,7 +68,8 @@ class TestimonialDataTable extends DataTable
             ->orderColumn('description', function ($query, $direction) {
                 $query->orderby('description', $direction);
             })
-            ->rawColumns(['action', 'avatar', 'username', 'category_id', 'product_id', 'rating_no']);
+            // P1-SEC-80. The author's name and the category and product names are plain text (the closures return plain text): yajra escapes them. The avatar and the stars are markup built here.
+            ->rawColumns(['action', 'avatar', 'rating_no']);
         return $dataTable;
     }
 

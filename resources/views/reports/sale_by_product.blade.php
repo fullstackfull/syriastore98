@@ -242,14 +242,55 @@
                                 @json(__('Duration')),
                                 @json(__('Order value')),
                                 @json(__('Items ordered')),
+                                @json(__('What this leaves out')),
                             ].map(function(h) {
                                 return '"' + String(h).replace(/"/g, '""') + '"';
                             }).join(',');
 
                             var csvContent = "data:text/csv;charset=utf-8,﻿" + header + "\n";
+                            var csvField = function (v) {
+                                return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+                            };
+
+                            {{-- P05-15. THE DISCLOSURE IS A COLUMN, repeated on every row, which is
+                                 the same choice App\Support\Metrics\FigureCsv made for /analytics and
+                                 for the same measured reason: a caveat in a header row or a trailing
+                                 comment line does not survive sorting, filtering, or copying a range
+                                 out of a spreadsheet -- and that is precisely what a merchant does to
+                                 a downloaded file. A column cannot be separated from its number.
+
+                                 The sentence comes from the server (`ReportFigureNote`, the same
+                                 method this screen's own `:hint` calls), so it is already in this
+                                 request's locale and cannot drift from the screen.
+
+                                 QUOTING IS LOAD-BEARING, for exactly the reason the header's is:
+                                 `encodeURI` does NOT escape a comma, and sentences in the
+                                 MetricCaveat vocabulary carry them. Empty when the key is absent, so
+                                 a session stored before this change still downloads a well-formed
+                                 file instead of the word "undefined". --}}
+                            var note = (typeof data.figureNote === 'string') ? data.figureNote : '';
+
+                            {{-- P5-R7-A. THE CURRENCY CAVEAT, PREFERRED OVER THE SHARED NOTE, and
+                                 this is the SCREEN'S resolution character for character: the chart
+                                 blade's `:hint` is
+                                 `($figureCaveat ?? '') !== '' ? $figureCaveat : orderValueHint()`,
+                                 and this is that same choice in JavaScript.
+
+                                 ONE COLUMN AND NOT TWO, because the caveat already OPENS with
+                                 `orderValueHint()` -- `DimensionPeriodRevenue::aggregateCaveat()`
+                                 composes it that way, so a second column would print that
+                                 sentence twice in every row. The same decision, for the same
+                                 reason, as the category and brand builders.
+
+                                 A session stored before this change has no `figureCaveat` and
+                                 falls back to the shared note exactly as before, so an open tab
+                                 still downloads a well-formed file rather than "undefined". --}}
+                            var caveat = (typeof data.figureCaveat === 'string') ? data.figureCaveat : '';
+                            var rowNote = caveat !== '' ? caveat : note;
+
                             for (var i = 0; i < data.monthList.length; i++) {
                                 csvContent +=
-                                    `${data.monthList[i]},${data.NetSaleTotal[i]},${data.PurchasedItemTotal[i]}\n`;
+                                    `${data.monthList[i]},${data.NetSaleTotal[i]},${data.PurchasedItemTotal[i]},${csvField(rowNote)}\n`;
                             }
 
                             var encodedUri = encodeURI(csvContent);

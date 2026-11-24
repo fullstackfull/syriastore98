@@ -55,7 +55,8 @@ class UserDataTable extends DataTable
             ->addColumn('action', function (User $user) {
                 return view('users.action', compact('user'));
             })
-            ->rawColumns(['avatar','name','type','action']);
+            // P1-SEC-80. `name` is the user's own -- a staff member edits theirs on their profile -- and was printed raw on the OWNER's list. Plain text: yajra escapes it.
+            ->rawColumns(['avatar','type','action']);
     }
 
     /**

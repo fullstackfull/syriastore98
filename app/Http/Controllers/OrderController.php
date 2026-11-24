@@ -113,7 +113,28 @@ public function store(Request $request)
         'products.*.quantity' => 'required|integer|min:1',
         'products.*.price' => 'required|numeric|min:0',
         'payment_type' => 'required|string',
-        'payment_status' => 'required|in:Paid,Unpaid',
+        /*
+         * P4-F126 -- THE VOCABULARY IS UNCHANGED; THE COD COMBINATION IS REFUSED BELOW.
+         *
+         * This rule stays `in:Paid,Unpaid` because those remain the two states a merchant may
+         * assert here. What was missing is that `cod` + `Paid` asserts a collection nobody made:
+         * this screen's own comment calls payment_status "the merchant ASSERTING an out-of-band
+         * fact ('I have the cash')", which is true of a counter sale and false of a parcel awaiting
+         * delivery. The refusal is a closure rule rather than a wider `in:` list, because the
+         * constraint is a RELATIONSHIP between two fields and not a property of either.
+         */
+        'payment_status' => [
+            'required',
+            'in:Paid,Unpaid',
+            function ($attribute, $value, $fail) use ($request) {
+                if (app(\App\Services\PaymentVerificationService::class)
+                        ->isCashOnDelivery($request->input('payment_type'))
+                    && strcasecmp(trim((string) $value), 'Paid') === 0) {
+
+                    $fail(__('A cash-on-delivery order cannot be created as already paid. Record it as Unpaid; it becomes Paid when collection is verified. For an over-the-counter cash sale, use the POS payment type.'));
+                }
+            },
+        ],
         'delivery_price' => 'nullable|numeric|min:0',
         'tax_price' => 'nullable|numeric|min:0',
         'final_price' => 'required|numeric|min:0',
@@ -212,8 +233,11 @@ public function store(Request $request)
         $totalProductPrice = 0;
         $storeId = getCurrentStore();
 
-        $currentCurrencyCode = \App\Models\Utility::GetValueByName('defult_currancy', $storeId) ?? 'USD';
-        $currentCurrencySymbol = \App\Models\Utility::GetValueByName('defult_currancy_symbol', $storeId) ?? '$';
+        // P5-R14: through the one resolver, so a manual order and a storefront order record the same
+        // currency for the same store. This read the first link of that chain and not the second,
+        // so the two agreed only while `defult_currancy` was set.
+        $currentCurrencyCode = \App\Support\Money\OrderCurrencyStamp::codeFor($storeId);
+        $currentCurrencySymbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($storeId);
 
         /*
          * TENANT OWNERSHIP ON THE PRODUCT AND THE VARIANT.
@@ -320,7 +344,7 @@ public function store(Request $request)
                 );
 
                 if (!$variantDecrement['applied']) {
-                    throw new \Exception("المخزون غير كافٍ للمتغير: {$variant->name}. المتاح: {$variant->stock}، المطلوب: {$qty}");
+                    throw new \Exception("المخزون غير كافٍ للمتغير: " . e($variant->name) . ". المتاح: {$variant->stock}، المطلوب: {$qty}"); // P1-SEC-80 round 3 (C-4): flashed, and the layout's toast writes it with innerHTML
                 }
 
                 $productJson[] = [
@@ -350,7 +374,7 @@ public function store(Request $request)
                 );
 
                 if (!$productDecrement['applied']) {
-                    throw new \Exception("المخزون غير كافٍ للمنتج: {$product->name}. المتاح: {$product->product_stock}، المطلوب: {$qty}");
+                    throw new \Exception("المخزون غير كافٍ للمنتج: " . e($product->name) . ". المتاح: {$product->product_stock}، المطلوب: {$qty}"); // P1-SEC-80 round 3 (C-4): see the variant branch above
                 }
 
                 $productJson[] = [
@@ -2196,11 +2220,32 @@ public function store(Request $request)
         //      action, not a public one;
         //   3. the order must belong to BOTH that store and that customer.
         //
-        // DISCLOSED BEHAVIOUR CHANGE: `orders.customer_id` defaults to 0, so a GUEST order
-        // can no longer be cancelled through this endpoint. That is deliberate. Self-service
-        // cancellation of a guest order over an unauthenticated endpoint keyed on a
-        // guessable integer is the vulnerability itself, not a feature; a guest cancellation
-        // has to go through the merchant.
+        // DISCLOSED BEHAVIOUR: a GUEST order cannot be cancelled through this endpoint. That is
+        // deliberate. Self-service cancellation of a guest order over an endpoint keyed on a
+        // guessable integer is the vulnerability itself, not a feature; a guest cancellation has
+        // to go through the merchant.
+        //
+        // SEC-INTAKE #188 CORRECTION. This used to be expressed as "`orders.customer_id` defaults
+        // to 0, so a guest order can no longer be cancelled" -- and THAT ASSUMPTION IS FALSE for a
+        // whole class of guest orders, which is how the rule leaked. Measured in
+        // `app/Services/PaymentService.php:3019-3033`: a guest checkout whose billing e-mail
+        // matches an existing customer of this store is written with that customer's REAL id and
+        // `is_guest = 1`, because nobody is signed in. `customer_id` answers "whose record is this
+        // attached to"; `is_guest` answers "was anybody signed in when it was placed". The rule
+        // wants the second, so it now TESTS the second -- the same column
+        // `App\Support\Marketing\RecoveryCandidates` already filters on.
+        //
+        // The e-mail match itself is NOT changed here and must not be: it is the returning-guest
+        // flow, it follows from per-store e-mail uniqueness (an owner decision), and
+        // `UnscopedCustomerEmailLookupTest::test_a_guest_checkout_still_finds_its_own_stores_customer`
+        // pins it. What changes is only what THIS endpoint will act on.
+        //
+        // NOT A DISCLOSURE. The measured read paths hand the guest nothing of the matched
+        // customer's: `Order::order_detail()` reads the `Customer` row and its `DeliveryAddress`
+        // only inside the `else` of `if ($order->payment_type != 'POS')`, and `'POS'` is absent
+        // from `getValidPaymentTypes()`, so a storefront order's billing and delivery fields come
+        // from `order_billing_details` -- what the guest typed. This is an account-integrity
+        // defect: the matched customer could cancel, and RESTOCK, an order they never placed.
         $store = getStore($slug);
 
         if (! $store) {
@@ -2216,6 +2261,9 @@ public function store(Request $request)
         $order = Order::where('id', $request->order_id)
             ->where('store_id', $store->id)
             ->where('customer_id', $customer->id)
+            // SEC-INTAKE #188: the fact the rule above actually depends on. A guest order carries
+            // `is_guest = 1` whatever its `customer_id` happens to be.
+            ->where('is_guest', 0)
             ->first();
 
         if (! $order) {

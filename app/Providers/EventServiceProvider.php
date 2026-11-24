@@ -10,6 +10,8 @@ use App\Events\SuperAdminMenuEvent;
 use App\Events\VerifyReCaptchaToken;
 use App\Listeners\VerifyReCaptchaTokenLis;
 use App\Events\OrderPaymentStatus;
+use App\Services\Marketing\EnforceMarketingConsentOnMail;
+use Illuminate\Mail\Events\MessageSending;
 
 class EventServiceProvider extends ServiceProvider
 {
@@ -38,6 +40,13 @@ class EventServiceProvider extends ServiceProvider
     // something to subscribe to. An event with no listeners is inert -- Laravel's dispatcher
     // simply finds nothing to call. No placeholder listener is added here.
     OrderPaymentStatus::class => [],
+
+    // THE EMAIL SEAM OF THE MARKETING CONSENT GATE (D8 / GAP-200). INERT unless MARKETING_CONSENT_ENFORCEMENT is `report` or
+    // `enforce`: with the shipped default, `off`, the listener returns after one configuration read and touches nothing else, on
+    // the path of every email the product sends. It is the only place MarketingSendGate is called, and a census says so.
+    MessageSending::class => [
+        EnforceMarketingConsentOnMail::class,
+    ],
 
 ];
 

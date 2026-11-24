@@ -46,6 +46,19 @@
         because geography is a genuinely different reading of the data, and marked `aria-hidden`
         because the table beside it says the same thing better.
     --}}
+    {{-- ANA-002 / GAP-221. OUTSIDE `#printableArea`: a printed report carries its period as a
+         caption, which both the chart and the footer below already do, not as a form nobody can
+         use on paper. See the component's docblock for why this posts `ss_period` rather than
+         the legacy `chart_data` vocabulary. --}}
+    <x-ss.analytics-period-filter
+        :action="route('reports.orderCountryReport')"
+        :period-key="$periodKey"
+        :period-options="$periodOptions"
+        :period-from="$periodFrom"
+        :period-to="$periodTo"
+        :period-today="$periodToday"
+        :period-clamped="$periodClamped" />
+
     <div class="row" id="printableArea">
         <div class="col-xl-7 mb-4">
             <x-ss.card :title="__('Orders by country')"

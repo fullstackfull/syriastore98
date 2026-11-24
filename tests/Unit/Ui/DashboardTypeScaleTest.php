@@ -181,8 +181,14 @@ class DashboardTypeScaleTest extends TestCase
         $this->assertStringContainsString("__('No sales yet')", $partial);
 
         $controller = $this->read('app/Http/Controllers/HomeController.php');
+        /* ANA-TOP added a FOURTH name, `top_sales_store`, so the figures and the currency symbol
+           cannot resolve the store independently -- the GAP-156 defect. The literal is kept EXACT
+           rather than loosened to "contains 'type'", which would pass against a file that had
+           stopped passing it: `'type'` occurs all over this controller. An exact list means the
+           next addition breaks this line too, and that is the ratchet working rather than failing:
+           whoever adds a fifth has to read what the list is for. */
         $this->assertStringContainsString(
-            "compact('tab_name', 'top_sales', 'type')",
+            "compact('tab_name', 'top_sales', 'type', 'top_sales_store')",
             $controller,
             'The view cannot name the dimension unless the controller passes it.'
         );
@@ -229,8 +235,17 @@ class DashboardTypeScaleTest extends TestCase
         $this->assertStringNotContainsString('الراقية', $ar['Top Brand'] ?? '');
         $this->assertStringNotContainsString('العليا', $ar['Top Category'] ?? '');
 
-        // The meta beside them still says "by sales", which is what makes the shorter title exact.
-        $this->assertSame('حسب المبيعات', $ar['By Sales'] ?? null);
+        /*
+         * THE META BESIDE THEM NO LONGER SAYS "by sales", and that is an ANA-TOP correction, not a
+         * wording preference. The figure under these titles counts every order line in the window
+         * -- unpaid, cancelled and refunded included -- so "sales" named money the merchant may
+         * never have received. It now says "by order value", the approved D2 vocabulary, and the
+         * short title stays exact because the meta still carries the ranking basis.
+         *
+         * `By Sales` is deliberately left in both language files: nine vendored WorkDo modules
+         * ship it in their own `th.json`, and this repository does not edit those.
+         */
+        $this->assertSame('حسب قيمة الطلبات', $ar['By order value'] ?? null);
     }
 
     public function test_the_block_is_present_and_this_test_is_not_vacuous(): void

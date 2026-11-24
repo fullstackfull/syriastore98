@@ -321,7 +321,7 @@ $u->save();
             return redirect()->back()->with('error', __('Permission denied.'));
         }
 
-        session()->put(['setting_tab' => 'brand_setting']);
+        if (($colourRefusal = \App\Support\Branding\StoreColour::refusalFor($request)) !== null) { return $colourRefusal; } session()->put(['setting_tab' => 'brand_setting']); // P1-SEC-80 round 3 (C-1): see StoreColour; ONE line so the line-keyed inventories below do not move
         // Get the authenticated user
         $user = auth()->user();
 
@@ -796,7 +796,7 @@ $u->save();
             $device_type = Utility::get_device_type($_SERVER['HTTP_USER_AGENT']);
 
             $ip = $_SERVER['REMOTE_ADDR'];
-            $query = @unserialize(file_get_contents('http://ip-api.com/php/'.$ip));
+            $query = @unserialize(file_get_contents('http://ip-api.com/php/'.$ip), ['allowed_classes' => false]);
             $date = (new \DateTime())->format('Y-m-d');
             $time = (new \DateTime())->format('H:i:s') . ' UTC';
 
@@ -1788,37 +1788,37 @@ $u->save();
     }
 
     $newCurrency = $post['defult_currancy'];
-$currencyRate = CurrencyRate::where('store_id', $storeId)
-    ->where('currency_code', $newCurrency)
-    ->where('is_active', 1)
-    ->first();
+/*
+ * FIN-CUR: the rate lookup, the "is it available" refusal, the P1-SEC-80 round 4 rate check and
+ * the P1-SEC-80 round 4 symbol now live in `StoreCurrencyChange::prepare()`, so that the admin
+ * API writer asks the same four questions instead of none of them. The messages and the redirect
+ * are unchanged -- the service returns those same translated strings -- and this screen's own
+ * operator refusal above is kept where it is.
+ */
+$decision = \App\Services\StoreCurrencyChange::prepare(auth()->user(), (int) $storeId, $newCurrency);
 
-if (!$currencyRate) {
-    return redirect()->back()->with(
-        'error',
-        __('Selected currency is not available for this store.')
-    );
+if (! $decision['ok']) {
+    return redirect()->back()->with('error', $decision['message']);
 }
 
-if ($newCurrency !== 'USD' && (float) $currencyRate->rate_per_usd <= 1) {
-    return redirect()->back()->with(
-        'error',
-        __('Please set a valid exchange rate before changing the store currency.')
-    );
-}
+/*
+ * THE DECISION'S CODE, NOT THE REQUEST'S. `prepare()` normalises the requested code --
+ * `strtoupper(trim(...))` -- and `apply()`/`convertStoreCurrentValues()` write THAT value onto
+ * `store_wallets.currency_code` and onto every converted order. Taking only the symbol back and
+ * saving `explode('-', ...)[1]` verbatim left a lower-case or space-padded selection stored as
+ * `settings.defult_currancy = 'syp'` beside a wallet reading `'SYP'`: the very divergence this
+ * slice exists to close. `$newCurrency` is reassigned too, so the `apply()` call below is given
+ * the same spelling the row will carry.
+ */
+$post['defult_currancy'] = $post['CURRENCY_NAME'] = $newCurrency = $decision['currency'];
+$post['defult_currancy_symbol'] = $post['CURRENCY'] = $decision['symbol'];
     /*
      * إذا العملة تغيرت فعلاً
      * نحول القيم الحالية قبل حفظ العملة الجديدة.
      */
-    if ($oldCurrency !== $newCurrency) {
-
-        app(StoreCurrencyConversionService::class)
-            ->convertStoreCurrentValues(
-                $storeId,
-                $oldCurrency,
-                $newCurrency
-            );
-    }
+    // FIN-CUR: the same one-line call the admin API makes; `apply()` holds the
+    // "only when it really changes" test both writers need.
+    \App\Services\StoreCurrencyChange::apply((int) $storeId, $oldCurrency, $newCurrency);
 
     if (isset($post['site_currency_symbol_position'])) {
 

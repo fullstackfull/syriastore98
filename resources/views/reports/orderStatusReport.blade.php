@@ -42,6 +42,24 @@
         with a caption and `scope` on both axes, and the bars are `aria-hidden` because they are
         a picture OF that table.
     --}}
+    {{-- ANA-002 / GAP-221. THE CONTROL SITS OUTSIDE `#printableArea` DELIBERATELY: a printed
+         report should carry the period as a CAPTION, which the chart already does, not as a
+         form the reader cannot use on paper.
+
+         The form itself is `<x-ss.analytics-period-filter>`, extracted when the second of
+         GAP-221's five screens needed the identical fifty lines. Its docblock records why these
+         screens post `ss_period` rather than the legacy `chart_data` the four-screen
+         `<x-ss.report-filter>` bar posts, and why that is convergence rather than a third
+         vocabulary. --}}
+    <x-ss.analytics-period-filter
+        :action="route('reports.orderStatusReport')"
+        :period-key="$periodKey"
+        :period-options="$periodOptions"
+        :period-from="$periodFrom"
+        :period-to="$periodTo"
+        :period-today="$periodToday"
+        :period-clamped="$periodClamped" />
+
     <div class="row" id="printableArea">
         <div class="col-12">
             <x-ss.card :title="__('Orders by status')"

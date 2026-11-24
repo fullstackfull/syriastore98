@@ -2,6 +2,7 @@
 
 namespace App\DataTables;
 
+use App\Services\TableFilterMemory;
 use App\Models\Coupon;
 use App\Models\Utility;
 use Illuminate\Database\Eloquent\Builder as QueryBuilder;
@@ -30,7 +31,7 @@ class CouponDataTable extends DataTable
             } else {
                 $icon = 'ti ti-percentage';
             }
-            return $coupon->discount_amount . '<i class="'.$icon.'"></i> '. __('Discount');
+            return e($coupon->discount_amount) . '<i class="'.$icon.'"></i> '. __('Discount');
         })
         ->editColumn('coupon_expiry_date', function (Coupon $coupon) {
             return isset($coupon->coupon_expiry_date) ? Utility::dateFormat($coupon->coupon_expiry_date) : '';
@@ -38,7 +39,9 @@ class CouponDataTable extends DataTable
         ->addColumn('action', function (Coupon $coupon) {
             return view('coupon.action', compact('coupon'));
         })
-        ->rawColumns(['coupon_name','coupon_code','discount_amount','coupon_limit', 'coupon_expiry_date','action']);
+        // P1-SEC-80. The coupon's name and code are plain text a staff member types, and the limit and the expiry are plain text: yajra escapes them. `discount_amount` is built here around an icon
+        // and escapes the number.
+        ->rawColumns(['discount_amount','action']);
     }
 
     /**
@@ -46,7 +49,72 @@ class CouponDataTable extends DataTable
      */
     public function query(Coupon $model): QueryBuilder
     {
-        return $model->newQuery()->where('store_id', getCurrentStore());
+        return $this->applyFilters($model->newQuery()->where('store_id', getCurrentStore()));
+    }
+
+    /**
+     * MKT-002's coupon filters. Called AFTER the tenant predicate and only ever ADDS predicates, so
+     * this narrows a set already confined to the caller's own store and is not standing in for a
+     * tenant check. Every value is checked against the vocabulary `TableFilterMemory` words, so the
+     * list and its receipt cannot disagree about what is in force.
+     */
+    private function applyFilters(QueryBuilder $query): QueryBuilder
+    {
+        $request = request();
+
+        /*
+         * `is_string` on every read, the shape `ProductDataTable::applyFilters()` established and
+         * states the reason for: `?ss_x[]=v` makes these arrays, and the next filter added here may
+         * compare directly, which is where an array becomes an "Array to string conversion" and a
+         * 500 from a query string. One guard per read makes the safe shape the default.
+         *
+         * AN UNRECOGNISED VALUE DECLINES RATHER THAN NARROWING TO NOTHING. A merchant whose url has
+         * a typo sees the unfiltered list, not an empty one -- and the receipt stays silent for the
+         * same value, so the screen and its wording agree.
+         */
+
+        $status = $request->query('ss_status');
+
+        if (is_string($status) && in_array($status, ['0', '1'], true)) {
+            $query->where('coupons.status', (int) $status);
+        }
+
+        $type = $request->query('ss_type');
+
+        /* The three literals `coupons.coupon_type` actually stores, read off CouponController's own
+           comparisons (`:60`, `:71`, `:102`). Not a guess and not a new vocabulary. */
+        if (is_string($type) && in_array($type, ['percentage', 'fixed product discount', 'flat'], true)) {
+            $query->where('coupons.coupon_type', $type);
+        }
+
+        $expiry = $request->query('ss_expiry');
+
+        if (is_string($expiry) && in_array($expiry, ['expired', 'current'], true)) {
+            /* `coupon_expiry_date` is a DATE, so a plain date comparison is exact here -- no
+               endOfDay() needed, and adding one would be cargo-culted from the datetime columns.
+               `current` is `>=` today: a coupon expiring TODAY has not expired yet. */
+            $query->whereDate(
+                'coupons.coupon_expiry_date',
+                $expiry === 'expired' ? '<' : '>=',
+                \Carbon\Carbon::now()->toDateString()
+            );
+        }
+
+        $from = TableFilterMemory::parseDate($request->query('ss_from'));
+
+        if ($from !== null) {
+            $query->where('coupons.created_at', '>=', $from->copy()->startOfDay());
+        }
+
+        $to = TableFilterMemory::parseDate($request->query('ss_to'));
+
+        if ($to !== null) {
+            /* `endOfDay()`, because `created_at` is a DATETIME: a bare `<= '2026-03-17'` compares
+               against midnight and drops everything recorded on the day the merchant typed. */
+            $query->where('coupons.created_at', '<=', $to->copy()->endOfDay());
+        }
+
+        return $query;
     }
 
     /**

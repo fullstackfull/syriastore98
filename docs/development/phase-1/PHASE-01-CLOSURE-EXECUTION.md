@@ -761,9 +761,11 @@ disclosure and the owner's call. Each says so on its first line.
 
 ### E — ENGINEERING, unblocked, not done (2 READY + named residuals)
 
+> **§2 below corrects three of the rows in this section, and one of them is corrected but was never struck here** — so a reader who stopped at this table was told that finished work was still to do. `P1-ORD-13` is now struck in place. The lesson is about the shape of this document rather than about that row: a correction in a later section does not reach a reader of an earlier one, so a corrected row has to be marked where it is read.
+
 | Row | | What is actually left |
 |---|---|---|
-| `P1-ORD-13` | #82 | Carry the order's primary key through the ten gateway return paths, as the WhatsApp/Telegram path already does via `order_complete_ids`. No owner input, no credentials. |
+| ~~`P1-ORD-13`~~ | #82 | ~~Carry the order's primary key through the ten gateway return paths, as the WhatsApp/Telegram path already does via `order_complete_ids`. No owner input, no credentials.~~ **STRUCK 2026-11-23 — this row is wrong and §2 below already says so.** The engineering is done, #82 is closed as completed, and what remains is criterion 4, which needs a provider sandbox per gateway: a **section B** item, not a section E one. Re-measured today: `OrderCompleteBinding::remember()` has **15 call sites across nine files**, every producer that flashes `with('data', ...)` also binds, and the write is no longer `PaymentController::whatsapp()`'s — it belongs to a shared service. Read §2. |
 | `P1-SEC-14` | #89 | Outbound reporting is disabled and the blacklist hardened; what is unmet is criterion 3 — *the answer about production keys must be **recorded***, and it is not. The owner's reply restated the question rather than answering it. |
 | `P1-PAY-03` | #25 | Khalti's verified amount is still the **client's** posted `payload['amount']`; binding it to the server's own figure is a local comparison. AuthorizeNet and Khalti both verify and record nothing, so both now write Pending — a commercial regression. Khalti's writer refuses on a failed curl instead of writing a Pending order, leaving a charged customer with no row. |
 | `P1-PLT-04` | #36 | One read-only count bounds the storefront entitlement change; the query is in `ModuleEntitlementSourcesTest`'s docblock. |

@@ -30,10 +30,30 @@
                      use it for this very quantity. Those two were right all along; this card was
                      the odd one out. `(float)` first, because the existing tests for this
                      partial pass a pre-formatted STRING and number_format refuses one. --}}
+                {{-- P5-R7-A. THE FIGURE CAN NOW BE ABSENT, AND ABSENT IS NOT ZERO.
+                     `$Totalsale` was `+= (float) $product['final_price']` over every order in
+                     the window regardless of `orders.currency_code`, so 25 EUR and 90 USD
+                     printed as `115.00` behind one symbol. It is now
+                     `DimensionPeriodRevenue::aggregateTotal()`, which totals the store's own
+                     currency, folds in orders carrying no recorded currency, and returns NULL
+                     rather than 0.00 when there is nothing it can state -- which is what a
+                     store whose every order is foreign produces. Printing 0.00 there would be
+                     a claim that nothing was ordered.
+
+                     The three-way branch is the one `order_category_chart` already uses, for
+                     the reason recorded there: when the store HAS configured a currency the
+                     figure is denominated in it and the symbol is right, and when it has not,
+                     `MoneyText::amount()` prints the code so the number is not left bare. --}}
                 <x-ss.stat :label="__('Order value')"
-                           :value="$currency . number_format((float) ($Totalsale ?? 0), 2)"
+                           :value="$Totalsale === null
+                               ? __('Not available')
+                               : (($figureCurrencyIsConfigured ?? true)
+                                   ? $currency . number_format((float) $Totalsale, 2)
+                                   : \App\Support\Metrics\MoneyText::amount((float) $Totalsale, $figureCurrency ?? ''))"
                            :period="$periodLabel"
-                           :hint="__('The total value of items ordered. This is not payments received, and not profit.')" />
+                           :hint="($figureCaveat ?? '') !== ''
+                               ? $figureCaveat
+                               : \App\Support\Reports\ReportFigureNote::orderValueHint()" />
 
                 <x-ss.stat :label="__('Items ordered')"
                            :value="number_format((int) ($PurchasedItem ?? 0))"
@@ -58,11 +78,19 @@
              "1.00 items ordered" would be a new defect in place of the old one. --}}
         <x-ss.card :title="__('Product Sales Summary')"
                    :note="__('Order value over the selected period.')">
+            {{-- P5-R7-A. `value-currency` NAMES WHAT THE MONEY COLUMN IS COUNTED IN. The table
+                 printed `number_format($v, 2)` and nothing else, so a merchant whose store has
+                 taken more than one currency was handed a column of bare numbers -- with the
+                 tile directly above it carrying a symbol, for the same figure, on the same
+                 screen. The code and not the symbol, because `$figureCurrency` is what the
+                 accumulator actually bucketed by and a code cannot be mistaken for another
+                 currency's symbol the way `$` can. --}}
             <x-ss.bar-chart
                 :labels="$labels ?? []"
                 :values="$netSeries ?? []"
                 :values2="$itemSeries ?? []"
                 :value-decimals="2"
+                :value-currency="$figureCurrency ?? ''"
                 :title="__('Product Sales Summary')"
                 :value-label="__('Order value')"
                 :value-label2="__('Items ordered')"

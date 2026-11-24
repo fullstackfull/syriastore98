@@ -252,8 +252,21 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
          * refusal naming a number, and `UserPolicy::delete()` has already refused a cross-tenant
          * target before either runs. See their entries in STORE_LESS_BY_DESIGN.
          */
+        /*
+         * 44 -> 46 on 2026-11-16 [P4-F124]: `App\Services\OrderEntitlementReversal` adds the
+         * locked read of an order's `store_order_financials` row and the update that records the
+         * reversal of entitlement.
+         *
+         * BOTH NAME `store_id`, so the store-less list this assertion prints on failure is
+         * UNCHANGED -- that list, not this count, is the part that matters.
+         *
+         * They are raw rather than Eloquent for the reason every statement against this table is:
+         * the row is read, decided on and written inside one `DB::transaction` under
+         * `lockForUpdate()`, and a `Cachable` model would serve a pre-write row to the next read
+         * in the same request.
+         */
         $this->assertSame(
-            44,
+            46,
             $total,
             "The number of raw query-builder statements in app/Services moved. Every one is "
             . "invisible to every Eloquent global scope, so a new one needs a `store_id` "
@@ -261,7 +274,11 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
             . implode("\n  ", array_keys($storeLess))
         );
 
-        $this->assertSame(26, $scoped, 'statements naming store_id');
+        /* 26 -> 28 [P4-F124]: both of OrderEntitlementReversal's statements, and BOTH name
+           `store_id` -- so the whole of the +2 lands here and the store-less count below is
+           unchanged at 18. That split is the evidence that the change added no cross-tenant
+           exposure; the totals above would move either way. */
+        $this->assertSame(28, $scoped, 'statements naming store_id');
         $this->assertCount(18, $storeLess, 'statements naming store_id nowhere');
     }
 
@@ -330,6 +347,30 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
     }
 
     /**
+     * A file's PHP source with every comment and docblock removed.
+     *
+     * Same shape as `DeliveryBoyScopeTest`'s and `OrderWriteCensus`'s, so the three agree about
+     * what "the code says" means.
+     */
+    private function sourceWithoutComments(string $file): string
+    {
+        $out = '';
+
+        foreach (token_get_all((string) file_get_contents($file)) as $token) {
+            if (is_array($token)) {
+                if (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                    continue;
+                }
+                $out .= $token[1];
+                continue;
+            }
+            $out .= $token;
+        }
+
+        return $out;
+    }
+
+    /**
      * THE CONTAINMENT. `markFinancialAsPaid`/`markFinancialAsUnpaid` move
      * `store_wallets.total_income`, and they take a bare `int`. They are safe only because their
      * single caller verifies the row's ownership first.
@@ -344,7 +385,32 @@ class ServiceLayerRawQueryInventoryTest extends TestCase
                     continue; // its own declaration and internal call
                 }
 
-                $source = (string) file_get_contents($file);
+                /*
+                 * COMMENTS STRIPPED BEFORE MATCHING, because a comment cannot call a method.
+                 *
+                 * This read `str_contains(file_get_contents($file), $method . '(')` and therefore
+                 * counted any file that so much as NAMED one of these methods in prose. That is
+                 * not a hypothetical: `App\Services\OrderEntitlementReversal` was reported as a new
+                 * caller of `markFinancialAsUnpaid()` purely because its docblock explains why it
+                 * deliberately does NOT use that method — i.e. the ratchet fired on documentation
+                 * of the very containment it exists to protect.
+                 *
+                 * A false positive here is not harmless. It trains a reader to resync the expected
+                 * list without looking, which is exactly how a REAL new caller would later slip
+                 * through. Narrowing the detector to code makes the assertion mean what its own
+                 * message says.
+                 *
+                 * THE SAME TECHNIQUE IS ALREADY USED IN THIS REPOSITORY for the same reason --
+                 * `DeliveryBoyScopeTest.php:508` and `tests/Support/Commerce/OrderWriteCensus.php:504`
+                 * both drop `T_COMMENT` / `T_DOC_COMMENT` before matching, and the CI scripts strip
+                 * XML comments before grepping `phpunit.xml` because "a commented-out override
+                 * satisfies a naive grep while doing nothing".
+                 *
+                 * THIS DOES NOT WEAKEN THE RATCHET. A real call site is code and survives the
+                 * strip; only prose is removed. A caller that tried to hide inside a comment would
+                 * not execute.
+                 */
+                $source = $this->sourceWithoutComments($file);
 
                 if (str_contains($source, $method . '(')) {
                     $callers[] = str_replace(base_path() . '/', '', $file);

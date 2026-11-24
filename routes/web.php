@@ -752,7 +752,26 @@ Route::get(
     Route::get('nepalste/status/', [NepalstePaymnetController::class, 'planGetNepalsteStatus'])->name('nepalste.status');
     Route::get('nepalste/cancel/', [NepalstePaymnetController::class, 'planGetNepalsteCancel'])->name('nepalste.cancel');
 
-    Route::post('plan-disable', [PlanController::class, 'planDisable'])->name('plan.disable');
+    /*
+     * NEW-PLAN-DISABLE-UNGATED-01. THE SAME DEFECT AS `order.approve` AND `plan.order.refund`
+     * ABOVE, found 2026-11-24, and gated the same way for the same measured reason.
+     *
+     * The route carried `web`, `Authenticate`, `XSS`, `SetLocate` and `EmailIsVerified` and
+     * nothing else -- read from the router, not from this file -- while `planDisable` does
+     * `Plan::where('id', $request->id)->update(['is_disable' => $request->is_disable])` straight
+     * from the body. `plans` is a PLATFORM table: one request from any authenticated,
+     * email-verified visitor withdrew a plan from sale for every merchant on it, or put one the
+     * operator had withdrawn back on sale.
+     *
+     * PLATFORM-OPERATOR AND NOT A PERMISSION, decided from the application's own UI exactly as
+     * the refund gate was: the switch is rendered only inside
+     * `@if (\Auth::user()->type == 'super admin' && $plan->price > 0)`
+     * (resources/views/plans/index.blade.php:77). `Edit Plan` would be the wrong gate -- it is a
+     * MERCHANT permission a tenant can grant itself on the roles screen.
+     */
+    Route::post('plan-disable', [PlanController::class, 'planDisable'])
+        ->name('plan.disable')
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class);
     Route::get('plan-trial/{id}', [PlanController::class, 'planTrial'])->name('plan.trial');
 
     Route::post('plan-pay-with-khalti', [KhaltiPaymnetController::class, 'planPayWithKhalti'])->name('pay.khalti.payment');
@@ -1159,9 +1178,107 @@ Route::get(
         Route::post('theme-enable', [AddonController::class, 'ThemeEnable'])->name('theme.enable');
     });
 
+    /*
+     * P5-4 — THE MERCHANT ANALYTICS SCREEN. ANA-001…ANA-004.
+     *
+     * Declared beside the reports because it IS one and shares their gate. `ReportPermission` is
+     * attached explicitly here rather than inherited from a constructor, because the handler lives on
+     * its own controller (ReportController cannot run under the Feature suite at all: 36 `MONTH(` and
+     * 9 `YEAR(` in `selectRaw` are absent from SQLite, so a screen whose purpose is honest figures
+     * would have been untestable). The action method is `index`, which `ReportPermission::ACTIONS`
+     * maps to the seeded `Manage Reports` — no new permission name, because a name absent from
+     * `Utility::addNewData()` cannot exist as a row and evaluates false for everybody, the tenant
+     * owner included. The middleware's own ordering (operator, then tenant owner, then permission) is
+     * what makes this correct for the platform operator, who holds no Laratrust role.
+     */
+    Route::get('analytics', [\App\Http\Controllers\MerchantAnalyticsController::class, 'index'])
+        ->middleware(\App\Http\Middleware\ReportPermission::class)
+        ->name('analytics.index');
+
+    /**
+     * P5-8. The same figures as a file. SAME middleware as the screen -- an export with a weaker
+     * guard than the surface it exports is how a control gets lost. `ReportPermission::ACTIONS`
+     * maps `export` to the same seeded `Manage Reports` as `index`, so no new permission name is
+     * introduced (a name absent from `Utility::addNewData()` cannot exist as a row and evaluates
+     * false for everybody, the tenant owner included).
+     */
+    Route::get('analytics/export', [\App\Http\Controllers\MerchantAnalyticsController::class, 'export'])
+        ->middleware(\App\Http\Middleware\ReportPermission::class)
+        ->name('analytics.export');
+
+    /**
+     * ANA-003. A merchant's standing request for that export on a schedule.
+     *
+     * SAME MIDDLEWARE AS THE SCREEN AND THE DOWNLOAD, for the reason the note above gives: a write
+     * that creates a recurring send must not be reachable by anyone who cannot read the figures it
+     * would send. `ReportPermission::ACTIONS` names both actions explicitly rather than leaning on
+     * its fail-closed fallback.
+     *
+     * The RECIPIENT is not a parameter -- see `AnalyticsReportSchedule`. It is the authenticated
+     * user's own account address, so this cannot become an authenticated mail relay.
+     */
+    Route::post('analytics/schedules', [\App\Http\Controllers\MerchantAnalyticsController::class, 'storeSchedule'])
+        ->middleware(\App\Http\Middleware\ReportPermission::class)
+        ->name('analytics.schedules.store');
+
+    Route::delete('analytics/schedules/{id}', [\App\Http\Controllers\MerchantAnalyticsController::class, 'destroySchedule'])
+        ->middleware(\App\Http\Middleware\ReportPermission::class)
+        ->name('analytics.schedules.destroy');
+
+    /**
+     * ANA-009. The merchant's own floors on their own metrics.
+     *
+     * SAME MIDDLEWARE AS THE SCREEN, and for a sharper reason than the schedule route above: this
+     * write decides what the store is told about its money, so it must not be reachable by someone
+     * who cannot read those figures on the screen. `ReportPermission::ACTIONS` names
+     * `storeThresholds` explicitly; its fallback is `Manage Reports` fail-closed, which would have
+     * been the same answer, but an unnamed action is an accident waiting for the next permission.
+     *
+     * NO STORE PARAMETER. The target store is `resolveStore()`'s, i.e. the authenticated
+     * principal's, and an operator with nothing selected is refused rather than writing onto store 1.
+     */
+    Route::post('analytics/thresholds', [\App\Http\Controllers\MerchantAnalyticsController::class, 'storeThresholds'])
+        ->middleware(\App\Http\Middleware\ReportPermission::class)
+        ->name('analytics.thresholds.store');
+
+    /**
+     * P5-7. THE SAME FIGURES ACROSS EVERY TENANT, for the platform operator only.
+     *
+     * `PlatformOperatorOnly` and NOT `ReportPermission`, which is the difference that matters. The
+     * report middleware admits three principals in order -- operator, then the tenant OWNER, then
+     * the holder of `Manage Reports` -- and the second and third of those are merchants. This
+     * handler reads EVERY store (`Store` is not in `config/tenancy.php`'s `scoped_models`, so no
+     * global scope narrows it for anybody), so admitting a tenant owner here would be a
+     * cross-tenant disclosure. A merchant also creates their own roles, so a permission name is
+     * substantially self-assignable and is the wrong shape of gate for this screen.
+     *
+     * Inside the same `auth` group, so an anonymous caller is redirected to sign in by `auth` --
+     * which runs first -- rather than told 403 by the operator check. 403 and never 401 for a
+     * signed-in non-operator: repo B maps any 401 to a forced logout.
+     */
+    Route::get('platform/analytics', [\App\Http\Controllers\PlatformAnalyticsController::class, 'index'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.analytics');
+
+    // P5-8. Same gate as the screen above, for the same reason, across every tenant at once.
+    Route::get('platform/analytics/export', [\App\Http\Controllers\PlatformAnalyticsController::class, 'export'])
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class)
+        ->name('platform.analytics.export');
+
     // Report
     Route::resource('reports', ReportController::class);
     Route::get('reports-chart', [ReportController::class, 'reports_chart'])->name('reports.chart');
+
+    /*
+     * ANA-001. Finance in the Reports centre. TWO GATES, both required: the group's own
+     * `ReportPermission` (which maps this action to `View Finance Dashboard`, NOT `Manage Reports` --
+     * see the note on that constant) and `finance.permission` on top, the same middleware `/finance`
+     * uses. Either alone would be enough to refuse the wrong principal; both are here because the
+     * two are maintained by different lists and a change to one should not silently widen the other.
+     */
+    Route::get('finance-reports', [ReportController::class, 'financeReport'])
+        ->middleware('finance.permission:View Finance Dashboard')
+        ->name('reports.finance');
     Route::get('report-export', [ReportController::class, 'export'])->name('reports.export');
     Route::get('order-reports', [ReportController::class, 'OrderReport'])->name('reports.order_report');
     Route::get('order-reports-chart', [ReportController::class, 'order_reports_chart'])->name('reports.order.chart');
@@ -1226,6 +1343,54 @@ Route::get(
     Route::post('generate/response', [AITemplateController::class, 'aiGenerate'])
         ->middleware('throttle:ai-generate')
         ->name('generate.response');
+
+    /*
+     * MKT-004 — CUSTOMER SEGMENTS, static and dynamic.
+     *
+     * `Manage Customer` IS THE GATE AND IT IS SEEDED. The controller enforces it (operator, then
+     * the tenant owner, then the permission -- the ordering this codebase gets wrong by default),
+     * and the name is the same one `/customer` requires, because a segment lists the same people
+     * with the same e-mail addresses. Introducing a new name would be worse than reusing this one:
+     * a permission absent from `Utility::addNewData()` cannot exist as a row and evaluates FALSE
+     * for everybody, the tenant owner included, and that exact lockout has happened here.
+     *
+     * NO `store_id` IS A PARAMETER on any of these. The store comes from
+     * `OperatorStoreSelection::reportStoreId()`, so an operator with nothing selected is refused
+     * rather than editing store 1's segments (GAP-223(b)).
+     *
+     * The member routes take the SEGMENT in the URL and the customer in the body, and both are
+     * re-resolved inside the store -- `customers.id` values are reused across tenants in a shared
+     * database, so a posted id that names another store's customer must not resolve.
+     */
+    Route::get('customer-segments', [\App\Http\Controllers\CustomerSegmentController::class, 'index'])
+        ->name('customer-segments.index');
+    Route::post('customer-segments', [\App\Http\Controllers\CustomerSegmentController::class, 'store'])
+        ->name('customer-segments.store');
+    Route::get('customer-segments/{id}', [\App\Http\Controllers\CustomerSegmentController::class, 'show'])
+        ->name('customer-segments.show');
+    Route::delete('customer-segments/{id}', [\App\Http\Controllers\CustomerSegmentController::class, 'destroy'])
+        ->name('customer-segments.destroy');
+    Route::post('customer-segments/{id}/members', [\App\Http\Controllers\CustomerSegmentController::class, 'addMember'])
+        ->name('customer-segments.members.add');
+    Route::delete('customer-segments/{id}/members', [\App\Http\Controllers\CustomerSegmentController::class, 'removeMember'])
+        ->name('customer-segments.members.remove');
+
+    /*
+     * MKT-007 — THE RECOVERY QUEUE and the ages that fill it.
+     *
+     * `Abandon Cart` IS THE GATE and the controller enforces it (operator, then the tenant owner,
+     * then the permission). It is the same seeded name the existing one-click recovery requires, so
+     * the audience is the people who already follow baskets up -- neither widened nor narrowed.
+     *
+     * TWO ROUTES AND NEITHER SENDS ANYTHING. There is deliberately no "send" or "release" route:
+     * automatic promotional sending stays disabled until the required consent enforcement is
+     * approved and active, and the per-basket follow-up a merchant can already do stays where it is
+     * (`carts.emailsend`), behind the ledger reservation it already uses.
+     */
+    Route::get('recovery-queue', [\App\Http\Controllers\RecoveryQueueController::class, 'index'])
+        ->name('recovery-queue.index');
+    Route::post('recovery-queue/ages', [\App\Http\Controllers\RecoveryQueueController::class, 'storeAges'])
+        ->name('recovery-queue.ages');
 
     // Customer Route
     /*
@@ -1506,9 +1671,18 @@ Route::get(
      *
      * `theme.editor` resolves the store through the gate -- never `getCurrentStore()`, never a
      * `{store}` parameter from the caller -- and admits the operator naming a store explicitly, the
-     * verified tenant owner, or a same-tenant holder of `Manage Themes`. The controller's own
-     * `isAbleTo()` checks are LEFT IN PLACE: defence in depth, and deleting them on the strength of
-     * a middleware line is how a guard goes missing when a route is later moved out of a group.
+     * verified tenant owner, or a same-tenant holder of `Manage Themes`. The controller keeps its
+     * own check as `mayManageThemes()`, which asks the SAME gate this middleware does, so the two
+     * cannot disagree: defence in depth, and deleting it on the strength of a middleware line is how
+     * a guard goes missing when a route is later moved out of a group.
+     *
+     * THAT IS NOT THE OLD CHECK, and an earlier version of this comment said it was ("the
+     * controller's own `isAbleTo()` checks are LEFT IN PLACE"). The four read handlers used to run
+     * a bare `isAbleTo('Manage Themes')`, which refuses the platform operator (no bypass exists)
+     * and the verified tenant owner (who holds no permission row). The gate admits both on
+     * purpose, so a verified owner without the permission goes from a 302 to a 200 on those four
+     * GETs, pinned by `ThemeEditorAuthorizationMatrixTest::test_the_owner_can_open_the_editor_
+     * without_holding_the_permission`.
      */
     Route::middleware(['theme.editor'])->group(function () {
         Route::get('theme-customize', [ThemeCustomizeController::class, 'index'])->name('theme.index');

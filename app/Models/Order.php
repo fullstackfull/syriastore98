@@ -170,16 +170,16 @@ class Order extends Model
         static::creating(function ($order) {
             $storeId = $order->store_id ?? (function_exists('getCurrentStore') ? getCurrentStore() : null);
 
+            // P5-R14: the chain that lived here is `OrderCurrencyStamp`, unchanged, so that the two
+            // storefront writers which used to stamp their own -- and stamped the SYMBOL as the
+            // code -- read the same answer this hook gives. (Kept to the old block's line count:
+            // a security-log inventory pins sites further down this file by line number.)
             if (empty($order->currency_code)) {
-                $order->currency_code = \App\Models\Utility::GetValueByName('defult_currancy', $storeId) 
-                    ?? \App\Models\Utility::GetValueByName('currency', $storeId) 
-                    ?? 'USD';
+                $order->currency_code = \App\Support\Money\OrderCurrencyStamp::codeFor($storeId);
             }
 
             if (empty($order->currency_symbol)) {
-                $order->currency_symbol = \App\Models\Utility::GetValueByName('defult_currancy_symbol', $storeId) 
-                    ?? \App\Models\Utility::GetValueByName('currency_symbol', $storeId) 
-                    ?? '$';
+                $order->currency_symbol = \App\Support\Money\OrderCurrencyStamp::symbolFor($storeId);
             }
         });
     }
@@ -707,12 +707,59 @@ if ($order_status == 'cancel') {
     
     $order->cancel_date = now();
     $order->delivered_status = 2;
-    
-    // ✅ هذا هو السطر السحري المفقود: يجب تغيير حالة الدفع لاسترداد المبلغ
-    $order->payment_status = 'Unpaid'; 
-    
-    $order->save(); // <-- هنا سيكتشف الـ Observer التغيير ويستدعي خدمة المحفظة
-    
+
+    /*
+     * P4-F124 -- THE "MISSING MAGIC LINE" IS GONE, AND THIS IS WHAT REPLACED IT.
+     * =============================================================================================
+     *
+     * What stood here was:
+     *
+     *     // ✅ هذا هو السطر السحري المفقود: يجب تغيير حالة الدفع لاسترداد المبلغ
+     *     $order->payment_status = 'Unpaid';
+     *     $order->save(); // <-- هنا سيكتشف الـ Observer التغيير ويستدعي خدمة المحفظة
+     *
+     * -- "the missing magic line: the payment status must be changed to reclaim the amount", and
+     * "here the Observer will detect the change and call the wallet service". The comment is honest
+     * about what the line was for: it was not a statement about the customer, it was a TRIGGER.
+     * `OrderObserver::updated()` returns early unless `wasChanged('payment_status')`, so overwriting
+     * the column was the only way to make the merchant's wallet credit reverse.
+     *
+     * THE COST WAS THE CUSTOMER'S PAYMENT HISTORY. A shopper who paid by card and then cancelled
+     * ended up with an order recording that they had not paid. The capture was real; the only
+     * durable trace of it was overwritten to fire a side effect.
+     *
+     * OWNER DECISION (Option A): "`orders.payment_status` represents the customer's actual payment
+     * settlement. Cancellation must not rewrite a captured payment as Unpaid merely to trigger
+     * wallet reversal. Represent cancellation and financial reversal reasons in the existing
+     * financial ledger structures."
+     *
+     * So the reversal is now ASKED FOR rather than provoked. `payment_status` is not touched here
+     * at all -- the order goes on saying what the customer actually did -- and the reversal is
+     * recorded where entitlement lives, with a reason, exactly once per order.
+     *
+     * EVERY DOOR THAT GOES THROUGH THIS ENGINE INHERITS IT, which is why the call sits here rather
+     * than in the callers: the merchant web door, the storefront customer door, the cancel-and-
+     * reissue door, the storefront API door, the admin/driver API door -- and the vendored
+     * LotteryPrizes door, which cancels a host `orders` row through this same method and cannot be
+     * edited. The doors that write `delivered_status = 2` WITHOUT calling this method carry their
+     * own call for the same reason.
+     *
+     * THE SAVE STILL HAPPENS FIRST. The reversal reads the order's own store and id, and the
+     * cancellation must be durable before the money moves: if the save fails, nothing was
+     * cancelled and nothing should be reversed.
+     *
+     * STOCK IS DELIBERATELY NOT TOUCHED HERE and must never be. `OrderReplacement::cancelAndReplace()`
+     * calls this same method, and a cancel-plus-reissue pair must net to zero movement rather than
+     * restoring -- which is why the restore lives in the callers behind per-line markers.
+     */
+    $order->save();
+
+    app(\App\Services\OrderEntitlementReversal::class)->reverseOrLog(
+        $order,
+        \App\Services\OrderEntitlementReversal::REASON_CANCELLED,
+        'order_status_change'
+    );
+
     event(new OrderPaymentStatus($order));
 
     $return['status'] = 'success';
@@ -940,7 +987,61 @@ if ($order_status == 'cancel') {
         return true;
     }
 
+    /**
+     * The amount a set of RETURNED lines takes off an order: their `final_price` summed, less the
+     * order's coupon, once.
+     *
+     * THE SAME FORMULA AS THE SUMMATION IN `product_return()`, deliberately kept as a separate
+     * method rather than refactored into it. That summation is "the half this method already gets
+     * right" and a base fix must not be made by disturbing it. The price of leaving it alone is
+     * that the formula exists twice, so `SecondReturnTotalTest` asserts that after a first return
+     * the stored `return_price` equals this method's answer for that one line, under no coupon, a
+     * flat coupon and a percentage coupon. If the two ever disagree that test fails.
+     *
+     * @param  array<int,array<string,mixed>>  $lines  lines whose `return` flag is set
+     */
+    private static function returnedAmountOf(array $lines, $order_id): float
+    {
+        $returned = 0.0;
+        foreach ($lines as $line) {
+            $returned += (float) ($line['final_price'] ?? 0);
+        }
+
+        $coupon_price = 0.0;
+        $detail = OrderCouponDetail::where('order_id', $order_id)->first();
+        if (!empty($detail)) {
+            $coupon_price = (float) $detail->coupon_discount_number;
+            if ($detail->coupon_discount_type == 'percentage') {
+                $coupon_price = $returned * (float) $detail->coupon_discount_number / 100;
+            }
+        }
+
+        return $returned - $coupon_price;
+    }
+
+    /**
+     * Return ONE line of a delivered order: restock it, flag it, and take its value off what is owed.
+     *
+     * THE WHOLE CALL IS ONE TRANSACTION. Found by independent review of the AUD-2 fix. The line FLAG used to be
+     * saved first and the MONEY written later, and the base `final_price` is rebuilt from the flags, so a failure
+     * between the two left a line flagged whose value was never taken off: the replay guard then refused a retry,
+     * and the next return's base counted that value as already gone. (The column-based base this replaced healed
+     * it by accident.) The restock, the flag and the money now commit together or not at all -- the shape
+     * `OrderController::order_return_request` already uses -- so there is no window to heal, and a retry after any
+     * failure starts from the order exactly as it was. The write at the end of the body keeps its own
+     * `DB::transaction`, which nests as a savepoint.
+     *
+     * Static and reachable from three callers (the customer API, the merchant route, and the vendored
+     * LotteryPrizes module), so it refuses on its own account rather than trusting any of them.
+     *
+     * @return array{status: string, message: string}
+     */
     public static function product_return($date = [])
+    {
+        return \Illuminate\Support\Facades\DB::transaction(fn () => self::performProductReturn($date));
+    }
+
+    private static function performProductReturn($date = [])
     {
         $product_id = $date['product_id'];
         $variant_id = $date['variant_id'];
@@ -1055,11 +1156,25 @@ if ($order_status == 'cancel') {
             }
         }
 
+        /*
+         * WHAT EARLIER RETURNS HAVE ALREADY TAKEN OFF `final_price`, CAPTURED BEFORE THIS CALL FLAGS
+         * ITS OWN LINE. Read below, where the base is rebuilt.
+         */
+        $priorReturnedLines = [];
+        foreach ((array) json_decode((string) $Order->product_json, true) as $priorLine) {
+            if (is_array($priorLine) && (int) ($priorLine['return'] ?? 0) === 1) {
+                $priorReturnedLines[] = $priorLine;
+            }
+        }
+
+        $matchedLine = false;
+
         if (!empty($Order->product_json)) {
             $product_json = json_decode($Order->product_json, true);
             foreach ($product_json as $key => $product) {
                 if ($product['product_id'] == $product_id && $product['variant_id'] == $variant_id) {
                     $product_json[$key]['return'] = 1;
+                    $matchedLine = true;
 
                     /*
                      * THE RESTOCKED ROW IS PAIRED TO THE ORDER'S STORE. P1-INV-02, acceptance
@@ -1201,6 +1316,28 @@ if ($order_status == 'cancel') {
                 }
             }
         }
+        /*
+         * A CALL THAT NAMES NO LINE CHANGES NOTHING. Found by independent review of the AUD-2 fix.
+         *
+         * `$product_id` and `$variant_id` are REQUEST INPUT, and until now nothing refused a pair that matches no
+         * line of the order. With nothing flagged the summed return value is 0, a FLAT coupon then makes it `0 - c`,
+         * and the money write below subtracts that: `final_price` went UP by the coupon amount on every such call
+         * (147.50 -> 157.50 -> 167.50 -> 177.50 on a 10.00 coupon, measured). The method before the AUD-2 fix did
+         * this once and then settled; the flag-derived base made it unbounded, because a no-match call flags
+         * nothing and so never changes what the next call believes is already taken off.
+         *
+         * Reachable by the owning customer, an assigned delivery boy, a merchant holding `Manage Order` and the
+         * operator, all of whom choose the ids. The refusal comes BEFORE the first write, so it costs nothing
+         * and leaves nothing behind; the sibling case, a line that is already returned, is refused by the replay
+         * guard at the top.
+         */
+        if (! $matchedLine) {
+            return [
+                'status' => 'error',
+                'message' => __('The product is not part of this order.'),
+            ];
+        }
+
         $Order->product_json = json_encode($product_json);
         $Order->save();
 
@@ -1273,12 +1410,32 @@ if ($order_status == 'cancel') {
          * existing tests drive this workflow and every one returns a single line, which is how a
          * defect written down in the source survived all of them.
          *
-         * THE BASE IS RECONSTRUCTED, NOT STORED, and deliberately so: `final_price` plus
-         * `return_price` is the original total by construction, because `return_price` holds
-         * exactly what has been taken off. That needs no new column and therefore no migration --
-         * which matters, since a migration here would be a production schema change requiring the
-         * owner. On the FIRST return `return_price` is 0, so the base is the current total and
-         * the behaviour is byte-identical to before; only the second and later calls change.
+         * THE BASE IS RECONSTRUCTED, NOT STORED, and deliberately so: the original total is the
+         * current `final_price` plus what earlier returns have already taken off. That needs no new
+         * column and therefore no migration -- which matters, since a migration here would be a
+         * production schema change requiring the owner. With no earlier return the base is the
+         * current total, so the FIRST return is arithmetically what it always was; only the second and
+         * later calls change. (A call that names no line never gets here: it is refused above, which is
+         * also why "no earlier return" cannot be reached by a call that returned nothing.)
+         *
+         * "WHAT EARLIER RETURNS TOOK OFF" IS READ FROM THE LINE FLAGS, NOT FROM `return_price`, and
+         * a first version of this block got that wrong. It added the stored column, on the premise
+         * that `final_price + return_price` is the original total "by construction". It is not,
+         * because `OrderController::order_return_request` writes `return_price = final_price` on
+         * approve AND on reject -- without reducing `final_price`. After either, the next line
+         * return doubled the base: on a 147.50 order returning a 90.00 line it wrote 205.00 where
+         * the original code wrote 57.50, so the amount owed ROSE because goods came back. Found by
+         * the PR #140 deletion audit's adversarial pass; no cited test reached it, because
+         * `SecondReturnTotalTest` seeded `return_price = 0` in every case.
+         *
+         * The line flags are the authority because only this method ever sets one on an `orders`
+         * row (the vendored AuctionProduct copy, `AuctionProductOrder.php:303`, flags the rows of a
+         * different table and is dormant -- `AuctionOrderDormancyTest`), and the request flow
+         * stamps `LINE_STOCK_RESTORED` and never `return`. So a flag means a return really
+         * happened, and the column does not.
+         *
+         * `returnedAmountOf()` is the same formula as the summation below, for an earlier set of
+         * lines; `SecondReturnTotalTest` pins the two against each other so they cannot drift.
          *
          * WHAT IT DOES NOT DO. It does not repair an order already driven negative by this
          * defect: for such a row `final_price + return_price` is not the original total, and a
@@ -1290,7 +1447,10 @@ if ($order_status == 'cancel') {
          * `SecondReturnTotalTest::test_a_flat_coupon_is_applied_once_across_two_returns` pins it
          * so a fix aimed at the base cannot be made by breaking it instead.
          */
-        $original_total = (float) $Order->final_price + (float) $Order->return_price;
+        $alreadyTakenOff = $priorReturnedLines === []
+            ? 0.0
+            : self::returnedAmountOf($priorReturnedLines, $order_id);
+        $original_total = (float) $Order->final_price + $alreadyTakenOff;
         $final_price = ($original_total - $return_price);
         /*
          * ONE TRANSACTION AROUND THE WRITES.  P1-INV-15 (D), owner decision 5's "transaction-safe".

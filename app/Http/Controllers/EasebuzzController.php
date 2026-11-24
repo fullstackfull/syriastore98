@@ -47,6 +47,7 @@ use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Cache;
 use App\Http\Controllers\Concerns\GuardsPlanActivation;
 use App\Http\Controllers\Concerns\GuardsGatewayReturn;
+use App\Support\Money\RewardPointDiscount;
 
 class EasebuzzController extends Controller
 {
@@ -346,7 +347,18 @@ class EasebuzzController extends Controller
              * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
              * right plan (CartController::cart_list_sidebar:38-40,
              * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
-             * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+             * The predicate's TEXT is unchanged but its MEANING is not. The query this replaced filtered
+             * `type = 'admin'`, so the `if` below could not fail and `$plan` was always assigned; `ownerOf()` applies
+             * no type filter, so for a store owned by the platform operator, a self-demoted merchant or a deleted
+             * user `$plan` is UNDEFINED further down and the shipping read throws. See App\Support\Commerce\StorePlan.
+             *
+             * THE `$plan` GUARD IS DELIBERATELY NOT LANDED IN THIS HANDLER. Owner ruling D-13 / D-18
+             * (docs/development/phase-2/PHASE-02-DECISION-REGISTER.md): the `$plan` fix stays suspended wherever
+             * stock is decremented before the payment is proven, because landing it would turn a pre-decrement crash
+             * into a working unverified decrement. That reasoning was written when the crash was true only of "a
+             * broken install"; P4-F014 made it true of every store whose owner is not a plan-holding admin, which is
+             * new information for the owner, recorded as GAP-210 with the condition for lifting the suspension.
+             * Pinned by Tests\Feature\Commerce\ReturnHandlerPlanInitialiserTest (HELD_BACK).
              */
             $user = \App\Support\Commerce\StorePlan::ownerOf($store);
             if ($user && $user->type == 'admin') {
@@ -959,11 +971,11 @@ class EasebuzzController extends Controller
                 if (module_is_active('RewardClubPoint') && isset($requests_data['club_point_is_active']) && $requests_data['club_point_is_active'] == 'on') {
                     $customerDetail = Customer::find($customer_id);
                     $rewardSetting = getAdminAllSetting($store->created_by,$store->id) ?? null;
-                    $saveRewardPrice = ($customerDetail->total_club_point * $rewardSetting['reward_point_price'] ?? 0) / ($rewardSetting['reward_points'] ?? 0);
+                    $saveRewardPrice = RewardPointDiscount::for((float) ($customerDetail->total_club_point ?? 0), $rewardSetting);
                     if ($plan->shipping_method == "on") {
-                        $order->final_price = $final_sub_total_price - $saveRewardPrice;
+                        $order->final_price = RewardPointDiscount::applyTo($final_sub_total_price, $saveRewardPrice);
                     } else {
-                        $order->final_price = $final_price + $tax_price - $saveRewardPrice;
+                        $order->final_price = RewardPointDiscount::applyTo($final_price + $tax_price, $saveRewardPrice);
                     }
                 } else {
                     if ($plan->shipping_method == "on") {

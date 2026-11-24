@@ -186,8 +186,30 @@ class PaidDownloadController extends Controller
     {
         $customer = auth('customers')->user();
 
+        /*
+         * SEC-INTAKE #188 -- the `is_guest` conjunct, and ONLY on this customer limb. An adopted
+         * guest order carries a real `customer_id` with `is_guest = 1`
+         * (`app/Services/PaymentService.php:3019-3033`), so the matched customer satisfied this
+         * limb and was served a file somebody else bought.
+         *
+         * THE GRANT LIMB BELOW IS DELIBERATELY UNTOUCHED -- but NOT for the reason a first draft
+         * of this comment gave, and the correction is the same mistake #188 is about. That draft
+         * said "a genuine guest's own download works through the grant", which restates the
+         * falsified premise: `PaidDownloadLinkInPagesTest::test_the_guest_limb_of_the_controller_is_now_recorded_as_unreachable`
+         * measures that BOTH `DownloadGrant::issue()` call sites require a signed-in customer
+         * satisfying `ownedOrder()`'s `customer_id` predicate, so for an ORDINARY guest order
+         * (`customer_id = 0`) no grant can be issued at all. The flow cited as the one a guest
+         * legitimately has is reachable today only for an ADOPTED guest order -- the very
+         * principal the limb above now refuses.
+         *
+         * The limb stays anyway, and this is the honest reason: it is the correct shape for the
+         * guest journey the owner's D6 reserves ("supported under a safe purchase model"), it is
+         * defensive rather than exercised, and gating it would remove the mechanism that journey
+         * would use. What is NOT claimed is that a guest purchase works end to end today.
+         */
         if ($customer instanceof \App\Models\Customer
             && (int) $row->customer_id === (int) $customer->id
+            && (int) ($row->is_guest ?? 0) === 0
             && (int) $row->store_id === (int) $store->id
             && ($customer->store_id === null || (int) $customer->store_id === (int) $store->id)) {
             return true;
@@ -204,9 +226,11 @@ class PaidDownloadController extends Controller
         }
 
         /*
-         * A grant issued to a SIGNED-IN buyer is not usable by a different signed-in buyer. For a
-         * guest order the stored customer id is 0 and there is no second party to confuse, which
-         * is the whole reason the grant exists.
+         * A grant issued to a SIGNED-IN buyer is not usable by a different signed-in buyer. For an
+         * ORDINARY guest order the stored customer id is 0 and there is no second party to
+         * confuse, which is the whole reason the grant exists. (An ADOPTED guest order does carry
+         * a customer id -- SEC-INTAKE #188 -- but it is refused by the customer limb above on
+         * `is_guest`, so it reaches the grant path only with a real grant, as intended.)
          */
         if ((int) $grant['customer_id'] !== 0) {
             if (! $customer instanceof \App\Models\Customer

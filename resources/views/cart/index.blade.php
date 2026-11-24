@@ -3,11 +3,24 @@
 @section('page-title')
 {{ __('Abandoned carts') }}
 @endsection
+@section('action-button')
+    {{-- MKT-001. This screen had no `action-button` section at all; `layouts/app` yields one, as
+         the other four Marketing surfaces show. --}}
+    <div class="text-end d-flex all-button-box justify-content-md-end justify-content-center">
+        @include('marketing._analytics_link')
+    </div>
+@endsection
+
 @section('breadcrumb')
     <li aria-current="page" class="ss-breadcrumb__item">{{ __('Abandoned carts') }}</li>
 @endsection
 
 @section('content')
+    {{-- MKT-002. The advanced-filter bar, from ONE shared component: it reads this screen's filters
+         from `TableFilterMemory::vocabularyFor()` and their wording from `headingFor()` /
+         `optionsFor()`, so the controls here and the receipt inside the bar cannot disagree. --}}
+    <x-ss.marketing-filters screen="abandon-cart" route="abandon.carts.handled" :label="__('Filter abandoned carts')" />
+
     <div class="row">
         <div class="col-xl-12">
         <x-datatable :dataTable="$dataTable" />

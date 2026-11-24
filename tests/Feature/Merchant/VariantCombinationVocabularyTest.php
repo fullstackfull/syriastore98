@@ -161,8 +161,10 @@ class VariantCombinationVocabularyTest extends SecurityTestCase
          * The create page builds its options in JavaScript from `attribute_option()`'s response,
          * which is `pluck('terms', 'id')` — so `key` is the ID and `value` is the term.
          */
-        $this->assertStringContainsString(
-            '\'<option class="option-item" value="\' + key + \'">\'',
+        // P1-SEC-80: the option is a NODE now, `$('<option class="option-item">').val(key).text(value)`, not concatenated markup (a term is text somebody typed). What this pins has not
+        // changed: the option's VALUE is `key`, the id, and its text is the term.
+        $this->assertMatchesRegularExpression(
+            '/\$\(\'<option class="option-item">\'\)\s*\.val\(key\)\s*\.text\(value\)/',
             $source,
             'the create page no longer posts option ids, so attribute_combination() must change too'
         );

@@ -328,6 +328,102 @@ final class PaidDownloadEntitlementTest extends SecurityTestCase
     // ============================================================================== the fixture
 
     /** @return array{0: \App\Models\Store, 1: Customer, 2: Order} */
+    // =============================================================================================
+    // SEC-INTAKE #188 -- THE ADOPTED GUEST ORDER, which every predicate on this path misses
+    // =============================================================================================
+
+    /**
+     * `PaidDownloadController::entitled()`'s CUSTOMER limb asks `orders.customer_id` and never
+     * `orders.is_guest`, and its own prose at `:208-209` states the premise that makes that look
+     * safe: "For a guest order the stored customer id is 0."
+     *
+     * It is not 0 for every guest order. `app/Services/PaymentService.php:3019-3033`: a guest
+     * checkout whose billing e-mail matches an existing customer OF THIS STORE is written with
+     * that customer's REAL id and `is_guest = 1`, because nobody was signed in. So the matched
+     * customer -- who never placed the order and never proved they own that e-mail address --
+     * satisfies the customer limb and is handed somebody else's paid file.
+     *
+     * This is the money-adjacent limb of the intake: not a disclosure of another ACCOUNT's data,
+     * but delivery of purchased digital goods to the wrong person.
+     */
+    public function test_an_adopted_guest_order_is_not_downloadable_by_the_matched_customer(): void
+    {
+        [$store, $customer, $order] = $this->paidOrder(['is_guest' => 1]);
+
+        // PREMISES. Without these the test could be measuring an ordinary guest order, which is
+        // refused by a different limb and would make this pass for the wrong reason.
+        $row = DB::table('orders')->where('id', $order->id)->first(['customer_id', 'is_guest']);
+        $this->assertSame(1, (int) $row->is_guest,
+            'premise failed: the fixture is not a guest order, so the predicate under test is '
+            . 'not the one doing the refusing.');
+        $this->assertSame((int) $customer->id, (int) $row->customer_id,
+            'premise failed: the fixture is an ORDINARY guest order (customer_id 0), which the '
+            . '`customer_id` limb refuses on its own. The shape this test exists for is a REAL '
+            . 'customer id with is_guest = 1.');
+
+        $this->actingAs($customer, 'customers')
+            ->get('/' . $store->slug . '/paid-download/' . $order->id)
+            ->assertNotFound();
+    }
+
+    /**
+     * THE ORACLE FOR THE LIMB THAT MUST NOT CHANGE: the grant path still admits.
+     *
+     * WHAT THIS PINS, STATED EXACTLY, because the obvious reading of it is wrong. It pins the
+     * CONTROLLER'S LIMB, not a journey a guest can take. It mints the grant by calling
+     * `DownloadGrant::issue()` directly with `customer_id = 0`, and NO reachable path produces
+     * that for an adopted order -- `AccountProfileController:1109` passes the order's non-zero
+     * id. `PaidDownloadLinkInPagesTest::test_the_guest_limb_of_the_controller_is_now_recorded_as_unreachable`
+     * made the same correction for its sibling and is the fuller account.
+     *
+     * So the claim is narrow and worth having: the fix above must not make the grant limb refuse
+     * a guest order, because that limb is the mechanism the guest journey would use when the
+     * owner's D6 is built. It is not evidence that a guest can download anything today.
+     */
+    public function test_an_adopted_guest_order_still_downloads_with_its_grant(): void
+    {
+        [$store, , $order] = $this->paidOrder(['is_guest' => 1]);
+
+        $grant = DownloadGrant::issue($order, $this->relativePath, 0);
+
+        $this->get('/' . $store->slug . '/paid-download/' . $order->id . '?' . DownloadGrant::FIELD . '=' . $grant)
+            ->assertOk();
+    }
+
+    /**
+     * And no link is MINTED for it either. `paid_download_url()` (`app/Helper/helper.php:410-411`)
+     * carries the same `customer_id`-only gate, and minting is not a read: it calls
+     * `DownloadGrant::issue()`, which WRITES a token into the cache
+     * (`app/Services/DownloadGrant.php:145-158`). So the page that renders the link hands out a
+     * capability on a GET.
+     */
+    public function test_no_download_link_is_minted_for_an_adopted_guest_order(): void
+    {
+        [, $customer, $order] = $this->paidOrder(['is_guest' => 1]);
+
+        $this->actingAs($customer, 'customers');
+
+        $this->assertNull(
+            paid_download_url($order->fresh(), $this->relativePath),
+            'a paid-download link was minted for an order the signed-in customer did not place, '
+            . 'and minting it also wrote a DownloadGrant into the cache.'
+        );
+    }
+
+    /** The same helper must still mint for an order the customer really did place. */
+    public function test_a_link_is_still_minted_for_the_customers_own_order(): void
+    {
+        [, $customer, $order] = $this->paidOrder();
+
+        $this->actingAs($customer, 'customers');
+
+        $this->assertNotNull(
+            paid_download_url($order->fresh(), $this->relativePath),
+            'the ordinary buyer stopped getting a download link, so the refusal above proves '
+            . 'nothing.'
+        );
+    }
+
     private function paidOrder(array $orderOverrides = [], $existingStore = null): array
     {
         if ($existingStore === null) {

@@ -30,7 +30,12 @@ class Testimonial extends Model
         return $this->hasOne(User::class, 'id', 'user_id');
     }
 
-    public static function ProductReview($no = 2, $id)
+    /**
+     * `$no` lost a default `$id` never had, so PHP already required both -- and `$no` is unread in
+     * the body either way. Arity-identical; `NoOptionalBeforeRequiredParameterTest` holds the rule.
+     * The method has no caller.
+     */
+    public static function ProductReview($no, $id)
     {
         $product_review = Testimonial::where('product_id',$id)->first();
         return view('front_end.sections.pages.product_review', compact('product_review'))->render();

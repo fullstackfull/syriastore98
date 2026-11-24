@@ -46,13 +46,26 @@ function handleSelectAll(selectAllId, itemClass) {
     });
 }
 
+// P1-SEC-80 round 3 (C-3). A menu item's name, URL and icon are text somebody typed, and the builder below writes them into a template literal that becomes markup: a name with a tag in it ran in
+// the owner's page when it was added to the menu, a quote broke out of `value="..."`, and a `javascript:` URL ran from "Visit Link". Every stored value goes through ssEsc(), and a link only
+// ever points at http(s), mailto, tel, a path or a fragment.
+function ssEsc(value) {
+    return String(value === null || value === undefined ? '' : value)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function ssSafeHref(value) {
+    const href = String(value === null || value === undefined ? '' : value).trim();
+
+    return /^(https?:\/\/|mailto:|tel:|\/|#)/i.test(href) ? href : '#';
+}
+
 function addMenuItemToMenu(menuItem) {
     if (!menuItem) return;
 
     const itemTitle = menuItem.name || menuItem.title || 'Unnamed';
     const isCustomLink = menuItem.menu_itemable_type === 'App\\Models\\CustomLink';
     const url = menuItem.url || '#';
-    const targetChecked = menuItem.target === '_blank' ? 'checked' : '';
     const iconType = menuItem.icon_type || '';
     const icon = menuItem.icon || '';
 
@@ -60,7 +73,7 @@ function addMenuItemToMenu(menuItem) {
     <li class="dd-item nest-menu-item mb-2" data-id="${menuItem.id}">
         <div class="dd-handle nest-menu-handle"></div>
         <div class="nest-menu-content d-flex justify-content-between">
-            <div data-update="title" class="fw-medium">${itemTitle}</div>
+            <div data-update="title" class="fw-medium">${ssEsc(itemTitle)}</div>
             <div class="text-end me-5"></div>
             <a class="show-item-details" href="#">
                 <svg class="icon svg-icon-ti-ti-chevron-down" xmlns="http://www.w3.org/2000/svg"
@@ -78,11 +91,11 @@ function addMenuItemToMenu(menuItem) {
             <div class="input-box p-3">
                 <div class="form-group">
                     <label for="linkText_${menuItem.id}">{{ __('Link Text') }}</label>
-                    <input type="text" id="linkText_${menuItem.id}" class="form-control" value="${itemTitle}">
+                    <input type="text" id="linkText_${menuItem.id}" class="form-control" value="${ssEsc(itemTitle)}">
                 </div>
                 <div class="form-group">
                     <label for="url_${menuItem.id}">{{ __('URL') }}</label>
-                    <input type="url" id="url_${menuItem.id}" class="form-control" value="${url}">
+                    <input type="url" id="url_${menuItem.id}" class="form-control" value="${ssEsc(url)}">
                 </div>
                 <div class="form-group">
                     <label for="iconSelect_${menuItem.id}" class="f-w-600 w-100">{{ __('Icon') }}</label>
@@ -98,18 +111,18 @@ function addMenuItemToMenu(menuItem) {
                     </div>
                     <div class="custom-icon-input mt-2" id="customIconInput_${menuItem.id}" style="display: ${iconType === 'custom' ? 'block' : 'none'}">
                         <input name="icon" type="text" class="form-control" placeholder="{{ __('Enter SVG icon code or class name') }}" 
-                               id="customIcon_${menuItem.id}" value="${icon}">
+                               id="customIcon_${menuItem.id}" value="${ssEsc(icon)}">
                         <small class="text-muted">{{ __('Enter icon class (e.g., ti ti-home) or SVG code') }}</small>
                     </div>
                 </div>
                 <div class="form-group">
                     <div class="custom-control custom-checkbox d-flex align-items-center gap-1">
-                        <input type="checkbox" id="link_target${menuItem.id}" class="custom-control-input" ${targetChecked}>
+                        <input type="checkbox" id="link_target${menuItem.id}" class="custom-control-input" ${menuItem.target === '_blank' ? 'checked' : ''}>
                         <label for="link_target${menuItem.id}" class="custom-control-label">{{ __('Open in a new tab') }}</label>
                     </div>
                 </div>
                 <div class="d-flex flex-wrap align-items-center gap-2">
-                    <a href="${url}" target="_blank" class="btn btn-sm btn-info">{{ __('Visit Link') }}</a>
+                    <a href="${ssEsc(ssSafeHref(url))}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-info">{{ __('Visit Link') }}</a>
                     <button class="btn btn-sm btn-danger delete-menu-item" data-id="${menuItem.id}">{{ __('Delete') }}</button>
                     <button class="btn btn-sm btn-primary update-custom-link" data-id="${menuItem.id}">{{ __('Update') }}</button>
                 </div>
@@ -132,13 +145,13 @@ function addMenuItemToMenu(menuItem) {
                 </div>
                 <div class="custom-icon-input mt-2" id="customIconInput_${menuItem.id}" style="display: ${iconType === 'custom' ? 'block' : 'none'}">
                     <input name="icon" type="text" class="form-control" placeholder="{{ __('Enter SVG icon code or class name') }}" 
-                           id="customIcon_${menuItem.id}" value="${icon}">
+                           id="customIcon_${menuItem.id}" value="${ssEsc(icon)}">
                     <small class="text-muted">{{ __('Enter icon class (e.g., ti ti-home) or SVG code') }}</small>
                 </div>
             </div>
             <div class="form-group">
                 <div class="custom-control custom-checkbox d-flex align-items-center gap-1">
-                    <input type="checkbox" id="link_target${menuItem.id}" class="custom-control-input" ${targetChecked}>
+                    <input type="checkbox" id="link_target${menuItem.id}" class="custom-control-input" ${menuItem.target === '_blank' ? 'checked' : ''}>
                     <label for="link_target${menuItem.id}" class="custom-control-label">{{ __('Open in a new tab') }}</label>
                 </div>
                 <div class="text-end">
@@ -562,13 +575,26 @@ document.addEventListener('DOMContentLoaded', function() {
                             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                         </div>
                         <div class="modal-body text-center">
-                            <div class="icon-preview" style="font-size: 48px;">
-                                ${iconValue.includes('<svg') ? iconValue : `<i class="${iconValue}"></i>`}
-                            </div>
+                            <div class="icon-preview" style="font-size: 48px;"></div>
                         </div>
                     </div>
                 </div>
             `;
+            // P1-SEC-80 round 3 (C-6): the icon is stored text. A custom SVG is shown as an IMAGE -- an <img> never runs a script, an inline <svg onload=...> does -- and a class name is set as a
+            // property, which cannot close an attribute or open a tag.
+            const iconPreview = modal.querySelector('.icon-preview');
+            if (iconValue.includes('<svg')) {
+                const image = document.createElement('img');
+                image.alt = '';
+                image.style.maxWidth = '48px';
+                image.style.maxHeight = '48px';
+                image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(iconValue);
+                iconPreview.appendChild(image);
+            } else {
+                const glyph = document.createElement('i');
+                glyph.className = iconValue;
+                iconPreview.appendChild(glyph);
+            }
             document.body.appendChild(modal);
             const modalInstance = new bootstrap.Modal(modal);
             modalInstance.show();

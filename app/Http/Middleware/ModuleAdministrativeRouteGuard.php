@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Http\Middleware\Concerns\ComparesRowOwnership;
 use App\Models\User;
+use App\Policies\UserPolicy;
 use App\Services\StoreSettingsAccess;
 use App\Support\ModuleRouteManifest;
 use Closure;
@@ -28,6 +29,11 @@ use Symfony\Component\HttpFoundation\Response;
  * that table nor the manifest of routes that are anonymous by design, so a module update that adds an unclassified route is a red build, not a
  * silent exposure.
  *
+ * P1-SEC-68 extends the same table to the module's AUTHENTICATED ticket routes. The census above classifies only routes with NO authentication, so the
+ * seven Helpdesk routes behind `auth` + a permission + the plan check were never read: each looks a ticket up by its identifier alone, the three that take
+ * the ticket NUMBER take it encrypted (a number is `time()`, and APP_KEY is public, so the encryption is an encoding), and one of them rewrites `user_id` to
+ * the caller. A rule here is OWNERSHIP only -- the permission stays the handler's. Executed in tests/Feature/Security/HelpdeskTicketOwnershipTest.
+ *
  * RULES (every one needs a signed-in `web` user first; a refusal is a redirect with an error or a 403, NEVER a 401 -- the Flutter admin app
  * forces a logout on any 401):
  *
@@ -44,7 +50,12 @@ use Symfony\Component\HttpFoundation\Response;
  *                        the route only, because those handlers take it as a method argument - a body or query `id` must not authorise another row.
  *   owner:campaign-route  as owner:campaign, but the campaign is the route's {id} (the GET screens), not the body key `id`.
  *   owner:helpdesk-ticket-link  as owner:helpdesk-ticket, but the route segment is the ENCRYPTED ticket number the module emails and links
- *                        (`helpdesk-ticket-show/{ticketId}`); it is decoded here without unserialize(), and an undecodable segment is refused.
+ *                        (`helpdesk-ticket-show/{ticketId}`, and the authenticated `edit-ticket`, `update-ticket` and `ticket-reply`); it is decoded here
+ *                        without unserialize(), and a segment that is not EXACTLY a ticket number is refused FOR EVERYBODY, THE OPERATOR INCLUDED: the
+ *                        handlers `decrypt()` it WITH unserialize(), APP_KEY is public, and the operator used to be admitted before the segment was read.
+ *   owner:helpdesk-ticket-row   as owner:helpdesk-ticket, but the route's {ticketId} is the ROW id (`helpdesk_tickets.id`), not the ticket number:
+ *                        `delete-ticket`, `ticket-conversion-store` and `ticket-note-store` look the ticket up by `id`. Read from the ROUTE only, because the
+ *                        handlers take it as a method argument -- a body or query key of the same name must not move the check onto another row.
  *   owner:email-template    the operator, or a user of the tenant that owns the template named by the route's {id}; and when the body names a
  *                        user_email_template row, that row must be for the same template and the same tenant.
  *   settings:store       a module's STORE-SCREEN settings writer (it takes every posted name into `settings` for the caller's store): the user may
@@ -54,13 +65,18 @@ use Symfony\Component\HttpFoundation\Response;
  *   settings:global      a module's INTEGRATION-CREDENTIAL writer (social-login client secrets, SMS, chat widgets, CRM tokens): `Manage Setting`
  *                        outright (operator and tenant owner included, as StoreSettingsAccess::permits()), like the host's own fixed-name
  *                        credential writers (P1-SEC-30). P1-SEC-31.
+ *   tenant-store:<body key>    the `stores` row named by that POST BODY key must belong to the caller's own merchant tenant (UserPolicy::merchantTenantRoot(),
+ *                        fail closed on null). For an AJAX reader whose handler scopes by `created_by = creatorId()` and takes the store from the body:
+ *                        Campaigns' `campaigns-product`, which answered a principal rooted at the operator with the OPERATOR's product names. It asks
+ *                        `created_by`, not `store_id`/`current_store`, because that is the predicate the handler itself uses (P1-SEC-69 b).
  *   owner:duo-setting    the operator, or the TENANT OWNER (not staff) -- and, while Duo is enforced for the store, only in a session that has
  *                        passed Duo. `duo2fa-setting` switches Duo off and re-keys it; reachable by a password-only session it made the second
  *                        factor optional (found by the P1-SEC-35 review).
  *
  * The operator is tested FIRST in every ownership rule: Laratrust has no super-admin bypass and the operator holds no merchant role.
  *
- * "Tenant" is `User::creatorId()` equality, never a request-supplied id.
+ * "Tenant" is `User::creatorId()` equality, never a request-supplied id -- AND the tenant root must be a MERCHANT (a type-`admin` user), the rule
+ * UserPolicy::sameTenant() and ThemeEditorGate already follow. A root of 1 is the platform operator, not a tenant: see sameTenant().
  */
 class ModuleAdministrativeRouteGuard
 {
@@ -88,6 +104,16 @@ class ModuleAdministrativeRouteGuard
             return $this->deny($request, true);
         }
 
+        // A SEGMENT THAT IS NOT EXACTLY A TICKET NUMBER IS REFUSED FOR EVERYBODY, THE OPERATOR INCLUDED (P1-SEC-68). The handlers behind this rule `decrypt()`
+        // the segment WITH unserialize(), and APP_KEY is public, so anyone can mint a segment that carries any serialized bytes. A non-operator is judged by
+        // the number the segment decodes to; the operator used to be admitted before the segment was read, so a forged one reached unserialize() in an
+        // operator session (it takes only a link that operator's browser is made to open). A legitimate link is always `Crypt::encrypt($ticket->ticket_id)`.
+        $linked = $rule === 'owner:helpdesk-ticket-link' ? $this->linkedTicketNumber($route->parameter('ticketId')) : null;
+
+        if ($rule === 'owner:helpdesk-ticket-link' && $linked === null) {
+            return $this->deny($request, false);
+        }
+
         if ($rule === 'auth' || $this->isOperator($user)) {
             return $next($request);
         }
@@ -96,13 +122,18 @@ class ModuleAdministrativeRouteGuard
             'owner:campaign' => $this->ownsCampaign($user, $request->input('id'), true),
             'owner:helpdesk-ticket' => $this->ownsTicket($user, $route->parameter('ticketId')),
             'owner:campaign-route' => $this->ownsCampaign($user, $route->parameter('id')),
-            'owner:helpdesk-ticket-link' => $this->ownsTicket($user, $this->linkedTicketNumber($route->parameter('ticketId'))),
+            'owner:helpdesk-ticket-link' => $this->ownsTicket($user, $linked),
+            'owner:helpdesk-ticket-row' => $this->ownsTicketRow($user, $route->parameter('ticketId')),
             'owner:email-template' => $this->ownsEmailTemplate($user, $route->parameter('id'), $request->input('user_email_template_id')),
             'owner:duo-setting' => $this->mayChangeDuoSettings($user),
             'settings:store' => StoreSettingsAccess::permitsStoreScreen($user)
                 && ! StoreSettingsAccess::refusesRestrictedPost($request, $user, getCurrentStore($user->id)),
             'settings:global' => StoreSettingsAccess::permits($user),
-            default => str_starts_with($rule, 'store-row:') && $this->ownsStoreRow($user, $rule, $route),   // 'operator' and any unknown rule: fail closed
+            default => match (true) {                                       // 'operator' and any unknown rule: fail closed
+                str_starts_with($rule, 'store-row:') => $this->ownsStoreRow($user, $rule, $route),
+                str_starts_with($rule, 'tenant-store:') => $this->tenantOwnsStore($user, $rule, $request),
+                default => false,
+            },
         };
 
         return $allowed ? $next($request) : $this->deny($request, false);
@@ -145,6 +176,50 @@ class ModuleAdministrativeRouteGuard
     }
 
     /**
+     * Does the `stores` row named by a BODY key belong to the caller's own merchant tenant?
+     *
+     * WHY A SECOND STORE RULE. `store-row:<table>:<param>` reads a ROUTE parameter and compares the
+     * row's `store_id` to the caller's `current_store`. Neither half fits here:
+     * `CampaignsController::productData` takes its `store_id` from the POST BODY (it is an AJAX
+     * call from the create form), and the question is not "is this the store I am currently working
+     * in" but "is this store MINE" -- a merchant with several stores may legitimately ask about any
+     * of them, and the handler's own predicate is `created_by`, not `store_id`.
+     *
+     * So the comparison is against `UserPolicy::merchantTenantRoot()`, which is the value the
+     * handler's own `creatorId()` should have been: for a merchant owner and their staff the two
+     * agree exactly, and for a principal rooted at the OPERATOR -- staff the operator created, or a
+     * merchant who demoted themselves -- `creatorId()` is the operator's id and this is null, so
+     * the request is refused instead of answered with the operator's product names (MEASURED:
+     * CampaignsFilterListsTenantScopeTest).
+     *
+     * The operator never reaches here: handle() admits them before any rule is asked.
+     */
+    private function tenantOwnsStore(User $user, string $rule, Request $request): bool
+    {
+        [, $key] = array_pad(explode(':', $rule, 2), 2, null);
+
+        if (! is_string($key) || $key === '') {
+            return false;
+        }
+
+        $id = $this->usableId($request->input($key));
+        $tenant = UserPolicy::merchantTenantRoot($user);
+
+        if ($id === null || $tenant === null) {
+            return false;
+        }
+
+        try {
+            $store = DB::table('stores')->where('id', $id)->first(['created_by']);
+        } catch (\Throwable $e) {
+            // Fail closed on an unreadable table, for the reason ComparesRowOwnership::readRowStore records.
+            return false;
+        }
+
+        return $store !== null && (int) $store->created_by === $tenant;
+    }
+
+    /**
      * The ticket number inside an encrypted link segment, or null. Decrypted WITHOUT unserialize (Crypt::decrypt($v, false)) and the plaintext
      * must be exactly a serialized integer or a serialized string of digits: the payload is attacker-shaped (APP_KEY is public), so it is never
      * handed to unserialize().
@@ -161,8 +236,14 @@ class ModuleAdministrativeRouteGuard
             return null;
         }
 
-        if (is_string($plain) && preg_match('/^(?:i:(\d{1,18});|s:\d{1,2}:"(\d{1,18})";)$/', $plain, $m) === 1) {
-            return $m[2] ?? $m[1];
+        // \A .. \z, not ^ .. $: `$` also matches before a trailing newline, and the handler's unserialize() would then be handed bytes this did not judge.
+        if (is_string($plain) && preg_match('/\A(?:i:(\d{1,18});|s:(\d{1,2}):"(\d{1,18})";)\z/', $plain, $m) === 1) {
+            if (! isset($m[3])) {
+                return $m[1];
+            }
+
+            // `s:L:"digits";` -- L must be the digits' length, or unserialize() will not hand the handler the string this returned
+            return (int) $m[2] === strlen($m[3]) ? $m[3] : null;
         }
 
         return null;
@@ -174,7 +255,24 @@ class ModuleAdministrativeRouteGuard
             return false;
         }
 
-        $ticket = DB::table('helpdesk_tickets')->where('ticket_id', (string) $ticketNumber)->first(['created_by', 'user_id']);
+        return $this->ticketIsTheTenants($user, 'ticket_id', (string) $ticketNumber);
+    }
+
+    /** `owner:helpdesk-ticket-row`: the ticket whose ROW id is the route's {ticketId} belongs to the caller's tenant. */
+    private function ownsTicketRow(User $user, mixed $rowId): bool
+    {
+        $rowId = $this->usableId($rowId);
+
+        return $rowId !== null && $this->ticketIsTheTenants($user, 'id', $rowId);
+    }
+
+    /**
+     * ONE read serves both identifiers (the column is one of our two literals, never input). A ticket is the caller's tenant's when either side of it -- the
+     * user it was raised for, or the user who raised it -- is a colleague; a missing row is nobody's.
+     */
+    private function ticketIsTheTenants(User $user, string $column, string|int $identifier): bool
+    {
+        $ticket = DB::table('helpdesk_tickets')->where($column, $identifier)->first(['created_by', 'user_id']);
 
         return $ticket !== null
             && ($this->sameTenant($user, $ticket->created_by) || $this->sameTenant($user, $ticket->user_id));
@@ -226,6 +324,23 @@ class ModuleAdministrativeRouteGuard
         // a user with NO tenant (creatorId() null/0, e.g. a NULL created_by) is nobody's colleague: (int) null === (int) null would otherwise
         // make any two such users "the same tenant"
         if ($otherUserId === null || (int) $user->creatorId() <= 0) {
+            return false;
+        }
+
+        // A USER IS ALWAYS THEIR OWN COLLEAGUE, whatever their tenant root (UserPolicy::sameTenant()'s first limb): the creator of a row keeps it. A
+        // demoted merchant, or staff of one, still edits the templates, tickets and campaigns they themselves created; only the OTHER side of the
+        // comparison is refused them below.
+        if ($otherUserId === (int) $user->id) {
+            return true;
+        }
+
+        // THE TENANT ROOT MUST BE A MERCHANT (P1-SEC-64b; the same rule P0-TENANT-ROOT put in UserPolicy::sameTenant() and ThemeEditorGate).
+        // `creatorId()` equality alone treated a root of 1 as a tenant: every merchant has created_by = 1, and a merchant can demote their own
+        // `type`, which drops their `creatorId()` to 1 -- the operator's own id, and the `creatorId()` the operator's rows resolve to. That user was then
+        // "the same tenant" as the operator and passed every ownership rule here for the operator's campaigns, tickets and (platform-wide) e-mail
+        // templates. A user rooted at the operator -- a demoted merchant, or staff the operator created -- is nobody's colleague; the operator
+        // themselves is admitted before any rule is asked (handle()).
+        if (! UserPolicy::tenantRootIsAMerchant((int) $user->creatorId())) {
             return false;
         }
 

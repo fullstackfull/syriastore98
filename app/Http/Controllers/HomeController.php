@@ -25,6 +25,9 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Artisan;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
+use App\Support\Metrics\GrossMerchandiseValue;
+use App\Support\Metrics\MetricScope;
+use App\Support\Metrics\MetricWindow;
 
 class HomeController extends Controller
 {
@@ -221,9 +224,27 @@ class HomeController extends Controller
 
     private function handleSuperAdmin($user)
     {
-        $user['total_user'] = $user->countCompany();
-        $user['total_orders'] = PlanOrder::total_orders();
-        $user['total_plan'] = Plan::total_plan();
+        /*
+         * PLAIN DATA, NOT ATTRIBUTES ON THE AUTHENTICATED MODEL.
+         *
+         * These three were written as `$user['total_user'] = ...` -- onto the very `User`
+         * instance the session guard holds, as attributes `users` has no column for. That is
+         * harmless until anything SAVES the user later in the request, and something did:
+         * `getOrderChart()` signed out an operator with no resolvable store, `logout()` cycles the
+         * remember token, and that save became `UPDATE users SET total_user = ...` -- HTTP 500 on
+         * the operator's landing page.
+         *
+         * NOT A DISCOVERY OF THIS CHANGE. The 500 and its cause were already written down as an
+         * open finding in `OperatorImplicitStoreFinancialGuardTest::
+         * test_the_refusal_does_not_strand_the_operator`, with an instruction to turn its
+         * assertion round when somebody repaired it. Repaired 2026-11-22, that assertion turned
+         * round, and `OperatorDashboardWithoutAStoreTest` holds the repair.
+         */
+        $platformTotals = [
+            'stores' => $user->countCompany(),
+            'orders' => PlanOrder::total_orders(),
+            'plans' => Plan::total_plan(),
+        ];
         $chartData = $this->getOrderChart(['duration' => 'week']);
         $topAdmins = $user->createdAdmins()
             ->with('stores')
@@ -231,11 +252,6 @@ class HomeController extends Controller
             ->orderBy('stores_count', 'desc')
             ->limit(5)
             ->get();
-
-        $visitors = DB::table('shetabit_visits')->whereNotNull('store_id')->pluck('store_id')->toArray();
-        $visitors = array_count_values($visitors);
-        arsort($visitors);
-        $visitors = array_slice($visitors, 0, 5, true);
 
         $plan_order = Plan::most_purchese_plan();
         $coupons = PlanCoupon::get();
@@ -249,14 +265,46 @@ class HomeController extends Controller
             }
         }
 
-        $allStores = Order::select('store_id', DB::raw('SUM(final_price) as total_amount'))
-            ->groupBy('store_id')
-            ->orderByDesc('total_amount')
-            ->limit(5)
-            ->get();
+        /*
+         * P05-14 / P05-19 (GAP-162, GAP-167). THE ONE DELIBERATELY CROSS-TENANT MONEY FIGURE ON
+         * THIS SCREEN, AND IT NOW SAYS SO WHERE IT IS READ.
+         *
+         * `MetricScope::stores()` with every store id: the breadth is an argument at the call
+         * site, as it is for every Phase 05 figure, instead of the absence of a predicate on a bare
+         * `Order` query. Nothing here is an authorization boundary. This handler is reached only
+         * for the platform operator -- `index()` dispatches on `users.type`, and
+         * `OperatorDashboardTopStoresTest` holds a merchant out.
+         *
+         * WHAT THE OLD QUERY GOT WRONG is recorded on `PlatformAnalyticsFigures::
+         * topStoresByOrderValue()`: it ranked stores across currencies by the raw number, and its
+         * view printed every total in the signed-in operator's own store's currency.
+         *
+         * An empty platform is answered here because a scope with no store is refused by
+         * construction: it would compile to "0 = 1" and read as stores that sold nothing.
+         */
+        $everyStoreId = \App\Models\Store::query()->orderBy('id')->pluck('id')
+            ->map(fn ($id) => (int) $id)->all();
+
+        $topStoresByCurrency = $everyStoreId === []
+            ? []
+            : \App\Support\Metrics\PlatformAnalyticsFigures::topStoresByOrderValue(
+                \App\Support\Metrics\MetricScope::stores($everyStoreId)
+            );
+
+        /*
+         * P05-19 (GAP-167). THE OTHER CROSS-TENANT RANKING ON THIS SCREEN, declared the same way.
+         * This was three lines that pulled the store id of EVERY row in the visit log into PHP and
+         * counted it there -- no predicate, no bound, on every load of this page. What it got
+         * wrong is recorded on `PlatformAnalyticsFigures::topStoresByPageViews()`.
+         */
+        $popularStores = $everyStoreId === []
+            ? []
+            : \App\Support\Metrics\PlatformAnalyticsFigures::topStoresByPageViews(
+                \App\Support\Metrics\MetricScope::stores($everyStoreId)
+            );
         $plan_requests = PlanRequest::count();
 
-        $data = compact('user', 'chartData', 'couponName', 'plan_order', 'plan_requests', 'allStores', 'topAdmins', 'visitors');
+        $data = compact('user', 'platformTotals', 'chartData', 'couponName', 'plan_order', 'plan_requests', 'topStoresByCurrency', 'popularStores', 'topAdmins');
         return $data;
     }
 
@@ -316,9 +364,76 @@ class HomeController extends Controller
          * question with a different right answer, and the owner's instruction is to preserve such a
          * report with an accurate label rather than silently change its meaning.
          */
-        $total_revenues = (clone $orderQuery)
-            ->where('delivered_status', '!=', self::ORDER_STATUS_CANCEL)
-            ->sum('final_price');
+        /*
+         * P5-R7-C. THE SAME PREDICATE, BUT NO LONGER ADDING CURRENCIES TOGETHER.
+         *
+         * This was `->sum('final_price')` -- one ungrouped aggregate with no reference to
+         * `orders.currency_code` -- and `overview.blade.php` printed it through
+         * `currency_format_with_sym(..., getCurrentStore())`, which stamps the STORE's own
+         * `defult_currancy_symbol` over whatever came back. A store that had taken 100 EUR and
+         * 50 USD was shown 150 behind the euro sign, and the hint said the figure was "in this
+         * store's currency" -- which for that store is false. Worse than the category and brand
+         * cards ANA-TOP fixed: those were silent, this one asserted the untrue thing.
+         *
+         * `GrossMerchandiseValue(includeCancelled: false)` applies
+         * `(delivered_status IS NULL OR delivered_status != 2)`, and `ORDER_STATUS_CANCEL` is 2 --
+         * so the F257 exclusion is preserved exactly, and the NULL limb makes it strictly more
+         * inclusive than the bare `!=` was. `MetricWindow::allTime()` adds no date predicate, so
+         * the tile keeps its all-time meaning and drops no order for a null `order_date`.
+         *
+         * THE RESULT IS NOT TOTALLED HERE. `MetricResult::total()` throws
+         * `MixedCurrencyException` when the rows are not single-currency, which would make this
+         * dashboard a 500 on exactly the stores that have the defect. The view is handed the
+         * result and asks it what it can honestly say.
+         */
+        $ssStoreId = (int) getCurrentStore();
+
+        /* The store's OWN currency, NORMALISED. `defult_currancy` is merchant-written and owner
+           decision D-N34 leaves existing rows alone, so the stored value can be a symbol or
+           lower case rather than a code (FIN-SYM). Reading an unnormalised value would name a
+           bucket that holds nothing -- printing 0.00 -- and then list the store's own currency
+           back to the merchant as "another currency". */
+        $storeCurrencyCode = \App\Support\Money\CurrencySymbol::code(
+            \App\Support\Money\OrderCurrencyStamp::configuredCodeFor($ssStoreId)
+        );
+
+        /*
+         * A MERCHANT WITH NO STORE REACHES THIS LINE. `getCurrentStore()` is null for that
+         * principal, and `MetricScope::store()` REFUSES a non-positive id rather than widening
+         * to every tenant -- so an unguarded call throws here, ABOVE `getOrderChart()`, whose
+         * own defensive `auth()->logout()` is this codebase's documented answer for them
+         * (`OperatorDashboardWithoutAStoreTest`). Guard the call; the view already has a branch
+         * for a figure it cannot have.
+         */
+        $totalRevenueResult = $ssStoreId > 0
+            ? (new GrossMerchandiseValue(false))->for(
+                MetricScope::store($ssStoreId),
+                MetricWindow::allTime()
+            )
+            : null;
+
+        /*
+         * FOLD THE UNRECORDED ROWS IN BEFORE READING ONE BUCKET. `orders.currency_code` is NOT
+         * backfilled by its migration, so every order placed before the stamp landed sits in the
+         * `unknown` bucket. `totalIn()` reads ONE bucket and never throws, so an unfolded read
+         * would silently drop that history out of the headline -- and the view's appended
+         * sentence would then name it to the merchant as "another currency: 1,250.00 unknown".
+         * `FinanceLedgerFigures`, `MerchantAnalyticsFigures`, `MetricThreshold` and
+         * `CustomerMoneyTiles` all fold first, for this reason. Folding also keeps `total()`
+         * unreachable: the view reads the folded result, so its "other currencies" list is the
+         * genuinely-other ones.
+         */
+        $total_revenues = null;
+
+        if ($totalRevenueResult !== null) {
+            // Returns `$this` unchanged when the code is empty or there is nothing unrecorded,
+            // so "an assumption was made" stays distinguishable from "none was".
+            $totalRevenueResult = $totalRevenueResult->assumingUnknownCurrencyIs($storeCurrencyCode);
+
+            $total_revenues = $storeCurrencyCode === ''
+                ? ($totalRevenueResult->isSingleCurrency() ? $totalRevenueResult->total() : null)
+                : $totalRevenueResult->totalIn($storeCurrencyCode);
+        }
 
         $topSellingProductIds = (clone $orderQuery)->pluck('product_id')
             ->flatMap(function ($productIds) {
@@ -481,6 +596,10 @@ class HomeController extends Controller
             'plan',
             'topSellingProducts',
             'total_revenues',
+            /* P5-R7-C: the view needs the result, not only the one-currency total, so it can say
+               what it cannot state and list what it did not add. */
+            'totalRevenueResult',
+            'storeCurrencyCode',
             'totle_cancel_order',
             'out_of_stock_threshold',
             'out_of_stock_products',
@@ -596,6 +715,34 @@ class HomeController extends Controller
 
     public static function getThemeUrl($store)
     {
+        /*
+         * NO STORE, NO STOREFRONT LINK.
+         *
+         * `partision/header.blade.php:12` hands this the result of
+         * `getStoreById(getCurrentStore())`, which is NULL for any principal who resolves no store:
+         * a merchant between stores, and the platform operator, for whom `getCurrentStore()`
+         * returns the hardcoded literal 1 and `getStoreById(1)` finds nothing when store 1 does not
+         * exist. The method then reached `route('landing_page', $store->slug)` and died, so THE
+         * SHARED CHROME WAS A 500 ON EVERY MERCHANT SCREEN SUCH A PRINCIPAL OPENED --
+         * `StoreFinanceController` measured and reported that twice (:806, :1639) and routed its
+         * own refusals to `/dashboard` while recording that the dashboard was a 500 there too.
+         *
+         * THE CALL SITE ALREADY HANDLES NULL. Line 250 of that partial renders
+         * `{{ $theme_url ?? '#' }}`, and `dashboard.blade.php:50` guards with `@isset`, so both
+         * consumers expected this to be absent -- the fallbacks had simply never been reachable,
+         * because the function threw before it could return. Returning null makes existing
+         * defences live rather than adding new ones.
+         *
+         * RETURNING HERE, BEFORE THE SETTINGS READS, IS THE WHOLE REASON THIS LIMB IS SEPARATE.
+         * Each read below falls back to `getCurrentStore()`, which for the operator is the literal
+         * 1, so continuing with no store would read ANOTHER MERCHANT'S `domains` and `subdomain`
+         * and could hand the operator a link to an arbitrary tenant's storefront labelled as their
+         * own. A missing link is correct; a confident wrong one is a disclosure.
+         */
+        if (! $store) {
+            return null;
+        }
+
         $enable_storelink = Utility::GetValueByName('enable_storelink', $store->id ?? getCurrentStore());
         $enable_domain = Utility::GetValueByName('enable_domain', $store->id ?? getCurrentStore());
         $enable_subdomain = Utility::GetValueByName('enable_subdomain', $store->id ?? getCurrentStore());
@@ -604,13 +751,30 @@ class HomeController extends Controller
 
         if ($enable_domain == 'on') {
             return 'https://' . $domains;
-        } elseif ($enable_subdomain == 'on') {
-            return 'https://' . $subdomain;
-        } elseif ($enable_storelink) {
-            return route('landing_page', $store->slug);
-        } else {
-            return route('landing_page', $store->slug);
         }
+
+        if ($enable_subdomain == 'on') {
+            return 'https://' . $subdomain;
+        }
+
+        /*
+         * THE SLUG IS CHECKED HERE AND NOT WITH THE NULL STORE, which is a correction found by
+         * review of the first version of this fix. `stores.slug` is nullable, and a store with no
+         * slug but `enable_domain = 'on'` returned a WORKING custom-domain link above without ever
+         * touching the slug. Guarding it alongside `! $store` would have taken that link away --
+         * a change well beyond the null-store defect, for a store that exists and is reachable.
+         * The two branches below are the only ones that address the store BY SLUG, so this is
+         * where "no slug" means "no link".
+         *
+         * The original `elseif ($enable_storelink) ... else ...` pair had byte-identical bodies,
+         * so collapsing them changes nothing; `$enable_storelink` is still read above because the
+         * read itself is unconditional in the original and this is not the change to alter that.
+         */
+        if (! isset($store->slug)) {
+            return null;
+        }
+
+        return route('landing_page', $store->slug);
     }
 
     /**
@@ -650,9 +814,18 @@ class HomeController extends Controller
         if (!$user) {
             return redirect()->route('login')->with('message', __('You have been logged out.'));
         }
-        $store = getStoreById($user->current_store);
+        /*
+         * THE OPERATOR IS NOT ASKED FOR A STORE THEIR BRANCH NEVER READS. Below, the operator's
+         * chart is built from `PlanOrder` alone; only the merchant branch touches a store. This
+         * check used to run for both, so an operator whose selected store had been deleted, or
+         * was never set, was signed out of the platform by their own dashboard -- and
+         * `handleSuperAdmin()` then rendered the view anyway with this redirect where the chart
+         * data should be. A merchant or staff member with no resolvable store is still signed
+         * out, exactly as before.
+         */
+        $isOperator = \App\Policies\UserPolicy::isOperator($user);
 
-        if (!$store) {
+        if (! $isOperator && ! getStoreById($user->current_store)) {
             if (auth()->check()) {
                 auth()->logout();
             }
@@ -712,8 +885,6 @@ class HomeController extends Controller
          * operator to be defined ONCE, and that helper normalises the way
          * MySQL's PAD SPACE does.
          */
-        $isOperator = \App\Policies\UserPolicy::isOperator($user);
-
         foreach ($arrDuration as $date => $label) {
             if (! $isOperator) {
                 $data = Order::select(\DB::raw('count(*) as total'))                    
@@ -1592,7 +1763,14 @@ class HomeController extends Controller
            shared by the Top Category and Top Brand cards and had no way to tell them apart, so
            both rendered the same bare "No Data Found" -- display-only; nothing is computed from
            it and the populated path is untouched. */
-        $html = view('order.brand_category_chart', compact('tab_name', 'top_sales', 'type'))->render();
+        /* ANA-TOP. THE STORE THE FIGURES WERE COMPUTED FOR GOES TO THE VIEW, rather than the view
+           calling `getCurrentStore()` a second time. GAP-156 is the precedent and the reason: the
+           customer timeline summed from one store and formatted with another's currency for
+           months, because the sum and the symbol each resolved the store independently. One
+           resolution, passed down. */
+        $top_sales_store = getCurrentStore();
+
+        $html = view('order.brand_category_chart', compact('tab_name', 'top_sales', 'type', 'top_sales_store'))->render();
 
         $return['html'] = $html;
         $return['tab_name'] = $tab_name;

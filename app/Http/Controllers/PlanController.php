@@ -375,8 +375,24 @@ class PlanController extends Controller
         }
     }
 
+    /**
+     * NEW-PLAN-DISABLE-UNGATED-01, second check. The control is on the route
+     * (`PlatformOperatorOnly`, routes/web.php `plan.disable`); this is the defence-in-depth half
+     * the SEC-F2 pattern established after relying on route grouping alone failed once.
+     *
+     * The check below is NOT the subscriber guard that follows it. That one refuses to withdraw a
+     * plan somebody is paying for and answers HTTP 200 with a JSON error; it is a
+     * customer-protection rule and it never looked at who was asking. A request for a plan with
+     * no subscriber walked straight past it into the `update()`.
+     */
     public function planDisable(Request $request)
     {
+        $actor = auth()->user();
+
+        if ($actor === null || $actor->type !== \App\Policies\UserPolicy::PLATFORM_ADMIN) {
+            return response()->json(['error' => __('Permission denied.')], 403);
+        }
+
         $userPlan = User::where('plan_id' , $request->id)->first();
         if($userPlan != null && $request->id != 1 && $request->is_disable == 0)
         {

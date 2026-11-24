@@ -51,26 +51,23 @@ class FlashSaleController extends Controller
      */
     private function flashSaleReadRefusal(string $permission)
     {
-        $user = auth()->user();
-
-        if (! $user) {
-            return redirect()->back()->with('error', __('Permission denied.'));
+        /*
+         * DELEGATES SINCE 2026-11-22 (GAP-218) rather than keeping a second copy.
+         *
+         * This method and `App\Services\MarketingScreenAccess::refusal()` were limb-for-limb
+         * identical -- null user, operator-first, operator-must-have-chosen-a-store, store must
+         * resolve -- because the service was extracted FROM this shape and coupon's. Two live
+         * copies of one authorization decision is how they drift, and the register already names
+         * two further private copies elsewhere in Marketing.
+         *
+         * `index()` calls the service directly; `create()` and `edit()` reach it through here, so
+         * all three now answer from one place and their existing tests still measure them.
+         */
+        if ($refusal = \App\Services\MarketingScreenAccess::refusal(auth()->user(), $permission)) {
+            return redirect()->back()->with('error', __($refusal));
         }
 
-        $isOperator = UserPolicy::isOperator($user);
-
-        if (! $isOperator && ! $user->isAbleTo($permission)) {
-            return redirect()->back()->with('error', __('Permission denied.'));
-        }
-
-        // `getCurrentStore()` hands an operator with no `current_store` the hardcoded literal 1,
-        // and `getStoreById(1)` normally resolves, so without this they would be served store 1's
-        // sales by default. The coupon read gate carries the same guard.
-        if ($isOperator && empty($user->current_store)) {
-            return redirect()->back()->with('error', __('No store is selected.'));
-        }
-
-        return $this->storeMustResolve();
+        return null;
     }
 
     /**
@@ -130,12 +127,48 @@ class FlashSaleController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index(FlashSaleDataTable $dataTable)
+    public function index(Request $request, FlashSaleDataTable $dataTable)
     {
-        if (auth()->user() && auth()->user()->isAbleTo('Manage Flash Sale')) {
+        // GAP-218. `isAbleTo()` alone refuses the platform operator -- Laratrust has no
+        // super-admin bypass and no role holds this name on a database built from source. The
+        // predicate is the one `couponReadRefusal()` has used since 2026-10-28; it deliberately
+        // does NOT admit a tenant owner without the permission (see the class docblock).
+        if ($refusal = \App\Services\MarketingScreenAccess::refusal(auth()->user(), 'Manage Flash Sale')) {
+            return redirect()->back()->with('error', __($refusal));
+        }
+
+        {
+            /*
+             * MKT-002. The merchant's filter selection survives navigation and reload.
+             *
+             * INSIDE THE PERMISSION GATE, deliberately: a caller who may not see this list never
+             * reads or writes the memory, and never learns from a redirect that one exists.
+             *
+             * THE RESTORE IS A 302, NOT A CLIENT-SIDE FILL. yajra sets the table's `ajax.url` to
+             * `url()->full()` as evaluated when the page RENDERS, so filling the controls -- or
+             * rewriting the query with `history.replaceState` -- would leave the table's second leg
+             * requesting the UNFILTERED url: the page would look filtered and the rows would not be.
+             * A redirect makes a restored request byte-identical to a typed one. This is
+             * `ProductController::index`'s reasoning, which applies here for the same reason.
+             */
+            if ($request->has(\App\Services\TableFilterMemory::CLEAR)) {
+                \App\Services\TableFilterMemory::forget('flash-sale');
+
+                return redirect()->route('flash-sale.index');
+            }
+
+            if (\App\Services\TableFilterMemory::shouldRestore($request)) {
+                $remembered = \App\Services\TableFilterMemory::recall('flash-sale');
+
+                if ($remembered !== []) {
+                    return redirect()->route('flash-sale.index', $remembered)
+                        ->with('ss_filters_restored', true);
+                }
+            }
+
+            \App\Services\TableFilterMemory::remember($request, 'flash-sale');
+
             return $dataTable->render('flash-sale.index');
-        } else {
-            return redirect()->back()->with('error', __('Permission denied.'));
         }
     }
 

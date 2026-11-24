@@ -579,6 +579,30 @@ public function destroy(Customer $customer)
 
         $totalSpend = ActivityLog::totalspend($ids, $timelineStoreId > 0 ? $timelineStoreId : null);
 
+        /*
+         * GAP-156. THE TWO LEDGER FIGURES, beside a `Total Spend` that has never been one.
+         *
+         * `ActivityLog::totalspend()` above sums `orders.final_price` with no payment predicate --
+         * a cancelled order, a refunded order and an order nobody paid for each count in full.
+         * That is an order-value figure and it stays, now labelled as one; what this adds is the
+         * money question it was being read as the answer to, split into the two figures §15 says
+         * are not interchangeable: what was collected, and what was kept after reversals.
+         *
+         * BUILT FROM `$customer`, THE ROW THE OWNERSHIP CHECK ABOVE ALREADY CLEARED, and never
+         * from the route parameter or from `getCurrentStore()`. `CustomerMoneyFigures` scopes
+         * every query to `$customer->store_id` for the reason this handler already documents at
+         * length: the operator is deliberately admitted to ANY store's customer here, so the
+         * VIEWER's store is the wrong tenant to read and `getCurrentStore()` answers the literal 1
+         * for an operator with no current store. That is also the currency bug this fixes -- the
+         * view formatted `Total Spend` with `getCurrentStore()` while the sum came from the
+         * customer's own store, so a store-7 shopper's spend was printed in store 1's currency.
+         *
+         * NOT AN AUTHORIZATION CONTROL. `CustomerMoneyFigures` answers "whose orders and how
+         * much"; it does not decide who may ask. The check that this caller may read this customer
+         * is the block above, and it has to stay there.
+         */
+        $customerMoney = \App\Support\Customers\CustomerMoneyTiles::forCustomer($customer);
+
         $customer_data = Customer::find($ids);
 
 
@@ -588,7 +612,7 @@ public function destroy(Customer $customer)
          * that explains why it is the customer's own store and not `getCurrentStore()` -- rather
          * than being re-derived in a Blade template ten times.
          */
-        return view('customer.timeline', compact('logs', 'activityLog', 'totalSpend', 'customer_data', 'timelineStoreId'));
+        return view('customer.timeline', compact('logs', 'activityLog', 'totalSpend', 'customer_data', 'timelineStoreId', 'customerMoney'));
     }
 
 
@@ -620,7 +644,24 @@ public function destroy(Customer $customer)
         } else if ($id == 'Last active') {
             $data['condition'] = Customer::$fields_status1;
             $data['message']  = __("Pick a date to compare the customer's last activity against.");
-        } else if ($id == 'Total Spend' || $id == 'No. of Orders' || $id == "AOV") {
+        } else if (in_array($id, \App\Support\Customers\CustomerListFilter::NUMERIC_FIELDS, true)) {
+            /*
+             * GAP-156, FOUND BY THE INDEPENDENT REVIEW OF THAT CHANGE. This was
+             * `$id == 'Total Spend' || $id == 'No. of Orders' || $id == "AOV"` -- the three
+             * numeric fields, written out. Adding two more to `Customer::customer_field()` made
+             * them fall to the `else`, which returns an EMPTY condition list; both screens hide
+             * the operator and value controls when that list is empty
+             * (customer/index.blade.php:297, customer/grid.blade.php:469). So the Field select
+             * offered "Payments Collected", and choosing it did nothing at all.
+             *
+             * That is fault class 3 from `CustomerListFilter`'s own docblock -- "an operator the
+             * screen offers, which silently does nothing, and whose nothing reads as an answer" --
+             * reintroduced from the opposite end, by me, in the change that fixed it.
+             *
+             * Asking the FILTER which fields are numeric is what stops it happening a third time:
+             * a field added to `NUMERIC_FIELDS` now gets its operators here automatically, and one
+             * that is not numeric cannot accidentally acquire them.
+             */
             $data['condition'] = Customer::$fields_status2;
             $data['message']  = __("Type a number to compare against.");
         } else {

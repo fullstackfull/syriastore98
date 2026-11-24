@@ -125,7 +125,11 @@ class SettingsRestrictedWriteTest extends SecurityTestCase
             'local_storage_validation', 'local_storage_max_upload_size',
             'paypal_image', 'paystack_image', 'cinet_pay_image', 'senang_pay_image', 'cybersource_pay_image', 'ozow_pay_image', 'benefit_mode',
             // what a shopper is charged in and what a loyalty point is worth
-            'CURRENCY', 'CURRENCY_NAME', 'defult_currancy', 'defult_currancy_symbol', 'site_currency_symbol_position', 'loyality_program_enabled', 'reward_point',
+            // `currency_symbol` was MISSING from this list and from the control's, found 2026-11-22 by a review of P5-R14. It is not decoration: it is the
+            // SECOND link of the chain `OrderCurrencyStamp::symbolFor()` reads, so on any store with no `defult_currancy_symbol` row -- which is every store
+            // created by registration or by the admin API, neither of which seeds one -- this row decides the symbol stamped onto every order and printed on
+            // its documents. Writable by staff holding only `Manage Store Setting`, through the settings screen's catch-all writer.
+            'CURRENCY', 'CURRENCY_NAME', 'currency_symbol', 'defult_currancy', 'defult_currancy_symbol', 'site_currency_symbol_position', 'loyality_program_enabled', 'reward_point',
             // where an integration's stored token is sent
             'shopify_store_url', 'shopify_setting_enabled', 'woocommerce_store_url', 'woocommerce_consumer_key', 'twilio_sid', 'twilio_from',
             'twilio_notification_number', 'whatsapp_phone_number_id', 'whatsapp_contact_number', 'fcm_Key', 'firebase_enabled',
@@ -993,14 +997,53 @@ class SettingsRestrictedWriteTest extends SecurityTestCase
         $this->assertSame('ORIGINAL-BANK-ACCOUNT', $this->stored('bank_transfer'));
     }
 
-    /** @dataProvider apiWriters */
+    /**
+     * The uris on this list are governed by F206 and REFUSE the platform operator. Everything else
+     * admits them.
+     *
+     * `updateCurrencyApi` joined it on 2026-11-22 (FIN-CUR), and the contract really did change
+     * rather than the test being relaxed to fit a new refusal. That handler used to write five
+     * `settings` rows and nothing else, which is platform administration and is why the operator
+     * belonged here. It now routes through `StoreCurrencyChange`, so a currency change CONVERTS the
+     * store's catalogue -- every product's `price`, `sale_price` and `cost_price`, every variant's
+     * prices, the wallet's five balances and the pending COD orders. The owner's decision of
+     * 2026-10-30 is that the operator reads a merchant's catalogue and does not write it, and the
+     * WEB currency screen has refused them by name since F206. Leaving the API admitted would have
+     * been the F206 hole reopened through the Flutter app.
+     *
+     * @var array<int, string>
+     */
+    private const OPERATOR_REFUSED_BY_F206 = ['/api/admin/updateCurrencyApi'];
+
+    /**
+     * BOTH DIRECTIONS, PER URI, which is stricter than the single assertion this replaced: the
+     * owner must always be admitted, and the operator must be admitted everywhere EXCEPT the
+     * catalogue writers above, where they must be refused with a 403 rather than merely not
+     * succeeding.
+     *
+     * @dataProvider apiWriters
+     */
     public function test_the_owner_and_the_operator_pass_the_api_gate(string $verb, string $uri, array $data): void
     {
-        foreach ([$this->merchant, $this->operator] as $principal) {
-            $status = $this->callApi($principal, $verb, $uri, $data)->getStatusCode();
+        $this->assertNotContains(
+            $this->callApi($this->merchant, $verb, $uri, $data)->getStatusCode(),
+            [401, 403],
+            "{$uri} refused the store owner, who must always be admitted."
+        );
 
-            $this->assertNotContains($status, [401, 403], "{$uri} refused a principal who must be admitted.");
+        $operatorStatus = $this->callApi($this->operator, $verb, $uri, $data)->getStatusCode();
+
+        if (in_array($uri, self::OPERATOR_REFUSED_BY_F206, true)) {
+            $this->assertSame(403, $operatorStatus,
+                "{$uri} ADMITTED the platform operator. It converts the store's catalogue, and "
+                . 'F206 (owner decision 2026-10-30) is that the operator does not write a '
+                . "merchant's prices. Answered {$operatorStatus}.");
+
+            return;
         }
+
+        $this->assertNotContains($operatorStatus, [401, 403],
+            "{$uri} refused the platform operator, who must be admitted to platform administration.");
     }
 
     /** @dataProvider apiWriters */

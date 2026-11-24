@@ -29,7 +29,8 @@ class PlanCouponDataTable extends DataTable
             ->addColumn('action', function (PlanCoupon $coupon) {
                 return view('plan-coupon.action', compact('coupon'));
             })
-            ->rawColumns(['discount','action']);
+            // P1-SEC-80. `discount` is a number and a suffix: plain text, escaped by yajra.
+        ->rawColumns(['action']);
     }
 
     /**

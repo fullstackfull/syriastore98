@@ -126,7 +126,7 @@ Required by the acceptance criteria (currently `BACKLOG`, high): **P1-ORD-02** o
 Medium, cheap or security-relevant (`READY`): P1-SEC-04, -05, -09 (report handlers unauthorised), -10 (order-existence oracle), -11, -16, -22, -26, -30 · P1-INV-11, -15 (return robustness, double credit) · P1-ORD-10, -12, -13 · P1-PAY-01 · P1-PLT-06 (a Home/Checkout save removes the merchant's custom domain at the hosting panel).
 
 ### 6b. Safe to defer to Phase 02+ if the owner agrees [PROPOSED]
-P1-INV-10 (low, catalogue cluster) · P1-PLT-07 (staff save re-stamps `created_by`; a correctness annoyance, not an exposure) · anything cosmetic. **Deferring needs a ledger edit that says so**; absence from §6a is not a deferral.
+P1-INV-10 (low, catalogue cluster) · P1-PLT-07 (staff save re-stamps `created_by`; a correctness annoyance for staff of a real merchant — **but see `docs/security/P01-SECURITY-WORK-QUEUE.md` §i, finding C-01: the same hook was a HIGH exposure for a principal rooted at the platform operator, fixed for new rows only in P1-SEC-67c**) · anything cosmetic. **Deferring needs a ledger edit that says so**; absence from §6a is not a deferral.
 
 ### 6c. Needs OWNER approval or an owner action (do not start; list is in §8)
 Production secrets, server logs, migrations (GATE F), financial policy, vendor/upstream, retention, branch protection.

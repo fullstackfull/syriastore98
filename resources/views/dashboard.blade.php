@@ -128,7 +128,7 @@
                             <div class="dashboard-card">
                                 <div class="d-flex align-items-center justify-content-between gap-3 mb-4">
                                     <h2 class="ss-card__title">{{ __('Top Category') }}</h2>
-                                    <p class="ss-card__meta">{{ __('By Sales') }}</p>
+                                    <p class="ss-card__meta">{{ __('By order value') }}</p>
                                 </div>
                                 <div class="dash-category-tab" id="useradd-sidenav">
                                     <ul class="nav nav-pills w-100 pro-cat row store-setting-tab" id="pills-cat-tab"
@@ -190,7 +190,7 @@
                             <div class="dashboard-card">
                                 <div class="d-flex align-items-center justify-content-between gap-3 mb-4">
                                     <h2 class="ss-card__title">{{ __('Top Brand') }}</h2>
-                                    <p class="ss-card__meta">{{ __('By Sales') }}</p>
+                                    <p class="ss-card__meta">{{ __('By order value') }}</p>
                                 </div>
                                 <div class="dash-brand-tab" id="brand-sidenav">
                                     <ul class="nav nav-pills w-100 pro-cat row store-setting-tab" id="pills-brand-tab"
@@ -686,7 +686,7 @@
         function add_more_customer_choice_option(i, name) {
             $('#customer_choice_options').append(
                 '<div class="form-group"><input type="hidden" name="choice_no[]" value="' + i + '">' +
-                '<label for="choice_attributes">' + name + ':</label>' +
+                '<label for="choice_attributes">' + $('<div>').text(name).html() + ':</label>' + // P1-SEC-80 round 3 (C-9): the dead twin of the layout's builder, escaped like it
                 '<input type="text" class="form-control variant_choice" name="choice_options_' + i +
                 '[]" __="{{ __('Enter choice values') }}"  data-role="tagsinput" id="variant_tag' + i +
                 '" onchange="update_sku($(this).val())">' +

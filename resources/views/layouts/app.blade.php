@@ -335,8 +335,9 @@
         {!! isset($setting['storecss']) ? $setting['storecss'] :  '' !!}
 
         :root {
-            --color-customColor: <?= $color ?? 'linear-gradient(141.55deg, rgba(240, 244, 243, 0) 3.46%, #ffffff 99.86%)' ?>;
-            --bs-custom-color-border: <?= $color ?? '#ffff' ?>;
+            /* P1-SEC-80 round 3 (C-1): the store's colour is a stored value; StoreColour prints a colour and nothing else */
+            --color-customColor: {{ \App\Support\Branding\StoreColour::forCss($color ?? null, 'linear-gradient(141.55deg, rgba(240, 244, 243, 0) 3.46%, #ffffff 99.86%)') }};
+            --bs-custom-color-border: {{ \App\Support\Branding\StoreColour::forCss($color ?? null, '#ffff') }};
         }
 
         #storeList {
@@ -887,7 +888,7 @@
 
             '<div class="row">' +
             '<div class="form-group col-lg-6 col-12">' +
-            '<label for="choice_attributes" class="col-6">' + name + ':</label></div>' +
+            '<label for="choice_attributes" class="col-6">' + $('<div>').text(name).html() + ':</label></div>' + // P1-SEC-80: `name` is the attribute's text() read back from the DOM; escape it before it becomes markup again
 
             '<div class="form-group col-lg-6 col-12 d-flex justify-content-end all-button-box">' +
             '<a href="#" class="btn btn-sm btn-primary add_attribute btn-badge" data-ajax-popup="true" data-title="{{ __('Add Attribute Option') }}" data-size="md" ' +

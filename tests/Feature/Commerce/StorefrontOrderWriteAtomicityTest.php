@@ -192,66 +192,73 @@ final class StorefrontOrderWriteAtomicityTest extends SecurityTestCase
     // ================================================================================ the defect
 
     /**
-     * THE FAILING CASE, with no injection: the caller chooses where the write breaks.
+     * THE TRIGGER, NOW CLOSED — and this case was rewritten exactly as its own earlier version
+     * instructed, rather than repaired to keep passing. P4-F135.
      *
-     * Post `coupon_info.coupon_code` = the real code (so `apply_coupon()` grants the real
-     * discount) and `coupon_info.coupon_id` = an id no coupon holds. `Coupon::find()` returns null
-     * at ApiController:4227, the order is written at :4138, the detail row at :4240, and
-     * `$Coupon->id` at :4250 throws -- between the two coupon rows.
+     * WHAT IT USED TO MEASURE. Post `coupon_info.coupon_code` = the real code (so `apply_coupon()`
+     * grants the real discount) and `coupon_info.coupon_id` = an id no coupon holds. The handler
+     * resolved `Coupon::find($posted_id)` to null, wrote the order and the detail row, and then
+     * threw on `$Coupon->id` BETWEEN the two coupon rows: a discount that stood with no redemption
+     * recorded against it, at a point of the caller's choosing. The previous version of this
+     * docblock said that if this case ever failed on its first premise it was to be read rather
+     * than repaired, because that would mean the handler no longer reaches the detail write on this
+     * input. That is what happened, and for a better reason than the one anticipated: the posted
+     * `coupon_id` is not read AT ALL any more. `App\Services\CouponRedemptionRecorder` resolves the
+     * coupon by CODE within the request's store, so there is no caller-named id to be null.
      *
-     * WHAT THIS ASSERTS IS A CONSERVATION LAW, not a particular outcome, because the fix is a
-     * transaction and a transaction is allowed to choose either side: every discount that SURVIVES
-     * must have a redemption recorded against it. Rolling the order back satisfies it (0 and 0);
-     * completing the write satisfies it (1 and 1); today's half-write does not (1 and 0).
+     * SO THE CASE IS INVERTED RATHER THAN DELETED. Deleting it would lose the only guard against
+     * the trigger coming back, and this input — a real code beside a junk id — is precisely the
+     * shape a future edit that "restores" the id lookup would reintroduce.
      *
-     * IF THIS TEST LATER FAILS ON ITS FIRST PREMISE, read it rather than repairing it: it means
-     * the handler no longer reaches `$OrderCouponDetail->save()` on this input -- most likely
-     * because a null guard was added at :4227. That closes this TRIGGER and leaves the WINDOW
-     * open; `test_an_injected_failure_at_the_redemption_write_leaves_the_discount_unrecorded`
-     * measures the same property without it.
+     * THE CONSERVATION LAW IS STILL ASSERTED, unchanged in meaning: every discount that survives
+     * must have a redemption recorded against it. It now holds the strong way (1 and 1) rather than
+     * by rolling back (0 and 0). The WINDOW itself — a failure between the two writes, from any
+     * cause — is still measured without this trigger by
+     * `test_an_injected_failure_at_the_redemption_write_leaves_the_discount_unrecorded`.
      */
-    public function test_a_caller_chosen_coupon_id_breaks_the_write_between_the_detail_and_the_redemption(): void
+    public function test_a_caller_chosen_coupon_id_no_longer_breaks_the_write_or_steers_it(): void
     {
         [$store, $shopper, $couponId] = $this->storeWithOneUseCoupon();
         $this->fillBasket($store, $shopper);
 
         $seen = $this->watchTheCouponRows();
 
-        $threw = $this->placeOrderExpectingAThrow(
+        $response = $this->placeOrder(
             $store,
             $shopper,
             $this->couponInfo($couponId, self::NONEXISTENT_COUPON_ID)
         );
 
-        /* PREMISE 1 -- the request really entered the window. Taken from a model event rather
-           than from the table, because a fix rolls the row back and a post-request read could not
-           tell "it got there and rolled back" from "it never got there". */
-        $this->assertTrue($seen->detail,
-            'the order_coupon_details write never ran, so this case is not measuring the window '
-            . 'between the two coupon rows. Re-read the handler before trusting anything below; '
-            . 'a null guard at ApiController:4227 would produce exactly this.');
+        /* PREMISE — the checkout COMPLETED. The old trigger was an uncaught throw, so "no half
+           write" would also be satisfied by a request that died before the order; this says it
+           did not. */
+        $this->assertNotNull($this->latestOrder($store),
+            'the checkout wrote no order at all, so the assertions below cannot tell a closed '
+            . 'trigger from a broken handler. Response: ' . $this->excerpt($response));
 
-        /* PREMISE 2 -- and it broke before the redemption row, which is the window's far edge. */
-        $this->assertFalse($seen->redemption,
-            'the user_coupons write RAN, so the request did not break where this case claims');
-
-        /* PREMISE 3 -- it is the null dereference and not some earlier failure. An earlier throw
-           would give the same "no redemption row" reading for the opposite reason. */
-        $this->assertNotNull($threw, 'premise: the request threw');
-        $this->assertStringContainsString('Attempt to read property "id" on null', $threw->getMessage(),
-            'something OTHER than the null dereference at ApiController:4250 threw, so the '
-            . 'measurement below is about a different failure: ' . $threw->getMessage());
+        /* Both coupon rows ran, in that order — the far edge of the old window was reached. */
+        $this->assertTrue($seen->detail, 'no order_coupon_details write ran for an accepted coupon');
+        $this->assertTrue($seen->redemption,
+            'the order_coupon_details row was written and the `user_coupons` row was not — the '
+            . 'half-write this case exists to forbid, now reachable some other way');
 
         $granted = $this->discountedOrders($store);
         $recorded = $this->redemptionsOf($couponId);
 
         $this->assertLessThanOrEqual($recorded, $granted,
-            'THE ORDER KEPT ITS DISCOUNT AND NOTHING RECORDED THE REDEMPTION. ' . $granted
-            . ' discounted order(s) stand against ' . $recorded . ' row(s) in `user_coupons`, '
+            'A DISCOUNT STANDS WITH NO REDEMPTION RECORDED AGAINST IT. ' . $granted
+            . ' discounted order(s) against ' . $recorded . ' row(s) in `user_coupons`, '
             . 'which is the only table `Coupon::usesByCustomer()`, `PerUsesCouponCount()`, '
             . '`coupon_uses()` and `UsesCouponCount()` count. The order and its redemption must '
-            . 'stand or fall together; they are written one at a time with no transaction '
-            . '(ApiController::place_order, :4138 / :4240 / :4252).');
+            . 'stand or fall together.');
+
+        /* AND THE POSTED ID STEERED NOTHING: the redemption is against the coupon whose CODE the
+           server resolved, and no row exists for the id that was posted. */
+        $this->assertSame(1, $recorded,
+            'exactly one redemption of the real coupon is expected for one discounted order');
+        $this->assertSame(0, $this->redemptionsOf(self::NONEXISTENT_COUPON_ID),
+            'a redemption was recorded against the coupon id the CALLER posted, so request input '
+            . 'still decides which coupon is spent');
     }
 
     /**

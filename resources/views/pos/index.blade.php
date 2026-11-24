@@ -868,7 +868,7 @@
             var title = $(this).data('title');
             var size = ($(this).attr('data-size') == '') ? 'md' : $(this).attr('data-size');
             var url = $(this).data('url');
-            $("#commonModal .modal-title").html(title);
+            $("#commonModal .modal-title").text(title); /* P1-SEC-80 round 4: a title is text */
             $("#commonModal .modal-dialog").removeClass('modal-lg').removeClass('modal-md').removeClass('modal-sm');
             $("#commonModal .modal-dialog").addClass('modal-' + size);
 

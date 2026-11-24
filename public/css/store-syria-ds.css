@@ -1865,6 +1865,7 @@
 .ss-empty__body,
 .ss-feed__message,
 .ss-advanced__hint,
+.ss-stat__hint,
 .ss-upload-hint,
 .ss-dialog__body,
 .ss-dialog__message    { color: var(--ss-fg-muted) !important; }
@@ -2404,6 +2405,44 @@ html[data-ss-theme="dark"] .ss-dt-card-body .form-switch .form-check-input:check
     font-size: var(--ss-text-xs);
     color: var(--ss-fg-muted);
     margin-block-start: var(--ss-space-1);
+}
+/* P5-11. THE CAVEAT, VISIBLE. This used to be `.ss-visually-hidden` inside the period span --
+   clipped to 1x1 with no reveal rule anywhere -- so nine honesty sentences ("This is not payments
+   received, and not profit") rendered to nobody who could see. ANA-007 asks the product to SHOW
+   data quality; one pixel shows nothing.
+
+   `--ss-text-xs` and muted, so it reads as a qualifier rather than competing with the figure, and
+   `text-wrap: pretty` where supported because these sentences are long and a one-word last line
+   in a 10rem grid cell looks like a defect. No physical properties: `margin-block-start` and the
+   inherited text direction are all it needs to be correct in Arabic RTL and English LTR from one
+   declaration. */
+.ss-stat__hint {
+    margin: var(--ss-space-2) 0 0;
+    font-size: var(--ss-text-xs);
+    line-height: var(--ss-leading-normal, 1.5);
+    color: var(--ss-fg-muted);
+    text-wrap: pretty;
+}
+/* ANA-002. The period-over-period line, between the figure's own period and its caveat.
+   NO NEW COLOUR TOKEN, deliberately: it reuses `--ss-fg-muted`, the same token
+   `.ss-stat__period` and `.ss-stat__hint` already use and which the design-system contrast
+   gate already holds to 4.5:1 in light and dark. A green/up / red/down pair would have needed
+   its own proof in four combinations AND would still have failed WCAG 1.4.1 on its own, since
+   colour cannot be the only carrier of the direction -- so the direction is a WORD and the
+   arrow is decorative. Weight, not hue, is what separates this line from the period above it,
+   and weight does not affect contrast. */
+.ss-stat__comparison {
+    margin: var(--ss-space-1) 0 0;
+    font-size: var(--ss-text-xs);
+    line-height: var(--ss-leading-normal, 1.5);
+    font-weight: var(--ss-weight-medium);
+    color: var(--ss-fg-muted);
+    text-wrap: pretty;
+}
+/* The arrow is decorative and `aria-hidden`; it must not become the only indicator, so it is
+   sized with the text and carries no colour of its own. */
+.ss-stat__trend {
+    font-size: var(--ss-text-xs);
 }
 /* A measure the system genuinely cannot produce. An honest absence, and it
    must not look like a zero. */
@@ -7464,3 +7503,67 @@ td.dataTables-empty:has(.ss-empty) {
 [data-ss-admin] .alert-info { --bs-alert-color: #24757c; }
 [data-ss-admin] .alert-warning { --bs-alert-color: #965f11; }
 /* end P2.5 CLOSURE alert contrast */
+
+/* ---------------------------------------------------------------------------------------------
+   PRODUCT-CARD CONVERSION ACTIONS — MKT-010 / GAP-220.
+
+   WHAT WAS THERE BEFORE: nothing. Measured 2026-11-21, the class these buttons were wrapped in
+   (`supdiv`) occurred in EXACTLY ONE file in the whole repository — the hook that emits it. No
+   theme stylesheet, no vendored module and no script styled it, so its inline `top: 40px` was
+   inert and the quick-view / compare / PDF / CSV buttons appeared as bare, unspaced icons wherever
+   the hook was called. `MKT-010` asks for parity across the three themes; that is what there was
+   to be at parity with.
+
+   THIS FILE DOES NOT POSITION THE OVERLAY, AND THAT IS THE CENTRAL DECISION. A first draft gave
+   the immediate parent `position: relative` through `:has(> .ss-product-actions)` so the wrapper
+   could float. Reading the themes refuted it: techzonix already places the call inside
+   `.pro-btn-wrapper`, which is `absolute top-4 right-4`, and stylique inside its own
+   `absolute top-4 right-4` container. So the float ALREADY EXISTS in theme markup — and a
+   `position: relative` on those containers would have overridden their `absolute` and dropped the
+   buttons out of the corner they were in. The overlay was never the missing part; the STYLING of
+   the wrapper inside it was.
+
+   SO THESE RULES ARE POSITION-AGNOSTIC. They look right in normal flow and inside an
+   already-positioned container, which is what lets one rule set serve three themes that place the
+   hook differently — the parity `MKT-010` asks for, without touching any theme's layout.
+
+   NOTHING IS HIDDEN UNTIL HOVER. The draft also had an `@media (hover: hover)` fade, and that is
+   exactly how a conversion action becomes unreachable: a keyboard user never hovers and a touch
+   device has no hover state. The buttons are always rendered and always visible; what this adds is
+   a legible surface, a 44px minimum target (WCAG 2.5.5) and a visible focus ring.
+
+   LOGICAL PROPERTIES ONLY, because the storefront is bilingual and the card mirrors in Arabic.
+   `StorefrontAppearanceFoundationTest` already pins that convention for the appearance control.
+
+   EVERY COLOUR IS A TOKEN, so dark mode needs no second rule here: `--ss-bg-elevated` and
+   `--ss-fg` are re-declared under `[data-ss-theme="dark"]` further up this file.
+   --------------------------------------------------------------------------------------------- */
+
+.ss-product-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ss-space-2, 0.5rem);
+    align-items: center;
+    padding: var(--ss-space-2, 0.5rem);
+    border-radius: var(--ss-radius-md, 0.5rem);
+    background: var(--ss-bg-elevated, #ffffff);
+    color: var(--ss-fg, #1b1f25);
+    box-shadow: var(--ss-shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.08));
+}
+
+/* The module buttons are vendored markup this file does not control, so they are reached as
+   descendants rather than by a class. A 44px minimum target is WCAG 2.5.5 and is what makes these
+   usable on a phone -- which is the whole of the "responsive" requirement for a row this small. */
+.ss-product-actions > * {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+}
+
+.ss-product-actions a:focus-visible,
+.ss-product-actions button:focus-visible {
+    outline: 2px solid var(--ss-focus, #2563eb);
+    outline-offset: 2px;
+}

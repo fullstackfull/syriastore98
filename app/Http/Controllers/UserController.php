@@ -846,10 +846,19 @@ AuditLog::record(
 
 		        // Derived from the resolved target, never taken from the request: the owner id is
 		        // itself a write target in the `store` branch below.
-		        $ownerId = $target->creatorId();
+		        //
+		        // P1-SEC-67c. The counters returned below are the per-store user counts of the target's TENANT. `creatorId()` is the operator's id for a
+		        // target rooted at the platform (a merchant who demoted their own `type`, targeting their own row, or staff the operator created), so a
+		        // non-operator caller was handed the operator's store NAMES and staff counts. The operator keeps them (it is their tenant); anyone else
+		        // gets them only for a MERCHANT root, and an empty structure otherwise. The toggle itself is authorised by `can('update', $target)` above.
+		        $ownerId = \App\Policies\UserPolicy::isOperator(auth()->user())
+		            ? $target->creatorId()
+		            : \App\Policies\UserPolicy::merchantTenantRoot($target);
 
 		        User::where('id', $target->id)->update(['is_enable_login' => $isActive]);
-		        $data = $this->storeUserCounter($ownerId);
+		        $data = $ownerId === null
+		            ? ['is_success' => true, 'response' => ['users_data' => [], 'store_data' => ['total_store' => 0, 'disable_store' => 0, 'active_store' => 0]]]
+		            : $this->storeUserCounter($ownerId);
 
 
 
@@ -875,7 +884,15 @@ AuditLog::record(
                 $storeQuery = Store::where('id', $request->id);
 
                 if (strtolower(trim((string) $actor->type)) !== 'super admin') {
-                    $storeQuery->where('created_by', $actor->creatorId());
+                    // P1-SEC-66: the tenant root must be a MERCHANT -- `creatorId()` alone is the operator's id for a user rooted at the platform (a
+                    // demoted merchant, or staff the operator created), and this branch rewrites a store's `is_active` and its users' login gate.
+                    $root = \App\Policies\UserPolicy::merchantTenantRoot($actor);
+
+                    if ($root === null) {
+                        return response()->json(['error' => __('Permission denied.'),'users_data' => null, 'store_data' => null], 403);
+                    }
+
+                    $storeQuery->where('created_by', $root);
                 }
 
                 $targetStore = $storeQuery->first();

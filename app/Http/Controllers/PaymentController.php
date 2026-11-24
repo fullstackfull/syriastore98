@@ -43,6 +43,7 @@ use App\Facades\ModuleFacade as Module;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
 use App\Http\Controllers\Concerns\GuardsGatewayReturn;
+use App\Support\Money\RewardPointDiscount;
 
 class PaymentController extends Controller
 {
@@ -1163,15 +1164,23 @@ private function paymeraOrderHighWaterMark(mixed $storeId): int
  * `$pending['processed']` still false, and **no in-process marker of either**: not a return
  * value, not a binding, not a flag. The only witness is the row.
  *
- * (Measured anchors: `DB::beginTransaction()` :3988, `DB::commit()` :4163, `$owner->email`
- * :4219, `OrderCompleteBinding::remember()` :4308. Re-measured twice on 2026-10-30: F210's
+ * (Measured anchors: `DB::beginTransaction()` :4200, `DB::commit()` :4375, `$owner->email`
+ * :4431, `OrderCompleteBinding::remember()` :4520. Re-measured twice on 2026-10-30: F210's
  * ownership gate moved them 71 lines, then F216's guard above this method moved them 49 more.
  * Re-measured TWICE MORE on 2026-10-31, and the second time is the lesson: F237's attribution
  * call inside this very transaction moved the last three by 4; correcting THIS COMMENT then added
  * four lines above the method and moved all four by 4 again, so the first correction was stale
  * the moment it was written -- the third time that has happened to this block, and the reason it
  * is ratcheted at all. P4-3's two notes above then moved all four by 7 and 11. P4-F026's intake
- * claim and transaction boundary in this same method moved them 97 more. Measure AFTER.
+ * claim and transaction boundary in this same method moved them 97 more. P4-F046's instanceof
+ * guard in processPayment -- which is ABOVE this method -- moved all four by 29, the eighth time
+ * this block has gone stale and the first time the full Feature suite caught it rather than a
+ * reviewer: the narrower filters miss it because "Paymera" does not contain "Payment". Measure
+ * AFTER. P5-9's loyalty slice then moved all four by 12 -- the NINTH time -- and the sentence
+ * immediately above CALLED IT: the targeted filter run before pushing was
+ * `Payment|Reward|Checkout|ClubPoint|Order`, and "Paymera" does not match "Payment", so once
+ * again only the full Feature suite caught it. The numbers above were re-measured AFTER this
+ * paragraph was added, because adding it moved them a further three.
  * THE MARKER IS DATE-FREE ON PURPOSE: dating it is what the ratchet's own needle matches on, and
  * writing "Re-measured 2026-10-30:" here emptied that needle. These are STRUCTURAL claims and the numbers
  * drift -- two earlier versions of this comment cited lines this very change had already moved,
@@ -1564,9 +1573,15 @@ public function handlePaymeraTrigger($orderId)
     }
 
     if (! \App\Policies\UserPolicy::isOperator($ssCaller)) {
+        // P1-SEC-66: the tenant root must be a MERCHANT. `creatorId()` alone is the operator's id for a user rooted at the platform (a demoted merchant,
+        // or staff the operator created), which made the operator's store "theirs" and let them trigger completion of its pending payments. A null root
+        // owns nothing. This narrows WHO may call; it changes nothing about the payment flow for a merchant, their staff or the operator.
+        $ssRoot = \App\Policies\UserPolicy::merchantTenantRoot($ssCaller);
+
         $ssOwns = $ssPendingStore !== null
+            && $ssRoot !== null
             && \App\Models\Store::where('id', $ssPendingStore)
-                ->where('created_by', $ssCaller->creatorId())
+                ->where('created_by', $ssRoot)
                 ->exists();
 
         if (! $ssOwns) {
@@ -1893,6 +1908,12 @@ public function handlePaymeraTrigger00($orderId)
 
         // Process billing info
         $this->processBillingInfo($request, $customer->id, $store);
+
+        // D6 STAGE 1, found by the independent review: the merge above is a body value and `Request::all()` lets a multipart
+        // FILE part of the same name replace it. See customerIdTheIntakeCannotTrust().
+        if ($this->customerIdTheIntakeCannotTrust($request, $customer->id)) {
+            return redirect()->back()->with('error', __('Something went wrong.'));
+        }
         
         // Validate payment type
         $validPaymentTypes = $this->getValidPaymentTypes();
@@ -2443,6 +2464,60 @@ public function handlePaymeraTrigger00($orderId)
     }
 
     /**
+     * DOES THE REQUEST BAG DISAGREE WITH THE INTAKE ABOUT WHO THE CUSTOMER IS?  D6 stage 1, found by independent review.
+     * =========================================================================================
+     *
+     * The intake resolves the customer itself -- the signed-in one, the one a guest's typed e-mail names, or the one the
+     * server stored -- and MERGES that id over whatever the caller posted. A merge writes the body, and
+     * `Request::all()` is `array_replace_recursive($this->input(), $this->allFiles())`: so a multipart FILE part named
+     * `customer_id` replaces the merged id for every reader of `$request->customer_id` and `$requests_data['customer_id']`.
+     *
+     * EXECUTED (RewardRedemptionCheckoutGateTest), before this guard, on both order writers that price a reward discount
+     * for a signed-in customer: the order was committed with the discount, the post-commit `OrderNote::order_note_data()`
+     * calls -- whose `customer_id` is a foreign key -- then failed on the file's temporary path (HTTP 500), and that is AFTER
+     * the order row and BEFORE the event whose vendored listener debits the points. Final price 50.00 on a 100.00 basket,
+     * balance still 500, no ledger row, repeatable at will. On the WhatsApp writer the leak pre-dates D6 (it priced from the
+     * principal already, and for any shopper, below every threshold); on COD / bank transfer the first version of this slice
+     * made it newly reachable by reading the principal's balance there.
+     *
+     * WHY THE TRIGGER AND NOT THE SYMPTOM. The same file also breaks whatever else reads the bag after the commit, so
+     * patching one consumer would leave the class open. A request that disagrees with the intake about the customer cannot be
+     * trusted to describe the order either, and today it writes an order and then answers HTTP 500 -- stock decremented,
+     * basket emptied, shopper told it failed. Refusing it before ANY ORDER is written is strictly better for the shopper too.
+     * (Not before ANYTHING: for a guest, `handleCustomerRegistration()` has already found or created the customer, and for
+     * `register=on` signed them in. Nothing a plain registration could not already do; the second review corrected the
+     * sentence that said otherwise.)
+     *
+     * ONLY A SCALAR CAN AGREE. The first version compared `(string)` casts, and two shapes got past that. A file ARRAY
+     * (`customer_id[]`) made the cast itself an `Array to string conversion` -- which this application's error handler throws,
+     * so the guard answered HTTP 500 -- and an ERRORED UPLOAD (an oversize file, whose temporary name is empty) casts to `''`,
+     * which is exactly the id of a guest with no customer. A file part is an object and an array is an array; neither is an
+     * id, so neither is compared. Both are refused. An EMPTY file input arrives as nothing at all and is `''`, as before.
+     *
+     * KNOWN LIMIT, recorded in `GAP-214`: a file part can replace ANY field the intake merges (`slug`, `store_id`,
+     * `payment_type`, ...). Only `customer_id` is closed here, because it is the one that decides whose balance moves.
+     *
+     * @param  mixed  $principalId  the id the intake resolved
+     */
+    private function customerIdTheIntakeCannotTrust(Request $request, $principalId): bool
+    {
+        $bag = $request->all()['customer_id'] ?? '';
+
+        if (is_scalar($bag) && (string) $bag === (string) $principalId) {
+            return false;
+        }
+
+        // The VALUE is not logged: it is an object (a file) or whatever a caller chose to send. Its type says what happened.
+        \Illuminate\Support\Facades\Log::warning('Checkout refused: the request named a customer the intake did not resolve', [
+            'path' => $request->path(),
+            'resolved_customer_id' => (string) $principalId,
+            'bag_type' => get_debug_type($bag),
+        ]);
+
+        return true;
+    }
+
+    /**
      * Process billing information
      */
     private function processBillingInfo(Request &$request, $customerId, $store)
@@ -2556,6 +2631,29 @@ public function handlePaymeraTrigger00($orderId)
     private function getCartData(Request $request, $store, $customer, $isGuest)
     {
         if ($isGuest) {
+            /*
+             * D6 STAGE 1. A GUEST HAS NO BALANCE OF THEIR OWN TO REDEEM, and the redemption flag must not survive
+             * this arm into the stored checkout state.
+             *
+             * The quote (`processRewardPoints()`) is only reached on the authenticated arm below, so a guest's
+             * posted `club_point_is_active=on` was never examined -- and it was carried, untouched, into the
+             * state every gateway arm saves. A guest checkout adopts whichever store customer owns the e-mail
+             * typed into the billing form (`handleCustomerRegistration()`, no proof of ownership), so that state
+             * names a customer the guest does not control, and a gateway return reads the flag and that customer's
+             * balance from it. The same shopper can sign in as someone else before the return arrives; the return
+             * handlers then price the discount from the stored customer and debit the signed-in one. Overwriting
+             * the flag here closes that at the source, without touching the return handlers.
+             *
+             * MERGED, NOT REMOVED, for the reason given at `processRewardPoints()`. Only when the caller sent the
+             * key at all, so an ordinary guest checkout's stored state keeps exactly the shape it has today -- and only
+             * when the module is active for this store, because every reader of the flag is behind the same test, so a
+             * store without it has nothing to protect and no line of this slice should run for it (this was
+             * unconditional until the independent review noticed the claim was false).
+             */
+            if ($request->has('club_point_is_active') && module_is_active('RewardClubPoint')) {
+                $request->merge(['club_point_is_active' => 'off']);
+            }
+
             // For guest users
             $response = Cart::cart_list_cookie($request->all(), $store->id);
             $response = json_decode(json_encode($response));
@@ -2646,17 +2744,64 @@ public function handlePaymeraTrigger00($orderId)
 
     /**
      * Process reward points
+     *
+     * D6 STAGE 1: THIS IS WHERE A REDEMPTION IS DECIDED, ONCE PER CHECKOUT.
+     * =========================================================================================
+     *
+     * The thresholds (`checkout_points`, `checkout_price`) and the programme switch used to be tested in two
+     * Blade partials and nowhere on the server, so a hand-built `club_point_is_active=on` redeemed below both,
+     * with the programme off. `RewardPointDiscount::forOrder()` is the server-side form of the Blade gate and
+     * this is the first place it runs: the quote below is what a gateway CHARGES, and it is decided once, at
+     * initiation, from the signed-in customer's own balance (`$customerId` is `$customer->id` of the
+     * `customers` session guard -- the only arm that reaches here is the authenticated one).
+     *
+     * THE DECISION IS WRITTEN BACK ONTO THE REQUEST, as `'on'` or `'off'`, and it OVERRIDES the caller's value.
+     * That is the whole mechanism by which a refusal reaches the places that act on it later:
+     *
+     *   - the stored checkout state (`$request->except(...)` is what every gateway arm saves),
+     *   - the COD / bank-transfer writer (`$request->all()` in the same request), and
+     *   - the event, whose vendored listener spends the customer's WHOLE balance whenever the flag is truthy.
+     *
+     * A refusal that only skipped the discount here would leave the flag `'on'` for all three: the shopper
+     * would be quoted full price, the stored state would still say redeem, and the listener would debit the
+     * balance for a discount nobody received. Hence a MERGE of `'off'`, not an unset: `Request::input()` is
+     * `getInputSource()->all() + query->all()`, so a removal from the body leaves a `?club_point_is_active=on`
+     * query-string copy to be read back (measured, PHP 8.3). `'off'` is the value the shipped checkout form
+     * already posts when the box is unticked, and `NormaliseRewardRedemptionFlag` strips it at dispatch.
+     *
+     * AN ACCEPTED REDEMPTION IS CANONICALISED TO `'on'` so nothing downstream repeats the loose comparison
+     * (`true == 'on'` is true in PHP 8, and an API client can post JSON `true`).
+     *
+     * THE BASE IS THE CART SUBTOTAL, `$cartlist['final_price']` -- exactly what the Blade gate compares
+     * (`$response->data->final_price`, measured equal), before coupon, tax and shipping. It is not the figure
+     * `applyTo()` is given at the order writers, which differs by coupon, tax and shipping.
+     *
+     * WHAT THIS DOES NOT DECIDE: how the order writers behave on a gateway RETURN. They re-read the stored
+     * state in a later request and are not changed here -- see docs/development/phase-5/PHASE-05-D6-WIRING-MEASUREMENT.md.
      */
     private function processRewardPoints(Request $request, $store, $cartlist, $customerId)
     {
+        $subtotal = !empty($cartlist['final_price']) ? $cartlist['final_price'] : 0;
+
         if (module_is_active('RewardClubPoint') && isset($request->club_point_is_active) && $request->club_point_is_active == 'on') {
             $customerDetail = Customer::find($customerId);
-            $settings = getAdminAllSetting($store->created_by, $store->id) ?? null;
-            $saveRewardPrice = ($customerDetail->total_club_point * $settings['reward_point_price'] ?? 0) / ($settings['reward_points'] ?? 0);
-            return (!empty($cartlist['final_price']) ? $cartlist['final_price'] : 0) - $saveRewardPrice;
+            $settings = (array) (getAdminAllSetting($store->created_by, $store->id) ?? []);
+            $saveRewardPrice = RewardPointDiscount::forOrder((float) ($customerDetail->total_club_point ?? 0), (float) $subtotal, $settings);
+
+            if ($saveRewardPrice <= 0.0) {
+                // Refused -- or eligible but worth nothing (no rate configured). Either way points must not
+                // be spent for it, so the flag the rest of the checkout reads is overwritten, not just ignored.
+                $request->merge(['club_point_is_active' => 'off']);
+
+                return $subtotal;
+            }
+
+            $request->merge(['club_point_is_active' => 'on']);
+
+            return RewardPointDiscount::applyTo((float) $subtotal, $saveRewardPrice);
         }
-        
-        return !empty($cartlist['final_price']) ? $cartlist['final_price'] : 0;
+
+        return $subtotal;
     }
 
     /**
@@ -2853,6 +2998,22 @@ public function handlePaymeraTrigger00($orderId)
                     ->toArray();
                 
                 if (isset($settings['enable_partial_payment']) && $settings['enable_partial_payment'] == 'on') {
+                    /*
+                     * D6 STAGE 1, found by the independent reviews. THIS CHECKOUT IS PRICED BY THE MODULE -- a deposit, or the
+                     * outstanding balance of an earlier order -- and never by the reward discount `processRewardPoints()` may
+                     * have quoted a moment ago. Every writer that takes the PartialPayments arm (COD / bank transfer here,
+                     * and the held generic gateway return) leaves the discount OUT of the total while the flag stays 'on', so
+                     * the vendored listener replaced an eligible shopper's balance for a discount nobody received (executed:
+                     * 500 -> 10 points on a 10.00 deposit). The decision is therefore withdrawn HERE, where it is stored,
+                     * rather than patched in each writer: the stored state, the COD writer and the event all read this one
+                     * value, and the held return handler is not touched. Only when the caller sent the flag, so an ordinary
+                     * checkout's stored state keeps its shape. Same signed-in-customer and module-active conditions as the
+                     * writers' PartialPayments arm.
+                     */
+                    if ($request->has('club_point_is_active')) {
+                        $new_array['club_point_is_active'] = 'off';
+                    }
+
                     $param = [
                         'tax_price' => $new_array['tax_price'] ?? 0,
                         'shipping_price' => $new_array['shipping_final_price'] ?? 0,
@@ -3050,6 +3211,35 @@ public function handlePaymeraTrigger00($orderId)
         } elseif (in_array($paymentMethod, ['payfast', 'CyberSource', 'NMI', 'payu', 'Braintree', 'PowerTranz', 'SSLCommerz'])) {
             return $response;
         } else {
+            /*
+             * P4-F046 -- A FAILURE REDIRECT MUST BE RETURNED, NOT STRINGIFIED.
+             *
+             * Found by independent review of the F046 catch-narrowing, and it undercut that
+             * commit's own claim. A payment service method hands back EITHER a URL string on
+             * success OR a RedirectResponse carrying a refusal message. This branch passed
+             * whatever it got to `new RedirectResponse(...)`, whose constructor is typed `string`
+             * -- and with no `declare(strict_types=1)` in this file, a RedirectResponse is
+             * COERCED by `Response::__toString()` into its ENTIRE HTTP message
+             * ("HTTP/1.0 302 Found\r\n...") and installed as the `Location` header. A header
+             * carrying CRLF is refused at send time, so the shopper gets a broken response and
+             * NEVER the reason their payment failed.
+             *
+             * THIS CODEBASE ALREADY KNEW. `paymera` carries the identical guard a few lines
+             * above, added after this exact shape was measured as "a 500 on an ordinary guest
+             * checkout". `benefit` -- which is in none of the lists above and so lands here --
+             * had none, so all five of its refusal paths were unreachable.
+             *
+             * THE GUARD IS ON THE TYPE, NOT THE PAYMENT METHOD, deliberately. Every gateway that
+             * falls through to this branch and returns a redirect has the same defect, so testing
+             * the type fixes them all at once. Writing `$paymentMethod == 'benefit'` would fix one
+             * AND turn GatewayCallbackDestinationTest red, because that test asserts this file
+             * contains no `== 'benefit'` -- such a string would signal a capture-verification
+             * branch that does not exist.
+             */
+            if ($response instanceof \Illuminate\Http\RedirectResponse) {
+                return $response;
+            }
+
             return new RedirectResponse($response);
         }
     }
@@ -3264,7 +3454,18 @@ public function handlePaymeraTrigger00($orderId)
          * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
          * right plan (CartController::cart_list_sidebar:38-40,
          * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
-         * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+         * The predicate's TEXT is unchanged but its MEANING is not. The query this replaced filtered
+         * `type = 'admin'`, so the `if` below could not fail and `$plan` was always assigned; `ownerOf()` applies
+         * no type filter, so for a store owned by the platform operator, a self-demoted merchant or a deleted
+         * user `$plan` is UNDEFINED further down and the shipping read throws. See App\Support\Commerce\StorePlan.
+         *
+         * THE `$plan` GUARD IS DELIBERATELY NOT LANDED IN THIS HANDLER. Owner ruling D-13 / D-18
+         * (docs/development/phase-2/PHASE-02-DECISION-REGISTER.md): the `$plan` fix stays suspended wherever
+         * stock is decremented before the payment is proven, because landing it would turn a pre-decrement crash
+         * into a working unverified decrement. That reasoning was written when the crash was true only of "a
+         * broken install"; P4-F014 made it true of every store whose owner is not a plan-holding admin, which is
+         * new information for the owner, recorded as GAP-210 with the condition for lifting the suspension.
+         * Pinned by Tests\Feature\Commerce\ReturnHandlerPlanInitialiserTest (HELD_BACK).
          */
         $user = \App\Support\Commerce\StorePlan::ownerOf($store);
         if ($user && $user->type == 'admin') {
@@ -3575,12 +3776,23 @@ public function handlePaymeraTrigger00($orderId)
          * it. Everything between the first `decrementStockOrFail()` and that line was an
          * uncompensated window: stock down, no order, nothing given back.
          *
-         * IT IS NOT A THEORETICAL WINDOW. Two deterministic throws live in it, both measured:
-         * the reward-points division (`$rewardSetting['reward_points'] ?? 0` as a DIVISOR, which
-         * raises DivisionByZeroError when that setting is absent or zero, on a line that also
-         * dereferences a `$customerDetail` that is null for a guest), and `$plan->shipping_method`
-         * where `$plan` comes from a `Plan::find()` that returns null for a missing `plan_id` --
-         * a value the code itself guards with `if ($plan && ...)` a few hundred lines earlier.
+         * IT IS NOT A THEORETICAL WINDOW. `$plan->shipping_method` throws deterministically when
+         * `$plan` comes from a `Plan::find()` that returned null for a missing `plan_id` -- a value
+         * the code itself guards with `if ($plan && ...)` a few hundred lines earlier. Measured.
+         *
+         * A SECOND THROW USED TO LIVE HERE AND IS NOW CLOSED; THE WINDOW IS STILL NEEDED FOR THE
+         * ONE ABOVE. F192 originally named two, the other being the reward-points division:
+         * `$rewardSetting['reward_points'] ?? 0` was used AS A DIVISOR, raising DivisionByZeroError
+         * when that setting was absent or zero, on a line that also dereferenced a
+         * `$customerDetail` that can be null. F192 said "null for a guest" and that part was
+         * already wrong: this branch is the `else` of `if (! auth('customers')->user())`, so no
+         * guest reaches it. It is null when a stored-state `customer_id` no longer resolves --
+         * the Customer soft-deleted mid-checkout, or belonging to another tenant.
+         * Both limbs are gone as of the P5-9 loyalty
+         * slice (2026-11-17): the division moved to `App\Support\Money\RewardPointDiscount`,
+         * which returns no discount rather than dividing by zero, and the balance is now read as
+         * `($customerDetail->total_club_point ?? 0)`. Do not re-derive the window's justification
+         * from the reward path -- it no longer throws.
          *
          * ON A GATEWAY RETURN THAT MEANS THE BUYER HAS PAID, THE STOCK IS GONE AND NO ORDER
          * EXISTS. That is F186's root, and closing this window is what makes F186's own remedy
@@ -3869,11 +4081,11 @@ public function handlePaymeraTrigger00($orderId)
             if (module_is_active('RewardClubPoint') && isset($requests_data['club_point_is_active']) && $requests_data['club_point_is_active'] == 'on') {
                 $customerDetail = Customer::find($customer_id);
                 $rewardSetting = getAdminAllSetting($store->created_by, $store->id) ?? null;
-                $saveRewardPrice = ($customerDetail->total_club_point * $rewardSetting['reward_point_price'] ?? 0) / ($rewardSetting['reward_points'] ?? 0);
+                $saveRewardPrice = RewardPointDiscount::for((float) ($customerDetail->total_club_point ?? 0), $rewardSetting);
                 if ($plan->shipping_method == "on") {
-                    $order->final_price = $final_sub_total_price - $saveRewardPrice;
+                    $order->final_price = RewardPointDiscount::applyTo($final_sub_total_price, $saveRewardPrice);
                 } else {
-                    $order->final_price = $final_price + $tax_price - $saveRewardPrice;
+                    $order->final_price = RewardPointDiscount::applyTo($final_price + $tax_price, $saveRewardPrice);
                 }
             } else {
                 if ($plan->shipping_method == "on") {
@@ -4729,6 +4941,14 @@ $result = app(\App\Services\StoreNotificationService::class)
         $requests_data['customer_id'] = $customer_id;
         $request->merge(['customer_id' => $customer_id]);
 
+        // D6 STAGE 1, found by the independent review: a multipart FILE part named `customer_id` replaces the id merged just
+        // above in `Request::all()`, and every `$request->customer_id` below -- the three order notes, whose `customer_id` is a
+        // foreign key -- then reads the file. See customerIdTheIntakeCannotTrust(). Answered with the JSON envelope every other
+        // refusal in this method uses: its only browser caller is the AJAX in `payment/whatsapp.blade.php`, which reads `status`.
+        if ($this->customerIdTheIntakeCannotTrust($request, $customer_id)) {
+            return $this->error(['message' => __('Something went wrong.')]);
+        }
+
         /*
          * F95. ONE BASKET, ONE ORDER -- a mutex over the read-then-write, which this intake had
          * nothing of.
@@ -4798,7 +5018,9 @@ $result = app(\App\Services\StoreNotificationService::class)
          * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
          * right plan (CartController::cart_list_sidebar:38-40,
          * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
-         * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+         * The predicate's TEXT is unchanged but its MEANING is not: the query this replaced filtered
+         * `type = 'admin'`, so the `if` below could not fail. `ownerOf()` applies no type filter, which is why
+         * this site initialises `$plan` itself. See App\Support\Commerce\StorePlan.
          */
         $user = \App\Support\Commerce\StorePlan::ownerOf($store);
         $plan = null;
@@ -5041,12 +5263,23 @@ $result = app(\App\Services\StoreNotificationService::class)
          * it. Everything between the first `decrementStockOrFail()` and that line was an
          * uncompensated window: stock down, no order, nothing given back.
          *
-         * IT IS NOT A THEORETICAL WINDOW. Two deterministic throws live in it, both measured:
-         * the reward-points division (`$rewardSetting['reward_points'] ?? 0` as a DIVISOR, which
-         * raises DivisionByZeroError when that setting is absent or zero, on a line that also
-         * dereferences a `$customerDetail` that is null for a guest), and `$plan->shipping_method`
-         * where `$plan` comes from a `Plan::find()` that returns null for a missing `plan_id` --
-         * a value the code itself guards with `if ($plan && ...)` a few hundred lines earlier.
+         * IT IS NOT A THEORETICAL WINDOW. `$plan->shipping_method` throws deterministically when
+         * `$plan` comes from a `Plan::find()` that returned null for a missing `plan_id` -- a value
+         * the code itself guards with `if ($plan && ...)` a few hundred lines earlier. Measured.
+         *
+         * A SECOND THROW USED TO LIVE HERE AND IS NOW CLOSED; THE WINDOW IS STILL NEEDED FOR THE
+         * ONE ABOVE. F192 originally named two, the other being the reward-points division:
+         * `$rewardSetting['reward_points'] ?? 0` was used AS A DIVISOR, raising DivisionByZeroError
+         * when that setting was absent or zero, on a line that also dereferenced a
+         * `$customerDetail` that can be null. F192 said "null for a guest" and that part was
+         * already wrong: this branch is the `else` of `if (! auth('customers')->user())`, so no
+         * guest reaches it. It is null when a stored-state `customer_id` no longer resolves --
+         * the Customer soft-deleted mid-checkout, or belonging to another tenant.
+         * Both limbs are gone as of the P5-9 loyalty
+         * slice (2026-11-17): the division moved to `App\Support\Money\RewardPointDiscount`,
+         * which returns no discount rather than dividing by zero, and the balance is now read as
+         * `($customerDetail->total_club_point ?? 0)`. Do not re-derive the window's justification
+         * from the reward path -- it no longer throws.
          *
          * ON A GATEWAY RETURN THAT MEANS THE BUYER HAS PAID, THE STOCK IS GONE AND NO ORDER
          * EXISTS. That is F186's root, and closing this window is what makes F186's own remedy
@@ -5306,14 +5539,47 @@ $result = app(\App\Services\StoreNotificationService::class)
             }
 
         } else {
+            /*
+             * D6 STAGE 1. THIS WRITER RE-CHECKS, because unlike the COD / bank-transfer writer it is reachable
+             * WITHOUT the quote: `POST {slug}/whatsapp` falls back to `$request->all()` when the session holds no
+             * checkout state, and a posted `club_point_is_active=on` is then the caller's own word. (Telegram shares
+             * this method.) With stored state the flag is whatever `PaymentController::processRewardPoints()` wrote
+             * at initiation, and the gate below only has to agree with it.
+             *
+             *   BALANCE: `$customer_id`, which this method derives from the signed-in customer (`auth('customers')`)
+             *   and only falls back to the stored state when nobody is signed in -- and then this arm and the
+             *   dispatch are both unreachable. It is the id written on the order and debited by the listener.
+             *
+             *   VALUE TESTED: `$final_price`, the cart subtotal (`cart_list()['total_final_price']`, the same
+             *   number as the `final_price` the Blade gate compares), BEFORE coupon, tax and shipping. NOT the
+             *   `applyTo()` base below, which adds shipping when the plan has it: testing that would let the server
+             *   disagree with the control the shopper was shown. `applyTo()` keeps its own base (D5 untouched).
+             *
+             *   A REFUSAL REACHES THE EVENT. The flag is removed from `$requests_data`, the array
+             *   `AddRewardClubPoint` is built from at the dispatch below (written before this point, only read
+             *   after it), so the vendored listener takes its accrual branch rather than replacing the balance for
+             *   a discount that was never given.
+             */
+            $saveRewardPrice = 0.0;
             if (module_is_active('RewardClubPoint') && isset($requests_data['club_point_is_active']) && $requests_data['club_point_is_active'] == 'on') {
                 $customerDetail = Customer::find($customer_id);
-                $rewardSetting = getAdminAllSetting($store->created_by, $store->id) ?? null;
-                $saveRewardPrice = ($customerDetail->total_club_point * $rewardSetting['reward_point_price'] ?? 0) / ($rewardSetting['reward_points'] ?? 0);
+                $rewardSetting = (array) (getAdminAllSetting($store->created_by, $store->id) ?? []);
+                $saveRewardPrice = RewardPointDiscount::forOrder(
+                    (float) ($customerDetail->total_club_point ?? 0),
+                    (float) $final_price,
+                    $rewardSetting
+                );
+
+                if ($saveRewardPrice <= 0.0) {
+                    unset($requests_data['club_point_is_active']);
+                }
+            }
+
+            if ($saveRewardPrice > 0.0) {
                 if ($planShippingMethod == "on") {
-                    $order->final_price = $final_price + $delivery_price - $saveRewardPrice;
+                    $order->final_price = RewardPointDiscount::applyTo($final_price + $delivery_price, $saveRewardPrice);
                 } else {
-                    $order->final_price = $final_price - $saveRewardPrice;
+                    $order->final_price = RewardPointDiscount::applyTo($final_price, $saveRewardPrice);
                 }
             } else {
                 if ($planShippingMethod == "on") {

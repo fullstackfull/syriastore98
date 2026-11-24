@@ -137,3 +137,7 @@ __pycache__/
 /uploads/2/p3fixt/
 /uploads/5/p3fixt/
 /uploads/6/p3fixt/
+
+# Workflow-tool git worktrees. These are live checkouts created by the Workflow tool for
+# isolated subagents; they are embedded git repositories and must never be committed.
+.claude/worktrees/

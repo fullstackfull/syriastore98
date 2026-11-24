@@ -63,7 +63,7 @@ class ProductDataTable extends DataTable
                 return $product->variant_product == 1 ? __('has variant') : __('no variant');
             })
             ->editColumn('average_rating', function (Product $product) {
-                return '<i class="ti ti-star text-warning"></i> ' . $product->average_rating;
+                return '<i class="ti ti-star text-warning"></i> ' . e($product->average_rating);
             })
             ->editColumn('price', function (Product $product) {
                 if ($product->variant_product == 0) {
@@ -145,11 +145,12 @@ class ProductDataTable extends DataTable
             })
             ->editColumn('cover_image_path', function (Product $product) {
                 if (isset($product->cover_image_path) && !empty($product->cover_image_path)) {
-                    return '<img src="' . get_file($product->cover_image_path) . '" alt="" width="100" class="cover_img' . $product->id . '">';
+                    return '<img src="' . e(get_file($product->cover_image_path)) . '" alt="" width="100" class="cover_img' . (int) $product->id . '">';
                 }
                 return '';
             })
-            ->rawColumns(['action', 'category_id', 'brand_id', 'label_id', 'variant_product', 'average_rating', 'price', 'stock_status', 'product_stock', 'cover_image_path']);
+            // P1-SEC-80. The category, brand and label NAMES are text a staff member types (the closures return plain text): yajra escapes them. The rest are server-formatted or built here.
+            ->rawColumns(['action', 'variant_product', 'average_rating', 'price', 'stock_status', 'product_stock', 'cover_image_path']);
         return $dataTable;
     }
 

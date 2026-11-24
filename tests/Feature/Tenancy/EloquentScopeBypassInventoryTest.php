@@ -230,9 +230,11 @@ class EloquentScopeBypassInventoryTest extends SecurityTestCase
             // numbers moves whenever a comment does, which is why the D13 store-less
             // declaration in OwnedPathRawQueryInventoryTest keys on a statement fragment
             // instead.
-            'app/Models/Utility.php:3407',   // City::truncate()
-            'app/Models/Utility.php:3432',   // State::truncate()
-            'app/Models/Utility.php:3448',   // Country::truncate()
+            // SHIFTED BY +2 on 2026-11-19 (P1-SEC-73: the uploader functions above gained the remote-write checks). THE SITES ARE UNCHANGED -- each
+            // was verified to be the same construct it named before.
+            'app/Models/Utility.php:3411',   // City::truncate()
+            'app/Models/Utility.php:3436',   // State::truncate()
+            'app/Models/Utility.php:3452',   // Country::truncate()
         ], $hits, 'The truncate inventory changed. `truncate()` is forwarded straight to the base '
             . 'query builder (Builder.php:2123) and so empties the WHOLE TABLE for EVERY tenant. '
             . 'A new site is only acceptable on a model with no tenant discriminator -- verify '

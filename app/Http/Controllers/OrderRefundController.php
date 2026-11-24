@@ -1185,6 +1185,62 @@ class OrderRefundController extends Controller
                     'refund_status' => $targetStatus,
                     'refund_amount' => $amount
                 ]);
+
+                /*
+                 * P4-F127 -- A COMPLETED REFUND MOVES THE MERCHANT'S ENTITLEMENT. A REQUEST DOES NOT.
+                 * =====================================================================================
+                 *
+                 * MEASURED BEFORE THIS LINE: this controller is 1218 lines and contained ZERO
+                 * functional references to `payment_status`, `StoreWallet` or
+                 * `OrderFinancialService`. A fully refunded order kept `orders.payment_status =
+                 * 'Paid'`, kept its `store_order_financials` row at `paid`, and kept the merchant's
+                 * wallet credit. `order_refunds.refund_status` was the only record that money had
+                 * come back, and nothing financial read it.
+                 *
+                 * `store_order_financials.payment_status` has carried 'refunded' in its production
+                 * enum the whole time and nothing in the codebase could reach it. Now one thing can.
+                 *
+                 * THE GATE IS `$targetStatus === STATE_REFUNDED`, AND THAT IS THE WHOLE POLICY.
+                 * `resolveRefundStatus()` is the only producer of that value and returns it ONLY for
+                 * an OFFLINE payment type. Every online gateway resolves to 'Accept' -- approved, not
+                 * settled -- and the Accept -> Refunded edge is unreachable by construction, because
+                 * `hasGatewayRefundDriver()` is a hardcoded `return false` for every type and the two
+                 * gateway refund HTTP clients in this tree have zero callers. No refund request has
+                 * ever left this server.
+                 *
+                 * So the owner's "do not call a gateway refund complete without provider confirmation
+                 * or independently evidenced manual settlement" holds here for a blunt reason, and
+                 * this change does not pretend otherwise: it hangs the reversal on the one transition
+                 * that already asserts completion, and inherits that transition's own evidence.
+                 *
+                 * INSIDE THIS TRANSACTION ON PURPOSE. If the refund row's write rolls back, the
+                 * entitlement must roll back with it -- a reversal recorded against a refund that did
+                 * not persist is worse than neither.
+                 *
+                 * IDEMPOTENT, so a duplicate refund notification cannot debit twice: the reversal
+                 * re-reads the financial row under `lockForUpdate()` and returns without moving
+                 * anything once that row is already `cancelled` or `refunded`. Cancel-then-refund and
+                 * refund-then-cancel therefore both net to ONE reversal, and both orders are tested.
+                 *
+                 * `reverse()` and NOT `reverseOrLog()`: this call is already inside a transaction the
+                 * caller rolls back on any throw, and that is the correct direction here. A
+                 * cancellation must survive a ledger fault because the goods and the customer depend
+                 * on it; a REFUND payout record that cannot move the entitlement should not be
+                 * recorded as a completed refund at all.
+                 *
+                 * PARTIAL REFUNDS ARE NOT TOUCHED. `$amount` can be smaller than the order total, and
+                 * the reversal still takes back the whole credited amount -- which is correct ONLY
+                 * because `docs/finance/P4-F127-PARTIAL-REFUND-CAPABILITY.md` determines the ledger
+                 * cannot represent a partial refund safely and that mutation stays BLOCKED. If that
+                 * ever changes, this line is one of the places that has to change with it.
+                 */
+                if ($targetStatus === self::STATE_REFUNDED) {
+                    app(\App\Services\OrderEntitlementReversal::class)->reverse(
+                        $order,
+                        \App\Services\OrderEntitlementReversal::REASON_REFUNDED,
+                        'refund settled'
+                    );
+                }
             });
         } catch (\Throwable $e) {
             \Log::error('Refund payout record rolled back', [

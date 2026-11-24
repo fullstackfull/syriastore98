@@ -1,6 +1,6 @@
 # Store Syria — project instructions
 
-Multi-tenant Laravel e-commerce SaaS. Laravel 11.47 on PHP 8.3, built on the vendored **WorkDo
+Multi-tenant Laravel e-commerce SaaS. Laravel 11.57 on PHP 8.3, built on the vendored **WorkDo
 eCommerceGo** addon platform (70 modules under `packages/workdo/`). A second repository,
 `StoreSyria_app98`, is the shipped **admin** Flutter app. **Resuming or new account? Read `docs/development/HANDOFF-CURRENT.md` §13 first — Phase 01 engineering is CLOSED.**
 
@@ -30,8 +30,8 @@ Each of these has produced a real defect. Do not assume the framework default.
 **Tenancy**
 
 - Shared database, `store_id` discriminator. `config/tenancy.php` allowlists models in
-  `scoped_models` — **not every model is scoped**. `Customer` is; `Store`, `DeliveryBoy` and
-  `Order` are not.
+  `scoped_models` — **not every model is scoped**. **ELEVEN are**, listed in the table below;
+  `Store`, `Order` and `Product` are not.
 - **`null_tenant => 'open'`.** When no tenant resolves, the global scope **adds no predicate**. So
   a handler that relies on the scope for isolation is unprotected for any principal that doesn't
   resolve a tenant. Never let the scope be your only tenant check.
@@ -42,7 +42,7 @@ Each of these has produced a real defect. Do not assume the framework default.
 **Authentication**
 
 - Three *session* guards: `web`, `customers`, `deliveryboy`, and **no `api` guard**. There **is** a
-  `sanctum` one: `config('auth.guards')` has **four** at runtime, the config file three.
+  `sanctum` one: `config('auth.guards')` has **four** at runtime, the config file three. **`getCurrentStore()` and `auth()->user()` read the DEFAULT guard (`web`): null for a shopper, and for one who also holds a panel login they answer for *that merchant*** -- a storefront handler takes its store from the route (`getStore($slug)`); P1-SEC-71 stored ticket edits in a folder no store's id is part of. `actingAs($c, 'customers')` makes `customers` the default guard and hides it: use `asAShopper()` (`PlatformUploaderDoorsTest`).
 - `app/Http/Middleware/CustomAuth.php` (`custom.auth`) resolves a Sanctum token and logs its owner
   into whichever guard matches the **tokenable class**: `Customer`→`customers`, `User`→`web`,
   `DeliveryBoy`→`deliveryboy`. **A merchant's or driver's token passes `custom.auth` while
@@ -58,6 +58,7 @@ Each of these has produced a real defect. Do not assume the framework default.
   `auth('customers')` fallback" — and that fallback was the defect.
 - **A customer-token probe cannot test the trap.** A `Customer` token takes the *safe* branch, so a
   test that only drives one proves nothing. Drive a merchant and a driver token too.
+- **A `web` login is not a role.** Registration is open and the `web` and `customers` guards are separate sessions, so a visitor holds both: decide "panel" by the route (`PlatformUploadPolicy::panelSession()`), never by `auth('web')->check()` (P1-SEC-73; measured at the refund-evidence door).
 - **Sanctum tokens never expire** (no `config/sanctum.php`) and every one carries `['*']`.
   `CheckAbilities` is imported in `routes/api.php` and never used. There is **no refresh path for
   any client**, and `Api\AuthController::login` is **unrouted** — customers have no login endpoint.
@@ -68,33 +69,27 @@ Each of these has produced a real defect. Do not assume the framework default.
 
 **Routing**
 
-- `routes/api.php` lines 133–387 sit inside `Route::prefix('admin')`, so those paths are
+- `routes/api.php` lines 169–423 sit inside `Route::prefix('admin')`, so those paths are
   `api/admin/<x>`. The admin app's base URL is `https://storesyria.com/api/admin`. Routes outside
   that group are the **storefront** API (`api/{slug}/...`), which no client in either repository
   calls.
 - Later route declarations **replace** earlier ones for the same method+URI, silently dropping the
   earlier middleware. Check for duplicates before trusting a route's middleware.
-- `APP_KEY` is in git history and unrotated, so **`Crypt::encrypt()` is an encoding, not a
-  control**. An encrypted id in a URL is forgeable.
+- `APP_KEY` is in git history and unrotated, so **`Crypt::encrypt()` is an encoding, not a control** — an encrypted id in a URL is forgeable — and a `decrypt()` over request bytes is a deserialization door: the container's encrypter is `ObjectFreeEncrypter` (P1-SEC-77): it hands PHP nothing but plain data (`allowed_classes` alone does not stop an enum) and refuses the rest like a tampered payload, so never write `unserialize()` over input.
 
 **Tests and modules**
 
 - **No WorkDo module loads in any test run** unless the test inserts an `add_on_managers` row, so
-  the suite is structurally blind to module routes and module code: a test that "passes" against a
-  module surface may never have reached it. Enable the module through the production loader and add
-  a premise test asserting it really is active.
+  the suite is structurally blind to module code: a test that "passes" against a module surface may
+  never have reached it. Enable it through the production loader and add a premise test.
+- **MOST of `ReportController` cannot run under the suite** — 37 `MONTH(`/10 `YEAR(` in `selectRaw`, absent from SQLite, so those handlers answer **HTTP 500** in a Feature test. That is how 3,660 lines with zero `payment_status` predicates and an 18-site date-boundary bug survived 9,112 tests. **"AT ALL" was too strong and cost a real disposition** (2026-11-21): `order_category_reports` (1893-2360) and `order_brand_reports` (2382-2903) hold **0** MySQL-only constructs, so those two ARE suite-reachable — check your handler's own range before concluding it is untestable.
+  Evidence for the unreachable ones goes in `tests/Support/Security/bin/`, never a test.
 
 **Model caching**
 
-- **79 of the 95 models in `app/Models/` are `Cachable`** — assume cached; the 16 exceptions are
-  `AuditLog`, `CurrencyRate`, `DeliveryBoy{Device,Notification}`, `DeliveryEarning`,
-  `OtpIntegration`, `Permission`, `Role`, `SavedView`, `Store{Device,Notification,Wallet,
-  WalletTransaction,Withdrawal}`, `Zid{Event,Store}`. A raw write (`DB::table('products')->update()`)
-  leaves Eloquent reads, **route-model binding included**, serving the pre-write row, and under
-  `CACHE_STORE=array` it lives for the rest of the test: **three measured false readings**. Write
-  through Eloquent (it flushes) or `(new User)->flushCache()`; `$model->timestamps = false` keeps
-  an explicit past `updated_at`.- Several handlers read the platform admin via `Cache::remember('admin_details', 3600, ...)`, so
-  `Cache::forget('admin_details')` between a fixture and a request or it sees the pre-fixture `User`.
+- **79 of the 95 models in `app/Models/` are `Cachable`** — assume cached; the 16 exceptions are `AuditLog`, `CurrencyRate`, `DeliveryBoy{Device,Notification}`, `DeliveryEarning`, `OtpIntegration`, `Permission`, `Role`, `SavedView`, `Store{Device,Notification,Wallet,WalletTransaction,Withdrawal}`, `Zid{Event,Store}`. A raw write (`DB::table('products')->update()`) leaves Eloquent reads, **route-model binding included**, serving the pre-write row, and under `CACHE_STORE=array` it lives for the rest of the test: **three measured false readings**. Write through Eloquent (it flushes) or `(new User)->flushCache()`; `$model->timestamps = false` keeps an explicit past `updated_at`.
+- Several handlers read the platform admin via `Cache::remember('admin_details', 3600, ...)`, so `Cache::forget('admin_details')` between a fixture and a request or it sees the pre-fixture `User`.
+- **Compiled Blades are a THIRD cache and reverse mutation results.** Blade recompiles only when the source's mtime is **newer**, and `shutil.copy` does not preserve mtime — so copy→run→`move` back renders the *previous* version. Measured 2026-11-21: a reverted `<th scope="row">` mutation stayed live, failing a test against correct source; the other direction reads as **CAUGHT** when the test never saw it. Use `tests/Support/bin/mutate.py` (restores mtime, runs `view:clear`); by hand, `php artisan view:clear`.
 
 **Scoped models — check before asserting absence**
 
@@ -104,8 +99,12 @@ Each of these has produced a real defect. Do not assume the framework default.
 |---|---|---|---|
 | `Customer` | yes (+ SoftDeletingScope) | yes | **yes** |
 | `Cart` | yes | yes | **yes** |
+| `DeliveryBoy` | yes | yes | **yes** |
+| `Menu`, `SupportTicket`, `SupportConversion`, `FlashSaleCondition`, `ThemeCustomizeOrder`, `NotifyUser`, `OrderRefund`, `OrderNote` | yes | yes | **yes** |
 | `Product` | yes | **no** | **NO** |
-| `Order`, `Wishlist`, `DeliveryAddress`, `User`, `ActivityLog`, `Testimonial` | no | no | no |
+| `Order`, `Store`, `Wishlist`, `DeliveryAddress`, `User`, `ActivityLog`, `Testimonial` | no | no | no |
+
+**Wrong about `DeliveryBoy` and silent about eight more until 2026-11-24, when an adversarial verifier refused it; `tests/Unit/Tenancy/ClaudeMdScopedModelClaimTest` now re-measures every row against the booted container, in both directions.**
 
 `StoreScope::isActiveFor()` short-circuits for a model that is not in `config/tenancy.php`'s
 `scoped_models`, so **`Product` adds no predicate for any principal** — not a customer, not a
@@ -113,11 +112,11 @@ merchant, not the operator, not an admin-context request. `Product::find($id)` r
 tenant's catalogue, which produced a live cross-tenant stock drain (S19) that the `customer_id`
 sweep missed because it was looking at the wrong identifier.
 
-The two that *do* filter matter for **assertions**: a plain `Customer::find()` or `Cart::find()` in
-a test answers against whichever tenant happens to be resolved, not against the table, so an "it is
-gone" assertion passes whether or not the fix works. That cost a real false reading — a cart test
-reported a store-B row deleted while the raw table still held it. Assert through
-`withoutGlobalScopes()`.
+The ELEVEN that *do* filter matter for **assertions** (this said "two"): a plain
+`Customer::find()`, `Cart::find()` or `SupportTicket::find()` in a test answers against whichever
+tenant happens to be resolved, not against the table, so an "it is gone" assertion passes whether
+or not the fix works. That cost a real false reading — a cart test reported a store-B row deleted
+while the raw table still held it. Assert through `withoutGlobalScopes()`.
 
 **Schema**
 
@@ -162,8 +161,8 @@ php artisan test --testsuite=Feature     # 7959 tests, ~9 min. SKIPPED ENTIRELY 
 /tenant-check                            # tenancy + security suites (see .claude/commands)
 ```
 
-**The Feature suite is not green and is not meant to be.** It has **2 accepted failures and 1
-accepted skip** (17 until GATE F closed), declared by name in `.github/known-test-outcomes.json`,
+**The Feature suite is not green and is not meant to be.** It has **1 accepted failure and 1
+accepted skip** (2 until 2026-11-20, 17 until GATE F closed), declared by name in `.github/known-test-outcomes.json`,
 which *requires* a resolved entry to be deleted. The gate asserts the
 outcome *set* in both directions — an undeclared failure *and* an unexpectedly-passing declared
 failure both fail it:
@@ -183,8 +182,9 @@ P01-SEC-13 survived. For anything schema-sensitive, use a real MySQL:
 `tests/Support/Security/bin/verify-sec13-migration-on-mysql.php` shows the pattern (it creates and
 drops its own throwaway database).
 
-Evidence that cannot live in the suite goes in `tests/Support/Security/bin/` as an executable
-script stating its own preconditions — a conditionally-skipped test would break the declared set.
+**A CENSUS THAT READS COMMENTS CAN BE SATISFIED — OR BROKEN — BY PROSE ABOUT THE THING IT MEASURES.** Hit **four times on 2026-11-21 alone**, in three syntaxes: a PHP docblock naming `MerchantPermissions::allowsAny`, a Blade comment containing the literal `` `<a>` `` while explaining that the call was moved *out* of an anchor, and a CSS comment recording that a draft had used `position: relative`. Use `Tests\Support\StripsSourceComments::sourceWithoutComments()` for PHP; strip `{{-- --}}` for Blade and `/* */` for CSS (`ProductActionOverlayTest` has both). **Scope the search to the block too:** an assertion over a whole 7,000-line stylesheet answers "does this string exist anywhere", and a mutation dropping one component's 44px target survived because another component had the same rule.
+
+Evidence that cannot live in the suite goes in `tests/Support/Security/bin/` as an executable script stating its own preconditions — a conditionally-skipped test would break the declared set.
 
 ---
 
@@ -202,6 +202,30 @@ script stating its own preconditions — a conditionally-skipped test would brea
 
 Phase 02 engineering may proceed on its own branch; this does **not** waive Phase 01 acceptance criteria or authorise release to production.
 
+### 4.1 Original-plan traceability is mandatory — never reduce the approved scope
+
+**Before declaring any phase or milestone complete, reconcile every original owner-approved
+requirement against `MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`. Missing, partial, unverified and
+deferred items need explicit dispositions. CI success alone does not establish product-scope
+completeness. Never silently reduce the approved scope.**
+
+**The original plan IS in this repository now** — recovered 2026-11-16, committed verbatim under
+`docs/development/master-plan/`: the base plan, the same text plus three approved amendments, and
+`DECISION-ID-REGISTER.md` with all **181** decision IDs (25 families, 19 previously unknown) and the
+12 `EX-*` exclusions. **Three texts are still missing (1 GOV, 2 ARCH) and must not be invented**; 64
+ids have family-level content only; the source calls itself a *reorganization*, not the unedited
+original — so a figure is alignment with the RECOVERED plan and must say which. **20 recovered
+requirements were never tracked at all** — `GAP-182`…`GAP-199` plus `GAP-231`/`GAP-232` (2026-11-24; missed by the census that found the first eighteen).
+
+**Four states, never one label:** engineering complete · original requirement coverage · human
+acceptance · production readiness. An engineering-complete phase may still have incomplete original
+requirements — Phases 01, 03 and 04 do.
+
+**Two assessments before any completion claim.** A: engineering. B: original-plan coverage — every
+requirement accounted for, every deviation and partial named, **every deferral grounded in an actual
+owner decision; an engineering report deferring something is not one**. Give **exact totals**, never
+a percentage or a sample. If requirements are missing, say so **even when every test is green**.
+
 **Phase 02 keeps its original Merchant Experience scope.** Phase 2.5, 03 and 06 are separate and
 must not be started during it, nor absorbed into it — see *Scope boundaries* in the ledger. Phase 02
 is not complete until every master-prompt requirement has a verified status or an authorised
@@ -213,6 +237,7 @@ exception; `PHASE-02-COVERAGE-AUDIT-2026-10-25.md` traces which do and which do 
 
 | | |
 |---|---|
+| **the plan, and traceability** (read all four) | **`docs/development/master-plan/`** — base (historical, unchanged), +amendments (consolidated), `DECISION-ID-REGISTER.md` (181 ids, exclusions, reconciliation) — then `docs/development/MASTER-PLAN-{SOURCE-VERIFICATION,REQUIREMENT-TRACEABILITY,GAP-REGISTER}.md`: 350 requirements, **170 verified complete, 180 not, +20 recovered and untracked = 200 open** |
 | open security findings | `docs/security/P01-SECURITY-WORK-QUEUE.md` |
 | the next work package | `docs/development/phase-1/10-NEXT-WORK-PACKAGES.md` |
 | token lifetime | `docs/security/P01-TOKEN-EXPIRY-PROPOSAL.md` |

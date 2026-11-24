@@ -126,7 +126,26 @@ class BenefitPaymentController extends Controller
                         "receipt" => ["email" => true, "sms" => true],
                         "customer" => ["first_name" => $objUser->name, "middle_name" => "", "last_name" => "", "email" => $objUser->email, "phone" => ["country_code" => 965, "number" => 51234567]],
                         "source" => ["id" => "src_bh.benefit"],
-                        "post" => ["url" => "https://webhook.site/fd8b0712-d70a-4280-8d6f-9f14407b3bbd"],
+                        /*
+                         * P4-F046 -- THE PUBLIC BIN IS GONE. Owner decision: "remove webhook.site".
+                         *
+                         * The same committed bin as the storefront's, on the SaaS-plan rail, and
+                         * worse here in one respect: the sibling `redirect.url` below carries
+                         * plan_id, amount and coupon, so the bin would have received the complete
+                         * replay tuple in the SAME payload as the Tap charge id.
+                         *
+                         * `''` IS THE SHAPE processTap ALREADY SHIPS ON THE WIRE, and an earlier
+                         * version of this comment claimed `null` was. It is not. processTap (and
+                         * TapPaymnetController) pass PHP `null` into App\Package\Payment::charge(),
+                         * which builds its JSON by string concatenation and so sends
+                         * `"post":{"url":""}`. This method json_encode()s an array, so `null` here
+                         * reached Tap as `"url":null` -- a shape no other Tap flow in this
+                         * repository sends and one nobody could verify, since no credential exists
+                         * in the container. `''` is byte-identical to what the card flows already
+                         * send. It removes the bin WITHOUT choosing a new destination -- that
+                         * remains the open owner decision P1-SEC-55, which this does not pre-empt.
+                         */
+                        "post" => ["url" => ''],
                         "redirect" => ["url" => route('benefit.call_back', ['plan_id' => $plan->id, 'amount' => $get_amount, 'coupon' => $coupon])],
 
 
@@ -146,7 +165,39 @@ class BenefitPaymentController extends Controller
                   
 
                 } catch (\Throwable $th) {
-                    return redirect()->back()->with('error', __('Currency Not Supported.Contact To Your Site Admin'));
+                    /*
+                     * THE REASON IS LOGGED NOW, and the currency sentence is shown for FEWER
+                     * failures than before -- not for exactly the right ones.
+                     *
+                     * This catch answered EVERY failure with "Currency Not Supported" and recorded
+                     * none: a wrong platform key, an unreachable provider and a malformed body all
+                     * read the same, and the log could not say which. The storefront twin,
+                     * PaymentService::processBenefit, was narrowed in the same commit that removed
+                     * the webhook bin; this rail was not.
+                     *
+                     * WHAT THE CONDITION SEPARATES, AND WHAT IT DOES NOT. `ClientException` is
+                     * EVERY 4xx the provider returns. That includes the 400/422 a genuine currency
+                     * rejection would use and ALSO a 401 from a wrong key, a 403 and a 429 -- for
+                     * those the sentence is still misleading, and this does not pretend otherwise.
+                     * It was not narrowed to particular status codes because Tap's codes for a
+                     * rejected currency cannot be verified from here (no credential exists in this
+                     * container), and a wrong guess would silence the sentence where it IS true.
+                     * What changed is the other side: a connection failure, a 5xx and a malformed
+                     * body -- the cases that were certainly NOT a currency problem -- no longer say
+                     * it was.
+                     *
+                     * WHO CAN ACT ON IT. The key is the PLATFORM's (`benefit_secret_key`, read from
+                     * the super-admin settings at the top of this method) and the person paying is a
+                     * merchant buying a plan, who cannot fix a wrong key. "Contact To Your Site
+                     * Admin" addresses the right person, and the log now gives that person the real
+                     * reason: PaymentFailure::redirectBack() records the gateway, the exception
+                     * class and the first 300 characters of its message -- never the request headers.
+                     */
+                    $failure = \App\Services\PaymentFailure::redirectBack($th, 'benefit');
+
+                    return $th instanceof \GuzzleHttp\Exception\ClientException
+                        ? $failure->with('error', __('Currency Not Supported.Contact To Your Site Admin'))
+                        : $failure;
                 }
 
                 $data = $response->getBody();

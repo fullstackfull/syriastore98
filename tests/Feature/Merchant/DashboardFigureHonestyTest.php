@@ -184,6 +184,57 @@ class DashboardFigureHonestyTest extends SecurityTestCase
     }
 
     /**
+     * ANA-TOP — THE DISCLOSURE HALF OF THE FIX IS RENDERED, not merely computed.
+     *
+     * ADDED BECAUSE THE INDEPENDENT REVIEW SHOWED IT FAILED NO TEST. Deleting the caveat block
+     * from the partial kept all twenty engine cases green, and so did flipping the null check from
+     * `=== null` to something a null slips through -- at which point
+     * `currency_format_with_sym(null, ...)` reaches `number_format(null, ...)` and prints `0.00`,
+     * which is the precise under-report the whole slice exists to avoid. The engine side asserts
+     * the caveat TEXT; nothing asserted the merchant could see it.
+     *
+     * Both halves are pinned here, on rendered HTML, because the view is the surface a merchant
+     * reads.
+     */
+    public function test_a_withheld_total_renders_as_unavailable_with_its_caveat_visible(): void
+    {
+        $this->actingAs($this->merchant);
+
+        $html = View::make('order.brand_category_chart', [
+            'tab_name' => '#all-category-order',
+            'top_sales' => collect([
+                (object) [
+                    'sale_name' => 'Rugs',
+                    'sale_image_path' => null,
+                    /* Earned nothing in the store's own currency: there is no comparable total. */
+                    'total_sale' => null,
+                    'currency' => 'USD',
+                    'currency_is_configured' => true,
+                    'other_currencies' => ['EUR' => 912.34],
+                    'unrecorded_currency_amount' => 0.0,
+                    'caveat' => 'Also earned in another currency, which is not added in and not converted: 912.34 EUR.',
+                ],
+            ]),
+        ])->render();
+
+        $this->assertStringContainsString('Not available', $html,
+            'a withheld total must say so; printing 0.00 would state this category earned nothing');
+        /* 912.34 RATHER THAN 900.00 IN THE FIXTURE, because "900.00" CONTAINS "0.00" -- the first
+           draft of this negative assertion failed against correct output for that reason alone.
+           With an amount carrying no zero-decimal substring, "0.00" appearing can only mean the
+           null total reached `currency_format_with_sym()`, which hands `number_format(null)` back
+           a printed zero. That is the under-report this case exists to catch. */
+        $this->assertStringNotContainsString('0.00', $html,
+            'a null total reached the money formatter and was printed as zero');
+
+        $this->assertStringContainsString('912.34 EUR', $html,
+            'the foreign-currency amount must be VISIBLE on the card, not only in the row object -- '
+            . 'a disclosure a merchant cannot read is not a disclosure');
+        $this->assertStringContainsString('ss-stat__hint', $html,
+            'the caveat must use the design system class that is contrast-checked in both themes');
+    }
+
+    /**
      * The injected body must not claim to be a tab panel: it is replaced INTO
      * `#category-tab-data`, which is the panel the five tabs name.
      */

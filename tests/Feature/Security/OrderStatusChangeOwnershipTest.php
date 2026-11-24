@@ -167,9 +167,18 @@ class OrderStatusChangeOwnershipTest extends SecurityTestCase
             'The owner can no longer cancel their own order, so the refusals above prove nothing. '
             . 'Status ' . $response->status() . ', body: '
             . substr((string) $response->getContent(), 0, 300));
-        $this->assertSame('Unpaid', $after['payment_status'],
-            'The cancel did not reach the payment_status write, so the destructive path did not '
-            . 'run and the negative tests measure nothing.');
+        /*
+         * 'Unpaid' -> 'Paid'. OWNER DECISION P4-F124 (Option A), 2026-11-16.
+         *
+         * The premise this assertion serves -- "the destructive path really ran, so the negative
+         * tests above measure something" -- is unchanged and is carried by `delivered_status = 2`
+         * immediately above, which the cancel arm writes first. The payment column was a second
+         * witness and is now the wrong one: the engine no longer touches it, because an order the
+         * customer really paid for must go on saying so.
+         */
+        $this->assertSame('Paid', $after['payment_status'],
+            'cancelling rewrote the customer\'s payment history. P4-F124 Option A moved the '
+            . 'reversal onto the financial ledger; if this reads Unpaid the old magic line is back.');
     }
 
     /**

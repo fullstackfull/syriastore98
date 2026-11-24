@@ -35,7 +35,8 @@ class RoleDataTable extends DataTable
                         $subQuery->where('name', 'like', "%$keyword%");
                     });
                 })
-                ->rawColumns(['name','permissions','action']);
+                // P1-SEC-80. A role's name is plain text a staff member types: yajra escapes it. `permissions` and `action` are views.
+        ->rawColumns(['permissions','action']);
     }
 
     /**

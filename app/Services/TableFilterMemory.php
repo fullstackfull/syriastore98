@@ -84,6 +84,60 @@ final class TableFilterMemory
            DataTable reads but the memory does not know about is remembered by neither leg, so
            the bar forgets it on the next visit and the receipt never mentions it. */
         'order' => ['ss_status', 'ss_payment', 'ss_return', 'ss_source', 'ss_from', 'ss_to'],
+        /*
+         * ANA-002's saved reporting periods. THE ENTRY IS WHAT MAKES SAVING POSSIBLE AT ALL:
+         * `SavedView::sanitiseFilters()` returns `[]` for a screen with no vocabulary -- correctly,
+         * since the docblock above says callers must read that as "nothing may be saved here" --
+         * so without this line a merchant could press Save and get an empty row back, which is the
+         * worst of the three outcomes because it looks like it worked.
+         *
+         * THIS DOES NOT TURN ON SESSION MEMORY FOR `/analytics`. The remember/recall legs are
+         * called explicitly by `ProductController` and `OrderController`; `MerchantAnalyticsController`
+         * calls neither, so a period lives in the URL or in a saved view and nowhere else. Session
+         * memory for a period would be a separate decision, and the "my orders are gone" hazard
+         * this class was written around does not obviously apply to a date range.
+         */
+        'analytics' => ['ss_period', 'ss_from', 'ss_to'],
+        /*
+         * MKT-002's five Marketing screens. EVERY NAME HERE ALSO NEEDS A HEADING IN `label()` AND A
+         * VALUE MAP IN `valueLabels()`, and that is not housekeeping: an unlisted name returns null
+         * from `label()`, `describe()` then returns `[]`, and the bars render Clear on
+         * `describe(...) !== []` -- the sticky-filter-with-no-way-out this class's docblock already
+         * records happening to the order screen. `MarketingFilterReceiptTest` drives all three gates
+         * for all twenty value pairs so the three cannot drift apart again.
+         *
+         * THE VALUES ARE READ OFF THE CREATE MIGRATIONS AND THE FIRST-PARTY LITERALS, never invented:
+         * `coupons.status` and `flash_sales.is_active` are 1/0, `coupons.coupon_type` is exactly
+         * `percentage` | `fixed product discount` | `flat` (the only three literals in app/ and
+         * resources/), and all five tables carry `timestamps()`, so `ss_from`/`ss_to` have a real
+         * `created_at` to narrow. No threshold and no band is chosen here, because a spend or
+         * recency band is a marketing policy and not engineering's to pick.
+         */
+        'coupon' => ['ss_status', 'ss_type', 'ss_expiry', 'ss_from', 'ss_to'],
+        'newsletter' => ['ss_source', 'ss_from', 'ss_to'],
+        'flash-sale' => ['ss_status', 'ss_window', 'ss_type', 'ss_from', 'ss_to'],
+        'wishlist' => ['ss_status', 'ss_from', 'ss_to'],
+        /* `ss_items` is the only predicate in this slice that must be a HAVING: `AbandonCartDataTable`
+           groups by `carts.customer_id` and counts rows, so a WHERE on the count is not expressible.
+           `one` / `several` rather than a numeric band, because a band is a policy choice. */
+        'abandon-cart' => ['ss_items', 'ss_from', 'ss_to'],
+    ];
+
+    /**
+     * The heading each filter is announced under. THE ONLY LIST, read by `label()` for the receipt
+     * and by `headingFor()` for a filter bar's own labels.
+     *
+     * A NAME ABSENT FROM HERE RETURNS NULL FROM `label()`, `describe()` then returns `[]`, and the
+     * bars render their Clear button on `describe(...) !== []` -- so an unlisted name does not
+     * merely lose its wording, it takes the merchant's way out with it. That is written out at
+     * `label()` itself, where it happened to the order screen.
+     */
+    private const HEADINGS = [
+        'ss_status' => 'Status', 'ss_variant' => 'Variants', 'ss_stock' => 'Stock',
+        'ss_category' => 'Category', 'ss_payment' => 'Payment', 'ss_from' => 'From',
+        'ss_to' => 'To', 'ss_return' => 'Returns', 'ss_source' => 'Source',
+        // MKT-002's four.
+        'ss_type' => 'Type', 'ss_expiry' => 'Expiry', 'ss_window' => 'When', 'ss_items' => 'Items',
     ];
 
     /**
@@ -98,6 +152,83 @@ final class TableFilterMemory
      * @return list<string> empty for a screen with no vocabulary, which callers must treat as
      *                      "nothing may be saved for this screen" rather than "anything may"
      */
+    /**
+     * The heading a filter is announced under, or null when it is not a filter this class words.
+     *
+     * MKT-002. `label()` holds the only list of filter headings, and a filter bar that spelled its
+     * own labels could disagree with the receipt below it -- the screen saying "Type" while the
+     * receipt says something else, or worse, a bar offering a control whose value `label()` cannot
+     * word, which is the sticky-filter-with-no-Clear-button failure that method's docblock records.
+     * One map, read by both.
+     */
+    public static function headingFor(string $name): ?string
+    {
+        return self::HEADINGS[$name] ?? null;
+    }
+
+    /**
+     * The value => wording map a screen uses for one filter, or [] when that filter has no
+     * vocabulary (the dates, which `label()` echoes back instead).
+     *
+     * MKT-002, and the same reason as `headingFor()`: the OPTIONS a select offers and the words the
+     * receipt prints are now the same array. A select that offered a value the map does not carry
+     * would narrow the list and say nothing about it.
+     *
+     * @return array<string, string>
+     */
+    public static function optionsFor(string $screen, string $name): array
+    {
+        return self::valueLabels($screen)[$name] ?? [];
+    }
+
+    /**
+     * A `ss_from` / `ss_to` value as a date, or null when it is not one.
+     *
+     * MKT-002. `OrderDataTable` has had this logic since P2-04-11 as a PRIVATE static, so the five
+     * Marketing tables could not call it and would otherwise each carry a copy. One definition
+     * lives here -- the class that already owns the filter vocabulary -- and
+     * `MarketingListFiltersTest` asserts this and the order screen's copy agree on a table of
+     * inputs, so the two cannot drift while both exist.
+     *
+     * STRICT, AND THE ROUND TRIP IS THE POINT. `createFromFormat('Y-m-d', ...)` accepts far more
+     * than it looks: `2026-02-30` rolls into March and `2026-2-3` parses. Comparing
+     * `format('Y-m-d')` back against the input is what refuses both, so a filter either narrows on
+     * the date the merchant typed or declines -- never on a date nobody chose.
+     *
+     * IT RETURNS MIDNIGHT, AND THAT IS A FIX RATHER THAN A FORMALITY. `createFromFormat('Y-m-d', ...)`
+     * fills the unspecified time components FROM THE CURRENT CLOCK, not from midnight -- measured:
+     * at 14:22:48 the string `2026-11-18` parses as `2026-11-18 14:22:48`. So an un-normalised bound
+     * moves through the day, and `created_at <= $to` would admit a row recorded at 12:30 in the
+     * afternoon and exclude the same row in the morning. A filter whose answer depends on when the
+     * merchant looked is worse than one that is simply wrong, because it cannot be reproduced.
+     *
+     * Found by a mutation that would not die: removing `endOfDay()` from a caller's `ss_to` bound
+     * changed nothing, because the drifting time of day was already papering over the difference.
+     *
+     * THE CALLER STILL OWNS THE END OF THE DAY. `startOfDay()` here makes the value deterministic;
+     * an inclusive upper bound still needs `endOfDay()` at the predicate, because `<= midnight`
+     * drops everything recorded during the day that was asked for. That is written out at
+     * `OrderDataTable`'s `ss_to` branch and at every caller here.
+     */
+    public static function parseDate($value): ?\Carbon\Carbon
+    {
+        if (! is_string($value) || $value === '') {
+            return null;
+        }
+
+        try {
+            $date = \Carbon\Carbon::createFromFormat('Y-m-d', $value);
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        if ($date === false || $date->format('Y-m-d') !== $value) {
+            return null;
+        }
+
+        return $date->startOfDay();
+    }
+
     public static function vocabularyFor(string $screen): array
     {
         return self::VOCABULARY[$screen] ?? [];
@@ -314,15 +445,11 @@ final class TableFilterMemory
      */
     private static function label(string $name, string $value, string $screen, array $categories): ?string
     {
-        $heading = [
-            'ss_status' => 'Status', 'ss_variant' => 'Variants', 'ss_stock' => 'Stock',
-            'ss_category' => 'Category', 'ss_payment' => 'Payment', 'ss_from' => 'From',
-            'ss_to' => 'To', 'ss_return' => 'Returns', 'ss_source' => 'Source',
-        ];
-
-        if (! isset($heading[$name])) {
+        if (! isset(self::HEADINGS[$name])) {
             return null;
         }
+
+        $heading = self::HEADINGS;
 
         $map = self::valueLabels($screen);
 
@@ -397,6 +524,60 @@ final class TableFilterMemory
                         \App\DataTables\OrderDataTable::PAYMENT_STATUSES),
                 ),
             ];
+        }
+
+        /*
+         * MKT-002. DECLARED PER SCREEN RATHER THAN LEFT TO FALL THROUGH, even where the wording would
+         * come out the same. `coupons.status` and `flash_sales.is_active` really are 1/0
+         * active/inactive, so the default map below would read correctly today -- but the defect this
+         * method's docblock records was the PRODUCT map silently answering for the ORDER screen, and
+         * a screen that relies on another's map is one column rename away from repeating it.
+         */
+        if ($screen === 'coupon') {
+            return [
+                'ss_status' => ['1' => __('Active'), '0' => __('Inactive')],
+                /* The three `coupon_type` literals in the tree, spelled as the column stores them. */
+                'ss_type' => [
+                    'percentage' => __('Percentage'),
+                    'fixed product discount' => __('Fixed amount off a product'),
+                    'flat' => __('Flat amount off the basket'),
+                ],
+                /* `coupon_expiry_date` against today. Two values, because those are the two a date
+                   column can answer without a window somebody has to choose. */
+                'ss_expiry' => ['expired' => __('Expired'), 'current' => __('Still valid')],
+            ];
+        }
+
+        if ($screen === 'newsletter') {
+            /* `newsletters` holds only `customer_id`, `email` and `store_id`, so this is the one
+               distinction the table can actually make. */
+            return [
+                'ss_source' => ['customer' => __('A registered customer'), 'guest' => __('An e-mail only')],
+            ];
+        }
+
+        if ($screen === 'flash-sale') {
+            return [
+                'ss_status' => ['1' => __('Active'), '0' => __('Inactive')],
+                'ss_window' => [
+                    'running' => __('Running now'),
+                    'upcoming' => __('Not started yet'),
+                    'ended' => __('Finished'),
+                ],
+                /* `flash_sales.discount_type`. Narrower than the coupon set: there is no
+                   product-level type on a flash sale. */
+                'ss_type' => ['percentage' => __('Percentage'), 'flat' => __('Flat amount')],
+            ];
+        }
+
+        if ($screen === 'wishlist') {
+            return ['ss_status' => ['1' => __('Active'), '0' => __('Inactive')]];
+        }
+
+        if ($screen === 'abandon-cart') {
+            /* Counts of rows per customer, so the words say items and not money: `carts.price` is an
+               integer column and a spend band would be a policy nobody has chosen. */
+            return ['ss_items' => ['one' => __('One item'), 'several' => __('More than one item')]];
         }
 
         return [

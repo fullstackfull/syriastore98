@@ -7,8 +7,17 @@
                     <a href="{{ url($store->slug . '/product/' . $product->slug) }}">
                         <img src="{{ storefront_image($product->cover_image_path) }}" alt="Ultra HD Smart Watch Pro"
                             class="w-full h-full object-contain p-4">
-                        {!! \App\Models\Product::actionLinks( $store, $product) !!}
                     </a>
+
+                    {{-- MKT-010 — MOVED OUT OF THE `<a>`.
+                         The hook emits the module buttons, which are themselves links and buttons,
+                         and they were nested INSIDE this anchor. Interactive content inside an `<a>`
+                         is invalid HTML and genuinely breaks the keyboard path: the inner control
+                         may be unreachable, or activating it also follows the outer link, so a
+                         shopper pressing "compare" lands on the product page instead. Moved to a
+                         sibling of the anchor inside the same positioned box, which is where
+                         stylique already has it -- so this is also the parity fix. --}}
+                    {!! \App\Models\Product::actionLinks( $store, $product) !!}
                     <div class="pro-btn-wrapper absolute top-4 right-4 flex flex-col gap-3 transition-all duration-300">
                         {{-- M2-E a11y: techzonix's wishlist control is an <a>, not a <button> like the
                              other two themes, so the button-name sweep did not reach it. It only

@@ -60,8 +60,9 @@ use App\Models\Utility;
  * `$store->created_by`.
  *
  * It was LATENT rather than live: the web wipe's last-store count asks about the CALLER's own
- * stores (`Store::where('created_by', $user->id)`), and no store writer ever sets `created_by` to
- * a super admin, so an operator owns 0 stores and is refused before reaching it. The admin API
+ * stores (`Store::where('created_by', $user->id)`), and an operator owns exactly the ONE store the
+ * seeder gives them (PermissionTableSeeder; no later writer sets `created_by` to a super admin), so
+ * the last-store rule refuses them before reaching it. (This sentence used to say "0 stores".) The admin API
  * twin cannot reach it at all -- its own predicate is `created_by == $user->id`. Fixed anyway: a
  * money figure debited to the wrong user should not be one data change away.
  *
@@ -84,6 +85,17 @@ use App\Models\Utility;
  * and `StoredUpload::mayTouchStoreFolder()` exempts a `super admin` from rule 3. A guard that
  * refused the operator would be a lockout rather than a tightening -- the ordering mistake this
  * project's skill records for authorization limbs.
+ *
+ * P1-SEC-67d, AND WHAT THIS LIMB STILL DOES. `StoredUpload` now gives that exemption to an operator
+ * who is the one ACTING, not to whoever presents an operator's id. THE LIMB BELOW STILL KEYS ON THE
+ * ID PRESENTED, and `ProductController::destroy()` presents `Auth::user()->creatorId()` -- the
+ * operator's id for a principal rooted at the platform (a merchant who demoted their own `type`,
+ * or staff the operator created). For them this limb answers yes for ANY product; what bounds the
+ * product is `destroy()`'s own current-store check, and what bounds the FILES is `StoredUpload`,
+ * through `changeproductStorageLimit()`. So it is not a cross-tenant door, and it is left as it is:
+ * refusing here would leave the image rows of a product the handler deletes anyway. The two layers
+ * do disagree for staff the operator created -- this says yes, `StoredUpload` resolves nothing --
+ * so a product they delete loses its rows and keeps its files. Recorded in the work queue, k).
  */
 final class ProductMediaReclaimer
 {

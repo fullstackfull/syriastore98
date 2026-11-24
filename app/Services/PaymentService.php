@@ -58,6 +58,7 @@ use App\Traits\ApiResponser;
 
 
 use Illuminate\Support\Facades\Log;
+use App\Support\Money\RewardPointDiscount;
 
 class PaymentService
 {
@@ -1049,8 +1050,7 @@ private function processPaymera00000($request, $slug)
         $provider = new PayPalClient;
 
         $provider->setApiCredentials(config('paypal'));
-        $paypalToken = $provider->getAccessToken();
-        Session::put('paypal_payment_id', $paypalToken['access_token']);
+        $provider->getAccessToken();
         $objUser = \Auth::user();
         $orderID = $request->user_id . date('YmdHis');
         $cartlist_final_price = $request->cartlist_final_price;
@@ -1814,7 +1814,36 @@ private function processPaymera00000($request, $slug)
                 // (PaymentController::processBillingInfo and the three order writers' billing rows).
                 "customer" => ["first_name" => $other_info['firstname'], "middle_name" => "", "last_name" => $other_info['lastname'] ?? '', "email" => $other_info['email'], "phone" => ["country_code" => 965, "number" => 51234567]],
                 "source" => ["id" => "src_bh.benefit"],
-                "post" => ["url" => "https://webhook.site/fd8b0712-d70a-4280-8d6f-9f14407b3bbd"],
+                /*
+                 * P4-F046 -- THE PUBLIC BIN IS GONE. Owner decision: "remove webhook.site".
+                 *
+                 * `post.url` is Tap's SERVER-TO-SERVER notification destination. It pointed at
+                 * `https://webhook.site/fd8b0712-...`, a PUBLIC bin whose URL was committed in this
+                 * repository, so for every real Benefit shopper Tap was asked to POST the charge --
+                 * amount, currency, the first product's name, the customer's name and email, and
+                 * the charge id this platform's return paths treat as proof of payment -- to a page
+                 * anyone holding that URL can read.
+                 *
+                 * `''` IS THE SHAPE ALREADY SHIPPED ON THE WIRE BY EVERY OTHER TAP FLOW IN THIS
+                 * REPOSITORY, and this comment used to say `null` was, then to admit that it was
+                 * not and leave it. processTap and TapPaymnetController pass PHP `null` into
+                 * App\Package\Payment::charge(), which builds its JSON by string concatenation and
+                 * so sends `"post":{"url":""}`. This method json_encode()s an array, so `null`
+                 * would have reached Tap as `"url":null`. Whether Tap treats the two alike is NOT
+                 * VERIFIED from here -- no credential exists in this container -- so the choice
+                 * that adds no unknown is the one the card flows already prove: `''`. Both mean
+                 * "no callback"; only one has ever been sent.
+                 *
+                 * This removes the bin WITHOUT choosing a new destination -- choosing one is a
+                 * separate open owner decision (P1-SEC-55), which this deliberately does not
+                 * pre-empt.
+                 *
+                 * WHAT IS LOST BY SENDING NO CALLBACK URL: nothing this application was using. No route in
+                 * this repository receives a Tap server-to-server callback -- measured, the only
+                 * credential-authenticated provider-callback receiver is the delivery one. The
+                 * shopper's return is `redirect.url` below, which is unchanged.
+                 */
+                "post" => ["url" => ''],
                 "redirect" => ["url" => route('store.payment.status', $slug)],
 
             ];
@@ -1831,13 +1860,90 @@ private function processPaymera00000($request, $slug)
                     'content-type' => 'application/json',
                 ],
             ]);
+            /*
+             * P4-F046 -- THE UNWRAP IS INSIDE THE TRY NOW, and it was the second half of the bug.
+             *
+             * It used to sit below the catch, so a 200 carrying an error body -- which Tap does
+             * send -- left `$res->transaction` null. Reading a property on null is a WARNING in
+             * PHP 8, which Laravel's HandleExceptions converts to an ErrorException (an earlier
+             * wording here said "\Error", which names the wrong mechanism; the outcome is the
+             * same). Either way the shopper got a white page from a response the server had
+             * successfully received.
+             */
+            $res = json_decode($response->getBody());
+
+            if (! isset($res->transaction->url) || ! is_string($res->transaction->url)) {
+                Log::warning('Benefit charge returned no redirect url', [
+                    'store_id' => $store->id,
+                    'provider_error' => $res->errors ?? null,
+                ]);
+
+                return redirect()->back()->with(
+                    'error',
+                    __('The payment provider did not return a payment page. Please try again or contact the store.')
+                );
+            }
+
+            return $res->transaction->url;
+
+        /*
+         * P4-F046 -- THE CATCH IS NARROWED, as the owner's decision asks.
+         *
+         * It was a single `catch (\Throwable)` answering EVERY failure with "Currency Not
+         * Supported.Contact To Your Site Admin" -- a wrong credential, an unreachable provider, a
+         * malformed body and a genuine currency rejection all produced the same sentence, and the
+         * real reason was recorded NOWHERE. A merchant chasing "currency not supported" could not
+         * learn that their secret key was wrong.
+         *
+         * Each arm logs what actually happened, with the store and Tap's own error payload, and
+         * says something true to the shopper. The currency message survives only where it may
+         * really be a currency rejection -- a 4xx from the provider.
+         *
+         * `\Throwable` is kept LAST on purpose. Narrowing a catch that currently swallows
+         * everything must not turn a previously-handled failure into a 500 on a payment path; the
+         * final arm preserves the old behaviour for anything the three named arms do not match,
+         * while still logging it.
+         */
+        } catch (\GuzzleHttp\Exception\ConnectException $e) {
+            Log::error('Benefit charge could not reach the provider', [
+                'store_id' => $store->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            return redirect()->back()->with(
+                'error',
+                __('The payment provider could not be reached. Please try again shortly.')
+            );
+        } catch (\GuzzleHttp\Exception\ClientException $e) {
+            // 4xx -- a rejected request. A currency the account cannot take is one of these, and so
+            // is a bad credential, so the message stays the historical one while the LOG tells the
+            // operator which it was.
+            Log::error('Benefit charge was rejected by the provider', [
+                'store_id' => $store->id,
+                'status' => $e->getResponse()?->getStatusCode(),
+                'provider_body' => (string) $e->getResponse()?->getBody(),
+            ]);
+
+            return redirect()->back()->with('error', 'Currency Not Supported.Contact To Your Site Admin');
+        } catch (\GuzzleHttp\Exception\ServerException $e) {
+            Log::error('Benefit charge failed inside the provider', [
+                'store_id' => $store->id,
+                'status' => $e->getResponse()?->getStatusCode(),
+            ]);
+
+            return redirect()->back()->with(
+                'error',
+                __('The payment provider reported an error. Please try again shortly.')
+            );
         } catch (\Throwable $th) {
+            Log::error('Benefit charge failed for an unclassified reason', [
+                'store_id' => $store->id,
+                'exception' => $th::class,
+                'message' => $th->getMessage(),
+            ]);
+
             return redirect()->back()->with('error', 'Currency Not Supported.Contact To Your Site Admin');
         }
-
-        $data = $response->getBody();
-        $res = json_decode($data);
-        return $res->transaction->url;
     }
 
     private function processCashFree($request, $slug, $response)
@@ -2346,8 +2452,15 @@ private function processPaymera00000($request, $slug)
             if ($requests_data['payment_receipt']) {
                 $dir = 'uploads/receipt';
                 if($requests_data['payment_receipt']) {
-                    $fileName = $requests_data['payment_receipt']->getClientOriginalName() . '_' . time();
-                    $path = Utility::upload_file($requests_data, 'payment_receipt', $fileName, $dir,[],$requests_data['payment_receipt']);
+                    // P1-SEC-73. The stored name is PlatformUploadPolicy::receiptName(): the client's name reduced to plain characters, the time, a random
+                    // part, and the extension LAST. It was `<client name>_<time>` -- `icon.png_1783941141` -- which no server maps to an image type, whose
+                    // inner extensions survived, and which two shoppers in one second shared (the folder is one for every store). This door needs no
+                    // account, and the six-argument call below used to run no validator at all: it runs the policy now, with the types this door's own gate
+                    // (`required|image`) admits MINUS SVG -- a receipt is a raster image, and a shopper's SVG is script on the store's origin that the
+                    // merchant opens from a link.
+                    $receiptFile = $requests_data['payment_receipt'];
+                    $fileName = \App\Services\PlatformUploadPolicy::receiptName($receiptFile);
+                    $path = Utility::upload_file($requests_data, 'payment_receipt', $fileName, $dir, \App\Services\PlatformUploadPolicy::imageRules(['bmp']), $receiptFile);
                 }
                 if ($path['flag'] == 1) {
                     $payment_receipt = $path['url'];
@@ -2373,12 +2486,18 @@ private function processPaymera00000($request, $slug)
          * other tenant's orders carry a delivery charge, while the shopper was QUOTED from the
          * right plan (CartController::cart_list_sidebar:38-40,
          * PaymentController::processOrder:1845-1846) -- a divergence inside one request.
-         * The predicate below is unchanged; only the user asked is. See App\Support\Commerce\StorePlan.
+         * The predicate's TEXT is unchanged but its MEANING is not -- see the plan note below. See App\Support\Commerce\StorePlan.
          */
         $user = \App\Support\Commerce\StorePlan::ownerOf($store);
+        // `$plan` is assigned only inside the owner's `type == 'admin'` test, so it must start null and
+        // shipping is read through `$planShippingMethod` (no plan => 'off', the rule `processOrder` and
+        // `processShipping` already apply). Without this a store whose owner has no resolvable plan dies
+        // here. Held by Tests\Feature\Commerce\ReturnHandlerPlanInitialiserTest (LANDED).
+        $plan = null;
         if ($user && $user->type == 'admin') {
             $plan = Plan::find($user->plan_id);
         }
+        $planShippingMethod = $plan->shipping_method ?? 'off';
         if (module_is_active('PartialPayments')) {
             if ($plan && strpos($plan->modules, 'PartialPayments') !== false && \Auth::guard('customers')->user()) {
                 /*
@@ -2597,7 +2716,7 @@ private function processPaymera00000($request, $slug)
             }
         }
         $delivery_price = 0;
-        if ($plan->shipping_method == 'on') {
+        if ($planShippingMethod == 'on') {
             // The client short-circuit that used to sit here
             // (`if (isset($requests_data['shipping_final_price'])) $delivery_price = ...`)
             // is DELETED: it let the posted shipping price become the charged
@@ -2919,7 +3038,7 @@ $products_weight_array[] = [
         $order->delivery_price = $delivery_price;
         $order->tax_price = $tax_price;
         if (!auth('customers')->user()) {
-            if ($plan->shipping_method == "on") {
+            if ($planShippingMethod == "on") {
                 $order->final_price = $total_sub_price + $delivery_price;
             } else {
                 $order->final_price = $total_sub_price;
@@ -2943,19 +3062,53 @@ $products_weight_array[] = [
                 $total_sub_price
             );
             \Workdo\PartialPayments\app\Models\OrderPartialPayments::OrderPartialPayments($order, $slug, $request);
+
+            /*
+             * D6 STAGE 1. THIS ARM PRICES THE ORDER FROM THE MODULE'S DEPOSIT AND NEVER EVALUATES THE REWARD BRANCH BELOW, so
+             * no discount is in this total. The flag has already been withdrawn for exactly this configuration at the
+             * initiation (`PaymentController::prepareFinalRequestData()`, same module / signed-in / setting conditions), so it
+             * is `'off'` in `$requests_data` here and the event takes its accrual branch. It is NOT removed again in this
+             * arm: a second removal could never disagree with the first, and a check that cannot fail is a trap. If this arm
+             * is ever reachable without that step, the shopper's points are spent for nothing -- the test that pins the first
+             * is `RewardRedemptionCheckoutGateTest::test_an_eligible_redemption_is_not_spent_when_the_order_is_priced_by_partial_payments`.
+             */
         } else {
 
+            /*
+             * D6 STAGE 1. THIS WRITER CONSUMES A DECISION; IT DOES NOT MAKE ONE.
+             *
+             * Whether this shopper may redeem is decided once, earlier in this same request, by
+             * `PaymentController::processRewardPoints()` -- the only way here is `processOrder()` ->
+             * `getCartData()` -> `processPayment()` -> `process()` -- and that decision is written onto the request
+             * as `'on'` or `'off'`, which is what `$requests_data` was copied from. So the `== 'on'` test below IS the
+             * gate. It is deliberately NOT repeated with `forOrder()`: this writer runs in the quote's own request,
+             * with the quote's own principal, basket and settings, so a second evaluation could only agree with the
+             * first, and a check that cannot disagree cannot fail a test -- which this codebase's own rule
+             * (`RewardPointDiscount::for()`) calls a trap, not depth. The WhatsApp writer is different and DOES
+             * re-check, because a direct POST reaches it without any quote.
+             *
+             * DO NOT "TIDY" THE NEXT LINE TO `$orderCustomerId`, and this is the reason it is spelled this way.
+             * `$customer_id` is `$requests_data['customer_id']`, a request-bag key; `processOrder()` has already refused
+             * any request whose bag disagrees with the signed-in customer about it (see
+             * `customerIdTheIntakeCannotTrust()`), so here it equals the principal. The first version of this
+             * slice read the principal directly and an independent review found the consequence: a multipart FILE part
+             * named `customer_id` replaces the merged id in `Request::all()`, the discount was then priced from the
+             * principal, and the post-commit `OrderNote` inserts -- whose `customer_id` is a foreign key -- failed on the
+             * file's temporary path AFTER the order was committed and BEFORE the event that debits the points. A
+             * discount with no debit, repeatable at will (executed: RewardRedemptionCheckoutGateTest). Read from the bag,
+             * a tampered request prices from nobody and is no worse than before; with the intake guard it never gets here.
+             */
             if (module_is_active('RewardClubPoint') && isset($requests_data['club_point_is_active']) && $requests_data['club_point_is_active'] == 'on') {
                 $customerDetail = Customer::find($customer_id);
                 $rewardSetting = getAdminAllSetting($store->created_by, $store->id) ?? null;
-                $saveRewardPrice = ($customerDetail->total_club_point * $rewardSetting['reward_point_price'] ?? 0) / ($rewardSetting['reward_points'] ?? 0);
-                if ($plan->shipping_method == "on") {
-                    $order->final_price = $total_sub_price + $delivery_price - $saveRewardPrice;
+                $saveRewardPrice = RewardPointDiscount::for((float) ($customerDetail->total_club_point ?? 0), $rewardSetting);
+                if ($planShippingMethod == "on") {
+                    $order->final_price = RewardPointDiscount::applyTo($total_sub_price + $delivery_price, $saveRewardPrice);
                 } else {
-                    $order->final_price = $total_sub_price - $saveRewardPrice;
+                    $order->final_price = RewardPointDiscount::applyTo($total_sub_price, $saveRewardPrice);
                 }
             } else {
-                if ($plan->shipping_method == "on") {
+                if ($planShippingMethod == "on") {
                     $order->final_price = $total_sub_price + $delivery_price;
                 } else {
                     $order->final_price = $total_sub_price;

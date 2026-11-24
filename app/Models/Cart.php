@@ -75,7 +75,13 @@ class Cart extends Model
         return $this->hasOne(ProductVariant::class, 'id', 'variant_id');
     }
 
-    public static function addtocart_cookie($product_id = 0, $variant_id = 0, $qty = 0, $store_id,$chart_data = '')
+    /**
+     * THE DEFAULTS ARE GONE FROM THE FIRST THREE because `$store_id` never had one: PHP already
+     * treated all four as required, and warned that it was doing so. Arity-identical, and NOT
+     * silenced the other way (`$store_id = 0`) because a cart row with `store_id` 0 belongs to no
+     * tenant. `NoOptionalBeforeRequiredParameterTest` holds the measurement and the rule.
+     */
+    public static function addtocart_cookie($product_id, $variant_id, $qty, $store_id, $chart_data = '')
     {      
         $settings = Utility::Setting($store_id);
         $final_price = 0;
@@ -923,7 +929,12 @@ class Cart extends Model
 
             // P1-SEC-24. The count of THIS guest's basket. It was `Cart::where('customer_id', $request->user_id)`: a
             // request-chosen customer's line count (an oracle for any customer id), or, with no user_id, the NULL-customer rows.
-            $cart_count = Cart::forGuestCookie($Carts)->count();
+            // P4-F004 follow-up. SCOPED TO THE STORE THE CHANGED LINE BELONGS TO, for the reason
+            // given at `CartController::product_cartlist`'s own count: `null_tenant => 'open'`
+            // means the global scope adds no predicate for a guest, so this counted the shopper's
+            // lines in every store sharing the `cart` cookie and reported them as this store's
+            // basket. `$cart_array` is non-null here -- the `empty()` arm returned above.
+            $cart_count = Cart::forGuestCookie($Carts)->where('store_id', $cart_array->store_id)->count();
             return Utility::success(['message' => 'Cart successfully updated.'], "successfull", 200, $cart_count);
         }
     }
@@ -983,7 +994,13 @@ class Cart extends Model
         return $this->hasOne(Customer::class, 'id', 'customer_id');
     }
 
-    public static function getProductTaxAmount($taxId = null, $sub_total, $storeId, $city_id, $state_id, $country, $flag)
+    /**
+     * `$taxId` LOST ITS DEFAULT, NOT ITS MEANING. The six parameters after it never had one, so PHP
+     * already required all seven; measured required=7 total=7 before and after, and the eight-
+     * argument callers GAP-211 records still have their last argument dropped exactly as before.
+     * `NoOptionalBeforeRequiredParameterTest` holds the measurement and the rule.
+     */
+    public static function getProductTaxAmount($taxId, $sub_total, $storeId, $city_id, $state_id, $country, $flag)
     {
         $tax_price = 0;
 
@@ -1029,11 +1046,47 @@ class Cart extends Model
              * that applies to everyone leaves those columns null and is taken by the universal
              * branch above, which still applies to everyone.
              *
-             * THIS CHANGES WHAT SHOPPERS ARE CHARGED on stores that have saved tax options, and
-             * it changes it DOWNWARD, toward what the merchant's own configuration says. Nothing
-             * seeds `tax_options`, so a store that has never opened the tax settings form is
-             * unaffected in either direction -- pinned by
+             * WHAT THIS CHANGES DEPENDS ON WHICH CART READS THE FIGURE, and the sentence that stood
+             * here said only "THIS CHANGES WHAT SHOPPERS ARE CHARGED ... DOWNWARD". That is true for
+             * one caller and false for the other:
+             *
+             *   * `Cart::cart_list_cookie` (the GUEST cart) adds `($is_inclusive_tax ? 0 : $tax_price)`
+             *     to its total and says "keep tax_price for display". Under inclusive pricing the
+             *     charge is therefore bit-identical and what moves is the tax the order RECORDS and
+             *     DISPLAYS -- `orders.tax_price`, `order_tax_details.tax_final_amount`: a shopper
+             *     matching no jurisdiction now shows 0.00 where it showed the sum of every method's
+             *     embedded share (the 7.67 measured above). A change to a VAT record on an unchanged
+             *     charge.
+             *
+             *   * `ApiController::cart_list` (the SIGNED-IN customer's cart) adds `$tax_price` to
+             *     `total_sub_price` with NO inclusive exemption (`ApiController.php`, the two
+             *     `$final_total = ... + $tax_price` lines), and the cod / bank-transfer writer
+             *     records that key as `orders.final_price`. So there the swept figure WAS in the
+             *     charged amount, and the charge falls by it. For a signed-in shopper who DOES match
+             *     a jurisdiction nothing changes -- including that cart's pre-existing addition of
+             *     a tax the inclusive price already contains, which this change does not touch and
+             *     which is recorded as its own owner item rather than fixed here.
+             *
+             * THE OTHER CALLERS, read one by one rather than assumed (paths under `packages/workdo/`
+             * are vendored and are NOT edited here):
+             *
+             *   * `AuctionProduct` `Console/Auction.php` prices the winning bid with seven arguments in
+             *     order and ADDS the figure to the amount it charges (`$maxBidAmount + $tax_price + ...`),
+             *     so it follows the signed-in cart's shape: the charge falls with the figure.
+             *   * `BoostSales` (the view composer and the controller) and the auction detail view pass the
+             *     same seven arguments and only DISPLAY the figure.
+             *   * `FrequentlyProduct` (view composer and controller) passes EIGHT: `$store->theme_id` lands
+             *     in `$city_id`, every address id moves one slot, and `$flag` receives the shopper's
+             *     country id. The `LotteryPrizes` detail view does the same and also passes a sub-total of
+             *     0, so it can only show 0.00. `Product::productTaxIncludeAmount` passes eight as well and
+             *     has no caller (Phase 04's tax-shipping finding). All of these are pre-existing, display
+             *     only, and reported rather than repaired -- see GAP-211 in the gap register.
+             *
+             * Both directions are toward what the merchant's own configuration says, and both reach
+             * only stores that have saved tax options. Nothing seeds `tax_options`, so a store that
+             * has never opened the tax settings form is unaffected in either direction -- pinned by
              * `CartTaxJurisdictionTest::test_a_store_with_no_tax_options_still_restricts_by_jurisdiction`.
+             * Whether anyone reports from the old recorded figure is the owner's to confirm.
              */
             return $tax_price;
         }

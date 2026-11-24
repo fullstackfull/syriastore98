@@ -41,7 +41,8 @@ class ShippingDataTable extends DataTable
         ->orderColumn('deion', function ($query, $direction) {
             $query->orderby('shippings.description', $direction);
         })
-        ->rawColumns(['name','description','action']);
+        // P1-SEC-80. The class name and its description are plain text a staff member types: yajra escapes them.
+        ->rawColumns(['action']);
 
         return $dataTable;
     }

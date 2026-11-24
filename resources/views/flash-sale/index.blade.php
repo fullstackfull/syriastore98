@@ -3,8 +3,13 @@
 @section('page-title', __('Flash Sale'))
 
 @section('action-button')
-    @permission('Create Flash Sale')
-        <div class="text-end d-flex all-button-box justify-content-md-end justify-content-center">
+    {{-- MKT-001. The wrapper moved OUT of @permission('Create Flash Sale'): reading analytics is
+         not creating a flash sale, so gating the link on a create permission would hide it from
+         every principal who may read reports but not author sales. The create anchor keeps its
+         own permission, unchanged. --}}
+    <div class="text-end d-flex all-button-box justify-content-md-end justify-content-center">
+        @include('marketing._analytics_link')
+        @permission('Create Flash Sale')
             {{-- Phase 2.5 / primary-action-named-only-by-title. The only name was `title`, blanked
                  by Bootstrap on tooltip init, so the computed name was the Tabler glyph U+EB0B.
                  `btn-badge` and `mr-1` both go: neither matches any rule under public/, and `mr-1`
@@ -16,8 +21,8 @@
                 <i class="ti ti-plus" aria-hidden="true"></i>
                 <span>{{ __('Add Flash Sale') }}</span>
             </a>
-        </div>
-    @endpermission
+        @endpermission
+    </div>
 @endsection
 
 @section('breadcrumb')
@@ -25,6 +30,11 @@
 @endsection
 
 @section('content')
+    {{-- MKT-002. The advanced-filter bar, from ONE shared component: it reads this screen's filters
+         from `TableFilterMemory::vocabularyFor()` and their wording from `headingFor()` /
+         `optionsFor()`, so the controls here and the receipt inside the bar cannot disagree. --}}
+    <x-ss.marketing-filters screen="flash-sale" route="flash-sale.index" :label="__('Filter flash sales')" />
+
     <div class="row">
         <div class="col-xl-12">
             <x-datatable :dataTable="$dataTable" />

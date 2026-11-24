@@ -53,7 +53,9 @@ class ThemeLanguage
      *
      *   1. the visitor's own LANGUAGE cookie -- an explicit choice outranks every default;
      *   2. a signed-in principal's own `language` -- a merchant previewing their own shop;
-     *   3. THIS STORE's `default_language`, taken from the route's `{storeSlug}` via `getStore()`;
+     *   3. THIS STORE's `default_language`, taken from the route's `{storeSlug}` via `getStore()`,
+     *      or -- for a route that names the store as its FIRST path segment as `{slug}` -- via
+     *      `getRouteStoreId()`. A route that uses `slug` for anything else resolves no store;
      *   4. the platform default, `config('platform.default_language')`, which itself defaults
      *      to 'en'.
      *
@@ -83,10 +85,24 @@ class ThemeLanguage
         }
 
         if ($currantLang == null || $currantLang === '') {
-            /* The route's own `{storeSlug}` -- the same source `getStore()`, `getRouteStoreId()`
-               and the view composer all use, so the four agree on one answer. Null for a request
-               that carries no store, which then falls to the platform default below. */
+            /* The route's own `{storeSlug}`, via `getStore()`. An earlier version of this comment
+               said the same source `getStore()`, `getRouteStoreId()` and the view composer all
+               use, "so the four agree on one answer". They did not: `getRouteStoreId()` also
+               reads `{slug}` as a first path segment and `getStore()` did not. The fallback below
+               closes that for the one route that needs it. Null for a request that carries no
+               store, which then falls to the platform default. */
             $store = getStore();
+
+            // A store named as the FIRST path segment (`{slug}/...`, `api/{slug}/...`) is not
+            // `{storeSlug}`, so getStore() does not see it -- `{slug}/product-wishlist` is the
+            // live case. getRouteStoreId() resolves exactly that spelling and no other: it refuses
+            // `custom-msg/{slug?}` and every route that reuses `slug` for a page or an article, on
+            // purpose, because a page slug that happens to equal a store's slug must not select
+            // that store. Those routes fall to the platform default below, as before.
+            if ($store === null && ($routeStoreId = getRouteStoreId())) {
+                $store = getStoreById($routeStoreId);
+            }
+
             $currantLang = $store->default_language ?? null;
         }
 

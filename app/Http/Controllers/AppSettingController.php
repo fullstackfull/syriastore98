@@ -182,7 +182,7 @@ class AppSettingController extends Controller
                             $theme_image = $file;
 
                             $fileName = rand(10, 100) . '_' . time() . "_" . $theme_image->getClientOriginalName();
-                            $upload = Utility::upload_file($request, $theme_image, $fileName, $dir, [], $theme_image);
+                            $upload = Utility::upload_file($request, $theme_image, $fileName, $dir, \App\Services\PlatformUploadPolicy::imageRules(['svg']), $theme_image);
                             if ($upload['flag'] == '0') {
                                 return redirect()->back()->with('error', $upload['msg']);
                             }
@@ -228,7 +228,7 @@ class AppSettingController extends Controller
                                 $theme_image = $array[$key][$js['field_slug']][$i]['image'];
 
                                 $fileName = rand(10, 100) . '_' . time() . "_" . $theme_image->getClientOriginalName();
-                                $upload = Utility::upload_file($request, $theme_image, $fileName, $dir, [], $theme_image);
+                                $upload = Utility::upload_file($request, $theme_image, $fileName, $dir, \App\Services\PlatformUploadPolicy::imageRules(['svg']), $theme_image);
                                 if ($upload['flag'] == '0') {
                                     return redirect()->back()->with('error', $upload['msg']);
                                 }
@@ -247,7 +247,7 @@ class AppSettingController extends Controller
                             $theme_image = $js['field_default_text'];
 
                             $fileName = rand(10, 100) . '_' . time() . "_" . $theme_image->getClientOriginalName();
-                            $upload = Utility::upload_file($request, $theme_image, $fileName, $dir, [], $theme_image);
+                            $upload = Utility::upload_file($request, $theme_image, $fileName, $dir, \App\Services\PlatformUploadPolicy::imageRules(['svg']), $theme_image);
                             if ($upload['flag'] == '0') {
                                 return redirect()->back()->with('error', $upload['msg']);
                             }
@@ -416,7 +416,7 @@ class AppSettingController extends Controller
                                 $theme_image = $file;
 
                                 $fileName = rand(10, 100) . '_' . time() . "_" . $theme_image->getClientOriginalName();
-                                $upload = Utility::upload_file($request, $theme_image, $fileName, $dir, [], $theme_image);
+                                $upload = Utility::upload_file($request, $theme_image, $fileName, $dir, \App\Services\PlatformUploadPolicy::imageRules(['svg']), $theme_image);
                                 if ($upload['flag'] == '0') {
                                     return redirect()->back()->with('error', $upload['msg']);
                                 }
@@ -462,7 +462,7 @@ class AppSettingController extends Controller
                                     $result = Utility::updateStorageLimit(\Auth::user()->creatorId(), $image_size);
                                     if ($result == 1) {
                                         $fileName = rand(10, 100) . '_' . time() . "_" . $theme_image->getClientOriginalName();
-                                        $upload = Utility::upload_file($request, $theme_image, $fileName, $dir, [], $theme_image);
+                                        $upload = Utility::upload_file($request, $theme_image, $fileName, $dir, \App\Services\PlatformUploadPolicy::imageRules(['svg']), $theme_image);
                                         if ($upload['flag'] == '0') {
                                             return redirect()->back()->with('error', $upload['msg']);
                                         }
@@ -488,7 +488,7 @@ class AppSettingController extends Controller
                                 $result = Utility::updateStorageLimit(\Auth::user()->creatorId(), $image_size);
                                 if ($result == 1) {
                                     $fileName = rand(10, 100) . '_' . time() . "_" . $theme_image->getClientOriginalName();
-                                    $upload = Utility::upload_file($request, $theme_image, $fileName, $dir, [], $theme_image);
+                                    $upload = Utility::upload_file($request, $theme_image, $fileName, $dir, \App\Services\PlatformUploadPolicy::imageRules(['svg']), $theme_image);
                                     if ($upload['flag'] == '0') {
                                         return redirect()->back()->with('error', $upload['msg']);
                                     }
@@ -1390,9 +1390,18 @@ if ($mayChangeRouting && $request->enable_domain === 'enable_subdomain') {
         $result = Utility::updateStorageLimit(\Auth::user()->creatorId(), $image_size);
         if ($result == 1) {
             $fileName = rand(10, 100) . '_' . time() . "_" . $theme_image->getClientOriginalName();
-            $upload = Utility::upload_file($request, $theme_image, $fileName, $dir, [], $theme_image);
-             if ($upload['flag'] == '0') {
-                return redirect()->back()->with('error', $upload['msg']);
+            $upload = Utility::upload_file($request, $theme_image, $fileName, $dir, \App\Services\PlatformUploadPolicy::imageRules(['svg']), $theme_image);
+            if ($upload['flag'] == '0') {
+                // P1-SEC-73. This site could not be refused while the sixth argument skipped the validator, and it answered with a redirect
+                // where its only caller reads `$upload['error']` -- HTTP 500 on any refusal. It answers in its own shape, and gives back what
+                // it charged: nothing was stored.
+                $owner = \App\Models\User::find(\Auth::user()->creatorId());
+                if ($owner) {
+                    $owner->storage_limit = $owner->storage_limit - number_format($image_size / 1048576, 2);
+                    $owner->save();
+                }
+
+                return ["error" => true, "data" => $upload['msg']];
             }
             $img_path = '';
             return ["error" => false, "data" => $upload];

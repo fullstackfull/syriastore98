@@ -28,6 +28,54 @@ use Shetabit\Visitor\Visitor;
 class SanitisedVisitor extends Visitor
 {
     /**
+     * WHICH STORE THE VISIT BEING WRITTEN BELONGS TO. ANA — measured 2026-11-20, it was nobody's.
+     *
+     * `ActiveTheme` calls `visitor()->visit($store)`, but the vendored package records the subject only
+     * when the model it is handed has a `visitLogs()` method (`Visitor::visit()`, the `method_exists`
+     * branch). `App\Models\Store` has neither that method nor the package's `Visitable` trait, so the
+     * call fell through to `Visit::create($data)` and the `$store` argument was DISCARDED: the row
+     * carried no `visitable_*` and no `store_id`.
+     *
+     * Nine first-party queries filter those rows by `store_id` — `Api\DashboardController`'s visitor and
+     * unique-visitor counts (twice each), `ThemeAnalyticController`'s urls, device, browser, platform,
+     * count and unique IPs, and `HomeController`'s `whereNotNull('store_id')`. Every one of them read
+     * nothing for every store and showed **0 visitors** rather than failing: the "fallback that never
+     * fires" shape P5-10 recorded.
+     *
+     * This remembers the attribution for the duration of one `visit()` so the `creating` hook registered
+     * in `AppServiceProvider` can fill the column in the SAME insert — no second write, no vendored edit
+     * and no migration, since the column has existed since 2024. The store the CALLER named wins, because
+     * `ActiveTheme` has already resolved it (custom domain and subdomain included); `getRouteStoreId()` is
+     * the fallback, being the documented tenancy-safe answer to "which store is this REQUEST for". It is
+     * never `getCurrentStore()`, which reads the web guard and would attribute a shopper's page view to
+     * whichever store a merchant happens to be administering.
+     */
+    private static ?int $attributedStoreId = null;
+
+    /** The store id the visit currently being written belongs to, or null when nothing can name one. */
+    public static function attributedStoreId(): ?int
+    {
+        return self::$attributedStoreId;
+    }
+
+    /** @param  mixed  $model  the subject the caller named, if any */
+    public function visit($model = null)
+    {
+        $previous = self::$attributedStoreId;
+
+        self::$attributedStoreId = $model instanceof \App\Models\Store && (int) $model->id > 0
+            ? (int) $model->id
+            : getRouteStoreId();
+
+        try {
+            return parent::visit($model);
+        } finally {
+            // Restored rather than cleared: a nested call must not leave the outer one unattributed.
+            self::$attributedStoreId = $previous;
+        }
+    }
+
+    /**
      * Headers that identify a client, never a session. `referer` is deliberately NOT here: its value is
      * a full URL that can carry the token of the page the visitor came from, and the `referer` COLUMN
      * already holds it, redacted. (The first version kept it and a test caught the token.)

@@ -135,8 +135,22 @@ use Symfony\Component\HttpFoundation\Response;
  * for the views `order.view` and `front_end.sections.order_detail`, neither of which is
  * `front_end.pages.order-detail`. So with the addon active the storefront page today shows no
  * document button at all, and this guard changes nothing there. A signed-in shopper keeps it. A
- * GUEST order cannot be self-served at all, because orders.customer_id defaults to 0. Preserving
- * that flow safely needs a scoped expiring document token; no signed-URL machinery exists in this
+ * GUEST order cannot be self-served at all -- enforced on `orders.is_guest`, NOT on
+ * `customer_id`, which an earlier version of this paragraph wrongly relied on (SEC-INTAKE #188:
+ * an adopted guest order carries a real customer id).
+ *
+ * AND THAT REFUSES ONE LEGITIMATE PERSON, which the paragraph above did not say and which a
+ * reader should not meet first in production. `PaymentService.php:3021-3025` sets `is_guest = 1`
+ * for ANY checkout where `auth('customers')->check()` is false -- including a shopper who HAS an
+ * account in that store and simply did not sign in before buying. Adoption then attributes the
+ * order to their own row. They keep it in their order list, but they lose self-service on it:
+ * document, download link and direct download all refuse.
+ *
+ * There is no signal to split them. "Account holder who checked out without signing in" and
+ * "attacker who registered an e-mail address they do not own" are the same row:
+ * `customer_id = X, is_guest = 1`. Refusing both is the correct direction, because the second one
+ * reaches a capability mint and a file stream, and the first one has a signed-in path to the same
+ * goods. Preserving that flow safely needs a scoped expiring document token; no signed-URL machinery exists in this
  * codebase (only routes/auth.php:45 uses `signed`, for email verification) and inventing one is
  * outside this package. It is an owner decision, recorded in the sprint report.
  *
@@ -363,10 +377,32 @@ class OrderDocumentAccessGuard
         // authorization stopped running. Measured: auction_product_orders is absent from the
         // test schema (module migrations do not run until the module is enabled), which is how
         // this branch was found.
+        /*
+         * SEC-INTAKE #188. `is_guest` is selected only where the target table HAS it, and that
+         * condition is load-bearing rather than defensive: the TARGETS table above names two
+         * tables, `orders` and the AuctionProduct module's `auction_product_orders`. The latter
+         * has no guest concept and does not exist at all in a test run.
+         *
+         * WHAT SELECTING AN ABSENT COLUMN ACTUALLY DOES, measured on both engines rather than
+         * assumed -- and the two answers differ, which is the reason this is conditional rather
+         * than defensive:
+         *   - MySQL raises error 1054 (unknown column). The `catch (\Throwable)` below would turn
+         *     that into `deny()`, so every auction order view would fail closed: a functional
+         *     regression dressed as a security control.
+         *   - SQLite does NOT raise. Its double-quoted-identifier fallback treats the unknown
+         *     `"is_guest"` as a STRING LITERAL, so the row comes back carrying a property whose
+         *     name is `"is_guest"` WITH the quotes and whose value is the string `is_guest`.
+         *
+         * So an unconditional select would break production and pass every test here. That is
+         * CLAUDE.md's "SQLite hides real MySQL defects" in a form the file does not list, and it
+         * is also why `shopperOwns()` asks `property_exists($row, 'is_guest')` rather than
+         * trusting a value: under that fallback the real property name never matches, and
+         * `(int) 'is_guest'` would have been 0 -- admitting silently.
+         */
         try {
             $row = DB::table($target['table'])
                 ->where('id', $orderId)
-                ->first(['store_id', 'customer_id']);
+                ->first(self::columnsFor($target['table']));
         } catch (\Throwable $e) {
             return $this->deny($request);
         }
@@ -477,8 +513,9 @@ class OrderDocumentAccessGuard
      * Whether the signed-in shopper, if there is one, placed this order in their own store.
      *
      * Extracted so the merchant limb can fall through to it rather than returning its own
-     * verdict. customer_id defaults to 0 on a guest order, so 0 can never match: a guest order
-     * is not self-serviceable by anyone.
+     * verdict. A guest order is not self-serviceable by anyone -- which `shopperOwns()` now
+     * decides on `is_guest`. It used to say "customer_id defaults to 0, so 0 can never match",
+     * and that is false for an adopted guest order (SEC-INTAKE #188).
      *
      * @param object{store_id: mixed, customer_id: mixed} $row
      */
@@ -495,7 +532,94 @@ class OrderDocumentAccessGuard
             return false;
         }
 
+        /*
+         * SEC-INTAKE #188, AND THE SHOPPER LIMB ONLY. A guest order is not self-serviceable --
+         * that was always the intent, and the two paragraphs above used to express it as
+         * "customer_id defaults to 0, so 0 can never match". That is false for a whole class of
+         * guest orders: `app/Services/PaymentService.php:3019-3033` writes a guest checkout whose
+         * billing e-mail matches an existing customer of the store with that customer's REAL id
+         * and `is_guest = 1`, because nobody was signed in. So the matched customer satisfied
+         * every limb above without ever proving they own that e-mail address.
+         *
+         * THE MERCHANT, STAFF AND OPERATOR LIMBS ARE DELIBERATELY NOT GATED ON THIS. A merchant
+         * printing a guest order's shipping label is ordinary business, and
+         * `OrderDocumentAccessTest::test_a_merchant_can_fetch_their_own_orders_shipping_label`
+         * drives exactly that -- its fixture is an ordinary guest order, because
+         * `SecurityTestCase::makeOrder` defaults to `is_guest = 1`.
+         *
+         * `property_exists` rather than a null test, because the column is absent from the row
+         * object for a target table that does not carry it, and for such a table there are no
+         * guest orders to refuse.
+         */
+        if (property_exists($row, 'is_guest') && (int) ($row->is_guest ?? 0) !== 0) {
+            return false;
+        }
+
         return $storeId !== null && (int) ($customer->store_id ?? 0) === $storeId;
+    }
+
+    /**
+     * The columns to read for this target table.
+     *
+     * EXTRACTED SO THE CONDITION IS TESTABLE, and that is the whole reason it is a method. A
+     * mutation that made the `is_guest` select unconditional SURVIVED every test in this suite,
+     * twice, because the consequence it causes is a MySQL error and this suite runs on SQLite --
+     * where the same select silently yields a string-literal pseudo-column instead. The
+     * difference is not observable through the guard's behaviour here, so it is made observable
+     * through its decision instead: `OrderDocumentAccessTest` asserts this method's return value
+     * for a table with the column and for one without.
+     *
+     * That is the general move when a property only misbehaves on the production engine: do not
+     * record it as untestable, make the decision itself the thing under test.
+     */
+    private static function columnsFor(?string $table): array
+    {
+        $columns = ['store_id', 'customer_id'];
+
+        if (self::tableHasGuestFlag($table)) {
+            $columns[] = 'is_guest';
+        }
+
+        return $columns;
+    }
+
+    /**
+     * Does this target table carry `orders.is_guest`?
+     *
+     * MEMOISED PER PHP PROCESS, not per request -- `static` inside a static method outlives the
+     * request. An earlier version of this docblock said "for the life of the request" and that
+     * was wrong in a way that would mislead whoever debugs it: under php-fpm the memo survives
+     * across requests in a worker (harmless, schemas do not change mid-worker), and in a Feature
+     * run it survives across test classes with DIFFERENT schemas.
+     *
+     * That ordering hazard is not live today, and the reason is worth recording so nobody has to
+     * re-derive it: all six test files that hand-build their own `orders` table contain zero
+     * occurrences of any TARGETS uri, so none of them can populate this memo, and two of them
+     * already declare `is_guest`. A future hand-built-`orders` test that DOES drive a guarded
+     * route would be the first to care.
+     *
+     * A false answer for `orders` would be a PARTIAL fail-open: `columnsFor()` would omit the
+     * column, `property_exists()` would be false and `shopperOwns()` would skip the #188 check,
+     * while the `customer_id` and store predicates still applied. Narrow in practice, because a
+     * connection failure that broke this would also break the row read below, which denies.
+     */
+    private static function tableHasGuestFlag(?string $table): bool
+    {
+        static $cache = [];
+
+        if (! is_string($table) || $table === '') {
+            return false;
+        }
+
+        if (! array_key_exists($table, $cache)) {
+            try {
+                $cache[$table] = \Illuminate\Support\Facades\Schema::hasColumn($table, 'is_guest');
+            } catch (\Throwable $e) {
+                $cache[$table] = false;
+            }
+        }
+
+        return $cache[$table];
     }
 
     /**

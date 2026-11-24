@@ -149,8 +149,33 @@ class CartScopesTest extends SecurityTestCase
             }
 
             $offset = 0;
-            while (preg_match('/(?:->|::)forCustomer\(/', $code, $m, PREG_OFFSET_CAPTURE, $offset)) {
+            while (preg_match('/(\w+)(?:->|::)forCustomer\(/', $code, $m, PREG_OFFSET_CAPTURE, $offset)) {
                 $start = $m[0][1] + strlen($m[0][0]);
+
+                /*
+                 * GAP-156. A DIFFERENT `forCustomer()`, ON A DIFFERENT CLASS, and the exclusion is
+                 * narrowed to the RECEIVER rather than loosening what an argument may be.
+                 *
+                 * This census is about `Cart`'s scope: it refuses a non-id and so cannot refuse
+                 * the WRONG person's id, which makes the argument the control. `CustomerMoneyFigures`
+                 * and `CustomerMoneyTiles` take a `Customer` MODEL and scope every query to that
+                 * model's own `store_id` -- there is no id for a caller to substitute. Adding
+                 * `$customer` to the `$allowed` list would have been the lazy fix and a real
+                 * weakening: `Cart::forCustomer($customer)` would then pass this ratchet too.
+                 *
+                 * The assertion below pins the premise, so if either class is ever changed to
+                 * take an id this exclusion stops being true and the test says so.
+                 */
+                if (in_array($m[1][0], ['CustomerMoneyFigures', 'CustomerMoneyTiles'], true)) {
+                    $depth = 1;
+                    for ($i = $start, $n = strlen($code); $i < $n && $depth > 0; $i++) {
+                        $depth += $code[$i] === '(' ? 1 : ($code[$i] === ')' ? -1 : 0);
+                    }
+                    $offset = $i;
+
+                    continue;
+                }
+
                 $depth = 1;
                 for ($i = $start, $n = strlen($code); $i < $n && $depth > 0; $i++) {
                     $depth += $code[$i] === '(' ? 1 : ($code[$i] === ')' ? -1 : 0);
@@ -165,6 +190,18 @@ class CartScopesTest extends SecurityTestCase
             '$cartOwnerId',                  // getWhatsappUrl: (int) auth('customers')->id()
             "(int) \$line['customer_id']",   // clearCartLines: lines queued with auth('customers')->id()
         ];
+
+        foreach ([
+            \App\Support\Customers\CustomerMoneyFigures::class,
+            \App\Support\Customers\CustomerMoneyTiles::class,
+        ] as $class) {
+            $parameter = (new \ReflectionMethod($class, 'forCustomer'))->getParameters()[0];
+
+            $this->assertSame(\App\Models\Customer::class, (string) $parameter->getType(),
+                "PREMISE for the receiver exclusion above: {$class}::forCustomer() takes a Customer "
+                . 'model, so there is no id for a caller to substitute. If it ever takes an id it '
+                . 'belongs in this census like any other.');
+        }
 
         $this->assertNotEmpty($arguments, 'Premise: the scan found the call sites.');
         $this->assertSame([], array_values(array_diff($arguments, $allowed)),

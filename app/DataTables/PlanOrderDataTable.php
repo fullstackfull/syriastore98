@@ -40,7 +40,7 @@ class PlanOrderDataTable extends DataTable
             ->editColumn('order_id', function ($order) {
                 return '  <div " class="btn btn-primary btn-sm text-sm" data-bs-toggle="tooltip" title="' . __('Order ID') . '">
                                 <span class="btn-inner--icon"></span>
-                                <span class="btn-inner--text">#'. $order->order_id . '</span>
+                                <span class="btn-inner--text">#'. e($order->order_id) . '</span>
                             </div>
                        ';
             })
@@ -72,7 +72,9 @@ class PlanOrderDataTable extends DataTable
                 $user = User::find($order->user_id);
                 return view('plans.action', compact('order','user','userOrders'));
             })
-            ->rawColumns(['order_id','created_at','user_name','plan_name','price','payment_status','total_coupon_used','receipt','action']);
+            // P1-SEC-80. `user_name` is the MERCHANT's name (joined in from `users`) and was a raw column on the OPERATOR's list. Every cell whose closure returns plain text is escaped by yajra
+            // now; the raw ones are markup built here (`order_id`, which escapes what it interpolates) or views (`payment_status`, `receipt`, `action`).
+            ->rawColumns(['order_id','payment_status','receipt','action']);
     }
 
     /**

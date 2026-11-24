@@ -412,11 +412,11 @@ $(document).on('click', '#send_test_otp', function () {
 
             let type = response.success ? 'success' : 'danger';
 
-            $('#otp_test_result').html(
-                '<div class="alert alert-' + type + '">' +
-                response.message +
-                '</div>'
+            {{-- P1-SEC-80 round 4: the message can be the remote gateway's own answer, so it is written as TEXT into a node, never concatenated into markup --}}
+            $('#otp_test_result').empty().append(
+                $('<div>').addClass('alert alert-' + type).text(response.message == null ? '' : String(response.message))
             );
+
         },
 
         error: function(xhr) {
@@ -427,11 +427,11 @@ $(document).on('click', '#send_test_otp', function () {
                 message = xhr.responseJSON.message;
             }
 
-            $('#otp_test_result').html(
-                '<div class="alert alert-danger">' +
-                message +
-                '</div>'
+            {{-- P1-SEC-80 round 4: an error body is the server's or the remote gateway's text; written as TEXT --}}
+            $('#otp_test_result').empty().append(
+                $('<div>').addClass('alert alert-danger').text(message == null ? '' : String(message))
             );
+
         },
 
         complete: function() {

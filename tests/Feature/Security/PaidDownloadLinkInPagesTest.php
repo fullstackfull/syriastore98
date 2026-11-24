@@ -225,7 +225,7 @@ class PaidDownloadLinkInPagesTest extends SecurityTestCase
 
                 $callSites += preg_match_all(
                     '/DownloadGrant::issue\(/',
-                    (string) file_get_contents($entry->getPathname()),
+                    $this->codeOnly($entry->getPathname()),
                     $m
                 );
             }
@@ -239,6 +239,49 @@ class PaidDownloadLinkInPagesTest extends SecurityTestCase
             . 'this test AND the controller\'s own docblock, which currently says the limb is '
             . 'defensive rather than exercised.'
         );
+    }
+
+    /**
+     * The file's CODE, with comments removed — because this census counts an identifier, and a
+     * comment MENTIONING that identifier is not a call site.
+     *
+     * THIS WAS A REAL BREAK, not a precaution. Adding a docblock to `paid_download_url()` that
+     * explained why `DownloadGrant::issue()` is a cache write and not a read pushed this count
+     * from 2 to 3 and failed the test. CLAUDE.md names the hazard in both directions, and the
+     * other direction is the dangerous one: a real call site could be DELETED and a comment
+     * naming it added, and this census would still read 2 and pass.
+     *
+     * `token_get_all()` for PHP rather than a pattern, for the reason
+     * `Tests\Support\StripsSourceComments` now gives: a pattern guarding a comment opener has to
+     * guess PHP's grammar, and a slash-star inside a string literal — `File::glob("{$dir}/*.php")`
+     * — defeated the guess. The tokenizer does not guess. Blade keeps the pattern path, since it
+     * is not valid PHP; `{{-- --}}` is the comment form that matters there.
+     */
+    private function codeOnly(string $absolutePath): string
+    {
+        $raw = (string) file_get_contents($absolutePath);
+
+        if (str_ends_with($absolutePath, '.blade.php') || ! str_ends_with($absolutePath, '.php')) {
+            return (string) preg_replace('/\{\{--.*?--\}\}/s', '', $raw);
+        }
+
+        $code = '';
+
+        foreach (token_get_all($raw) as $token) {
+            if (! is_array($token)) {
+                $code .= $token;
+
+                continue;
+            }
+
+            if ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT) {
+                continue;
+            }
+
+            $code .= $token[1];
+        }
+
+        return $code;
     }
 
     // ───────────────────────────────────────────────────────────── fixture
@@ -278,6 +321,12 @@ class PaidDownloadLinkInPagesTest extends SecurityTestCase
 
         $order = $this->makeOrder($store, [
             'customer_id' => $customer->id,
+            // SEC-INTAKE #188. `makeOrder` defaults to the coherent ORDINARY-GUEST pair
+            // (`customer_id = 0`, `is_guest = 1`). Overriding only the first half left this
+            // fixture as the ADOPTED-guest shape -- a real customer id still marked
+            // `is_guest = 1` -- so every test in this file that says "the signed in buyer" was
+            // actually driving a guest order. It is a signed-in buyer's order, so it says so.
+            'is_guest' => 0,
             'delivered_status' => 1,
             'product_json' => json_encode([[
                 'product_id' => $productId, 'name' => 'Ebook', 'qty' => 1, 'final_price' => 10,

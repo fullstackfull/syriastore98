@@ -414,6 +414,54 @@ $menu->add([
             'module' => $module,
             'permission' => 'Manage Customer'
         ]);
+
+        /*
+         * MKT-004 — Customer Segments.
+         *
+         * A SIBLING AND NOT A CHILD, deliberately. `Customers` above carries its own `route`, and
+         * every parent in this file that has children (`reports`, `order_reports`) has
+         * `'route' => ''` instead -- so turning `Customers` into a parent would mean taking its
+         * route away and changing navigation every merchant already knows. An additive sibling at
+         * order 181 sits immediately beneath it and changes nothing that exists.
+         *
+         * The permission is the one the ROUTE enforces. Naming a different one here would either
+         * hide the screen from people who may open it or advertise it to people who may not -- this
+         * file's own note on the report entries says so, and it was written after P1-SEC-09, where
+         * the menu was the ONLY place a report permission was enforced.
+         */
+        $menu->add([
+            'title' => __('Customer Segments'),
+            'icon' => 'users',
+            'name' => 'customer_segments',
+            'parent' => null,
+            'order' => 181,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'customer-segments.index',
+            'module' => $module,
+            'permission' => 'Manage Customer'
+        ]);
+
+        /*
+         * MKT-007 — the recovery queue. A sibling of Customers for the same reason Customer Segments
+         * is one: `Customers` carries its own route, and every parent with children in this file has
+         * `'route' => ''`, so making it a parent would change navigation every merchant knows.
+         *
+         * `Abandon Cart` is the permission the ROUTE enforces. Naming a different one here would
+         * either hide the screen from people who may open it or advertise it to people who may not.
+         */
+        $menu->add([
+            'title' => __('Recovery Queue'),
+            'icon' => 'shopping-cart',
+            'name' => 'recovery_queue',
+            'parent' => null,
+            'order' => 182,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'recovery-queue.index',
+            'module' => $module,
+            'permission' => 'Abandon Cart'
+        ]);
         /** customer end */
 
         /**Reports Start */
@@ -430,12 +478,54 @@ $menu->add([
             'permission' => 'Manage Reports'
         ]);
 
+        /*
+         * P5-4 — THE MERCHANT ANALYTICS SCREEN. First under Reports because it is the overview the
+         * others break down, and `order => 0` keeps it there without renumbering its siblings.
+         *
+         * `Manage Reports` MATCHES THE ROUTE'S OWN GATE, which matters in this codebase specifically:
+         * the report permissions were once enforced ONLY here in the menu, so a staff member with no
+         * report role received a byte-identical report body by URL (P1-SEC-09). The menu is a
+         * convenience, never the control — `ReportPermission` on the route is — but naming a
+         * DIFFERENT permission here would hide the screen from people who may open it, which is the
+         * same class of bug seen from the other side.
+         */
+        $menu->add([
+            'title' => __('Analytics'),
+            'icon' => 'home',
+            'name' => '',
+            'parent' => 'reports',
+            'order' => 0,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'analytics.index',
+            'module' => $module,
+            'permission' => 'Manage Reports'
+        ]);
+
+        /*
+         * ANA-001. The permission named here is the one the ROUTE enforces -- `View Finance Dashboard`
+         * -- because naming a different one would either hide the screen from people who may open it
+         * or advertise it to people who may not, and this file's own note above says so.
+         */
+        $menu->add([
+            'title' => __('Finance Report'),
+            'icon' => 'home',
+            'name' => '',
+            'parent' => 'reports',
+            'order' => 1,
+            'ignore_if' => [],
+            'depend_on' => [],
+            'route' => 'reports.finance',
+            'module' => $module,
+            'permission' => 'View Finance Dashboard'
+        ]);
+
         $menu->add([
             'title' => __('Customer Reports'),
             'icon' => 'home',
             'name' => '',
             'parent' => 'reports',
-            'order' => 1,
+            'order' => 2,
             'ignore_if' => [],
             'depend_on' => [],
             'route' => 'reports.index',

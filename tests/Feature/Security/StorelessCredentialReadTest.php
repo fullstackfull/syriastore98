@@ -393,10 +393,34 @@ class StorelessCredentialReadTest extends SecurityTestCase
             $this->assertNotFalse($i, "{$method}() is gone from {$file}.");
             $slice = substr($code, $i, 2600);
 
-            $this->assertStringContainsString('getAdminAllSetting(null, getCurrentStore())', $slice,
+            /*
+             * THE PROPERTY IS THAT THE TWO STORES AGREE, not that either is spelled a particular way.
+             *
+             * This asserted the literal `getAdminAllSetting(null, getCurrentStore())`, which was the
+             * same thing while both files used one resolver. GAP-223(b) moved the report handlers onto
+             * `OperatorStoreSelection::reportStoreId()` -- so that a platform operator who has chosen
+             * no store reads NO store rather than the hard-coded literal 1 -- and `ProductDataTable`
+             * still reads `getCurrentStore()`. Two files, two resolvers, and the rule unchanged: the
+             * threshold must come from whichever resolver that file's own query filters on.
+             *
+             * Asserted by DERIVING the resolver from the slice and requiring the threshold call to use
+             * it, which is stricter than the old literal: it now fails if a file reads one store's
+             * rows and another store's threshold, whatever either is called.
+             */
+            $resolver = str_contains($slice, 'OperatorStoreSelection::reportStoreId()')
+                ? 'OperatorStoreSelection::reportStoreId()'
+                : 'getCurrentStore()';
+
+            $this->assertStringContainsString('getAdminAllSetting(null, '.$resolver.')', $slice,
                 "{$file}::{$method}() must read out_of_stock_threshold from the same store its own query filters on. The no-argument "
                 . 'form resolves it from the caller, and for a STAFF member getAdminAllSetting() walks up to created_by and then reads '
                 . "the OWNER's current_store -- a different store's threshold.");
+
+            // And the two must not BOTH appear: a file that mixes resolvers is the drift this guards.
+            $this->assertFalse(
+                str_contains($slice, 'OperatorStoreSelection::reportStoreId()') && str_contains($slice, 'getCurrentStore()'),
+                "{$file}::{$method}() mixes two store resolvers, so its rows and its threshold can come from different stores."
+            );
         }
     }
 

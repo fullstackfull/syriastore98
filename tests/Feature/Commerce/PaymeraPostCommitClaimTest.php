@@ -210,6 +210,16 @@ class PaymeraPostCommitClaimTest extends TestCase
      * fix for it was stale again by ~120 lines before it was committed. A comment that points a
      * reviewer at the wrong line is the failure mode this project treats as worse than the code
      * being wrong, so the pointers are ratcheted rather than trusted.
+     *
+     * AND FIXING THIS ONE BREAKS ANOTHER. PaymentController.php also carries the `Log::critical`
+     * and `Log::warning` call sites that `Tests\Feature\Security\SecurityLogInventoryTest`
+     * keys on by `file:line` against docs/security/P01-OBSERVABILITY-INVENTORY.md. Re-pointing
+     * the four anchors above means ADDING prose to this file, which moves those log rows too --
+     * measured on 2026-11-17 (P5-9): the anchor correction added four lines and shifted 22
+     * inventory rows. After any edit here, run
+     *   python3 docs/development/phase-1/tools/resync-observability-inventory.py --write
+     * and re-run BOTH tests. That resync writes only docs/ and so cannot move these anchors
+     * back; the cascade runs one way only.
      */
     public function test_the_cited_anchors_still_name_what_they_claim(): void
     {

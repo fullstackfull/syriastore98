@@ -5,21 +5,247 @@ is the file to read first. It links the six phases, says what is done, what is n
 executable action is. Everything in it is either a measured fact with its source, or an owner
 decision quoted as such.
 
-**Last updated:** 2026-11-16 · **Active phase:** 04 (Commerce) ·
-**Active branch:** `feature/phase-04-commerce`
+**Last updated:** 2026-11-22 · **Active phase:** 05 (Marketing & Analytics) ·
+**Active branch:** `feature/phase-05-marketing-analytics`
 
-Phase 03 engineering is complete and sits in **PR #138, Draft, not merged**. Phase 04 is branched
-from that engineering head, so **PR #139 carries Phase 03's commits and must not be merged ahead of
-PR #138**. Both stay separate and neither merges automatically. The six-phase Master Product Plan in
-§2 is unchanged and remains the governing scope.
-
+> ### NEXT EXECUTABLE ACTION (read this first; owner directive of 2026-11-22)
+>
+> **MODE: EXECUTE THE VERIFIED BACKLOG. DO NOT START ANOTHER SURVEY.** The owner's 2026-11-22
+> directive is explicit: the nine-row investigation is accepted as a basis for correcting the
+> records, and the priority from here is finishing the code, not producing another measurement
+> report. Long multi-agent investigations are reserved for the final integration candidate.
+>
+> **LAST CI-VERIFIED HEAD: `7086b15a`** — **ci.yml #620 (run 45304308180), SUCCESS**
+> (2026-11-24 02:04:49Z), all seven jobs, read job by job rather than from the run's conclusion:
+> both REQUIRED Tests jobs (the clean install and the PayHere-excluded one, each with its
+> *"The Feature outcome set must match the record"* step green), the merge-base regression gate
+> including its *"Compare failing test identities"* step, static checks including
+> *"Guard - packages/workdo/ is unmodified"*, the secret scan, `composer audit` and the PayHere
+> report. Six commits were verified by that one run.
+>
+> `25339527` **#619, SUCCESS** (2026-11-24 00:47Z) verified the head before it, and `b4687e0e`
+> **#618, SUCCESS** (2026-11-23 21:11Z) the one before that. Earlier heads each have their own run
+> (`d60fed3a` #589, `62427391` #584, `306d6a93` #583, `704f1eec` #582).
+>
+> `6c41ebd6` #617 is NOT a verification of anything: it was **cancelled** by the push that
+> superseded it. A cancelled run is not a green one, and this line names the last run that actually
+> concluded successfully — which is the whole reason the line exists.
+>
+> **Commits after `b4687e0e` are verified by the LOCAL gate only until their own required run
+> concludes** — read the run for the head you are on rather than trusting this line, which is
+> written before the push it describes.
+>
+> #### Executed since `62427391` (all 2026-11-22, in the owner's priority order)
+>
+> | what | where it is recorded |
+> |---|---|
+> | Four Marketing read screens refused the platform operator | `GAP-218`, closed |
+> | Period filters on the five report screens that genuinely had none; a crash in the downloadable report found by its own fixture | `ANA-002` / `GAP-221` |
+> | The gap register's summary had drifted from its rows; it now has a consistency gate like the matrix's | `GapRegisterConsistencyTest` |
+> | The Phase 05 analytics routes were outside every authorization census | `P05-18` / `GAP-166`, `AnalyticsRouteAuthorizationCensusTest` |
+> | Conversion and campaign arrivals had no written definition | `PHASE-05-METRIC-DEFINITIONS.md` §13, §14 |
+> | **The operator dashboard:** *Top Selling Store* ranked across currencies and printed in the wrong one; *Most Popular Store* loaded the whole visit log into PHP; the page answered 500, or signed the operator out mid-render | `P05-14`, `P05-19` / `GAP-162`, `GAP-167` |
+> | `P05-14` re-traced DOWN from VERIFIED COMPLETE: the operator's view mirrors 3 of the merchant's 12 figure groups | matrix note dated 2026-11-22 |
+> | Storefront-API orders recorded the currency SYMBOL as their currency CODE | `P5-R14`, `OrderCurrencyCodeAgreesAcrossWritersTest`; a read-only count for the rows already written, `report-order-currency-codes.php` |
+> | The analytics screen's own Download button ignored the period on screen | `P05-15`; five tests that follow the link |
+> | Three of the analytics screen's eight store predicates were held by no test | `MerchantAnalyticsTenantIsolationSweepTest`, one mutation per predicate |
+> | **Eight rows a measurement called *already done* were put to refutation; seven fell** | matrix note dated 2026-11-22; `P05-15` re-traced DOWN from VERIFIED COMPLETE |
+> | Ten owner questions met while building or reviewing, recorded and not decided | `D-N31`…`D-N43` |
+>
+> #### Next, in order
+>
+> **The refutation changed the order.** It did not only correct rows; its reviewers DROVE the
+> vendored modules and the financial doors, and what they found outranks the items that were next.
+>
+> 1. **SECURITY — the vendored Campaigns and Marketing modules.** Two items are already on the
+>    security queue as read-but-not-executed (`P1-SEC-69`, `P1-SEC-76`); a reviewer has now driven
+>    them with the modules loaded and found tenancy and authorization defects, some not yet on the
+>    queue. **They are being fixed before they are described** — an unpatched finding is not
+>    written up in a repository. Exposure exists only where a module is enabled, and **whether one
+>    is enabled in production cannot be read from here** — the owner or operator can answer that
+>    with one query against `add_on_managers`, and should. Vendored code is not edited: guard from
+>    first-party code, failing-first with the module loaded through the production loader.
+> 2. **SECURITY — three leads from the dashboard review**, read and not executed: the role-grant
+>    ceiling for a merchant who changed their own type; the reserved role-name gate under an
+>    accent-insensitive collation; a LandingPage writer with no check beyond sign-in.
+> 3. **FINANCIAL — a currency change through the admin API does not convert the wallet**, so the
+>    next paid order writes its ledger row in one currency and its wallet movement in another.
+>    Reported from a reviewer's probe; reproduce it first. The shipped Flutter app calls that door.
+> 4. **`P5-R15`** — `/analytics`: the two money tiles do not follow the period control; an Arabic
+>    merchant meets untranslated text; the Sales Report's files carry none of their screen's
+>    sentences, and no test compares a file with its screen in the direction that matters.
+> 5. **`P5-R4`…`R7`, financial correctness** — payment-state badges (`GAP-149`), missing caveats
+>    (`GAP-152`), a collected-payments customer figure beside Total Spend (`GAP-156`), Payments
+>    received on the demand-only reports (`GAP-153`).
+> 6. **`P5-R13`** — the **eight** cross-tenant figures `/platform/analytics` lacks. Was nine;
+>    `f87bb160` ("1 of 9") shipped *Repeat purchase*. Measured 2026-11-24: merchant **12** figure
+>    groups, operator **5**, four of them counterparts plus the operator's own store count.
+>    **AND THE EIGHT ARE NOT ALL BUILDABLE, which corrects what this queue and `GAP-162` both
+>    said.** A mapping pass (four readers, four adversarial verifiers, all SOUND_WITH_CORRECTIONS)
+>    measured **4 / 3 / 1**: buildable now — estimated gross profit, visits, devices, orders by
+>    channel; **owner decision first** — conversion (`D-N32`/`GAP-155`: the page-view basis has
+>    never been accepted and withdrawing the tile is a registered option), referring pages and
+>    campaign traffic (`D-N41`/`D-N42`: what a row cap means across tenants, and aggregated
+>    versus attributed, decide the SQL); **blocked by a data gate** — coupon redemptions. Two facts for the build:
+>    the empty-scope guard is the one omission that would ship red, and the PLATFORM EXPORT has
+>    no breakdown loop — `FigureCsv::breakdownRows()` already exists and the merchant file already
+>    uses it, so what is missing is a loop in `PlatformAnalyticsController::export()`, not new
+>    machinery. (Corrected: this line first said `FigureCsv::rows()` was breakdown-blind and the
+>    seam had to be built.) **TWO OF THE FOUR ARE NOW BUILT (2026-11-24):** `devices`
+>    (`3e9f9339`, with the breakdown export loop the other breakdowns need) and **estimated gross
+>    profit** -- `StoreRevenueMargin(true)`, the same metric and settled-only flag `/finance`
+>    uses, one row per currency, `total()` never called -- and **page views**, a count and so not
+>    blocked by `D-N32`, carrying the attribution-start and never-recorded-store coverage
+>    statements -- and **orders by channel**, which needs no row cap because `order_source` is
+>    writer-authored from a closed vocabulary rather than visitor-authored. So ALL FOUR buildable
+>    counterparts are built and **four** remain, every one of them BLOCKED: `conversion` on
+>    `D-N32`, `channels` on `D-N41`, `campaigns` on `D-N42`, `redemptions` on its data gate.
+>    Nothing further on this row is engineering's.
+>    **The financial review of the profit slice refuted its own central claim** -- the
+>    `UNKNOWN_CURRENCY` row really does add different currencies, and for a margin that can reverse
+>    the sign -- so both money tables now disclose that row; the merchant tile's dropped tax clause
+>    is restored; `FigureCsv::currencyRows()` no longer leaks bidi isolates into the download's
+>    disclosure column (it did for `payments` too); and the currency rows are explicitly sorted.
+> 7. **`P5-R8`…`R12`** — four-combination evidence, the per-slice eight-point record, the Phase 05
+>    final report, the loyalty metric as a MySQL harness script; register the ANA-005 harness.
+>    **The STRING half of `R8` is now a test rather than a habit** (`P05-16`): a census of the 33
+>    sources behind the two analytics screens found **7 of 183** `__()` keys declared in NEITHER
+>    language file, so they rendered in English on the Arabic page. Six are declared; the seventh
+>    was REMOVED, because reading it in order to translate it showed it told the operator the
+>    opposite of what the code does -- guest orders are excluded from the cross-tenant Buyers
+>    headcount and the sentence said they "are counted here at all". A dead near-duplicate key in
+>    both files went with it. `AnalyticsMessagesAreDeclaredTest` holds the rule, with the
+>    metric-class scope derived by glob.
+>    **AND `R8`'s RENDERING HALF IS NOW DONE TOO** (2026-11-24): both analytics screens captured in
+>    all four AR/EN x light/dark combinations, each shot carrying its own HTTP status, rendered
+>    `dir` and computed `body` background, 8 distinct contents by the capture-integrity checker --
+>    `docs/development/phase-5/evidence/p5-r8-four-combinations-2026-11-24/`. The audit over the
+>    same four reports **zero** contrast failures, zero overflow, zero broken images and zero
+>    nameless controls on either screen. The only findings are three SHARED-CHROME tap targets
+>    under the floor (sidebar search, rail toggle, breadcrumb), left to the owner because they are
+>    in the layout Phase 2.5's accepted surfaces all render.
+>    **THE FIRST CAPTURE RUN WAS WRONG AND ITS OWN PREMISE LINE CAUGHT IT:** the operator's four
+>    images came out byte-identical in light/dark pairs. `getSuperAdminAllSetting()` reads
+>    `created_by = <operator> AND store_id IS NULL`, and the state tool wrote
+>    `(store_id = 1, created_by = <first admin>)` -- a row the operator's layout cannot see. NOT a
+>    product defect: an operator-owned row was inserted by hand first and both screens went dark,
+>    so the tool now derives the row's owner from the principal. The dev fixture was also 12
+>    migrations behind, which is why these screens had never been captured at all.
+>    **Three matrix rows were stale in the pessimistic direction and are re-measured** -- `P05-05`
+>    (its `wc -l` 3660 is 4489, its `grep -c payment_status` 0 is 2 AND BOTH ARE IN COMMENTS, and
+>    five report surfaces have been re-pointed since), `P05-16` and `P05-24` (`phase-5/` holds 17
+>    files and an `evidence/` directory, not three). `P05-05` and `P05-16` move NOT IMPLEMENTED ->
+>    PARTIALLY IMPLEMENTED; the project-wide 350 / 170 verified is unchanged.
+> 8. Then Phase 06 on its own branch and Draft PR, without merging the existing phase PRs.
+>
+> **THE RULE THAT GOVERNS EVERY PUSH:** a push CANCELS a running required run (`ci.yml` sets
+> `cancel-in-progress: true`), so nothing is pushed while one is in flight. Broken once, on #574.
+> Held correctly on 2026-11-22 when a stop hook asked for a push while #583 was mid-flight; #583
+> then concluded SUCCESS and the push followed. **Commit freely, push only when the required run on
+> the previous head has concluded.**
+>
+> ---
+>
+> #### What the 2026-11-22 re-measurement changed, and why the records could not be trusted
+>
+> **EIGHT OF NINE Phase 05 rows were wrong about the code.** Only `ANA-003` was accurate. With
+> `ANA-004` the day before, **nine of ten rows measured in 48 hours were stale**, and the cause is
+> one repeatable mistake, now logged as **`GAP-229`**: a census searches for an identifier the
+> feature does not use, and its zero result is written into the matrix as an absence.
+>
+> | row | what the row said | what the code does |
+> |---|---|---|
+> | `ANA-004` | conversion analysis "absent entirely" | `conversion()` ships on five merchant surfaces |
+> | `MKT-001` | no marketing screen links to analytics | all five do, via `marketing/_analytics_link.blade.php`; the grep searched `theme_analytic`, a different route |
+> | `ANA-002` | report screens have "no period filter at all" | six have one via `components/ss/report-filter.blade.php:69`, **and `ReportFilterBarTest` already passes on those six** |
+> | `MKT-002` | five disclosure literals absent | true, and misleading: all five surfaces carry a sixth mechanism (`x-ss.marketing-filters`) — phone-only, so the PARTIAL verdict survives |
+> | `MKT-010` | greentic omits the conversion hook | it calls it at `:20`; fixed and closed as `GAP-220` on 2026-11-21 and **the matrix was never updated** |
+>
+> **The rule this establishes, now in force:** an absence claim must be established by BEHAVIOUR —
+> find the surface a merchant would use and read what it renders, read the layer that feeds it, and
+> only then search by name, for several plausible names — and must state which searches were run.
+> A zero grep result is evidence about a string, never about a capability.
+>
+> **All nine rows were rewritten on 2026-11-22 and each correction was re-verified by hand against
+> the code, not taken from the measurement alone.** No row was promoted to VERIFIED COMPLETE on the
+> strength of an automated measurement; every one stayed `PARTIAL`, which is why
+> `MasterPlanTraceabilityCountsTest` still passes unchanged.
+>
+> **`MKT-001`'s verified links are preserved and must not be rebuilt.** Five screens, one shared
+> partial, gated on `ReportAccess::permits()` — the route's own predicate — deliberately NOT on
+> `@permission`, which would hide the link from the operator and from a tenant owner whose role
+> predates the permission name.
+>
+> ---
+>
+> #### The backlog this produced
+>
+> **33 items buildable with no owner decision** (being executed now, in the owner's priority order:
+> security and tenant isolation, then financial and data correctness, then missing functionality,
+> then cross-phase dependencies, then UX/accessibility/bilingual parity).
+>
+> **18 items needing a decision**, consolidated into `docs/development/phase-5/PHASE-05-OWNER-DECISION-REGISTER.md`
+> as **D-N13…D-N30**, each with the exact decision, options and consequences, an engineering
+> recommendation, what is safe to build first, and what stays blocked. **Six are already answered by
+> an existing decision and are not re-asked; twelve are genuinely open.** None of the 33 depends on
+> any of the 18.
+>
+> **ONE NEW CORRECTNESS DEFECT, found by the re-measurement and logged as `GAP-228`:**
+> `ProductController::update()` validates `cost_price` as `required|numeric|min:0|lte:price` at
+> `:1869` and **never assigns it** — the only write in the file is `:837`, inside `store()`. A
+> merchant whose product has no cost can never add one: the form demands the value, accepts it, and
+> discards it in silence. Every "at least N paid orders have no product cost on record" disclosure
+> is therefore permanent by construction. Not a policy question.
+>
+> ---
+>
+> #### Standing constraints, unchanged
+>
+> - **`P1-SEC-81` remains a CRITICAL confidential production-remediation item.** The held fix is on
+>   no remote. Do not publish details, merge, deploy or fabricate human security approval. The
+>   owner/operator action remains outstanding and must stay visible.
+> - **The `Security-sensitive diff: human checklist` CI gate is red by design on every head** and is
+>   the owner's to clear; its companion `human approval` job passes. Writing the marker would
+>   fabricate human security approval, which §9 forbids. Documented on PR #140 in three places.
+> - **Never invent financial, marketing, legal or consent policy.** Where a figure needs a rule that
+>   does not exist, disclose the omission and record the decision — the pattern `ANA-009`,
+>   `MKT-007` and `MetricThreshold` already use.
+> - **Do not rebuild existing WorkDo engines**, and do not edit `packages/workdo/` as a shortcut.
+>
+> ---
+>
+> #### Resource rules added 2026-11-22, after a near-loss
+>
+> - **Check whether equivalent work is already running before launching an investigation.** A
+>   nine-row measurement was duplicated because silence was read as failure; the original was alive
+>   and finished after 4.3 hours.
+> - **Never delete the only copy of a workflow's evidence.** The disk filled and truncated the
+>   completed run's 1 MB result file to **0 bytes**; the findings survived only because its journal
+>   had been kept deliberately during cleanup.
+> - **Keep headroom for test artefacts and logs.** The Feature suite writes a JUnit and a TeamCity
+>   log on every gated run.
 ---
+
+
+## Original-plan traceability (permanent, added 2026-11-16)
+
+Three documents govern whether the delivered product matches the **owner-approved** plan, as
+distinct from whether the engineering passed:
+
+| document | what it answers |
+|---|---|
+| [`MASTER-PLAN-SOURCE-VERIFICATION.md`](MASTER-PLAN-SOURCE-VERIFICATION.md) | **Can the original plan even be checked?** Answer: **NOT FULLY VERIFIED** — the Decision Register v1.0 was never committed to this repository. |
+| [`MASTER-PLAN-REQUIREMENT-TRACEABILITY.md`](MASTER-PLAN-REQUIREMENT-TRACEABILITY.md) | **350 requirements recovered. 169 VERIFIED COMPLETE. 181 are not.** |
+| [`MASTER-PLAN-GAP-REGISTER.md`](MASTER-PLAN-GAP-REGISTER.md) | **181 open gaps — 56 category A (must complete before release)**, 16 B, 73 C, 11 D, 25 E. |
+
+**CI success does not establish product-scope completeness.** See `CLAUDE.md` §4.1 for the rule and
+the four states that must never be merged into one label.
 
 ## 1. Where the code is, exactly
 
 | | repository | `main` | active branch |
 |---|---|---|---|
-| Laravel (canonical backend) | `fullstackfull/syriastore98` | **`4e878b8d`** — the Phase 2.5 merge (PR #134) | `feature/phase-03-storefront` |
+| Laravel (canonical backend) | `fullstackfull/syriastore98` | **`4e878b8d`** — the Phase 2.5 merge (PR #134) | `feature/phase-05-marketing-analytics` *(corrected 2026-11-17; was `feature/phase-03-storefront`. The Phase 03 and Phase 04 branches still exist and are both ancestors of this one.)* |
 | Flutter (merchant/staff app) | `fullstackfull/StoreSyria_app98` | **`cbf6283f`** — the Phase 2.5 merge (PR #9) | none; stays on `main` unless a Phase 03 contract need arises |
 
 Both SHAs verified against the owner's directive. Both Phase 2.5 heads are ancestors of their

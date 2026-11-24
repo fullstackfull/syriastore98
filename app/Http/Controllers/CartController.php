@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\{ActivityLog, ProductAttributeOption, ProductVariant, Store};
 use App\Models\Utility;
+use App\Support\Commerce\GuestBasketIdentity;
 use App\Services\AbandonedMessageDispatch;
 use App\Models\Cart;
 use App\Models\{Customer, Product, User};
@@ -398,7 +399,24 @@ class CartController extends Controller
                 }
             }
 
-            $session_id = session()->getId();
+            /*
+             * P4-F004. THE BASKET THIS REQUEST IS ABOUT, NOT THE SESSION THIS REQUEST IS IN.
+             *
+             * This was `session()->getId()`. Every READER of a guest basket keys it on the `cart`
+             * cookie (`cart_remove`:135, `cartClear`:170, `change_cart`:189,
+             * `Cart::cart_list_cookie`:243, `PaymentService`, the gateway return handlers,
+             * `CustomerLoginController`'s sign-in migration) -- only this writer keyed it on the
+             * session id, and then overwrote the cookie with it where it is queued below.
+             *
+             * A session lives 120 minutes (`config/session.php`); the cookie below is queued for
+             * 1440. So for twenty-two hours of every day the cookie outlives the session that
+             * minted its value, and the first add after the id turned over created a row under an
+             * identifier no earlier row carried AND renamed the basket to it: every line already
+             * in that basket became unreadable, unbuyable and undeletable at once. To the shopper,
+             * adding an item emptied their basket; to the merchant it is an abandoned basket the
+             * shopper did not abandon.
+             */
+            $session_id = GuestBasketIdentity::forRequest();
             $cart = Cart::forGuestCookie($session_id)
                 ->where('product_id', $request->product_id)
                 ->where('variant_id', $variant_id)
@@ -556,7 +574,23 @@ class CartController extends Controller
         $cart->save();
 
         if (!$customer) {
-            $cart_count = Cart::forGuestCookie($session_id)->count();
+            /*
+             * THE BADGE COUNTS THIS STORE, which the lookup and the write above already do and
+             * this line did not. `Cart` is allowlisted in `config/tenancy.php`, but
+             * `null_tenant => 'open'` means the global scope adds NO predicate for an anonymous
+             * guest -- so an unscoped count here answered with the shopper's lines in EVERY store
+             * that shares the cookie (`config/session.php`'s path is `/`, and storefronts are
+             * path-prefixed on one host). A shopper who had visited store B saw B's lines in
+             * store A's basket badge.
+             *
+             * Pre-existing -- the session id spanned stores within a session too -- but the fix
+             * above makes the identifier last the cookie's 24 hours instead of the session's two,
+             * so the window grows and it is closed here. Found by the independent review of this
+             * change, which also noted the shape: for a signed-in MERCHANT browsing a storefront
+             * the scope DOES resolve and narrow this line, so the control worked for one
+             * principal and not for another.
+             */
+            $cart_count = Cart::forGuestCookie($session_id)->where('store_id', $store->id)->count();
             Cookie::queue('cart', $session_id, 1440);
         } else {
             $cart_count = Cart::where('customer_id', $customer_id)->where('store_id', $store->id)->count();
@@ -1150,10 +1184,46 @@ foreach ($response->data->product_list as $item) {
 
     public function abandon_carts_handled(AbandonCartDataTable $dataTable, Request $request)
     {
-        if (auth()->user()->isAbleTo('Manage Cart')) {
+        // GAP-218. `isAbleTo()` alone refuses the platform operator -- Laratrust has no
+        // super-admin bypass and no role holds this name on a database built from source. The
+        // predicate is the one `couponReadRefusal()` has used since 2026-10-28; it deliberately
+        // does NOT admit a tenant owner without the permission (see the class docblock).
+        if ($refusal = \App\Services\MarketingScreenAccess::refusal(auth()->user(), 'Manage Cart')) {
+            return redirect()->back()->with('error', __($refusal));
+        }
+
+        {
+            /*
+             * MKT-002. The merchant's filter selection survives navigation and reload.
+             *
+             * INSIDE THE PERMISSION GATE, deliberately: a caller who may not see this list never
+             * reads or writes the memory, and never learns from a redirect that one exists.
+             *
+             * THE RESTORE IS A 302, NOT A CLIENT-SIDE FILL. yajra sets the table's `ajax.url` to
+             * `url()->full()` as evaluated when the page RENDERS, so filling the controls -- or
+             * rewriting the query with `history.replaceState` -- would leave the table's second leg
+             * requesting the UNFILTERED url: the page would look filtered and the rows would not be.
+             * A redirect makes a restored request byte-identical to a typed one. This is
+             * `ProductController::index`'s reasoning, which applies here for the same reason.
+             */
+            if ($request->has(\App\Services\TableFilterMemory::CLEAR)) {
+                \App\Services\TableFilterMemory::forget('abandon-cart');
+
+                return redirect()->route('abandon.carts.handled');
+            }
+
+            if (\App\Services\TableFilterMemory::shouldRestore($request)) {
+                $remembered = \App\Services\TableFilterMemory::recall('abandon-cart');
+
+                if ($remembered !== []) {
+                    return redirect()->route('abandon.carts.handled', $remembered)
+                        ->with('ss_filters_restored', true);
+                }
+            }
+
+            \App\Services\TableFilterMemory::remember($request, 'abandon-cart');
+
             return $dataTable->render('cart.index');
-        } else {
-            return redirect()->back()->with('error', __('Permission denied.'));
         }
     }
 
@@ -1288,12 +1358,48 @@ foreach ($response->data->product_list as $item) {
                 $dArr = Cart::where('customer_id', $user_id)->where('store_id', $storeId)->get();
 
                 $order_id = 1;
+
+                /*
+                 * GAP-219 — RESERVE THE NUDGE BEFORE HANDING IT OVER, so a double-click does not send
+                 * twice. This endpoint carries no `throttle` middleware and recorded no sent marker, so
+                 * two clicks were two e-mails. Every one is billable.
+                 *
+                 * The gate asks the cadence rule first (switched off until the owner sets an interval --
+                 * how often a shopper may be nudged is a marketing policy, not an engineering choice)
+                 * and then reserves the logical action by identity. The key has no clock in it, so
+                 * suppressing a double-click invents no frequency.
+                 *
+                 * A REFUSAL IS AN ANSWER, not a silent no-op: the merchant pressed a button and is told
+                 * what happened and when, because a button that does nothing gets clicked again.
+                 */
+                $nudge = app(\App\Services\Marketing\NudgeGate::class)->reserve(
+                    (int) $storeId,
+                    'email',
+                    'Abandon Cart',
+                    $email,
+                    'cart',
+                    (int) $cart->id
+                );
+
+                if (! $nudge->allowed()) {
+                    return response()->json(['is_success' => false, 'message' => $nudge->message()]);
+                }
+
                 $resp  = Utility::sendEmailTemplate('Abandon Cart', $email, $dArr, $owner, $store, $product_id, $user_id);
 
 
 
                 // $return = 'Mail send successfully';
                 if ($resp['is_success'] == false) {
+                /*
+                 * GAP-219 — THE CLAIM IS RELEASED, because nothing went out. `reserve()` writes the
+                 * row BEFORE the send so it can stop a second one; leaving it after a failure would
+                 * block this nudge for ever, since the key has no clock in it. Found by an
+                 * independent review: with SMTP misconfigured the first click claimed the nudge and
+                 * failed, and every later click was told it had already been sent.
+                 */
+                app(\App\Services\Marketing\NudgeGate::class)->release($nudge);
+
                     return response()->json(
                         [
                             'is_success' => false,
@@ -1309,6 +1415,30 @@ foreach ($response->data->product_list as $item) {
                     );
                 }
             } catch (\Exception $e) {
+                /*
+                 * GAP-219 — RELEASE THE CLAIM, and LOG WHAT ACTUALLY HAPPENED.
+                 *
+                 * Two things an independent review found here. First, the claim: `reserve()` wrote
+                 * the row before the send, so an exception after it would block this nudge for ever
+                 * unless it is released. `isset()` because the reserve is inside this `try` -- a
+                 * throw before it means there is nothing to release.
+                 *
+                 * Second, the diagnosis. `NudgeLedger` deliberately RETHROWS any query failure that
+                 * is not a unique-key violation, on the stated grounds that swallowing it would turn
+                 * a broken ledger into a silent "allow". That rethrow lands here, and this handler
+                 * reported it to the merchant as an SMTP problem while logging nothing at all -- so
+                 * a broken ledger would have produced a confident wrong diagnosis and no trace. The
+                 * message stays generic (it must not leak internals, and SMTP really is the usual
+                 * cause) but the exception is now recoverable, as it already was on the WhatsApp leg.
+                 */
+                if (isset($nudge)) {
+                    app(\App\Services\Marketing\NudgeGate::class)->release($nudge);
+                }
+
+                \Log::warning('abandoned-cart e-mail nudge failed', [
+                    'store_id' => $storeId ?? null,
+                    'exception' => $e->getMessage(),
+                ]);
 
                 $smtp_error = __('E-Mail has been not sent due to SMTP configuration');
                 return response()->json(
@@ -1442,6 +1572,33 @@ foreach ($response->data->product_list as $item) {
                 return response()->json(['is_success' => false, 'message' => $blocked]);
             }
 
+
+            /*
+             * GAP-219 — RESERVE THE NUDGE BEFORE HANDING IT OVER, so a double-click does not send
+             * twice. This endpoint carries no `throttle` middleware and recorded no sent marker, so
+             * two clicks were two WhatsApp messages. Every one is billable.
+             *
+             * The gate asks the cadence rule first (switched off until the owner sets an interval --
+             * how often a shopper may be nudged is a marketing policy, not an engineering choice)
+             * and then reserves the logical action by identity. The key has no clock in it, so
+             * suppressing a double-click invents no frequency.
+             *
+             * A REFUSAL IS AN ANSWER, not a silent no-op: the merchant pressed a button and is told
+             * what happened and when, because a button that does nothing gets clicked again.
+             */
+            $nudge = app(\App\Services\Marketing\NudgeGate::class)->reserve(
+                (int) $storeId,
+                'whatsapp',
+                'Abandon Cart',
+                $mobile,
+                'cart',
+                (int) $cart->id
+            );
+
+            if (! $nudge->allowed()) {
+                return response()->json(['is_success' => false, 'message' => $nudge->message()]);
+            }
+
             $dispatch->handOver('Abandon Cart', (string) $mobile, $msg);
 
             return response()->json(
@@ -1457,6 +1614,14 @@ foreach ($response->data->product_list as $item) {
              * merchant as "Invalid Auth access token". The message is still generic enough not to
              * leak internals, and the exception is logged so the real cause is recoverable.
              */
+            /*
+             * GAP-219 — release the claim: `handOver()` threw, so nothing went out, and an
+             * unreleased reservation would block this nudge permanently.
+             */
+            if (isset($nudge)) {
+                app(\App\Services\Marketing\NudgeGate::class)->release($nudge);
+            }
+
             \Log::warning('abandoned-cart WhatsApp nudge failed', [
                 'store_id' => $storeId,
                 'cart_id' => $request->cart_id,

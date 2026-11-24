@@ -50,7 +50,8 @@ class ShippingZoneDataTable extends DataTable
                     $q->where('name', 'LIKE', "%{$keyword}%");
                 });
             })
-            ->rawColumns(['action', 'country_id', 'state_id']);
+            // P1-SEC-80. Country and state names are plain text: yajra escapes them.
+            ->rawColumns(['action']);
         return $dataTable;
     }
 
