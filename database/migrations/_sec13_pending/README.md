@@ -164,3 +164,60 @@ So: the rotation landed first and the binding second, both deliberately, and tog
 make applying this migration safe.
 `tests/Feature/Security/SessionHygieneTest.php` pins both halves and will tell you if either is
 removed. Do not apply this migration on a tree where that rotation is absent.
+
+### THE TWO FOLLOW-UP PREDICATES: REACHABILITY CANNOT BE ESTABLISHED IN THIS SUITE (2026-11-24)
+
+The owner asked for the two predicates above to have their **actual reachability verified** before
+either is implemented. The answer is that a Feature test cannot establish it, and the reason is
+specific enough to be worth recording rather than re-discovering.
+
+**Laravel's test client gives every request a NEW session id.** Measured five ways, all on this
+tree:
+
+| what was driven | result |
+|---|---|
+| two plain `GET`s of `/{slug}/forgot-password` | ids differ |
+| two requests seeded with `withSession([...])` | ids differ |
+| an unencrypted session cookie planted with `withUnencryptedCookie()` | ids differ, and neither matches the planted value |
+| the same, with `config(['session.driver' => 'file'])` | ids still differ |
+| the real pair: `POST .../otp/verify` then `POST .../reset-password/otp` | the reset is REFUSED, flashing `OTP verification is required.` |
+
+So it is not the `array` driver (`phpunit.xml:40`, against `database` in production at
+`config/session.php:21`) — the `file` driver behaves the same. The id rotates because the client
+does not carry the session cookie back into the next request.
+
+**And that interacts with SEC-SESS part A exactly as part A intends.** Part A binds the
+authorisation to the session that earned it and compares `password_otp_verified_session_id` against
+`session()->getId()` at both read sites. In the harness the second request's id never matches, so
+**every** follow-up request is refused — the legitimate reset included. Confirmed directly: after
+the verify, `password_otp_verified` is `true` and the bound id equals the live id; by the next
+request the live id has changed while the bound id has not.
+
+**WHAT THIS MEANS FOR THE PREDICATES.** A test for either one would assert that a reset is refused
+— and a reset is refused here no matter what, so the test passes without touching the predicate.
+That is not a hypothetical: the first version of this work had four such tests and **all four
+passed on the unmodified tree**. Only the mandatory oracle ("a prompt legitimate reset still
+completes") failed, and it is the single reason the vacuity was caught rather than committed as
+evidence. The test file was deleted rather than kept, because a test that passes for the wrong
+reason is worse than no test: the accepted-outcome gate would bless it.
+
+**DISPOSITION: NEITHER PREDICATE IS IMPLEMENTED.** The owner's instruction was to verify
+reachability and address *confirmed* defects. Nothing is confirmed:
+
+- Both predicates guard a flow that is **inert on production MySQL today** (the column cannot hold
+  the hash — see above), so neither is a live defect.
+- Their necessity after the widening is **argued, not measured**, and this suite cannot measure it.
+- Writing an authorisation guard whose effect no test can observe would add a control nobody could
+  prove works or could notice breaking.
+
+**WHAT WOULD ESTABLISH IT.** A harness that preserves one session id across requests — a real HTTP
+client against a served instance, in the shape of `tests/Support/Security/bin/`, which is where
+CLAUDE.md puts evidence that cannot live in the suite. That is the prerequisite for these two
+predicates, and it is also what would let anyone drive **any** multi-request customer session flow,
+including part A's binding and the forced-sign-out residual the paragraph above describes. Until it
+exists, part A's coverage in `SessionHygieneTest` is necessarily single-request and source-level —
+which is a limit on the EVIDENCE, not a defect in part A.
+
+**So the ordering stands, with one item added.** Before this migration is applied: the attempt
+limit and the two route throttles (already on the branch), and a decision on whether these two
+predicates are wanted — which now needs the harness above, not more reading.
