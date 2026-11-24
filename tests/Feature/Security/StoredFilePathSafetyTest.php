@@ -487,7 +487,11 @@ class StoredFilePathSafetyTest extends SecurityTestCase
             // docs/development/phase-6/PHASE-06-MODULE-REMOVAL-FINDINGS.md.
             'app/Http/Controllers/ModuleController.php' => 2,
             'app/Http/Controllers/SettingController.php' => 3,         // logo files: the path is a constant 'uploads/logo/<fixed name>', not a stored value
-            'app/Models/Utility.php' => 3,                             // rmdir-style directory helper + the two loops that unlink ONLY what StoredUpload::resolveAll() returned
+            // The rmdir-style directory helper -- now TWO removals in it, the ordinary file plus the
+            // symlink P06-MOD-2 refuses to walk through (is_dir() and file_exists() both follow a
+            // link, so the second also clears a dangling one) -- plus the two loops that unlink
+            // ONLY what StoredUpload::resolveAll() returned.
+            'app/Models/Utility.php' => 4,
             'app/Services/StoredUpload.php' => 1,                      // THE deleter
             'app/Support/StoreBoundFilesystem.php' => 2,               // the containment (P1-SEC-70): delegates to the real Filesystem only AFTER judging the path
         ], $found, 'A filesystem removal was added or removed in app/. A path that came from the database must go through StoredUpload::delete().');

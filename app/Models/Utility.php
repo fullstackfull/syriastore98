@@ -567,6 +567,28 @@ class Utility extends Model
 
     public static function delete_directory($dir)
     {
+        /*
+         * A SYMLINK IS UNLINKED, NEVER RECURSED INTO -- AND IT IS CHECKED FIRST.
+         *
+         * P06-MOD-2. This recursion decided with `is_dir($dir)`, which FOLLOWS links, so a symlink
+         * to a directory anywhere under the tree being removed had every file beneath its TARGET
+         * unlinked through it. The same defect as `ModuleController::deleteDirectory()` (fixed in
+         * `c3010288`), in a second copy of the same helper -- which is why the confinement half now
+         * lives in one shared class instead of being written a third time.
+         *
+         * BEFORE `file_exists`, not after, and that ordering does real work: `file_exists()` follows
+         * the link too, so for a BROKEN symlink it answers false and the old code returned true
+         * while leaving the dangling link in place. Checking `is_link` first removes it.
+         *
+         * Not live on this checkout -- `find` reports zero symlinks under `resources/lang` or
+         * `packages/workdo` -- so this is hardening, and it is here because the only caller that
+         * takes a caller-named path is the language-delete door, where the requirement names unsafe
+         * symlink resolution explicitly.
+         */
+        if (is_link($dir)) {
+            return unlink($dir);
+        }
+
         if (!file_exists($dir)) {
             return true;
         }

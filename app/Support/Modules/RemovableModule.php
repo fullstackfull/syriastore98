@@ -2,7 +2,8 @@
 
 namespace App\Support\Modules;
 
-use App\Http\Requests\InstallAddonRequest;
+use App\Support\Filesystem\ConfinedDirectory;
+use App\Support\Filesystem\PathNotConfined;
 use Illuminate\Support\Facades\File;
 
 /**
@@ -114,12 +115,10 @@ final class RemovableModule
     {
         $root ??= self::root();
 
-        if (! is_string($candidate)) {
-            throw new ModuleNotRemovable('the module identifier is not a string');
-        }
-
-        if ($candidate === '') {
-            throw new ModuleNotRemovable('the module identifier is empty');
+        try {
+            $candidate = ConfinedDirectory::safeSegment($candidate, 'module identifier');
+        } catch (PathNotConfined $refusal) {
+            throw new ModuleNotRemovable($refusal->getMessage(), 0, $refusal);
         }
 
         /*
@@ -140,10 +139,6 @@ final class RemovableModule
          * survive unchanged). That is intended. Guessing which module a caller meant is the
          * behaviour being removed.
          */
-        if (InstallAddonRequest::safeDirectoryName($candidate) !== $candidate) {
-            throw new ModuleNotRemovable('the module identifier contains characters that could alter a path');
-        }
-
         foreach (self::PROTECTED_MODULES as $protected) {
             if (strcasecmp($candidate, $protected) === 0) {
                 throw new ModuleNotRemovable('"' . $protected . '" is protected and is not a removable module');
@@ -203,30 +198,10 @@ final class RemovableModule
      */
     public static function confineWithin(string $root, string $name): string
     {
-        $canonicalRoot = realpath($root);
-
-        if ($canonicalRoot === false) {
-            throw new ModuleNotRemovable('the modules root does not exist');
+        try {
+            return ConfinedDirectory::within($root, $name, 'modules root', 'module directory');
+        } catch (PathNotConfined $refusal) {
+            throw new ModuleNotRemovable($refusal->getMessage(), 0, $refusal);
         }
-
-        $canonicalTarget = realpath($root . DIRECTORY_SEPARATOR . $name);
-
-        if ($canonicalTarget === false) {
-            throw new ModuleNotRemovable('the module directory does not exist');
-        }
-
-        if ($canonicalTarget === $canonicalRoot) {
-            throw new ModuleNotRemovable('the module directory resolves to the modules root itself');
-        }
-
-        if (! str_starts_with($canonicalTarget, $canonicalRoot . DIRECTORY_SEPARATOR)) {
-            throw new ModuleNotRemovable('the module directory resolves outside the modules root');
-        }
-
-        if (! is_dir($canonicalTarget)) {
-            throw new ModuleNotRemovable('the module path is not a directory');
-        }
-
-        return $canonicalTarget;
     }
 }
