@@ -58,7 +58,27 @@ class PlatformOperatorOnly
             return $next($request);
         }
 
-        if (isset($user->type) && strtolower(trim((string) $user->type)) === self::PLATFORM_ADMIN) {
+        /*
+         * `UserPolicy::isOperator()` AND NOT A SECOND SPELLING OF THE SAME TEST. What stood here
+         * was `strtolower(trim((string) $user->type))`, and `trim` strips a LEADING space while
+         * the canonical helper deliberately does not: `strtolower(rtrim($type, ' '))`, because
+         * MySQL's PAD SPACE ignores a trailing space and does NOT ignore a leading one. So a row
+         * typed `' super admin'` was a NON-operator to the engine, to `User::isPlatformAdmin()`
+         * and to `OperatorCheckCensusTest`'s own data provider -- which asserts that string must
+         * be refused -- and an OPERATOR to this middleware.
+         *
+         * LATENT, NOT LIVE, and that was established rather than assumed: the only writers of
+         * `users.type` are the seeder's exact `'super admin'` and `UserController`'s role-name
+         * path, which normalises before refusing the reserved names, so no tenant can mint a
+         * variant. It needs a hand-edited row. It is fixed anyway, because this middleware is the
+         * ONLY check on routes whose handlers document that they rely on it
+         * (`BankTransferController::orderapprove`, `PlanController::refund`).
+         *
+         * Found by an independent review of the `plan.disable` gate, which this middleware now
+         * also carries -- there the handler's own strict `!==` refused the lookalike, so the pair
+         * composed fail-closed and the middleware's looseness was invisible.
+         */
+        if (\App\Policies\UserPolicy::isOperator($user)) {
             return $next($request);
         }
 

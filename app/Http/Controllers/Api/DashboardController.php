@@ -8112,24 +8112,36 @@ public function indexAllPlan(Request $request)
                 'duration_text' => Plan::getDurationsArr()[$currentPlan->duration] ?? 'Month',
                 'price_display' => ($settings['CURRENCY'] ?? '$') . $currentPlan->price . ' / ' . (Plan::getDurationsArr()[$currentPlan->duration] ?? 'Month'),
 
+                /*
+                 * `> 0` AND NOT `== -1`, because -1 was not the only limit without a denominator.
+                 * `plans.max_products`, `max_stores` and `max_users` are each `->default(0)`, so a
+                 * plan whose limit was never filled in divided by zero here -- and
+                 * `DivisionByZeroError` is an `Error`, which the `catch (\Exception)` around this
+                 * whole handler cannot see, so it was an HTTP 500 on the app's current-plan screen
+                 * rather than a handled failure. `0` is the answer this expression already gave for
+                 * an unlimited plan, where a percentage is equally meaningless; `max` and `used` sit
+                 * beside it and say the real state.
+                 * AdminApiCurrentPlanZeroLimitTest holds it, and records which half of the report
+                 * that found it was refuted.
+                 */
                 'limits' => [
                     'products' => [
                         'max' => $maxProducts == -1 ? 'Unlimited' : $maxProducts,
                         'used' => $usedProducts,
                         'remaining' => $remainingProducts == -1 ? 'Unlimited' : $remainingProducts,
-                        'percentage' => $maxProducts == -1 ? 0 : round(($usedProducts / $maxProducts) * 100, 2),
+                        'percentage' => $maxProducts > 0 ? round(($usedProducts / $maxProducts) * 100, 2) : 0,
                     ],
                     'stores' => [
                         'max' => $maxStores == -1 ? 'Unlimited' : $maxStores,
                         'used' => $usedStores,
                         'remaining' => $remainingStores == -1 ? 'Unlimited' : $remainingStores,
-                        'percentage' => $maxStores == -1 ? 0 : round(($usedStores / $maxStores) * 100, 2),
+                        'percentage' => $maxStores > 0 ? round(($usedStores / $maxStores) * 100, 2) : 0,
                     ],
                     'users' => [
                         'max' => $maxUsers == -1 ? 'Unlimited' : $maxUsers,
                         'used' => $usedUsers,
                         'remaining' => $remainingUsers == -1 ? 'Unlimited' : $remainingUsers,
-                        'percentage' => $maxUsers == -1 ? 0 : round(($usedUsers / $maxUsers) * 100, 2),
+                        'percentage' => $maxUsers > 0 ? round(($usedUsers / $maxUsers) * 100, 2) : 0,
                     ],
                 ],
 

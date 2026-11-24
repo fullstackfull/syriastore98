@@ -752,7 +752,26 @@ Route::get(
     Route::get('nepalste/status/', [NepalstePaymnetController::class, 'planGetNepalsteStatus'])->name('nepalste.status');
     Route::get('nepalste/cancel/', [NepalstePaymnetController::class, 'planGetNepalsteCancel'])->name('nepalste.cancel');
 
-    Route::post('plan-disable', [PlanController::class, 'planDisable'])->name('plan.disable');
+    /*
+     * NEW-PLAN-DISABLE-UNGATED-01. THE SAME DEFECT AS `order.approve` AND `plan.order.refund`
+     * ABOVE, found 2026-11-24, and gated the same way for the same measured reason.
+     *
+     * The route carried `web`, `Authenticate`, `XSS`, `SetLocate` and `EmailIsVerified` and
+     * nothing else -- read from the router, not from this file -- while `planDisable` does
+     * `Plan::where('id', $request->id)->update(['is_disable' => $request->is_disable])` straight
+     * from the body. `plans` is a PLATFORM table: one request from any authenticated,
+     * email-verified visitor withdrew a plan from sale for every merchant on it, or put one the
+     * operator had withdrawn back on sale.
+     *
+     * PLATFORM-OPERATOR AND NOT A PERMISSION, decided from the application's own UI exactly as
+     * the refund gate was: the switch is rendered only inside
+     * `@if (\Auth::user()->type == 'super admin' && $plan->price > 0)`
+     * (resources/views/plans/index.blade.php:77). `Edit Plan` would be the wrong gate -- it is a
+     * MERCHANT permission a tenant can grant itself on the roles screen.
+     */
+    Route::post('plan-disable', [PlanController::class, 'planDisable'])
+        ->name('plan.disable')
+        ->middleware(\App\Http\Middleware\PlatformOperatorOnly::class);
     Route::get('plan-trial/{id}', [PlanController::class, 'planTrial'])->name('plan.trial');
 
     Route::post('plan-pay-with-khalti', [KhaltiPaymnetController::class, 'planPayWithKhalti'])->name('pay.khalti.payment');

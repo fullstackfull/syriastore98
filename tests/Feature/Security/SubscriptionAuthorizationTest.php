@@ -54,6 +54,32 @@ class SubscriptionAuthorizationTest extends SecurityTestCase
         ], $attributes));
     }
 
+    /**
+     * `plans.is_disable` IS NOT FILLABLE, which cost one of these cases a false pass.
+     *
+     * `Plan::create(['is_disable' => 0])` silently DROPS the value -- the column is absent from
+     * `Plan::$fillable` -- and the migration default of 1 applies instead
+     * (2024_03_13_062916_add_is_disable_to_plans_table.php:17). The first version of
+     * `test_a_merchant_cannot_enable_a_plan_the_operator_disabled` arranged `0`, got `1`, and then
+     * failed its own assertion against a fixture that had never been in the state it was testing.
+     * Setting the attribute on the instance and saving bypasses mass-assignment protection, which
+     * only guards `fill()`.
+     */
+    private function withdrawnPlan(): Plan
+    {
+        $plan = $this->makePlan();
+        $plan->is_disable = 0;
+        $plan->save();
+
+        return $plan;
+    }
+
+    /** The stored flag, read past the model cache: `Plan` is `Cachable`. */
+    private function storedDisableFlag(int $planId): int
+    {
+        return (int) DB::table('plans')->where('id', $planId)->value('is_disable');
+    }
+
     private function makePlanOrder(User $user, Plan $plan, Store $store, array $attributes = []): int
     {
         return (int) DB::table('plan_orders')->insertGetId(array_merge([
@@ -221,6 +247,48 @@ class SubscriptionAuthorizationTest extends SecurityTestCase
         $this->assertSame(403, $response->getStatusCode());
     }
 
+    /**
+     * THE MIDDLEWARE'S NORMALISATION, ISOLATED -- and `plan.order.refund` is the route that can
+     * isolate it. `PlanController::refund` documents that it has NO in-handler operator test and
+     * relies on the route gate alone, so a lookalike admitted by the middleware would reach the
+     * write. On `plan.disable` the same lookalike is refused by the handler's own strict `!==`, so
+     * a test there cannot tell the two layers apart.
+     *
+     * `' super admin'` -- a LEADING space -- is the string the project has measured as a
+     * NON-operator: MySQL's PAD SPACE ignores a trailing space and not a leading one, and
+     * `OperatorCheckCensusTest`'s data provider asserts the helper must refuse it. The middleware
+     * used `trim()`, which strips both, and so admitted it.
+     */
+    public function test_a_leading_space_in_the_type_is_not_the_platform_operator(): void
+    {
+        $lookalike = $this->makePlatformAdmin(['type' => ' super admin']);
+
+        $this->assertFalse(\App\Policies\UserPolicy::isOperator($lookalike),
+            'PREMISE: the canonical helper now treats a leading space as the operator, so this '
+            . 'string is no longer the lookalike the test needs.');
+
+        [$victim, $victimStore] = $this->makeTenant();
+        $paidPlan = $this->makePlan();
+        $victim->plan_id = $paidPlan->id;
+        $victim->save();
+
+        $orderId = $this->makePlanOrder($victim, $paidPlan, $victimStore, [
+            'payment_status' => 'succeeded',
+        ]);
+
+        $response = $this->actingAs($lookalike)
+            ->get(route('plan.order.refund', [$orderId, $victim->id]));
+
+        $this->assertSame(
+            0,
+            (int) DB::table('plan_orders')->where('id', $orderId)->value('is_refund'),
+            'A principal whose type is NOT the operator to the database engine was admitted by '
+            . 'PlatformOperatorOnly and recorded a refund. The middleware and the engine must '
+            . 'agree on who the operator is.'
+        );
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
     public function test_the_platform_operator_can_still_refund_a_plan_order(): void
     {
         $admin = $this->makePlatformAdmin();
@@ -268,6 +336,191 @@ class SubscriptionAuthorizationTest extends SecurityTestCase
      * `add_on_managers.is_enable` is ONE global row per module, so this endpoint turns a module
      * off for every store on the platform. It required only a session.
      */
+    /**
+     * NEW-PLAN-DISABLE-UNGATED-01. `POST /plan-disable` WROTE A PLATFORM TABLE FOR ANYBODY.
+     *
+     * Found 2026-11-24 by an adversarial verifier reading a Phase 06 subscriptions inventory, and
+     * confirmed from the router before anything was written: the route carried `web`,
+     * `Authenticate`, `XSS`, `SetLocate` and `EmailIsVerified` and NOTHING ELSE -- no permission,
+     * no operator check, no ownership check. `PlanController::planDisable` then does
+     * `Plan::where('id', $request->id)->update(['is_disable' => $request->is_disable])` from the
+     * request body. Registration is open, so that is every authenticated visitor.
+     *
+     * IT IS THE SAME DEFECT AS `order.approve` AND `plan.order.refund` ABOVE, with the same
+     * evidence for the same remedy: the affordance is rendered ONLY inside
+     * `@if (\Auth::user()->type == 'super admin' && $plan->price > 0)` in
+     * `resources/views/plans/index.blade.php:77`, so it is already a platform-operator control in
+     * the UI and the route simply never enforced it. `PlatformOperatorOnly` is therefore the
+     * matching gate rather than a permission: `Edit Plan` is a MERCHANT permission a tenant can
+     * grant itself through the roles screen.
+     *
+     * THE FIXTURE AVOIDS THE HANDLER'S OWN ACCIDENTAL GUARD, which is the whole reason these
+     * tests use a plan NOBODY is subscribed to. `planDisable` refuses with an HTTP 200 JSON error
+     * when `$userPlan != null && $request->id != 1 && $request->is_disable == 0` -- a
+     * subscriber-protection check, not an authorization check. A test driven against a subscribed
+     * plan would be refused by THAT and would pass whether or not the route is gated.
+     */
+    public function test_a_merchant_cannot_disable_a_platform_plan(): void
+    {
+        [$merchant] = $this->makeTenant();
+
+        // Nobody is subscribed to this plan, so the handler's subscriber guard does not fire and
+        // the update() really would run.
+        $plan = $this->makePlan();
+
+        $this->assertSame(1, $this->storedDisableFlag($plan->id),
+            'PREMISE: the plan is not in the ON state this case starts from.');
+
+        $response = $this->actingAs($merchant)
+            ->post(route('plan.disable'), ['id' => $plan->id, 'is_disable' => 0]);
+
+        $this->assertSame(
+            1,
+            (int) DB::table('plans')->where('id', $plan->id)->value('is_disable'),
+            'A merchant switched a PLATFORM plan off. Every merchant holding it is affected, and '
+            . 'the Flutter current-plan screen divides by max_products on a plan it can no longer '
+            . 'resolve.'
+        );
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function test_a_merchant_cannot_enable_a_plan_the_operator_disabled(): void
+    {
+        [$merchant] = $this->makeTenant();
+
+        // The other direction, and it needs its own case: `is_disable = 1` skips the handler's
+        // subscriber guard entirely, so this path reaches `update()` for ANY plan, subscribed or
+        // not.
+        $plan = $this->withdrawnPlan();
+
+        $this->assertSame(0, $this->storedDisableFlag($plan->id),
+            'PREMISE: the plan is not in the withdrawn state this case starts from.');
+
+        $response = $this->actingAs($merchant)
+            ->post(route('plan.disable'), ['id' => $plan->id, 'is_disable' => 1]);
+
+        $this->assertSame(
+            0,
+            (int) DB::table('plans')->where('id', $plan->id)->value('is_disable'),
+            'A merchant switched a plan the platform operator had withdrawn back ON, making it '
+            . 'purchasable again.'
+        );
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function test_the_platform_operator_can_still_disable_a_plan(): void
+    {
+        $admin = $this->makePlatformAdmin();
+        $plan = $this->makePlan();
+
+        $this->assertSame(1, $this->storedDisableFlag($plan->id),
+            'PREMISE: the plan is not in the ON state this case starts from.');
+
+        $response = $this->actingAs($admin)
+            ->post(route('plan.disable'), ['id' => $plan->id, 'is_disable' => 0]);
+
+        $this->assertSame(
+            0,
+            (int) DB::table('plans')->where('id', $plan->id)->value('is_disable'),
+            'The platform operator can no longer switch a plan off, which is a regression in the '
+            . 'screen this control belongs to.'
+        );
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    /**
+     * THE CONTROL AND THE AFFORDANCE MUST AGREE, which is the argument the gate was chosen on.
+     *
+     * If the toggle were ever rendered for a merchant, `PlatformOperatorOnly` would make it a
+     * button that always fails -- so this asserts the view's own condition rather than trusting
+     * the sentence in the docblock above. Blade comments are stripped, because this file's own
+     * docblock quotes the condition it is looking for.
+     */
+    /**
+     * THE TWO CASES ABOVE PIN THE PAIR, NOT EITHER LAYER, and an independent review said so before
+     * this assertion existed: remove the route middleware and the handler still answers 403;
+     * remove the handler check and the middleware still aborts 403. Both database readbacks pass
+     * either way, so neither case can tell which layer is carrying the refusal. A mutation run
+     * found the same thing and reported both single-layer mutations as survivors.
+     *
+     * This is the idiom the same file already uses for the plan-coupon gate below
+     * (`test_apply_coupon_is_exempt_from_the_platform_operator_gate`): ask the ROUTER what the
+     * route carries, so dropping the middleware is red even while the handler keeps refusing.
+     */
+    public function test_the_plan_disable_route_carries_the_platform_operator_gate(): void
+    {
+        $middleware = app('router')->getRoutes()->getByName('plan.disable')->gatherMiddleware();
+
+        $this->assertContains(
+            \App\Http\Middleware\PlatformOperatorOnly::class,
+            $middleware,
+            'plan.disable has LOST the platform-operator gate. The in-handler check still refuses, '
+            . 'so the two cases above stay green -- which is exactly why this assertion exists.'
+        );
+
+        $this->assertContains('auth', $middleware,
+            'plan.disable must still require authentication.');
+    }
+
+    public function test_the_plan_disable_toggle_is_rendered_only_for_the_platform_operator(): void
+    {
+        $view = (string) preg_replace(
+            '/\{\{--.*?--\}\}/s',
+            '',
+            (string) file_get_contents(base_path('resources/views/plans/index.blade.php'))
+        );
+
+        /*
+         * ONE SWITCH, AND THE CONDITION MUST ENCLOSE IT -- both strengthened after an independent
+         * review named two mutations the first version survived. It took `strpos` (the FIRST
+         * occurrence) and the nearest preceding `@if`, which establishes PROXIMITY, not enclosure:
+         * a second unconditional copy later in the file was never looked at, and moving the switch
+         * BELOW the `@endif` left the same `@if` as the nearest one above it. The jQuery delegate
+         * binds on the `is_disable` class, so a second copy would be live.
+         */
+        /*
+         * THE CONTROL, NOT THE WORD. `is_disable` itself appears SIX times -- the input's class
+         * and its `checked` read, then four more in the jQuery handler and its payload -- which is
+         * what the first version of this premise got wrong. What must be unique is the INPUT, and
+         * the class attribute is both unique to it and the thing the delegate at :341 binds on, so
+         * a copy-pasted second switch carries it verbatim.
+         */
+        $control = 'class="form-check-input input-primary is_disable"';
+        $occurrences = substr_count($view, $control);
+
+        $this->assertSame(1, $occurrences, sprintf(
+            'PREMISE: the enable/disable input appears %d times in plans/index.blade.php, not '
+            . 'once. The jQuery delegate binds on that class, so a second copy is a second LIVE '
+            . 'control, and the enclosure check below only ever judged the first.',
+            $occurrences
+        ));
+
+        $at = strpos($view, $control);
+
+        $this->assertNotFalse($at,
+            'PREMISE: resources/views/plans/index.blade.php no longer contains the is_disable '
+            . 'switch this test keys on. Re-point it rather than deleting it.');
+
+        $before = substr($view, 0, $at);
+        $lastCondition = strrpos($before, '@if');
+
+        $this->assertNotFalse($lastCondition, 'The switch is not inside any @if at all.');
+
+        $enclosing = substr($before, $lastCondition);
+
+        $this->assertStringNotContainsString('@endif', $enclosing,
+            'An @endif sits between the nearest @if and the switch, so the switch is OUTSIDE that '
+            . 'condition and is rendered unconditionally. Proximity is not enclosure.');
+
+        $this->assertStringContainsString(
+            "type == 'super admin'",
+            $enclosing,
+            'The plan enable/disable switch is no longer rendered only for the platform operator. '
+            . 'Either widen the route gate deliberately or keep the two in step -- a control the '
+            . 'route refuses is a button that always fails.'
+        );
+    }
+
     public function test_a_merchant_without_manage_module_cannot_disable_a_module_platform_wide(): void
     {
         $this->seedEnabledAddon();

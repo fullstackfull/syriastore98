@@ -7798,3 +7798,109 @@ store mismatch at the customer-session boundary should do), and nothing about th
 residual part A narrowed rather than closed — see
 `database/migrations/_sec13_pending/README.md`, whose closing section records why that residual
 cannot currently be driven by a Feature test at all.
+
+---
+
+## P1-SEC-91 — `POST /plan-disable` wrote a platform table for any authenticated visitor, and the admin app's current-plan screen divided by a zero limit — **BOTH FIXED ON THE BRANCH 2026-11-24**
+
+Found by an adversarial verifier that was handed a Phase 06 subscriptions inventory and told to
+refute it. Neither finding is a Phase 06 requirement: both are defects in code that is already
+shipped, so both are fixed here rather than waiting for the phase.
+
+### a. The route carried no authorization at all
+
+**MEASURED FROM THE ROUTER, not from the route file**, before anything was changed:
+
+```
+POST /plan-disable -> PlanController@planDisable
+  middleware: web, Illuminate\Auth\Middleware\Authenticate, App\Http\Middleware\XSS,
+              App\Http\Middleware\SetLocate, App\Http\Middleware\EmailIsVerified
+```
+
+No permission, no operator check, no ownership check. The handler then does
+
+```php
+Plan::where('id', $request->id)->update(['is_disable' => $request->is_disable]);
+```
+
+straight from the request body, and `plans` is a **platform** table — not tenant-scoped, not
+allowlisted in `config/tenancy.php`. Registration is open and the only other requirement is a
+verified e-mail, so that was every authenticated visitor: one request withdrew a plan from sale for
+every merchant holding it, or put back on sale one the operator had withdrawn.
+
+**`PlatformOperatorOnly` and not a permission.** The gate was decided from the application's own UI,
+exactly as the `order.approve` / `plan.order.refund` gates were under P1-SEC-6x: the switch is
+rendered only inside `@if (\Auth::user()->type == 'super admin' && $plan->price > 0)`
+(`resources/views/plans/index.blade.php:77`). `Edit Plan` — which `PlanController::update` uses —
+would have been the wrong control, because it is a MERCHANT permission a tenant can grant itself on
+its own roles screen.
+
+Two layers, as the SEC-F2 pattern requires: the middleware on the route, and a second check at the
+top of the handler against `UserPolicy::PLATFORM_ADMIN`. **Each was measured to be sufficient on its
+own** — removing either one still refuses — and removing BOTH was measured too, which is what makes
+the pair evidence rather than decoration.
+
+**THE HANDLER'S EXISTING GUARD IS NOT AN AUTHORIZATION CHECK, and reading it as one is how this
+survived.** `if ($userPlan != null && $request->id != 1 && $request->is_disable == 0)` answers HTTP
+200 with a JSON error. It protects a plan somebody is paying for; it never looked at who was asking,
+and a request for a plan with no subscriber walked straight past it into the `update()`. The
+regression tests therefore drive a plan **nobody is subscribed to**, so that they measure the gate
+and not that guard.
+
+### b. A zero plan limit was a 500 on the shipped admin app
+
+`Api\DashboardController::indexAllPlan` (`GET api/admin/indexAllPlan`, the current-plan screen)
+computed `'percentage' => $maxProducts == -1 ? 0 : round(($usedProducts / $maxProducts) * 100, 2)`
+for products, stores and users. `-1` means unlimited and was handled; **`0` was not, and `0` is the
+shipped column default** (`plans.max_products`, `max_stores`, `max_users` are each `->default(0)`).
+
+It is a 500 and not a handled failure: the handler's body is wrapped in `catch (\Exception $e)`, and
+`DivisionByZeroError` extends `ArithmeticError` extends `Error`. Measured before the fix — HTTP 500,
+`{"message":"Division by zero","exception":"DivisionByZeroError"}`.
+
+All three now read `> 0 ? … : 0`, which is the answer the same expression already gave for an
+unlimited plan; `max` and `used` sit beside it and state the real position.
+
+**ONE HALF OF THE REPORT WAS REFUTED AND IS RECORDED AS SUCH.** The verifier claimed this composes
+with (a) — switch `is_disable` off, `$currentPlan` becomes null, `$maxProducts` falls to the `: 0`
+fallback and every merchant on the plan gets a 500. Reading the ten lines between the two facts
+refutes it: the divisions are inside `if ($currentPlan) {`, so they are unreachable when the plan
+does not resolve — `$planData` simply stays null, and the `: 0` fallbacks feed only subtractions.
+The trigger needs no second defect and no attacker: it is what an operator gets by leaving the
+products field blank.
+
+### Evidence
+
+- `tests/Feature/Security/SubscriptionAuthorizationTest` — four new cases (a merchant cannot disable
+  a plan; cannot re-enable a withdrawn one; the operator still can; the switch is rendered only for
+  the operator). **Failing first was not constructed:** before the gate, the two merchant cases
+  failed on the database readback, which is asserted before the status code so a regression reports
+  what was actually changed.
+- `tests/Feature/Security/AdminApiCurrentPlanZeroLimitTest` — one case, 10 assertions, with premises
+  that the column really defaults to 0 and that `is_disable` really defaults to 1 (the handler
+  builds the block only for `is_disable = 1`, so a fixture that missed that would never reach the
+  division).
+- Mutations: the division guards 4 of 4 caught; the gate 3 of 6 caught **and the three survivors are
+  the point** — two of them remove one layer each and the remaining layer still refuses, which is
+  what defence in depth means, and the third is the same single-file mutation as the first because
+  the harness applies one at a time.
+- **A fixture trap found on the way, worth more than the case it broke:** `plans.is_disable` is NOT
+  in `Plan::$fillable`, so `Plan::create(['is_disable' => 0])` silently drops the value and the
+  migration default of 1 applies. One case arranged `0`, was given `1`, and failed its own assertion
+  against a fixture that had never been in the state under test. Both directions now go through
+  named helpers with explicit premise assertions.
+- Route censuses re-run: `OwnedResourceMethodsAreGuardedTest`, `PlanOrderRailTest`,
+  `StateChangingGetInventoryTest`, `PlanPaymentVerificationInventoryTest`,
+  `PlanOrderApprovalLocaleTest`, `AnalyticsRouteAuthorizationCensusTest` — 75 passed. None needed the
+  new middleware declared.
+
+### What this does NOT cover
+
+The same verifier raised a **separate** finding on a plan-purchase gateway rail. That is payment
+security and is handled under the confidential PAY-SEC process, with the owner, rather than
+described here: this file is public and the finding is not yet remediated. Nothing in P1-SEC-91
+touches it, and fixing P1-SEC-91 neither closes nor widens it.
+
+Nothing is deployed. The ~40 blocking owner questions the Phase 06 inventory raised — lapse policy,
+recurring billing, per-plan limit scope, downgrade semantics, plan-coupon redemption scope — are
+product decisions and remain the owner's; none is answered here.
