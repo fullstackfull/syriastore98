@@ -61,18 +61,48 @@ if (! $storeId || ! $theme || ! $dir || ! $lang || ! $email) {
  *
  * @return string what actually happened, for the summary
  */
-$write = function (string $name, string $value) use ($storeId): string {
-    $row = Setting::where('name', $name)->where('store_id', $storeId)->first();
+$write = function (string $name, string $value, User $principal) use ($storeId): string {
+    /*
+     * THE ROW HAS TO BE OWNED BY THE PRINCIPAL WHOSE CHROME IS BEING SET, and for the platform
+     * operator that is NOT the merchant's row. Measured 2026-11-24, after a capture run produced
+     * four byte-identical light/dark pairs for `/platform/analytics`:
+     *
+     *   layouts/app.blade.php:2-7  takes `getAdminAllSetting()` for type `admin` and
+     *                              `getSuperAdminAllSetting()` for everyone else.
+     *   helper.php:753             getSuperAdminAllSetting() reads
+     *                              `Setting::where('created_by', $operator->id)
+     *                                      ->where('store_id', $operator->current_store)`
+     *                              and the operator's `current_store` is NULL, which Laravel
+     *                              compiles to `store_id is null` (confirmed with ->toSql()).
+     *
+     * So a row written as (store_id = 1, created_by = <first admin>) is invisible to the
+     * operator's layout, and every "dark" operator capture silently rendered LIGHT -- the exact
+     * failure the note further down this file records happening once before, for a different
+     * reason. Writing the row the principal can actually read is what fixes it, and it was proved
+     * by inserting that row by hand first: both operator screens then reported
+     * `data-ss-theme=dark`, `source=host`, `bg=rgb(34,36,44)`.
+     *
+     * A MERCHANT'S BEHAVIOUR IS UNCHANGED, deliberately: the old `created_by` was "the first
+     * type-`admin` user", which for the merchant principal is that merchant, and `$storeId` is
+     * still the caller's argument. Every existing harness passes a merchant e-mail.
+     */
+    $isOperator = \App\Policies\UserPolicy::isOperator($principal);
+    $owner = $isOperator ? $principal->id : (\App\Models\User::where('type', 'admin')->value('id') ?? 1);
+    $store = $isOperator ? $principal->current_store : $storeId;
+
+    $query = Setting::where('name', $name)->where('created_by', $owner);
+    $store === null ? $query->whereNull('store_id') : $query->where('store_id', $store);
+    $row = $query->first();
 
     if (! $row) {
         Setting::create([
             'name' => $name,
             'value' => $value,
-            'store_id' => $storeId,
-            'created_by' => \App\Models\User::where('type', 'admin')->value('id') ?? 1,
+            'store_id' => $store,
+            'created_by' => $owner,
         ]);
 
-        return "{$name}={$value} (row created)";
+        return "{$name}={$value} (row created for created_by={$owner} store_id=" . var_export($store, true) . ')';
     }
 
     $row->value = $value;
@@ -81,16 +111,16 @@ $write = function (string $name, string $value) use ($storeId): string {
     return "{$name}={$value}";
 };
 
-$written = [];
-$written[] = $write('cust_darklayout', $theme === 'dark' ? 'on' : 'off');
-$written[] = $write('SITE_RTL', $dir === 'rtl' ? 'on' : 'off');
-
 $user = User::where('email', $email)->first();
 
 if (! $user) {
     fwrite(STDERR, "error: no user {$email}\n");
     exit(3);
 }
+
+$written = [];
+$written[] = $write('cust_darklayout', $theme === 'dark' ? 'on' : 'off', $user);
+$written[] = $write('SITE_RTL', $dir === 'rtl' ? 'on' : 'off', $user);
 
 $user->language = $lang;
 $user->save();
@@ -102,4 +132,5 @@ Cache::flush();
 /* THE SUMMARY REPORTS WHAT WAS WRITTEN, not what was asked for. The previous version echoed
    the ARGUMENTS, so it said `cust_darklayout=on` on a run that had written nothing at all. */
 echo "store={$storeId} " . implode(' ', $written)
-   . " users.language={$lang} ({$email})\n";
+   . " users.language={$lang} ({$email}, type={$user->type}, current_store="
+   . var_export($user->current_store, true) . ")\n";
