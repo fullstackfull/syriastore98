@@ -75,7 +75,13 @@ class Cart extends Model
         return $this->hasOne(ProductVariant::class, 'id', 'variant_id');
     }
 
-    public static function addtocart_cookie($product_id = 0, $variant_id = 0, $qty = 0, $store_id,$chart_data = '')
+    /**
+     * THE DEFAULTS ARE GONE FROM THE FIRST THREE because `$store_id` never had one: PHP already
+     * treated all four as required, and warned that it was doing so. Arity-identical, and NOT
+     * silenced the other way (`$store_id = 0`) because a cart row with `store_id` 0 belongs to no
+     * tenant. `NoOptionalBeforeRequiredParameterTest` holds the measurement and the rule.
+     */
+    public static function addtocart_cookie($product_id, $variant_id, $qty, $store_id, $chart_data = '')
     {      
         $settings = Utility::Setting($store_id);
         $final_price = 0;
@@ -988,7 +994,13 @@ class Cart extends Model
         return $this->hasOne(Customer::class, 'id', 'customer_id');
     }
 
-    public static function getProductTaxAmount($taxId = null, $sub_total, $storeId, $city_id, $state_id, $country, $flag)
+    /**
+     * `$taxId` LOST ITS DEFAULT, NOT ITS MEANING. The six parameters after it never had one, so PHP
+     * already required all seven; measured required=7 total=7 before and after, and the eight-
+     * argument callers GAP-211 records still have their last argument dropped exactly as before.
+     * `NoOptionalBeforeRequiredParameterTest` holds the measurement and the rule.
+     */
+    public static function getProductTaxAmount($taxId, $sub_total, $storeId, $city_id, $state_id, $country, $flag)
     {
         $tax_price = 0;
 
